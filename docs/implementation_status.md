@@ -25,12 +25,12 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35539581256` at `fa79566`
+**Last known repair checkpoint:** public CI run `35540890122` at `b76d88d`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
-package, kernel target build, and the pthread naming ABI repair. The next real
-user-init compile exposed that MozJS's allocator bridge did not include the
-Nagi relibc `malloc.h` declaration for `malloc_usable_size`; the current
-repair adds a target-only pinned MozJS patch for that real guest ABI.
+package, kernel target build, pthread naming ABI repair, and the Nagi relibc
+malloc header repair. The next real user-init compile exposed MozJS's
+non-standard relative condition-variable API selection; the current repair
+selects the existing standard Nagi `CLOCK_REALTIME` timed-wait ABI.
 Target link/UEFI/QEMU first-web-pixel evidence remains outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
@@ -914,6 +914,14 @@ Verification checkpoint on 2026-09-20:
   Ordered MozJS patch `0009` makes the pinned Nagi relibc declaration visible
   only under `__NAGI__`; it does not add a host allocator or replace real
   allocator accounting. UEFI and first-web-pixel acceptance remain unexecuted.
+
+- Public snapshot CI run #24 (`35540890122`, head `b76d88d`) verified the
+  `malloc_usable_size` header repair and reached the next MozJS synchronization
+  boundary. The pinned `ConditionVariable_posix.cpp` selected the
+  macOS/Android-only `pthread_cond_timedwait_relative_np`, which Nagi does not
+  expose. The next ordered MozJS patch selects the existing standard absolute
+  timed-wait path with the real Nagi `CLOCK_REALTIME` condition-variable ABI.
+  UEFI and first-web-pixel acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

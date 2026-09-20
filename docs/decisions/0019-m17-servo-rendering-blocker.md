@@ -563,6 +563,19 @@ ABI to MozJS without consulting a host allocator, disabling accounting, or
 changing the first-web-pixel acceptance. The next target build must verify the
 patch and continue toward the UEFI and real QEMU gate.
 
+## Remediation continuation (2026-09-21, condition-variable clock boundary)
+
+Public snapshot CI run `35540890122` (head `b76d88d`) verified the allocator
+header repair and reached MozJS's `ConditionVariable_posix.cpp`. Its target
+configuration selected the macOS/Android-only
+`pthread_cond_timedwait_relative_np`, which is not part of Nagi's guest ABI.
+
+The next ordered MozJS patch selects the existing absolute timed-wait path for
+Nagi and uses `CLOCK_REALTIME`, which is supported by the real Nagi relibc
+condition-variable and clock interfaces. It does not add a host pthread API or
+replace synchronization with a stub. The next target build must verify this
+boundary and continue toward UEFI and the real QEMU gate.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

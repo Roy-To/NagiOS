@@ -1,0 +1,25 @@
+diff --git a/mozjs/mozglue/misc/ConditionVariable_posix.cpp b/mozjs/mozglue/misc/ConditionVariable_posix.cpp
+--- a/mozjs/mozglue/misc/ConditionVariable_posix.cpp
++++ b/mozjs/mozglue/misc/ConditionVariable_posix.cpp
+@@ -18,13 +18,20 @@
+ static const long NanoSecPerSec = 1000000000;
+ 
+ // macOS has the clock functions, but not pthread_condattr_setclock.
+-#if defined(HAVE_CLOCK_MONOTONIC) && !defined(__APPLE__)
++#if (defined(HAVE_CLOCK_MONOTONIC) && !defined(__APPLE__)) || defined(__NAGI__)
+ #  define CV_USE_CLOCK_API
+ #endif
+ 
+ #ifdef CV_USE_CLOCK_API
+ // The C++ specification defines std::condition_variable::wait_for in terms of
+ // std::chrono::steady_clock, which is closest to CLOCK_MONOTONIC.
++#  if defined(__NAGI__)
++// Nagi's real relibc condition-variable ABI supports the standard absolute
++// timed-wait path with CLOCK_REALTIME. It does not provide the non-standard
++// relative *_np API used by macOS and Android.
++static const clockid_t WhichClock = CLOCK_REALTIME;
++#  else
+ static const clockid_t WhichClock = CLOCK_MONOTONIC;
++#  endif
+ 
+ // While timevaladd is widely available to work with timevals, the newer

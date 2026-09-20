@@ -40,6 +40,12 @@ implicitly include the non-POSIX `malloc.h` header, so the target-only patch
 includes that pinned relibc header under `__NAGI__`; it does not add a host
 allocator or replace allocator accounting.
 
+Patch `0010` selects MozJS's existing absolute condition-variable timeout path
+for Nagi and uses the real relibc `CLOCK_REALTIME` clock. Nagi already provides
+`pthread_cond_timedwait`, `pthread_condattr_setclock`, and `clock_gettime`; it
+does not need the macOS/Android-only `pthread_cond_timedwait_relative_np`
+extension. This keeps Servo/MozJS synchronization on the guest pthread ABI.
+
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the
 source fingerprint is recorded.

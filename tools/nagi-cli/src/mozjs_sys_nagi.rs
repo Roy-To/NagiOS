@@ -99,6 +99,15 @@ mod tests {
             .expect("mozjs Nagi malloc header patch");
         assert!(malloc_patch.contains("defined(__NAGI__)") && malloc_patch.contains("<malloc.h>"));
 
+        let condition_variable_patch = std::fs::read_to_string(root.join(
+            "third_party/mozjs-sys-nagi-patches/0010-nagi-condition-variable-clock-api.patch",
+        ))
+        .expect("mozjs Nagi condition-variable patch");
+        assert!(
+            condition_variable_patch.contains("defined(__NAGI__)")
+                && condition_variable_patch.contains("CLOCK_REALTIME")
+        );
+
         let stdlib_cbindgen = std::fs::read_to_string(
             root.join("third_party/relibc/src/header/stdlib/cbindgen.toml"),
         )
