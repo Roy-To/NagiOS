@@ -1,0 +1,17 @@
+diff --git a/mozjs/memory/mozalloc/mozalloc.cpp b/mozjs/memory/mozalloc/mozalloc.cpp
+--- a/mozjs/memory/mozalloc/mozalloc.cpp
++++ b/mozjs/memory/mozalloc/mozalloc.cpp
+@@ -16,6 +16,13 @@
+ #  if defined(XP_UNIX)
+ #    include <unistd.h>
+ #  endif  // if defined(XP_UNIX)
++#  if defined(__NAGI__)
++// Nagi exposes malloc_usable_size through its guest-owned malloc.h ABI.  The
++// freestanding target does not make that non-POSIX declaration visible from
++// stdlib.h, so include the Nagi header explicitly instead of relying on a host
++// allocator header.
++#    include <malloc.h>
++#  endif  // if defined(__NAGI__)
+ 
+ #  define malloc_impl malloc
+ #  define calloc_impl calloc

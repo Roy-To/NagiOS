@@ -550,6 +550,19 @@ lets cbindgen expose them to MozJS. It does not call host thread APIs or
 return synthetic success. The next target run must verify the generated C
 header and MozJS build, then continue to UEFI and the real QEMU pixel gate.
 
+## Remediation continuation (2026-09-21, MozJS allocator header boundary)
+
+Public snapshot CI run `35539581256` (head `fa79566`) verified the pthread
+naming ABI and reached the pinned MozJS allocator compile. It then stopped in
+`mozalloc.cpp:126` because the Nagi freestanding `stdlib.h` does not implicitly
+declare the non-POSIX `malloc_usable_size` function from `malloc.h`.
+
+The ordered MozJS patch `0009` includes the pinned Nagi relibc `malloc.h` only
+under `__NAGI__`. This exposes the existing real guest allocator introspection
+ABI to MozJS without consulting a host allocator, disabling accounting, or
+changing the first-web-pixel acceptance. The next target build must verify the
+patch and continue toward the UEFI and real QEMU gate.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

@@ -25,11 +25,12 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35538673589` at `9da3875`
-confirmed that the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
-package, and kernel target build all passed. The next real user-init compile
-exposed missing guest `pthread_setname_np` / `pthread_getname_np` declarations;
-the current repair adds bounded atomic name storage and the Nagi relibc APIs.
+**Last known repair checkpoint:** public CI run `35539581256` at `fa79566`
+confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
+package, kernel target build, and the pthread naming ABI repair. The next real
+user-init compile exposed that MozJS's allocator bridge did not include the
+Nagi relibc `malloc.h` declaration for `malloc_usable_size`; the current
+repair adds a target-only pinned MozJS patch for that real guest ABI.
 Target link/UEFI/QEMU first-web-pixel evidence remains outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
@@ -905,6 +906,14 @@ Verification checkpoint on 2026-09-20:
   bounded 16-byte thread name in the guest relibc Pthread object using atomic
   bytes and exports the real APIs through cbindgen. UEFI and first-web-pixel
   acceptance remain unexecuted.
+
+- Public snapshot CI run #23 (`35539581256`, head `fa79566`) verified the
+  pthread naming ABI and again passed the target kernel boundary, then stopped
+  in MozJS's allocator compile because `mozalloc.cpp` referenced
+  `malloc_usable_size` without including Nagi's non-POSIX `malloc.h` header.
+  Ordered MozJS patch `0009` makes the pinned Nagi relibc declaration visible
+  only under `__NAGI__`; it does not add a host allocator or replace real
+  allocator accounting. UEFI and first-web-pixel acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

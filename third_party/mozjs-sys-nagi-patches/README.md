@@ -34,6 +34,12 @@ localization after the Nagi-owned relibc backend supplies the C/POSIX numeric
 `strto*_l` ABI declared by the generated target headers. The final build keeps
 libc++'s normal numeric facets without importing host locale state.
 
+Patch `0009` makes the Nagi target's real `malloc_usable_size` declaration
+visible to MozJS's allocator bridge. The freestanding Nagi `stdlib.h` does not
+implicitly include the non-POSIX `malloc.h` header, so the target-only patch
+includes that pinned relibc header under `__NAGI__`; it does not add a host
+allocator or replace allocator accounting.
+
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the
 source fingerprint is recorded.

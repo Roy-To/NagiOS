@@ -92,6 +92,13 @@ mod tests {
         .expect("mozjs libc++ locale compatibility patch");
         assert!(locale_compat_patch.contains("-U_LIBCPP_HAS_NO_LOCALIZATION"));
 
+        let malloc_patch =
+            std::fs::read_to_string(root.join(
+                "third_party/mozjs-sys-nagi-patches/0009-nagi-malloc-usable-size-header.patch",
+            ))
+            .expect("mozjs Nagi malloc header patch");
+        assert!(malloc_patch.contains("defined(__NAGI__)") && malloc_patch.contains("<malloc.h>"));
+
         let stdlib_cbindgen = std::fs::read_to_string(
             root.join("third_party/relibc/src/header/stdlib/cbindgen.toml"),
         )
