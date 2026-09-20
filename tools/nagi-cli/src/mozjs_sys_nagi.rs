@@ -79,5 +79,11 @@ mod tests {
         )
         .expect("mozjs libc++ rune table patch");
         assert!(rune_patch.contains("_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1"));
+
+        let localization_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0007-nagi-libcxx-no-localization.patch"),
+        )
+        .expect("mozjs libc++ localization patch");
+        assert!(localization_patch.contains("_LIBCPP_HAS_NO_LOCALIZATION=1"));
     }
 }

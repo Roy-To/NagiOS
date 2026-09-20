@@ -489,6 +489,19 @@ MozJS without host locale state or synthetic rendering behavior. The target
 build must be rerun; UEFI and real QEMU first-web-pixel acceptance remain
 open.
 
+## Remediation continuation (2026-09-20, libc++ localization boundary)
+
+Public snapshot CI run `35533256072` (head `b1d9ff5`) passed the portable
+rune-table selection and reached libc++'s optional localization layer. The
+next real target compile failure was the absence of Nagi `_l` locale functions
+such as `strtoll_l` and `strtod_l`. Nagi must not import a host locale
+database for this boundary; MozJS already has its pinned ICU implementation
+for Unicode/locale behavior. The ordered `0007-nagi-libcxx-no-localization.patch`
+therefore selects libc++'s supported no-localization configuration for Nagi.
+It does not replace ICU, add host locale state, or fake rendering. The target
+build must be rerun; UEFI and real QEMU first-web-pixel acceptance remain
+open.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

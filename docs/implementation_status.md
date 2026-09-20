@@ -861,6 +861,16 @@ Verification checkpoint on 2026-09-20:
   the required header-level ctype masks without importing host locale state.
   UEFI and first-web-pixel acceptance remain unexecuted.
 
+- Public snapshot CI run #19 (`35533256072`, head `b1d9ff5`) confirmed that
+  the portable rune-table selection moved MozJS past libc++'s platform ctype
+  boundary. The next target compile failure was the absence of Nagi `_l`
+  locale functions (`strtoll_l`, `strtod_l`, and related APIs) required by
+  libc++'s optional localization layer. MozJS already builds its pinned ICU
+  path, while Nagi does not provide a host locale database or those optional
+  C APIs. The ordered `0007` adapter patch therefore disables libc++
+  localization for Nagi; it does not replace ICU, add host locale state, or
+  fake rendering. UEFI and first-web-pixel acceptance remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

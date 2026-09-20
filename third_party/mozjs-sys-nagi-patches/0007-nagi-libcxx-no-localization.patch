@@ -1,0 +1,14 @@
+diff --git a/build.rs b/build.rs
+index a4e0f6a..b12c8d0 100644
+--- a/build.rs
++++ b/build.rs
+@@ -272,5 +272,9 @@ fn build_spidermonkey(build_dir: &Path) {
+         // needed by MozJS without importing a host locale implementation.
+         cxxflags.push(String::from("-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1"));
++        // MozJS uses its pinned ICU build for Unicode/locale behavior. Nagi's
++        // libc++ boundary does not provide the optional C locale `_l` APIs,
++        // so keep libc++ from binding to that absent provider.
++        cxxflags.push(String::from("-D_LIBCPP_HAS_NO_LOCALIZATION=1"));
+     }
+ 
+     if let Some(user_cxxflags) = get_cc_rs_env("CXXFLAGS").filter(|s| !s.is_empty()) {
