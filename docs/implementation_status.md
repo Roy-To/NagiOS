@@ -691,6 +691,16 @@ Verification checkpoint on 2026-09-20:
   `webdriver_server` package. The next public target run must verify the
   reduced graph and continue to UEFI and the real M17 pixel gate.
 
+- Public snapshot CI run #4 (`35521317614`, head `d1f8685`) verified Servo
+  bootstrap on Ubuntu, Windows, and the target job, then correctly stopped at
+  two locked-graph boundaries. The Ubuntu and Windows host jobs rejected the
+  feature-boundary change because `Cargo.lock` still retained the WebDriver
+  server graph; the target graph preflight independently rejected the same
+  stale lock. Cargo regenerated the lock from the patched Servo manifests,
+  removing `warp` and its server-only transitive packages while retaining the
+  protocol-only `webdriver` dependency. The next public run must verify the
+  updated lock, target build, UEFI loader, and real QEMU first-web-pixel gate.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

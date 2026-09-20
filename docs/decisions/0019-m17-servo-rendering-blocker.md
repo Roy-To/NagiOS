@@ -281,6 +281,22 @@ unused server runtime. This is a source-pinned feature-boundary repair, not a
 Warp stub or host rendering shortcut. The next public target run must verify
 the graph and continue to UEFI and the real first-web-pixel acceptance.
 
+## Remediation continuation (2026-09-20, locked graph follow-up)
+
+Public snapshot CI run `35521317614` verified the pinned Servo bootstrap on
+all three jobs, then stopped before compilation of the host and target
+workspaces because the committed `Cargo.lock` still described the old
+default-feature graph. Ubuntu and Windows reported that the lock file needed
+an update under `--locked`; the target dependency preflight rejected the same
+stale graph. Cargo regenerated the lock from the pinned Servo manifests after
+the feature-boundary patch, removing `warp`, its server-only transitive
+packages, and the `webdriver` server-only `tokio` edge. The regenerated lock
+passes locked offline metadata and the target dependency graph preflight
+without `warp` or `servo-webdriver-server`. No server API, host fallback, or
+rendering shortcut was added. The next public run must verify the lock in CI
+and continue through target build, UEFI, and real QEMU first-web-pixel
+acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
