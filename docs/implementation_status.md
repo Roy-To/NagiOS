@@ -727,6 +727,20 @@ Verification checkpoint on 2026-09-20:
   tracked. The next run must verify this backend, then continue to UEFI and
   real QEMU first-web-pixel acceptance.
 
+- Public snapshot CI run #7 (`35523783329`, head `41bdd83`) exposed a fresh
+  Public-repository bootstrap defect before the Servo target build: all three
+  jobs reached `nagi-bootstrap fetch`, but the hosted runners had no Cargo
+  registry source cache (`/home/runner/.cargo/registry/src` and the Windows
+  equivalent). The bootstrap implementation only searched that cache and
+  stopped before it could materialize the locked registry sources. This is an
+  internal reproducibility defect, not an external toolchain or M17 acceptance
+  failure. The registry bootstrap now invokes Cargo with a temporary manifest
+  containing the exact pinned `=version`, then continues through the existing
+  source checksum, ordered patch, and checkout-fingerprint validation. The
+  temporary manifest is outside the repository and is removed after fetch; no
+  latest dependency or host rendering fallback is introduced. The next run
+  must verify fresh-cache bootstrap before retrying the Nagi target build.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

@@ -202,12 +202,36 @@ fn find_registry_source(spec: &RegistrySourceSpec) -> Result<PathBuf, String> {
             spec.component, spec.source_hash
         )
     })?;
-    for index in fs::read_dir(&source_root).map_err(|error| {
-        format!(
-            "cannot read Cargo registry source cache {}: {error}",
-            source_root.display()
-        )
-    })? {
+    if let Some(source) = locate_registry_source(&source_root, spec, expected_hash)? {
+        return Ok(source);
+    }
+
+    fetch_registry_source(spec, &cargo_home)?;
+    if let Some(source) = locate_registry_source(&source_root, spec, expected_hash)? {
+        return Ok(source);
+    }
+    Err(format!(
+        "pinned {} {} source is absent from Cargo's registry cache after fetch",
+        spec.package, spec.version
+    ))
+}
+
+fn locate_registry_source(
+    source_root: &Path,
+    spec: &RegistrySourceSpec,
+    expected_hash: &str,
+) -> Result<Option<PathBuf>, String> {
+    let entries = match fs::read_dir(source_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "cannot read Cargo registry source cache {}: {error}",
+                source_root.display()
+            ));
+        }
+    };
+    for index in entries {
         let index = index
             .map_err(|error| format!("cannot inspect Cargo registry source cache: {error}"))?
             .path();
@@ -217,13 +241,13 @@ fn find_registry_source(spec: &RegistrySourceSpec) -> Result<PathBuf, String> {
         }
         let checksum = candidate.join(".cargo-checksum.json");
         match fs::read_to_string(&checksum) {
-            Ok(checksum) if checksum.contains(expected_hash) => return Ok(candidate),
+            Ok(checksum) if checksum.contains(expected_hash) => return Ok(Some(candidate)),
             Ok(_) => continue,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 if registry_source_manifest_matches(&candidate, spec)
                     && candidate.join(".cargo-ok").is_file()
                 {
-                    return Ok(candidate);
+                    return Ok(Some(candidate));
                 }
             }
             Err(error) => {
@@ -235,10 +259,101 @@ fn find_registry_source(spec: &RegistrySourceSpec) -> Result<PathBuf, String> {
             }
         }
     }
-    Err(format!(
-        "pinned {} {} source is absent from Cargo's registry cache; fetch the locked dependencies before bootstrapping",
+    Ok(None)
+}
+
+fn fetch_registry_source(spec: &RegistrySourceSpec, cargo_home: &Path) -> Result<(), String> {
+    let temporary = std::env::temp_dir().join(format!(
+        "nagi-registry-bootstrap-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| format!("cannot read clock for {} fetch: {error}", spec.component))?
+            .as_nanos()
+    ));
+    if temporary.exists() {
+        return Err(format!(
+            "refusing to reuse unexpected registry bootstrap directory {}",
+            temporary.display()
+        ));
+    }
+    fs::create_dir_all(&temporary).map_err(|error| {
+        format!(
+            "cannot create temporary {} registry bootstrap directory: {error}",
+            spec.component
+        )
+    })?;
+
+    let result = (|| {
+        let manifest = temporary.join("Cargo.toml");
+        fs::write(&manifest, registry_fetch_manifest(spec)).map_err(|error| {
+            format!(
+                "cannot write temporary {} registry manifest {}: {error}",
+                spec.component,
+                manifest.display()
+            )
+        })?;
+
+        run_cargo(
+            ["generate-lockfile", "--manifest-path"],
+            &manifest,
+            cargo_home,
+            spec,
+        )?;
+        run_cargo(
+            ["fetch", "--locked", "--manifest-path"],
+            &manifest,
+            cargo_home,
+            spec,
+        )
+    })();
+    let cleanup = fs::remove_dir_all(&temporary);
+    match (result, cleanup) {
+        (Err(error), _) => Err(error),
+        (Ok(()), Err(error)) => Err(format!(
+            "cannot remove temporary {} registry bootstrap directory {}: {error}",
+            spec.component,
+            temporary.display()
+        )),
+        (Ok(()), Ok(())) => Ok(()),
+    }
+}
+
+fn registry_fetch_manifest(spec: &RegistrySourceSpec) -> String {
+    format!(
+        "[package]\nname = \"nagi-registry-bootstrap\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\n{} = \"={}\"\n",
         spec.package, spec.version
-    ))
+    )
+}
+
+fn run_cargo<const N: usize>(
+    prefix: [&str; N],
+    manifest: &Path,
+    cargo_home: &Path,
+    spec: &RegistrySourceSpec,
+) -> Result<(), String> {
+    let mut command = Command::new("cargo");
+    command.args(prefix);
+    command.arg(manifest);
+    let output = command
+        .env("CARGO_HOME", cargo_home)
+        .current_dir(manifest.parent().unwrap_or_else(|| Path::new(".")))
+        .output()
+        .map_err(|error| {
+            format!(
+                "cannot run Cargo for {} source fetch: {error}",
+                spec.component
+            )
+        })?;
+    if !output.status.success() {
+        return Err(format!(
+            "Cargo {} failed for {}: {}",
+            prefix.join(" "),
+            spec.component,
+            command_output(&output)
+        ));
+    }
+    Ok(())
 }
 
 fn registry_source_manifest_matches(candidate: &Path, spec: &RegistrySourceSpec) -> bool {
@@ -548,5 +663,30 @@ impl Fnv1a {
 
     fn finish(self) -> String {
         format!("fnv1a64:{:016x}", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{registry_fetch_manifest, RegistrySourceSpec};
+
+    const SPEC: RegistrySourceSpec = RegistrySourceSpec {
+        section: "sources.example",
+        component: "example",
+        package: "example-package",
+        version: "1.2.3",
+        repository: "https://crates.io/crates/example-package/1.2.3",
+        registry_archive: "https://crates.io/api/v1/crates/example-package/1.2.3/download",
+        source_hash: "sha256:example",
+        license: "MIT",
+        vendored_path: "third_party/example-package",
+        patch_path: "third_party/example-package-patches",
+    };
+
+    #[test]
+    fn registry_fetch_manifest_pins_the_requested_package_version() {
+        let manifest = registry_fetch_manifest(&SPEC);
+        assert!(manifest.contains("example-package = \"=1.2.3\""));
+        assert!(!manifest.contains("example-package = \"1.2.3\""));
     }
 }

@@ -336,6 +336,24 @@ and target CI rejects `rustix` in the Nagi dependency graph before compilation.
 The next public run must verify the backend, target build, UEFI, and real QEMU
 first-web-pixel acceptance.
 
+## Remediation continuation (2026-09-20, fresh-cache registry bootstrap)
+
+Public snapshot CI run `35523783329` failed in the bootstrap step on all three
+jobs before reaching the Servo target build. The fresh Public repository did
+not have a Cargo registry source cache, and `nagi-bootstrap` treated the cache
+as a prerequisite instead of fetching the exact source named by
+`third_party/sources.lock`. The concrete errors were `cannot read Cargo
+registry source cache .../registry/src: ... No such file or directory` on both
+Ubuntu and Windows.
+
+The registry bootstrap now creates a repository-external temporary Cargo
+manifest with the exact `=version` from the source specification and asks
+Cargo to fetch it into the configured Cargo home. It then uses the existing
+checksum, ordered patch, source lock, and checkout fingerprint checks before
+installing the generated checkout. This repairs fresh CI initialization while
+preserving the pinned source boundary; it does not substitute an unpinned
+latest dependency or a host rendering path.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
