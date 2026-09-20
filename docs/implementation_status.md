@@ -678,6 +678,18 @@ Verification checkpoint on 2026-09-20:
   `steps=0`. The repository remains clean with the hyper-util patch applied;
   target verification is pending runner recovery, not a newly observed code
   error.
+- Public snapshot CI run #3 (`35520298442`, head `95fcc59`) verified the
+  executable-mode repair, Servo bootstrap, Mesa Softpipe archive, M16
+  package, kernel, Ubuntu host, and Windows launcher. The target user-init
+  compile then exposed a real Servo dependency-feature boundary: Servo's
+  workspace enabled the `webdriver` crate's `server` default feature for the
+  embedded `script` dependency, which pulled `warp` and its Unix listener
+  implementation into Nagi. Nagi intentionally has `target_family = "unix"`
+  without Unix-domain sockets, so this is not a reason to add unsupported
+  Tokio APIs. The tracked Servo patch boundary now disables WebDriver default
+  features and enables `server` only in Servo's standalone
+  `webdriver_server` package. The next public target run must verify the
+  reduced graph and continue to UEFI and the real M17 pixel gate.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

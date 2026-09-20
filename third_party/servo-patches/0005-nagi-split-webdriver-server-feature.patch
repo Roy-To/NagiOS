@@ -1,0 +1,17 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -277,6 +277,6 @@ vello = "0.10"
+ vello_cpu = { version = "0.2.0", features = ["multithreading"] }
+ warp = "0.4.2"
+ web_atoms = "0.3.0"
+-webdriver = { version = "0.54.0" }
++webdriver = { version = "0.54.0", default-features = false }
+ webpki-roots = "1.0"
+ webrender = { version = "0.70", features = ["serde"] }
+diff --git a/components/webdriver_server/Cargo.toml b/components/webdriver_server/Cargo.toml
+--- a/components/webdriver_server/Cargo.toml
++++ b/components/webdriver_server/Cargo.toml
+@@ -36 +36 @@
+-webdriver = { workspace = true }
++webdriver = { workspace = true, features = ["server"] }

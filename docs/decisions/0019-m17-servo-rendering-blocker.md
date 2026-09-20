@@ -262,6 +262,25 @@ spec independently confirms that Nagi has both `target_family = "unix"` and
 tracked hyper-util patch. No target compile result is claimed until Actions
 executes a normal job.
 
+## Remediation continuation (2026-09-20, WebDriver feature boundary)
+
+Public snapshot CI run `35520298442` verified the executable-mode repair,
+Servo bootstrap, Mesa Softpipe archive, M16 package, kernel, Ubuntu host, and
+Windows launcher. Target user-init then failed while compiling `warp 0.4.3`:
+the Servo workspace's default `webdriver` feature enabled the server runtime
+for the embedded `script` dependency, and Warp selected Unix listener types
+under `cfg(unix)`. Nagi deliberately reports the Unix target family while
+excluding Unix-domain sockets and Unix signal APIs, so adding those APIs would
+be an architecture regression.
+
+The tracked Servo patch boundary now sets the workspace `webdriver`
+dependency to `default-features = false` and enables `features = ["server"]`
+only for Servo's standalone `webdriver_server` package. Script retains the
+real WebDriver protocol types; the embedded Nagi graph no longer requests the
+unused server runtime. This is a source-pinned feature-boundary repair, not a
+Warp stub or host rendering shortcut. The next public target run must verify
+the graph and continue to UEFI and the real first-web-pixel acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

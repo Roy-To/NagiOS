@@ -718,6 +718,24 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_disables_webdriver_server_for_embedded_target() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0005-nagi-split-webdriver-server-feature.patch"),
+        )
+        .expect("WebDriver feature boundary patch");
+        assert!(patch.contains(
+            "-webdriver = { version = \"0.54.0\" }\n+webdriver = { version = \"0.54.0\", default-features = false }"
+        ));
+        assert!(patch.contains(
+            "-webdriver = { workspace = true }\n+webdriver = { workspace = true, features = [\"server\"] }"
+        ));
+    }
+
+    #[test]
     fn patch_application_uses_numeric_order() {
         let root = temp_root("patch-apply");
         let checkout = root.join("third_party/servo");
