@@ -46,6 +46,14 @@ for Nagi and uses the real relibc `CLOCK_REALTIME` clock. Nagi already provides
 does not need the macOS/Android-only `pthread_cond_timedwait_relative_np`
 extension. This keeps Servo/MozJS synchronization on the guest pthread ABI.
 
+Patch `0011` selects MozJS's existing no-op mmap fault-handler boundary for
+Nagi. Nagi's first-pixel vertical slice does not expose Unix signal delivery,
+and its guest file mappings are owned by the Nagi POSIX memory facade rather
+than a host mmap that can deliver `SIGBUS`. The patch therefore keeps the
+`MmapAccessScope` macros source-compatible while excluding the Unix
+`sigaction`/`siglongjmp` implementation; it does not add a fake signal API or
+redirect faults to the host.
+
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the
 source fingerprint is recorded.

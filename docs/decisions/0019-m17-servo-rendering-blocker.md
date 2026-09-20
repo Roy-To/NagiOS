@@ -576,6 +576,23 @@ condition-variable and clock interfaces. It does not add a host pthread API or
 replace synchronization with a stub. The next target build must verify this
 boundary and continue toward UEFI and the real QEMU gate.
 
+## Remediation continuation (2026-09-21, mmap signal boundary)
+
+Public snapshot CI run `35542223324` (head `d56cc42`) verified the condition-
+variable repair and reached MozJS's `MmapFaultHandler.cpp`. The pinned source
+selected the Unix `sigaction` implementation and failed because the generated
+Nagi signal header does not expose `SA_SIGINFO`, `SA_NODEFER`, or `SA_ONSTACK`.
+This is consistent with the existing M17 architecture boundary: Nagi's
+vertical slice does not expose Unix signal delivery, and its guest file mapping
+facade is not a host mmap that delivers `SIGBUS`.
+
+Ordered MozJS patch `0011` now selects the source's existing no-op
+`MmapAccessScope` macro boundary for `__NAGI__` and excludes only the Unix
+signal-handler implementation. It does not add unsupported signal constants,
+call a host signal API, or claim memory-fault recovery. The target build must
+verify this boundary before UEFI and real QEMU first-web-pixel acceptance can
+execute.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

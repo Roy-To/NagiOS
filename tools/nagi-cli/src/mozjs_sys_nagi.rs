@@ -108,6 +108,16 @@ mod tests {
                 && condition_variable_patch.contains("CLOCK_REALTIME")
         );
 
+        let mmap_fault_handler_patch = std::fs::read_to_string(root.join(
+            "third_party/mozjs-sys-nagi-patches/0011-nagi-disable-unsupported-mmap-signal-handler.patch",
+        ))
+        .expect("mozjs Nagi mmap fault-handler patch");
+        assert!(
+            mmap_fault_handler_patch.contains("defined(__NAGI__)")
+                && mmap_fault_handler_patch.contains("__wasi__) || defined(__NAGI__)")
+                && mmap_fault_handler_patch.contains("sigaction")
+        );
+
         let stdlib_cbindgen = std::fs::read_to_string(
             root.join("third_party/relibc/src/header/stdlib/cbindgen.toml"),
         )

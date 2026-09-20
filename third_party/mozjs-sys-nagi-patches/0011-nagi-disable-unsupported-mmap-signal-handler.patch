@@ -1,0 +1,12 @@
+diff --git a/mozjs/mozglue/misc/MmapFaultHandler.cpp b/mozjs/mozglue/misc/MmapFaultHandler.cpp
+--- a/mozjs/mozglue/misc/MmapFaultHandler.cpp
++++ b/mozjs/mozglue/misc/MmapFaultHandler.cpp
+@@ -7,1 +7,1 @@
+-#if defined(XP_UNIX) && !defined(XP_DARWIN) && !defined(__wasi__)
++#if defined(XP_UNIX) && !defined(XP_DARWIN) && !defined(__wasi__) && !defined(__NAGI__)
+diff --git a/mozjs/mozglue/misc/MmapFaultHandler.h b/mozjs/mozglue/misc/MmapFaultHandler.h
+--- a/mozjs/mozglue/misc/MmapFaultHandler.h
++++ b/mozjs/mozglue/misc/MmapFaultHandler.h
+@@ -35,1 +35,1 @@
+-#elif defined(__wasi__)
++#elif defined(__wasi__) || defined(__NAGI__)

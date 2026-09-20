@@ -25,13 +25,16 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35540890122` at `b76d88d`
-confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
-package, kernel target build, pthread naming ABI repair, and the Nagi relibc
-malloc header repair. The next real user-init compile exposed MozJS's
-non-standard relative condition-variable API selection; the current repair
-selects the existing standard Nagi `CLOCK_REALTIME` timed-wait ABI.
-Target link/UEFI/QEMU first-web-pixel evidence remains outstanding.
+**Last known repair checkpoint:** public CI run `35542223324` at `d56cc42`
+confirmed that the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
+package, kernel target build, pthread naming ABI repair, allocator header
+repair, and condition-variable clock repair all reach the next real MozJS
+compile boundary. The remaining target compile error is MozJS's
+`MmapFaultHandler.cpp` selecting Unix `sigaction` flags (`SA_SIGINFO`,
+`SA_NODEFER`, and `SA_ONSTACK`) even though this M17 Nagi vertical slice
+deliberately has no Unix signal-delivery ABI. Ordered patch `0011` now selects
+MozJS's existing no-op mmap-fault-handler boundary for Nagi; target link,
+UEFI, and real QEMU first-web-pixel evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -922,6 +925,16 @@ Verification checkpoint on 2026-09-20:
   expose. The next ordered MozJS patch selects the existing standard absolute
   timed-wait path with the real Nagi `CLOCK_REALTIME` condition-variable ABI.
   UEFI and first-web-pixel acceptance remain unexecuted.
+
+- Public snapshot CI run #25 (`35542223324`, head `d56cc42`) verified the
+  condition-variable clock repair and reached MozJS's mmap fault-handler
+  source. `MmapFaultHandler.cpp` selected Unix signal handling and therefore
+  referenced `SA_SIGINFO`, `SA_NODEFER`, and `SA_ONSTACK`, while this M17 Nagi
+  vertical slice intentionally has no Unix signal-delivery ABI. Ordered MozJS
+  patch `0011` selects the existing no-op mmap fault-handler macros for Nagi
+  and excludes only the unsupported `sigaction`/`siglongjmp` implementation;
+  it does not add a host signal API or fake memory-fault handling. UEFI and
+  first-web-pixel acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
