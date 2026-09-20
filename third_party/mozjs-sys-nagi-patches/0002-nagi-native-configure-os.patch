@@ -1,0 +1,60 @@
+diff --git a/mozjs/build/autoconf/config.sub b/mozjs/build/autoconf/config.sub
+--- a/mozjs/build/autoconf/config.sub
++++ b/mozjs/build/autoconf/config.sub
+@@ -2131,7 +2131,8 @@ case $os in
+ 	| unicos* \
+ 	| uniplus* \
+ 	| unleashed* \
+ 	| unos* \
++	| nagi* \
+ 	| uwin* \
+ 	| uxpv* \
+ 	| v88r* \
+diff --git a/mozjs/build/moz.configure/init.configure b/mozjs/build/moz.configure/init.configure
+--- a/mozjs/build/moz.configure/init.configure
++++ b/mozjs/build/moz.configure/init.configure
+@@ -530,4 +530,6 @@ def split_triplet(triplet, allow_wasi=False):
+         canonical_os = canonical_kernel = "SunOS"
+     elif os.startswith("wasi") and allow_wasi:
+         canonical_os = canonical_kernel = "WASI"
++    elif os.startswith("nagi"):
++        canonical_os = canonical_kernel = "Nagi"
+     else:
+         raise ValueError("Unknown OS: %s" % os)
+diff --git a/mozjs/python/mozbuild/mozbuild/configure/constants.py b/mozjs/python/mozbuild/mozbuild/configure/constants.py
+--- a/mozjs/python/mozbuild/mozbuild/configure/constants.py
++++ b/mozjs/python/mozbuild/mozbuild/configure/constants.py
+@@ -38,5 +38,6 @@ class OS(EnumString):
+         "GNU",
+         "iOS",
+         "NetBSD",
++        "Nagi",
+         "OpenBSD",
+         "OSX",
+@@ -55,5 +55,6 @@ class Kernel(EnumString):
+         "kFreeBSD",
+         "Linux",
+         "NetBSD",
++        "Nagi",
+         "OpenBSD",
+         "SunOS",
+diff --git a/mozjs/python/mozbuild/mozbuild/configure/constants.py b/mozjs/python/mozbuild/mozbuild/configure/constants.py
+--- a/mozjs/python/mozbuild/mozbuild/configure/constants.py
++++ b/mozjs/python/mozbuild/mozbuild/configure/constants.py
+@@ -144,4 +144,5 @@ kernel_preprocessor_checks = {
+     "kFreeBSD": "__FreeBSD_kernel__",
+     "Linux": "__linux__",
++    "Nagi": "__NAGI__",
+     "NetBSD": "__NetBSD__",
+     "OpenBSD": "__OpenBSD__",
+diff --git a/mozjs/js/src/build/moz.build b/mozjs/js/src/build/moz.build
+--- a/mozjs/js/src/build/moz.build
++++ b/mozjs/js/src/build/moz.build
+@@ -62,6 +62,6 @@ if not CONFIG["USE_LIBZ_RS"]:
+     ]
+ 
+-if CONFIG["OS_ARCH"] != "WINNT":
++if CONFIG["OS_ARCH"] not in ("WINNT", "Nagi"):
+     OS_LIBS += [
+         "m",
+     ]

@@ -10,6 +10,6 @@ diff --git a/makefile.cargo b/makefile.cargo
 +		ifeq (nagi-user,$(findstring nagi-user,$(TARGET)))
 +			# GNU config does not know Nagi's Rust target spelling. The
 +			# compiler and headers remain the Nagi target toolchain.
-+			CONFIGURE_FLAGS += --target=x86_64-unknown-none
++			CONFIGURE_FLAGS += --target=x86_64-unknown-nagi
 +		endif
  	endif

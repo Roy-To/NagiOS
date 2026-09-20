@@ -371,7 +371,7 @@ target adapter gap, not evidence that the JS engine could be replaced or
 executed on the host.
 
 The pinned registry source now has a Nagi-owned patch that gives Mozilla's
-configure layer the recognized freestanding `x86_64-unknown-none` triplet while
+configure layer the explicit freestanding `x86_64-unknown-nagi` triplet while
 retaining the Nagi target compiler, generated relibc headers, and final guest
 link. The source lock, bootstrap, patch fingerprint, and root Cargo path
 binding are tracked. The next run must verify the real SpiderMonkey cross-build
@@ -387,6 +387,18 @@ build. The patch now uses the script's accepted freestanding
 `x86_64-unknown-none` form. The Nagi Rust target, compiler wrapper, generated
 relibc headers, and guest link remain unchanged. UEFI and real QEMU pixel
 acceptance were skipped by the failed user-init prerequisite and remain open.
+
+## Remediation continuation (2026-09-20, native Nagi configure OS)
+
+Public snapshot CI run `35526109052` reached `mozjs_sys` after the previous
+triplet correction, but Mozilla's configure `split_triplet()` rejected
+`x86_64-unknown-none` with `Unknown OS: none`. The next adapter uses an
+explicit `x86_64-unknown-nagi` configure triplet and adds Nagi to the pinned
+configure OS/kernel enums and preprocessor checks. It also suppresses the
+generic `libm` linkage that is not a Nagi runtime dependency. This is a real
+Nagi target adapter, not a Linux/WASI label or host fallback. UEFI and real
+QEMU pixel acceptance remain open until user-init, UEFI, and the acceptance
+wrapper all pass.
 
 ## Exit criteria
 

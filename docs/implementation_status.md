@@ -757,7 +757,7 @@ Verification checkpoint on 2026-09-20:
   rejected `x86_64-unknown-nagi-user` with `OS "user" not recognized`. A
   pinned Nagi `mozjs_sys` source checkout and patch boundary now normalize only
   the Mozilla configure triplet to the recognized freestanding
-  `x86_64-unknown-none` configure identifier; the Rust target, compiler
+  `x86_64-unknown-nagi` configure identifier; the Rust target, compiler
   wrapper, relibc headers, and guest link remain Nagi-owned. The next run must
   verify this adapter and continue through the actual SpiderMonkey
   compile/link.
@@ -767,10 +767,24 @@ Verification checkpoint on 2026-09-20:
   prerequisites, M16 artifact, and kernel build. It then failed in the real
   Nagi user-init build inside `mozjs_sys` because the configure-only fallback
   triplet was set to `x86_64-unknown-elf`, which Mozilla's pinned `config.sub`
-  treats as an unknown OS rather than a bare-metal object format. The Nagi
-  adapter now uses the accepted `x86_64-unknown-none` configure triplet. This
-  does not change the Rust target, compiler wrapper, relibc headers, or guest
-  link boundary. UEFI and first-web-pixel acceptance remain unexecuted.
+  treats as an unknown OS rather than a bare-metal object format. The first
+  correction to `x86_64-unknown-none` then passed `config.sub` but was rejected
+  by Mozilla's configure `split_triplet()` as an unsupported OS. The adapter
+  now adds an explicit Nagi configure OS and uses
+  `x86_64-unknown-nagi`. This does not change the Rust target, compiler
+  wrapper, relibc headers, or guest link boundary. UEFI and first-web-pixel
+  acceptance remain unexecuted.
+
+- Public snapshot CI run #11 (`35526109052`, head `d261c4e`) passed all
+  bootstrap, dependency-boundary, Mesa Softpipe, package, UEFI-prerequisite,
+  and kernel stages, but `Build Nagi user init` again stopped in the pinned
+  `mozjs_sys` configure layer: `split_triplet()` rejected the intermediate
+  `x86_64-unknown-none` value with `Unknown OS: none`. The next Nagi-owned
+  adapter adds `Nagi` to Mozilla's configure OS/kernel enums and preprocessor
+  checks, teaches pinned `config.sub` to accept `nagi`, and avoids adding the
+  generic `libm` OS library for Nagi. The target Rust identity remains
+  `x86_64-unknown-nagi-user`; no host fallback or synthetic rendering was
+  added. UEFI and first-web-pixel acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

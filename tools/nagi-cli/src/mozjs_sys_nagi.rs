@@ -43,7 +43,14 @@ mod tests {
             "third_party/mozjs-sys-nagi-patches/0001-nagi-freestanding-configure-target.patch",
         ))
         .expect("mozjs configure patch");
-        assert!(patch.contains("--target=x86_64-unknown-none"));
-        assert!(!patch.contains("--target=x86_64-unknown-elf"));
+        assert!(patch.contains("--target=x86_64-unknown-nagi"));
+        assert!(!patch.contains("--target=x86_64-unknown-linux-gnu"));
+
+        let native_os_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0002-nagi-native-configure-os.patch"),
+        )
+        .expect("mozjs native Nagi configure patch");
+        assert!(native_os_patch.contains("canonical_os = canonical_kernel = \"Nagi\""));
+        assert!(native_os_patch.contains("\"Nagi\": \"__NAGI__\""));
     }
 }
