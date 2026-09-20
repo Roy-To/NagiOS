@@ -1,0 +1,92 @@
+diff --git a/components/fonts/Cargo.toml b/components/fonts/Cargo.toml
+--- a/components/fonts/Cargo.toml
++++ b/components/fonts/Cargo.toml
+@@ -79,4 +79,4 @@
+-[target.'cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))'.dependencies]
++[target.'cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "nagi"))'.dependencies]
+ freetype-sys = { workspace = true }
+ harfbuzz-sys = { workspace = true, features = ["freetype"] }
+ servo-allocator = { workspace = true }
+diff --git a/components/fonts/platform/mod.rs b/components/fonts/platform/mod.rs
+--- a/components/fonts/platform/mod.rs
++++ b/components/fonts/platform/mod.rs
+@@ -23,6 +23,10 @@ use unicode_script::Script;
+ use crate::FallbackFontSelectionOptions;
+ #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))]
+ pub use crate::platform::freetype::{font, font_list};
++#[cfg(target_os = "nagi")]
++pub use crate::platform::freetype::font;
++#[cfg(target_os = "nagi")]
++pub use crate::platform::nagi::font_list;
+ #[cfg(target_os = "macos")]
+ pub use crate::platform::macos::{core_text_font_cache, font, font_list};
+ #[cfg(target_os = "windows")]
+@@ -31,6 +35,11 @@ pub use crate::platform::windows::{font, font_list};
+-#[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))]
++#[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "nagi"))]
+ pub mod freetype;
+
++#[cfg(target_os = "nagi")]
++mod nagi {
++    pub mod font_list;
++}
++
+ #[cfg(target_os = "macos")]
+ mod macos {
+     pub mod core_text_font_cache;
+diff --git a/components/shared/fonts/font_identifier.rs b/components/shared/fonts/font_identifier.rs
+--- a/components/shared/fonts/font_identifier.rs
++++ b/components/shared/fonts/font_identifier.rs
+@@ -27,4 +27,9 @@
+-#[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd"))]
++#[cfg(any(
++    target_os = "linux",
++    target_os = "android",
++    target_os = "freebsd",
++    target_os = "nagi"
++))]
+ mod platform {
+     use std::fs::File;
+     use std::path::{Path, PathBuf};
+diff --git a/components/fonts/platform/nagi/font_list.rs b/components/fonts/platform/nagi/font_list.rs
+new file mode 100644
+--- /dev/null
++++ b/components/fonts/platform/nagi/font_list.rs
+@@ -0,0 +1,37 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
++
++//! Nagi's system-font registry boundary.
++//!
++//! Nagi does not expose a host fontconfig, CoreText, or DirectWrite registry.
++//! Until the Nagi font package service is present, this adapter reports the
++//! registry as empty. Web fonts still use the real FreeType backend; no host
++//! font path or guessed system font is inserted into the guest.
++
++use fonts_traits::FontTemplate;
++use style::values::computed::font::GenericFontFamily;
++
++use crate::{FallbackFontSelectionOptions, LowercaseFontFamilyName};
++
++pub(crate) fn for_each_available_family<F>(_callback: F)
++where
++    F: FnMut(String),
++{
++}
++
++pub(crate) fn for_each_variation<F>(_family_name: &str, _callback: F)
++where
++    F: FnMut(FontTemplate),
++{
++}
++
++pub fn fallback_font_families(_options: FallbackFontSelectionOptions) -> Vec<&'static str> {
++    Vec::new()
++}
++
++pub(crate) fn default_system_generic_font_family(
++    _generic: GenericFontFamily,
++) -> LowercaseFontFamilyName {
++    "sans-serif".into()
++}

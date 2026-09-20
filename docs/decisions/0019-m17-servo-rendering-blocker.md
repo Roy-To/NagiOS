@@ -515,6 +515,26 @@ C/POSIX `_l` wrappers, and generated-header declarations. Ordered patch
 import host locale state or add a rendering fallback. UEFI and real QEMU
 first-web-pixel acceptance remain unexecuted.
 
+## Remediation continuation (2026-09-21, target font and mmap boundary)
+
+Public snapshot CI run `35535949462` (head `cd3ef01`) verified that the
+Nagi-owned numeric `strto*`/`_l` ABI and restored libc++ localization moved the
+real target compile past the previous `streambuf` failure. It then exposed two
+independent Nagi target gaps: Servo's shared font identifier had no platform
+module for `target_os = "nagi"`, and the Nagi C++ header overlay did not expose
+the already-defined Nagi `PROT_NONE` and `MAP_FIXED` mmap values.
+
+The ordered Servo `0006` patch enables its existing pinned FreeType backend
+for Nagi, uses the real Nagi VFS/mmap font-data path, and adds a Nagi-owned
+system-font registry boundary that reports no system fonts until a Nagi font
+package service exists. It does not use host fontconfig, DirectWrite, CoreText,
+or guessed host paths. The Mesa header overlay now exports `PROT_NONE = 0` and
+`MAP_FIXED = 0x10`, matching `third_party/libc/src/unix/nagi.rs`; no runtime
+flag value is invented. The local target check reaches the known Windows
+`link.exe` limitation, while the patch forward/reverse checks and CLI source
+contract check pass. Target CI must verify the FreeType C build, continue to
+the target link, and then execute the real UEFI/QEMU first-web-pixel gate.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

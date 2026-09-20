@@ -25,10 +25,11 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35534135637` at `5965075`
-confirmed that broad `_LIBCPP_HAS_NO_LOCALIZATION` breaks libc++ streambuf;
-the next repair keeps localization enabled and adds the Nagi-owned numeric
-locale ABI. Target/QEMU first-web-pixel evidence remains outstanding.
+**Last known repair checkpoint:** public CI run `35535949462` at `cd3ef01`
+confirmed that the Nagi-owned numeric locale ABI moved the real target compile
+past libc++ streambuf and into Servo's platform/font boundary. The next repair
+adds the Nagi FreeType/font adapter and completes the Nagi mmap header constants.
+Target link/UEFI/QEMU first-web-pixel evidence remains outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -136,7 +137,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. CI run `35534135637` reached the real MozJS C++ compile but the broad `_LIBCPP_HAS_NO_LOCALIZATION` workaround removed `streambuf` prerequisites. The active repair adds real Nagi relibc `strto*` and C/POSIX `_l` numeric ABI, restores libc++ localization, and must still reach target link, UEFI, and real QEMU first-web-pixel evidence. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Run `35535949462` reached the real target user-init compile after the Nagi `strto*`/`_l` ABI repair, then exposed the missing Nagi Servo font platform cfg and `PROT_NONE`/`MAP_FIXED` overlay constants. The current repair adds the target-owned FreeType/font boundary and Nagi mmap constants; target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -881,6 +882,18 @@ Verification checkpoint on 2026-09-20:
   records the declarations in the generated `stdlib.h` boundary. No host libc,
   host locale state, or rendering fallback is used. UEFI and first-web-pixel
   acceptance remain unexecuted.
+
+- Public snapshot CI run #21 (`35535949462`, head `cd3ef01`) verified that the
+  Nagi numeric locale ABI and restored libc++ localization moved the real
+  target compile beyond the earlier `streambuf` failure. The next concrete
+  failures were Servo's `servo-fonts-traits` custom-target cfg with no
+  `platform::LocalFontIdentifier`, and MozJS's target C++ headers lacking the
+  Nagi ABI's existing `PROT_NONE` and `MAP_FIXED` constants. The tracked Servo
+  `0006` patch selects the real pinned FreeType backend for Nagi and adds an
+  explicit empty Nagi system-font registry rather than importing host
+  fontconfig/DirectWrite/CoreText paths. The Mesa Nagi `sys/mman.h` overlay now
+  exposes the existing Nagi libc values. UEFI and first-web-pixel acceptance
+  remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

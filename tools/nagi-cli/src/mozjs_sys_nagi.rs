@@ -117,5 +117,18 @@ mod tests {
                 "missing Nagi locale ABI: {symbol}"
             );
         }
+
+        let servo_font_patch = std::fs::read_to_string(
+            root.join("third_party/servo-patches/0006-nagi-font-platform.patch"),
+        )
+        .expect("Nagi Servo font platform patch");
+        assert!(servo_font_patch.contains("target_os = \\\"nagi\\\""));
+        assert!(servo_font_patch.contains("components/fonts/platform/nagi/font_list.rs"));
+        assert!(servo_font_patch.contains("real FreeType backend"));
+
+        let mman_header = std::fs::read_to_string(root.join("tools/mesa/nagi-headers/sys/mman.h"))
+            .expect("Nagi Mesa mmap header overlay");
+        assert!(mman_header.contains("#define PROT_NONE 0x0000"));
+        assert!(mman_header.contains("#define MAP_FIXED 0x0010"));
     }
 }

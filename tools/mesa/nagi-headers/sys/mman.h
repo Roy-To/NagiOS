@@ -8,6 +8,11 @@
  */
 #include_next <sys/mman.h>
 
+#ifdef PROT_NONE
+#undef PROT_NONE
+#endif
+#define PROT_NONE 0x0000
+
 #ifdef PROT_EXEC
 #undef PROT_EXEC
 #endif
@@ -22,6 +27,11 @@
 #undef PROT_READ
 #endif
 #define PROT_READ 0x0004
+
+#ifdef MAP_FIXED
+#undef MAP_FIXED
+#endif
+#define MAP_FIXED 0x0010
 
 #ifdef MAP_SHARED
 #undef MAP_SHARED
