@@ -26,6 +26,15 @@ pub const SYS_THREAD_SELF: u64 = 23;
 pub const SYS_AUDIO_PLAY: u64 = 24;
 pub const SYS_AUDIO_CAPTURE: u64 = 25;
 pub const SYS_RANDOM_GET: u64 = 26;
+pub const SYS_MEMORY_MAP_AT: u64 = 27;
+
+// POSIX-compatible protection bits used by the Nagi user-space mapping ABI.
+// They intentionally match the standard mmap contract so relibc and Servo
+// can use the same values without a host syscall translation.
+pub const PROT_EXEC: u64 = 0x1;
+pub const PROT_WRITE: u64 = 0x2;
+pub const PROT_READ: u64 = 0x4;
+pub const PROT_NONE: u64 = 0x0;
 
 /// Nagi 0.1's initial wall-clock contract.  The reference firmware does not
 /// yet pass an RTC value through BootInfo, so realtime is defined as elapsed

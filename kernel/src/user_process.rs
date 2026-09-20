@@ -2,6 +2,7 @@ use core::cell::UnsafeCell;
 use core::slice;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use nagi_abi::{PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE};
 use nagi_bootinfo::{BootInfo, BootInfoError};
 
 use crate::display::{self, SURFACE_PAGE_COUNT, USER_SURFACE_BASE};
@@ -226,19 +227,8 @@ pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
     }
     let start_page = (0..=USER_MMAP_PAGES - page_count)
         .find(|start| (0..page_count).all(|offset| !used[*start + offset]))?;
-    for page in start_page..start_page + page_count {
-        let physical = page_address(&storage.mmap_pages[page]).ok()?;
-        let flags = mmap_page_flags(protection);
-        let entry = PageTableEntry::new(physical, flags)?;
-        let (table, entry_index) = mmap_page_location(page)?;
-        if !storage.mmap_pts[table].replace_empty(entry_index, entry.raw()) {
-            for rollback in start_page..page {
-                if let Some((table, entry_index)) = mmap_page_location(rollback) {
-                    storage.mmap_pts[table].unmap(entry_index);
-                }
-            }
-            return None;
-        }
+    if protection != PROT_NONE && !remap_mmap_pages(storage, start_page, page_count, protection) {
+        return None;
     }
     storage.mmap_regions[slot] = Some(MmapRegion {
         start_page,
@@ -246,6 +236,36 @@ pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
         protection: protection as u8,
     });
     Some(USER_MMAP_BASE + start_page as u64 * PAGE_SIZE)
+}
+
+/// Re-map an existing Nagi-owned range at its exact guest address.
+///
+/// This is intentionally narrower than a general POSIX MAP_FIXED facility:
+/// the address must identify a range previously reserved by `mmap_user`.
+/// That is the reserve/commit contract required by MozJS JIT memory and keeps
+/// arbitrary user page-table replacement outside the bootstrap ABI.
+pub fn mmap_user_at(address: u64, length: u64, protection: u64) -> Option<u64> {
+    let (start_page, page_count) = mmap_range(address, length, protection)?;
+    let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
+    let slot = storage.mmap_regions.iter().position(|region| {
+        region.is_some_and(|region| {
+            region.start_page == start_page && region.page_count == page_count
+        })
+    })?;
+
+    if protection == PROT_NONE {
+        for page in start_page..start_page + page_count {
+            let (table, entry_index) = mmap_page_location(page)?;
+            storage.mmap_pts[table].unmap(entry_index);
+        }
+    } else if !remap_mmap_pages(storage, start_page, page_count, protection) {
+        return None;
+    }
+
+    if let Some(region) = storage.mmap_regions[slot].as_mut() {
+        region.protection = protection as u8;
+    }
+    Some(address)
 }
 
 pub fn munmap_user(address: u64, length: u64) -> bool {
@@ -271,20 +291,15 @@ pub fn mprotect_user(address: u64, length: u64, protection: u64) -> bool {
         return false;
     };
     let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
-    for page in region.start_page..region.start_page + region.page_count {
-        let Some((table, entry_index)) = mmap_page_location(page) else {
-            return false;
-        };
-        let Some(current) = storage.mmap_pts[table].raw_entry(entry_index) else {
-            return false;
-        };
-        let physical = current & 0x000f_ffff_ffff_f000;
-        let Some(entry) = PageTableEntry::new(physical, mmap_page_flags(protection)) else {
-            return false;
-        };
-        if !storage.mmap_pts[table].replace(entry_index, entry.raw()) {
-            return false;
+    if protection == PROT_NONE {
+        for page in region.start_page..region.start_page + region.page_count {
+            let Some((table, entry_index)) = mmap_page_location(page) else {
+                return false;
+            };
+            storage.mmap_pts[table].unmap(entry_index);
         }
+    } else if !remap_mmap_pages(storage, region.start_page, region.page_count, protection) {
+        return false;
     }
     if let Some(record) = storage.mmap_regions[slot].as_mut() {
         record.protection = protection as u8;
@@ -303,6 +318,47 @@ fn validate_mmap_request(length: u64, protection: u64) -> Option<usize> {
     usize::try_from(length / PAGE_SIZE).ok()
 }
 
+fn mmap_range(address: u64, length: u64, protection: u64) -> Option<(usize, usize)> {
+    let page_count = validate_mmap_request(length, protection)?;
+    if !address.is_multiple_of(PAGE_SIZE) || address < USER_MMAP_BASE {
+        return None;
+    }
+    let end = address.checked_add(length)?;
+    if end > USER_MMAP_LIMIT {
+        return None;
+    }
+    let start_page = usize::try_from((address - USER_MMAP_BASE) / PAGE_SIZE).ok()?;
+    Some((start_page, page_count))
+}
+
+fn remap_mmap_pages(
+    storage: &mut BootstrapStorage,
+    start_page: usize,
+    page_count: usize,
+    protection: u64,
+) -> bool {
+    for page in start_page..start_page + page_count {
+        let Some(physical) = page_address(&storage.mmap_pages[page]).ok() else {
+            return false;
+        };
+        let Some(entry) = PageTableEntry::new(physical, mmap_page_flags(protection)) else {
+            return false;
+        };
+        let Some((table, entry_index)) = mmap_page_location(page) else {
+            return false;
+        };
+        let mapped = if storage.mmap_pts[table].raw_entry(entry_index).is_some() {
+            storage.mmap_pts[table].replace(entry_index, entry.raw())
+        } else {
+            storage.mmap_pts[table].replace_empty(entry_index, entry.raw())
+        };
+        if !mapped {
+            return false;
+        }
+    }
+    true
+}
+
 #[inline]
 fn mmap_page_location(page: usize) -> Option<(usize, usize)> {
     let table = page / PAGE_TABLE_ENTRIES;
@@ -314,10 +370,10 @@ fn mmap_page_flags(protection: u64) -> u64 {
     if protection != 0 {
         flags |= PageTableEntry::PRESENT;
     }
-    if protection & 0b010 != 0 {
+    if protection & PROT_WRITE != 0 {
         flags |= PageTableEntry::WRITABLE;
     }
-    if protection & 0b100 == 0 {
+    if protection & PROT_EXEC == 0 {
         flags |= PageTableEntry::NO_EXECUTE;
     }
     flags
@@ -328,7 +384,7 @@ fn find_mmap_region(address: u64, length: u64) -> Option<(usize, MmapRegion)> {
         return None;
     }
     let start_page = usize::try_from(address.checked_sub(USER_MMAP_BASE)? / PAGE_SIZE).ok()?;
-    let page_count = validate_mmap_request(length, 0b001)?;
+    let page_count = validate_mmap_request(length, PROT_READ)?;
     let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
     storage
         .mmap_regions
@@ -894,6 +950,7 @@ const fn efer_with_nxe(efer: u64) -> u64 {
 mod tests {
     extern crate std;
 
+    use nagi_abi::{PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE};
     use std::boxed::Box;
 
     use crate::memory::{PageTable, PageTableEntry, PAGE_SIZE};
@@ -1078,12 +1135,15 @@ mod tests {
 
     #[test]
     fn mmap_requests_are_page_aligned_and_protection_bounded() {
-        assert_eq!(validate_mmap_request(PAGE_SIZE, 0b011), Some(1));
-        assert_eq!(validate_mmap_request(2 * PAGE_SIZE, 0), Some(2));
-        assert_eq!(validate_mmap_request(0, 0b001), None);
-        assert_eq!(validate_mmap_request(PAGE_SIZE - 1, 0b001), None);
         assert_eq!(
-            validate_mmap_request((USER_MMAP_PAGES as u64 + 1) * PAGE_SIZE, 0b001),
+            validate_mmap_request(PAGE_SIZE, PROT_READ | PROT_WRITE),
+            Some(1)
+        );
+        assert_eq!(validate_mmap_request(2 * PAGE_SIZE, PROT_NONE), Some(2));
+        assert_eq!(validate_mmap_request(0, PROT_READ), None);
+        assert_eq!(validate_mmap_request(PAGE_SIZE - 1, PROT_READ), None);
+        assert_eq!(
+            validate_mmap_request((USER_MMAP_PAGES as u64 + 1) * PAGE_SIZE, PROT_READ),
             None
         );
         assert_eq!(validate_mmap_request(PAGE_SIZE, 0b1000), None);
@@ -1091,12 +1151,12 @@ mod tests {
 
     #[test]
     fn mmap_page_flags_attenuate_write_and_execute_independently() {
-        let read_only = mmap_page_flags(0b001);
+        let read_only = mmap_page_flags(PROT_READ);
         assert_ne!(read_only & PageTableEntry::PRESENT, 0);
         assert_eq!(read_only & PageTableEntry::WRITABLE, 0);
         assert_ne!(read_only & PageTableEntry::NO_EXECUTE, 0);
 
-        let executable = mmap_page_flags(0b101);
+        let executable = mmap_page_flags(PROT_READ | PROT_EXEC);
         assert_ne!(executable & PageTableEntry::PRESENT, 0);
         assert_eq!(executable & PageTableEntry::WRITABLE, 0);
         assert_eq!(executable & PageTableEntry::NO_EXECUTE, 0);

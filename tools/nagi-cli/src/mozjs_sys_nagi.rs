@@ -122,7 +122,7 @@ mod tests {
             root.join("third_party/servo-patches/0006-nagi-font-platform.patch"),
         )
         .expect("Nagi Servo font platform patch");
-        assert!(servo_font_patch.contains("target_os = \\\"nagi\\\""));
+        assert!(servo_font_patch.contains("target_os = \"nagi\""));
         assert!(servo_font_patch.contains("components/fonts/platform/nagi/font_list.rs"));
         assert!(servo_font_patch.contains("real FreeType backend"));
 

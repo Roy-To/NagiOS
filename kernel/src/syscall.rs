@@ -22,9 +22,9 @@ pub use nagi_abi::{
     BLOCK_SECTOR_SIZE, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_RANDOM_BYTES,
     SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ,
     SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ,
-    SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT,
-    SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_EXIT, SYS_THREAD_JOIN,
-    SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
+    SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP,
+    SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_EXIT,
+    SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
 };
 
 #[cfg(not(test))]
@@ -346,6 +346,7 @@ extern "sysv64" fn dispatch(frame: &SyscallFrame) -> u64 {
         SYS_TIME_REALTIME => time_realtime(),
         SYS_THREAD_SLEEP => thread_sleep(frame.arg1),
         SYS_MEMORY_MAP => memory_map(frame.arg1, frame.arg2),
+        SYS_MEMORY_MAP_AT => memory_map_at(frame.arg1, frame.arg2, frame.arg3),
         SYS_MEMORY_UNMAP => memory_unmap(frame.arg1, frame.arg2),
         SYS_MEMORY_PROTECT => memory_protect(frame.arg1, frame.arg2, frame.arg3),
         SYS_THREAD_CREATE => thread_create(frame),
@@ -646,6 +647,11 @@ fn memory_map(length: u64, protection: u64) -> u64 {
 }
 
 #[cfg(not(test))]
+fn memory_map_at(address: u64, length: u64, protection: u64) -> u64 {
+    nagi_kernel::user_process::mmap_user_at(address, length, protection).unwrap_or(u64::MAX)
+}
+
+#[cfg(not(test))]
 fn memory_unmap(address: u64, length: u64) -> u64 {
     if nagi_kernel::user_process::munmap_user(address, length) {
         0
@@ -904,9 +910,9 @@ mod tests {
         BLOCK_SECTOR_SIZE, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, SYS_AUDIO_CAPTURE,
         SYS_AUDIO_PLAY, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE,
         SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO,
-        SYS_MEMORY_MAP, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT, SYS_PROCESS_INFO,
-        SYS_THREAD_CREATE, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP,
-        SYS_TIME_READ, SYS_TIME_REALTIME,
+        SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT,
+        SYS_PROCESS_INFO, SYS_THREAD_CREATE, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF,
+        SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
     };
     use crate::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
 
@@ -1028,6 +1034,7 @@ mod tests {
         assert_eq!(SYS_TIME_REALTIME, 15);
         assert_eq!(SYS_THREAD_SLEEP, 16);
         assert_eq!(SYS_MEMORY_MAP, 17);
+        assert_eq!(SYS_MEMORY_MAP_AT, 27);
         assert_eq!(SYS_MEMORY_UNMAP, 18);
         assert_eq!(SYS_MEMORY_PROTECT, 19);
         assert_eq!(SYS_THREAD_CREATE, 20);

@@ -21,6 +21,7 @@ unsafe extern "C" {
     fn nagi_posix_close(fd: c_int) -> c_int;
     fn nagi_posix_lseek(fd: c_int, offset: i64, whence: c_int) -> i64;
     fn nagi_posix_mmap_file(length: usize, protection: c_int, fd: c_int, offset: usize) -> *mut u8;
+    fn nagi_posix_mmap_at(address: *mut u8, length: usize, protection: c_int) -> *mut u8;
     fn nagi_posix_munmap(address: *mut u8, length: usize) -> c_int;
     fn nagi_posix_mprotect(address: *mut u8, length: usize, protection: c_int) -> c_int;
     fn nagi_posix_errno_location() -> *mut c_int;
@@ -32,6 +33,8 @@ const EBADF: c_int = 9;
 const EOVERFLOW: c_int = 75;
 const ERANGE: c_int = 34;
 const EOF: c_int = -1;
+const MAP_FIXED: c_int = 0x0010;
+const MAP_ANONYMOUS: c_int = 0x0020;
 
 const NAGI_FILE_MEMORY: u32 = 1;
 
@@ -677,15 +680,35 @@ pub unsafe extern "C" fn mmap(
     address: *mut c_void,
     length: usize,
     protection: c_int,
-    _flags: c_int,
+    flags: c_int,
     fd: c_int,
     offset: i64,
 ) -> *mut c_void {
-    if !address.is_null() || offset < 0 {
+    if offset < 0 {
         unsafe { set_errno(EINVAL) };
         return usize::MAX as *mut c_void;
     }
 
+    if flags & MAP_FIXED != 0 {
+        if address.is_null() || fd >= 0 || offset != 0 || flags & MAP_ANONYMOUS == 0 {
+            unsafe { set_errno(EINVAL) };
+            return usize::MAX as *mut c_void;
+        }
+        let mapping = unsafe { nagi_posix_mmap_at(address.cast(), length, protection) };
+        return if mapping.is_null() {
+            usize::MAX as *mut c_void
+        } else {
+            mapping.cast()
+        };
+    }
+
+    if fd < 0 && flags & MAP_ANONYMOUS == 0 {
+        unsafe { set_errno(EINVAL) };
+        return usize::MAX as *mut c_void;
+    }
+
+    // A non-fixed address is only a hint. Nagi chooses from its bounded,
+    // capability-owned mapping arena and never honors a host virtual address.
     let mapping = unsafe { nagi_posix_mmap_file(length, protection, fd, offset as usize) };
     if mapping.is_null() {
         usize::MAX as *mut c_void

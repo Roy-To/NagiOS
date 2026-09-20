@@ -93,7 +93,8 @@ unsafe fn initialize_heap() -> Option<usize> {
         return Some(existing);
     }
 
-    let base = libnagi::mmap_anonymous(POSIX_HEAP_SIZE, 0b011)? as usize;
+    let base = libnagi::mmap_anonymous(POSIX_HEAP_SIZE, libnagi::PROT_READ | libnagi::PROT_WRITE)?
+        as usize;
     if base == 0 || !base.is_multiple_of(16) {
         if base != 0 {
             let _ = libnagi::munmap(base as *mut u8, POSIX_HEAP_SIZE);
@@ -368,6 +369,38 @@ pub extern "C" fn nagi_posix_mmap(_length: usize, _protection: i32) -> *mut u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn nagi_posix_mmap_at(
+    _address: *mut u8,
+    _length: usize,
+    _protection: i32,
+) -> *mut u8 {
+    #[cfg(target_os = "nagi")]
+    {
+        if _address.is_null()
+            || !(_address as usize).is_multiple_of(4096)
+            || _length == 0
+            || !_length.is_multiple_of(4096)
+            || !(_protection >= 0 && _protection <= 7)
+        {
+            set_errno(EINVAL);
+            return ptr::null_mut();
+        }
+        return libnagi::mmap_anonymous_at(_address, _length, _protection as u64).unwrap_or_else(
+            || {
+                set_errno(ENOMEM);
+                ptr::null_mut()
+            },
+        );
+    }
+    #[cfg(not(target_os = "nagi"))]
+    {
+        let _ = (_address, _length, _protection);
+        set_errno(ENOSYS);
+        ptr::null_mut()
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn nagi_posix_munmap(address: *mut u8, length: usize) -> i32 {
     #[cfg(target_os = "nagi")]
     {
@@ -477,9 +510,16 @@ mod tests {
         assert_eq!(errno(), EINVAL);
         assert_eq!(unsafe { nagi_posix_write(1, core::ptr::null(), 1) }, -1);
         assert_eq!(errno(), EINVAL);
-        assert!(nagi_posix_mmap(4096, 3).is_null());
+        assert!(nagi_posix_mmap(4096, (libnagi::PROT_READ | libnagi::PROT_WRITE) as i32).is_null());
         assert_eq!(errno(), ENOSYS);
-        assert_eq!(nagi_posix_mprotect(core::ptr::null_mut(), 4096, 3), -1);
+        assert_eq!(
+            nagi_posix_mprotect(
+                core::ptr::null_mut(),
+                4096,
+                (libnagi::PROT_READ | libnagi::PROT_WRITE) as i32,
+            ),
+            -1
+        );
         assert_eq!(errno(), ENOSYS);
         assert_eq!(nagi_posix_munmap(core::ptr::null_mut(), 4096), -1);
         assert_eq!(errno(), ENOSYS);
