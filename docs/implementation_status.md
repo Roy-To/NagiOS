@@ -831,6 +831,16 @@ Verification checkpoint on 2026-09-20:
   header dependency; host C++ runtime linking stays disabled. UEFI and
   first-web-pixel acceptance remain unexecuted.
 
+- Run #16 (`35530635419`, head `310f698`) confirmed the libc++ package and
+  explicit `NAGI_CXX_HEADERS` path, so `<cstddef>` was no longer the first
+  failure. The next failure was include-order contamination: Mesa's minimal
+  `tools/mesa/nagi-headers/type_traits` shadowed libc++'s real header, while
+  libc++ `include_next` probes for `stdint.h` and related C headers could not
+  reach the Nagi boundary cleanly. The follow-up wrapper repair keeps libc++
+  first and places the Nagi Mesa/relibc compatibility headers behind it with
+  `-idirafter` only when C++ headers are configured. The target build must be
+  rerun; UEFI and first-web-pixel acceptance remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

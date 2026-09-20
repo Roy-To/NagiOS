@@ -24,12 +24,17 @@ if [[ ! -f "$relibc_headers/pthread.h" ]]; then
 fi
 
 cxx_include_args=()
+mesa_include_args=(-I "$repo_root/tools/mesa/nagi-headers" -I "$relibc_headers")
 if [[ -n "${NAGI_CXX_HEADERS:-}" ]]; then
     if [[ ! -f "$NAGI_CXX_HEADERS/cstddef" ]]; then
         echo "Nagi target C compiler: configured C++ headers missing cstddef: $NAGI_CXX_HEADERS" >&2
         exit 2
     fi
     cxx_include_args=(-isystem "$NAGI_CXX_HEADERS")
+    # libc++ owns the C++ standard headers. Keep the Nagi/Mesa compatibility
+    # headers after libc++ so include_next in libc++ reaches relibc instead of
+    # selecting Mesa's intentionally minimal C++ shims.
+    mesa_include_args=(-idirafter "$repo_root/tools/mesa/nagi-headers" -idirafter "$relibc_headers")
 fi
 
 resource_dir=$("$compiler" --target=x86_64-unknown-elf -print-resource-dir)
@@ -41,8 +46,7 @@ exec "$compiler" \
     -fno-builtin \
     -mcmodel=large \
     -nostdinc \
-    -isystem "$resource_dir/include" \
     "${cxx_include_args[@]}" \
-    -I "$repo_root/tools/mesa/nagi-headers" \
-    -I "$relibc_headers" \
+    -isystem "$resource_dir/include" \
+    "${mesa_include_args[@]}" \
     "$@"

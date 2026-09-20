@@ -65,6 +65,7 @@ mod tests {
             .expect("Nagi target compiler wrapper");
         assert!(compiler_wrapper.contains("NAGI_CXX_HEADERS"));
         assert!(compiler_wrapper.contains("-isystem"));
+        assert!(compiler_wrapper.contains("-idirafter"));
         assert!(compiler_wrapper.contains("cxx_include_args"));
     }
 }

@@ -449,6 +449,19 @@ compile-time header provisioning only; Nagi relibc remains the C header and
 runtime boundary, and no host C++ runtime link is introduced. UEFI and real
 QEMU pixel acceptance remain open.
 
+## Remediation continuation (2026-09-20, libc++ and Nagi header ordering)
+
+Run `35530635419` confirmed that the pinned libc++ headers were installed and
+the explicit `NAGI_CXX_HEADERS` hook resolved the initial `<cstddef>` absence.
+The next real failure showed that Mesa's intentionally minimal
+`tools/mesa/nagi-headers/type_traits` was shadowing libc++ and that libc++
+`include_next` probes could not reach the Nagi C header boundary in the prior
+order. The follow-up wrapper repair keeps libc++ first and moves the Nagi
+Mesa/relibc compatibility paths behind it with `-idirafter` only for the C++
+header-enabled path. This remains a target header-order repair, not a host
+runtime or rendering fallback. UEFI and real QEMU pixel acceptance remain
+open.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
