@@ -1,0 +1,25 @@
+diff --git a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
+@@ -94,8 +94,20 @@ fn main() {
+ 
+     println!("cargo:rustc-link-lib=z");
+ 
+     let mut build = cc::Build::new();
+-    build.include("libpng").include("libz-sys/src/zlib");
++    build.include("libpng");
++    if let Ok(zlib_includes) = std::env::var("DEP_Z_INCLUDE") {
++        for include in zlib_includes.split(',') {
++            if !include.is_empty() {
++                build.include(include);
++            }
++        }
++    } else {
++        // Keep the upstream fallback for environments where libz-sys did not
++        // emit include metadata, while Nagi target builds use the pinned
++        // dependency's actual generated include directory above.
++        build.include("libz-sys/src/zlib");
++    }
+     build
+         .file("libpng/png.c")
+         .file("libpng/pngerror.c")

@@ -1,0 +1,153 @@
+diff --git a/src/net/mod.rs b/src/net/mod.rs
+index d941d80..0f522fa 100644
+--- a/src/net/mod.rs
++++ b/src/net/mod.rs
+@@ -33,7 +33,7 @@ mod udp;
+ #[cfg(not(all(target_os = "wasi", target_env = "p1")))]
+ pub use self::udp::UdpSocket;
+ 
+-#[cfg(unix)]
++#[cfg(all(unix, not(target_os = "nagi")))]
+ mod uds;
+-#[cfg(unix)]
++#[cfg(all(unix, not(target_os = "nagi")))]
+ pub use self::uds::{UnixDatagram, UnixListener, UnixStream};
+diff --git a/src/sys/unix/mod.rs b/src/sys/unix/mod.rs
+index c7d66e0..9279a7b 100644
+--- a/src/sys/unix/mod.rs
++++ b/src/sys/unix/mod.rs
+@@ -55,7 +55,8 @@ cfg_os_poll! {
+         target_os = "vita",
+         target_os = "cygwin",
+         target_os = "wasi",
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+     ), path = "selector/poll.rs")]
+     mod selector;
+     pub(crate) use self::selector::*;
+@@ -114,7 +115,8 @@ cfg_os_poll! {
+         all(mio_unsupported_force_poll_poll, target_os = "solaris"),
+         target_os = "vita",
+         target_os = "cygwin",
+-        all(target_os = "wasi", target_env = "p1")
++        all(target_os = "wasi", target_env = "p1"),
++        target_os = "nagi"
+     ), path = "waker/pipe.rs")]
+     #[cfg_attr(any(target_os = "horizon", all(target_os = "wasi", not(target_env = "p1"))), path = "waker/single_threaded.rs")]
+     mod waker;
+@@ -133,7 +135,7 @@ cfg_os_poll! {
+ 
+         pub(crate) mod tcp;
+         pub(crate) mod udp;
+-        #[cfg(not(any(target_os = "hermit", target_os = "wasi")))]
++        #[cfg(not(any(target_os = "hermit", target_os = "wasi", target_os = "nagi")))]
+         pub(crate) mod uds;
+     }
+ 
+@@ -170,6 +172,7 @@ cfg_os_poll! {
+         ),
+         not(target_os = "hermit"),
+         not(target_os = "wasi"),
++        target_os = "nagi",
+     ))]
+     pub(crate) mod pipe;
+ }
+diff --git a/src/sys/unix/net.rs b/src/sys/unix/net.rs
+index 6862674..b514588 100644
+--- a/src/sys/unix/net.rs
++++ b/src/sys/unix/net.rs
+@@ -66,6 +66,7 @@ pub(crate) fn new_socket(domain: libc::c_int, socket_type: libc::c_int) -> io::R
+         target_os = "espidf",
+         target_os = "vita",
+         target_os = "nto",
++        target_os = "nagi",
+     ))]
+     {
+         if let Err(err) = syscall!(fcntl(socket, libc::F_SETFL, libc::O_NONBLOCK)) {
+diff --git a/src/sys/unix/pipe.rs b/src/sys/unix/pipe.rs
+index 52953a3..9a1abe7 100644
+--- a/src/sys/unix/pipe.rs
++++ b/src/sys/unix/pipe.rs
+@@ -24,6 +24,7 @@ pub(crate) fn new_raw() -> io::Result<[RawFd; 2]> {
+         target_os = "vita",
+         target_os = "cygwin",
+         target_os = "nuttx",
++        target_os = "nagi",
+     ))]
+     unsafe {
+         if libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) != 0 {
+diff --git a/src/sys/unix/tcp.rs b/src/sys/unix/tcp.rs
+index 5b9f078..cf3b729 100644
+--- a/src/sys/unix/tcp.rs
++++ b/src/sys/unix/tcp.rs
+@@ -104,6 +104,7 @@ pub(crate) fn accept(listener: &net::TcpListener) -> io::Result<(net::TcpStream,
+         target_os = "nto",
+         target_os = "wasi",
+         target_os = "horizon",
++        target_os = "nagi",
+         all(target_arch = "x86", target_os = "android"),
+     ))]
+     let stream = {
+@@ -126,6 +127,7 @@ pub(crate) fn accept(listener: &net::TcpListener) -> io::Result<(net::TcpStream,
+                 target_os = "hermit",
+                 target_os = "nto",
+                 target_os = "wasi",
++                target_os = "nagi",
+             ))]
+             syscall!(fcntl(s.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK))?;
+ 
+diff --git a/src/poll.rs b/src/poll.rs
+--- a/src/poll.rs
++++ b/src/poll.rs
+@@ -12,7 +12,8 @@
+         target_os = "nto",
+         target_os = "vita",
+         target_os = "cygwin",
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+     )),
+ ))]
+ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
+@@ -454,7 +455,8 @@ impl Poll {
+         target_os = "nto",
+         target_os = "vita",
+         target_os = "cygwin",
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+     )),
+ ))]
+ impl AsRawFd for Poll {
+@@ -758,7 +760,8 @@ impl fmt::Debug for Registry {
+         target_os = "nto",
+         target_os = "vita",
+         target_os = "cygwin",
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+     )),
+ ))]
+ impl AsFd for Registry {
+@@ -781,7 +784,8 @@ impl AsFd for Registry {
+         target_os = "nto",
+         target_os = "vita",
+         target_os = "cygwin",
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+     )),
+ ))]
+ impl AsRawFd for Registry {
+@@ -802,8 +806,9 @@ cfg_os_poll! {
+             target_os = "hurd",
+             target_os = "nto",
+             target_os = "vita",
+             target_os = "cygwin",
+-            target_os = "horizon"
++            target_os = "horizon",
++            target_os = "nagi"
+         )),
+     ))]
+     #[test]

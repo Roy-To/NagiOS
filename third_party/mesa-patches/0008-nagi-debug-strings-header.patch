@@ -1,0 +1,6 @@
+diff --git a/src/util/u_debug.c b/src/util/u_debug.c
+index 79934e963c0..b46150e1c47 100644
+--- a/src/util/u_debug.c
++++ b/src/util/u_debug.c
+@@ -33,0 +34 @@
++#include <strings.h>

@@ -1,0 +1,118 @@
+diff --git a/src/socket.rs b/src/socket.rs
+index da01a77..5ae7f4d 100644
+--- a/src/socket.rs
++++ b/src/socket.rs
+@@ -1219 +1219,2 @@ impl Socket {
+-            target_os = "horizon"
++            target_os = "horizon",
++            target_os = "nagi"
+@@ -1251 +1252,2 @@ impl Socket {
+-            target_os = "horizon"
++            target_os = "horizon",
++            target_os = "nagi"
+@@ -1359 +1361,2 @@ impl Socket {
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -1395 +1398,2 @@ impl Socket {
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -1432 +1436,2 @@ impl Socket {
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -1472 +1477,2 @@ impl Socket {
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -1776 +1782,2 @@ impl Socket {
+-            target_os = "horizon"
++            target_os = "horizon",
++            target_os = "nagi"
+@@ -1809 +1816,2 @@ impl Socket {
+-            target_os = "horizon"
++            target_os = "horizon",
++            target_os = "nagi"
+@@ -1873 +1881 @@ impl Socket {
+-    #[cfg(not(any(target_os = "nto", target_os = "nuttx")))]
++    #[cfg(not(any(target_os = "nto", target_os = "nuttx", target_os = "nagi")))]
+@@ -1897 +1905 @@ impl Socket {
+-    #[cfg(not(any(target_os = "nto", target_os = "nuttx")))]
++    #[cfg(not(any(target_os = "nto", target_os = "nuttx", target_os = "nagi")))]
+@@ -2110 +2118,2 @@ impl Socket {
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -2138 +2147,2 @@ impl Socket {
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -2173 +2183,2 @@ impl Socket {
+-            target_os = "horizon"
++            target_os = "horizon",
++            target_os = "nagi"
+@@ -2204 +2215,2 @@ impl Socket {
+-            target_os = "horizon"
++            target_os = "horizon",
++            target_os = "nagi"
+diff --git a/src/sys/unix.rs b/src/sys/unix.rs
+index a226fe1..a8eafe8 100644
+--- a/src/sys/unix.rs
++++ b/src/sys/unix.rs
+@@ -138 +138 @@ pub(crate) use libc::SO_OOBINLINE;
+-#[cfg(not(any(target_os = "nto", target_os = "nuttx")))]
++#[cfg(not(any(target_os = "nto", target_os = "nuttx", target_os = "nagi")))]
+@@ -158 +158,2 @@ pub(crate) use libc::IPV6_HDRINCL;
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -176 +177,2 @@ pub(crate) use libc::IPV6_RECVHOPLIMIT;
+-    target_os = "horizon"
++    target_os = "horizon",
++    target_os = "nagi"
+@@ -186 +188,2 @@ pub(crate) use libc::IPV6_RECVTCLASS;
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -207 +210,2 @@ pub(crate) use libc::IP_HDRINCL;
+-    target_os = "horizon"
++    target_os = "horizon",
++    target_os = "nagi"
+@@ -215,0 +220 @@ pub(crate) use libc::IP_RECVTOS;
++    target_os = "nagi",
+@@ -259 +264,2 @@ pub(crate) use libc::{
+-    target_os = "horizon"
++    target_os = "horizon",
++    target_os = "nagi"
+@@ -279,0 +286 @@ pub(crate) use libc::{
++    target_os = "nagi",
+@@ -436,0 +444 @@ type IovLen = usize;
++    target_os = "nagi",
+@@ -441,0 +450,3 @@ type IovLen = libc::c_ulong;
++#[cfg(target_os = "nagi")]
++type IovLen = usize;
++
+@@ -553 +564,2 @@ impl_debug!(
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -556 +568 @@ impl_debug!(
+-    #[cfg(not(any(target_os = "espidf", target_os = "wasi", target_os = "horizon")))]
++    #[cfg(not(any(target_os = "espidf", target_os = "wasi", target_os = "horizon", target_os = "nagi")))]
+@@ -1442 +1454,2 @@ pub(crate) fn from_in6_addr(addr: in6_addr) -> Ipv6Addr {
+-    target_os = "horizon"
++    target_os = "horizon",
++    target_os = "nagi"
+@@ -1656 +1669,4 @@ impl crate::Socket {
+-    #[cfg(all(feature = "all", not(any(target_os = "redox", target_os = "wasi"))))]
++    #[cfg(all(
++        feature = "all",
++        not(any(target_os = "redox", target_os = "wasi", target_os = "nagi"))
++    ))]
+@@ -1668 +1684,4 @@ impl crate::Socket {
+-    #[cfg(all(feature = "all", not(any(target_os = "redox", target_os = "wasi"))))]
++    #[cfg(all(
++        feature = "all",
++        not(any(target_os = "redox", target_os = "wasi", target_os = "nagi"))
++    ))]

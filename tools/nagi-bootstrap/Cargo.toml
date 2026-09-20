@@ -1,0 +1,15 @@
+[workspace]
+
+[package]
+name = "nagi-bootstrap"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "nagi_cli"
+path = "../nagi-cli/src/lib.rs"
+
+[[bin]]
+name = "nagi-bootstrap"
+path = "../nagi-cli/src/main.rs"

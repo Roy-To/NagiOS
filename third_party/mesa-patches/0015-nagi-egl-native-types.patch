@@ -1,0 +1,13 @@
+diff --git a/include/EGL/eglplatform.h b/include/EGL/eglplatform.h
+--- a/include/EGL/eglplatform.h
++++ b/include/EGL/eglplatform.h
+@@ -120,3 +120,9 @@
+ typedef Window   EGLNativeWindowType;
+ 
++#elif defined(__NAGI__)
++
++typedef void *EGLNativeDisplayType;
++typedef void *EGLNativePixmapType;
++typedef void *EGLNativeWindowType;
++
+ #elif defined(__unix__)

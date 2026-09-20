@@ -1,0 +1,15 @@
+[package]
+name = "nagi-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Nagi OS host build orchestrator"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "nagi_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nagi"
+path = "src/main.rs"
+

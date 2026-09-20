@@ -1,0 +1,1053 @@
+//! C symbol surface used by the Nagi-built Rust `std` and relibc backend.
+//!
+//! These symbols are user-space adapters.  They do not map to host libc or
+//! add high-level filesystem/network syscalls to the kernel.
+
+use core::ffi::{c_char, c_int, c_void};
+use core::ptr;
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+use crate::errno::{set_errno, EAGAIN, EINVAL, ENOMEM, ENOSYS};
+use nagi_pal::time::{Clock, GuestClock};
+
+const TLS_SLOTS: usize = 64;
+const THREAD_SLOTS: usize = 2;
+static NEXT_TLS_KEY: AtomicUsize = AtomicUsize::new(1);
+static mut TLS_VALUES: [[usize; TLS_SLOTS]; THREAD_SLOTS] = [[0; TLS_SLOTS]; THREAD_SLOTS];
+
+type PthreadStart = extern "C" fn(*mut c_void) -> *mut c_void;
+
+#[repr(C)]
+struct PthreadStartRecord {
+    start: Option<PthreadStart>,
+    argument: *mut c_void,
+}
+
+unsafe impl Sync for PthreadStartRecord {}
+
+static mut PTHREAD_START_RECORD: PthreadStartRecord = PthreadStartRecord {
+    start: None,
+    argument: ptr::null_mut(),
+};
+static mut PTHREAD_STACK: *mut u8 = ptr::null_mut();
+
+#[inline]
+fn current_thread_slot() -> usize {
+    (libnagi::thread_self() as usize).min(THREAD_SLOTS - 1)
+}
+
+extern "C" fn pthread_trampoline(record: *mut c_void) -> ! {
+    let (start, argument) = unsafe {
+        let record = &*(record.cast::<PthreadStartRecord>());
+        (record.start, record.argument)
+    };
+    let result = start
+        .map(|routine| routine(argument))
+        .unwrap_or(ptr::null_mut());
+    libnagi::thread_exit(result as u64)
+}
+
+#[inline]
+unsafe fn write_errno_and_fail(error: i32) -> c_int {
+    set_errno(error);
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __errno() -> *mut c_int {
+    crate::errno::nagi_posix_errno_location()
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn malloc(size: usize) -> *mut c_void {
+    crate::nagi_posix_malloc(size.max(1)).cast()
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free(_pointer: *mut c_void) {}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn calloc(count: usize, size: usize) -> *mut c_void {
+    let Some(total) = count.checked_mul(size) else {
+        set_errno(ENOMEM);
+        return ptr::null_mut();
+    };
+    let pointer = malloc(total.max(1));
+    if !pointer.is_null() {
+        ptr::write_bytes(pointer.cast::<u8>(), 0, total);
+    }
+    pointer
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn realloc(pointer: *mut c_void, size: usize) -> *mut c_void {
+    if pointer.is_null() {
+        return malloc(size);
+    }
+    if size == 0 {
+        free(pointer);
+        return ptr::null_mut();
+    }
+    // The bounded Nagi allocator intentionally has no host-style in-place
+    // realloc.  Keep the operation explicit and copy only the requested new
+    // extent; callers that require preservation use the PAL allocator.
+    let old_size = pointer.cast::<u8>().sub(16).cast::<usize>().read();
+    let replacement = malloc(size);
+    if !replacement.is_null() {
+        ptr::copy_nonoverlapping(
+            pointer.cast::<u8>(),
+            replacement.cast::<u8>(),
+            core::cmp::min(old_size, size),
+        );
+    }
+    replacement
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn posix_memalign(
+    result: *mut *mut c_void,
+    alignment: usize,
+    size: usize,
+) -> c_int {
+    if result.is_null() || alignment < core::mem::size_of::<usize>() || !alignment.is_power_of_two()
+    {
+        return write_errno_and_fail(EINVAL);
+    }
+    let pointer = malloc(size.max(1));
+    if pointer.is_null() {
+        return write_errno_and_fail(ENOMEM);
+    }
+    // The Nagi PAL's user allocation alignment is 16 bytes.  Refuse a
+    // stronger alignment instead of returning a misaligned pointer.
+    if (pointer as usize) & (alignment - 1) != 0 {
+        return write_errno_and_fail(ENOMEM);
+    }
+    result.write(pointer);
+    0
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_write_fd(fd: c_int, bytes: *const u8, length: usize) -> isize {
+    if fd == 1 || fd == 2 {
+        return crate::nagi_posix_write(fd, bytes, length);
+    }
+    if bytes.is_null() {
+        return write_errno_and_fail(EINVAL) as isize;
+    }
+    let data = core::slice::from_raw_parts(bytes, length);
+    match crate::runtime::write(fd, data) {
+        Ok(count) => count as isize,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)) as isize,
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn write(fd: c_int, bytes: *const u8, length: usize) -> isize {
+    nagi_posix_write_fd(fd, bytes, length)
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn writev(fd: c_int, vectors: *const Iovec, count: c_int) -> isize {
+    if vectors.is_null() || count < 0 {
+        return write_errno_and_fail(EINVAL) as isize;
+    }
+    let mut written = 0_isize;
+    for index in 0..count as usize {
+        let vector = vectors.add(index).read();
+        let result = write(fd, vector.base, vector.length);
+        if result < 0 {
+            return result;
+        }
+        written = written.saturating_add(result);
+        if result as usize != vector.length {
+            break;
+        }
+    }
+    written
+}
+
+#[repr(C)]
+pub struct Iovec {
+    base: *const u8,
+    length: usize,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_initialize_filesystem(capability: u64) -> c_int {
+    if crate::runtime::initialize(capability) {
+        0
+    } else {
+        write_errno_and_fail(5)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_initialize_network(capability: u64) -> c_int {
+    if crate::runtime::initialize_network(capability) {
+        0
+    } else {
+        write_errno_and_fail(16)
+    }
+}
+
+#[repr(C)]
+pub struct NagiIpv4Address {
+    pub octets: [u8; 4],
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_resolve_ipv4(
+    name: *const c_char,
+    output: *mut NagiIpv4Address,
+) -> c_int {
+    if name.is_null() || output.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let mut bytes = [0_u8; 128];
+    let mut length = 0;
+    while length < bytes.len() {
+        let byte = name.add(length).read() as u8;
+        if byte == 0 {
+            break;
+        }
+        bytes[length] = byte;
+        length += 1;
+    }
+    if length == bytes.len() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let Ok(name) = core::str::from_utf8(&bytes[..length]) else {
+        return write_errno_and_fail(EINVAL);
+    };
+    match crate::runtime::resolve_ipv4(name) {
+        Ok(address) => {
+            output.write(NagiIpv4Address {
+                octets: address.octets(),
+            });
+            0
+        }
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_default_gateway(output: *mut NagiIpv4Address) -> c_int {
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    match crate::runtime::default_gateway() {
+        Ok(address) => {
+            output.write(NagiIpv4Address {
+                octets: address.octets(),
+            });
+            0
+        }
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+const AF_INET: c_int = 2;
+const SOCK_STREAM: c_int = 1;
+
+#[repr(C)]
+pub struct NagiSockaddrIpv4 {
+    pub family: u16,
+    pub port_be: u16,
+    pub address: [u8; 4],
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn socket(domain: c_int, socket_type: c_int, protocol: c_int) -> c_int {
+    if domain != AF_INET || socket_type != SOCK_STREAM || protocol != 0 {
+        return write_errno_and_fail(97);
+    }
+    match crate::runtime::socket() {
+        Ok(fd) => fd,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn connect(
+    fd: c_int,
+    address: *const c_void,
+    address_length: usize,
+) -> c_int {
+    if address.is_null() || address_length < core::mem::size_of::<NagiSockaddrIpv4>() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let address = &*address.cast::<NagiSockaddrIpv4>();
+    if address.family as c_int != AF_INET || address.port_be == 0 {
+        return write_errno_and_fail(EINVAL);
+    }
+    match crate::runtime::connect(
+        fd,
+        nagi_net::Ipv4Address::new(address.address),
+        u16::from_be(address.port_be),
+    ) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn send(
+    fd: c_int,
+    bytes: *const c_void,
+    length: usize,
+    _flags: c_int,
+) -> isize {
+    if bytes.is_null() {
+        return write_errno_and_fail(EINVAL) as isize;
+    }
+    match crate::runtime::write(fd, core::slice::from_raw_parts(bytes.cast(), length)) {
+        Ok(count) => count as isize,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)) as isize,
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn recv(
+    fd: c_int,
+    bytes: *mut c_void,
+    length: usize,
+    _flags: c_int,
+) -> isize {
+    if bytes.is_null() {
+        return write_errno_and_fail(EINVAL) as isize;
+    }
+    match crate::runtime::read(fd, core::slice::from_raw_parts_mut(bytes.cast(), length)) {
+        Ok(count) => count as isize,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)) as isize,
+    }
+}
+
+const O_CREAT: c_int = 0x0200_0000;
+const O_TRUNC: c_int = 0x0400_0000;
+
+unsafe fn c_path(path: *const c_char, output: &mut [u8]) -> Result<&[u8], c_int> {
+    if path.is_null() {
+        return Err(EINVAL);
+    }
+    let mut length = 0;
+    while length < output.len() {
+        let byte = path.add(length).read() as u8;
+        if byte == 0 {
+            let mut start = 0;
+            while start < length && output[start] == b'/' {
+                start += 1;
+            }
+            if start == length || output[start..length].contains(&b'/') {
+                return Err(EINVAL);
+            }
+            return Ok(&output[start..length]);
+        }
+        output[length] = byte;
+        length += 1;
+    }
+    Err(EINVAL)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_open(path: *const c_char, flags: c_int, _mode: c_int) -> c_int {
+    let mut bytes = [0_u8; 64];
+    let name = match c_path(path, &mut bytes) {
+        Ok(name) => name,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::open(name, flags & O_CREAT != 0, flags & O_TRUNC != 0) {
+        Ok(fd) => fd,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn open(path: *const c_char, flags: c_int, mode: c_int) -> c_int {
+    nagi_posix_open(path, flags, mode)
+}
+
+#[repr(C)]
+struct NagiStat {
+    st_dev: i64,
+    st_ino: u64,
+    st_nlink: u64,
+    st_mode: i32,
+    st_uid: u32,
+    st_gid: u32,
+    st_rdev: i64,
+    st_size: i64,
+    st_blksize: i64,
+    st_blocks: u64,
+    st_atime: i64,
+    st_atime_nsec: i64,
+    st_mtime: i64,
+    st_mtime_nsec: i64,
+    st_ctime: i64,
+    st_ctime_nsec: i64,
+    _pad: [c_char; 24],
+}
+
+unsafe fn fill_stat(fd: c_int, output: *mut NagiStat) -> c_int {
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let size = match crate::runtime::size(fd) {
+        Ok(size) => size,
+        Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
+    };
+    output.write(NagiStat {
+        st_dev: 0,
+        st_ino: 1,
+        st_nlink: 1,
+        st_mode: 0o100644,
+        st_uid: 0,
+        st_gid: 0,
+        st_rdev: 0,
+        st_size: size as i64,
+        st_blksize: 1024,
+        st_blocks: size.div_ceil(512) as u64,
+        st_atime: 0,
+        st_atime_nsec: 0,
+        st_mtime: 0,
+        st_mtime_nsec: 0,
+        st_ctime: 0,
+        st_ctime_nsec: 0,
+        _pad: [0; 24],
+    });
+    0
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fstat(fd: c_int, output: *mut c_void) -> c_int {
+    fill_stat(fd, output.cast())
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn stat(path: *const c_char, output: *mut c_void) -> c_int {
+    let fd = nagi_posix_open(path, 0, 0);
+    if fd < 0 {
+        return -1;
+    }
+    let result = fill_stat(fd, output.cast());
+    let _ = nagi_posix_close(fd);
+    result
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_lseek(fd: c_int, offset: i64, whence: c_int) -> i64 {
+    match crate::runtime::seek(fd, offset as isize, whence) {
+        Ok(position) => position as i64,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)) as i64,
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lseek(fd: c_int, offset: i64, whence: c_int) -> i64 {
+    nagi_posix_lseek(fd, offset, whence)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getcwd(buffer: *mut c_char, length: usize) -> *mut c_char {
+    if buffer.is_null() || length < 2 {
+        set_errno(EINVAL);
+        return ptr::null_mut();
+    }
+    buffer.write(b'/' as c_char);
+    buffer.add(1).write(0);
+    buffer
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn realpath(path: *const c_char, resolved: *mut c_char) -> *mut c_char {
+    if path.is_null() || resolved.is_null() {
+        set_errno(EINVAL);
+        return ptr::null_mut();
+    }
+    let mut bytes = [0_u8; 64];
+    let name = match c_path(path, &mut bytes) {
+        Ok(name) => name,
+        Err(error) => {
+            set_errno(error);
+            return ptr::null_mut();
+        }
+    };
+    let mut index = 0;
+    resolved.add(index).write(b'/' as c_char);
+    index += 1;
+    for &byte in name {
+        resolved.add(index).write(byte as c_char);
+        index += 1;
+    }
+    resolved.add(index).write(0);
+    resolved
+}
+
+const CLOCK_REALTIME: c_int = 1;
+const CLOCK_MONOTONIC: c_int = 4;
+
+#[repr(C)]
+pub struct NagiTimespec {
+    tv_sec: i64,
+    tv_nsec: i64,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn clock_gettime(clock: c_int, output: *mut NagiTimespec) -> c_int {
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let nanos = if clock == CLOCK_REALTIME {
+        match GuestClock.realtime_ns() {
+            Ok(nanos) => nanos,
+            Err(_) => return write_errno_and_fail(ENOSYS),
+        }
+    } else if clock == CLOCK_MONOTONIC {
+        match GuestClock.monotonic_ns() {
+            Ok(nanos) => nanos,
+            Err(_) => return write_errno_and_fail(ENOSYS),
+        }
+    } else {
+        return write_errno_and_fail(EINVAL);
+    };
+    output.write(NagiTimespec {
+        tv_sec: (nanos / 1_000_000_000) as i64,
+        tv_nsec: (nanos % 1_000_000_000) as i64,
+    });
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nanosleep(
+    requested: *const NagiTimespec,
+    _remaining: *mut NagiTimespec,
+) -> c_int {
+    if requested.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let request = &*requested;
+    if request.tv_sec < 0 || !(0..1_000_000_000).contains(&request.tv_nsec) {
+        return write_errno_and_fail(EINVAL);
+    }
+    let Some(seconds) = (request.tv_sec as u64).checked_mul(1_000_000_000) else {
+        return write_errno_and_fail(EINVAL);
+    };
+    let Some(nanos) = seconds.checked_add(request.tv_nsec as u64) else {
+        return write_errno_and_fail(EINVAL);
+    };
+    match GuestClock.sleep_ns(nanos) {
+        Ok(()) => 0,
+        Err(_) => write_errno_and_fail(ENOSYS),
+    }
+}
+
+/// Map a VFS file through the bounded anonymous VMO mapping path, then fill
+/// the mapped pages from Nagi VFS.  This is the current bootstrap file-backed
+/// mapping contract; it never reads a host file or creates a host mapping.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_mmap_file(
+    length: usize,
+    protection: i32,
+    fd: c_int,
+    offset: usize,
+) -> *mut u8 {
+    if fd < 0 {
+        return crate::nagi_posix_mmap(length, protection);
+    }
+    let address = crate::nagi_posix_mmap(length, protection);
+    if address.is_null() {
+        return ptr::null_mut();
+    }
+    let destination = core::slice::from_raw_parts_mut(address, length);
+    if crate::runtime::read_at(fd, offset, destination).is_err() {
+        let _ = crate::nagi_posix_munmap(address, length);
+        write_errno_and_fail(EINVAL);
+        return ptr::null_mut();
+    }
+    address
+}
+
+#[repr(C)]
+pub struct NagiPollFd {
+    pub fd: c_int,
+    pub events: i16,
+    pub revents: i16,
+}
+
+const POLLIN: i16 = 0x0001;
+const POLLOUT: i16 = 0x0004;
+const POLLERR: i16 = 0x0008;
+const POLLHUP: i16 = 0x0010;
+
+/// Bounded user-space readiness polling.  File descriptors are checked by
+/// the VFS service and the timeout sleeps through the guest timer syscall.
+/// Socket readiness uses the same entry point once a SocketApi descriptor is
+/// installed; unsupported descriptor kinds fail closed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_poll_fds(
+    fds: *mut NagiPollFd,
+    count: usize,
+    timeout_ms: i32,
+) -> c_int {
+    if (count != 0 && fds.is_null()) || count > 32 || timeout_ms < -1 {
+        return write_errno_and_fail(EINVAL);
+    }
+    let started = GuestClock.monotonic_ns().ok();
+    loop {
+        let mut ready = 0;
+        for index in 0..count {
+            let poll_fd = &mut *fds.add(index);
+            poll_fd.revents = 0;
+            match crate::runtime::readiness(poll_fd.fd, poll_fd.events) {
+                Ok(revents) => {
+                    poll_fd.revents = revents;
+                    if revents != 0 {
+                        ready += 1;
+                    }
+                }
+                Err(crate::runtime::RuntimeError::InvalidFd) => {
+                    poll_fd.revents = POLLERR;
+                    ready += 1;
+                }
+                Err(_) => return write_errno_and_fail(ENOSYS),
+            }
+        }
+        if ready != 0 || timeout_ms == 0 {
+            return ready;
+        }
+        let Some(started) = started else {
+            return write_errno_and_fail(ENOSYS);
+        };
+        let now = match GuestClock.monotonic_ns() {
+            Ok(now) => now,
+            Err(_) => return write_errno_and_fail(ENOSYS),
+        };
+        let elapsed_ms = now.saturating_sub(started) / 1_000_000;
+        if timeout_ms >= 0 && elapsed_ms >= timeout_ms as u64 {
+            return 0;
+        }
+        let sleep_ms = if timeout_ms < 0 {
+            1
+        } else {
+            (timeout_ms as u64 - elapsed_ms).min(1)
+        };
+        if GuestClock
+            .sleep_ns(sleep_ms.saturating_mul(1_000_000))
+            .is_err()
+        {
+            return write_errno_and_fail(ENOSYS);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn poll(fds: *mut NagiPollFd, count: usize, timeout_ms: c_int) -> c_int {
+    nagi_posix_poll_fds(fds, count, timeout_ms)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pipe2(fds: *mut c_int, flags: c_int) -> c_int {
+    if fds.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    match crate::runtime::pipe2(flags) {
+        Ok((reader, writer)) => {
+            fds.write(reader);
+            fds.add(1).write(writer);
+            0
+        }
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pipe(fds: *mut c_int) -> c_int {
+    pipe2(fds, 0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fcntl(fd: c_int, command: c_int, argument: c_int) -> c_int {
+    match crate::runtime::fcntl(fd, command, argument) {
+        Ok(value) => value,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_read(_fd: c_int, _bytes: *mut u8, _length: usize) -> isize {
+    if _bytes.is_null() {
+        return write_errno_and_fail(EINVAL) as isize;
+    }
+    let destination = core::slice::from_raw_parts_mut(_bytes, _length);
+    match crate::runtime::read(_fd, destination) {
+        Ok(count) => count as isize,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)) as isize,
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn read(fd: c_int, bytes: *mut u8, length: usize) -> isize {
+    nagi_posix_read(fd, bytes, length)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_close(_fd: c_int) -> c_int {
+    match crate::runtime::close(_fd) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn close(fd: c_int) -> c_int {
+    nagi_posix_close(fd)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strlen(mut string: *const c_char) -> usize {
+    if string.is_null() {
+        return 0;
+    }
+    let mut length = 0;
+    while string.read() != 0 {
+        length += 1;
+        string = string.add(1);
+    }
+    length
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strerror_r(error: c_int, buffer: *mut c_char, length: usize) -> c_int {
+    if buffer.is_null() || length == 0 {
+        return write_errno_and_fail(EINVAL);
+    }
+    let message = b"nagi errno\0";
+    let copy_length = core::cmp::min(length - 1, message.len() - 1);
+    ptr::copy_nonoverlapping(message.as_ptr().cast::<c_char>(), buffer, copy_length);
+    buffer.add(copy_length).write(0);
+    let _ = error;
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getenv(_name: *const c_char) -> *mut c_char {
+    ptr::null_mut()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setgroups(_count: c_int, _groups: *const u32) -> c_int {
+    write_errno_and_fail(ENOSYS)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn abort() -> ! {
+    libnagi::exit(134)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_init(attributes: *mut c_void) -> c_int {
+    if attributes.is_null() {
+        return EINVAL;
+    }
+    // relibc's pthread_attr_t is a bounded 32-byte opaque object. The native
+    // Nagi bridge deliberately chooses its own mapped 16 KiB child stack, so
+    // the requested host-sized stack is metadata only at this layer.
+    ptr::write_bytes(attributes.cast::<u8>(), 0, 32);
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_setstacksize(
+    attributes: *mut c_void,
+    _stack_size: usize,
+) -> c_int {
+    if attributes.is_null() {
+        return EINVAL;
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_destroy(attributes: *mut c_void) -> c_int {
+    if attributes.is_null() {
+        return EINVAL;
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sched_yield() -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sysconf(name: c_int) -> isize {
+    match name {
+        // POSIX _SC_PAGE_SIZE. Nagi's memory syscalls use 4096-byte pages.
+        30 => 4096,
+        // POSIX _SC_THREAD_STACK_MIN. Nagi's bootstrap bridge has a fixed,
+        // page-aligned 16 KiB child stack and does not expose host tunables.
+        75 => 4096,
+        _ => -1,
+    }
+}
+
+/// POSIX thread creation is a bounded adapter over Nagi's native
+/// entry/argument/stack bridge. The bootstrap process admits one child at a
+/// time; the child returns through `thread_exit`, never through a host ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_create(
+    thread: *mut usize,
+    _attributes: *const c_void,
+    start: Option<PthreadStart>,
+    argument: *mut c_void,
+) -> c_int {
+    if thread.is_null() || start.is_none() {
+        return EINVAL;
+    }
+    let stack = crate::nagi_posix_mmap(4 * 4096, 3);
+    if stack.is_null() {
+        return EAGAIN;
+    }
+    PTHREAD_START_RECORD = PthreadStartRecord { start, argument };
+    let Some(thread_id) = libnagi::thread_create(
+        pthread_trampoline as usize,
+        core::ptr::addr_of_mut!(PTHREAD_START_RECORD) as usize,
+        stack,
+        4 * 4096,
+    ) else {
+        let _ = crate::nagi_posix_munmap(stack, 4 * 4096);
+        PTHREAD_START_RECORD = PthreadStartRecord {
+            start: None,
+            argument: ptr::null_mut(),
+        };
+        set_errno(EAGAIN);
+        return EAGAIN;
+    };
+    PTHREAD_STACK = stack;
+    thread.write(thread_id as usize);
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_join(thread: usize, result: *mut *mut c_void) -> c_int {
+    if thread != 1 {
+        return EINVAL;
+    }
+    let Some(code) = libnagi::thread_join(thread as u64) else {
+        return EAGAIN;
+    };
+    if !result.is_null() {
+        result.write(code as *mut c_void);
+    }
+    if !PTHREAD_STACK.is_null() {
+        let stack = PTHREAD_STACK;
+        PTHREAD_STACK = ptr::null_mut();
+        let _ = crate::nagi_posix_munmap(stack, 4 * 4096);
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_self() -> usize {
+    libnagi::thread_self() as usize
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_thread_create(
+    thread: *mut usize,
+    start: Option<PthreadStart>,
+    argument: *mut c_void,
+) -> c_int {
+    pthread_create(thread, ptr::null(), start, argument)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_thread_join(thread: usize, result: *mut *mut c_void) -> c_int {
+    pthread_join(thread, result)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_mutexattr_init(_attr: *mut c_void) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_mutexattr_settype(_attr: *mut c_void, _kind: c_int) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_mutexattr_destroy(_attr: *mut c_void) -> c_int {
+    0
+}
+
+#[inline]
+unsafe fn mutex_word(mutex: *mut c_void) -> *mut u32 {
+    mutex.cast()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_mutex_init(mutex: *mut c_void, _attr: *const c_void) -> c_int {
+    if mutex.is_null() {
+        return EINVAL;
+    }
+    mutex_word(mutex).write(0);
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut c_void) -> c_int {
+    if mutex.is_null() {
+        return EINVAL;
+    }
+    let lock = &*(mutex_word(mutex) as *const core::sync::atomic::AtomicU32);
+    while lock
+        .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_mutex_trylock(mutex: *mut c_void) -> c_int {
+    if mutex.is_null() {
+        return EINVAL;
+    }
+    let lock = &*(mutex_word(mutex) as *const core::sync::atomic::AtomicU32);
+    if lock
+        .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_ok()
+    {
+        0
+    } else {
+        16
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_mutex_unlock(mutex: *mut c_void) -> c_int {
+    if mutex.is_null() {
+        return EINVAL;
+    }
+    let lock = &*(mutex_word(mutex) as *const core::sync::atomic::AtomicU32);
+    lock.store(0, Ordering::Release);
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_mutex_destroy(_mutex: *mut c_void) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_condattr_init(_attr: *mut c_void) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_condattr_setclock(_attr: *mut c_void, _clock: c_int) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_condattr_destroy(_attr: *mut c_void) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_cond_init(_condition: *mut c_void, _attr: *const c_void) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_cond_signal(_condition: *mut c_void) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_cond_wait(_condition: *mut c_void, _mutex: *mut c_void) -> c_int {
+    write_errno_and_fail(ENOSYS)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_cond_destroy(_condition: *mut c_void) -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_key_create(
+    key: *mut usize,
+    _destructor: Option<unsafe extern "C" fn(*mut c_void)>,
+) -> c_int {
+    if key.is_null() {
+        return EINVAL;
+    }
+    let value = NEXT_TLS_KEY.fetch_add(1, Ordering::Relaxed);
+    if value >= TLS_SLOTS {
+        return ENOMEM;
+    }
+    key.write(value);
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_key_delete(key: usize) -> c_int {
+    if key >= TLS_SLOTS {
+        return EINVAL;
+    }
+    let values = core::ptr::addr_of_mut!(TLS_VALUES);
+    for index in 0..THREAD_SLOTS {
+        (*values)[index][key] = 0;
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_getspecific(key: usize) -> *mut c_void {
+    if key >= TLS_SLOTS {
+        return ptr::null_mut();
+    }
+    TLS_VALUES[current_thread_slot()][key] as *mut c_void
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_setspecific(key: usize, value: *const c_void) -> c_int {
+    if key >= TLS_SLOTS {
+        return EINVAL;
+    }
+    TLS_VALUES[current_thread_slot()][key] = value as usize;
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _Unwind_GetIP(_context: *mut c_void) -> usize {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn _Unwind_Backtrace(
+    _trace: Option<unsafe extern "C" fn(*mut c_void, *mut c_void) -> c_int>,
+    _context: *mut c_void,
+) -> c_int {
+    0
+}

@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = [
+    "tools/nagi-cli",
+    "tools/nagi-idl",
+    "crates/nagi-bootinfo",
+    "crates/nagi-abi",
+    "crates/nagi-model",
+    "kernel",
+    "user/libnagi",
+    "user/nagi-net",
+    "user/nagi-pal",
+    "user/nagi-posix",
+    "user/nagi-audio",
+    "user/nagi-history",
+    "user/nagi-package",
+    "user/nagi-servo",
+    "user/nagi-init",
+]
+default-members = [
+    "tools/nagi-cli",
+    "crates/nagi-bootinfo",
+]
+exclude = ["third_party/relibc", "third_party/servo"]
+
+# Servo's pinned libc is materialized and patched by `nagi fetch`. Keep the
+# parent workspace on that same Nagi-owned source when the target-local Servo
+# graph is selected; the nested Servo workspace patch is not inherited by this
+# workspace's resolver.
+[patch.crates-io]
+libc = { path = "third_party/libc-servo" }
+freetype-sys = { path = "third_party/freetype-sys" }
+hyper-util = { path = "third_party/hyper-util-servo" }
+mio = { path = "third_party/mio-servo" }
+socket2 = { path = "third_party/socket2-servo" }
+tokio = { path = "third_party/tokio-servo" }

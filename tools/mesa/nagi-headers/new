@@ -1,0 +1,41 @@
+#ifndef NAGI_FREESTANDING_NEW_H
+#define NAGI_FREESTANDING_NEW_H
+
+#include <stddef.h>
+
+namespace std {
+
+struct nothrow_t {
+   explicit nothrow_t() {}
+};
+
+static const nothrow_t nothrow = nothrow_t();
+
+} /* namespace std */
+
+inline void *operator new(size_t, void *place) noexcept
+{
+   return place;
+}
+
+inline void *operator new[](size_t, void *place) noexcept
+{
+   return place;
+}
+
+inline void operator delete(void *, void *) noexcept {}
+inline void operator delete[](void *, void *) noexcept {}
+
+void *operator new(size_t size);
+void *operator new[](size_t size);
+void operator delete(void *pointer) noexcept;
+void operator delete[](void *pointer) noexcept;
+void operator delete(void *pointer, size_t size) noexcept;
+void operator delete[](void *pointer, size_t size) noexcept;
+
+void *operator new(size_t size, const std::nothrow_t &) noexcept;
+void *operator new[](size_t size, const std::nothrow_t &) noexcept;
+void operator delete(void *pointer, const std::nothrow_t &) noexcept;
+void operator delete[](void *pointer, const std::nothrow_t &) noexcept;
+
+#endif /* NAGI_FREESTANDING_NEW_H */

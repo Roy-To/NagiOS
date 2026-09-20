@@ -1,0 +1,55 @@
+diff --git a/components/servo/Cargo.toml b/components/servo/Cargo.toml
+--- a/components/servo/Cargo.toml
++++ b/components/servo/Cargo.toml
+@@ -188,6 +188,6 @@ arboard = { workspace = true, optional = true }
+ webxr = { workspace = true, optional = true, features = ["glwindow", "headless"] }
+ 
+-[target.'cfg(all(not(target_os = "windows"), not(target_os = "ios"), not(target_os = "android"), not(target_env = "ohos"), not(target_arch = "arm"), not(target_arch = "aarch64"), not(target_arch="riscv32"), not(target_arch="riscv64")))'.dependencies]
++[target.'cfg(all(not(target_os = "windows"), not(target_os = "ios"), not(target_os = "android"), not(target_os = "nagi"), not(target_env = "ohos"), not(target_arch = "arm"), not(target_arch = "aarch64"), not(target_arch="riscv32"), not(target_arch="riscv64")))'.dependencies]
+ gaol = { workspace = true }
+ 
+ [target.'cfg(target_os = "windows")'.dependencies]
+diff --git a/components/constellation/Cargo.toml b/components/constellation/Cargo.toml
+--- a/components/constellation/Cargo.toml
++++ b/components/constellation/Cargo.toml
+@@ -70,4 +70,4 @@ webgpu_traits = { workspace = true, optional = true }
+ webxr-api = { workspace = true }
+ 
+-[target.'cfg(any(target_os="macos", all(not(target_os = "windows"), not(target_os = "ios"), not(target_os="android"), not(target_env="ohos"), not(target_arch="arm"), not(target_arch="aarch64"), not(target_arch="riscv32"), not(target_arch="riscv64"))))'.dependencies]
++[target.'cfg(any(target_os="macos", all(not(target_os = "windows"), not(target_os = "ios"), not(target_os="android"), not(target_os="nagi"), not(target_env="ohos"), not(target_arch="arm"), not(target_arch="aarch64"), not(target_arch="riscv32"), not(target_arch="riscv64"))))'.dependencies]
+ gaol = { workspace = true }
+diff --git a/components/constellation/sandboxing.rs b/components/constellation/sandboxing.rs
+--- a/components/constellation/sandboxing.rs
++++ b/components/constellation/sandboxing.rs
+@@ -11,6 +11,7 @@ use std::{env, process};
+         not(target_os = "windows"),
+         not(target_os = "ios"),
+         not(target_os = "android"),
++        not(target_os = "nagi"),
+         not(target_env = "ohos"),
+         not(target_arch = "arm"),
+         not(target_arch = "aarch64"),
+@@ -97,6 +98,7 @@ pub fn content_process_sandbox_profile() -> Profile {
+     not(target_os = "windows"),
+     not(target_os = "ios"),
+     not(target_os = "android"),
++    not(target_os = "nagi"),
+     not(target_env = "ohos"),
+     not(target_arch = "arm"),
+     not(target_arch = "aarch64"),
+@@ -130,6 +132,7 @@ pub fn content_process_sandbox_profile() -> Profile {
+     target_os = "windows",
+     target_os = "ios",
+     target_os = "android",
++    target_os = "nagi",
+     target_env = "ohos",
+     target_arch = "arm",
+     target_arch = "riscv32",
+@@ -181,6 +184,7 @@ pub fn spawn_multiprocess(
+     not(target_os = "windows"),
+     not(target_os = "ios"),
+     not(target_os = "android"),
++    not(target_os = "nagi"),
+     not(target_env = "ohos"),
+     not(target_arch = "arm"),
+     not(target_arch = "aarch64"),

@@ -1,0 +1,17 @@
+diff --git a/include/c99_alloca.h b/include/c99_alloca.h
+--- a/include/c99_alloca.h
++++ b/include/c99_alloca.h
+@@ -37,6 +37,10 @@
+ #elif defined(__sun) || defined(__CYGWIN__)
+ 
+ #  include <alloca.h>
+ 
+ #else /* !defined(_MSC_VER) */
+ 
++#  if defined(__NAGI__)
++#    include <alloca.h>
++#  endif
++
+ #  include <stdlib.h>
+ 
+ #endif /* !defined(_MSC_VER) */

@@ -1,0 +1,141 @@
+diff --git a/library/std/src/os/mod.rs b/library/std/src/os/mod.rs
+index ab7734a..8a2774e 100644
+--- a/library/std/src/os/mod.rs
++++ b/library/std/src/os/mod.rs
+@@ -163,7 +163,7 @@ pub mod nto;
+ pub mod nuttx;
+ #[cfg(target_os = "openbsd")]
+ pub mod openbsd;
+-#[cfg(target_os = "redox")]
++#[cfg(any(target_os = "redox", target_os = "nagi"))]
+ pub mod redox;
+ #[cfg(target_os = "rtems")]
+ pub mod rtems;
+diff --git a/library/std/src/os/unix/mod.rs b/library/std/src/os/unix/mod.rs
+index 78c9572..04f0a3e 100644
+--- a/library/std/src/os/unix/mod.rs
++++ b/library/std/src/os/unix/mod.rs
+@@ -75,7 +75,7 @@ mod platform {
+     pub use crate::os::nuttx::*;
+     #[cfg(target_os = "openbsd")]
+     pub use crate::os::openbsd::*;
+-    #[cfg(target_os = "redox")]
++    #[cfg(any(target_os = "redox", target_os = "nagi"))]
+     pub use crate::os::redox::*;
+     #[cfg(target_os = "rtems")]
+     pub use crate::os::rtems::*;
+diff --git a/library/std/src/sys/args/unix.rs b/library/std/src/sys/args/unix.rs
+index 0dfbd5f..603fc59 100644
+--- a/library/std/src/sys/args/unix.rs
++++ b/library/std/src/sys/args/unix.rs
+@@ -77,6 +77,7 @@ pub fn args() -> Args {
+     target_os = "l4re",
+     target_os = "fuchsia",
+     target_os = "redox",
++    target_os = "nagi",
+     target_os = "vxworks",
+     target_os = "horizon",
+     target_os = "aix",
+diff --git a/library/std/src/sys/random/mod.rs b/library/std/src/sys/random/mod.rs
+index fc85797..82541c7 100644
+--- a/library/std/src/sys/random/mod.rs
++++ b/library/std/src/sys/random/mod.rs
+@@ -48,7 +48,7 @@ cfg_if::cfg_if! {
+     ))] {
+         mod unix_legacy;
+         pub use unix_legacy::fill_bytes;
+-    } else if #[cfg(target_os = "redox")] {
++    } else if #[cfg(any(target_os = "redox", target_os = "nagi"))] {
+         mod redox;
+         pub use redox::fill_bytes;
+     } else if #[cfg(all(target_vendor = "fortanix", target_env = "sgx"))] {
+diff --git a/library/std/src/sys/pal/unix/os.rs b/library/std/src/sys/pal/unix/os.rs
+index 0e68313..7468258 100644
+--- a/library/std/src/sys/pal/unix/os.rs
++++ b/library/std/src/sys/pal/unix/os.rs
+@@ -43,7 +43,7 @@ unsafe extern "C" {
+             target_os = "openbsd",
+             target_os = "cygwin",
+             target_os = "android",
+-            target_os = "redox",
++            any(target_os = "redox", target_os = "nagi"),
+             target_os = "nuttx",
+             target_env = "newlib"
+         ),
+@@ -494,7 +494,7 @@ pub fn current_exe() -> io::Result<PathBuf> {
+     }
+ }
+ 
+-#[cfg(target_os = "redox")]
++#[cfg(any(target_os = "redox", target_os = "nagi"))]
+ pub fn current_exe() -> io::Result<PathBuf> {
+     crate::fs::read_to_string("/scheme/sys/exe").map(PathBuf::from)
+ }
+diff --git a/library/std/src/sys/process/unix/unix.rs b/library/std/src/sys/process/unix/unix.rs
+index 5d13d6d..96abb9b 100644
+--- a/library/std/src/sys/process/unix/unix.rs
++++ b/library/std/src/sys/process/unix/unix.rs
+@@ -294,7 +294,7 @@ impl Command {
+         {
+             if let Some(_g) = self.get_groups() {
+                 //FIXME: Redox kernel does not support setgroups yet
+-                #[cfg(not(target_os = "redox"))]
++                #[cfg(not(any(target_os = "redox", target_os = "nagi")))]
+                 cvt(libc::setgroups(_g.len().try_into().unwrap(), _g.as_ptr()))?;
+             }
+             if let Some(u) = self.get_gid() {
+@@ -308,7 +308,7 @@ impl Command {
+                 // uid has dropped, we may still have groups that enable us to
+                 // do super-user things.
+                 //FIXME: Redox kernel does not support setgroups yet
+-                #[cfg(not(target_os = "redox"))]
++                #[cfg(not(any(target_os = "redox", target_os = "nagi")))]
+                 if self.get_groups().is_none() {
+                     let res = cvt(libc::setgroups(0, crate::ptr::null()));
+                     if let Err(e) = res {
+diff --git a/library/std/src/sys/pal/unix/thread.rs b/library/std/src/sys/pal/unix/thread.rs
+index 7f64401..175930b 100644
+--- a/library/std/src/sys/pal/unix/thread.rs
++++ b/library/std/src/sys/pal/unix/thread.rs
+@@ -241,7 +241,7 @@ impl Thread {
+         target_env = "newlib",
+         target_os = "l4re",
+         target_os = "emscripten",
+-        target_os = "redox",
++        any(target_os = "redox", target_os = "nagi"),
+         target_os = "hurd",
+         target_os = "aix",
+     ))]
+diff --git a/library/std/src/sys/fs/unix.rs b/library/std/src/sys/fs/unix.rs
+index b310db2..ca113be 100644
+--- a/library/std/src/sys/fs/unix.rs
++++ b/library/std/src/sys/fs/unix.rs
+@@ -987,6 +987,7 @@ impl DirEntry {
+         target_os = "nto",
+         target_os = "hurd",
+         target_os = "rtems",
++        target_os = "nagi",
+         target_vendor = "apple",
+     ))]
+     pub fn ino(&self) -> u64 {
+diff --git a/library/std/src/sys/pal/unix/mod.rs b/library/std/src/sys/pal/unix/mod.rs
+index ba9e14b..882ed2a 100644
+--- a/library/std/src/sys/pal/unix/mod.rs
++++ b/library/std/src/sys/pal/unix/mod.rs
+@@ -66,6 +66,7 @@ pub unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
+             target_os = "fuchsia",
+             target_os = "vxworks",
+             target_os = "redox",
++            target_os = "nagi",
+             target_os = "l4re",
+             target_os = "horizon",
+             target_os = "vita",
+diff --git a/library/std/build.rs b/library/std/build.rs
+index 4c2d4d3..6b62e8c 100644
+--- a/library/std/build.rs
++++ b/library/std/build.rs
+@@ -35,3 +35,4 @@
+         || target_os == "l4re"
+         || target_os == "redox"
++        || target_os == "nagi"
+         || target_os == "haiku"

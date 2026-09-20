@@ -1,0 +1,49 @@
+diff --git a/meson.build b/meson.build
+index 52b713c28a3..75bb659d38c 100644
+--- a/meson.build
++++ b/meson.build
+@@ -287 +287 @@ with_dri = false
+-if with_gallium and system_has_kms_drm
++if with_gallium and (system_has_kms_drm or host_machine.system() == 'nagi')
+@@ -407,0 +408 @@ with_platform_macos = _platforms.contains('macos')
++with_platform_nagi = _platforms.contains('nagi')
+@@ -460 +461 @@ with_egl = get_option('egl') \
+-  .require(with_platform_windows or with_platform_haiku or with_dri or with_platform_android, error_message : 'EGL requires DRI, Haiku, Windows or Android') \
++  .require(with_platform_windows or with_platform_haiku or with_dri or with_platform_android or with_platform_nagi, error_message : 'EGL requires DRI, Haiku, Windows, Android or Nagi') \
+@@ -929 +930 @@ endif
+-if cc.get_define('ETIME', prefix : '#include <errno.h>') == ''
++if host_machine.system() != 'nagi' and cc.get_define('ETIME', prefix : '#include <errno.h>') == ''
+@@ -2252 +2253 @@ else
+-  prog_nm = find_program('nm')
++  prog_nm = find_program('nm', 'llvm-nm')
+diff --git a/meson_options.txt b/meson_options.txt
+index 79ee65e6094..f714fc88dae 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -15 +15 @@ option(
+-    'auto', 'x11', 'wayland', 'haiku', 'android', 'windows', 'macos',
++    'auto', 'x11', 'wayland', 'haiku', 'android', 'windows', 'macos', 'nagi',
+diff --git a/src/egl/meson.build b/src/egl/meson.build
+index 3a5a32a6cf9..874a8f3c87d 100644
+--- a/src/egl/meson.build
++++ b/src/egl/meson.build
+@@ -9 +9,6 @@ cpp_args_for_egl = []
+-link_for_egl = [libpipe_loader_dynamic]
++link_for_egl = [with_platform_nagi ? libpipe_loader_static : libpipe_loader_dynamic]
++if with_platform_nagi
++  deps_for_egl = [driver_swrast]
++else
++  deps_for_egl = []
++endif
+@@ -16 +20,0 @@ endif
+-deps_for_egl = []
+@@ -183 +187 @@ egl_def = custom_target(
+-libegl = shared_library(
++libegl = library(
+diff --git a/src/mapi/shared-glapi/meson.build b/src/mapi/shared-glapi/meson.build
+index e9e7366568a..b18666048ae 100644
+--- a/src/mapi/shared-glapi/meson.build
++++ b/src/mapi/shared-glapi/meson.build
+@@ -29 +29 @@ endif
+-libglapi = shared_library(
++libglapi = library(

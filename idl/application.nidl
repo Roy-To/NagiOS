@@ -1,0 +1,16 @@
+// Source of truth for the generated M16 SDK bindings.
+service application@1 {
+    fn application_open(app_id: u64, session_id: u64) -> Application;
+    fn application_surface(application: Application, context: PresentationContext) -> Surface;
+}
+
+enum PresentationClass { Compact = 0, Medium = 1, Expanded = 2 }
+struct PresentationContext {
+    logical_width: u16;
+    logical_height: u16;
+    dpi: u16;
+    touch: bool;
+    keyboard: bool;
+    pointer: bool;
+    class_id: PresentationClass;
+}

@@ -1,0 +1,22 @@
+#ifndef NAGI_FREESTANDING_TYPE_TRAITS_H
+#define NAGI_FREESTANDING_TYPE_TRAITS_H
+
+/*
+ * Mesa's Nagi Softpipe slice uses only std::underlying_type_t for its
+ * compile-time enum operators. The target deliberately has no host C++
+ * standard library, so expose that one language-backed trait from clang
+ * rather than pretending to provide the complete <type_traits> contract.
+ */
+namespace std {
+
+template <typename T>
+struct underlying_type {
+   using type = __underlying_type(T);
+};
+
+template <typename T>
+using underlying_type_t = typename underlying_type<T>::type;
+
+} /* namespace std */
+
+#endif /* NAGI_FREESTANDING_TYPE_TRAITS_H */

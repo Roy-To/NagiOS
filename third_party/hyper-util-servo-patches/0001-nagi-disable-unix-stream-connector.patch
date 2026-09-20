@@ -1,0 +1,12 @@
+diff --git a/src/client/legacy/connect/http.rs b/src/client/legacy/connect/http.rs
+--- a/src/client/legacy/connect/http.rs
++++ b/src/client/legacy/connect/http.rs
+@@ -580,7 +580,7 @@ impl Connection for TcpStream {
+     }
+ }
+ 
+-#[cfg(unix)]
++#[cfg(all(unix, not(target_os = "nagi")))]
+ impl Connection for tokio::net::UnixStream {
+     fn connected(&self) -> Connected {
+         Connected::new()

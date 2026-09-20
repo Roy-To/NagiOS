@@ -1,0 +1,13 @@
+[package]
+name = "nagi-posix"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+libnagi = { path = "../libnagi" }
+nagi-pal = { path = "../nagi-pal" }
+nagi-net = { path = "../nagi-net" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

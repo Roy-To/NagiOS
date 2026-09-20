@@ -1,0 +1,130 @@
+format_version = 1
+
+# Nagi third-party source lock
+#
+# M0 intentionally pins no external source. Each future entry must include:
+# component, repository, revision, source hash, license, and Nagi patch set.
+
+[sources]
+
+[sources.relibc]
+component = "relibc"
+repository = "https://gitlab.redox-os.org/redox-os/relibc.git"
+revision = "69bb008af1f6d93758631cf0df250500d53a065b"
+source_hash = "git:69bb008af1f6d93758631cf0df250500d53a065b"
+license = "MIT"
+vendored_path = "third_party/relibc"
+nagi_adapter = "third_party/relibc/src/nagi.rs"
+
+[sources.libc]
+component = "libc"
+version = "0.2.174"
+repository = "https://crates.io/crates/libc/0.2.174"
+source_hash = "sha256:1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776"
+license = "MIT OR Apache-2.0"
+vendored_path = "third_party/libc"
+nagi_patch = "third_party/libc/src/unix/nagi.rs"
+
+[sources.rust_std]
+component = "rust-std"
+toolchain = "nightly-2025-08-01"
+source = "rustup toolchain rust-src"
+patch = "third_party/rust-std/patches/0001-nagi-target-support.patch"
+
+[sources.smoltcp]
+component = "smoltcp"
+version = "0.12.0"
+repository = "https://github.com/smoltcp-rs/smoltcp.git"
+revision = "d2d647090d544b1e7c142571da9d55f7280f664b"
+source_hash = "sha256:dad095989c1533c1c266d9b1e8d70a1329dd3723c3edac6d03bbd67e7bf6f4bb"
+license = "0BSD"
+registry_archive = "https://crates.io/api/v1/crates/smoltcp/0.12.0/download"
+nagi_patch = "none"
+
+[sources.servo]
+component = "servo"
+repository = "https://github.com/servo/servo.git"
+revision = "b820a9679a784877f91b4acc90c2c6e849f18d3b"
+source_hash = "git:b820a9679a784877f91b4acc90c2c6e849f18d3b"
+license = "MPL-2.0"
+vendored_path = "third_party/servo"
+rust_version = "1.97.1"
+nagi_patch = "third_party/servo-patches"
+
+[sources.mesa]
+component = "mesa-softpipe"
+repository = "https://gitlab.freedesktop.org/mesa/mesa.git"
+revision = "f1f246cfda65eff82fba3be1caf2d23bdeda60cc"
+source_hash = "git:f1f246cfda65eff82fba3be1caf2d23bdeda60cc"
+license = "MIT (core/Gallium); component notices required"
+vendored_path = "third_party/mesa"
+nagi_patch = "third_party/mesa-patches"
+
+[sources.surfman]
+component = "surfman-nagi-mesa-surfaceless"
+repository = "https://github.com/servo/surfman.git"
+revision = "205778f497327c573929c7b471194390e15f331d"
+source_hash = "git:205778f497327c573929c7b471194390e15f331d"
+license = "MIT OR Apache-2.0 OR MPL-2.0"
+vendored_path = "third_party/surfman"
+nagi_patch = "third_party/surfman-patches"
+
+[sources.libc_servo]
+component = "libc-nagi-servo"
+version = "0.2.189"
+repository = "https://crates.io/crates/libc/0.2.189"
+registry_archive = "https://crates.io/api/v1/crates/libc/0.2.189/download"
+source_hash = "sha256:3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+license = "MIT OR Apache-2.0"
+vendored_path = "third_party/libc-servo"
+nagi_patch = "third_party/libc-servo-patches"
+
+[sources.freetype_sys]
+component = "freetype-sys"
+version = "0.23.0"
+repository = "https://crates.io/crates/freetype-sys/0.23.0"
+registry_archive = "https://crates.io/api/v1/crates/freetype-sys/0.23.0/download"
+source_hash = "sha256:eab537ce43cab850c64b4cdc390ce7e4f47f877485ddc323208e268280c308ae"
+license = "MIT"
+vendored_path = "third_party/freetype-sys"
+nagi_patch = "third_party/freetype-sys-patches"
+
+[sources.mio_servo]
+component = "mio-servo"
+version = "1.2.3"
+repository = "https://crates.io/crates/mio/1.2.3"
+registry_archive = "https://crates.io/api/v1/crates/mio/1.2.3/download"
+source_hash = "sha256:4b18443e9c262bfe8fa82f51666e2642c53393f7e5c27b3e1aeab922cff5b9d8"
+license = "MIT"
+vendored_path = "third_party/mio-servo"
+nagi_patch = "third_party/mio-servo-patches"
+
+[sources.socket2_servo]
+component = "socket2-servo"
+version = "0.6.5"
+repository = "https://crates.io/crates/socket2/0.6.5"
+registry_archive = "https://crates.io/api/v1/crates/socket2/0.6.5/download"
+source_hash = "sha256:c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
+license = "MIT OR Apache-2.0"
+vendored_path = "third_party/socket2-servo"
+nagi_patch = "third_party/socket2-servo-patches"
+
+[sources.tokio_servo]
+component = "tokio-servo"
+version = "1.53.1"
+repository = "https://crates.io/crates/tokio/1.53.1"
+registry_archive = "https://crates.io/api/v1/crates/tokio/1.53.1/download"
+source_hash = "sha256:202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+license = "MIT"
+vendored_path = "third_party/tokio-servo"
+nagi_patch = "third_party/tokio-servo-patches"
+
+[sources.hyper_util_servo]
+component = "hyper-util-servo"
+version = "0.1.20"
+repository = "https://crates.io/crates/hyper-util/0.1.20"
+registry_archive = "https://crates.io/api/v1/crates/hyper-util/0.1.20/download"
+source_hash = "sha256:96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
+license = "MIT"
+vendored_path = "third_party/hyper-util-servo"
+nagi_patch = "third_party/hyper-util-servo-patches"

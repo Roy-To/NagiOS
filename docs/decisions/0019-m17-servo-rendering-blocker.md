@@ -1,0 +1,270 @@
+# ADR 0019: M17 requires a real guest software-rendering backend
+
+## Status
+
+Accepted as the M17 blocking record on 2026-09-19. M17 is `BLOCKED`, not
+`PASS`: the Servo fetch/patch boundary is implemented, but the first guest web
+pixel has not been produced.
+
+## Context
+
+M17 requires Servo to render a bundled local page inside Nagi user space and
+deliver the resulting pixels through the capability-checked Nagi Surface and
+display-present path. The implementation must not use X11, Wayland, a host
+browser, host screenshots, a host filesystem, or a fake/no-op GL context.
+
+The pinned Servo revision is
+`b820a9679a784877f91b4acc90c2c6e849f18d3b`. Its public
+`RenderingContext`/WebRender path requires genuine GL operations and its
+current shared paint manifest enables Surfman's `sm-x11` feature. Servo's
+`SoftwareRenderingContext` is an OpenGL/Surfman software adapter, not a CPU
+HTML-to-RGBA renderer. Nagi has no pinned Mesa source or Softpipe build path
+yet.
+
+## Evidence
+
+- `cargo check --manifest-path third_party/servo/Cargo.toml -p servo --target targets/x86_64-unknown-nagi-user.json --no-default-features`
+  fails because the custom target has no installed `core`/`std`.
+- The same check with `-Zbuild-std=std,panic_abort` reaches standard-library
+  compilation but fails because the host MSVC `link.exe` is unavailable.
+- A temporary `lld-link.exe`/Windows SDK attempt reaches link resolution but
+  fails on missing MSVC CRT/runtime symbols including `mainCRTStartup`,
+  `memcpy`, `__CxxFrameHandler3`, `_tls_index`, and `_CxxThrowException`.
+- Read-only source inspection shows Servo paint currently requests Surfman
+  `sm-x11`; the Nagi repository has no pinned Mesa/Softpipe source entry.
+- The existing `user/nagi-servo` crate provides bounded Surface copy, input,
+  and wake primitives, but it cannot satisfy Servo's GL-backed
+  `RenderingContext` contract by itself.
+
+## Decision
+
+Keep M17 blocked until all of the following are implemented and reproducible:
+
+1. A pinned Nagi-compatible Mesa Softpipe or equivalent guest software-GL
+   source/build entry, including source hash, license, and Nagi patch boundary.
+2. A Nagi Servo/Surfman/WebRender adapter selected for `target_os = "nagi"`
+   without X11 or Wayland features.
+3. A target build with the required patched `std`/relibc and linker/runtime
+   support.
+4. A real Servo WebView frame readback into `NagiSurface`, followed by a QEMU
+   serial marker and nonzero checksum proving `First Web Pixel on Nagi`.
+
+The fetch implementation in `5672893` remains useful and is retained: it
+applies sorted tracked patches, records generated-checkout fingerprints, and
+refuses unsafe or stale generated state without overwriting it.
+
+## Remediation continuation (2026-09-19)
+
+The `BLOCKED` status is retained as the historical acceptance state, not as a
+stop instruction. The actionable blockers were reclassified and work
+continues inside M17:
+
+- Mesa 24.3.0 is now pinned at
+  `f1f246cfda65eff82fba3be1caf2d23bdeda60cc`, with a tracked Nagi platform
+  and static Softpipe patch boundary;
+- Surfman is pinned at
+  `205778f497327c573929c7b471194390e15f331d`, with a Nagi static EGL,
+  surfaceless adapter that excludes X11 and Wayland target dependencies;
+- Servo's local libc 0.2.189 source and workspace boundary are tracked, and
+  the Nagi Albert adapter calls Servo's real software `RenderingContext` and
+  `WebView::paint` path;
+- the current next experiment is the Ubuntu target build: generate relibc C
+  headers, compile Mesa/Softpipe, aggregate its target-owned static archives,
+  build Servo with patched std, and run QEMU.
+
+The local Windows MSVC linker/CRT absence is recorded as a host verification
+limitation only. It is not an external product blocker and does not permit
+host rendering or synthetic pixel evidence.
+
+## Remediation continuation (2026-09-20)
+
+CI run `35501349699` verified the pinned Tokio adapter and stopped at
+`getrandom 0.4.3`, whose default backend rejects `target_os = "nagi"`. This
+is an internal target prerequisite. The remediation adds the real QEMU
+VirtIO-RNG device to Nagi's existing low-level device boundary, exposes a
+bounded `SYS_RANDOM_GET` syscall with user-range validation, and selects
+getrandom's custom backend from `libnagi`. No host RNG, RDRAND fallback,
+fixed seed, Unix device, or unsupported-success result is used. The target
+build and guest entropy behavior remain to be verified before the M17 gate.
+
+## Remediation continuation (2026-09-20, follow-up)
+
+CI run `35502681902` compiled the target dependencies, Servo bootstrap, Mesa
+Softpipe, package/UEFI, kernel, `mio`, `socket2`, `tokio`, and the new
+`getrandom` backend. It then stopped in `freetype-sys 0.23.0`: the pinned
+WebRender 0.70 glyph rasterizer selects FreeType through its legacy Unix
+condition, which is separate from Servo's `bundled_freetype` feature and
+therefore called cross-compiling host `pkg-config`.
+
+This is an internal Nagi build prerequisite, not a Windows MSVC limitation.
+The Nagi Albert target dependency now explicitly enables the existing pinned
+`freetype-sys` `bundled` feature. That keeps FreeType as a real target-owned
+source build and does not replace font rasterization with a stub or host
+library. The next CI target build must verify the bundled C build and continue
+to the next unresolved Servo/runtime boundary.
+
+## Remediation continuation (2026-09-20, IPC follow-up)
+
+CI run `35503537693` verified the bundled FreeType build and reached the Servo
+user-init compile. It then stopped in `ipc-channel 0.23.0`: the crate only
+selects its Unix backend for Linux/BSD/illumos and cfgs every backend out for
+`target_os = "nagi"`.
+
+M17 does not enable Servo's multiprocess feature, so the Nagi adapter selects
+ipc-channel's existing `force-inprocess` backend. That backend is a real
+crossbeam-backed same-process/thread transport; it does not route IPC through
+the host or return synthetic success. The next target build must verify this
+selection and expose the next Servo/runtime prerequisite.
+
+## Remediation continuation (2026-09-20, allocator follow-up)
+
+CI run `35504269079` verified the in-process `ipc-channel` backend and reached
+Servo's allocator compile. It then stopped because `servo-allocator` calls
+`libc::malloc_usable_size`, which was absent from the pinned Nagi libc ABI.
+
+The Nagi POSIX heap already records each requested payload beside its
+allocation and validates that metadata when releasing blocks. It now exposes
+that recorded payload through `nagi_posix_malloc_usable_size`; the pinned
+Servo-libc patch declares `malloc_usable_size`, and relibc forwards the libc
+call to the Nagi POSIX runtime. This preserves real Servo allocator
+introspection without disabling the allocator or consulting a host allocator.
+The next target build must verify this ABI and continue to the next boundary.
+
+## Remediation continuation (2026-09-20, patch-hunk follow-up)
+
+CI run `35505340415` reached the target user-init compile after the allocator
+repair, then reported an unclosed `cfg_if!` delimiter in the generated
+`third_party/libc-servo/src/unix/nagi.rs`. The tracked Nagi libc patch's new-file
+hunk contained 1,412 added lines but declared 1,411, so patch application
+silently omitted the final closing delimiter. The hunk header is corrected to
+the actual pinned patch content. This keeps generated third-party sources
+reproducible and does not edit the generated checkout directly.
+
+The same pinned-source audit identified the next compile-required cfg gap:
+Servo's x86_64 target dependency conditions include Nagi in the Linux-like
+`gaol` sandbox path, but gaol has no Nagi platform implementation. The tracked
+`0004-nagi-single-process-no-gaol.patch` excludes Nagi from the gaol dependency,
+Linux profile, and multiprocess spawn branches, allowing M17's existing
+single-process embedder to use its explicit unsupported path. It does not add
+host process spawning or claim a Linux sandbox on Nagi; target CI must verify
+the resulting dependency graph and expose any remaining runtime boundary.
+
+## Remediation continuation (2026-09-20, target C ABI follow-up)
+
+CI run `35505820899` reached `aws-lc-sys` after the Servo libc and gaol cfg
+repairs. Its `cc-rs` build used host `cc` and did not receive Nagi's generated
+relibc headers. Under strict C11 feature visibility, the host pthread header
+did not expose `pthread_rwlock_t` or `PTHREAD_RWLOCK_INITIALIZER`. Adding a
+host feature macro alone would be an ABI error: the host rwlock layout is not
+the four-byte rwlock object implemented by Nagi relibc.
+
+The target C boundary now routes `cc-rs` through the tracked
+`tools/nagi-target-cc.sh` wrapper. It selects freestanding x86_64 ELF,
+Clang's resource headers, and the generated Nagi relibc headers while excluding
+host standard include directories. The Mesa bootstrap runs a focused
+`pthread_rwlock_t` size/initializer syntax check before compiling Softpipe.
+This is a real target ABI repair, not a host stub or a rendering shortcut.
+Target CI must verify the aws-lc objects, final link, and then the real QEMU
+first-web-pixel gate.
+
+## Remediation continuation (2026-09-20, target C header overlay follow-up)
+
+CI run `35507108032` passed the generated rwlock ABI check, Mesa/Softpipe,
+package/UEFI, M16 package, kernel, and the `aws-lc-sys` C compilation after
+the wrapper repair. It then stopped in bundled `libz-sys 1.1.29`: the gzip
+sources use `O_RDONLY`, `O_WRONLY`, `O_CREAT`, `O_TRUNC`, and `O_APPEND`, while
+the generated relibc fcntl header did not expose the Nagi target constants in
+that direct C build.
+
+The tracked `tools/mesa/nagi-headers/fcntl.h` already provides those exact
+Nagi ABI values and includes the generated header through `include_next`. The
+target C wrapper and the Mesa preflight now put that overlay before generated
+relibc headers. No host fcntl header or host zlib library is introduced.
+Target CI must verify bundled zlib compilation and continue to the next
+Servo/runtime prerequisite.
+
+## Remediation continuation (2026-09-20, FreeType bundled include follow-up)
+
+CI run `35507706711` verified the fcntl overlay through bundled zlib and
+reached `freetype-sys 0.23.0`. Its bundled libpng C compile then failed to
+find `zlib.h`: the pinned build script passed the relative
+`libz-sys/src/zlib` path, but Nagi's freestanding target wrapper correctly
+excludes host include directories and that relative path is not valid from the
+Cargo build invocation.
+
+The exact `freetype-sys 0.23.0` registry source is now included in the same
+source-lock, generated-checkout, patch-fingerprint, and Nagi patch boundary as
+the other target prerequisites. The tracked patch uses `DEP_Z_INCLUDE`, which
+is emitted by the pinned `libz-sys` dependency after it selects its real
+target-owned zlib build. It does not add a host zlib path or replace the
+FreeType/libpng build. The next target build must verify this C boundary and
+continue to the next Servo/runtime prerequisite.
+
+## Remediation continuation (2026-09-20, aws-lc C ABI follow-up)
+
+CI run `35508629491` verified the pinned FreeType/libz repair and reached the
+real `aws-lc-sys` target C build. The next internal boundary was Nagi's
+relibc headers: `stdatomic.h` preserved the `_Atomic` qualifier in temporary
+objects passed to Clang's generic `__atomic_*` builtins, and target cbindgen
+selected no `struct termios` definition because the redox-compatible layout
+was not enabled for `target_os = "nagi"`.
+
+The relibc header implementation now uses unqualified temporary value types
+for the generic atomic operations while keeping the atomic pointer itself,
+and selects the existing redox-compatible `termios` layout for Nagi header
+generation. Mesa bootstrap performs a target C syntax/ABI preflight for both
+interfaces before Softpipe compilation. No host atomic library or host
+termios header is introduced; target CI must verify aws-lc and continue to
+the next Servo/runtime prerequisite.
+
+## Remediation continuation (2026-09-20, cbindgen and Clang C11 follow-up)
+
+CI run `35509724031` exposed two details in the new preflight itself. cbindgen
+requires an explicit `target_os = "nagi"` entry in its defines table before
+it emits the target `struct termios`; without it, only incompatible function
+prototypes were emitted. Clang also rejects its generic `__atomic_*` builtins
+when the address is a C11 `_Atomic` object, so relibc now selects Clang's
+native `__c11_atomic_*` operations for the target C ABI and retains the
+generic path for non-Clang consumers. The next target run must verify the
+preflight, aws-lc, and the following user-init dependency boundary.
+
+CI run `35510072330` verified the Clang C11 atomic repair. Its remaining
+preflight failure showed that cbindgen emitted a `__nagi__` guard while the
+established target wrapper defines `__NAGI__`. The source-lock-preserved
+header generation boundary now maps `target_os = "nagi"` to the existing
+uppercase guard; no host header is involved. The next target run must verify
+the complete termios header and proceed to aws-lc.
+
+## Remediation continuation (2026-09-20, hyper-util Unix connector follow-up)
+
+CI run `35510401081` passed the generated termios and C11 atomic preflight,
+Mesa Softpipe, all package/kernel prerequisites, and the real `aws-lc-sys`
+C build. User-init then reached `hyper-util 0.1.20`; its legacy HTTP connector
+has an unconditional Unix `Connection` implementation whenever Rust reports
+`cfg(unix)`, but the pinned Nagi tokio adapter correctly excludes Unix-domain
+socket types because Nagi has no such implementation in this vertical slice.
+The exact registry source is now pinned under the existing source-lock,
+generated-checkout, fingerprint, and patch boundary. Its single tracked patch
+excludes only that unused Unix connector for `target_os = "nagi"`; no host
+socket implementation is introduced. The next target run must verify this
+boundary and continue user-init compilation.
+
+CI run `35511522322` was not a source/build result: target, Ubuntu, and
+Windows jobs all failed during Actions startup with zero executed steps, and
+rerun attempt 2 reproduced the same condition. It is retained as CI
+infrastructure history; the hyper-util patch remains unverified until a
+normal target job executes it.
+
+CI run `35511637360` reproduced the same all-job startup failure for commit
+`274a11f`; attempts 2 and 3 also ended without executing a step. The target
+spec independently confirms that Nagi has both `target_family = "unix"` and
+`target_os = "nagi"`, which is the exact cfg combination handled by the
+tracked hyper-util patch. No target compile result is claimed until Actions
+executes a normal job.
+
+## Exit criteria
+
+Reopen M17 from this ADR after the guest rendering dependency is available.
+Run the target build, focused adapter tests, and the QEMU acceptance wrapper.
+Only then change the status to `PASS`; otherwise retain `BLOCKED` with updated
+command output and the next concrete experiment.

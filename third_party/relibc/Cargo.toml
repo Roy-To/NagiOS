@@ -1,0 +1,56 @@
+[package]
+name = "relibc"
+version = "0.2.5"
+authors = ["Jeremy Soller <jackpot51@gmail.com>"]
+edition = "2024"
+
+[lib]
+name = "relibc"
+crate-type = ["rlib"]
+
+[lints.clippy]
+borrow_as_ptr = "deny"
+cast_lossless = "deny"
+cast_possible_truncation = "allow" # TODO review occurrences
+cast_possible_wrap = "allow" # TODO review occurrences
+cast_precision_loss = "allow" # TODO review occurrences
+cast_ptr_alignment = "allow" # TODO review occurrences
+cast_sign_loss = "allow" # TODO review occurrences
+from_raw_with_void_ptr = "deny"
+ignored_unit_patterns = "deny"
+implicit_clone = "deny"
+manual_let_else = "deny"
+missing_errors_doc = "allow" # TODO review occurrences
+missing_panics_doc = "allow" # TODO review occurrences
+missing_safety_doc = "allow" # TODO review occurrences
+mut_from_ref = "deny"
+precedence = "deny"
+ptr_as_ptr = "deny"
+ptr_cast_constness = "deny"
+ptr_offset_by_literal = "deny"
+ref_as_ptr = "deny"
+zero_ptr = "deny" # must allow on public constants due to cbindgen issue
+
+[lints.rust]
+dangling_pointers_from_temporaries = "deny"
+dead_code = "allow" # TODO review occuurences
+deprecated = "deny"
+improper_ctypes_definitions = "deny"
+internal_features = "allow" # core_intrinsics and lang_items
+irrefutable_let_patterns = "deny"
+mismatched_lifetime_syntaxes = "deny"
+non_camel_case_types = "allow" # needed for most POSIX type names
+non_snake_case = "allow" # TODO review occuurences
+non_upper_case_globals = "allow" # TODO review occurences
+unexpected_cfgs = "deny"
+unpredictable_function_pointer_comparisons = "deny"
+unreachable_code = "allow" # TODO review occuurences
+unsafe_op_in_unsafe_fn = "deny"
+unused_imports = "deny"
+unused_must_use = "deny"
+unused_mut = "deny"
+unused_unsafe = "deny"
+unused_variables = "deny"
+
+[features]
+default = []

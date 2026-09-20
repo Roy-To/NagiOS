@@ -1,0 +1,24 @@
+[package]
+name = "nagi-loader"
+version = "0.1.0"
+edition = "2021"
+publish = false
+autobins = false
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+test = true
+
+[[bin]]
+name = "nagi-loader"
+path = "src/main.rs"
+test = true
+bench = false
+
+[dependencies]
+nagi-bootinfo = { path = "../crates/nagi-bootinfo" }
+
+[target.'cfg(target_os = "uefi")'.dependencies]
+uefi = { version = "=0.37.0", features = ["panic_handler"] }

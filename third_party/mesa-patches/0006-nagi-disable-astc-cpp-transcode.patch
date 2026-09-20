@@ -1,0 +1,71 @@
+diff --git a/src/mesa/state_tracker/st_context.c b/src/mesa/state_tracker/st_context.c
+index a13657b25d6..57ee2152cae 100644
+--- a/src/mesa/state_tracker/st_context.c
++++ b/src/mesa/state_tracker/st_context.c
+@@ -536,0 +537,5 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++#ifdef HAVE_NAGI_PLATFORM
++   /* Nagi's first software-rendering slice keeps ASTC on the existing CPU
++    * fallback path; the optional C++ GPU-transcode utility is not built. */
++   st->transcode_astc = false;
++#else
+@@ -543,0 +549 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++#endif
+diff --git a/src/mesa/state_tracker/st_texcompress_compute.c b/src/mesa/state_tracker/st_texcompress_compute.c
+index 158cf995615..03849a760f9 100644
+--- a/src/mesa/state_tracker/st_texcompress_compute.c
++++ b/src/mesa/state_tracker/st_texcompress_compute.c
+@@ -25,0 +26 @@
++#ifndef HAVE_NAGI_PLATFORM
+@@ -26,0 +28,3 @@
++#include "main/texcompress_astc.h"
++#include "util/texcompress_astc_luts_wrap.h"
++#endif
+@@ -35,2 +38,0 @@
+-#include "main/texcompress_astc.h"
+-#include "util/texcompress_astc_luts_wrap.h"
+@@ -441,0 +444,2 @@ release_sampler_views:
++#ifndef HAVE_NAGI_PLATFORM
++
+@@ -752,0 +757,2 @@ initialize_astc_decoder(struct st_context *st)
++#endif
++
+@@ -765,0 +772 @@ st_init_texcompress_compute(struct st_context *st)
++#ifndef HAVE_NAGI_PLATFORM
+@@ -767,0 +775 @@ st_init_texcompress_compute(struct st_context *st)
++#endif
+@@ -801,0 +810 @@ st_destroy_texcompress_compute(struct st_context *st)
++#ifndef HAVE_NAGI_PLATFORM
+@@ -802,0 +812 @@ st_destroy_texcompress_compute(struct st_context *st)
++#endif
+@@ -814,0 +825,10 @@ st_compute_transcode_astc_to_dxt5(struct st_context *st,
++#ifdef HAVE_NAGI_PLATFORM
++   (void)st;
++   (void)astc_data;
++   (void)astc_stride;
++   (void)astc_format;
++   (void)dxt5_tex;
++   (void)dxt5_level;
++   (void)dxt5_layer;
++   return false;
++#else
+@@ -851,0 +872 @@ release_textures:
++#endif
+diff --git a/src/util/meson.build b/src/util/meson.build
+index c073fc39ba6..9c3a64b5ef2 100644
+--- a/src/util/meson.build
++++ b/src/util/meson.build
+@@ -119,4 +118,0 @@ files_mesa_util = files(
+-  'texcompress_astc_luts.cpp',
+-  'texcompress_astc_luts.h',
+-  'texcompress_astc_luts_wrap.cpp',
+-  'texcompress_astc_luts_wrap.h',
+@@ -170,0 +167,9 @@ files_mesa_util = files(
++if not with_platform_nagi
++  files_mesa_util += files(
++    'texcompress_astc_luts.cpp',
++    'texcompress_astc_luts.h',
++    'texcompress_astc_luts_wrap.cpp',
++    'texcompress_astc_luts_wrap.h',
++  )
++endif
++

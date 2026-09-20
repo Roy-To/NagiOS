@@ -1,0 +1,12 @@
+[package]
+name = "nagi-servo-adapter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+libnagi = { path = "../libnagi" }
+nagi-abi = { path = "../../crates/nagi-abi" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

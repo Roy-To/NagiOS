@@ -1,0 +1,6 @@
+* text=auto
+*.patch text eol=lf
+nagi text eol=lf
+tests/acceptance/*.sh text eol=lf
+*.ps1 text eol=crlf
+

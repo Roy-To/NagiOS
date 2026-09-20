@@ -1,0 +1,13 @@
+[package]
+name = "nagi-pal"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+itoa = { version = "1.0", default-features = false }
+libnagi = { path = "../libnagi" }
+nagi-net = { path = "../nagi-net" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

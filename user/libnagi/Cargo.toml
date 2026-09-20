@@ -1,0 +1,17 @@
+[package]
+name = "libnagi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-abi = { path = "../../crates/nagi-abi" }
+
+[target.'cfg(target_os = "nagi")'.dependencies]
+getrandom = "0.4.3"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

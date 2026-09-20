@@ -1,0 +1,41 @@
+diff --git a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -284,6 +284,6 @@ if freedreno_kmds.length() != 0 and freedreno_kmds != [ 'msm' ] and with_freedre
+ endif
+ 
+ with_dri = false
+-if with_gallium and system_has_kms_drm
++if with_gallium and (system_has_kms_drm or host_machine.system() == 'nagi')
+   _glx = get_option('glx')
+   _egl = get_option('egl')
+diff --git a/src/egl/meson.build b/src/egl/meson.build
+--- a/src/egl/meson.build
++++ b/src/egl/meson.build
+@@ -12,6 +12,10 @@ else
+   deps_for_egl = []
+ endif
+ if with_dri
+-  link_for_egl += libgallium_dri
++  if with_platform_nagi
++    link_for_egl += libdri
++  else
++    link_for_egl += libgallium_dri
++  endif
+ endif
+ if with_platform_windows
+   link_for_egl += libgallium_wgl
+diff --git a/src/gallium/meson.build b/src/gallium/meson.build
+--- a/src/gallium/meson.build
++++ b/src/gallium/meson.build
+@@ -218,7 +218,9 @@ if with_gallium_vdpau
+ endif
+ if with_dri
+   subdir('frontends/dri')
+-  subdir('targets/dri')
++  if not with_platform_nagi
++    subdir('targets/dri')
++  endif
+ endif
+ if with_osmesa
+   subdir('frontends/osmesa')

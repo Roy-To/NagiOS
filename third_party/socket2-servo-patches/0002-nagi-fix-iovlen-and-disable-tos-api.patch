@@ -1,0 +1,24 @@
+diff --git a/src/sys/unix.rs b/src/sys/unix.rs
+--- a/src/sys/unix.rs
++++ b/src/sys/unix.rs
+@@ -444 +443,0 @@ type IovLen = usize;
+-    target_os = "nagi",
+
+diff --git a/src/socket.rs b/src/socket.rs
+--- a/src/socket.rs
++++ b/src/socket.rs
+@@ -14 +14 @@ use std::mem::MaybeUninit;
+-#[cfg(not(any(target_os = "nto", target_os = "nuttx")))]
++#[cfg(not(any(target_os = "nto", target_os = "nuttx", target_os = "nagi")))]
+@@ -1652,0 +1653 @@ impl Socket {
++        target_os = "nagi",
+@@ -1671,0 +1673 @@ impl Socket {
++        target_os = "nagi",
+@@ -1701 +1703,2 @@ impl Socket {
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"
+@@ -1736 +1739,2 @@ impl Socket {
+-        target_os = "horizon"
++        target_os = "horizon",
++        target_os = "nagi"

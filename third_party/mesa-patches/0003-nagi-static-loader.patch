@@ -1,0 +1,18 @@
+diff --git a/src/util/u_dl.c b/src/util/u_dl.c
+--- a/src/util/u_dl.c
++++ b/src/util/u_dl.c
+@@ -32 +32 @@
+-#if DETECT_OS_POSIX_LITE
++#if DETECT_OS_POSIX_LITE && !DETECT_OS_NAGI
+@@ -46 +46 @@
+-#if DETECT_OS_POSIX_LITE
++#if DETECT_OS_POSIX_LITE && !DETECT_OS_NAGI
+@@ -60 +60 @@
+-#if DETECT_OS_POSIX_LITE
++#if DETECT_OS_POSIX_LITE && !DETECT_OS_NAGI
+@@ -73 +73 @@
+-#if DETECT_OS_POSIX_LITE
++#if DETECT_OS_POSIX_LITE && !DETECT_OS_NAGI
+@@ -86 +86 @@
+-#if DETECT_OS_POSIX_LITE
++#if DETECT_OS_POSIX_LITE && !DETECT_OS_NAGI

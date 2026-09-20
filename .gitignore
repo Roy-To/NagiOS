@@ -1,0 +1,33 @@
+# Rust build output
+/target/
+**/target/
+
+# Nagi-owned generated output and source cache
+/out/
+/cache/
+/.worktrees/
+/third_party/servo/
+/third_party/mesa/
+/third_party/surfman/
+/third_party/libc-servo/
+/third_party/mio-servo/
+/third_party/socket2-servo/
+/third_party/tokio-servo/
+/third_party/freetype-sys/
+/third_party/hyper-util-servo/
+
+# Temporary developer-tool installers
+/.nagi-*
+/rustup-init.exe
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# QEMU runtime artifacts
+*.qcow2
+*.raw
+*.img
+*.log

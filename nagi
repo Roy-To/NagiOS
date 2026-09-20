@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cargo_path=$(command -v cargo || true)
+if [ -z "$cargo_path" ]; then
+    printf '%s\n' 'FAIL cannot start nagi: Cargo was not found; install rust-toolchain.toml' >&2
+    exit 4
+fi
+if [ -x "/c/Program Files/LLVM/bin/lld-link.exe" ]; then
+    export RUSTC_LINKER='C:/Program Files/LLVM/bin/lld-link.exe'
+    export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER='C:/Program Files/LLVM/bin/lld-link.exe'
+    export LIB='C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/lib/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/ucrt/x64'
+fi
+if [ "${1:-}" = fetch ]; then
+    exec "$cargo_path" run --locked --manifest-path "$script_dir/tools/nagi-bootstrap/Cargo.toml" -p nagi-bootstrap -- "$@"
+fi
+exec "$cargo_path" run --locked --manifest-path "$script_dir/Cargo.toml" -p nagi-cli -- "$@"

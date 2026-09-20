@@ -1,0 +1,34 @@
+# Nagi M17 guest-only Mesa/Softpipe cross file.
+#
+# This file is for compiling Mesa archives for the Nagi user target. It does
+# not select a host display, host GL implementation, or host filesystem. The
+# final Nagi image link is still owned by Cargo/Nagi's linker script.
+
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+c_ld = 'lld'
+cpp_ld = 'lld'
+ar = 'llvm-ar'
+ranlib = 'llvm-ranlib'
+strip = 'llvm-strip'
+
+[built-in options]
+# LLVM's Windows driver does not select ld.lld for the `none` triple and
+# falls back to a host `gcc` lookup.  `unknown-elf` is the equivalent
+# freestanding ELF code-generation triple and keeps the Nagi system identity
+# in host_machine below.
+c_args = ['--target=x86_64-unknown-elf', '-ffreestanding', '-fno-stack-protector', '-fno-builtin', '-mcmodel=large']
+cpp_args = ['--target=x86_64-unknown-elf', '-ffreestanding', '-fno-stack-protector', '-fno-builtin', '-mcmodel=large']
+c_link_args = ['--target=x86_64-unknown-elf', '-nostdlib', '-Wl,--entry=0', '-Wl,--unresolved-symbols=ignore-all']
+cpp_link_args = ['--target=x86_64-unknown-elf', '-nostdlib', '-Wl,--entry=0', '-Wl,--unresolved-symbols=ignore-all']
+default_library = 'static'
+
+[host_machine]
+system = 'nagi'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true

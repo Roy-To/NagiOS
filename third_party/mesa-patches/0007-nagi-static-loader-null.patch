@@ -1,0 +1,9 @@
+diff --git a/src/util/u_dl.c b/src/util/u_dl.c
+index 46765056e65..42624e494ee 100644
+--- a/src/util/u_dl.c
++++ b/src/util/u_dl.c
+@@ -31,0 +32,4 @@
++#if DETECT_OS_NAGI
++#include <stddef.h>
++#endif
++

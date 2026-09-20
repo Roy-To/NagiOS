@@ -1,0 +1,81 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index ee2ea93..fc31f31 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -115 +115 @@ objc2-quartz-core = { version = "0.3.2", default-features = false, features = [
+-[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "android", target_env = "ohos"))))'.dependencies.wayland-sys]
++[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "android", target_env = "ohos", target_os = "nagi"))))'.dependencies.wayland-sys]
+@@ -119 +119 @@ features = ["client", "dlopen", "egl"]
+-[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "android", target_env = "ohos"))))'.dependencies.x11-dl]
++[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "android", target_env = "ohos", target_os = "nagi"))))'.dependencies.x11-dl]
+diff --git a/build.rs b/build.rs
+index 712e7ae..6a8386d 100644
+--- a/build.rs
++++ b/build.rs
+@@ -24 +24,2 @@ fn main() {
+-        wayland_platform: { all(free_unix) },
++        wayland_platform: { all(free_unix, not(target_os = "nagi")) },
++        nagi_platform: { target_os = "nagi" },
+diff --git a/src/base/egl/device.rs b/src/base/egl/device.rs
+index fa1e2f6..78711d3 100644
+--- a/src/base/egl/device.rs
++++ b/src/base/egl/device.rs
+@@ -5 +5 @@ use crate::egl::Egl;
+-#[cfg(not(target_os = "windows"))]
++#[cfg(all(not(target_os = "windows"), not(target_os = "nagi")))]
+@@ -29 +29,4 @@ static EGL_POTENTIAL_SO_NAMES: [&CStr; 1] = [c"libEGL.so"];
+-#[cfg(not(any(target_os = "windows", target_os = "macos", target_env = "ohos")))]
++#[cfg(all(
++    not(any(target_os = "windows", target_os = "macos", target_env = "ohos")),
++    not(target_os = "nagi")
++))]
+@@ -32 +35,4 @@ static EGL_POTENTIAL_SO_NAMES: [&CStr; 2] = [c"libEGL.so.1", c"libEGL.so"];
+-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
++#[cfg(all(
++    not(any(target_os = "windows", target_os = "macos")),
++    not(target_os = "nagi")
++))]
+@@ -62 +68 @@ fn get_proc_address(symbol_name: &str) -> *const c_void {
+-#[cfg(not(target_os = "windows"))]
++#[cfg(all(not(target_os = "windows"), not(target_os = "nagi")))]
+@@ -70,0 +77,11 @@ fn get_proc_address(symbol_name: &str) -> *const c_void {
++#[cfg(target_os = "nagi")]
++unsafe extern "C" {
++    fn eglGetProcAddress(symbol_name: *const std::ffi::c_char) -> *const c_void;
++}
++
++#[cfg(target_os = "nagi")]
++fn get_proc_address(symbol_name: &str) -> *const c_void {
++    let symbol_name = CString::new(symbol_name).expect("OpenGL symbol has no NUL");
++    unsafe { eglGetProcAddress(symbol_name.as_ptr()) }
++}
++
+diff --git a/src/lib.rs b/src/lib.rs
+index b32ffc0..49f117b 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -33 +33 @@ pub mod macros;
+-#[cfg(free_unix)]
++#[cfg(any(free_unix, nagi_platform))]
+@@ -56,0 +57,2 @@ pub use wayland as default;
++#[cfg(nagi_platform)]
++pub use mesa_surfaceless as default;
+@@ -83 +85 @@ pub use base::io_surface::surface::Surface as SystemSurface;
+-    unix
++    any(unix, nagi_platform)
+diff --git a/src/mesa_surfaceless/device.rs b/src/mesa_surfaceless/device.rs
+index 8fb1fe2..56d9088 100644
+--- a/src/mesa_surfaceless/device.rs
++++ b/src/mesa_surfaceless/device.rs
+@@ -56,0 +57,9 @@ impl Adapter {
++        #[cfg(target_os = "nagi")]
++        {
++            // Nagi links the Mesa EGL/Softpipe backend into the guest image.
++            // There is no host environment or dynamic driver selection path.
++            return;
++        }
++
++        #[cfg(not(target_os = "nagi"))]
++        {
+@@ -74,0 +84 @@ impl Adapter {
++        }

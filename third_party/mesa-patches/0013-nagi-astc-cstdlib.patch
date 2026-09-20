@@ -1,0 +1,14 @@
+diff --git a/src/mesa/main/texcompress_astc.cpp b/src/mesa/main/texcompress_astc.cpp
+--- a/src/mesa/main/texcompress_astc.cpp
++++ b/src/mesa/main/texcompress_astc.cpp
+@@ -37,6 +37,10 @@
+ #include "macros.h"
+ #include "util/half_float.h"
+ #include <stdio.h>
++#if defined(__NAGI__)
++#include <stdlib.h>
++#else
+ #include <cstdlib>  // for abort() on windows
++#endif
+ 
+ static bool VERBOSE_DECODE = false;

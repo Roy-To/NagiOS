@@ -1,0 +1,34 @@
+[project]
+name = "nagi-os"
+version = "0.1.0-dev"
+
+[reference_machine]
+architecture = "x86_64"
+machine = "q35"
+firmware = "uefi"
+vcpus = 4
+memory_gib = 8
+disk_gib = 64
+
+[toolchain]
+rust_channel = "nightly-2025-08-01"
+llvm_min_version = "17.0.0"
+lld_min_version = "17.0.0"
+qemu_min_version = "8.0.0"
+ovmf_pairs = "edk2-x86_64-code.fd:edk2-i386-vars.fd,OVMF_CODE.fd:OVMF_VARS.fd,OVMF_CODE_4M.fd:OVMF_VARS_4M.fd,edk2-x86_64-code-4m.fd:edk2-i386-vars-4m.fd"
+cmake_min_version = "3.25.0"
+meson_min_version = "1.0.0"
+ninja_min_version = "1.10.0"
+python_min_version = "3.10.0"
+llvm_required = true
+qemu_required = true
+ovmf_required = true
+cmake_required = true
+meson_required = true
+ninja_required = true
+python_required = true
+
+[paths]
+cache = "out/cache"
+artifacts = "out/artifacts"
+logs = "out/logs"

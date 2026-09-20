@@ -1,0 +1,13 @@
+[package]
+name = "hello-nagi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-sdk = { path = "../../sdk/rust" }
+
+[workspace]

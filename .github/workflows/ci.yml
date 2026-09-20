@@ -1,0 +1,151 @@
+name: Nagi CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: nagi-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-host:
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install supported host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang lld qemu-system-x86 ovmf cmake meson ninja-build python3
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
+          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
+      - name: Bootstrap pinned Servo source dependencies
+        run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
+      - name: Format
+        run: |
+          cargo fmt --package nagi-cli --package nagi-idl --package nagi-bootinfo --package nagi-abi --package nagi-model --package nagi-kernel --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-servo-adapter --package nagi-init --package nagi-package --package nagi-sdk -- --check
+          cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check
+          cargo fmt --manifest-path loader/Cargo.toml -- --check
+          rustfmt --check user/nagi-albert/src/lib.rs
+      - name: Lint host-compatible workspace
+        run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
+      - name: Build host-compatible workspace
+        run: cargo build --workspace --exclude nagi-kernel --locked
+      - name: Test host-compatible workspace
+        run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: M0 doctor acceptance
+        run: ./tests/acceptance/m0_doctor.sh
+      - name: M0 launcher acceptance
+        run: ./tests/acceptance/m0_launcher.sh
+  windows-launcher:
+    timeout-minutes: 30
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Bootstrap pinned Servo source dependencies
+        shell: pwsh
+        run: |
+          cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build host-compatible workspace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --workspace --exclude nagi-kernel --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test host-compatible workspace
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo test --workspace --exclude nagi-kernel --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify Windows launcher help
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\nagi.ps1 --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify truthful missing-dependency mode
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\nagi.ps1 doctor --allow-missing
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify Windows launcher exit propagation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\tests\acceptance\m0_launcher.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  nagi-target:
+    timeout-minutes: 90
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install target build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang lld llvm qemu-system-x86 ovmf cmake meson ninja-build python3 python3-venv flex bison build-essential
+      - name: Install pinned Rust target toolchain
+        run: |
+          rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
+          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
+      - name: Prepare patched Nagi Rust std source
+        run: |
+          sysroot=$(rustc +nightly-2025-08-01 --print sysroot)
+          mkdir -p out/rust-src
+          cp -a "$sysroot/lib/rustlib/src/rust/." out/rust-src/
+          git apply --unsafe-paths --whitespace=nowarn --directory=out/rust-src third_party/rust-std/patches/0001-nagi-target-support.patch
+          if ! grep -q '^libc = { path = "../../../third_party/libc" }$' out/rust-src/library/Cargo.toml; then
+            printf '\nlibc = { path = "../../../third_party/libc" }\n' >> out/rust-src/library/Cargo.toml
+          fi
+      - name: Install pinned Mesa generators
+        run: |
+          python3 -m venv out/mesa-venv
+          out/mesa-venv/bin/python -m pip install --requirement tools/mesa/requirements.txt
+          cargo install cbindgen --version 0.28.0 --locked
+      - name: Bootstrap pinned Servo source
+        run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
+      - name: Build pinned Nagi Mesa Softpipe archive
+        run: |
+          source out/mesa-venv/bin/activate
+          bash tools/mesa/build.sh
+      - name: Fetch standalone package and UEFI dependencies
+        run: |
+          cargo fetch --manifest-path tools/nagi-pkg/Cargo.toml --locked
+          cargo fetch --manifest-path loader/Cargo.toml --target x86_64-unknown-uefi --locked
+      - name: Build M16 package artifact
+        run: |
+          mkdir -p out/artifacts
+          cargo build --manifest-path samples/hello-nagi/Cargo.toml --offline --locked
+          cargo run --manifest-path samples/hello-nagi/Cargo.toml --bin hello-nagi-package --offline --locked -- out/artifacts/hello-nagi.napp
+          cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- build-hello out/artifacts/hello-nagi.napp out/artifacts/hello-nagi.xapp
+      - name: Build Nagi kernel
+        run: cargo +nightly-2025-08-01 build -p nagi-kernel --target targets/x86_64-unknown-nagi.json -Zbuild-std=core,compiler_builtins --release --locked
+      - name: Build Nagi user init
+        env:
+          NAGI_TARGET_CLANG: clang
+          NAGI_M16_PACKAGE: ${{ github.workspace }}/out/artifacts/hello-nagi.xapp
+          NAGI_MESA_BUILD: ${{ github.workspace }}/out/m17-mesa/mesa-build
+          CC_x86_64_unknown_nagi_user: ${{ github.workspace }}/tools/nagi-target-cc.sh
+          __CARGO_TESTS_ONLY_SRC_ROOT: ${{ github.workspace }}/out/rust-src/library
+        run: cargo +nightly-2025-08-01 build -p nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --release --locked
+      - name: Build UEFI loader
+        run: cargo +nightly-2025-08-01 build --manifest-path loader/Cargo.toml --target x86_64-unknown-uefi --release --locked
+      - name: M17 first web pixel acceptance
+        run: |
+          source out/mesa-venv/bin/activate
+          sh tests/acceptance/m17_servo_first_web_pixel.sh

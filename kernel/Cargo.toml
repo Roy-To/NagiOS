@@ -1,0 +1,20 @@
+[package]
+name = "nagi-kernel"
+version = "0.1.0"
+edition = "2021"
+publish = false
+autobins = false
+
+[lib]
+name = "nagi_kernel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nagi-kernel"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nagi-abi = { path = "../crates/nagi-abi" }
+nagi-bootinfo = { path = "../crates/nagi-bootinfo" }

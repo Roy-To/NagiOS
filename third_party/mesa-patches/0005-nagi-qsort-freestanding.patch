@@ -1,0 +1,11 @@
+diff --git a/src/util/u_qsort.cpp b/src/util/u_qsort.cpp
+index 76f374e4061..236c4641f4e 100644
+--- a/src/util/u_qsort.cpp
++++ b/src/util/u_qsort.cpp
+@@ -22,6 +22,5 @@
+ 
+ #include "u_qsort.h"
+-#include <thread>
+ 
+ thread_local int (*tl_qsort_r_compar)(const void *, const void *, void *);
+ thread_local void *tl_qsort_r_arg;

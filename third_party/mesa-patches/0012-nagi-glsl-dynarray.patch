@@ -1,0 +1,110 @@
+diff --git a/src/compiler/glsl/lower_precision.cpp b/src/compiler/glsl/lower_precision.cpp
+--- a/src/compiler/glsl/lower_precision.cpp
++++ b/src/compiler/glsl/lower_precision.cpp
+@@ -38,1 +38,1 @@
+-#include <vector>
++#include "util/u_dynarray.h"
+@@ -105,1 +105,1 @@
+-      std::vector<ir_instruction *> lowerable_children;
++      struct util_dynarray lowerable_children;
+@@ -109,2 +109,3 @@
+    find_lowerable_rvalues_visitor(struct set *result,
+                                   const struct gl_shader_compiler_options *options);
++   ~find_lowerable_rvalues_visitor();
+@@ -131,1 +131,1 @@
+-   std::vector<stack_entry> stack;
++   struct util_dynarray stack;
+@@ -185,1 +185,2 @@
+    options = opts;
++   util_dynarray_init(&stack, NULL);
+@@ -190,2 +190,7 @@
+ }
+ 
++find_lowerable_rvalues_visitor::~find_lowerable_rvalues_visitor()
++{
++   assert(util_dynarray_num_elements(&stack, stack_entry) == 0);
++   util_dynarray_fini(&stack);
++}
+@@ -200,1 +200,1 @@
+-   stack_entry entry;
++   stack_entry entry = {};
+@@ -205,1 +205,1 @@
+-   state->stack.push_back(entry);
++   util_dynarray_append(&state->stack, stack_entry, entry);
+@@ -214,2 +214,2 @@
+-   for (auto &it : entry.lowerable_children)
+-      _mesa_set_add(lowerable_rvalues, it);
++   util_dynarray_foreach(&entry.lowerable_children, ir_instruction *, it)
++      _mesa_set_add(lowerable_rvalues, *it);
+@@ -221,1 +221,1 @@
+-   const stack_entry &entry = stack.back();
++   stack_entry *entry = util_dynarray_top_ptr(&stack, stack_entry);
+@@ -223,1 +223,1 @@
+-   if (stack.size() >= 2) {
++   if (util_dynarray_num_elements(&stack, stack_entry) >= 2) {
+@@ -227,2 +227,3 @@
+-      stack_entry &parent = stack.end()[-2];
+-      parent_relation rel = get_parent_relation(parent.instr, entry.instr);
++      stack_entry &parent = *util_dynarray_element(
++         &stack, stack_entry, util_dynarray_num_elements(&stack, stack_entry) - 2);
++      parent_relation rel = get_parent_relation(parent.instr, entry->instr);
+@@ -231,1 +231,1 @@
+-         switch (entry.state) {
++         switch (entry->state) {
+@@ -245,2 +245,2 @@
+-   if (entry.state == SHOULD_LOWER) {
+-      ir_rvalue *rv = entry.instr->as_rvalue();
++   if (entry->state == SHOULD_LOWER) {
++      ir_rvalue *rv = entry->instr->as_rvalue();
+@@ -249,1 +249,1 @@
+-         add_lowerable_children(entry);
++         add_lowerable_children(*entry);
+@@ -250,2 +250,3 @@
+-      } else if (stack.size() >= 2) {
+-         stack_entry &parent = stack.end()[-2];
++      } else if (util_dynarray_num_elements(&stack, stack_entry) >= 2) {
++         stack_entry &parent = *util_dynarray_element(
++            &stack, stack_entry, util_dynarray_num_elements(&stack, stack_entry) - 2);
+@@ -260,1 +261,1 @@
+-            parent.lowerable_children.push_back(entry.instr);
++            util_dynarray_append(&parent.lowerable_children, ir_instruction *, entry->instr);
+@@ -272,2 +273,2 @@
+-   } else if (entry.state == CANT_LOWER) {
+-      add_lowerable_children(entry);
++   } else if (entry->state == CANT_LOWER) {
++      add_lowerable_children(*entry);
+@@ -276,1 +277,2 @@
+-   stack.pop_back();
++   util_dynarray_fini(&entry->lowerable_children);
++   (void)util_dynarray_pop(&stack, stack_entry);
+@@ -336,1 +336,1 @@
+-      stack.back().state = CANT_LOWER;
++      (*util_dynarray_top_ptr(&stack, stack_entry)).state = CANT_LOWER;
+@@ -348,2 +348,2 @@
+-   if (stack.back().state == UNKNOWN)
+-      stack.back().state = handle_precision(ir->type, ir->precision());
++   if ((*util_dynarray_top_ptr(&stack, stack_entry)).state == UNKNOWN)
++      (*util_dynarray_top_ptr(&stack, stack_entry)).state = handle_precision(ir->type, ir->precision());
+@@ -361,2 +361,2 @@
+-   if (stack.back().state == UNKNOWN)
+-      stack.back().state = handle_precision(ir->type, ir->precision());
++   if ((*util_dynarray_top_ptr(&stack, stack_entry)).state == UNKNOWN)
++      (*util_dynarray_top_ptr(&stack, stack_entry)).state = handle_precision(ir->type, ir->precision());
+@@ -372,2 +372,2 @@
+-   if (stack.back().state == UNKNOWN)
+-      stack.back().state = handle_precision(ir->type, ir->precision());
++   if ((*util_dynarray_top_ptr(&stack, stack_entry)).state == UNKNOWN)
++      (*util_dynarray_top_ptr(&stack, stack_entry)).state = handle_precision(ir->type, ir->precision());
+@@ -386,1 +386,1 @@
+-   stack.back().state = handle_precision(ir->type,
++   (*util_dynarray_top_ptr(&stack, stack_entry)).state = handle_precision(ir->type,
+@@ -397,1 +397,1 @@
+-      stack.back().state = CANT_LOWER;
++      (*util_dynarray_top_ptr(&stack, stack_entry)).state = CANT_LOWER;
+@@ -407,1 +407,1 @@
+-      stack.back().state = CANT_LOWER;
++      (*util_dynarray_top_ptr(&stack, stack_entry)).state = CANT_LOWER;
+@@ -611,1 +613,2 @@
+-   assert(v.stack.empty());
++   assert(util_dynarray_num_elements(&v.stack,
++                                    find_lowerable_rvalues_visitor::stack_entry) == 0);

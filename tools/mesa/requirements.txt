@@ -1,0 +1,7 @@
+# Pinned host-side generators required by the pinned Mesa 24.3.0 source.
+# These packages run during the reproducible Mesa bootstrap; they are not
+# shipped in the Nagi guest image.
+Mako==1.3.10
+MarkupSafe==3.0.3
+packaging==24.2
+PyYAML==6.0.2

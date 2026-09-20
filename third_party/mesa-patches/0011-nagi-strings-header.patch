@@ -1,0 +1,8 @@
+diff --git a/src/util/u_string.h b/src/util/u_string.h
+--- a/src/util/u_string.h
++++ b/src/util/u_string.h
+@@ -42,0 +43,4 @@
++#if defined(__NAGI__)
++#include <strings.h>
++#endif
++

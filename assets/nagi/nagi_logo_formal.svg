@@ -1,0 +1,11 @@
+<svg width="320" height="132" viewBox="0 0 320 132" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="nagiGrad" x1="40" y1="18" x2="228" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7DD5FF"/>
+      <stop offset="0.55" stop-color="#DFF3FF"/>
+      <stop offset="1" stop-color="#8FA2FF"/>
+    </linearGradient>
+  </defs>
+  <path d="M36 49.5C51.5 66.4 65 23.2 86.5 23.2C105 23.2 113.7 66 134.2 67.2C150.6 68.1 165.4 49.2 178 37.2C168.9 58.7 156.4 74.8 141.2 77C114.8 80.8 106.6 36.2 88.4 36.2C69.2 36.2 57.8 81.2 39.9 76C33.3 74.1 29.3 67.4 36 49.5Z" fill="url(#nagiGrad)"/>
+  <text x="160" y="116" text-anchor="middle" fill="#DDEBFF" style="font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;font-size:48px;font-weight:300;letter-spacing:0.28em">NAGI</text>
+</svg>

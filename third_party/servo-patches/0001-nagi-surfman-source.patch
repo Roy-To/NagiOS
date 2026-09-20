@@ -1,0 +1,13 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -445 +445,3 @@
+ [patch.crates-io]
++surfman = { path = "../../third_party/surfman" }
++libc = { path = "../../third_party/libc-servo" }
+diff --git a/components/shared/paint/Cargo.toml b/components/shared/paint/Cargo.toml
+--- a/components/shared/paint/Cargo.toml
++++ b/components/shared/paint/Cargo.toml
+@@ -46 +46 @@
+-surfman = { workspace = true, features = ["sm-x11"] }
++surfman = { workspace = true }

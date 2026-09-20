@@ -1,0 +1,42 @@
+[package]
+name = "nagi-init"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+publish = false
+
+[features]
+m8-shell = []
+m9-window = []
+m10-desktop = []
+m11-security = []
+m12-network = []
+m13-posix = ["m12-network"]
+m13-std = []
+m14-audio = ["m13-posix"]
+m15-history = ["m14-audio"]
+m16-package = ["m15-history"]
+m17-servo = ["m16-package", "m13-posix", "m13-std", "dep:nagi-albert"]
+
+[[bin]]
+name = "nagi-init"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+libnagi = { path = "../libnagi" }
+nagi-audio = { path = "../nagi-audio" }
+nagi-history = { path = "../nagi-history" }
+nagi-package = { path = "../nagi-package" }
+nagi-sdk = { path = "../../sdk/rust" }
+nagi-net = { path = "../nagi-net" }
+nagi-pal = { path = "../nagi-pal" }
+nagi-posix = { path = "../nagi-posix" }
+
+[target.'cfg(target_os = "nagi")'.dependencies]
+nagi-albert = { path = "../nagi-albert", optional = true }
+relibc = { path = "../../third_party/relibc", default-features = false }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

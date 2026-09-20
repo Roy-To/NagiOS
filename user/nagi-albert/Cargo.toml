@@ -1,0 +1,26 @@
+[package]
+name = "nagi-albert"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+libnagi = { path = "../libnagi" }
+nagi-servo-adapter = { path = "../nagi-servo" }
+
+[target.'cfg(target_os = "nagi")'.dependencies]
+dpi = "0.1"
+# Servo's pinned WebRender 0.70 uses its legacy Unix glyph rasterizer on the
+# Nagi target. That dependency is separate from Servo's fonts/bundled_freetype
+# feature, so force the same pinned freetype-sys build to use its vendored
+# FreeType sources instead of host pkg-config.
+freetype-sys = { version = "0.23", features = ["bundled"] }
+# M17 disables Servo's multiprocess feature. Use ipc-channel's real
+# crossbeam-backed in-process transport for the same-process/thread graph;
+# without this feature its platform module has no Nagi target backend.
+ipc-channel = { version = "0.23", features = ["force-inprocess"] }
+servo = { path = "../../third_party/servo/components/servo", default-features = false, features = ["bundled"] }
+url = "2.5"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

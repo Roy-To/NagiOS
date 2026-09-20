@@ -1,0 +1,194 @@
+diff --git a/src/macros/cfg.rs b/src/macros/cfg.rs
+--- a/src/macros/cfg.rs
++++ b/src/macros/cfg.rs
+@@ -374,8 +374,8 @@ macro_rules! cfg_net_or_uring {
+ macro_rules! cfg_net_unix {
+     ($($item:item)*) => {
+         $(
+-            #[cfg(all(unix, feature = "net"))]
+-            #[cfg_attr(docsrs, doc(cfg(all(unix, feature = "net"))))]
++            #[cfg(all(unix, not(target_os = "nagi"), feature = "net"))]
++            #[cfg_attr(docsrs, doc(cfg(all(unix, not(target_os = "nagi"), feature = "net"))))]
+             $item
+         )*
+     }
+@@ -423,8 +423,8 @@ macro_rules! cfg_not_process_driver {
+ macro_rules! cfg_signal {
+     ($($item:item)*) => {
+         $(
+-            #[cfg(feature = "signal")]
+-            #[cfg_attr(docsrs, doc(cfg(feature = "signal")))]
++            #[cfg(all(not(target_os = "nagi"), feature = "signal"))]
++            #[cfg_attr(docsrs, doc(cfg(all(not(target_os = "nagi"), feature = "signal"))))]
+             #[cfg(not(loom))]
+             #[cfg(not(target_os = "wasi"))]
+             $item
+@@ -435,7 +435,10 @@ macro_rules! cfg_signal {
+ macro_rules! cfg_signal_internal {
+     ($($item:item)*) => {
+         $(
+-            #[cfg(any(feature = "signal", all(unix, feature = "process")))]
++            #[cfg(all(
++                not(target_os = "nagi"),
++                any(feature = "signal", all(unix, feature = "process"))
++            ))]
+             #[cfg(not(loom))]
+             $item
+         )*
+@@ -444,7 +447,7 @@ macro_rules! cfg_signal_internal {
+ 
+ macro_rules! cfg_signal_internal_and_unix {
+     ($($item:item)*) => {
+-        #[cfg(unix)]
++        #[cfg(all(unix, not(target_os = "nagi")))]
+         cfg_signal_internal! { $($item)* }
+     }
+ }
+@@ -452,7 +455,12 @@ macro_rules! cfg_signal_internal_and_unix {
+ macro_rules! cfg_not_signal_internal {
+     ($($item:item)*) => {
+         $(
+-            #[cfg(any(loom, not(unix), not(any(feature = "signal", all(unix, feature = "process")))))]
++            #[cfg(any(
++                loom,
++                target_os = "nagi",
++                not(unix),
++                not(any(feature = "signal", all(unix, feature = "process")))
++            ))]
+             $item
+         )*
+     }
+diff --git a/src/net/tcp/socket.rs b/src/net/tcp/socket.rs
+--- a/src/net/tcp/socket.rs
++++ b/src/net/tcp/socket.rs
+@@ -605,6 +605,7 @@ impl TcpSocket {
+         target_os = "illumos",
+         target_os = "haiku",
+         target_os = "wasi",
++        target_os = "nagi",
+     )))]
+     #[cfg_attr(
+         docsrs,
+@@ -615,6 +616,7 @@ impl TcpSocket {
+             target_os = "illumos",
+             target_os = "haiku",
+             target_os = "wasi",
++            target_os = "nagi",
+         ))))
+     )]
+     pub fn tos_v4(&self) -> io::Result<u32> {
+@@ -635,6 +637,7 @@ impl TcpSocket {
+         target_os = "illumos",
+         target_os = "haiku",
+         target_os = "wasi",
++        target_os = "nagi",
+     )))]
+     #[cfg_attr(
+         docsrs,
+@@ -645,6 +648,7 @@ impl TcpSocket {
+             target_os = "illumos",
+             target_os = "haiku",
+             target_os = "wasi",
++            target_os = "nagi",
+         ))))
+     )]
+     pub fn tos(&self) -> io::Result<u32> {
+@@ -669,6 +673,7 @@ impl TcpSocket {
+         target_os = "illumos",
+         target_os = "haiku",
+         target_os = "wasi",
++        target_os = "nagi",
+     )))]
+     #[cfg_attr(
+         docsrs,
+@@ -679,6 +684,7 @@ impl TcpSocket {
+             target_os = "illumos",
+             target_os = "haiku",
+             target_os = "wasi",
++            target_os = "nagi",
+         ))))
+     )]
+     pub fn set_tos_v4(&self, tos: u32) -> io::Result<()> {
+@@ -699,6 +705,7 @@ impl TcpSocket {
+         target_os = "illumos",
+         target_os = "haiku",
+         target_os = "wasi",
++        target_os = "nagi",
+     )))]
+     #[cfg_attr(
+         docsrs,
+@@ -709,6 +716,7 @@ impl TcpSocket {
+             target_os = "illumos",
+             target_os = "haiku",
+             target_os = "wasi",
++            target_os = "nagi",
+         ))))
+     )]
+     pub fn set_tos(&self, tos: u32) -> io::Result<()> {
+diff --git a/src/net/udp.rs b/src/net/udp.rs
+--- a/src/net/udp.rs
++++ b/src/net/udp.rs
+@@ -2103,6 +2103,7 @@ impl UdpSocket {
+         target_os = "illumos",
+         target_os = "haiku",
+         target_os = "wasi",
++        target_os = "nagi",
+     )))]
+     #[cfg_attr(
+         docsrs,
+@@ -2113,6 +2114,7 @@ impl UdpSocket {
+             target_os = "illumos",
+             target_os = "haiku",
+             target_os = "wasi",
++            target_os = "nagi",
+         ))))
+     )]
+     pub fn tos_v4(&self) -> io::Result<u32> {
+@@ -2133,6 +2135,7 @@ impl UdpSocket {
+         target_os = "illumos",
+         target_os = "haiku",
+         target_os = "wasi",
++        target_os = "nagi",
+     )))]
+     #[cfg_attr(
+         docsrs,
+@@ -2143,6 +2146,7 @@ impl UdpSocket {
+             target_os = "illumos",
+             target_os = "haiku",
+             target_os = "wasi",
++            target_os = "nagi",
+         ))))
+     )]
+     pub fn tos(&self) -> io::Result<u32> {
+@@ -2167,6 +2171,7 @@ impl UdpSocket {
+         target_os = "illumos",
+         target_os = "haiku",
+         target_os = "wasi",
++        target_os = "nagi",
+     )))]
+     #[cfg_attr(
+         docsrs,
+@@ -2177,6 +2182,7 @@ impl UdpSocket {
+             target_os = "illumos",
+             target_os = "haiku",
+             target_os = "wasi",
++            target_os = "nagi",
+         ))))
+     )]
+     pub fn set_tos_v4(&self, tos: u32) -> io::Result<()> {
+@@ -2197,6 +2203,7 @@ impl UdpSocket {
+         target_os = "illumos",
+         target_os = "haiku",
+         target_os = "wasi",
++        target_os = "nagi",
+     )))]
+     #[cfg_attr(
+         docsrs,
+@@ -2207,6 +2214,7 @@ impl UdpSocket {
+             target_os = "illumos",
+             target_os = "haiku",
+             target_os = "wasi",
++            target_os = "nagi",
+         ))))
+     )]
+     pub fn set_tos(&self, tos: u32) -> io::Result<()> {

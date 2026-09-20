@@ -1,0 +1,15 @@
+[package]
+name = "nagi-pkg"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+nagi-package = { path = "../../user/nagi-package" }
+nagi-sdk = { path = "../../sdk/rust" }
+ed25519-dalek = { version = "=2.1.1", default-features = false }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

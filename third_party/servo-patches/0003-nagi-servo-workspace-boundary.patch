@@ -1,0 +1,7 @@
+diff --git a/components/servo/Cargo.toml b/components/servo/Cargo.toml
+--- a/components/servo/Cargo.toml
++++ b/components/servo/Cargo.toml
+@@ -1,2 +1,3 @@
+ [package]
++workspace = "../.."
+ name = "servo"

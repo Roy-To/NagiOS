@@ -1,0 +1,21 @@
+diff --git a/include/drm-uapi/drm.h b/include/drm-uapi/drm.h
+index 4e4f7c2c39e..13ff6bd4f84 100644
+--- a/include/drm-uapi/drm.h
++++ b/include/drm-uapi/drm.h
+@@ -43,0 +44,16 @@ typedef unsigned int drm_handle_t;
++#elif defined(__NAGI__)
++
++#include <stdint.h>
++#include <sys/ioctl.h>
++#include <sys/types.h>
++typedef int8_t   __s8;
++typedef uint8_t  __u8;
++typedef int16_t  __s16;
++typedef uint16_t __u16;
++typedef int32_t  __s32;
++typedef uint32_t __u32;
++typedef int64_t  __s64;
++typedef uint64_t __u64;
++typedef size_t   __kernel_size_t;
++typedef unsigned long drm_handle_t;
++

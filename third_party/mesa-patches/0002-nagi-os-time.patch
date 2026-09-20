@@ -1,0 +1,34 @@
+diff --git a/src/util/detect_os.h b/src/util/detect_os.h
+index 86286df..923e5eb 100644
+--- a/src/util/detect_os.h
++++ b/src/util/detect_os.h
+@@ -93,0 +94,6 @@
++#if defined(__NAGI__)
++#define DETECT_OS_NAGI 1
++#define DETECT_OS_POSIX 1
++#define DETECT_OS_POSIX_LITE 1
++#endif
++
+@@ -148,0 +155,3 @@
++#ifndef DETECT_OS_NAGI
++#define DETECT_OS_NAGI 0
++#endif
+diff --git a/src/util/os_time.c b/src/util/os_time.c
+index da8ad7a..083bfb4 100644
+--- a/src/util/os_time.c
++++ b/src/util/os_time.c
+@@ -58,0 +59,3 @@ os_time_get_nano(void)
++#if DETECT_OS_NAGI
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++#else
+@@ -59,0 +63 @@ os_time_get_nano(void)
++#endif
+@@ -68 +72,7 @@ os_time_sleep(int64_t usecs)
+-#if DETECT_OS_LINUX || DETECT_OS_MANAGARM || DETECT_OS_FUCHSIA
++#if DETECT_OS_NAGI
++   struct timespec time;
++   time.tv_sec = usecs / 1000000;
++   time.tv_nsec = (usecs % 1000000) * 1000;
++   nanosleep(&time, NULL);
++
++#elif DETECT_OS_LINUX || DETECT_OS_MANAGARM || DETECT_OS_FUCHSIA

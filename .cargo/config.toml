@@ -1,0 +1,10 @@
+[target.x86_64-unknown-nagi]
+rustflags = ["-C", "link-arg=-Tkernel/linker.ld"]
+
+[target.x86_64-unknown-nagi-user]
+rustflags = ["-C", "link-arg=-Tuser/nagi-init/linker.ld", "--cfg", "getrandom_backend=\"custom\""]
+
+[env]
+# Keep cc-rs target C helpers on the same Nagi freestanding ABI as Mesa and
+# relibc.  The value is resolved relative to this repository's .cargo file.
+CC_x86_64_unknown_nagi_user = { value = "tools/nagi-target-cc.sh", relative = true, force = false }
