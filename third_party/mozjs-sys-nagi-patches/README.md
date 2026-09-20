@@ -14,7 +14,9 @@ freestanding compiler wrapper and suppress mozjs_sys's default host
 to the pinned `llvm-ar` already used by the Nagi Mesa toolchain, rather than
 inventing a target-prefixed GNU binutils executable. Nagi's C++ sources
 therefore remain subject to the Nagi headers/toolchain and do not acquire a
-host C++ runtime.
+host C++ runtime. The platform adapter selects Mozilla's existing POSIX
+`TimeStamp` implementation for Nagi; its `clock_gettime(CLOCK_MONOTONIC)`
+calls resolve through the generated relibc/Nagi PAL boundary.
 
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the

@@ -1,0 +1,13 @@
+diff --git a/mozjs/mozglue/misc/timestamp.mozbuild b/mozjs/mozglue/misc/timestamp.mozbuild
+--- a/mozjs/mozglue/misc/timestamp.mozbuild
++++ b/mozjs/mozglue/misc/timestamp.mozbuild
+@@ -9,5 +9,9 @@ if CONFIG["OS_TARGET"] == "WINNT":
+         "/mozglue/misc/TimeStamp_windows.cpp",
+     ]
++elif CONFIG["OS_TARGET"] == "Nagi":
++    SOURCES += [
++        "/mozglue/misc/TimeStamp_posix.cpp",
++    ]
+ elif CONFIG["OS_TARGET"] == "Darwin":
+     SOURCES += [
+         "/mozglue/misc/TimeStamp_darwin.cpp",

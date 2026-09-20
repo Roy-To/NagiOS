@@ -53,5 +53,12 @@ mod tests {
         .expect("mozjs native Nagi configure patch");
         assert!(native_os_patch.contains("canonical_os = canonical_kernel = \"Nagi\""));
         assert!(native_os_patch.contains("\"Nagi\": \"__NAGI__\""));
+
+        let time_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0004-nagi-timestamp-platform.patch"),
+        )
+        .expect("mozjs Nagi timestamp patch");
+        assert!(time_patch.contains("CONFIG[\"OS_TARGET\"] == \"Nagi\""));
+        assert!(time_patch.contains("/mozglue/misc/TimeStamp_posix.cpp"));
     }
 }

@@ -426,6 +426,17 @@ that contract. This changes only tool selection; it does not add a host
 runtime, host rendering, or synthetic pixel path. UEFI and real QEMU pixel
 acceptance remain open.
 
+## Remediation continuation (2026-09-20, Nagi TimeStamp platform shim)
+
+Public snapshot CI run `35528990869` passed the archiver boundary and all
+prior target prerequisites, then stopped in Mozilla's `timestamp.mozbuild`
+with `No TimeStamp implementation on this platform` for Nagi. The Nagi
+platform already exposes a real monotonic clock through the kernel timer,
+`libnagi`/`nagi-posix`, and generated relibc headers. The next ordered adapter
+patch therefore selects Mozilla's existing POSIX `TimeStamp` source for
+`OS_TARGET == "Nagi"`; it does not provide a host clock or loop-counter
+substitute. UEFI and real QEMU pixel acceptance remain open.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

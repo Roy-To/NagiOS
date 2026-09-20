@@ -808,6 +808,18 @@ Verification checkpoint on 2026-09-20:
   build, and adds a regression assertion for the patch contract. UEFI and
   first-web-pixel acceptance remain unexecuted.
 
+- Public snapshot CI run #14 (`35528990869`, head `98157d1`) passed the
+  previous archiver boundary: pinned source bootstrap, Servo dependency
+  preflight, Mesa Softpipe archive, UEFI dependencies, M16 package artifact,
+  and the Nagi kernel. The real `mozjs_sys` build then stopped in Mozilla's
+  `timestamp.mozbuild` because Nagi had no platform source selected and
+  reported `No TimeStamp implementation on this platform`. The next
+  Nagi-owned adapter patch selects Mozilla's existing POSIX TimeStamp source
+  for `OS_TARGET == "Nagi"`; its clock calls use the generated relibc/Nagi
+  PAL `clock_gettime(CLOCK_MONOTONIC)` path. No host clock, loop counter, or
+  synthetic rendering path is introduced. UEFI and first-web-pixel acceptance
+  remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
