@@ -593,6 +593,23 @@ call a host signal API, or claim memory-fault recovery. The target build must
 verify this boundary before UEFI and real QEMU first-web-pixel acceptance can
 execute.
 
+## Remediation continuation (2026-09-21, bindgen target boundary)
+
+Public snapshot CI run `35543941691` (head `9c01eae`) verified patch `0011` and
+reached MozJS's bindgen phase. Clang rejected the Rust-only target spelling
+`x86_64-unknown-nagi-user` with `version 'user' in target triple ... is
+invalid`; the same invocation also could not find libc++ `<functional>` because
+bindgen did not inherit the include arguments implemented inside
+`tools/nagi-target-cc.sh`.
+
+The Nagi-owned `mozjs-sys` build script now configures bindgen explicitly for
+the freestanding compile boundary: canonical `x86_64-unknown-elf` target,
+pinned libc++ headers, generated relibc headers, Mesa's Nagi overlay, and the
+existing libc++ feature defines. This is a compile-time target mapping and
+header boundary; it does not import host headers or a host C++ runtime. The
+target build must verify bindgen and continue toward target link, UEFI, and
+real QEMU first-web-pixel acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

@@ -54,6 +54,15 @@ than a host mmap that can deliver `SIGBUS`. The patch therefore keeps the
 `sigaction`/`siglongjmp` implementation; it does not add a fake signal API or
 redirect faults to the host.
 
+Patch `0012` applies the same boundary explicitly to MozJS's bindgen phase.
+bindgen invokes libclang separately from the C++ compiler wrapper, so wrapper-
+internal include arguments and the Rust-only `-user` target suffix are not
+inherited automatically. The patch maps bindgen to the canonical compile-only
+`x86_64-unknown-elf` spelling and supplies the pinned libc++, generated relibc,
+and Nagi Mesa header roots. It does not add host headers, a host C++ runtime,
+or a synthetic target ABI; the resulting bindings still compile against the
+Nagi-owned guest interfaces.
+
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the
 source fingerprint is recorded.

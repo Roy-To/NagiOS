@@ -68,6 +68,21 @@ mod tests {
         assert!(compiler_wrapper.contains("-idirafter"));
         assert!(compiler_wrapper.contains("cxx_include_args"));
 
+        let mozjs_build = std::fs::read_to_string(root.join("third_party/mozjs-sys-nagi/build.rs"))
+            .expect("Nagi mozjs_sys build script");
+        for boundary in [
+            "configure_nagi_bindgen",
+            "--target=x86_64-unknown-elf",
+            "NAGI_CXX_HEADERS",
+            "NAGI_RELIBC_HEADERS",
+            "-nostdinc",
+        ] {
+            assert!(
+                mozjs_build.contains(boundary),
+                "missing Nagi bindgen boundary: {boundary}"
+            );
+        }
+
         let thread_patch = std::fs::read_to_string(
             root.join("third_party/mozjs-sys-nagi-patches/0005-nagi-libcxx-thread-api.patch"),
         )

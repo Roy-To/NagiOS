@@ -1,0 +1,108 @@
+diff --git a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
+@@ -29,0 +30,4 @@
++    "NAGI_CXX_HEADERS",
++    "NAGI_MESA_BUILD",
++    "NAGI_RELIBC_HEADERS",
++    "NAGI_TARGET_CLANG",
+@@ -434,0 +439,4 @@
++
++    if target_os == "nagi" {
++        builder = configure_nagi_bindgen(builder);
++    }
+@@ -496,0 +505,94 @@
++/// Keep bindgen on the same freestanding Nagi C++/C header boundary as the
++/// target compiler wrapper. cc-rs hides wrapper-internal include arguments
++/// from libclang, and libclang also cannot consume Rust's custom `-user`
++/// target suffix. Supplying the canonical ELF target and the pinned libc++ /
++/// relibc include roots here is a compile-time adapter only; no host headers
++/// or runtime libraries are introduced.
++fn configure_nagi_bindgen(mut builder: bindgen::Builder) -> bindgen::Builder {
++    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect(
++        "CARGO_MANIFEST_DIR is required for the Nagi bindgen header boundary",
++    ));
++    let repository_root = manifest_dir
++        .parent()
++        .and_then(Path::parent)
++        .expect("Nagi mozjs_sys source must remain under third_party");
++    let target = env::var("TARGET").expect("TARGET is required for Nagi bindgen");
++
++    let clang = env::var_os("NAGI_TARGET_CLANG").unwrap_or_else(|| OsString::from("clang"));
++    let resource_dir = Command::new(&clang)
++        .args(["--target=x86_64-unknown-elf", "-print-resource-dir"])
++        .output()
++        .expect("Nagi target clang must be executable for bindgen");
++    if !resource_dir.status.success() {
++        panic!(
++            "Nagi target clang failed to report its resource directory: {}",
++            String::from_utf8_lossy(&resource_dir.stderr)
++        );
++    }
++    let resource_dir = String::from_utf8(resource_dir.stdout)
++        .expect("Nagi target clang resource directory must be UTF-8")
++        .trim()
++        .to_owned();
++
++    let cxx_headers = PathBuf::from(env::var_os("NAGI_CXX_HEADERS").expect(
++        "NAGI_CXX_HEADERS must point to the pinned libc++ headers for Nagi bindgen",
++    ));
++    if !cxx_headers.join("functional").is_file() {
++        panic!(
++            "NAGI_CXX_HEADERS does not contain libc++ functional: {}",
++            cxx_headers.display()
++        );
++    }
++
++    let relibc_headers = env::var_os("NAGI_RELIBC_HEADERS")
++        .map(PathBuf::from)
++        .or_else(|| {
++            env::var_os("NAGI_MESA_BUILD").map(|mesa_build| {
++                let mesa_build = PathBuf::from(mesa_build);
++                mesa_build
++                    .parent()
++                    .unwrap_or(&mesa_build)
++                    .join("relibc-target")
++                    .join(&target)
++                    .join("include")
++            })
++        })
++        .unwrap_or_else(|| {
++            repository_root
++                .join("out")
++                .join("m17-mesa")
++                .join("relibc-target")
++                .join(&target)
++                .join("include")
++        });
++    if !relibc_headers.join("pthread.h").is_file() {
++        panic!(
++            "Nagi relibc headers are missing pthread.h: {}",
++            relibc_headers.display()
++        );
++    }
++
++    let mesa_headers = repository_root.join("tools").join("mesa").join("nagi-headers");
++    builder = builder
++        .clang_arg("--target=x86_64-unknown-elf")
++        .clang_arg("-D__NAGI__")
++        .clang_arg("-ffreestanding")
++        .clang_arg("-fno-stack-protector")
++        .clang_arg("-fno-builtin")
++        .clang_arg("-mcmodel=large")
++        .clang_arg("-nostdinc")
++        .clang_arg("-isystem")
++        .clang_arg(resource_dir + "/include")
++        .clang_arg("-isystem")
++        .clang_arg(cxx_headers.to_string_lossy().into_owned())
++        .clang_arg("-idirafter")
++        .clang_arg(mesa_headers.to_string_lossy().into_owned())
++        .clang_arg("-idirafter")
++        .clang_arg(relibc_headers.to_string_lossy().into_owned())
++        .clang_arg("-D_LIBCPP_HAS_THREAD_API_PTHREAD=1")
++        .clang_arg("-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1")
++        .clang_arg("-D_LIBCPP_HAS_NO_LOCALIZATION=1")
++        .clang_arg("-U_LIBCPP_HAS_NO_LOCALIZATION");
++
++    builder
++}

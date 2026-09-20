@@ -25,16 +25,15 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35542223324` at `d56cc42`
-confirmed that the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
+**Last known repair checkpoint:** public CI run `35543941691` at `9c01eae`
+confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
-repair, and condition-variable clock repair all reach the next real MozJS
-compile boundary. The remaining target compile error is MozJS's
-`MmapFaultHandler.cpp` selecting Unix `sigaction` flags (`SA_SIGINFO`,
-`SA_NODEFER`, and `SA_ONSTACK`) even though this M17 Nagi vertical slice
-deliberately has no Unix signal-delivery ABI. Ordered patch `0011` now selects
-MozJS's existing no-op mmap-fault-handler boundary for Nagi; target link,
-UEFI, and real QEMU first-web-pixel evidence remain outstanding.
+repair, condition-variable clock repair, and the no-op Nagi mmap fault-handler
+boundary. The next target failure is MozJS bindgen receiving the Rust target
+suffix `x86_64-unknown-nagi-user` and lacking the pinned libc++ `<functional>`
+include boundary. The current repair configures bindgen with the canonical
+freestanding ELF target and generated relibc/Mesa headers; target link, UEFI,
+and real QEMU first-web-pixel evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -935,6 +934,18 @@ Verification checkpoint on 2026-09-20:
   and excludes only the unsupported `sigaction`/`siglongjmp` implementation;
   it does not add a host signal API or fake memory-fault handling. UEFI and
   first-web-pixel acceptance remain unexecuted.
+
+- Public snapshot CI run #26 (`35543941691`, head `9c01eae`) verified ordered
+  MozJS patch `0011` and reached the pinned bindgen phase. Clang rejected the
+  Rust-only target spelling `x86_64-unknown-nagi-user` (`version 'user' in
+  target triple ... is invalid`) and could not find `<functional>` because
+  bindgen did not inherit the target compiler wrapper's libc++/relibc include
+  paths. The Nagi-owned MozJS build script now configures bindgen with the
+  canonical freestanding `x86_64-unknown-elf` compile target, the pinned
+  `NAGI_CXX_HEADERS`, generated relibc headers, Mesa header overlay, and the
+  existing libc++ feature boundary. This is compile-time target configuration;
+  it does not import host headers or a host runtime. UEFI and first-web-pixel
+  acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
