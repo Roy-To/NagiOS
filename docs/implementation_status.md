@@ -820,6 +820,17 @@ Verification checkpoint on 2026-09-20:
   synthetic rendering path is introduced. UEFI and first-web-pixel acceptance
   remain unexecuted.
 
+- Public snapshot CI run #15 (`35529920163`, head `35e6222`) passed the Nagi
+  TimeStamp platform selection and reached the next real C++ toolchain
+  boundary. Mozilla's configure then failed because the freestanding wrapper
+  intentionally used `-nostdinc` but no C++ standard header root was supplied;
+  the first missing header was `<cstddef>`. The next repair installs the
+  pinned Ubuntu noble `libc++-19-dev` headers, supplies
+  `NAGI_CXX_HEADERS=/usr/include/c++/v1`, and makes the wrapper validate and
+  pass that path as an explicit system include. This remains a target compile
+  header dependency; host C++ runtime linking stays disabled. UEFI and
+  first-web-pixel acceptance remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

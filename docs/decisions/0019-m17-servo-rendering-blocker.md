@@ -437,6 +437,18 @@ patch therefore selects Mozilla's existing POSIX `TimeStamp` source for
 `OS_TARGET == "Nagi"`; it does not provide a host clock or loop-counter
 substitute. UEFI and real QEMU pixel acceptance remain open.
 
+## Remediation continuation (2026-09-20, target C++ standard headers)
+
+Public snapshot CI run `35529920163` passed the Nagi TimeStamp platform shim
+and reached Mozilla's next real compile boundary. Its freestanding wrapper
+correctly rejected host system includes, but no C++ standard header root had
+been supplied, so the first required `<cstddef>` header was unavailable. The
+next repair installs the pinned Ubuntu noble `libc++-19-dev` headers and passes
+their explicit `/usr/include/c++/v1` root through `NAGI_CXX_HEADERS`. This is
+compile-time header provisioning only; Nagi relibc remains the C header and
+runtime boundary, and no host C++ runtime link is introduced. UEFI and real
+QEMU pixel acceptance remain open.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

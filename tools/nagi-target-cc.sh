@@ -23,6 +23,15 @@ if [[ ! -f "$relibc_headers/pthread.h" ]]; then
     exit 2
 fi
 
+cxx_include_args=()
+if [[ -n "${NAGI_CXX_HEADERS:-}" ]]; then
+    if [[ ! -f "$NAGI_CXX_HEADERS/cstddef" ]]; then
+        echo "Nagi target C compiler: configured C++ headers missing cstddef: $NAGI_CXX_HEADERS" >&2
+        exit 2
+    fi
+    cxx_include_args=(-isystem "$NAGI_CXX_HEADERS")
+fi
+
 resource_dir=$("$compiler" --target=x86_64-unknown-elf -print-resource-dir)
 exec "$compiler" \
     --target=x86_64-unknown-elf \
@@ -33,6 +42,7 @@ exec "$compiler" \
     -mcmodel=large \
     -nostdinc \
     -isystem "$resource_dir/include" \
+    "${cxx_include_args[@]}" \
     -I "$repo_root/tools/mesa/nagi-headers" \
     -I "$relibc_headers" \
     "$@"

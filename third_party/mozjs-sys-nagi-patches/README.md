@@ -16,7 +16,10 @@ inventing a target-prefixed GNU binutils executable. Nagi's C++ sources
 therefore remain subject to the Nagi headers/toolchain and do not acquire a
 host C++ runtime. The platform adapter selects Mozilla's existing POSIX
 `TimeStamp` implementation for Nagi; its `clock_gettime(CLOCK_MONOTONIC)`
-calls resolve through the generated relibc/Nagi PAL boundary.
+calls resolve through the generated relibc/Nagi PAL boundary. The target
+compiler wrapper can also consume the pinned Ubuntu libc++ headers through an
+explicit `NAGI_CXX_HEADERS` path; this is a compile-time header input only and
+does not link a host C++ runtime.
 
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the

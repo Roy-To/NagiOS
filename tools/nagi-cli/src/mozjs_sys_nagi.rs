@@ -60,5 +60,11 @@ mod tests {
         .expect("mozjs Nagi timestamp patch");
         assert!(time_patch.contains("CONFIG[\"OS_TARGET\"] == \"Nagi\""));
         assert!(time_patch.contains("/mozglue/misc/TimeStamp_posix.cpp"));
+
+        let compiler_wrapper = std::fs::read_to_string(root.join("tools/nagi-target-cc.sh"))
+            .expect("Nagi target compiler wrapper");
+        assert!(compiler_wrapper.contains("NAGI_CXX_HEADERS"));
+        assert!(compiler_wrapper.contains("-isystem"));
+        assert!(compiler_wrapper.contains("cxx_include_args"));
     }
 }
