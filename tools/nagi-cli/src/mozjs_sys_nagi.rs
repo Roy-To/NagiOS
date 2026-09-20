@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::registry_source::{RegistrySourceSpec, ensure_registry_checkout};
+use crate::registry_source::{ensure_registry_checkout, RegistrySourceSpec};
 
 const SPEC: RegistrySourceSpec = RegistrySourceSpec {
     section: "sources.mozjs_sys_nagi",
