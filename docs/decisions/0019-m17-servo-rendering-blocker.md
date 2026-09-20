@@ -354,6 +354,12 @@ installing the generated checkout. This repairs fresh CI initialization while
 preserving the pinned source boundary; it does not substitute an unpinned
 latest dependency or a host rendering path.
 
+Run `35524127951` then reached this fallback on every job and exposed a second
+bootstrap-only defect: Cargo rejected the generated manifest with `no targets
+specified in the manifest`. The temporary manifest now includes an empty lib
+target, used only to let Cargo generate/fetch its lockfile. It does not alter
+the Nagi workspace or the generated pinned source validation boundary.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

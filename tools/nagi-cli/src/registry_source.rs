@@ -293,6 +293,12 @@ fn fetch_registry_source(spec: &RegistrySourceSpec, cargo_home: &Path) -> Result
                 manifest.display()
             )
         })?;
+        fs::write(temporary.join("lib.rs"), "").map_err(|error| {
+            format!(
+                "cannot write temporary {} registry target: {error}",
+                spec.component
+            )
+        })?;
 
         run_cargo(
             ["generate-lockfile", "--manifest-path"],
@@ -321,7 +327,7 @@ fn fetch_registry_source(spec: &RegistrySourceSpec, cargo_home: &Path) -> Result
 
 fn registry_fetch_manifest(spec: &RegistrySourceSpec) -> String {
     format!(
-        "[package]\nname = \"nagi-registry-bootstrap\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\n{} = \"={}\"\n",
+        "[package]\nname = \"nagi-registry-bootstrap\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[lib]\npath = \"lib.rs\"\n\n[dependencies]\n{} = \"={}\"\n",
         spec.package, spec.version
     )
 }

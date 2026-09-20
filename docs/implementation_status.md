@@ -741,6 +741,14 @@ Verification checkpoint on 2026-09-20:
   latest dependency or host rendering fallback is introduced. The next run
   must verify fresh-cache bootstrap before retrying the Nagi target build.
 
+- Public snapshot CI run #8 (`35524127951`, head `cb93985`) exercised that
+  fresh-cache path on Ubuntu and Windows, but the temporary Cargo manifest
+  lacked a target and Cargo stopped with `no targets specified in the
+  manifest`. The same failure occurred in the Nagi target job before its
+  target build. The bootstrap fix now gives the temporary manifest an empty
+  library target solely for Cargo dependency fetching; the fetched pinned
+  source is still validated and patched into the real generated checkout.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
