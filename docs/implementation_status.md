@@ -714,6 +714,19 @@ Verification checkpoint on 2026-09-20:
   `wayland-sys` in the Nagi target graph. UEFI and real QEMU evidence remain
   outstanding.
 
+- Public snapshot CI run #6 (`35522589749`, head `2c3bcd7`) verified the
+  Surfman source binding, target graph boundary, Mesa Softpipe, package/kernel
+  prerequisites, and host jobs. User-init then reached the next target-only
+  ABI boundary: `tempfile 3.27.0` selected its Unix `rustix` backend because
+  Nagi reports the Unix target family, and `rustix` referenced 43 libc APIs
+  that are outside the M17 Nagi POSIX contract (`statfs`, `dup3`, fcntl
+  locking/fallocate constants, and related operations). A Nagi-owned pinned
+  tempfile source now uses real std/VFS file operations on `target_os =
+  "nagi"` and keeps rustix for supported Unix targets; the source lock,
+  bootstrap, patch fingerprint, root Cargo binding, and target preflight are
+  tracked. The next run must verify this backend, then continue to UEFI and
+  real QEMU first-web-pixel acceptance.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

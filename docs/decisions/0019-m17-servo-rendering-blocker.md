@@ -316,6 +316,26 @@ future source-binding regression stops before the full target build. Local
 locked metadata and target graph checks pass with the generated checkout;
 real CI target build, UEFI, and QEMU first-web-pixel evidence remain required.
 
+## Remediation continuation (2026-09-20, Nagi tempfile filesystem backend)
+
+Public snapshot CI run `35522589749` passed the Surfman parent-workspace
+binding and reached the Nagi user-init target build. The next failure came
+from `tempfile 3.27.0`, which selected its Unix `rustix` backend solely
+because Nagi intentionally reports `target_family = "unix"`. `rustix` then
+compiled host-oriented filesystem APIs against Nagi libc and failed on 43
+missing declarations, including `statfs`, `dup3`, fcntl locking/fallocate
+constants, and related types. Adding fake libc symbols or weakening the target
+ABI would be incorrect.
+
+The pinned `tempfile` source is now materialized through the existing
+registry-source lock and patch-fingerprint mechanism. Its Nagi-specific file
+backend uses Nagi's real std/VFS operations for create, unlink, clone/reopen,
+rename, and hard-link persistence, while the upstream rustix backend remains
+selected on supported Unix targets. The Nagi root workspace binds this source,
+and target CI rejects `rustix` in the Nagi dependency graph before compilation.
+The next public run must verify the backend, target build, UEFI, and real QEMU
+first-web-pixel acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

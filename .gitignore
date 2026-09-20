@@ -15,6 +15,7 @@
 /third_party/tokio-servo/
 /third_party/freetype-sys/
 /third_party/hyper-util-servo/
+/third_party/tempfile-nagi/
 
 # Temporary developer-tool installers
 /.nagi-*

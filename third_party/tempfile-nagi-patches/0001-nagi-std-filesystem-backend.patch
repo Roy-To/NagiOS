@@ -1,0 +1,85 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -88,7 +88,7 @@ default-features = false
+ [dev-dependencies.doc-comment]
+ version = "0.3"
+ 
+-[target.'cfg(any(unix, target_os = "wasi"))'.dependencies.rustix]
++[target.'cfg(all(any(unix, target_os = "wasi"), not(target_os = "nagi")))'.dependencies.rustix]
+ version = "1.1.4"
+ features = ["fs"]
+ 
+diff --git a/src/file/imp/mod.rs b/src/file/imp/mod.rs
+--- a/src/file/imp/mod.rs
++++ b/src/file/imp/mod.rs
+@@ -1,4 +1,11 @@
+-#[cfg_attr(any(unix, target_os = "redox", target_os = "wasi"), path = "unix.rs")]
++#[cfg_attr(target_os = "nagi", path = "nagi.rs")]
++#[cfg_attr(
++    all(
++        any(unix, target_os = "redox", target_os = "wasi"),
++        not(target_os = "nagi")
++    ),
++    path = "unix.rs"
++)]
+ #[cfg_attr(windows, path = "windows.rs")]
+ #[cfg_attr(
+     not(any(unix, target_os = "redox", target_os = "wasi", windows)),
+diff --git a/src/file/imp/nagi.rs b/src/file/imp/nagi.rs
+new file mode 100644
+--- /dev/null
++++ b/src/file/imp/nagi.rs
+@@ -0,0 +1,52 @@
++use std::ffi::OsStr;
++use std::fs::{self, File, OpenOptions};
++use std::io;
++use std::path::Path;
++
++use crate::util;
++
++pub fn create_named(
++    path: &Path,
++    open_options: &mut OpenOptions,
++    permissions: Option<&std::fs::Permissions>,
++) -> io::Result<File> {
++    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
++
++    open_options.read(true).write(true).create_new(true);
++    open_options.mode(permissions.map(|permissions| permissions.mode()).unwrap_or(0o600));
++    open_options.open(path)
++}
++
++fn create_unlinked(path: &Path) -> io::Result<File> {
++    let file = create_named(path, &mut OpenOptions::new(), None)?;
++    let _ = fs::remove_file(path);
++    Ok(file)
++}
++
++pub fn create(dir: &Path) -> io::Result<File> {
++    util::create_helper(
++        dir,
++        OsStr::new(".tmp"),
++        OsStr::new(""),
++        crate::NUM_RAND_CHARS,
++        |path| create_unlinked(&path),
++    )
++}
++
++pub fn reopen(file: &File, _path: &Path) -> io::Result<File> {
++    file.try_clone()
++}
++
++pub fn persist(old_path: &Path, new_path: &Path, overwrite: bool) -> io::Result<()> {
++    if overwrite {
++        fs::rename(old_path, new_path)
++    } else {
++        fs::hard_link(old_path, new_path)?;
++        let _ = fs::remove_file(old_path);
++        Ok(())
++    }
++}
++
++pub fn keep(_: &Path) -> io::Result<()> {
++    Ok(())
++}

@@ -128,3 +128,13 @@ source_hash = "sha256:96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a
 license = "MIT"
 vendored_path = "third_party/hyper-util-servo"
 nagi_patch = "third_party/hyper-util-servo-patches"
+
+[sources.tempfile_nagi]
+component = "tempfile-nagi"
+version = "3.27.0"
+repository = "https://crates.io/crates/tempfile/3.27.0"
+registry_archive = "https://crates.io/api/v1/crates/tempfile/3.27.0/download"
+source_hash = "sha256:32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+license = "MIT OR Apache-2.0"
+vendored_path = "third_party/tempfile-nagi"
+nagi_patch = "third_party/tempfile-nagi-patches"

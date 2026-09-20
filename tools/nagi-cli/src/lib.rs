@@ -12,4 +12,5 @@ pub(crate) mod registry_source;
 pub(crate) mod servo;
 pub(crate) mod socket2_servo;
 pub(crate) mod surfman;
+pub(crate) mod tempfile_nagi;
 pub(crate) mod tokio_servo;

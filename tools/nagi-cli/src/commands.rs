@@ -14,6 +14,7 @@ use crate::mesa::ensure_mesa_checkout;
 use crate::paths::{clean_owned_outputs, ensure_owned_directory};
 use crate::servo::ensure_servo_checkout;
 use crate::surfman::ensure_surfman_checkout;
+use crate::tempfile_nagi::ensure_tempfile_nagi_checkout;
 
 pub const EXIT_SUCCESS: i32 = 0;
 pub const EXIT_USAGE: i32 = 2;
@@ -280,6 +281,10 @@ fn execute_fetch(root: &Path) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
+    let tempfile_nagi = match ensure_tempfile_nagi_checkout(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+    };
     let servo = match ensure_servo_checkout(root) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
@@ -306,8 +311,9 @@ fn execute_fetch(root: &Path) -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             format!(
-                "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, Servo, and Mesa/Softpipe sources validated ({}, {}, {})",
+                "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {})",
                 surfman.strip_prefix(root).unwrap_or(Path::new("third_party/surfman")).display(),
+                tempfile_nagi.strip_prefix(root).unwrap_or(Path::new("third_party/tempfile-nagi")).display(),
                 servo_relative.display(),
                 mesa_relative.display()
             ),
