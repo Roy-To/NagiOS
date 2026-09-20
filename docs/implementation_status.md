@@ -786,6 +786,17 @@ Verification checkpoint on 2026-09-20:
   `x86_64-unknown-nagi-user`; no host fallback or synthetic rendering was
   added. UEFI and first-web-pixel acceptance remain unexecuted.
 
+- Public snapshot CI run #12 (`35527150705`, head `aadd411`) passed the new
+  native Nagi configure identity, including `config.sub`, `split_triplet()`,
+  target compiler detection, and `__NAGI__` preprocessor detection. It then
+  failed at Mozilla's real compiler policy check because Ubuntu's unqualified
+  `clang` was `18.1.3` while the pinned Servo/mozjs source requires LLVM/Clang
+  19 or newer. The next repair installs the Ubuntu 24.04 `clang-19`/`lld-19`
+  toolchain explicitly, makes it the CI alternative, routes Nagi C/C++
+  preprocessing through the freestanding wrapper, and suppresses mozjs_sys's
+  host `stdc++` link request for the Nagi target. This is still target build
+  prerequisite work; UEFI and first-web-pixel acceptance remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

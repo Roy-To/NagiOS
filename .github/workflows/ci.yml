@@ -20,7 +20,10 @@ jobs:
       - name: Install supported host dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang lld qemu-system-x86 ovmf cmake meson ninja-build python3
+          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 qemu-system-x86 ovmf cmake meson ninja-build python3
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 190
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 190
+          sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-19 190
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
@@ -98,7 +101,10 @@ jobs:
       - name: Install target build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang lld llvm qemu-system-x86 ovmf cmake meson ninja-build python3 python3-venv flex bison build-essential
+          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm qemu-system-x86 ovmf cmake meson ninja-build python3 python3-venv flex bison build-essential
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 190
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 190
+          sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-19 190
       - name: Install pinned Rust target toolchain
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
@@ -145,7 +151,7 @@ jobs:
         run: cargo +nightly-2025-08-01 build -p nagi-kernel --target targets/x86_64-unknown-nagi.json -Zbuild-std=core,compiler_builtins --release --locked
       - name: Build Nagi user init
         env:
-          NAGI_TARGET_CLANG: clang
+          NAGI_TARGET_CLANG: clang-19
           NAGI_M16_PACKAGE: ${{ github.workspace }}/out/artifacts/hello-nagi.xapp
           NAGI_MESA_BUILD: ${{ github.workspace }}/out/m17-mesa/mesa-build
           CC_x86_64_unknown_nagi_user: ${{ github.workspace }}/tools/nagi-target-cc.sh

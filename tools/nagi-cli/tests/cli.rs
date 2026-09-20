@@ -216,7 +216,7 @@ fn project_manifest_supplies_the_pinned_host_requirements() {
 
     let requirements = load_toolchain_requirements(root).expect("valid host requirements");
 
-    assert_eq!(requirements.llvm_min_version, (17, 0, 0));
+    assert_eq!(requirements.llvm_min_version, (19, 0, 0));
     assert_eq!(requirements.lld_min_version, (17, 0, 0));
     assert_eq!(requirements.qemu_min_version, (8, 0, 0));
     assert_eq!(requirements.python_min_version, (3, 10, 0));

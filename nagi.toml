@@ -12,7 +12,7 @@ disk_gib = 64
 
 [toolchain]
 rust_channel = "nightly-2025-08-01"
-llvm_min_version = "17.0.0"
+llvm_min_version = "19.0.0"
 lld_min_version = "17.0.0"
 qemu_min_version = "8.0.0"
 ovmf_pairs = "edk2-x86_64-code.fd:edk2-i386-vars.fd,OVMF_CODE.fd:OVMF_VARS.fd,OVMF_CODE_4M.fd:OVMF_VARS_4M.fd,edk2-x86_64-code-4m.fd:edk2-i386-vars-4m.fd"

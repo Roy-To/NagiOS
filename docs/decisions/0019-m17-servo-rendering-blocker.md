@@ -400,6 +400,19 @@ Nagi target adapter, not a Linux/WASI label or host fallback. UEFI and real
 QEMU pixel acceptance remain open until user-init, UEFI, and the acceptance
 wrapper all pass.
 
+## Remediation continuation (2026-09-20, target LLVM prerequisite)
+
+Public snapshot CI run `35527150705` passed the native Nagi configure adapter:
+Mozilla recognized `x86_64-unknown-nagi`, detected the Nagi kernel through
+`__NAGI__`, and selected the real Nagi compiler wrapper. It then rejected the
+runner's actual Clang `18.1.3` because this pinned SpiderMonkey source requires
+Clang/LLVM 19 or newer. The remediation pins the CI dependency to the Ubuntu
+24.04 `clang-19`/`lld-19` packages and selects them explicitly. The mozjs
+adapter also routes Nagi C/C++ preprocessing through the Nagi freestanding
+wrapper and avoids requesting a host `stdc++` runtime for `nagi-user`. No host
+rendering or synthetic pixel path is introduced. UEFI and real QEMU pixel
+acceptance remain open.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
