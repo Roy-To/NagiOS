@@ -841,6 +841,17 @@ Verification checkpoint on 2026-09-20:
   `-idirafter` only when C++ headers are configured. The target build must be
   rerun; UEFI and first-web-pixel acceptance remain unexecuted.
 
+- Public snapshot CI run #17 (`35531324244`, head `7210f01`) confirmed that
+  the include-order repair reached the real MozJS C++ compile: Mesa, package,
+  kernel, compiler checks, and Mozilla target configuration all passed. The
+  next concrete failure was libc++'s `__config` reporting `No thread API` for
+  Nagi's custom target triple. Nagi already provides the real POSIX pthread
+  ABI through `nagi-posix`; the ordered `0005` mozjs adapter patch now selects
+  libc++'s pthread backend for Nagi during the target build. This is a
+  compile-time selection of the existing guest ABI and does not add a host
+  pthread/C++ runtime. UEFI and first-web-pixel acceptance remain
+  unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

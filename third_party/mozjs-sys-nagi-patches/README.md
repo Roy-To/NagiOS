@@ -22,7 +22,9 @@ explicit `NAGI_CXX_HEADERS` path; this is a compile-time header input only and
 does not link a host C++ runtime. When that path is enabled, the wrapper keeps
 the real libc++ headers before the Mesa compatibility headers so libc++
 `include_next` resolves through the Nagi relibc boundary rather than through a
-Mesa-only C++ shim.
+Mesa-only C++ shim. Because Nagi's target triple is custom, the Servo build
+script also selects libc++'s pthread thread backend explicitly; those pthread
+symbols resolve to the existing Nagi POSIX runtime boundary.
 
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the

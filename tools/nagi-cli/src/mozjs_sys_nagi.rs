@@ -67,5 +67,11 @@ mod tests {
         assert!(compiler_wrapper.contains("-isystem"));
         assert!(compiler_wrapper.contains("-idirafter"));
         assert!(compiler_wrapper.contains("cxx_include_args"));
+
+        let thread_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0005-nagi-libcxx-thread-api.patch"),
+        )
+        .expect("mozjs libc++ thread API patch");
+        assert!(thread_patch.contains("_LIBCPP_HAS_THREAD_API_PTHREAD=1"));
     }
 }

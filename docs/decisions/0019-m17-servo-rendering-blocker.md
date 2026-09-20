@@ -462,6 +462,20 @@ header-enabled path. This remains a target header-order repair, not a host
 runtime or rendering fallback. UEFI and real QEMU pixel acceptance remain
 open.
 
+## Remediation continuation (2026-09-20, libc++ thread backend)
+
+Public snapshot CI run `35531324244` (head `7210f01`) passed the previous
+libc++ header-order boundary and entered the real MozJS C++ compile. The
+target then stopped in libc++ `__config` with `No thread API`: Nagi's custom
+target triple is not one of libc++'s platform auto-detection cases. This was
+not a missing host library. The Nagi runtime already exports the POSIX pthread
+ABI through `nagi-posix`, including the symbols required by the target
+compatibility boundary. The ordered `0005-nagi-libcxx-thread-api.patch` now
+selects libc++'s pthread backend for Nagi in the mozjs build flags. It does
+not add a host pthread/C++ runtime, disable threading, or fake a rendering
+result. The target build must be rerun; UEFI and real QEMU first-web-pixel
+acceptance remain open.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

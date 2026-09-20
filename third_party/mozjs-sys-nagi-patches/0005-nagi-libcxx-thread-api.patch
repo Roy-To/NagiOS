@@ -1,0 +1,20 @@
+diff --git a/build.rs b/build.rs
+index 1932228..43f0673 100644
+--- a/build.rs
++++ b/build.rs
+@@ -262,6 +262,15 @@ fn build_spidermonkey(build_dir: &Path) {
+         cxxflags.push(String::from("-stdlib=libc++"));
+     }
+ 
++    if target.contains("nagi") {
++        // libc++ cannot infer a thread implementation from Nagi's custom
++        // target triple. Nagi exposes the POSIX pthread ABI from
++        // `nagi-posix`, so select libc++'s pthread backend explicitly. This
++        // is a compile-time selection for the real guest ABI; it does not
++        // add a host pthread or C++ runtime dependency.
++        cxxflags.push(String::from("-D_LIBCPP_HAS_THREAD_API_PTHREAD=1"));
++    }
++
+     if let Some(user_cxxflags) = get_cc_rs_env("CXXFLAGS").filter(|s| !s.is_empty()) {
+         // We want the user-provided CXXFLAGS after ours, since that allows overriding.
+         cxxflags.push(user_cxxflags);
