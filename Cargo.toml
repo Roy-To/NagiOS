@@ -34,5 +34,6 @@ hyper-util = { path = "third_party/hyper-util-servo" }
 mio = { path = "third_party/mio-servo" }
 socket2 = { path = "third_party/socket2-servo" }
 tempfile = { path = "third_party/tempfile-nagi" }
+mozjs_sys = { path = "third_party/mozjs-sys-nagi" }
 tokio = { path = "third_party/tokio-servo" }
 surfman = { path = "third_party/surfman" }

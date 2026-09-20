@@ -360,6 +360,23 @@ specified in the manifest`. The temporary manifest now includes an empty lib
 target, used only to let Cargo generate/fetch its lockfile. It does not alter
 the Nagi workspace or the generated pinned source validation boundary.
 
+## Remediation continuation (2026-09-20, mozjs_sys Nagi target adapter)
+
+Run `35524229892` passed the clean-runner bootstrap and all prerequisite stages,
+then reached `mozjs_sys v153.0.0-2` during the real Nagi user-init build. Its
+source build invoked Mozilla's GNU `config.sub` with
+`x86_64-unknown-nagi-user`, which failed because that script interprets the
+Rust target's `user` component as an unknown operating system. This was a
+target adapter gap, not evidence that the JS engine could be replaced or
+executed on the host.
+
+The pinned registry source now has a Nagi-owned patch that gives Mozilla's
+configure layer the already-established freestanding `x86_64-unknown-elf`
+triplet while retaining the Nagi target compiler, generated relibc headers,
+and final guest link. The source lock, bootstrap, patch fingerprint, and root
+Cargo path binding are tracked. The next run must verify the real SpiderMonkey
+cross-build and expose the next compile or link boundary.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

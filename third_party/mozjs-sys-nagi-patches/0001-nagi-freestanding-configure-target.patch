@@ -1,0 +1,15 @@
+diff --git a/makefile.cargo b/makefile.cargo
+--- a/makefile.cargo
++++ b/makefile.cargo
+@@ -139,6 +139,11 @@ ifneq ($(HOST),$(TARGET))
+ 		CC ?= $(TARGET)-gcc
+ 		CPP ?= $(TARGET)-gcc -E
+ 		CXX ?= $(TARGET)-g++
+ 		AR ?= $(TARGET)-ar
+ 		CONFIGURE_FLAGS += --target=$(TARGET)
++		ifeq (nagi-user,$(findstring nagi-user,$(TARGET)))
++			# GNU config does not know Nagi's Rust target spelling. The
++			# compiler and headers remain the Nagi target toolchain.
++			CONFIGURE_FLAGS += --target=x86_64-unknown-elf
++		endif
+ 	endif

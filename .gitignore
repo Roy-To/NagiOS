@@ -16,6 +16,7 @@
 /third_party/freetype-sys/
 /third_party/hyper-util-servo/
 /third_party/tempfile-nagi/
+/third_party/mozjs-sys-nagi/
 
 # Temporary developer-tool installers
 /.nagi-*

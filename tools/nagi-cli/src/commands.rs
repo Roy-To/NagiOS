@@ -11,6 +11,7 @@ use crate::image::{
     write_fat12_image, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::mesa::ensure_mesa_checkout;
+use crate::mozjs_sys_nagi::ensure_mozjs_sys_nagi_checkout;
 use crate::paths::{clean_owned_outputs, ensure_owned_directory};
 use crate::servo::ensure_servo_checkout;
 use crate::surfman::ensure_surfman_checkout;
@@ -285,6 +286,10 @@ fn execute_fetch(root: &Path) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
+    let mozjs_sys_nagi = match ensure_mozjs_sys_nagi_checkout(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+    };
     let servo = match ensure_servo_checkout(root) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
@@ -311,9 +316,13 @@ fn execute_fetch(root: &Path) -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             format!(
-                "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {})",
+                "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {}, {})",
                 surfman.strip_prefix(root).unwrap_or(Path::new("third_party/surfman")).display(),
                 tempfile_nagi.strip_prefix(root).unwrap_or(Path::new("third_party/tempfile-nagi")).display(),
+                mozjs_sys_nagi
+                    .strip_prefix(root)
+                    .unwrap_or(Path::new("third_party/mozjs-sys-nagi"))
+                    .display(),
                 servo_relative.display(),
                 mesa_relative.display()
             ),

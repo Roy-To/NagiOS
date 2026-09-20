@@ -749,6 +749,18 @@ Verification checkpoint on 2026-09-20:
   library target solely for Cargo dependency fetching; the fetched pinned
   source is still validated and patched into the real generated checkout.
 
+- Public snapshot CI run #9 (`35524229892`, head `0ddd645`) passed fresh-cache
+  bootstrap, target dependency preflight, Mesa Softpipe, the M16 package
+  artifact, the kernel build, and the Nagi tempfile filesystem backend. Nagi
+  user-init then reached the next real Servo runtime boundary: `mozjs_sys
+  v153.0.0-2` passed Cargo compilation but its SpiderMonkey configure script
+  rejected `x86_64-unknown-nagi-user` with `OS "user" not recognized`. A
+  pinned Nagi `mozjs_sys` source checkout and patch boundary now normalize only
+  the Mozilla configure triplet to the existing freestanding
+  `x86_64-unknown-elf` toolchain identifier; the Rust target, compiler wrapper,
+  relibc headers, and guest link remain Nagi-owned. The next run must verify
+  this adapter and continue through the actual SpiderMonkey compile/link.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
