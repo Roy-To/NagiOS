@@ -32,4 +32,18 @@ mod tests {
             .expect("workspace root");
         validate_source_lock(root, &SPEC).expect("pinned mozjs_sys source lock");
     }
+
+    #[test]
+    fn mozjs_configure_uses_supported_freestanding_triplet() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch = std::fs::read_to_string(root.join(
+            "third_party/mozjs-sys-nagi-patches/0001-nagi-freestanding-configure-target.patch",
+        ))
+        .expect("mozjs configure patch");
+        assert!(patch.contains("--target=x86_64-unknown-none"));
+        assert!(!patch.contains("--target=x86_64-unknown-elf"));
+    }
 }

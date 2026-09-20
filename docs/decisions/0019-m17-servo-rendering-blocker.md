@@ -371,11 +371,22 @@ target adapter gap, not evidence that the JS engine could be replaced or
 executed on the host.
 
 The pinned registry source now has a Nagi-owned patch that gives Mozilla's
-configure layer the already-established freestanding `x86_64-unknown-elf`
-triplet while retaining the Nagi target compiler, generated relibc headers,
-and final guest link. The source lock, bootstrap, patch fingerprint, and root
-Cargo path binding are tracked. The next run must verify the real SpiderMonkey
-cross-build and expose the next compile or link boundary.
+configure layer the recognized freestanding `x86_64-unknown-none` triplet while
+retaining the Nagi target compiler, generated relibc headers, and final guest
+link. The source lock, bootstrap, patch fingerprint, and root Cargo path
+binding are tracked. The next run must verify the real SpiderMonkey cross-build
+and expose the next compile or link boundary.
+
+## Remediation continuation (2026-09-20, configure triplet correction)
+
+Public snapshot CI run `35525315524` reached the real `mozjs_sys` build, but
+the configure-only `x86_64-unknown-elf` fallback was rejected by the pinned
+Mozilla `config.sub` as `OS 'elf' not recognized`. This was a defect in the
+Nagi-owned adapter patch, not a reason to replace the target build with a host
+build. The patch now uses the script's accepted freestanding
+`x86_64-unknown-none` form. The Nagi Rust target, compiler wrapper, generated
+relibc headers, and guest link remain unchanged. UEFI and real QEMU pixel
+acceptance were skipped by the failed user-init prerequisite and remain open.
 
 ## Exit criteria
 

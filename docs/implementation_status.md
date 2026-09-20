@@ -756,10 +756,21 @@ Verification checkpoint on 2026-09-20:
   v153.0.0-2` passed Cargo compilation but its SpiderMonkey configure script
   rejected `x86_64-unknown-nagi-user` with `OS "user" not recognized`. A
   pinned Nagi `mozjs_sys` source checkout and patch boundary now normalize only
-  the Mozilla configure triplet to the existing freestanding
-  `x86_64-unknown-elf` toolchain identifier; the Rust target, compiler wrapper,
-  relibc headers, and guest link remain Nagi-owned. The next run must verify
-  this adapter and continue through the actual SpiderMonkey compile/link.
+  the Mozilla configure triplet to the recognized freestanding
+  `x86_64-unknown-none` configure identifier; the Rust target, compiler
+  wrapper, relibc headers, and guest link remain Nagi-owned. The next run must
+  verify this adapter and continue through the actual SpiderMonkey
+  compile/link.
+
+- Public snapshot CI run #10 (`35525315524`, head `219639c`) passed the
+  clean-runner bootstrap, dependency feature boundary, Mesa Softpipe, UEFI
+  prerequisites, M16 artifact, and kernel build. It then failed in the real
+  Nagi user-init build inside `mozjs_sys` because the configure-only fallback
+  triplet was set to `x86_64-unknown-elf`, which Mozilla's pinned `config.sub`
+  treats as an unknown OS rather than a bare-metal object format. The Nagi
+  adapter now uses the accepted `x86_64-unknown-none` configure triplet. This
+  does not change the Rust target, compiler wrapper, relibc headers, or guest
+  link boundary. UEFI and first-web-pixel acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
