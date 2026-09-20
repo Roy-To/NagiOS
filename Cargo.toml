@@ -34,3 +34,4 @@ hyper-util = { path = "third_party/hyper-util-servo" }
 mio = { path = "third_party/mio-servo" }
 socket2 = { path = "third_party/socket2-servo" }
 tokio = { path = "third_party/tokio-servo" }
+surfman = { path = "third_party/surfman" }

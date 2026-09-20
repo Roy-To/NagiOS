@@ -701,6 +701,19 @@ Verification checkpoint on 2026-09-20:
   protocol-only `webdriver` dependency. The next public run must verify the
   updated lock, target build, UEFI loader, and real QEMU first-web-pixel gate.
 
+- Public snapshot CI run #5 (`35521923686`, head `0ae187c`) passed Ubuntu and
+  Windows host checks, the target WebDriver graph preflight, Mesa Softpipe,
+  package/kernel prerequisites, and Servo bootstrap. Nagi user-init then
+  reached the real Surfman dependency graph and failed in `libloading 0.8.9`:
+  the parent workspace had not bound the generated, patched Surfman checkout,
+  so registry Surfman enabled Wayland `dlib`/dynamic-loader dependencies under
+  the Nagi Unix target family. The existing pinned Surfman patch already
+  excludes those host-display paths for `target_os = "nagi"`; the remediation
+  binds `surfman` in the Nagi root `[patch.crates-io]` table, refreshes the lock,
+  adds a regression test, and makes CI reject `libloading`, `dlib`, and
+  `wayland-sys` in the Nagi target graph. UEFI and real QEMU evidence remain
+  outstanding.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

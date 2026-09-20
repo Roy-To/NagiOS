@@ -297,6 +297,25 @@ rendering shortcut was added. The next public run must verify the lock in CI
 and continue through target build, UEFI, and real QEMU first-web-pixel
 acceptance.
 
+## Remediation continuation (2026-09-20, Surfman parent-workspace binding)
+
+Public snapshot CI run `35521923686` passed the locked graph boundary, Mesa
+Softpipe archive, package/kernel prerequisites, and Servo bootstrap, then
+reached the real Nagi user-init build. It failed while compiling
+`libloading 0.8.9`: the Nagi parent workspace resolved registry Surfman, so
+Surfman's Unix-wide Wayland dependency pulled `dlib` and dynamic loader code
+into the Nagi target. This was a source-binding defect, not evidence that Nagi
+needs host display APIs. The generated pinned Surfman checkout already carries
+the tracked Nagi patch that excludes Wayland/X11/dlopen for `target_os =
+"nagi"` and selects the static Mesa surfaceless backend.
+
+The Nagi root workspace now binds `surfman` through its `[patch.crates-io]`
+table, and the lock records the generated path package. The target graph
+preflight additionally rejects `libloading`, `dlib`, and `wayland-sys` so a
+future source-binding regression stops before the full target build. Local
+locked metadata and target graph checks pass with the generated checkout;
+real CI target build, UEFI, and QEMU first-web-pixel evidence remain required.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

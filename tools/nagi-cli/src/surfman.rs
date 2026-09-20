@@ -528,4 +528,17 @@ mod tests {
         assert!(error.contains("revision"), "{error}");
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn nagi_workspace_binds_surfman_to_the_pinned_checkout() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let cargo_toml = fs::read_to_string(workspace.join("Cargo.toml")).expect("root manifest");
+        assert!(
+            cargo_toml.contains("surfman = { path = \"third_party/surfman\" }"),
+            "the Nagi workspace must bind Servo's Surfman dependency to its pinned patched checkout"
+        );
+    }
 }

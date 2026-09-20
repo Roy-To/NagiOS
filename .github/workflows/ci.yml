@@ -123,8 +123,8 @@ jobs:
         run: |
           graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p}')
           printf '%s\n' "$graph"
-          if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server) v' >/dev/null; then
-            echo 'M17 Nagi target graph must not include the WebDriver server runtime' >&2
+          if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys) v' >/dev/null; then
+            echo 'M17 Nagi target graph must not include WebDriver server or host display-loader dependencies' >&2
             exit 1
           fi
       - name: Build pinned Nagi Mesa Softpipe archive
