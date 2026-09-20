@@ -3,7 +3,7 @@
 use core::{
     cell::UnsafeCell,
     ptr,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
 };
 
 use alloc::collections::BTreeMap;
@@ -38,6 +38,7 @@ pub unsafe fn init() {
         has_enabled_cancelation: AtomicBool::new(false),
         has_queued_cancelation: AtomicBool::new(false),
         flags: PthreadFlags::empty().bits().into(),
+        thread_name: [const { AtomicU8::new(0) }; PTHREAD_NAME_MAX],
 
         //index: FIRST_THREAD_IDX,
 
@@ -78,6 +79,7 @@ pub struct Pthread {
     pub(crate) has_queued_cancelation: AtomicBool,
     pub(crate) has_enabled_cancelation: AtomicBool,
     pub(crate) flags: AtomicUsize,
+    pub(crate) thread_name: [AtomicU8; PTHREAD_NAME_MAX],
 
     pub(crate) stack_base: *mut c_void,
     pub(crate) stack_size: usize,
@@ -86,6 +88,8 @@ pub struct Pthread {
 
     pub os_tid: UnsafeCell<OsTid>,
 }
+
+pub(crate) const PTHREAD_NAME_MAX: usize = 16;
 
 #[derive(Clone, Copy, Debug, Default, Ord, Eq, PartialOrd, PartialEq)]
 pub struct OsTid {

@@ -3,13 +3,13 @@
 //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/pthread.h.html>.
 
 use alloc::collections::LinkedList;
-use core::{cell::Cell, ptr::NonNull};
+use core::{cell::Cell, ptr::NonNull, sync::atomic::Ordering};
 
 use crate::{
     error::Errno,
     header::{sched::sched_param, time::timespec},
     platform::types::{
-        c_int, c_uchar, c_uint, c_void, clockid_t, pthread_attr_t, pthread_barrier_t,
+        c_char, c_int, c_uchar, c_uint, c_void, clockid_t, pthread_attr_t, pthread_barrier_t,
         pthread_barrierattr_t, pthread_key_t, pthread_mutex_t, pthread_mutexattr_t, pthread_once_t,
         pthread_rwlock_t, pthread_rwlockattr_t, pthread_t, size_t,
     },
@@ -176,6 +176,63 @@ pub unsafe extern "C" fn pthread_exit(retval: *mut c_void) -> ! {
 pub unsafe extern "C" fn pthread_getconcurrency() -> c_int {
     // Redox and Linux threads are 1:1, not M:N.
     1
+}
+
+/// Nagi-owned implementation of the non-POSIX thread naming ABI used by
+/// MozJS. The name lives in the relibc Pthread object, never in host thread
+/// state, and is bounded to the Linux-compatible 16-byte storage contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_setname_np(thread: pthread_t, name: *const c_char) -> c_int {
+    if thread.is_null() || name.is_null() {
+        return EINVAL;
+    }
+    let thread = unsafe { &*thread.cast::<pthread::Pthread>() };
+    let mut stored = [0_u8; pthread::PTHREAD_NAME_MAX];
+    let mut length = 0;
+    while length < stored.len() {
+        let byte = unsafe { *name.cast::<u8>().add(length) };
+        if byte == 0 {
+            break;
+        }
+        stored[length] = byte;
+        length += 1;
+    }
+    if length == stored.len() {
+        return ERANGE;
+    }
+    for (index, byte) in stored.iter().enumerate() {
+        thread.thread_name[index].store(*byte, Ordering::Release);
+    }
+    0
+}
+
+/// Nagi-owned counterpart to `pthread_setname_np`; it copies the stored guest
+/// name into the caller's bounded guest buffer and reports POSIX-style errors.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_getname_np(
+    thread: pthread_t,
+    name: *mut c_char,
+    length: size_t,
+) -> c_int {
+    if thread.is_null() || name.is_null() {
+        return EINVAL;
+    }
+    let thread = unsafe { &*thread.cast::<pthread::Pthread>() };
+    let used = (0..pthread::PTHREAD_NAME_MAX)
+        .position(|index| thread.thread_name[index].load(Ordering::Acquire) == 0)
+        .unwrap_or(pthread::PTHREAD_NAME_MAX);
+    let required = used + 1;
+    if length < required {
+        return ERANGE;
+    }
+    unsafe {
+        for index in 0..required {
+            name.cast::<u8>()
+                .add(index)
+                .write(thread.thread_name[index].load(Ordering::Acquire));
+        }
+    }
+    0
 }
 
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_getcpuclockid.html>.

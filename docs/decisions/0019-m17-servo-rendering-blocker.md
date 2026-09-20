@@ -535,6 +535,21 @@ flag value is invented. The local target check reaches the known Windows
 contract check pass. Target CI must verify the FreeType C build, continue to
 the target link, and then execute the real UEFI/QEMU first-web-pixel gate.
 
+## Remediation continuation (2026-09-21, Nagi pthread naming ABI)
+
+Public snapshot CI run `35538673589` (head `9da3875`) passed the Ubuntu and
+Windows jobs, Mesa Softpipe, Servo bootstrap, target feature boundary, M16
+package artifact, and Nagi kernel target build. The next real user-init
+compile reached MozJS's pinned POSIX thread backend and stopped because the
+generated Nagi `pthread.h` did not declare `pthread_setname_np` or
+`pthread_getname_np`.
+
+The Nagi relibc pthread boundary now stores a bounded 16-byte thread name in
+the guest Pthread object using atomic bytes, exports both real name APIs, and
+lets cbindgen expose them to MozJS. It does not call host thread APIs or
+return synthetic success. The next target run must verify the generated C
+header and MozJS build, then continue to UEFI and the real QEMU pixel gate.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

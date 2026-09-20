@@ -135,6 +135,11 @@ mod tests {
             .expect("Nagi relibc mmap adapter");
         assert!(relibc_nagi.contains("nagi_posix_mmap_at"));
         assert!(relibc_nagi.contains("MAP_FIXED: c_int = 0x0010"));
+        let pthread_backend =
+            std::fs::read_to_string(root.join("third_party/relibc/src/header/pthread/mod.rs"))
+                .expect("Nagi relibc pthread adapter");
+        assert!(pthread_backend.contains("pthread_setname_np"));
+        assert!(pthread_backend.contains("pthread_getname_np"));
 
         let mman_header = std::fs::read_to_string(root.join("tools/mesa/nagi-headers/sys/mman.h"))
             .expect("Nagi Mesa mmap header overlay");

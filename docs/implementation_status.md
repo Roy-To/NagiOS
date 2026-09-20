@@ -25,10 +25,11 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35535949462` at `cd3ef01`
-confirmed that the Nagi-owned numeric locale ABI moved the real target compile
-past libc++ streambuf and into Servo's platform/font boundary. The next repair
-adds the Nagi FreeType/font adapter and completes the Nagi mmap header constants.
+**Last known repair checkpoint:** public CI run `35538673589` at `9da3875`
+confirmed that the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
+package, and kernel target build all passed. The next real user-init compile
+exposed missing guest `pthread_setname_np` / `pthread_getname_np` declarations;
+the current repair adds bounded atomic name storage and the Nagi relibc APIs.
 Target link/UEFI/QEMU first-web-pixel evidence remains outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
@@ -890,10 +891,20 @@ Verification checkpoint on 2026-09-20:
   `platform::LocalFontIdentifier`, and MozJS's target C++ headers lacking the
   Nagi ABI's existing `PROT_NONE` and `MAP_FIXED` constants. The tracked Servo
   `0006` patch selects the real pinned FreeType backend for Nagi and adds an
-  explicit empty Nagi system-font registry rather than importing host
+ explicit empty Nagi system-font registry rather than importing host
   fontconfig/DirectWrite/CoreText paths. The Mesa Nagi `sys/mman.h` overlay now
   exposes the existing Nagi libc values. UEFI and first-web-pixel acceptance
   remain unexecuted.
+
+- Public snapshot CI run #22 (`35538673589`, head `9da3875`) passed Ubuntu and
+  Windows host checks, Servo bootstrap, target feature boundary, Mesa
+  Softpipe, standalone package/UEFI dependency fetch, M16 package artifact,
+  and the Nagi kernel target build. User init then reached MozJS's POSIX
+  thread backend and stopped because the generated Nagi `pthread.h` lacked
+  `pthread_setname_np` and `pthread_getname_np`. The current repair stores a
+  bounded 16-byte thread name in the guest relibc Pthread object using atomic
+  bytes and exports the real APIs through cbindgen. UEFI and first-web-pixel
+  acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

@@ -4,7 +4,7 @@ use core::{
     mem,
     ops::{Deref, DerefMut},
     ptr, slice,
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, AtomicU8},
 };
 use generic_rt::GenericTcb;
 
@@ -99,6 +99,7 @@ impl Tcb {
                 pthread: Pthread {
                     waitval: Waitval::new(),
                     flags: Default::default(),
+                    thread_name: [const { AtomicU8::new(0) }; crate::pthread::PTHREAD_NAME_MAX],
                     has_enabled_cancelation: AtomicBool::new(false),
                     has_queued_cancelation: AtomicBool::new(false),
                     stack_base: core::ptr::null_mut(),
