@@ -476,6 +476,19 @@ not add a host pthread/C++ runtime, disable threading, or fake a rendering
 result. The target build must be rerun; UEFI and real QEMU first-web-pixel
 acceptance remain open.
 
+## Remediation continuation (2026-09-20, libc++ rune table)
+
+Public snapshot CI run `35532340846` (head `eb37984`) passed the explicit
+libc++ pthread backend selection and reached libc++ locale headers. The next
+real target compile failure was `unknown rune table for this platform`.
+Nagi's current 0.1 target runtime does not provide a host locale database,
+and importing one would violate the freestanding guest boundary. The ordered
+`0006-nagi-libcxx-rune-table.patch` therefore selects libc++'s portable default
+rune table for Nagi. This supplies the header-level ctype masks required by
+MozJS without host locale state or synthetic rendering behavior. The target
+build must be rerun; UEFI and real QEMU first-web-pixel acceptance remain
+open.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

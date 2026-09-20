@@ -73,5 +73,11 @@ mod tests {
         )
         .expect("mozjs libc++ thread API patch");
         assert!(thread_patch.contains("_LIBCPP_HAS_THREAD_API_PTHREAD=1"));
+
+        let rune_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0006-nagi-libcxx-rune-table.patch"),
+        )
+        .expect("mozjs libc++ rune table patch");
+        assert!(rune_patch.contains("_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1"));
     }
 }

@@ -852,6 +852,15 @@ Verification checkpoint on 2026-09-20:
   pthread/C++ runtime. UEFI and first-web-pixel acceptance remain
   unexecuted.
 
+- Public snapshot CI run #18 (`35532340846`, head `eb37984`) confirmed that
+  libc++'s pthread backend selection removed the custom-target `No thread API`
+  failure and reached libc++ locale headers. The next concrete failure was
+  `unknown rune table for this platform`; Nagi's current target runtime does
+  not provide a host locale database. The ordered `0006` mozjs adapter patch
+  selects libc++'s portable default rune table for the Nagi target, providing
+  the required header-level ctype masks without importing host locale state.
+  UEFI and first-web-pixel acceptance remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

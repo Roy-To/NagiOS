@@ -25,6 +25,9 @@ the real libc++ headers before the Mesa compatibility headers so libc++
 Mesa-only C++ shim. Because Nagi's target triple is custom, the Servo build
 script also selects libc++'s pthread thread backend explicitly; those pthread
 symbols resolve to the existing Nagi POSIX runtime boundary.
+Nagi also selects libc++'s portable default rune table because the current
+target runtime does not provide a host locale database; this is header-level
+ctype support and does not import host locale state.
 
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the

@@ -1,0 +1,15 @@
+diff --git a/build.rs b/build.rs
+index 43f0673..a4e0f6a 100644
+--- a/build.rs
++++ b/build.rs
+@@ -268,6 +268,10 @@ fn build_spidermonkey(build_dir: &Path) {
+         // is a compile-time selection for the real guest ABI; it does not
+         // add a host pthread or C++ runtime dependency.
+         cxxflags.push(String::from("-D_LIBCPP_HAS_THREAD_API_PTHREAD=1"));
++        // Nagi 0.1 does not provide a host locale database. libc++'s
++        // portable default rune table supplies the header-level ctype masks
++        // needed by MozJS without importing a host locale implementation.
++        cxxflags.push(String::from("-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1"));
+     }
+ 
+     if let Some(user_cxxflags) = get_cc_rs_env("CXXFLAGS").filter(|s| !s.is_empty()) {
