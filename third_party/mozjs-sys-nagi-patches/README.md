@@ -27,9 +27,12 @@ script also selects libc++'s pthread thread backend explicitly; those pthread
 symbols resolve to the existing Nagi POSIX runtime boundary.
 Nagi also selects libc++'s portable default rune table because the current
 target runtime does not provide a host locale database; this is header-level
-ctype support and does not import host locale state. libc++ localization is
-disabled for this target because MozJS uses its pinned ICU path and Nagi does
-not provide the optional C locale `_l` APIs.
+ctype support and does not import host locale state. Patch `0007` was an
+initial diagnostic attempt to disable libc++ localization, but that broad
+switch also removes standard streambuf types. Patch `0008` therefore restores
+localization after the Nagi-owned relibc backend supplies the C/POSIX numeric
+`strto*_l` ABI declared by the generated target headers. The final build keeps
+libc++'s normal numeric facets without importing host locale state.
 
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the

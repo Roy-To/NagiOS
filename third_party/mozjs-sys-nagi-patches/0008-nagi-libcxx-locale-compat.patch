@@ -1,0 +1,13 @@
+diff --git a/build.rs b/build.rs
+index b12c8d0..d7c9e21 100644
+--- a/build.rs
++++ b/build.rs
+@@ -272,3 +272,8 @@ fn build_spidermonkey(build_dir: &Path) {
+         // so keep libc++ from binding to that absent provider.
+         cxxflags.push(String::from("-D_LIBCPP_HAS_NO_LOCALIZATION=1"));
++        // Nagi now supplies the C/POSIX numeric locale ABI through its relibc
++        // backend. Restore libc++ localization support so streambuf and the
++        // numeric facets remain available; the preceding define was only a
++        // diagnostic compatibility step and must not reach the final build.
++        cxxflags.push(String::from("-U_LIBCPP_HAS_NO_LOCALIZATION"));
+     }

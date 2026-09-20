@@ -502,6 +502,19 @@ It does not replace ICU, add host locale state, or fake rendering. The target
 build must be rerun; UEFI and real QEMU first-web-pixel acceptance remain
 open.
 
+## Historical continuation: run #20 exposed an over-broad workaround
+
+Public snapshot CI run `35534135637` (head `5965075`) passed the previous
+missing `_l` declarations only because `0007` disabled libc++ localization,
+then failed earlier in `streambuf` with missing `streamsize` and incomplete
+`std::ios_base`. This proves that the broad no-localization switch cannot be
+the M17 solution. The next repair keeps libc++ localization enabled and adds
+the target-owned Nagi relibc numeric conversion ABI: real `strto*` parsing,
+C/POSIX `_l` wrappers, and generated-header declarations. Ordered patch
+`0008` explicitly removes the diagnostic define after `0007`; it does not
+import host locale state or add a rendering fallback. UEFI and real QEMU
+first-web-pixel acceptance remain unexecuted.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

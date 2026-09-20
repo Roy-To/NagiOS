@@ -27,6 +27,14 @@ extern "C" {
 
 long double strtold(const char *nptr, char **endptr);
 
+#include <bits/locale-t.h>
+
+double strtod_l(const char *nptr, char **endptr, locale_t locale);
+float strtof_l(const char *nptr, char **endptr, locale_t locale);
+long long strtoll_l(const char *nptr, char **endptr, int base, locale_t locale);
+unsigned long long strtoull_l(const char *nptr, char **endptr, int base, locale_t locale);
+long double strtold_l(const char *nptr, char **endptr, locale_t locale);
+
 #ifdef __cplusplus
 }
 #endif

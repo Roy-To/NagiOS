@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::registry_source::{ensure_registry_checkout, RegistrySourceSpec};
+use crate::registry_source::{RegistrySourceSpec, ensure_registry_checkout};
 
 const SPEC: RegistrySourceSpec = RegistrySourceSpec {
     section: "sources.mozjs_sys_nagi",
@@ -85,5 +85,37 @@ mod tests {
         )
         .expect("mozjs libc++ localization patch");
         assert!(localization_patch.contains("_LIBCPP_HAS_NO_LOCALIZATION=1"));
+
+        let locale_compat_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0008-nagi-libcxx-locale-compat.patch"),
+        )
+        .expect("mozjs libc++ locale compatibility patch");
+        assert!(locale_compat_patch.contains("-U_LIBCPP_HAS_NO_LOCALIZATION"));
+
+        let stdlib_cbindgen = std::fs::read_to_string(
+            root.join("third_party/relibc/src/header/stdlib/cbindgen.toml"),
+        )
+        .expect("relibc stdlib cbindgen configuration");
+        for symbol in [
+            "strtod_l",
+            "strtof_l",
+            "strtoll_l",
+            "strtoull_l",
+            "strtold_l",
+        ] {
+            assert!(
+                stdlib_cbindgen.contains(symbol),
+                "missing locale ABI declaration: {symbol}"
+            );
+        }
+
+        let nagi_backend = std::fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
+            .expect("Nagi relibc backend");
+        for symbol in ["strtod_l", "strtof_l", "strtoll_l", "strtoull_l"] {
+            assert!(
+                nagi_backend.contains(symbol),
+                "missing Nagi locale ABI: {symbol}"
+            );
+        }
     }
 }

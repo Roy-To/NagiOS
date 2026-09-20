@@ -6,7 +6,7 @@
 //! the Nagi POSIX facade, which in turn uses Nagi VFS and services.
 
 use core::{
-    ffi::{c_char, c_int, c_void},
+    ffi::{c_char, c_double, c_float, c_int, c_long, c_longlong, c_ulong, c_ulonglong, c_void},
     mem, ptr,
 };
 
@@ -30,6 +30,7 @@ const EINVAL: c_int = 22;
 const ENOMEM: c_int = 12;
 const EBADF: c_int = 9;
 const EOVERFLOW: c_int = 75;
+const ERANGE: c_int = 34;
 const EOF: c_int = -1;
 
 const NAGI_FILE_MEMORY: u32 = 1;
@@ -205,6 +206,371 @@ pub unsafe extern "C" fn fclose(stream: *mut c_void) -> c_int {
     // caller-owned buffer remains live until the caller releases it.
     unsafe { nagi_posix_free((stream as *mut NagiFile).cast::<u8>()) };
     0
+}
+
+/// The Nagi target does not import a host libc for numeric conversion. Keep
+/// the relibc conversion entry points in this target-owned backend so libc++
+/// can use its normal numeric facets without disabling localization globally.
+/// The `_l` variants intentionally implement the C/POSIX locale semantics
+/// currently provided by Nagi; they never read host locale state.
+#[inline]
+unsafe fn nagi_byte(pointer: *const c_char) -> u8 {
+    unsafe { *pointer.cast::<u8>() }
+}
+
+#[inline]
+fn nagi_digit(byte: u8) -> Option<u32> {
+    match byte {
+        b'0'..=b'9' => Some(u32::from(byte - b'0')),
+        b'a'..=b'z' => Some(u32::from(byte - b'a') + 10),
+        b'A'..=b'Z' => Some(u32::from(byte - b'A') + 10),
+        _ => None,
+    }
+}
+
+#[inline]
+unsafe fn nagi_set_endptr(endptr: *mut *mut c_char, cursor: *const c_char) {
+    if !endptr.is_null() {
+        unsafe { endptr.write(cursor.cast_mut()) };
+    }
+}
+
+unsafe fn nagi_parse_unsigned(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    base: c_int,
+    signed: bool,
+) -> (u64, bool) {
+    if input.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return (0, false);
+    }
+
+    let original = input;
+    let mut cursor = input;
+    while matches!(
+        unsafe { nagi_byte(cursor) },
+        b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c
+    ) {
+        cursor = unsafe { cursor.add(1) };
+    }
+
+    let negative = match unsafe { nagi_byte(cursor) } {
+        b'-' => {
+            cursor = unsafe { cursor.add(1) };
+            true
+        }
+        b'+' => {
+            cursor = unsafe { cursor.add(1) };
+            false
+        }
+        _ => false,
+    };
+
+    if base != 0 && !(2..=36).contains(&base) {
+        unsafe {
+            nagi_set_endptr(endptr, cursor);
+            set_errno(EINVAL);
+        }
+        return (0, false);
+    }
+
+    let mut radix = base;
+    if radix == 0 {
+        radix = if unsafe { nagi_byte(cursor) } == b'0' {
+            if matches!(unsafe { nagi_byte(cursor.add(1)) }, b'x' | b'X') {
+                cursor = unsafe { cursor.add(2) };
+                16
+            } else {
+                8
+            }
+        } else {
+            10
+        };
+    } else if radix == 16
+        && unsafe { nagi_byte(cursor) } == b'0'
+        && matches!(unsafe { nagi_byte(cursor.add(1)) }, b'x' | b'X')
+        && nagi_digit(unsafe { nagi_byte(cursor.add(2)) }).is_some_and(|digit| digit < 16)
+    {
+        cursor = unsafe { cursor.add(2) };
+    }
+
+    let digits_start = cursor;
+    let limit = if signed {
+        if negative {
+            1_u64 << 63
+        } else {
+            i64::MAX as u64
+        }
+    } else {
+        u64::MAX
+    };
+    let mut value = 0_u64;
+    let mut overflow = false;
+
+    loop {
+        let Some(digit) = nagi_digit(unsafe { nagi_byte(cursor) }) else {
+            break;
+        };
+        if digit >= radix as u32 {
+            break;
+        }
+        if !overflow {
+            match value
+                .checked_mul(radix as u64)
+                .and_then(|value| value.checked_add(u64::from(digit)))
+            {
+                Some(next) if next <= limit => value = next,
+                _ => {
+                    value = limit;
+                    overflow = true;
+                }
+            }
+        }
+        cursor = unsafe { cursor.add(1) };
+    }
+
+    if cursor == digits_start {
+        unsafe {
+            nagi_set_endptr(endptr, original);
+            set_errno(EINVAL);
+        }
+        return (0, negative);
+    }
+    if overflow {
+        unsafe { set_errno(ERANGE) };
+    }
+    unsafe { nagi_set_endptr(endptr, cursor) };
+
+    if signed && negative && !overflow {
+        (0_u64.wrapping_sub(value), true)
+    } else if !signed && negative && !overflow {
+        (0_u64.wrapping_sub(value), false)
+    } else {
+        (value, negative)
+    }
+}
+
+unsafe fn nagi_parse_float(input: *const c_char, endptr: *mut *mut c_char) -> c_double {
+    if input.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0.0;
+    }
+
+    let mut cursor = input;
+    while matches!(
+        unsafe { nagi_byte(cursor) },
+        b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c
+    ) {
+        cursor = unsafe { cursor.add(1) };
+    }
+    let sign = match unsafe { nagi_byte(cursor) } {
+        b'-' => {
+            cursor = unsafe { cursor.add(1) };
+            -1.0
+        }
+        b'+' => {
+            cursor = unsafe { cursor.add(1) };
+            1.0
+        }
+        _ => 1.0,
+    };
+    let value_start = cursor;
+
+    let mut word_match = |word: &[u8]| {
+        let mut probe = cursor;
+        for expected in word {
+            if !unsafe { nagi_byte(probe) }.eq_ignore_ascii_case(expected) {
+                return false;
+            }
+            probe = unsafe { probe.add(1) };
+        }
+        cursor = probe;
+        true
+    };
+    if word_match(b"inf") {
+        let _ = word_match(b"inity");
+        unsafe { nagi_set_endptr(endptr, cursor) };
+        return sign * c_double::INFINITY;
+    }
+    if word_match(b"nan") {
+        unsafe { nagi_set_endptr(endptr, cursor) };
+        return c_double::NAN;
+    }
+
+    let mut radix = 10_u32;
+    let mut exponent_marker = b'e';
+    if unsafe { nagi_byte(cursor) } == b'0'
+        && matches!(unsafe { nagi_byte(cursor.add(1)) }, b'x' | b'X')
+    {
+        radix = 16;
+        exponent_marker = b'p';
+        cursor = unsafe { cursor.add(2) };
+    }
+
+    let mut value = 0.0_f64;
+    let mut digits = 0_usize;
+    while let Some(digit) = nagi_digit(unsafe { nagi_byte(cursor) })
+        && digit < radix
+    {
+        value = value * radix as f64 + digit as f64;
+        digits += 1;
+        cursor = unsafe { cursor.add(1) };
+    }
+    if unsafe { nagi_byte(cursor) } == b'.' {
+        cursor = unsafe { cursor.add(1) };
+        let mut divisor = radix as f64;
+        while let Some(digit) = nagi_digit(unsafe { nagi_byte(cursor) })
+            && digit < radix
+        {
+            value += digit as f64 / divisor;
+            divisor *= radix as f64;
+            digits += 1;
+            cursor = unsafe { cursor.add(1) };
+        }
+    }
+
+    if digits == 0 {
+        unsafe { nagi_set_endptr(endptr, value_start) };
+        return 0.0;
+    }
+
+    let exponent_start = cursor;
+    let mut exponent_negative = false;
+    let mut exponent = 0_u32;
+    if unsafe { nagi_byte(cursor) }.eq_ignore_ascii_case(&exponent_marker) {
+        cursor = unsafe { cursor.add(1) };
+        match unsafe { nagi_byte(cursor) } {
+            b'-' => {
+                exponent_negative = true;
+                cursor = unsafe { cursor.add(1) };
+            }
+            b'+' => cursor = unsafe { cursor.add(1) },
+            _ => {}
+        }
+        let exponent_digits = cursor;
+        while let Some(digit) = nagi_digit(unsafe { nagi_byte(cursor) })
+            && digit < 10
+        {
+            exponent = exponent.saturating_mul(10).saturating_add(digit);
+            cursor = unsafe { cursor.add(1) };
+        }
+        if cursor == exponent_digits {
+            cursor = exponent_start;
+        }
+    }
+
+    let mut scale = 1.0_f64;
+    let mut power = if radix == 16 { 2.0 } else { 10.0 };
+    let mut remaining = exponent;
+    while remaining != 0 {
+        if remaining & 1 != 0 {
+            scale *= power;
+        }
+        remaining >>= 1;
+        if remaining != 0 {
+            power *= power;
+        }
+    }
+    if exponent_negative {
+        scale = 1.0 / scale;
+    }
+    let result = sign * value * scale;
+    if result == c_double::INFINITY || result == c_double::NEG_INFINITY {
+        unsafe { set_errno(ERANGE) };
+    }
+    unsafe { nagi_set_endptr(endptr, cursor) };
+    result
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtod_l(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    _locale: *mut c_void,
+) -> c_double {
+    unsafe { nagi_parse_float(input, endptr) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtod(input: *const c_char, endptr: *mut *mut c_char) -> c_double {
+    unsafe { strtod_l(input, endptr, ptr::null_mut()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtof_l(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    _locale: *mut c_void,
+) -> c_float {
+    unsafe { nagi_parse_float(input, endptr) as c_float }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtof(input: *const c_char, endptr: *mut *mut c_char) -> c_float {
+    unsafe { strtof_l(input, endptr, ptr::null_mut()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtoll_l(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    base: c_int,
+    _locale: *mut c_void,
+) -> c_longlong {
+    let (value, negative) = unsafe { nagi_parse_unsigned(input, endptr, base, true) };
+    if negative {
+        value as i64
+    } else {
+        value as c_longlong
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtoll(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    base: c_int,
+) -> c_longlong {
+    unsafe { strtoll_l(input, endptr, base, ptr::null_mut()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtoull_l(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    base: c_int,
+    _locale: *mut c_void,
+) -> c_ulonglong {
+    let (value, _) = unsafe { nagi_parse_unsigned(input, endptr, base, false) };
+    value
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtoull(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    base: c_int,
+) -> c_ulonglong {
+    unsafe { strtoull_l(input, endptr, base, ptr::null_mut()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtol(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    base: c_int,
+) -> c_long {
+    unsafe { strtoll_l(input, endptr, base, ptr::null_mut()) as c_long }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtoul(
+    input: *const c_char,
+    endptr: *mut *mut c_char,
+    base: c_int,
+) -> c_ulong {
+    unsafe { strtoull_l(input, endptr, base, ptr::null_mut()) as c_ulong }
 }
 
 /// Marker used by the Nagi guest acceptance app to ensure the backend archive
