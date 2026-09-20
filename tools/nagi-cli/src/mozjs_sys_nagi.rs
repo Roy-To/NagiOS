@@ -125,6 +125,16 @@ mod tests {
         assert!(servo_font_patch.contains("target_os = \"nagi\""));
         assert!(servo_font_patch.contains("components/fonts/platform/nagi/font_list.rs"));
         assert!(servo_font_patch.contains("real FreeType backend"));
+        assert!(servo_font_patch.contains("font_identifier.rs"));
+
+        let nagi_mmap = std::fs::read_to_string(root.join("crates/nagi-abi/src/lib.rs"))
+            .expect("Nagi mmap ABI");
+        assert!(nagi_mmap.contains("SYS_MEMORY_MAP_AT: u64 = 27"));
+        assert!(nagi_mmap.contains("PROT_READ: u64 = 0x4"));
+        let relibc_nagi = std::fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
+            .expect("Nagi relibc mmap adapter");
+        assert!(relibc_nagi.contains("nagi_posix_mmap_at"));
+        assert!(relibc_nagi.contains("MAP_FIXED: c_int = 0x0010"));
 
         let mman_header = std::fs::read_to_string(root.join("tools/mesa/nagi-headers/sys/mman.h"))
             .expect("Nagi Mesa mmap header overlay");

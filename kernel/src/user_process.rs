@@ -227,6 +227,9 @@ pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
     }
     let start_page = (0..=USER_MMAP_PAGES - page_count)
         .find(|start| (0..page_count).all(|offset| !used[*start + offset]))?;
+    for page in start_page..start_page + page_count {
+        storage.mmap_pages[page].0.fill(0);
+    }
     if protection != PROT_NONE && !remap_mmap_pages(storage, start_page, page_count, protection) {
         return None;
     }
