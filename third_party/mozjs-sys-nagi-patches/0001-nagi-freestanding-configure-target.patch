@@ -1,7 +1,7 @@
 diff --git a/makefile.cargo b/makefile.cargo
 --- a/makefile.cargo
 +++ b/makefile.cargo
-@@ -139,6 +139,14 @@ ifneq ($(HOST),$(TARGET))
+@@ -139,6 +139,17 @@ ifneq ($(HOST),$(TARGET))
  		CC ?= $(TARGET)-gcc
  		CPP ?= $(TARGET)-gcc -E
  		CXX ?= $(TARGET)-g++
@@ -11,6 +11,9 @@ diff --git a/makefile.cargo b/makefile.cargo
 +			# Cargo's C compiler wrapper is the freestanding Nagi C/C++ driver.
 +			CPP = $(CC) -E
 +			CXX = $(CC)
++			# The Rust target name is not an installed GNU binutils prefix.
++			# Use the pinned LLVM archiver already required by the Nagi Mesa path.
++			AR = llvm-ar
 +			# GNU config does not know Nagi's Rust target spelling. The
 +			# compiler and headers remain the Nagi target toolchain.
 +			CONFIGURE_FLAGS += --target=x86_64-unknown-nagi

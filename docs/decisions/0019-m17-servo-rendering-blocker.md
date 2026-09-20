@@ -413,6 +413,19 @@ wrapper and avoids requesting a host `stdc++` runtime for `nagi-user`. No host
 rendering or synthetic pixel path is introduced. UEFI and real QEMU pixel
 acceptance remain open.
 
+## Remediation continuation (2026-09-20, Nagi archiver binding)
+
+Public snapshot CI run `35528078834` passed the pinned Mesa Softpipe archive,
+UEFI dependency, M16 package, and Nagi kernel stages. The real `mozjs_sys`
+configure then reached Clang 19 and native Nagi detection but failed at its
+archiver probe because `makefile.cargo` inherited
+`AR=x86_64-unknown-nagi-user-ar`, a target-prefixed GNU executable that is not
+part of the Nagi toolchain. The next adapter patch binds `AR` to the pinned
+`llvm-ar` used by the Nagi Mesa path and records a regression assertion for
+that contract. This changes only tool selection; it does not add a host
+runtime, host rendering, or synthetic pixel path. UEFI and real QEMU pixel
+acceptance remain open.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

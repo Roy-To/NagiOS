@@ -797,6 +797,17 @@ Verification checkpoint on 2026-09-20:
   host `stdc++` link request for the Nagi target. This is still target build
   prerequisite work; UEFI and first-web-pixel acceptance remain unexecuted.
 
+- Public snapshot CI run #13 (`35528078834`, head `34832d2`) passed pinned
+  source bootstrap, Servo dependency-boundary preflight, Mesa Softpipe archive
+  build, UEFI dependency fetch, M16 package artifact, and the Nagi kernel
+  build. The real Nagi user-init build then reached Mozilla configure with
+  Clang 19 and native Nagi detection, but stopped because the inherited
+  `AR` value was `x86_64-unknown-nagi-user-ar`; no such target-prefixed GNU
+  archiver exists in the pinned toolchain. The next adapter repair binds only
+  this archiver lookup to `llvm-ar`, already required by the pinned Nagi Mesa
+  build, and adds a regression assertion for the patch contract. UEFI and
+  first-web-pixel acceptance remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block

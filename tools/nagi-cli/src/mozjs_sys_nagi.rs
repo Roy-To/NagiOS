@@ -44,6 +44,7 @@ mod tests {
         ))
         .expect("mozjs configure patch");
         assert!(patch.contains("--target=x86_64-unknown-nagi"));
+        assert!(patch.contains("AR = llvm-ar"));
         assert!(!patch.contains("--target=x86_64-unknown-linux-gnu"));
 
         let native_os_patch = std::fs::read_to_string(
