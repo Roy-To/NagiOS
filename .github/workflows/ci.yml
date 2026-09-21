@@ -166,7 +166,18 @@ jobs:
           set -e
           if [ "$cargo_status" -ne 0 ]; then
             first_error=$(grep -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log || true)
+            first_location=""
             if [ -n "$first_error" ]; then
+              error_line=$(grep -n -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log | cut -d: -f1 || true)
+              if [ -n "$error_line" ]; then
+                error_end=$((error_line + 12))
+                first_location=$(sed -n "${error_line},${error_end}p" out/logs/m17-nagi-user-init.log | grep -m1 -E '^[[:space:]]*-->' || true)
+              fi
+            fi
+            if [ -n "$first_error" ]; then
+              if [ -n "$first_location" ]; then
+                first_error="$first_error ($first_location)"
+              fi
               first_error=${first_error//'%'/'%25'}
               first_error=${first_error//$'\r'/'%0D'}
               first_error=${first_error//$'\n'/'%0A'}

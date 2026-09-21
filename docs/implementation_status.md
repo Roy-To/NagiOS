@@ -25,17 +25,18 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35554276403` at `9377d07`
+**Last known repair checkpoint:** public CI run `35556640788` at `9519888`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
 boundary, the real jsglue allocator bridge, the Nagi `navigator.platform`
 branch, and both host jobs. The target job still reaches `Build Nagi user init`
-and fails with exit code 101 after the Servo target compilation phase. GitHub's
-unauthenticated public log endpoint did not expose the first compiler
-diagnostic; the next CI revision adds a target-build log plus a first-error
-annotation so the repair remains evidence-driven. Target link, UEFI, and real
-QEMU first-web-pixel evidence remain outstanding.
+and fails with exit code 101 after the Servo target compilation phase. The
+diagnostic wrapper now reports the first error as a check annotation; the first
+reported diagnostic is `this file contains an unclosed delimiter`, but its
+source location was not included in that annotation and needs one more
+diagnostic extraction pass. Target link, UEFI, and real QEMU first-web-pixel
+evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1022,6 +1023,14 @@ Verification checkpoint on 2026-09-20:
   The public job page exposed only the terminal annotation, so the next CI
   revision records the complete cargo output and emits its first compiler
   diagnostic as a check annotation without weakening the M17 gate.
+
+- Public snapshot CI run #37 (`35556640788`, head `9519888`) passed Ubuntu and
+  Windows host jobs and again failed at `Build Nagi user init` after the pinned
+  Servo/Mesa bootstrap and kernel stages. The new target-build diagnostic
+  wrapper reported `error: this file contains an unclosed delimiter`; GitHub's
+  annotation did not yet include the following `--> path:line` location, so no
+  source edit is inferred from this incomplete context. UEFI and real QEMU
+  first-web-pixel steps were skipped.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
