@@ -25,14 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35626833161` at `d50f224`
+**Last known repair checkpoint:** public CI run `35630408478` at `4127b87`
 passed bootstrap, Mesa, package, kernel, and target compilation, then stopped
-at final target linking with undefined `vtable for
-__cxxabiv1::__si_class_type_info`, `dup2`, and `setgid`. The current source
-repair connects descriptor duplication to the Nagi VFS descriptor table and
-keeps unsupported mutable POSIX identity fail-closed through errno. No host
-libc, host filesystem, host rendering, or synthetic output is used. Target
-link, UEFI, and real QEMU first-web-pixel evidence remain required.
+at final target linking with duplicate `dup2`. The current source repair
+keeps libc symbol ownership in relibc and exposes only the Nagi-owned
+`nagi_posix_dup2` facade, avoiding a second strong C symbol in the POSIX
+adapter. No host libc, host filesystem, host rendering, or synthetic output
+is used. Target link, UEFI, and real QEMU first-web-pixel evidence remain
+required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1278,6 +1278,15 @@ Verification checkpoint on 2026-09-20:
   remain M17-internal and do not claim target-link or guest acceptance until
   CI reruns.
 
+- Public snapshot CI run `35630408478` (head `4127b87`) passed bootstrap, the
+  M17 target dependency boundary, Mesa, package, kernel, and target
+  compilation, then reached final target linking. The exact diagnostic was a
+  duplicate strong `dup2` symbol; UEFI and real QEMU were skipped. The next
+  repair leaves the strong POSIX `dup2` definition with relibc and retains
+  only the Nagi-owned `nagi_posix_dup2` adapter in `nagi-posix`. This remains
+  M17-internal and does not claim target-link or guest acceptance until CI
+  reruns.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
@@ -2343,10 +2352,10 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
-milestone. Public CI run `35626833161` is the current repair checkpoint:
+milestone. Public CI run `35630408478` is the current repair checkpoint:
 bootstrap, Mesa, package, kernel, and target compilation passed, then final
-linking exposed `vtable for __cxxabiv1::__si_class_type_info`, `dup2`, and
-`setgid`. The next target-owned POSIX descriptor/identity repair is implemented
-and must be pushed and verified; the required next evidence remains target
-link, UEFI, real QEMU, and a real guest-rendered first web pixel. M18 cannot
-start before formal M17 PASS.
+linking exposed a duplicate strong `dup2` symbol. The next target-owned POSIX
+descriptor/identity ownership repair is implemented and must be pushed and
+verified; the required next evidence remains target link, UEFI, real QEMU,
+and a real guest-rendered first web pixel. M18 cannot start before formal M17
+PASS.

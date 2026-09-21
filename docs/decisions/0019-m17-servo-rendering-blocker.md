@@ -1056,6 +1056,19 @@ descriptor ownership is implemented; it is not represented by a shallow
 host-like copy. M17 remains `BLOCKED` until target link, UEFI, real QEMU, and
 real first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, duplicate POSIX symbol ownership)
+
+Public snapshot CI run `35630408478` (head `4127b87`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation
+stages, then failed at final target linking with a duplicate strong `dup2`
+symbol. UEFI and real QEMU were skipped.
+
+The target libc symbol remains owned by relibc, while `nagi-posix` now exposes
+only the Nagi-owned `nagi_posix_dup2` facade and descriptor-table
+implementation. This preserves one strong C ABI owner and prevents the
+adapter from colliding with the relibc target backend. M17 remains `BLOCKED`
+until target link, UEFI, real QEMU, and real first-web-pixel evidence pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

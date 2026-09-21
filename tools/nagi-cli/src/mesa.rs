@@ -643,7 +643,7 @@ mod tests {
         assert!(relibc.contains("nagi_posix_setgid"));
         assert!(relibc.contains("nagi_posix_waitpid"));
         assert!(abi.contains("crate::process::native_wait"));
-        assert!(abi.contains("pub unsafe extern \"C\" fn dup2("));
+        assert!(abi.contains("pub unsafe extern \"C\" fn nagi_posix_dup2("));
         assert!(abi.contains("libnagi::exit((code as u8) as u64)"));
     }
 

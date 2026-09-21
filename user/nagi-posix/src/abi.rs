@@ -1007,11 +1007,6 @@ pub unsafe extern "C" fn nagi_posix_dup2(old_fd: c_int, new_fd: c_int) -> c_int 
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dup2(old_fd: c_int, new_fd: c_int) -> c_int {
-    nagi_posix_dup2(old_fd, new_fd)
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_read(_fd: c_int, _bytes: *mut u8, _length: usize) -> isize {
     if _bytes.is_null() {
         return write_errno_and_fail(EINVAL) as isize;
