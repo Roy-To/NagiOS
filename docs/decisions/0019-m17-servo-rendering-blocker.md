@@ -674,6 +674,20 @@ does not render content, consult a host platform, or change the first-web-pixel
 acceptance. The next target run must verify the patched Servo Rust graph and
 continue to target link, UEFI, and real QEMU first-web-pixel evidence.
 
+## Remediation continuation (2026-09-21, navigator patch hunk count)
+
+Public snapshot CI run `35558265319` (head `c655aad`) localized the first
+target compiler diagnostic to `navigatorinfo.rs:84:3`, reporting an unclosed
+delimiter. Replaying the ordered patch against the pinned clean Servo source
+showed that `0007-nagi-navigator-platform.patch` declared `+60,10` while its
+hunk contained eleven resulting lines. `git apply --check` accepted the
+malformed count, but the applied file omitted the Nagi function's closing `}`.
+The patch now declares `+60,11`, and the Servo patch-boundary test asserts the
+corrected hunk count and final closing line. This is a reproducibility repair
+inside the tracked Nagi patch boundary; it does not weaken the target build or
+guest rendering acceptance. The next target run must verify Servo compilation
+and continue to target link, UEFI, and real QEMU first-web-pixel evidence.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

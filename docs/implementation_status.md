@@ -25,18 +25,18 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35556640788` at `9519888`
+**Last known repair checkpoint:** public CI run `35558265319` at `c655aad`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
 boundary, the real jsglue allocator bridge, the Nagi `navigator.platform`
 branch, and both host jobs. The target job still reaches `Build Nagi user init`
 and fails with exit code 101 after the Servo target compilation phase. The
-diagnostic wrapper now reports the first error as a check annotation; the first
-reported diagnostic is `this file contains an unclosed delimiter`, but its
-source location was not included in that annotation and needs one more
-diagnostic extraction pass. Target link, UEFI, and real QEMU first-web-pixel
-evidence remain outstanding.
+first compiler diagnostic is now localized to
+`third_party/servo/components/script/dom/navigator/navigatorinfo.rs:84:3`:
+`this file contains an unclosed delimiter`. The next repair is to correct the
+Nagi navigator patch hunk count and re-run target CI. Target link, UEFI, and
+real QEMU first-web-pixel evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -144,7 +144,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Run `35535949462` reached the real target user-init compile after the Nagi `strto*`/`_l` ABI repair, then exposed the missing Nagi Servo font platform cfg and `PROT_NONE`/`MAP_FIXED` overlay constants. The current repair adds the target-owned FreeType/font boundary and Nagi mmap constants; target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35558265319` reached the real target user-init compile and localized an unclosed delimiter to the applied Nagi navigator patch; the patch hunk count is corrected and the clean-source apply probe passes. Target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1031,6 +1031,18 @@ Verification checkpoint on 2026-09-20:
   annotation did not yet include the following `--> path:line` location, so no
   source edit is inferred from this incomplete context. UEFI and real QEMU
   first-web-pixel steps were skipped.
+
+- Public snapshot CI run #38 (`35558265319`, head `c655aad`) passed Ubuntu and
+  Windows host jobs and localized the first target compiler diagnostic to
+  `third_party/servo/components/script/dom/navigator/navigatorinfo.rs:84:3`.
+  Replaying the ordered patch against the pinned clean source showed that
+  `0007-nagi-navigator-platform.patch` declared `+60,10` while its hunk
+  contained eleven resulting lines. `git apply --check` accepted the malformed
+  count, but the applied file omitted the Nagi function's closing `}`. The
+  hunk count is corrected to `+60,11`, and the patch-boundary test asserts the
+  corrected count and final closing line. Local patch-check, clean-source
+  apply-probe, and `git diff --check` pass; target build, UEFI, and real QEMU
+  first-web-pixel evidence remain outstanding.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
@@ -2095,5 +2107,9 @@ M10 PASS at `87f3b25`: the
 real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
-acceptance paths also remained PASS. The next implementation gate is M17 Servo
-Bootstrap; M17 must use pinned Servo and a real guest-rendered first web pixel.
+acceptance paths also remained PASS. M17 Servo Bootstrap is the active
+milestone. Its current repair checkpoint is public CI run `35558265319`:
+host jobs pass, while the target job exposed and is being repaired for the
+malformed Nagi navigator patch hunk. The required next evidence remains target
+link, UEFI, real QEMU, and a real guest-rendered first web pixel; M18 cannot
+start before formal M17 PASS.

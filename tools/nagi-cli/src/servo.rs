@@ -748,6 +748,8 @@ mod tests {
         assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
         assert!(patch.contains("DOMString::from_static(\"Nagi\")"));
         assert!(patch.contains("navigatorinfo.rs"));
+        assert!(patch.contains("@@ -60,5 +60,11 @@"));
+        assert!(patch.ends_with("+}\n"));
     }
 
     #[test]
