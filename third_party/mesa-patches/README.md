@@ -103,6 +103,12 @@ shared `src/gallium/targets/dri` `libgallium` target on non-Nagi platforms.
 EGL therefore links the static frontend, pipe loader, and real Softpipe driver;
 no dynamic DRI module or host device is introduced.
 
+`0018-nagi-enable-dri2-frontend.patch` enables the DRI2 frontend source for
+the Nagi surfaceless build. Mesa's drawable dispatch references the real
+`dri2_init_drawable` implementation for its configured screen types; this
+patch includes that implementation in `libdri` without enabling a host DRM
+platform or dynamic driver.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

@@ -82,7 +82,7 @@ resource_dir=$("$target_clang" --target=x86_64-unknown-elf -print-resource-dir)
     "$repo_root/tools/mesa/nagi-c11-header-check.c"
 
 mesa_headers="$repo_root/tools/mesa/nagi-headers"
-mesa_c_args="--target=x86_64-unknown-elf -D__NAGI__ -ffreestanding -fno-stack-protector -fno-builtin -mcmodel=large -I$mesa_headers -I$relibc_headers"
+mesa_c_args="--target=x86_64-unknown-elf -D__NAGI__ -ffreestanding -fno-stack-protector -fno-builtin -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -mcmodel=large -I$mesa_headers -I$relibc_headers"
 meson setup --wipe "$mesa_build" "$repo_root/third_party/mesa" \
     --cross-file "$repo_root/tools/mesa/nagi-x86_64-user.meson.cross" \
     -Dgallium-drivers=softpipe \

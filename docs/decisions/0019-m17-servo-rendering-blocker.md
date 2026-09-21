@@ -973,6 +973,23 @@ runtime errno mapping. No fabricated `DIR` object or host directory access is
 introduced. Target link, UEFI, and real QEMU first-web-pixel evidence remain
 required.
 
+## Remediation continuation (2026-09-21, target memory/C++/Mesa link)
+
+Public snapshot CI run `35610876131` (head `45ab39c`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined diagnostics were
+`__memcpy_chk`, `vtable for __cxxabiv1::__si_class_type_info`, and
+`dri2_init_drawable`; UEFI and real QEMU were skipped.
+
+The M17 repair stream now adds a bounds-checked `__memcpy_chk` to the
+target-owned `libnagi` memory ABI, passes `-fno-exceptions` and `-fno-rtti` to
+the freestanding Mesa C/C++ compilation boundary, and tracks
+`0018-nagi-enable-dri2-frontend.patch`. The Mesa patch enables the actual DRI2
+frontend source for Nagi's surfaceless static `libdri`, without enabling a DRM
+device, host display, dynamic loader, or host runtime. These changes require a
+fresh target CI link result; M17 remains `BLOCKED` until target linking, UEFI,
+real QEMU, and real first-web-pixel evidence all pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

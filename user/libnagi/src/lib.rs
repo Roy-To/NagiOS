@@ -63,6 +63,29 @@ pub unsafe extern "C" fn memset(destination: *mut u8, value: i32, count: usize) 
     destination
 }
 
+/// Checked copy entry point emitted by Clang for fortified C memory calls.
+///
+/// The destination bound is supplied by the caller's object-size analysis;
+/// violating it terminates the guest process instead of silently weakening
+/// the check.  The implementation remains target-owned and does not call a
+/// host libc routine.
+#[cfg(target_os = "nagi")]
+#[no_mangle]
+pub unsafe extern "C" fn __memcpy_chk(
+    destination: *mut u8,
+    source: *const u8,
+    count: usize,
+    destination_size: usize,
+) -> *mut u8 {
+    if count > destination_size
+        || (count != 0 && (destination.is_null() || source.is_null()))
+        || destination.cast::<u8>().addr().checked_add(count).is_none()
+    {
+        exit(134);
+    }
+    memcpy(destination, source, count)
+}
+
 #[cfg(target_os = "nagi")]
 #[no_mangle]
 pub unsafe extern "C" fn memcmp(left: *const u8, right: *const u8, count: usize) -> i32 {

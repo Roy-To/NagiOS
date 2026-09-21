@@ -618,6 +618,38 @@ mod tests {
         assert!(runtime.contains(
             "_ZNSt3__111this_thread9sleep_forERKNS_6chrono8durationIxNS2_5ratioILl1ELl1000000000EEEE"
         ));
+        assert!(runtime.contains("-fno-rtti") || build_script.contains("-fno-rtti"));
+        assert!(runtime.contains("-fno-exceptions") || build_script.contains("-fno-exceptions"));
+    }
+
+    #[test]
+    fn m17_target_memory_abi_has_checked_copy_boundary() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let libnagi =
+            fs::read_to_string(root.join("user/libnagi/src/lib.rs")).expect("Nagi user ABI");
+        assert!(libnagi.contains("pub unsafe extern \"C\" fn __memcpy_chk("));
+        assert!(libnagi.contains("checked_add(count)"));
+    }
+
+    #[test]
+    fn m17_mesa_freestanding_cpp_and_dri2_boundaries_are_pinned() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let build =
+            fs::read_to_string(root.join("tools/mesa/build.sh")).expect("Mesa build script");
+        assert!(build.contains("-fno-exceptions"));
+        assert!(build.contains("-fno-rtti"));
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0018-nagi-enable-dri2-frontend.patch"),
+        )
+        .expect("Mesa DRI2 patch");
+        assert!(patch.contains("host_machine.system() == 'nagi'"));
+        assert!(patch.contains("with_dri2"));
     }
 
     #[test]
