@@ -665,6 +665,19 @@ pub unsafe extern "C" fn nagi_posix_lstat(path: *const c_char, output: *mut c_vo
     result
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_isatty(fd: c_int) -> c_int {
+    if fd == 1 || fd == 2 {
+        return 1;
+    }
+    if fd < 0 {
+        set_errno(EBADF);
+    } else {
+        set_errno(ENOTTY);
+    }
+    0
+}
+
 #[linkage = "weak"]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lstat(path: *const c_char, output: *mut c_void) -> c_int {

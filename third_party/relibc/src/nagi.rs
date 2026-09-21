@@ -7,9 +7,10 @@
 
 use core::{
     ffi::{
-        c_char, c_double, c_float, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong, c_void,
+        VaList, c_char, c_double, c_float, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong,
+        c_void,
     },
-    mem, ptr,
+    fmt, mem, ptr,
 };
 
 unsafe extern "C" {
@@ -32,6 +33,7 @@ unsafe extern "C" {
     fn nagi_posix_close(fd: c_int) -> c_int;
     fn nagi_posix_lseek(fd: c_int, offset: i64, whence: c_int) -> i64;
     fn nagi_posix_lstat(path: *const c_char, buf: *mut c_void) -> c_int;
+    fn nagi_posix_isatty(fd: c_int) -> c_int;
     fn nagi_posix_mmap_file(length: usize, protection: c_int, fd: c_int, offset: usize) -> *mut u8;
     fn nagi_posix_mmap_at(address: *mut u8, length: usize, protection: c_int) -> *mut u8;
     fn nagi_posix_munmap(address: *mut u8, length: usize) -> c_int;
@@ -280,6 +282,27 @@ pub unsafe extern "C" fn strcmp(first: *const c_char, second: *const c_char) -> 
     }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strncmp(
+    first: *const c_char,
+    second: *const c_char,
+    length: usize,
+) -> c_int {
+    let mut index = 0;
+    while index < length {
+        let left = unsafe { *first.cast::<u8>().add(index) };
+        let right = unsafe { *second.cast::<u8>().add(index) };
+        if left != right {
+            return c_int::from(left) - c_int::from(right);
+        }
+        if left == 0 {
+            return 0;
+        }
+        index += 1;
+    }
+    0
+}
+
 static GAI_BADFLAGS: &[u8] = b"Invalid flags\0";
 static GAI_NONAME: &[u8] = b"Name does not resolve\0";
 static GAI_AGAIN: &[u8] = b"Try again\0";
@@ -508,6 +531,451 @@ pub unsafe extern "C" fn getsockopt(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn lstat(path: *const c_char, buf: *mut c_void) -> c_int {
     unsafe { nagi_posix_lstat(path, buf) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isatty(fd: c_int) -> c_int {
+    unsafe { nagi_posix_isatty(fd) }
+}
+
+#[derive(Clone, Copy, Default)]
+struct NagiFormatSpec {
+    alternate: bool,
+    left: bool,
+    plus: bool,
+    space: bool,
+    zero: bool,
+    width: Option<usize>,
+    precision: Option<usize>,
+    longness: u8,
+}
+
+struct NagiFormatWriter {
+    output: *mut u8,
+    capacity: usize,
+    written: usize,
+}
+
+impl NagiFormatWriter {
+    fn new(output: *mut c_char, capacity: usize) -> Self {
+        Self {
+            output: output.cast(),
+            capacity,
+            written: 0,
+        }
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        let Some(next) = self.written.checked_add(bytes.len()) else {
+            self.written = usize::MAX;
+            return;
+        };
+        if !self.output.is_null() && self.capacity > 0 {
+            let writable = (self.capacity - 1).saturating_sub(self.written);
+            let amount = writable.min(bytes.len());
+            if amount != 0 {
+                unsafe {
+                    ptr::copy_nonoverlapping(bytes.as_ptr(), self.output.add(self.written), amount);
+                }
+            }
+        }
+        self.written = next;
+    }
+
+    fn finish(self) -> c_int {
+        let count = self.written.min(c_int::MAX as usize) as c_int;
+        if !self.output.is_null() && self.capacity > 0 {
+            let end = self.written.min(self.capacity - 1);
+            unsafe { self.output.add(end).write(0) };
+        }
+        count
+    }
+}
+
+impl fmt::Write for NagiFormatWriter {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        self.write_bytes(value.as_bytes());
+        Ok(())
+    }
+}
+
+struct NagiFormatBuffer {
+    bytes: [u8; 256],
+    length: usize,
+}
+
+impl NagiFormatBuffer {
+    fn new() -> Self {
+        Self {
+            bytes: [0; 256],
+            length: 0,
+        }
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        &self.bytes[..self.length]
+    }
+}
+
+impl fmt::Write for NagiFormatBuffer {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        let amount = (self.bytes.len() - self.length).min(value.len());
+        self.bytes[self.length..self.length + amount].copy_from_slice(&value.as_bytes()[..amount]);
+        self.length += amount;
+        Ok(())
+    }
+}
+
+fn nagi_emit_padding(writer: &mut NagiFormatWriter, byte: u8, count: usize) {
+    for _ in 0..count {
+        writer.write_bytes(core::slice::from_ref(&byte));
+    }
+}
+
+fn nagi_emit_field(
+    writer: &mut NagiFormatWriter,
+    prefix: &[u8],
+    body: &[u8],
+    spec: NagiFormatSpec,
+) {
+    let total = prefix.len().saturating_add(body.len());
+    let padding = spec.width.unwrap_or(0).saturating_sub(total);
+    if !spec.left && !spec.zero {
+        nagi_emit_padding(writer, b' ', padding);
+    }
+    writer.write_bytes(prefix);
+    if !spec.left && spec.zero {
+        nagi_emit_padding(writer, b'0', padding);
+    }
+    writer.write_bytes(body);
+    if spec.left {
+        nagi_emit_padding(writer, b' ', padding);
+    }
+}
+
+fn nagi_emit_unsigned(
+    writer: &mut NagiFormatWriter,
+    value: u64,
+    negative: bool,
+    base: u8,
+    uppercase: bool,
+    spec: NagiFormatSpec,
+    pointer: bool,
+) {
+    let mut digits = [0u8; 64];
+    let mut length = 0;
+    let alphabet = if uppercase {
+        b"0123456789ABCDEF"
+    } else {
+        b"0123456789abcdef"
+    };
+    if value == 0 {
+        digits[0] = b'0';
+        length = 1;
+    } else {
+        let mut remaining = value;
+        while remaining != 0 {
+            digits[length] = alphabet[(remaining % u64::from(base)) as usize];
+            length += 1;
+            remaining /= u64::from(base);
+        }
+        digits[..length].reverse();
+    }
+    let precision = spec.precision.unwrap_or(0).max(length);
+    let mut body = [0u8; 64];
+    let body_length = precision.min(body.len());
+    let leading = body_length.saturating_sub(length);
+    body[..leading].fill(b'0');
+    body[leading..body_length].copy_from_slice(&digits[..length.min(body_length)]);
+    let sign = if negative {
+        b'-'
+    } else if spec.plus {
+        b'+'
+    } else if spec.space {
+        b' '
+    } else {
+        0
+    };
+    let mut prefix = [0u8; 3];
+    let prefix_length = if sign != 0 {
+        prefix[0] = sign;
+        1
+    } else {
+        0
+    };
+    let alternate_length = if pointer || (spec.alternate && base == 16 && value != 0) {
+        prefix[prefix_length] = b'0';
+        prefix[prefix_length + 1] = if uppercase { b'X' } else { b'x' };
+        2
+    } else if spec.alternate && base == 8 && body_length > 0 && body[0] != b'0' {
+        prefix[prefix_length] = b'0';
+        1
+    } else {
+        0
+    };
+    nagi_emit_field(
+        writer,
+        &prefix[..prefix_length + alternate_length],
+        &body[..body_length],
+        NagiFormatSpec {
+            zero: spec.zero && spec.precision.is_none(),
+            ..spec
+        },
+    );
+}
+
+unsafe fn nagi_emit_c_string(
+    writer: &mut NagiFormatWriter,
+    value: *const c_char,
+    precision: Option<usize>,
+    spec: NagiFormatSpec,
+) {
+    let fallback = b"(null)";
+    let pointer = if value.is_null() {
+        fallback.as_ptr()
+    } else {
+        value.cast::<u8>()
+    };
+    let mut length = 0;
+    while precision.is_none_or(|limit| length < limit) && unsafe { *pointer.add(length) } != 0 {
+        length += 1;
+    }
+    let padding = spec.width.unwrap_or(0).saturating_sub(length);
+    if !spec.left {
+        nagi_emit_padding(writer, b' ', padding);
+    }
+    for index in 0..length {
+        writer.write_bytes(unsafe { core::slice::from_raw_parts(pointer.add(index), 1) });
+    }
+    if spec.left {
+        nagi_emit_padding(writer, b' ', padding);
+    }
+}
+
+unsafe fn nagi_vsnprintf(
+    output: *mut c_char,
+    capacity: usize,
+    format: *const c_char,
+    mut args: VaList,
+) -> c_int {
+    let mut writer = NagiFormatWriter::new(output, capacity);
+    let mut index = 0;
+    loop {
+        let byte = unsafe { *format.cast::<u8>().add(index) };
+        if byte == 0 {
+            break;
+        }
+        if byte != b'%' {
+            writer.write_bytes(core::slice::from_ref(&byte));
+            index += 1;
+            continue;
+        }
+        index += 1;
+        let mut spec = NagiFormatSpec::default();
+        loop {
+            let flag = unsafe { *format.cast::<u8>().add(index) };
+            match flag {
+                b'#' => spec.alternate = true,
+                b'-' => spec.left = true,
+                b'+' => spec.plus = true,
+                b' ' => spec.space = true,
+                b'0' => spec.zero = true,
+                _ => break,
+            }
+            index += 1;
+        }
+        if unsafe { *format.cast::<u8>().add(index) } == b'*' {
+            let width = unsafe { args.arg::<c_int>() };
+            if width < 0 {
+                spec.left = true;
+                spec.width = Some(width.unsigned_abs() as usize);
+            } else {
+                spec.width = Some(width as usize);
+            }
+            index += 1;
+        } else {
+            let mut width = 0usize;
+            while unsafe { *format.cast::<u8>().add(index) }.is_ascii_digit() {
+                width = width.saturating_mul(10).saturating_add(usize::from(unsafe {
+                    *format.cast::<u8>().add(index) - b'0'
+                }));
+                index += 1;
+            }
+            if width != 0 {
+                spec.width = Some(width);
+            }
+        }
+        if unsafe { *format.cast::<u8>().add(index) } == b'.' {
+            index += 1;
+            if unsafe { *format.cast::<u8>().add(index) } == b'*' {
+                let precision = unsafe { args.arg::<c_int>() };
+                if precision >= 0 {
+                    spec.precision = Some(precision as usize);
+                }
+                index += 1;
+            } else {
+                let mut precision = 0usize;
+                while unsafe { *format.cast::<u8>().add(index) }.is_ascii_digit() {
+                    precision = precision
+                        .saturating_mul(10)
+                        .saturating_add(usize::from(unsafe {
+                            *format.cast::<u8>().add(index) - b'0'
+                        }));
+                    index += 1;
+                }
+                spec.precision = Some(precision);
+            }
+        }
+        let length = unsafe { *format.cast::<u8>().add(index) };
+        match length {
+            b'h' => {
+                spec.longness = 1;
+                index += 1;
+                if unsafe { *format.cast::<u8>().add(index) } == b'h' {
+                    spec.longness = 2;
+                    index += 1;
+                }
+            }
+            b'l' => {
+                spec.longness = 3;
+                index += 1;
+                if unsafe { *format.cast::<u8>().add(index) } == b'l' {
+                    spec.longness = 4;
+                    index += 1;
+                }
+            }
+            b'z' | b'j' | b't' => {
+                spec.longness = 3;
+                index += 1;
+            }
+            _ => {}
+        }
+        let conversion = unsafe { *format.cast::<u8>().add(index) };
+        if conversion == 0 {
+            break;
+        }
+        index += 1;
+        match conversion {
+            b'%' => writer.write_bytes(b"%"),
+            b's' => unsafe {
+                nagi_emit_c_string(
+                    &mut writer,
+                    args.arg::<*const c_char>(),
+                    spec.precision,
+                    spec,
+                )
+            },
+            b'c' => {
+                let value = (unsafe { args.arg::<c_int>() }) as u8;
+                nagi_emit_field(&mut writer, &[], core::slice::from_ref(&value), spec);
+            }
+            b'd' | b'i' => {
+                let value = match spec.longness {
+                    3 | 4 => (unsafe { args.arg::<c_longlong>() }) as i64,
+                    _ => (unsafe { args.arg::<c_int>() }) as i64,
+                };
+                nagi_emit_unsigned(
+                    &mut writer,
+                    value.unsigned_abs(),
+                    value < 0,
+                    10,
+                    false,
+                    spec,
+                    false,
+                );
+            }
+            b'u' | b'o' | b'x' | b'X' => {
+                let value = match spec.longness {
+                    3 | 4 => (unsafe { args.arg::<c_ulonglong>() }) as u64,
+                    _ => (unsafe { args.arg::<c_uint>() }) as u64,
+                };
+                let base = if conversion == b'o' {
+                    8
+                } else if conversion == b'u' {
+                    10
+                } else {
+                    16
+                };
+                nagi_emit_unsigned(
+                    &mut writer,
+                    value,
+                    false,
+                    base,
+                    conversion == b'X',
+                    spec,
+                    false,
+                );
+            }
+            b'p' => {
+                let value = unsafe { args.arg::<*const c_void>() } as usize as u64;
+                nagi_emit_unsigned(&mut writer, value, false, 16, false, spec, true);
+            }
+            b'f' | b'F' | b'e' | b'E' | b'g' | b'G' => {
+                let value = unsafe { args.arg::<c_double>() };
+                let mut buffer = NagiFormatBuffer::new();
+                let precision = spec.precision.unwrap_or(6);
+                match conversion {
+                    b'e' => {
+                        let _ = fmt::write(&mut buffer, format_args!("{:.*e}", precision, value));
+                    }
+                    b'E' => {
+                        let _ = fmt::write(&mut buffer, format_args!("{:.*E}", precision, value));
+                    }
+                    _ => {
+                        let _ = fmt::write(&mut buffer, format_args!("{:.*}", precision, value));
+                    }
+                }
+                let mut prefix = [0u8; 1];
+                let mut body = buffer.as_slice();
+                if body.first() == Some(&b'-') {
+                    prefix[0] = b'-';
+                    body = &body[1..];
+                } else if spec.plus {
+                    prefix[0] = b'+';
+                } else if spec.space {
+                    prefix[0] = b' ';
+                }
+                nagi_emit_field(
+                    &mut writer,
+                    &prefix[..if prefix[0] == 0 { 0 } else { 1 }],
+                    body,
+                    spec,
+                );
+            }
+            b'n' => unsafe {
+                let count = writer.written as c_int;
+                match spec.longness {
+                    3 | 4 => args.arg::<*mut c_longlong>().write(count as c_longlong),
+                    _ => args.arg::<*mut c_int>().write(count),
+                }
+            },
+            _ => {
+                writer.write_bytes(b"%");
+                writer.write_bytes(core::slice::from_ref(&conversion));
+            }
+        }
+    }
+    writer.finish()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vsnprintf(
+    output: *mut c_char,
+    capacity: usize,
+    format: *const c_char,
+    args: VaList,
+) -> c_int {
+    unsafe { nagi_vsnprintf(output, capacity, format, args) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn snprintf(
+    output: *mut c_char,
+    capacity: usize,
+    format: *const c_char,
+    mut args: ...
+) -> c_int {
+    unsafe { nagi_vsnprintf(output, capacity, format, args.as_va_list()) }
 }
 
 /// The Nagi target does not import a host libc for numeric conversion. Keep

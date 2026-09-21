@@ -25,13 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35597057716` at `17bcc29`
+**Last known repair checkpoint:** public CI run `35600567895` at `bcc978a`
 passed bootstrap, Mesa, package, kernel, and target compilation, then stopped
-at final target linking with undefined `nagi_posix_lstat`, `gettimeofday`, and
-`pow`. The current source repair adds the missing VFS facade symbol, guest
-realtime `gettimeofday`, and target-owned freestanding power math. No host
-libc, host rendering, or synthetic output is used. Target link, UEFI, and
-real QEMU first-web-pixel evidence remain required.
+at final target linking with undefined `isatty`, `strncmp`, and `snprintf`.
+The current source repair adds the real Nagi descriptor-backed `isatty` facade,
+target-owned C byte comparison, and a bounded target formatter for the C
+variadic `snprintf`/`vsnprintf` ABI. No host libc, host rendering, or
+synthetic output is used. Target link, UEFI, and real QEMU first-web-pixel
+evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1184,6 +1185,22 @@ Verification checkpoint on 2026-09-20:
   Nagi target. No host filesystem, host clock, or host math library is used.
   UEFI and real QEMU first-web-pixel steps were skipped and remain required.
 
+- Public snapshot CI run `35600567895` (head `bcc978a`) passed bootstrap, Mesa,
+  package, kernel, and target compilation, then reached final target linking.
+  The exact next diagnostics were undefined `isatty`, `strncmp`, and
+  `snprintf`. Source tracing confirmed that these are still outside the
+  target-selected relibc modules. The current repair keeps ownership inside
+  the Nagi target boundary: `isatty` checks the real Nagi descriptor facade,
+  `strncmp` performs bounded C byte comparison, and `snprintf`/`vsnprintf`
+  implement bounded C formatting for strings, characters, integers, pointers,
+  floating-point values, width, precision, and variadic argument consumption.
+  The formatter reports the full required length and NUL-terminates bounded
+  output; it is not a symbol-only stub. Local standalone target-backend
+  metadata compilation, format, CLI check, clippy, and whitespace checks pass.
+  The focused host test binary remains unable to link locally because this
+  Windows environment lacks MSVC `link.exe`. UEFI and real QEMU first-web-
+  pixel steps remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
@@ -2249,10 +2266,9 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
- milestone. Public CI run `35597057716` is the current repair checkpoint:
+ milestone. Public CI run `35600567895` is the current repair checkpoint:
 bootstrap, Mesa, package, kernel, and target compilation passed, then final
-linking exposed `nagi_posix_lstat`, `gettimeofday`, and `pow`. The target-owned
-Nagi POSIX/relibc repair is implemented locally and must be pushed and
-verified; the required next evidence remains target link, UEFI, real QEMU,
-and a real guest-rendered first web pixel. M18 cannot start before formal M17
-PASS.
+linking exposed `isatty`, `strncmp`, and `snprintf`. The target-owned Nagi
+POSIX/relibc repair is implemented locally and must be pushed and verified;
+the required next evidence remains target link, UEFI, real QEMU, and a real
+guest-rendered first web pixel. M18 cannot start before formal M17 PASS.

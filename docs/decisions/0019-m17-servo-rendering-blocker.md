@@ -917,6 +917,30 @@ clippy, whitespace checks, and standalone relibc metadata compilation pass;
 the next public run must verify target link, UEFI, and real QEMU first-web-
 pixel acceptance.
 
+## Remediation continuation (2026-09-21, stdio/terminal ABI)
+
+Public snapshot CI run `35600567895` (head `bcc978a`) passed the target
+compile boundary and reached final linking. The exact undefined symbols were
+`isatty`, `strncmp`, and `snprintf`.
+
+The Nagi POSIX layer now exports `nagi_posix_isatty`, returning terminal
+status only for the real guest standard descriptors and setting the Nagi errno
+facade for invalid or non-terminal descriptors. The target relibc backend
+forwards `isatty`, implements bounded `strncmp`, and owns a real bounded C
+formatter for `snprintf`/`vsnprintf`. The formatter consumes the C variadic
+arguments required by the format string, supports the string, character,
+integer, pointer, and floating-point conversions used by the target ABI,
+handles width/precision, reports the untruncated length, and terminates a
+bounded destination. It does not call host libc or return a fixed success
+value. The M17 contract test now covers all three relibc symbols and the Nagi
+terminal facade.
+
+The standalone target-backend metadata compile, format, CLI check, clippy,
+and whitespace checks pass. The focused host test binary still cannot link on
+this Windows PC because MSVC `link.exe` is unavailable; that is a host review
+limitation, not target evidence. The repair is not yet accepted until target
+link, UEFI, and real QEMU first-web-pixel evidence are produced.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
