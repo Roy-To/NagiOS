@@ -25,14 +25,15 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35632734832` at `f0f4cad`
-passed bootstrap, Mesa, package, kernel, and target compilation, then stopped
-at final target linking with undefined `__cxa_guard_acquire`,
-`std::__1::locale::classic()`, and `std::__1::ctype<char>::id`. The current
-source repair adds Nagi-owned Itanium static-initialization guards and the
-pinned libc++ classic C-locale identity objects. No host libc, host
-filesystem, host rendering, or synthetic output is used. Target link, UEFI,
-and real QEMU first-web-pixel evidence remain required.
+**Last known repair checkpoint:** public CI run `35636554538` at `9fcd26c`
+passed bootstrap, Mesa, package, kernel, and target compilation, then failed
+inside `Build Nagi user init` while compiling the new freestanding C++ runtime.
+The local clang reproduction identified the exact syntax error: an `alignas`
+attribute was placed after `extern "C"`. The current source repair moves the
+locale-id declaration to valid freestanding C++ and keeps the C++ reference ABI
+as an equivalent pointer return. No host libc, host filesystem, host
+rendering, or synthetic output is used. Target link, UEFI, and real QEMU
+first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1296,6 +1297,16 @@ Verification checkpoint on 2026-09-20:
   classic C-locale identity storage to the freestanding C++ boundary. These
   changes remain M17-internal and do not claim target-link or guest acceptance
   until CI reruns.
+
+- Public snapshot CI run `35636554538` (head `9fcd26c`) passed the M17 target
+  dependency boundary, Mesa, package, kernel, and target compilation, but
+  `Build Nagi user init` failed while compiling the newly added C++ runtime;
+  UEFI and QEMU were skipped. The public annotation exposed only the custom
+  build-command failure, while local LLVM clang reproduced the concrete
+  `alignas` placement error and a C-linkage return warning. The current repair
+  fixes both at the source boundary and is verified by a local
+  `x86_64-unknown-none` clang compile. These changes remain M17-internal and
+  do not claim target-link or guest acceptance until CI reruns.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

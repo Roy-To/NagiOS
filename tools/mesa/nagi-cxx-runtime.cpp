@@ -195,14 +195,17 @@ struct nagi_libcpp_locale_identity {
 
 static nagi_libcpp_locale_identity nagi_classic_locale = {0};
 
-extern "C" const nagi_libcpp_locale_identity &nagi_cxx_locale_classic()
+// A C++ reference is passed as the address of the referred object in this
+// ABI. Use the equivalent pointer spelling here so the freestanding C
+// linkage declaration remains warning-free while preserving that ABI shape.
+extern "C" const void *nagi_cxx_locale_classic()
     __asm__("_ZNSt3__16locale7classicEv");
 
-extern "C" const nagi_libcpp_locale_identity &nagi_cxx_locale_classic() {
-    return nagi_classic_locale;
+extern "C" const void *nagi_cxx_locale_classic() {
+    return &nagi_classic_locale;
 }
 
 // libc++'s locale::id is zero-initialized before its first assigned facet
 // number. A pointer-sized target object matches the pinned x86-64 libc++ ABI.
-alignas(nagi_uintptr_t) extern "C" nagi_uintptr_t nagi_ctype_char_id
+extern "C" nagi_uintptr_t nagi_ctype_char_id
     __asm__("_ZNSt3__15ctypeIcE2idE") = 0;

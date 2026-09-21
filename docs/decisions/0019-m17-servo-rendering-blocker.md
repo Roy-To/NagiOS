@@ -1086,6 +1086,23 @@ Nagi-owned target memory. No host locale database, host C++ runtime, or
 rendering fallback is introduced. M17 remains `BLOCKED` until target linking,
 UEFI, real QEMU, and real first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, C++ runtime compile correction)
+
+Public snapshot CI run `35636554538` (head `9fcd26c`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and target compilation
+stages, then failed inside `Build Nagi user init` while compiling the new
+freestanding C++ runtime. The public annotation exposed only the custom build
+command failure, so the source was compiled locally with the available LLVM
+clang target configuration. That reproduced the concrete error: the
+`alignas` attribute was placed after `extern "C"`; it also exposed a
+C-linkage warning for the user-defined reference return.
+
+The next M17 repair moves the locale-id declaration to valid freestanding C++
+syntax and spells the classic-locale reference ABI as an equivalent pointer
+return, removing the warning without changing the target calling convention.
+The local `x86_64-unknown-none` compile now passes. M17 remains `BLOCKED`
+until the target link, UEFI, real QEMU, and real first-web-pixel evidence pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
