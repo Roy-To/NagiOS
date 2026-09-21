@@ -1150,6 +1150,20 @@ freestanding range-reduced sine/cosine implementation. No host allocator,
 host libc, or symbol-only success path is introduced. M17 remains `BLOCKED`
 until target linking, UEFI, real QEMU, and real first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, target inverse-trigonometric ABI)
+
+Public snapshot CI run `35649189787` (head `997714b`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were `atanf`,
+`asinf`, and `atan2f`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds real freestanding inverse-trigonometric math to the
+Nagi relibc backend: range-reduced atan/atan2, bounded Newton square root for
+asin, domain and NaN handling, and float/double C ABI entry points. It does
+not import host libm or claim unsupported rendering behavior. M17 remains
+`BLOCKED` until target linking, the UEFI loader, real QEMU, and the real Servo
+first-web-pixel gate pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

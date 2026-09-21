@@ -1048,6 +1048,107 @@ fn nagi_cos_real(value: c_double) -> c_double {
     sign * factor
 }
 
+fn nagi_sqrt_real(value: c_double) -> c_double {
+    if nagi_pow_is_nan(value) || value < 0.0 {
+        return NAGI_POW_NAN;
+    }
+    if value == 0.0 || nagi_pow_is_inf(value) {
+        return value;
+    }
+
+    // The inverse-trigonometric helpers only call this for values in [0, 1].
+    // Newton's method with a fixed iteration count keeps the implementation
+    // freestanding and converges from the upper bound even at the endpoints.
+    let mut estimate = 1.0;
+    let mut iteration = 0;
+    while iteration < 32 {
+        estimate = 0.5 * (estimate + value / estimate);
+        iteration += 1;
+    }
+    estimate
+}
+
+fn nagi_atan_reduced(value: c_double) -> c_double {
+    // This range is reached after the pi/4 argument reduction below. The
+    // alternating Taylor series therefore converges rapidly without libc/libm.
+    let square = value * value;
+    let mut term = value;
+    let mut result = 0.0;
+    let mut index = 0;
+    while index < 24 {
+        let denominator = (index * 2 + 1) as c_double;
+        if index & 1 == 0 {
+            result += term / denominator;
+        } else {
+            result -= term / denominator;
+        }
+        term *= square;
+        index += 1;
+    }
+    result
+}
+
+fn nagi_atan_real(value: c_double) -> c_double {
+    if nagi_pow_is_nan(value) {
+        return NAGI_POW_NAN;
+    }
+    if nagi_pow_is_inf(value) {
+        return if value.is_sign_negative() {
+            -NAGI_HALF_PI
+        } else {
+            NAGI_HALF_PI
+        };
+    }
+
+    let negative = value.is_sign_negative();
+    let absolute = nagi_pow_abs(value);
+    let reduced = if absolute > 1.0 {
+        NAGI_HALF_PI - nagi_atan_real(1.0 / absolute)
+    } else if absolute > 0.41421356237309503 {
+        NAGI_PI / 4.0 + nagi_atan_reduced((absolute - 1.0) / (absolute + 1.0))
+    } else {
+        nagi_atan_reduced(absolute)
+    };
+    if negative { -reduced } else { reduced }
+}
+
+fn nagi_atan2_real(y: c_double, x: c_double) -> c_double {
+    if nagi_pow_is_nan(x) || nagi_pow_is_nan(y) {
+        return NAGI_POW_NAN;
+    }
+    if x > 0.0 {
+        return nagi_atan_real(y / x);
+    }
+    if x < 0.0 {
+        let angle = nagi_atan_real(y / x);
+        return if y.is_sign_negative() {
+            angle - NAGI_PI
+        } else {
+            angle + NAGI_PI
+        };
+    }
+    if y.is_sign_negative() {
+        -NAGI_HALF_PI
+    } else if y > 0.0 {
+        NAGI_HALF_PI
+    } else {
+        y
+    }
+}
+
+fn nagi_asin_real(value: c_double) -> c_double {
+    if nagi_pow_is_nan(value) || value < -1.0 || value > 1.0 {
+        return NAGI_POW_NAN;
+    }
+    if value == 1.0 {
+        return NAGI_HALF_PI;
+    }
+    if value == -1.0 {
+        return -NAGI_HALF_PI;
+    }
+    nagi_atan2_real(value, nagi_sqrt_real((1.0 - value) * (1.0 + value)))
+}
+
 /// Target-owned freestanding power implementation. The normal relibc math
 /// module is excluded for `target_os = "nagi"`; this bounded IEEE-aware
 /// implementation keeps Servo/Mesa numeric code off the host libc boundary.
@@ -1079,6 +1180,51 @@ pub unsafe extern "C" fn sinf(x: c_float) -> c_float {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosf(x: c_float) -> c_float {
     nagi_cos_real(c_double::from(x)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn asin(x: c_double) -> c_double {
+    nagi_asin_real(x)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn asinf(x: c_float) -> c_float {
+    nagi_asin_real(c_double::from(x)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atan(x: c_double) -> c_double {
+    nagi_atan_real(x)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atanf(x: c_float) -> c_float {
+    nagi_atan_real(c_double::from(x)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atan2(y: c_double, x: c_double) -> c_double {
+    nagi_atan2_real(y, x)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atan2f(y: c_float, x: c_float) -> c_float {
+    nagi_atan2_real(c_double::from(y), c_double::from(x)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acos(x: c_double) -> c_double {
+    let result = nagi_asin_real(x);
+    if nagi_pow_is_nan(result) {
+        result
+    } else {
+        NAGI_HALF_PI - result
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acosf(x: c_float) -> c_float {
+    unsafe { acos(c_double::from(x)) as c_float }
 }
 
 #[unsafe(no_mangle)]
