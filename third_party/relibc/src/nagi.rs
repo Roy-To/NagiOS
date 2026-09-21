@@ -6,7 +6,10 @@
 //! the Nagi POSIX facade, which in turn uses Nagi VFS and services.
 
 use core::{
-    ffi::{c_char, c_double, c_float, c_int, c_long, c_longlong, c_ulong, c_ulonglong, c_void},
+    ffi::{
+        c_char, c_double, c_float, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong,
+        c_void,
+    },
     mem, ptr,
 };
 
@@ -16,11 +19,24 @@ unsafe extern "C" {
     fn nagi_posix_free(pointer: *mut u8);
     fn nagi_posix_write_fd(fd: c_int, bytes: *const u8, length: usize) -> isize;
     fn nagi_posix_ioctl(fd: c_int, request: c_ulong, out: *mut c_void) -> c_int;
+    fn nagi_posix_accept(
+        socket: c_int,
+        address: *mut c_void,
+        address_len: *mut c_uint,
+    ) -> c_int;
+    fn nagi_posix_getsockopt(
+        socket: c_int,
+        level: c_int,
+        option_name: c_int,
+        option_value: *mut c_void,
+        option_len: *mut c_uint,
+    ) -> c_int;
     fn nagi_posix_initialize_filesystem(capability: u64) -> c_int;
     fn nagi_posix_open(path: *const c_char, flags: c_int, mode: c_int) -> c_int;
     fn nagi_posix_read(fd: c_int, bytes: *mut u8, length: usize) -> isize;
     fn nagi_posix_close(fd: c_int) -> c_int;
     fn nagi_posix_lseek(fd: c_int, offset: i64, whence: c_int) -> i64;
+    fn nagi_posix_lstat(path: *const c_char, buf: *mut c_void) -> c_int;
     fn nagi_posix_mmap_file(length: usize, protection: c_int, fd: c_int, offset: usize) -> *mut u8;
     fn nagi_posix_mmap_at(address: *mut u8, length: usize, protection: c_int) -> *mut u8;
     fn nagi_posix_munmap(address: *mut u8, length: usize) -> c_int;
@@ -303,6 +319,31 @@ pub unsafe extern "C" fn gai_strerror(error: c_int) -> *const c_char {
         _ => GAI_NODATA,
     };
     message.as_ptr().cast()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn accept(
+    socket: c_int,
+    address: *mut c_void,
+    address_len: *mut c_uint,
+) -> c_int {
+    unsafe { nagi_posix_accept(socket, address, address_len) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getsockopt(
+    socket: c_int,
+    level: c_int,
+    option_name: c_int,
+    option_value: *mut c_void,
+    option_len: *mut c_uint,
+) -> c_int {
+    unsafe { nagi_posix_getsockopt(socket, level, option_name, option_value, option_len) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lstat(path: *const c_char, buf: *mut c_void) -> c_int {
+    unsafe { nagi_posix_lstat(path, buf) }
 }
 
 /// The Nagi target does not import a host libc for numeric conversion. Keep

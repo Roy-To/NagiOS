@@ -650,6 +650,9 @@ mod tests {
             "pub static mut stderr:",
             "pub unsafe extern \"C\" fn gai_strerror(",
             "pub unsafe extern \"C\" fn ioctl(",
+            "pub unsafe extern \"C\" fn accept(",
+            "pub unsafe extern \"C\" fn getsockopt(",
+            "pub unsafe extern \"C\" fn lstat(",
         ] {
             assert!(
                 relibc.contains(symbol),
@@ -665,6 +668,9 @@ mod tests {
         for symbol in [
             "pub unsafe extern \"C\" fn pthread_cond_timedwait(",
             "pub unsafe extern \"C\" fn nagi_posix_ioctl(",
+            "pub unsafe extern \"C\" fn nagi_posix_accept(",
+            "pub unsafe extern \"C\" fn nagi_posix_getsockopt(",
+            "pub unsafe extern \"C\" fn nagi_posix_lstat(",
         ] {
             assert!(
                 abi.contains(symbol),

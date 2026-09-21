@@ -879,6 +879,26 @@ The implementation imported `AtomicUsize` but omitted `AtomicU32`; the
 corrective import is now added. Target link and all later acceptance stages
 remain unverified.
 
+## Remediation continuation (2026-09-21, target socket/stat ABI)
+
+Public snapshot CI run `35593932419` (head `085d912`) verified the condition,
+resolver, and ioctl repair through target compilation and reached final
+linking. The exact next undefined symbols were `accept`, `getsockopt`, and
+`lstat`.
+
+The target-owned Nagi POSIX ABI now exports all three through the pinned
+relibc backend. `accept` validates the descriptor sign and returns the real
+`ENOSYS` result because the current `nagi-net` service exposes the M17 client
+TCP slice but no listener/accept service; it does not fabricate a connection
+or descriptor. `getsockopt` reads the descriptor's actual TCP_NODELAY and
+receive/send timeout state and returns it with the target socket ABI. `lstat`
+reuses the existing guest VFS open/stat/close path, so metadata does not come
+from the host filesystem. The repair preserves the Nagi-owned capability and
+host-separation boundaries. Local formatting, CLI contract tests, clippy,
+whitespace checks, and standalone relibc metadata compilation pass; the next
+public run must verify the target link and then continue through UEFI and real
+QEMU first-web-pixel acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

@@ -428,6 +428,20 @@ pub fn set_socket_timeout(fd: i32, timeout: Option<Duration>) -> Result<(), Runt
     }
 }
 
+pub fn tcp_nodelay(fd: i32) -> Result<bool, RuntimeError> {
+    match descriptor(fd)? {
+        FdEntry::Socket { nagle_enabled, .. } => Ok(!nagle_enabled),
+        _ => Err(RuntimeError::InvalidFd),
+    }
+}
+
+pub fn socket_timeout(fd: i32) -> Result<Option<Duration>, RuntimeError> {
+    match descriptor(fd)? {
+        FdEntry::Socket { timeout, .. } => Ok(timeout),
+        _ => Err(RuntimeError::InvalidFd),
+    }
+}
+
 fn close_pipe_endpoint(pipe_index: usize, reader: bool) {
     let mut pipes = PIPES.lock();
     let remove = {

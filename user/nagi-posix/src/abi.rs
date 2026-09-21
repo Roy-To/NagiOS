@@ -3,7 +3,7 @@
 //! These symbols are user-space adapters.  They do not map to host libc or
 //! add high-level filesystem/network syscalls to the kernel.
 
-use core::ffi::{c_char, c_int, c_ulong, c_void};
+use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
@@ -470,6 +470,76 @@ pub unsafe extern "C" fn setsockopt(
     }
 }
 
+/// Nagi 0.1 exposes a client TCP slice only; listener creation and accept are
+/// not part of the user-space network service yet.  Keep this ABI explicit
+/// and fail closed instead of returning a fabricated descriptor.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_accept(
+    socket: c_int,
+    _address: *mut c_void,
+    _address_len: *mut c_uint,
+) -> c_int {
+    if socket < 0 {
+        return write_errno_and_fail(EBADF);
+    }
+    write_errno_and_fail(ENOSYS)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_getsockopt(
+    socket: c_int,
+    level: c_int,
+    option_name: c_int,
+    option_value: *mut c_void,
+    option_len: *mut c_uint,
+) -> c_int {
+    if option_value.is_null() || option_len.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+
+    match (level, option_name) {
+        (IPPROTO_TCP, TCP_NODELAY) => {
+            let required = core::mem::size_of::<c_int>() as c_uint;
+            if option_len.read() < required {
+                return write_errno_and_fail(EINVAL);
+            }
+            let enabled = match crate::runtime::tcp_nodelay(socket) {
+                Ok(enabled) => enabled,
+                Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
+            };
+            option_value
+                .cast::<c_int>()
+                .write_unaligned(if enabled { 1 } else { 0 });
+            option_len.write(required);
+            0
+        }
+        (SOL_SOCKET, SO_RCVTIMEO) | (SOL_SOCKET, SO_SNDTIMEO) => {
+            let required = core::mem::size_of::<NagiTimeval>() as c_uint;
+            if option_len.read() < required {
+                return write_errno_and_fail(EINVAL);
+            }
+            let timeout = match crate::runtime::socket_timeout(socket) {
+                Ok(timeout) => timeout,
+                Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
+            };
+            let timeval = timeout.map_or(
+                NagiTimeval {
+                    seconds: 0,
+                    microseconds: 0,
+                },
+                |duration| NagiTimeval {
+                    seconds: duration.as_secs() as i64,
+                    microseconds: i64::from(duration.subsec_micros()),
+                },
+            );
+            option_value.cast::<NagiTimeval>().write_unaligned(timeval);
+            option_len.write(required);
+            0
+        }
+        _ => write_errno_and_fail(ENOPROTOOPT),
+    }
+}
+
 const O_CREAT: c_int = 0x0200_0000;
 const O_TRUNC: c_int = 0x0400_0000;
 
@@ -575,6 +645,18 @@ pub unsafe extern "C" fn fstat(fd: c_int, output: *mut c_void) -> c_int {
 #[linkage = "weak"]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn stat(path: *const c_char, output: *mut c_void) -> c_int {
+    let fd = nagi_posix_open(path, 0, 0);
+    if fd < 0 {
+        return -1;
+    }
+    let result = fill_stat(fd, output.cast());
+    let _ = nagi_posix_close(fd);
+    result
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lstat(path: *const c_char, output: *mut c_void) -> c_int {
     let fd = nagi_posix_open(path, 0, 0);
     if fd < 0 {
         return -1;
