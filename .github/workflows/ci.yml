@@ -167,6 +167,7 @@ jobs:
           if [ "$cargo_status" -ne 0 ]; then
             first_error=$(grep -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log || true)
             first_location=""
+            linker_detail=""
             if [ -n "$first_error" ]; then
               error_line=$(grep -n -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log | cut -d: -f1 || true)
               if [ -n "$error_line" ]; then
@@ -174,9 +175,15 @@ jobs:
                 first_location=$(sed -n "${error_line},${error_end}p" out/logs/m17-nagi-user-init.log | grep -m1 -E '^[[:space:]]*-->' || true)
               fi
             fi
+            if [[ "$first_error" == *"linking with"* ]]; then
+              linker_detail=$(grep -m3 -E 'undefined symbol|undefined reference|rust-lld: error|ld\.lld: error|cannot find -l|library not found' out/logs/m17-nagi-user-init.log | paste -sd '; ' - || true)
+            fi
             if [ -n "$first_error" ]; then
               if [ -n "$first_location" ]; then
                 first_error="$first_error ($first_location)"
+              fi
+              if [ -n "$linker_detail" ]; then
+                first_error="$first_error [$linker_detail]"
               fi
               first_error=${first_error//'%'/'%25'}
               first_error=${first_error//$'\r'/'%0D'}

@@ -701,6 +701,20 @@ This is an API-contract correction, not a host fallback or synthetic rendering
 change. The next target run must verify the adapter and continue to target link,
 UEFI, and real QEMU first-web-pixel evidence.
 
+## Remediation continuation (2026-09-21, target linker diagnostic boundary)
+
+Public snapshot CI run `35562090985` (head `a19cb94`) passed the corrected
+navigator patch and Albert event-loop contract, then failed after compiling the
+Nagi user-init graph with `error: linking with rust-lld failed: exit status: 1`.
+The unauthenticated public job-log endpoint exposes the first linker error but
+not the linker body or undefined-symbol list. The CI wrapper now extracts the
+first `undefined symbol`, `undefined reference`, `rust-lld`, or `ld.lld` detail
+from the captured target log and includes it in the next diagnostic annotation.
+This is observability work only; it does not change linker behavior, add a host
+library, weaken the Nagi target ABI, or alter the first-web-pixel gate. The next
+target run must identify and repair the actual missing target-owned link input,
+then continue to UEFI and real QEMU first-web-pixel evidence.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
