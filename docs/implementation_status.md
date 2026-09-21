@@ -25,7 +25,7 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35566339373` at `afcccae`
+**Last known repair checkpoint:** public CI run `35568601044` at `dcce137`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
@@ -38,10 +38,12 @@ the pinned `mozjs_sys` `cc-rs` C++ build: its default non-MSVC target behavior
 adds `stdc++` independently of the explicit MozJS link branch. The tracked
 MozJS patch removed that one emission, but CI run `35566339373` proved that
 other pinned C++ build scripts still emitted the same host-runtime request.
-The current repair adds the pinned `cc 1.4.6` source and a Nagi-specific patch
-at the shared `cc-rs` target boundary, so all target C++ builds omit host
-runtime inference. Target link, UEFI, and real QEMU first-web-pixel evidence
-remain required.
+The pinned `cc 1.4.6` source and Nagi-specific patch at the shared `cc-rs`
+target boundary removed that host-runtime inference. CI run `35568601044` then
+reached final target linking and exposed duplicate Softpipe and libc symbols;
+the current repair makes Mesa archive extraction selective and keeps the
+Nagi POSIX `abort` fallback weak beneath relibc. Target link, UEFI, and real
+QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -149,7 +151,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35563574740` passed the corrected navigator and Albert adapter boundaries, then exposed the real target linker cause: `rust-lld` could not find `-lstdc++`, emitted by `mozjs_sys`'s `cc-rs` default C++ link behavior. The tracked MozJS patch now suppresses that request. CI run `35566339373` confirmed the remaining request is emitted by other pinned C++ build scripts; the shared pinned `cc 1.4.6` boundary now omits host C++ runtime inference for `target.os = "nagi"`. Target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35563574740` exposed the `mozjs_sys` C++ runtime request, and run `35566339373` confirmed the same shared `cc-rs` behavior in the remaining C++ graph. The pinned `cc 1.4.6` Nagi boundary now removes host runtime inference. Run `35568601044` reached final target linking and exposed duplicate `softpipe_launch_grid`, `softpipe_draw_vbo`, and `abort` symbols. The current repair uses selective Mesa archive extraction and a weak Nagi POSIX abort fallback so relibc owns the strong target libc symbol. Target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1092,6 +1094,18 @@ Verification checkpoint on 2026-09-20:
   local `cargo run ... fetch` is blocked only by the Windows host's missing
   `link.exe`. The next CI run must verify target link, UEFI, and real QEMU
   first-web-pixel evidence.
+
+- Public snapshot CI run #43 (`35568601044`, head `dcce137`) passed Ubuntu and
+  Windows host jobs, Servo/bootstrap, Mesa Softpipe, package, and kernel. The
+  shared `cc-rs` patch removed the prior `-lstdc++` failure and the target job
+  reached final user-init linking. `rust-lld` then reported duplicate
+  `softpipe_launch_grid`, `softpipe_draw_vbo`, and `abort` symbols. The source
+  audit traced the Softpipe duplicates to forcing every member of the
+  aggregated Mesa archive with `+whole-archive`; `abort` is also emitted as a
+  strong symbol by both relibc and the Nagi POSIX fallback. The current repair
+  switches the target-owned Mesa archive to normal selective extraction and
+  makes only the Nagi POSIX fallback weak. UEFI and real QEMU first-web-pixel
+  steps were skipped and remain required.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
@@ -2158,9 +2172,9 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
-milestone. Its current repair checkpoint is public CI run `35562090985`:
-host jobs pass, the navigator and Albert adapter fixes pass, and the target job
-now reaches the real `rust-lld` link boundary. The next diagnostic wrapper
-exposes the first linker symbol/detail. The required next evidence remains
-target link, UEFI, real QEMU, and a real guest-rendered first web pixel; M18
-cannot start before formal M17 PASS.
+ milestone. Public CI run `35568601044` is the current repair checkpoint:
+bootstrap, Mesa, package, and kernel passed, then final target linking
+reported duplicate Softpipe and `abort` symbols. The selective-archive and
+weak-fallback repair is ready for the next target run. The required next
+evidence remains target link, UEFI, real QEMU, and a real guest-rendered first
+web pixel; M18 cannot start before formal M17 PASS.

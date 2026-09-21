@@ -754,6 +754,27 @@ link only because this Windows host lacks `link.exe`. The next public target
 run must verify the generated checkout, locked graph, target link, UEFI, and
 real QEMU first-web-pixel evidence.
 
+## Remediation continuation (2026-09-21, final target-link duplicate symbols)
+
+Public snapshot CI run `35568601044` (head `dcce137`) passed the pinned
+bootstrap, Mesa, package, and kernel stages and reached final Nagi user-init
+linking. The preceding shared `cc-rs` host-runtime failure was gone. The
+target linker instead reported duplicate `softpipe_launch_grid`,
+`softpipe_draw_vbo`, and `abort` symbols.
+
+The Softpipe duplicates came from the Nagi build forcing every member of the
+aggregated target-owned Mesa archive with `+whole-archive`, including static
+members reachable through another archive path. The link boundary now uses
+normal selective archive extraction, preserving the real Mesa/EGL/Softpipe
+objects while allowing the linker to select each needed member once. The
+`abort` duplicate is a separate ABI ownership collision: relibc provides the
+strong target libc implementation while `nagi-posix` also exposed a strong
+fallback. The Nagi POSIX fallback is now weak, so it remains available for a
+narrow link without competing with relibc. No Mesa object was removed, no
+host library or stub was introduced, and the real rendering path is unchanged.
+The next target run must verify final link, UEFI, and the real QEMU first-web-
+pixel gate.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

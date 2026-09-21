@@ -756,6 +756,10 @@ pub unsafe extern "C" fn setgroups(_count: c_int, _groups: *const u32) -> c_int 
     write_errno_and_fail(ENOSYS)
 }
 
+// relibc owns the strong target libc abort implementation. Keep this
+// user-space ABI fallback weak so it remains usable when relibc is absent in
+// a narrow host/test link without colliding with the target libc symbol.
+#[linkage = "weak"]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn abort() -> ! {
     libnagi::exit(134)

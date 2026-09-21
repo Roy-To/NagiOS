@@ -43,7 +43,12 @@ fn main() {
             "cargo:rustc-link-search=native={}",
             mesa_archive_root.display()
         );
-        println!("cargo:rustc-link-lib=static:+whole-archive=nagi_mesa");
+        // Keep archive extraction selective. The aggregated Mesa archive contains
+        // static dependencies that may also be reachable through another archive;
+        // forcing every member out creates duplicate Softpipe symbols at final
+        // link. The real EGL/Softpipe symbols referenced by Servo are still
+        // resolved from this target-owned archive normally.
+        println!("cargo:rustc-link-lib=static=nagi_mesa");
     }
 
     let app_directory =

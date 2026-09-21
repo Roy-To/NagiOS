@@ -569,4 +569,31 @@ mod tests {
             "fatal: repository 'https://gitlab.freedesktop.org/mesa/mesa.git/' not found"
         ));
     }
+
+    #[test]
+    fn m17_mesa_link_does_not_force_duplicate_archive_members() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let build_script = fs::read_to_string(root.join("user/nagi-init/build.rs"))
+            .expect("Nagi init build script");
+        assert!(build_script.contains("static=nagi_mesa"));
+        assert!(!build_script.contains("static:+whole-archive=nagi_mesa"));
+    }
+
+    #[test]
+    fn m17_posix_abort_is_a_weak_fallback_for_relibc() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let abi =
+            fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
+        let abort = abi
+            .find("pub unsafe extern \"C\" fn abort() -> !")
+            .expect("abort");
+        let prefix = &abi[..abort];
+        assert!(prefix.ends_with("#[linkage = \"weak\"]\n#[unsafe(no_mangle)]\n"));
+    }
 }
