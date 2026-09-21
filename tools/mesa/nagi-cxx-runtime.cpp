@@ -90,6 +90,50 @@ extern "C" [[noreturn]] void nagi_cxx_verbose_abort(const char *, ...) {
     abort();
 }
 
+// A small subset of the pinned target objects is emitted with the GNU
+// libstdc++ ABI even though the normal Nagi C++ headers are libc++.  The
+// no-exception target still needs the concrete length-error entrypoint when a
+// standard container detects an invalid size.  Terminating through Nagi's
+// real abort boundary is the only valid behavior for this freestanding image;
+// importing a host exception runtime would cross the OS boundary.
+extern "C" [[noreturn]] void nagi_gnu_throw_length_error(const char *)
+    __asm__("_ZSt20__throw_length_errorPKc");
+
+extern "C" [[noreturn]] void nagi_gnu_throw_length_error(const char *) {
+    abort();
+}
+
+// libstdc++'s C++11 basic_string ABI stores the data pointer at offset zero,
+// the length at offset eight, and either the allocated capacity or the
+// 16-byte local buffer at offset sixteen on the x86-64 target.  Its destructor
+// calls _M_dispose, which must release an allocated buffer through the same
+// Nagi allocator used by target operator new.  This is an ABI implementation,
+// not a no-op shim: local strings are retained and heap-backed strings are
+// released at the real allocator boundary.
+struct nagi_gnu_basic_string_layout {
+    char *data;
+    nagi_size_t length;
+    union {
+        nagi_size_t capacity;
+        char local[16];
+    } storage;
+};
+
+extern "C" void nagi_gnu_basic_string_dispose(void *object)
+    __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv");
+
+extern "C" void nagi_gnu_basic_string_dispose(void *object) {
+    if (object == nullptr) {
+        return;
+    }
+
+    auto *string = static_cast<nagi_gnu_basic_string_layout *>(object);
+    char *local = reinterpret_cast<char *>(object) + 16;
+    if (string->data != nullptr && string->data != local) {
+        nagi_posix_free(string->data);
+    }
+}
+
 static void *nagi_allocate(nagi_size_t size) {
     void *pointer = nagi_posix_malloc(size == 0 ? 1 : size);
     if (pointer == nullptr) {

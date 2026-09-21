@@ -1236,9 +1236,10 @@ fn nagi_sqrt_real(value: c_double) -> c_double {
         return value;
     }
 
-    // The inverse-trigonometric helpers only call this for values in [0, 1].
-    // Newton's method with a fixed iteration count keeps the implementation
-    // freestanding and converges from the upper bound even at the endpoints.
+    // The inverse-trigonometric helpers call this for [0, 1], while hypot
+    // calls it for [1, 2]. Newton's method with a fixed iteration count keeps
+    // the implementation freestanding and converges from the upper bound for
+    // both bounded intervals.
     let mut estimate = 1.0;
     let mut iteration = 0;
     while iteration < 32 {
@@ -1246,6 +1247,32 @@ fn nagi_sqrt_real(value: c_double) -> c_double {
         iteration += 1;
     }
     estimate
+}
+
+fn nagi_hypot_real(first: c_double, second: c_double) -> c_double {
+    let first = nagi_pow_abs(first);
+    let second = nagi_pow_abs(second);
+    if nagi_pow_is_inf(first) || nagi_pow_is_inf(second) {
+        // POSIX hypot gives infinity precedence over a NaN companion.
+        return NAGI_POW_INF;
+    }
+    if nagi_pow_is_nan(first) || nagi_pow_is_nan(second) {
+        return NAGI_POW_NAN;
+    }
+
+    let (largest, smallest) = if first >= second {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    if largest == 0.0 {
+        return 0.0;
+    }
+
+    // Scaling by the largest argument avoids the overflow and underflow that
+    // a direct x*x + y*y would introduce before the square root.
+    let ratio = smallest / largest;
+    largest * nagi_sqrt_real(1.0 + ratio * ratio)
 }
 
 fn nagi_atan_reduced(value: c_double) -> c_double {
@@ -1350,6 +1377,16 @@ pub unsafe extern "C" fn exp(x: c_double) -> c_double {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expf(x: c_float) -> c_float {
     nagi_exp_real(c_double::from(x)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hypot(x: c_double, y: c_double) -> c_double {
+    nagi_hypot_real(x, y)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hypotf(x: c_float, y: c_float) -> c_float {
+    nagi_hypot_real(c_double::from(x), c_double::from(y)) as c_float
 }
 
 #[unsafe(no_mangle)]

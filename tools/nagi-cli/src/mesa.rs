@@ -624,6 +624,11 @@ mod tests {
         assert!(runtime.contains("__cxa_guard_abort"));
         assert!(runtime.contains("_ZNSt3__16locale7classicEv"));
         assert!(runtime.contains("_ZNSt3__15ctypeIcE2idE"));
+        assert!(runtime.contains("_ZSt20__throw_length_errorPKc"));
+        assert!(
+            runtime.contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv")
+        );
+        assert!(runtime.contains("nagi_gnu_basic_string_layout"));
         assert!(runtime.contains("class __class_type_info"));
         assert!(runtime.contains("class __si_class_type_info"));
         assert!(runtime.contains("-fno-rtti") || build_script.contains("-fno-rtti"));
@@ -755,6 +760,8 @@ mod tests {
             "pub unsafe extern \"C\" fn acosf(",
             "pub unsafe extern \"C\" fn exp(",
             "pub unsafe extern \"C\" fn expf(",
+            "pub unsafe extern \"C\" fn hypot(",
+            "pub unsafe extern \"C\" fn hypotf(",
             "pub unsafe extern \"C\" fn fdopendir(",
             "pub unsafe extern \"C\" fn pow(",
             "pub unsafe extern \"C\" fn powf(",
