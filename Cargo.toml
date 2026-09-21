@@ -28,6 +28,7 @@ exclude = ["third_party/relibc", "third_party/servo"]
 # graph is selected; the nested Servo workspace patch is not inherited by this
 # workspace's resolver.
 [patch.crates-io]
+cc = { path = "third_party/cc-nagi" }
 libc = { path = "third_party/libc-servo" }
 freetype-sys = { path = "third_party/freetype-sys" }
 hyper-util = { path = "third_party/hyper-util-servo" }

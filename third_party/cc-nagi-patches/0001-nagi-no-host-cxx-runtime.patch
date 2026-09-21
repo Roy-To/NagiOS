@@ -1,0 +1,6 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -3652,0 +3652,2 @@
++                    } else if target.os == "nagi" {
++                        Ok(None)

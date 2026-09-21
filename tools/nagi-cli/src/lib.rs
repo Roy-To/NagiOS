@@ -1,3 +1,4 @@
+pub(crate) mod cc_nagi;
 pub mod commands;
 pub mod config;
 pub mod doctor;

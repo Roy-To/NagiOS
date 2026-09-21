@@ -148,3 +148,13 @@ source_hash = "sha256:28adaa4255fd0d42133b993ff81d391df41de1d718777f2e3f0aee5ba8
 license = "MPL-2.0"
 vendored_path = "third_party/mozjs-sys-nagi"
 nagi_patch = "third_party/mozjs-sys-nagi-patches"
+
+[sources.cc_nagi]
+component = "cc-nagi"
+version = "1.4.6"
+repository = "https://crates.io/crates/cc/1.4.6"
+registry_archive = "https://crates.io/api/v1/crates/cc/1.4.6/download"
+source_hash = "sha256:a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4"
+license = "MIT OR Apache-2.0"
+vendored_path = "third_party/cc-nagi"
+nagi_patch = "third_party/cc-nagi-patches"

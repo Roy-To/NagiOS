@@ -4,6 +4,7 @@ use std::process::{Child, Command as ProcessCommand};
 use std::thread;
 use std::time::Duration;
 
+use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
 use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
 use crate::image::{
@@ -290,6 +291,10 @@ fn execute_fetch(root: &Path) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
+    let cc_nagi = match ensure_cc_nagi_checkout(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+    };
     let servo = match ensure_servo_checkout(root) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
@@ -316,12 +321,16 @@ fn execute_fetch(root: &Path) -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             format!(
-                "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {}, {})",
+                "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {}, {}, {})",
                 surfman.strip_prefix(root).unwrap_or(Path::new("third_party/surfman")).display(),
                 tempfile_nagi.strip_prefix(root).unwrap_or(Path::new("third_party/tempfile-nagi")).display(),
                 mozjs_sys_nagi
                     .strip_prefix(root)
                     .unwrap_or(Path::new("third_party/mozjs-sys-nagi"))
+                    .display(),
+                cc_nagi
+                    .strip_prefix(root)
+                    .unwrap_or(Path::new("third_party/cc-nagi"))
                     .display(),
                 servo_relative.display(),
                 mesa_relative.display()

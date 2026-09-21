@@ -734,6 +734,26 @@ fake library, or synthetic rendering path was added. The next target run must
 verify the link boundary and continue to UEFI and real QEMU first-web-pixel
 acceptance.
 
+## Remediation continuation (2026-09-21, shared cc-rs C++ boundary)
+
+Public snapshot CI run `35566339373` (head `afcccae`) verified the MozJS
+specific repair but still stopped at the same target linker diagnostic:
+`rust-lld: error: unable to find library -lstdc++`. Source tracing found the
+remaining C++ build scripts in the pinned `fontsan`, `harfbuzz-sys`, and
+`glslopt` graph. They all use `cc-rs`'s shared default, so patching each
+consumer independently would leave the target boundary incomplete.
+
+The M17 source-lock/bootstrap path now pins `cc 1.4.6` and applies ordered
+Nagi patch `0001`, which returns no inferred C++ standard library for
+`target.os = "nagi"`. The patch is target-specific and preserves host,
+Windows, Apple, BSD, Android, and WASI behavior. It removes no C++ objects,
+does not add a host library or stub, and keeps ownership of the Nagi C++ ABI
+with the target runtime/toolchain. The local patched-crate compile probe and
+bootstrap CLI check pass; the local `cargo run ... fetch` remains unable to
+link only because this Windows host lacks `link.exe`. The next public target
+run must verify the generated checkout, locked graph, target link, UEFI, and
+real QEMU first-web-pixel evidence.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

@@ -17,6 +17,7 @@
 /third_party/hyper-util-servo/
 /third_party/tempfile-nagi/
 /third_party/mozjs-sys-nagi/
+/third_party/cc-nagi/
 
 # Temporary developer-tool installers
 /.nagi-*
