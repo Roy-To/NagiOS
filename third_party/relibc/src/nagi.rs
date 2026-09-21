@@ -10,7 +10,7 @@ use core::{
         VaList, c_char, c_double, c_float, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong,
         c_void,
     },
-    fmt, mem, ptr,
+    fmt, mem, ptr, slice,
 };
 
 unsafe extern "C" {
@@ -638,6 +638,28 @@ pub unsafe extern "C" fn strcmp(first: *const c_char, second: *const c_char) -> 
     }
 }
 
+/// Target-owned byte search for the Nagi relibc backend. The upstream string
+/// module is not selected for `target_os = "nagi"`; keep this bounded loop
+/// independent of host libc or the registry `memchr` implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn memchr(
+    haystack: *const c_void,
+    needle: c_int,
+    length: usize,
+) -> *mut c_void {
+    if haystack.is_null() || length == 0 {
+        return ptr::null_mut();
+    }
+    let bytes = unsafe { slice::from_raw_parts(haystack.cast::<u8>(), length) };
+    let needle = needle as u8;
+    for (index, &byte) in bytes.iter().enumerate() {
+        if byte == needle {
+            return unsafe { haystack.cast::<u8>().add(index).cast_mut().cast() };
+        }
+    }
+    ptr::null_mut()
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strcat(destination: *mut c_char, source: *const c_char) -> *mut c_char {
     if destination.is_null() || source.is_null() {
@@ -698,6 +720,62 @@ pub unsafe extern "C" fn bsearch(
         }
     }
     ptr::null_mut()
+}
+
+type QsortComparator = extern "C" fn(*const c_void, *const c_void) -> c_int;
+
+/// Bounded in-place sorting for the target backend. The standard relibc
+/// sorting module is excluded from the Nagi target, so use a deterministic
+/// selection sort with byte swaps and no host allocator dependency. The
+/// comparator and element storage remain caller-owned, as required by qsort.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qsort(
+    base: *mut c_void,
+    count: usize,
+    width: usize,
+    comparator: Option<QsortComparator>,
+) {
+    let Some(comparator) = comparator else {
+        return;
+    };
+    if base.is_null() || count < 2 || width == 0 {
+        return;
+    }
+
+    for index in 0..count - 1 {
+        let Some(index_offset) = index.checked_mul(width) else {
+            return;
+        };
+        let mut selected = index;
+        for candidate in index + 1..count {
+            let Some(candidate_offset) = candidate.checked_mul(width) else {
+                return;
+            };
+            let Some(selected_offset) = selected.checked_mul(width) else {
+                return;
+            };
+            let candidate_pointer = unsafe { base.cast::<u8>().add(candidate_offset) };
+            let selected_pointer = unsafe { base.cast::<u8>().add(selected_offset) };
+            if comparator(candidate_pointer.cast(), selected_pointer.cast()) < 0 {
+                selected = candidate;
+            }
+        }
+        if selected == index {
+            continue;
+        }
+        let Some(selected_offset) = selected.checked_mul(width) else {
+            return;
+        };
+        let first = unsafe { base.cast::<u8>().add(index_offset) };
+        let second = unsafe { base.cast::<u8>().add(selected_offset) };
+        for offset in 0..width {
+            unsafe {
+                let byte = first.add(offset).read();
+                first.add(offset).write(second.add(offset).read());
+                second.add(offset).write(byte);
+            }
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1001,6 +1079,23 @@ pub unsafe extern "C" fn sinf(x: c_float) -> c_float {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosf(x: c_float) -> c_float {
     nagi_cos_real(c_double::from(x)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tan(x: c_double) -> c_double {
+    let sine = nagi_sin_real(x);
+    let cosine = nagi_cos_real(x);
+    if nagi_pow_is_nan(sine) || nagi_pow_is_nan(cosine) {
+        return NAGI_POW_NAN;
+    }
+    if cosine == 0.0 {
+        return if sine.is_sign_negative() {
+            -NAGI_POW_INF
+        } else {
+            NAGI_POW_INF
+        };
+    }
+    sine / cosine
 }
 
 #[unsafe(no_mangle)]

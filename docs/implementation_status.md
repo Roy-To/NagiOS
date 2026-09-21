@@ -25,14 +25,13 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35642763129` at `5bbb66e`
+**Last known repair checkpoint:** public CI run `35646089462` at `3e49cce`
 passed bootstrap, Mesa, package, kernel, and target compilation, then reached
-final target linking. The exact undefined symbols were `setpgid`, `setsid`, and
-`signal`. The current source repair adds explicit Nagi POSIX boundaries for
-these unsupported Unix process-group and signal-delivery operations, returning
-real `ENOSYS`/`SIG_ERR` rather than fabricating state. No host libc, host
-filesystem, host rendering, or synthetic output is used. Target link, UEFI,
-and real QEMU first-web-pixel evidence remain required.
+final target linking. The exact undefined symbols were `memchr`, `qsort`, and
+`tan`. The current source repair adds target-owned byte search, deterministic
+in-place sorting, and freestanding tangent math to the relibc backend. No host
+libc, host filesystem, host rendering, or synthetic output is used. Target
+link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1327,6 +1326,15 @@ Verification checkpoint on 2026-09-20:
   real `SIG_ERR` pointer with errno because Nagi's current process ABI has no
   Unix signal delivery. These changes remain M17-internal and do not claim
   target-link or guest acceptance until CI reruns.
+
+- Public snapshot CI run `35646089462` (head `3e49cce`) passed the M17 target
+  dependency boundary, Mesa, package, kernel, and target compilation, then
+  reached final target linking. The exact diagnostics were undefined `memchr`,
+  `qsort`, and `tan`; UEFI and QEMU were skipped. The current repair adds a
+  target-owned byte-search loop, deterministic in-place qsort behavior without
+  host allocation, and tangent derived from the existing freestanding
+  range-reduced sine/cosine implementation. These changes remain M17-internal
+  and do not claim target-link or guest acceptance until CI reruns.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

@@ -1136,6 +1136,20 @@ link honest without claiming signal delivery, importing a host signal API, or
 fabricating process state. M17 remains `BLOCKED` until target linking, UEFI,
 real QEMU, and real first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, string/sort/trigonometry ABI)
+
+Public snapshot CI run `35646089462` (head `3e49cce`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation
+stages, then reached final target linking. The exact undefined diagnostics were
+`memchr`, `qsort`, and `tan`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds target-owned byte search and deterministic in-place
+sorting to the relibc backend, because the upstream target-selected string and
+stdlib modules are not compiled for Nagi. It also adds `tan` using the existing
+freestanding range-reduced sine/cosine implementation. No host allocator,
+host libc, or symbol-only success path is introduced. M17 remains `BLOCKED`
+until target linking, UEFI, real QEMU, and real first-web-pixel evidence pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
