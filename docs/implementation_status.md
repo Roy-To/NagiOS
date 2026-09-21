@@ -25,15 +25,15 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35585927884` at `4b8cb81`
+**Last known repair checkpoint:** public CI run `35589309822` at `670dbb8`
 passed bootstrap, Mesa, package, kernel, and target compilation, then reached
-final target linking. The pthread and libc++ gaps were resolved; the next
-target-owned relibc backend gap is undefined `strcmp`, `atoi`, and `stderr`.
-The current repair adds those symbols to the Nagi-only relibc backend: bounded
-C-string comparison, target-owned decimal conversion, and a descriptor-2
-`FILE *stderr` stream forwarding through Nagi's real POSIX write facade. It
-does not use host libc, host rendering, or synthetic output. Target link,
-UEFI, and real QEMU first-web-pixel evidence remain required.
+final target linking. The `strcmp` / `atoi` / `stderr` gap was resolved; the
+next target-owned ABI gap is `pthread_cond_timedwait`, `gai_strerror`, and
+`ioctl`. The current repair connects condition waits to Nagi mutexes and
+GuestClock, adds target-owned resolver diagnostics, and fails unsupported
+ioctl requests closed through the Nagi POSIX facade. It does not use host
+libc, host rendering, or synthetic output. Target link, UEFI, and real QEMU
+first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -141,7 +141,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI runs `35563574740` and `35566339373` exposed the shared C++ runtime request; the pinned `cc 1.4.6` Nagi boundary now removes host runtime inference. Run `35568601044` reached final linking and exposed duplicate Softpipe/libc symbols; selective Mesa archive extraction and a weak Nagi POSIX abort fallback removed those duplicates in run `35571409458`. The freestanding C++ runtime shim in `1a6ca9e` resolved the next C++ ABI gap; CI `35574033249` then exposed missing `readv`, `shutdown`, and `setsockopt`. CI `35580032533` exposed a target-only socket-option length type mismatch, fixed in `0a07fbd`; CI `35582239552` exposed undefined pthread and libc++ sleep symbols, fixed in `4b8cb81`. CI `35585927884` then exposed that target `relibc/src/nagi.rs` lacked `strcmp`, `atoi`, and `stderr` because upstream header modules are excluded for `target_os = "nagi"`. The current repair adds real target-owned implementations and descriptor-backed stderr. Target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI runs `35563574740` and `35566339373` exposed the shared C++ runtime request; the pinned `cc 1.4.6` Nagi boundary now removes host runtime inference. Run `35568601044` reached final linking and exposed duplicate Softpipe/libc symbols; selective Mesa archive extraction and a weak Nagi POSIX abort fallback removed those duplicates in run `35571409458`. The freestanding C++ runtime shim in `1a6ca9e` resolved the next C++ ABI gap; CI `35574033249` then exposed missing `readv`, `shutdown`, and `setsockopt`. CI `35580032533` exposed a target-only socket-option length type mismatch, fixed in `0a07fbd`; CI `35582239552` exposed undefined pthread and libc++ sleep symbols, fixed in `4b8cb81`. CI `35585927884` exposed target relibc omissions `strcmp`, `atoi`, and `stderr`, fixed in `670dbb8`; CI `35589309822` then exposed `pthread_cond_timedwait`, `gai_strerror`, and `ioctl`. The current repair connects those to Nagi-owned runtime boundaries. Target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1149,6 +1149,15 @@ Verification checkpoint on 2026-09-20:
   forward to Nagi descriptor 2 through `nagi_posix_write_fd`. This is a real
   target ABI repair, not a host libc fallback. UEFI and real QEMU first-web-
   pixel steps were skipped and remain required.
+
+- Public snapshot CI run `35589309822` (head `670dbb8`) confirmed that the
+  target relibc `strcmp`, `atoi`, and `stderr` repair reached the next final
+  link boundary. The exact new diagnostics were undefined
+  `pthread_cond_timedwait`, `gai_strerror`, and `ioctl`. The current repair
+  adds a sequence-based condition wait using Nagi mutexes and GuestClock,
+  target-owned `gai_strerror` diagnostics, and a Nagi POSIX ioctl facade that
+  returns `ENOTTY` for unsupported requests without touching host devices.
+  UEFI and real QEMU first-web-pixel steps were skipped and remain required.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
@@ -2215,9 +2224,10 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
- milestone. Public CI run `35585927884` is the current repair checkpoint:
+ milestone. Public CI run `35589309822` is the current repair checkpoint:
 bootstrap, Mesa, package, kernel, and target compilation passed, then final
-target linking reported undefined `strcmp`, `atoi`, and `stderr`. The
-Nagi-only relibc backend repair is recorded in ADR 0019. The required next
+target linking reported undefined `pthread_cond_timedwait`, `gai_strerror`,
+and `ioctl` after the previous relibc C ABI repair. The current Nagi condition,
+resolver, and ioctl repairs are recorded in ADR 0019. The required next
 evidence remains target link, UEFI, real QEMU, and a real guest-rendered first
 web pixel; M18 cannot start before formal M17 PASS.

@@ -3,12 +3,14 @@
 //! These symbols are user-space adapters.  They do not map to host libc or
 //! add high-level filesystem/network syscalls to the kernel.
 
-use core::ffi::{c_char, c_int, c_void};
+use core::ffi::{c_char, c_int, c_ulong, c_void};
 use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 
-use crate::errno::{set_errno, EAGAIN, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ERANGE};
+use crate::errno::{
+    set_errno, EAGAIN, EBADF, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTTY, ERANGE, ETIMEDOUT,
+};
 use nagi_pal::time::{Clock, GuestClock};
 
 const TLS_SLOTS: usize = 64;
@@ -155,6 +157,21 @@ pub unsafe extern "C" fn nagi_posix_write_fd(fd: c_int, bytes: *const u8, length
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn write(fd: c_int, bytes: *const u8, length: usize) -> isize {
     nagi_posix_write_fd(fd, bytes, length)
+}
+
+/// Nagi does not expose a host device-control ABI.  Keep the POSIX ioctl
+/// boundary real and fail closed for requests without a Nagi service rather
+/// than forwarding them to the development host.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_ioctl(
+    fd: c_int,
+    _request: c_ulong,
+    _out: *mut c_void,
+) -> c_int {
+    if fd < 0 {
+        return write_errno_and_fail(EBADF);
+    }
+    write_errno_and_fail(ENOTTY)
 }
 
 #[linkage = "weak"]
@@ -1063,6 +1080,13 @@ unsafe fn mutex_word(mutex: *mut c_void) -> *mut u32 {
     mutex.cast()
 }
 
+const CONDITION_POLL_NS: u64 = 1_000_000;
+
+#[inline]
+unsafe fn condition_sequence(condition: *mut c_void) -> *mut AtomicU32 {
+    condition.cast()
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_mutex_init(mutex: *mut c_void, _attr: *const c_void) -> c_int {
     if mutex.is_null() {
@@ -1134,22 +1158,111 @@ pub unsafe extern "C" fn pthread_condattr_destroy(_attr: *mut c_void) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pthread_cond_init(_condition: *mut c_void, _attr: *const c_void) -> c_int {
+pub unsafe extern "C" fn pthread_cond_init(condition: *mut c_void, _attr: *const c_void) -> c_int {
+    if condition.is_null() {
+        return EINVAL;
+    }
+    unsafe { (&*condition_sequence(condition)).store(0, Ordering::Release) };
     0
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pthread_cond_signal(_condition: *mut c_void) -> c_int {
+pub unsafe extern "C" fn pthread_cond_signal(condition: *mut c_void) -> c_int {
+    if condition.is_null() {
+        return EINVAL;
+    }
+    unsafe { (&*condition_sequence(condition)).fetch_add(1, Ordering::Release) };
     0
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pthread_cond_wait(_condition: *mut c_void, _mutex: *mut c_void) -> c_int {
-    write_errno_and_fail(ENOSYS)
+pub unsafe extern "C" fn pthread_cond_broadcast(condition: *mut c_void) -> c_int {
+    pthread_cond_signal(condition)
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pthread_cond_destroy(_condition: *mut c_void) -> c_int {
+pub unsafe extern "C" fn pthread_cond_wait(condition: *mut c_void, mutex: *mut c_void) -> c_int {
+    if condition.is_null() || mutex.is_null() {
+        return EINVAL;
+    }
+    let expected = unsafe { (&*condition_sequence(condition)).load(Ordering::Acquire) };
+    let unlock_result = pthread_mutex_unlock(mutex);
+    if unlock_result != 0 {
+        return unlock_result;
+    }
+    loop {
+        let current = unsafe { (&*condition_sequence(condition)).load(Ordering::Acquire) };
+        if current != expected {
+            return pthread_mutex_lock(mutex);
+        }
+        if GuestClock.sleep_ns(CONDITION_POLL_NS).is_err() {
+            let _ = pthread_mutex_lock(mutex);
+            return write_errno_and_fail(ENOSYS);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_cond_timedwait(
+    condition: *mut c_void,
+    mutex: *mut c_void,
+    abstime: *const NagiTimespec,
+) -> c_int {
+    if condition.is_null() || mutex.is_null() || abstime.is_null() {
+        return EINVAL;
+    }
+    let deadline = &*abstime;
+    if deadline.tv_sec < 0 || !(0..1_000_000_000).contains(&deadline.tv_nsec) {
+        return EINVAL;
+    }
+    let Some(deadline_ns) = (deadline.tv_sec as u64)
+        .checked_mul(1_000_000_000)
+        .and_then(|seconds| seconds.checked_add(deadline.tv_nsec as u64))
+    else {
+        return EINVAL;
+    };
+    let expected = (&*condition_sequence(condition)).load(Ordering::Acquire);
+    let unlock_result = pthread_mutex_unlock(mutex);
+    if unlock_result != 0 {
+        return unlock_result;
+    }
+
+    loop {
+        let current = (&*condition_sequence(condition)).load(Ordering::Acquire);
+        let now = match GuestClock.realtime_ns() {
+            Ok(now) => now,
+            Err(_) => {
+                let _ = pthread_mutex_lock(mutex);
+                return write_errno_and_fail(ENOSYS);
+            }
+        };
+        if current != expected {
+            return pthread_mutex_lock(mutex);
+        }
+        if now >= deadline_ns {
+            let lock_result = pthread_mutex_lock(mutex);
+            return if lock_result == 0 {
+                ETIMEDOUT
+            } else {
+                lock_result
+            };
+        }
+        let remaining = deadline_ns - now;
+        if GuestClock
+            .sleep_ns(remaining.min(CONDITION_POLL_NS))
+            .is_err()
+        {
+            let _ = pthread_mutex_lock(mutex);
+            return write_errno_and_fail(ENOSYS);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_cond_destroy(condition: *mut c_void) -> c_int {
+    if condition.is_null() {
+        return EINVAL;
+    }
     0
 }
 

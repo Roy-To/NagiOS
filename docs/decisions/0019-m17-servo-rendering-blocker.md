@@ -854,6 +854,24 @@ link locally because this Windows environment lacks MSVC `link.exe`; that is
 separate from target evidence. The next CI run must verify target archive
 linkage, then continue through UEFI and real QEMU first-web-pixel acceptance.
 
+## Remediation continuation (2026-09-21, condition/resolver/ioctl ABI)
+
+Public snapshot CI run `35589309822` (head `670dbb8`) confirmed that the
+Nagi-only relibc C runtime repair reached the next final link boundary. The
+exact new diagnostics were undefined `pthread_cond_timedwait`,
+`gai_strerror`, and `ioctl`.
+
+The current repair keeps all three in Nagi-owned boundaries. Condition waits
+use the existing Nagi mutex word and a sequence counter in the caller-owned
+condition object; timed waits poll the guest `GuestClock`, release and
+reacquire the mutex, and return the real `ETIMEDOUT` result at the guest
+deadline. `gai_strerror` is a target-owned resolver diagnostic table because
+the upstream relibc netdb module is excluded for `target_os = "nagi"`.
+`ioctl` forwards through `nagi_posix_ioctl`, which validates descriptor shape
+and returns `ENOTTY` for unsupported device-control requests without calling a
+host ioctl. No host synchronization, resolver, device, or fake-success path is
+introduced. UEFI and real QEMU first-web-pixel acceptance remain required.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

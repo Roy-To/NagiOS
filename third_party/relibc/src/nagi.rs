@@ -15,6 +15,7 @@ unsafe extern "C" {
     fn nagi_posix_malloc_usable_size(pointer: *mut u8) -> usize;
     fn nagi_posix_free(pointer: *mut u8);
     fn nagi_posix_write_fd(fd: c_int, bytes: *const u8, length: usize) -> isize;
+    fn nagi_posix_ioctl(fd: c_int, request: c_ulong, out: *mut c_void) -> c_int;
     fn nagi_posix_initialize_filesystem(capability: u64) -> c_int;
     fn nagi_posix_open(path: *const c_char, flags: c_int, mode: c_int) -> c_int;
     fn nagi_posix_read(fd: c_int, bytes: *mut u8, length: usize) -> isize;
@@ -266,6 +267,42 @@ pub unsafe extern "C" fn strcmp(first: *const c_char, second: *const c_char) -> 
         }
         index += 1;
     }
+}
+
+static GAI_BADFLAGS: &[u8] = b"Invalid flags\0";
+static GAI_NONAME: &[u8] = b"Name does not resolve\0";
+static GAI_AGAIN: &[u8] = b"Try again\0";
+static GAI_FAIL: &[u8] = b"Non-recoverable error\0";
+static GAI_NODATA: &[u8] = b"Unknown error\0";
+static GAI_FAMILY: &[u8] = b"Unrecognized address family or invalid length\0";
+static GAI_SOCKTYPE: &[u8] = b"Unrecognized socket type\0";
+static GAI_SERVICE: &[u8] = b"Unrecognized service\0";
+static GAI_ADDRFAMILY: &[u8] = b"Address family for name not supported\0";
+static GAI_MEMORY: &[u8] = b"Out of memory\0";
+static GAI_SYSTEM: &[u8] = b"System error\0";
+static GAI_OVERFLOW: &[u8] = b"Overflow\0";
+
+/// Return the target-owned resolver diagnostic strings.  The Nagi target does
+/// not compile relibc's netdb module, so this pure ABI table belongs here
+/// rather than being supplied by a host resolver library.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gai_strerror(error: c_int) -> *const c_char {
+    let message = match error {
+        -1 => GAI_BADFLAGS,
+        -2 => GAI_NONAME,
+        -3 => GAI_AGAIN,
+        -4 => GAI_FAIL,
+        -5 => GAI_NODATA,
+        -6 => GAI_FAMILY,
+        -7 => GAI_SOCKTYPE,
+        -8 => GAI_SERVICE,
+        -9 => GAI_ADDRFAMILY,
+        -10 => GAI_MEMORY,
+        -11 => GAI_SYSTEM,
+        -12 => GAI_OVERFLOW,
+        _ => GAI_NODATA,
+    };
+    message.as_ptr().cast()
 }
 
 /// The Nagi target does not import a host libc for numeric conversion. Keep
@@ -711,6 +748,13 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut c_void) -> usize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn write(fd: c_int, bytes: *const u8, length: usize) -> isize {
     unsafe { nagi_posix_write_fd(fd, bytes, length) }
+}
+
+/// Forward the C ioctl boundary to Nagi's user-space POSIX facade.  Unsupported
+/// requests fail closed there; this never invokes a host ioctl implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ioctl(fd: c_int, request: c_ulong, out: *mut c_void) -> c_int {
+    unsafe { nagi_posix_ioctl(fd, request, out) }
 }
 
 #[unsafe(no_mangle)]

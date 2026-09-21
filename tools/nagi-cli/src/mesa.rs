@@ -648,6 +648,8 @@ mod tests {
             "pub unsafe extern \"C\" fn strcmp(",
             "pub unsafe extern \"C\" fn atoi(",
             "pub static mut stderr:",
+            "pub unsafe extern \"C\" fn gai_strerror(",
+            "pub unsafe extern \"C\" fn ioctl(",
         ] {
             assert!(
                 relibc.contains(symbol),
@@ -658,6 +660,17 @@ mod tests {
             relibc.contains("const NAGI_FILE_FD: u32") && relibc.contains("nagi_posix_write_fd"),
             "stderr must use the Nagi descriptor-backed stream path"
         );
+        let abi =
+            fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
+        for symbol in [
+            "pub unsafe extern \"C\" fn pthread_cond_timedwait(",
+            "pub unsafe extern \"C\" fn nagi_posix_ioctl(",
+        ] {
+            assert!(
+                abi.contains(symbol),
+                "missing Nagi POSIX runtime symbol: {symbol}"
+            );
+        }
     }
 
     #[test]

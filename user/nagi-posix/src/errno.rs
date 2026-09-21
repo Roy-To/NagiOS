@@ -2,12 +2,14 @@ use core::{arch::asm, cell::UnsafeCell};
 
 pub const EINVAL: i32 = 22;
 pub const EBADF: i32 = 9;
+pub const ENOTTY: i32 = 25;
 pub const ENOSYS: i32 = 38;
 pub const ENOMEM: i32 = 12;
 pub const EAGAIN: i32 = 11;
 pub const EACCES: i32 = 13;
 pub const ENOPROTOOPT: i32 = 92;
 pub const ERANGE: i32 = 34;
+pub const ETIMEDOUT: i32 = 110;
 
 #[allow(dead_code)]
 struct ErrnoCell(UnsafeCell<i32>);
