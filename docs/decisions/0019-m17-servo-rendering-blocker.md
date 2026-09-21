@@ -1069,6 +1069,23 @@ implementation. This preserves one strong C ABI owner and prevents the
 adapter from colliding with the relibc target backend. M17 remains `BLOCKED`
 until target link, UEFI, real QEMU, and real first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, freestanding C++ guard and C-locale ABI)
+
+Public snapshot CI run `35632734832` (head `f0f4cad`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation
+stages, then reached final target linking. The exact undefined diagnostics were
+`__cxa_guard_acquire`, `std::__1::locale::classic()`, and
+`std::__1::ctype<char>::id`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds the Itanium static-initialization guard protocol to
+the Nagi-owned freestanding C++ runtime. Acquire uses an atomic owner bit and
+waits for a concurrent initializer; release publishes initialization and abort
+clears the owner bit for a real retry. It also provides the pinned libc++
+classic C-locale identity and zero-initialized `ctype<char>::id` storage in
+Nagi-owned target memory. No host locale database, host C++ runtime, or
+rendering fallback is introduced. M17 remains `BLOCKED` until target linking,
+UEFI, real QEMU, and real first-web-pixel evidence pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

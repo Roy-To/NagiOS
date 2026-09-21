@@ -619,6 +619,11 @@ mod tests {
             "_ZNSt3__111this_thread9sleep_forERKNS_6chrono8durationIxNS2_5ratioILl1ELl1000000000EEEE"
         ));
         assert!(runtime.contains("_ZNSt3__122__libcpp_verbose_abortEPKcz"));
+        assert!(runtime.contains("__cxa_guard_acquire"));
+        assert!(runtime.contains("__cxa_guard_release"));
+        assert!(runtime.contains("__cxa_guard_abort"));
+        assert!(runtime.contains("_ZNSt3__16locale7classicEv"));
+        assert!(runtime.contains("_ZNSt3__15ctypeIcE2idE"));
         assert!(runtime.contains("-fno-rtti") || build_script.contains("-fno-rtti"));
         assert!(runtime.contains("-fno-exceptions") || build_script.contains("-fno-exceptions"));
     }

@@ -23,6 +23,63 @@ extern "C" [[noreturn]] void __stack_chk_fail() {
     abort();
 }
 
+// C++11 function-local statics use the Itanium ABI guard protocol. The
+// freestanding Nagi image does not link a host libc++abi, so provide the
+// protocol at the same boundary as the other C++ runtime entrypoints. Bit 0
+// means initialized and bit 8 means that one thread owns initialization. The
+// atomic operations are emitted inline for the x86-64 target; no libatomic or
+// host synchronization provider is imported.
+using nagi_guard_t = unsigned long long;
+
+static constexpr nagi_guard_t NAGI_GUARD_INITIALIZED = 1;
+static constexpr nagi_guard_t NAGI_GUARD_IN_PROGRESS = 1ULL << 8;
+
+static void nagi_guard_pause() {
+    __asm__ volatile("pause" ::: "memory");
+}
+
+extern "C" int __cxa_guard_acquire(nagi_guard_t *guard) {
+    if (guard == nullptr) {
+        abort();
+    }
+
+    for (;;) {
+        const nagi_guard_t state =
+            __atomic_load_n(guard, __ATOMIC_ACQUIRE);
+        if ((state & NAGI_GUARD_INITIALIZED) != 0) {
+            return 0;
+        }
+
+        if ((state & NAGI_GUARD_IN_PROGRESS) == 0) {
+            nagi_guard_t expected = state;
+            if (__atomic_compare_exchange_n(
+                    guard, &expected, state | NAGI_GUARD_IN_PROGRESS, false,
+                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+                return 1;
+            }
+            continue;
+        }
+
+        // Another Nagi thread owns initialization. __cxa_guard_abort clears
+        // this bit so a later iteration may retry after an exception path.
+        nagi_guard_pause();
+    }
+}
+
+extern "C" void __cxa_guard_release(nagi_guard_t *guard) {
+    if (guard == nullptr) {
+        abort();
+    }
+    __atomic_store_n(guard, NAGI_GUARD_INITIALIZED, __ATOMIC_RELEASE);
+}
+
+extern "C" void __cxa_guard_abort(nagi_guard_t *guard) {
+    if (guard == nullptr) {
+        abort();
+    }
+    __atomic_store_n(guard, 0, __ATOMIC_RELEASE);
+}
+
 // libc++ uses this freestanding diagnostic entrypoint for invariant failures
 // even when exceptions are disabled. Keep the ABI real and terminate the
 // guest through Nagi's process boundary; do not import a host libc++abi.
@@ -124,3 +181,28 @@ extern "C" void nagi_cxx_sleep_for(const long long *duration) {
         (void)nagi_posix_sleep_ns(static_cast<nagi_uintptr_t>(*duration));
     }
 }
+
+// Nagi's M17 C++ boundary deliberately has no host locale database. The
+// pinned libc++ headers still require the stable classic-locale identity and
+// the ctype<char> locale-id object when stream machinery is instantiated.
+// Keep those ABI objects in Nagi-owned storage. Unicode and locale-sensitive
+// browser behavior remains owned by the pinned ICU/MozJS path; this object is
+// the target's C/POSIX locale identity, not a host locale or a fabricated web
+// rendering result.
+struct nagi_libcpp_locale_identity {
+    nagi_uintptr_t implementation;
+};
+
+static nagi_libcpp_locale_identity nagi_classic_locale = {0};
+
+extern "C" const nagi_libcpp_locale_identity &nagi_cxx_locale_classic()
+    __asm__("_ZNSt3__16locale7classicEv");
+
+extern "C" const nagi_libcpp_locale_identity &nagi_cxx_locale_classic() {
+    return nagi_classic_locale;
+}
+
+// libc++'s locale::id is zero-initialized before its first assigned facet
+// number. A pointer-sized target object matches the pinned x86-64 libc++ ABI.
+alignas(nagi_uintptr_t) extern "C" nagi_uintptr_t nagi_ctype_char_id
+    __asm__("_ZNSt3__15ctypeIcE2idE") = 0;

@@ -25,14 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35630408478` at `4127b87`
+**Last known repair checkpoint:** public CI run `35632734832` at `f0f4cad`
 passed bootstrap, Mesa, package, kernel, and target compilation, then stopped
-at final target linking with duplicate `dup2`. The current source repair
-keeps libc symbol ownership in relibc and exposes only the Nagi-owned
-`nagi_posix_dup2` facade, avoiding a second strong C symbol in the POSIX
-adapter. No host libc, host filesystem, host rendering, or synthetic output
-is used. Target link, UEFI, and real QEMU first-web-pixel evidence remain
-required.
+at final target linking with undefined `__cxa_guard_acquire`,
+`std::__1::locale::classic()`, and `std::__1::ctype<char>::id`. The current
+source repair adds Nagi-owned Itanium static-initialization guards and the
+pinned libc++ classic C-locale identity objects. No host libc, host
+filesystem, host rendering, or synthetic output is used. Target link, UEFI,
+and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1286,6 +1286,16 @@ Verification checkpoint on 2026-09-20:
   only the Nagi-owned `nagi_posix_dup2` adapter in `nagi-posix`. This remains
   M17-internal and does not claim target-link or guest acceptance until CI
   reruns.
+
+- Public snapshot CI run `35632734832` (head `f0f4cad`) passed the M17 target
+  dependency boundary, Mesa, package, kernel, and target compilation, then
+  reached final target linking. The exact diagnostics were undefined
+  `__cxa_guard_acquire`, `std::__1::locale::classic()`, and
+  `std::__1::ctype<char>::id`; UEFI and QEMU were skipped. The current repair
+  adds atomic Itanium guard acquire/release/abort behavior and Nagi-owned
+  classic C-locale identity storage to the freestanding C++ boundary. These
+  changes remain M17-internal and do not claim target-link or guest acceptance
+  until CI reruns.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
