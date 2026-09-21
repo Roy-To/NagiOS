@@ -31,8 +31,10 @@ final target linking. The preceding run exposed `hypotf`, GNU
 `std::__throw_length_error`, and GNU `basic_string::_M_dispose`; the current
 source repair adds freestanding hypot/hypotf and Nagi allocator-backed GNU C++
 ABI entrypoints. The latest run then exposed `std::nothrow`, `environ`, and
-`execvp`; those are the next target ABI repair. No host libc, host filesystem,
-host rendering, or synthetic output is used. Target link, UEFI, and real QEMU
+`execvp`; the current source repair adds the target `abs` ABI, a bounded
+single-inheritance `__dynamic_cast`, and the real GNU tree successor helper.
+No host libc, host filesystem, host rendering, or synthetic output is used.
+Target link, UEFI, and real QEMU
 first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
@@ -1374,6 +1376,16 @@ Verification checkpoint on 2026-09-20:
    empty-start environment object, and a fail-closed execvp boundary for the
    spawn-oriented process model. This remains M17-internal and does not claim
    target-link or guest acceptance until CI reruns.
+
+ - Public snapshot CI run `35663893779` (head `1250b41`) passed target
+   bootstrap, dependency-boundary validation, Mesa, package, kernel, and
+   compilation stages, then reached final target linking. The exact undefined
+   symbols were `abs`, `__dynamic_cast`, and GNU
+   `_Rb_tree_increment(_Rb_tree_node_base*)`; UEFI and QEMU were skipped. The
+   next repair adds target-owned integer abs, bounded single-inheritance RTTI
+   casting, and the real GNU tree in-order successor. This remains
+   M17-internal and does not claim target-link or guest acceptance until CI
+   reruns.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

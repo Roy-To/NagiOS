@@ -97,6 +97,107 @@ extern "C" [[noreturn]] void nagi_cxx_verbose_abort(const char *, ...) {
     abort();
 }
 
+// The pinned target objects retain a small amount of GNU RTTI surface even
+// though the Nagi build disables new RTTI emission. Support identity casts and
+// the single-inheritance chain represented by __si_class_type_info. The
+// dynamic-cast hint is the ABI-provided offset of the source subobject in the
+// most-derived object; unsupported multiple/virtual-inheritance metadata
+// fails closed instead of returning an invented pointer.
+struct nagi_type_info_layout {
+    const void *vtable;
+    const char *name;
+};
+
+struct nagi_si_type_info_layout {
+    nagi_type_info_layout type;
+    const nagi_type_info_layout *base_type;
+};
+
+extern "C" const void *nagi_si_type_info_vtable[]
+    __asm__("_ZTVN10__cxxabiv120__si_class_type_infoE");
+
+static bool nagi_type_is_single_inheritance_base(
+    const nagi_type_info_layout *derived,
+    const nagi_type_info_layout *base,
+    unsigned depth) {
+    if (derived == nullptr || base == nullptr || depth > 32) {
+        return false;
+    }
+    if (derived == base) {
+        return true;
+    }
+    const void *si_vtable = nagi_si_type_info_vtable + 2;
+    if (derived->vtable != si_vtable) {
+        return false;
+    }
+    const auto *single = reinterpret_cast<const nagi_si_type_info_layout *>(derived);
+    return nagi_type_is_single_inheritance_base(single->base_type, base, depth + 1);
+}
+
+extern "C" void *nagi_gnu_dynamic_cast(
+    const void *static_pointer,
+    const void *static_type,
+    const void *dynamic_type,
+    long source_to_destination_offset)
+    __asm__("__dynamic_cast");
+
+extern "C" void *nagi_gnu_dynamic_cast(
+    const void *static_pointer,
+    const void *static_type,
+    const void *dynamic_type,
+    long source_to_destination_offset) {
+    if (static_pointer == nullptr || static_type == nullptr || dynamic_type == nullptr) {
+        return nullptr;
+    }
+    if (static_type == dynamic_type) {
+        return const_cast<void *>(static_pointer);
+    }
+    if (source_to_destination_offset < 0 ||
+        !nagi_type_is_single_inheritance_base(
+            static_cast<const nagi_type_info_layout *>(dynamic_type),
+            static_cast<const nagi_type_info_layout *>(static_type), 0)) {
+        return nullptr;
+    }
+    return const_cast<char *>(static_cast<const char *>(static_pointer)) -
+           source_to_destination_offset;
+}
+
+// GNU libstdc++'s tree iterator helper operates on this stable node prefix:
+// color/padding at offset zero followed by parent, left, and right pointers.
+// Implement the actual in-order successor used by tree iterators rather than
+// satisfying the linker with a no-op.
+struct nagi_gnu_rb_tree_node_base {
+    unsigned color;
+    unsigned padding;
+    nagi_gnu_rb_tree_node_base *parent;
+    nagi_gnu_rb_tree_node_base *left;
+    nagi_gnu_rb_tree_node_base *right;
+};
+
+extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_increment(
+    nagi_gnu_rb_tree_node_base *node)
+    __asm__("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base");
+
+extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_increment(
+    nagi_gnu_rb_tree_node_base *node) {
+    if (node == nullptr) {
+        return nullptr;
+    }
+    if (node->right != nullptr) {
+        node = node->right;
+        while (node->left != nullptr) {
+            node = node->left;
+        }
+        return node;
+    }
+    auto *parent = node->parent;
+    while (parent != nullptr && node == parent->right) {
+        node = parent;
+        parent = parent->parent;
+    }
+    return parent;
+}
+
 // A small subset of the pinned target objects is emitted with the GNU
 // libstdc++ ABI even though the normal Nagi C++ headers are libc++.  The
 // no-exception target still needs the concrete length-error entrypoint when a

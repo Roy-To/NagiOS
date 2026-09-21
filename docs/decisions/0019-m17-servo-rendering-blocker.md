@@ -1227,6 +1227,23 @@ execution through the host or claim a process replacement that did not occur.
 M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and the
 real Servo first-web-pixel gate pass.
 
+## Remediation continuation (2026-09-22, target integer and GNU container ABI)
+
+Public snapshot CI run `35663893779` (head `1250b41`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were `abs`,
+`__dynamic_cast`, and GNU `_Rb_tree_increment(_Rb_tree_node_base*)`; UEFI and
+real QEMU were skipped.
+
+The next M17 repair adds target-owned integer `abs`, a bounded
+single-inheritance `__dynamic_cast` implementation using the Itanium type-info
+objects already owned by Nagi, and the actual GNU red-black-tree in-order
+successor over its stable node prefix. Unsupported multiple/virtual RTTI
+relationships fail closed rather than returning an invented object pointer.
+No host C++ runtime, host container implementation, or rendering fallback is
+introduced. M17 remains `BLOCKED` until target linking, the UEFI loader, real
+QEMU, and the real Servo first-web-pixel gate pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

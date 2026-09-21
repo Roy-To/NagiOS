@@ -1398,6 +1398,15 @@ pub unsafe extern "C" fn hypotf(x: c_float, y: c_float) -> c_float {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn abs(value: c_int) -> c_int {
+    if value < 0 {
+        value.wrapping_neg()
+    } else {
+        value
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sin(x: c_double) -> c_double {
     nagi_sin_real(x)
 }

@@ -626,6 +626,8 @@ mod tests {
         assert!(runtime.contains("_ZNSt3__15ctypeIcE2idE"));
         assert!(runtime.contains("_ZSt7nothrow"));
         assert!(runtime.contains("_ZSt20__throw_length_errorPKc"));
+        assert!(runtime.contains("__dynamic_cast"));
+        assert!(runtime.contains("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base"));
         assert!(
             runtime.contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv")
         );
@@ -763,6 +765,7 @@ mod tests {
             "pub unsafe extern \"C\" fn expf(",
             "pub unsafe extern \"C\" fn hypot(",
             "pub unsafe extern \"C\" fn hypotf(",
+            "pub unsafe extern \"C\" fn abs(",
             "pub unsafe extern \"C\" fn fdopendir(",
             "pub unsafe extern \"C\" fn pow(",
             "pub unsafe extern \"C\" fn powf(",
