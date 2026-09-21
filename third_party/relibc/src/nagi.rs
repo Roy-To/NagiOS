@@ -37,6 +37,7 @@ unsafe extern "C" {
     fn nagi_posix_openat(fd: c_int, path: *const c_char, flags: c_int, mode: c_int) -> c_int;
     fn nagi_posix_unlink(path: *const c_char) -> c_int;
     fn nagi_posix_unlinkat(fd: c_int, path: *const c_char, flags: c_int) -> c_int;
+    fn nagi_posix_fdopendir(fd: c_int) -> *mut c_void;
     fn nagi_posix_mmap_file(length: usize, protection: c_int, fd: c_int, offset: usize) -> *mut u8;
     fn nagi_posix_mmap_at(address: *mut u8, length: usize, protection: c_int) -> *mut u8;
     fn nagi_posix_munmap(address: *mut u8, length: usize) -> c_int;
@@ -346,6 +347,9 @@ const NAGI_POW_NAN: c_double = f64::from_bits(0x7ff8_0000_0000_0000);
 const NAGI_POW_INF: c_double = f64::from_bits(0x7ff0_0000_0000_0000);
 const NAGI_POW_LN2: c_double = 0.6931471805599453;
 const NAGI_POW_TWO53: c_double = 9_007_199_254_740_992.0;
+const NAGI_PI: c_double = 3.141592653589793;
+const NAGI_TWO_PI: c_double = 6.283185307179586;
+const NAGI_HALF_PI: c_double = 1.5707963267948966;
 
 #[inline]
 fn nagi_pow_is_nan(value: c_double) -> bool {
@@ -498,6 +502,60 @@ fn nagi_pow_real(base: c_double, exponent: c_double) -> c_double {
     }
 }
 
+fn nagi_trig_reduce(value: c_double) -> c_double {
+    if nagi_pow_is_nan(value) || nagi_pow_is_inf(value) {
+        return NAGI_POW_NAN;
+    }
+    let turns = if value >= 0.0 {
+        (value / NAGI_TWO_PI + 0.5) as i64
+    } else {
+        (value / NAGI_TWO_PI - 0.5) as i64
+    };
+    value - (turns as c_double) * NAGI_TWO_PI
+}
+
+fn nagi_sin_real(value: c_double) -> c_double {
+    let mut reduced = nagi_trig_reduce(value);
+    if nagi_pow_is_nan(reduced) {
+        return reduced;
+    }
+    if reduced > NAGI_HALF_PI {
+        reduced = NAGI_PI - reduced;
+    } else if reduced < -NAGI_HALF_PI {
+        reduced = -NAGI_PI - reduced;
+    }
+    let square = reduced * reduced;
+    let mut factor = 1.0 / 3_628_800.0;
+    factor = factor * square - 1.0 / 5040.0;
+    factor = factor * square + 1.0 / 120.0;
+    factor = factor * square - 1.0 / 6.0;
+    factor = factor * square + 1.0;
+    factor * reduced
+}
+
+fn nagi_cos_real(value: c_double) -> c_double {
+    let mut reduced = nagi_trig_reduce(value);
+    if nagi_pow_is_nan(reduced) {
+        return reduced;
+    }
+    let sign = if reduced > NAGI_HALF_PI {
+        reduced = NAGI_PI - reduced;
+        -1.0
+    } else if reduced < -NAGI_HALF_PI {
+        reduced = -NAGI_PI - reduced;
+        -1.0
+    } else {
+        1.0
+    };
+    let square = reduced * reduced;
+    let mut factor = 1.0 / 40_320.0;
+    factor = factor * square - 1.0 / 720.0;
+    factor = factor * square + 1.0 / 24.0;
+    factor = factor * square - 1.0 / 2.0;
+    factor = factor * square + 1.0;
+    sign * factor
+}
+
 /// Target-owned freestanding power implementation. The normal relibc math
 /// module is excluded for `target_os = "nagi"`; this bounded IEEE-aware
 /// implementation keeps Servo/Mesa numeric code off the host libc boundary.
@@ -509,6 +567,26 @@ pub unsafe extern "C" fn pow(x: c_double, y: c_double) -> c_double {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn powf(x: c_float, y: c_float) -> c_float {
     nagi_pow_real(c_double::from(x), c_double::from(y)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sin(x: c_double) -> c_double {
+    nagi_sin_real(x)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cos(x: c_double) -> c_double {
+    nagi_cos_real(x)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sinf(x: c_float) -> c_float {
+    nagi_sin_real(c_double::from(x)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cosf(x: c_float) -> c_float {
+    nagi_cos_real(c_double::from(x)) as c_float
 }
 
 #[unsafe(no_mangle)]
@@ -554,6 +632,11 @@ pub unsafe extern "C" fn unlink(path: *const c_char) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unlinkat(fd: c_int, path: *const c_char, flags: c_int) -> c_int {
     unsafe { nagi_posix_unlinkat(fd, path, flags) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fdopendir(fd: c_int) -> *mut c_void {
+    unsafe { nagi_posix_fdopendir(fd) }
 }
 
 #[derive(Clone, Copy, Default)]

@@ -3,6 +3,7 @@ use core::{arch::asm, cell::UnsafeCell};
 pub const EINVAL: i32 = 22;
 pub const EBADF: i32 = 9;
 pub const ENOTTY: i32 = 25;
+pub const ENOTDIR: i32 = 20;
 pub const ENOSYS: i32 = 38;
 pub const ENOMEM: i32 = 12;
 pub const EAGAIN: i32 = 11;

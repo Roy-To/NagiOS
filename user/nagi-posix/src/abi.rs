@@ -9,8 +9,8 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
 
 use crate::errno::{
-    set_errno, EAGAIN, EBADF, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTSUP, ENOTTY, ERANGE,
-    ETIMEDOUT,
+    set_errno, EAGAIN, EBADF, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP, ENOTTY,
+    ERANGE, ETIMEDOUT,
 };
 use nagi_pal::time::{Clock, GuestClock};
 
@@ -621,6 +621,19 @@ pub unsafe extern "C" fn nagi_posix_unlinkat(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_unlink(path: *const c_char) -> c_int {
     nagi_posix_unlinkat(AT_FDCWD, path, 0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_fdopendir(fd: c_int) -> *mut c_void {
+    match crate::runtime::size(fd) {
+        Ok(_) => {
+            set_errno(ENOTDIR);
+        }
+        Err(error) => {
+            set_errno(crate::runtime::map_error(error));
+        }
+    }
+    ptr::null_mut()
 }
 
 #[linkage = "weak"]

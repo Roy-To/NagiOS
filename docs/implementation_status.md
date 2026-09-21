@@ -25,14 +25,13 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35604881762` at `0f2c05c`
+**Last known repair checkpoint:** public CI run `35608468009` at `04799f3`
 passed bootstrap, Mesa, package, kernel, and target compilation, then stopped
-at final target linking with undefined `unlink`, `openat`, and `unlinkat`.
-The current source repair connects those symbols to the existing Nagi root VFS
-open/remove operations with explicit fail-closed handling for unsupported
-directory-relative operations. No host libc, host filesystem, host rendering,
-or synthetic output is used. Target link, UEFI, and real QEMU first-web-pixel
-evidence remain required.
+at final target linking with undefined `cosf`, `sinf`, and `fdopendir`.
+The current source repair adds target-owned freestanding trigonometric math and
+an explicit Nagi VFS directory-handle boundary. No host libc, host filesystem,
+host rendering, or synthetic output is used. Target link, UEFI, and real QEMU
+first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1214,6 +1213,17 @@ Verification checkpoint on 2026-09-20:
   Windows PC because MSVC `link.exe` is unavailable. UEFI and real QEMU
   first-web-pixel steps remain unexecuted.
 
+- Public snapshot CI run `35608468009` (head `04799f3`) passed bootstrap, Mesa,
+  package, kernel, and target compilation, then reached final target linking.
+  The exact next diagnostics were undefined `cosf`, `sinf`, and `fdopendir`.
+  The current repair adds target-owned range-reduced polynomial `sin`/`cos`
+  and `sinf`/`cosf` implementations, and routes `fdopendir` through the Nagi
+  POSIX directory boundary. The current root-only VFS reports `ENOTDIR` for a
+  regular file and preserves the real errno for invalid descriptors rather
+  than returning a fabricated directory handle. Standalone target-backend
+  metadata compilation, format, CLI check, clippy, and whitespace checks pass.
+  UEFI and real QEMU first-web-pixel steps remain unexecuted.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
@@ -2279,9 +2289,9 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
- milestone. Public CI run `35604881762` is the current repair checkpoint:
+ milestone. Public CI run `35608468009` is the current repair checkpoint:
 bootstrap, Mesa, package, kernel, and target compilation passed, then final
-linking exposed `unlink`, `openat`, and `unlinkat`. The target-owned Nagi
+linking exposed `cosf`, `sinf`, and `fdopendir`. The target-owned Nagi
 POSIX/relibc repair is implemented locally and must be pushed and verified;
 the required next evidence remains target link, UEFI, real QEMU, and a real
 guest-rendered first web pixel. M18 cannot start before formal M17 PASS.

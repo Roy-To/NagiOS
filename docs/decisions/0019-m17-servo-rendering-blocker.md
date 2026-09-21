@@ -957,6 +957,22 @@ backend forwards the real operations and does not call the host filesystem or
 return a fixed success value. The target link, UEFI, and real QEMU first-web-
 pixel gates remain required.
 
+## Remediation continuation (2026-09-21, trigonometry/directory ABI)
+
+Public snapshot CI run `35608468009` (head `04799f3`) passed the target
+compile boundary and reached final linking. The exact undefined symbols were
+`cosf`, `sinf`, and `fdopendir`.
+
+The target relibc backend now owns freestanding range-reduced polynomial
+implementations for `sin`/`cos` and `sinf`/`cosf`, keeping Servo/Mesa math off
+the host library boundary. `fdopendir` is connected to the Nagi POSIX
+directory boundary; because the current VFS exposes a bounded root file
+model and does not yet expose directory file descriptors, a regular file is
+rejected with the real `ENOTDIR` result and invalid descriptors preserve the
+runtime errno mapping. No fabricated `DIR` object or host directory access is
+introduced. Target link, UEFI, and real QEMU first-web-pixel evidence remain
+required.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
