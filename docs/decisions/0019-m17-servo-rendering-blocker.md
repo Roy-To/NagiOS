@@ -688,6 +688,19 @@ inside the tracked Nagi patch boundary; it does not weaken the target build or
 guest rendering acceptance. The next target run must verify Servo compilation
 and continue to target link, UEFI, and real QEMU first-web-pixel evidence.
 
+## Remediation continuation (2026-09-21, Servo event-loop return contract)
+
+Public snapshot CI run `35560131276` (head `5ab6b52`) passed the corrected
+navigator patch and reached the Nagi-owned Albert embedder. The compile error
+at `user/nagi-albert/src/lib.rs:124:16` was `error[E0600]: cannot apply unary
+operator ! to type ()`. The pinned Servo `Servo::spin_event_loop` API is a
+unit-returning heartbeat; the Servo embedder owns shutdown handling rather than
+returning a boolean to the Nagi adapter. The adapter now calls the real
+heartbeat directly and retains the existing signal/yield scheduling boundary.
+This is an API-contract correction, not a host fallback or synthetic rendering
+change. The next target run must verify the adapter and continue to target link,
+UEFI, and real QEMU first-web-pixel evidence.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

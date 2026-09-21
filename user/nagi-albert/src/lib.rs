@@ -121,9 +121,9 @@ mod guest {
             .delegate(delegate)
             .build();
         loop {
-            if !servo.spin_event_loop() {
-                libnagi::exit(1);
-            }
+            // The pinned Servo embedder owns shutdown handling and exposes
+            // `spin_event_loop` as a unit-returning heartbeat.
+            servo.spin_event_loop();
             if !signal.take() {
                 std::thread::yield_now();
             }

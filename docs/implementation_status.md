@@ -25,18 +25,20 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35558265319` at `c655aad`
+**Last known repair checkpoint:** public CI run `35560131276` at `5ab6b52`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
 boundary, the real jsglue allocator bridge, the Nagi `navigator.platform`
 branch, and both host jobs. The target job still reaches `Build Nagi user init`
 and fails with exit code 101 after the Servo target compilation phase. The
-first compiler diagnostic is now localized to
-`third_party/servo/components/script/dom/navigator/navigatorinfo.rs:84:3`:
-`this file contains an unclosed delimiter`. The next repair is to correct the
-Nagi navigator patch hunk count and re-run target CI. Target link, UEFI, and
-real QEMU first-web-pixel evidence remain outstanding.
+the corrected navigator patch hunk and its clean-source apply probe pass. The
+target job now reaches the next real compile error at
+`user/nagi-albert/src/lib.rs:124:16`: `error[E0600]: cannot apply unary
+operator ! to type ()`. The pinned Servo embedder's `spin_event_loop` returns
+unit and owns shutdown handling; the adapter is being corrected to call that
+real heartbeat directly. Target link, UEFI, and real QEMU first-web-pixel
+evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -144,7 +146,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35558265319` reached the real target user-init compile and localized an unclosed delimiter to the applied Nagi navigator patch; the patch hunk count is corrected and the clean-source apply probe passes. Target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35560131276` passed the corrected navigator patch and reached the next real Albert adapter compile error: `Servo::spin_event_loop` was incorrectly treated as boolean although the pinned API returns `()`. The adapter call is corrected; target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1043,6 +1045,15 @@ Verification checkpoint on 2026-09-20:
   corrected count and final closing line. Local patch-check, clean-source
   apply-probe, and `git diff --check` pass; target build, UEFI, and real QEMU
   first-web-pixel evidence remain outstanding.
+
+- Public snapshot CI run #39 (`35560131276`, head `5ab6b52`) passed Ubuntu and
+  Windows host jobs, Servo bootstrap, Mesa Softpipe, package, kernel, and the
+  corrected navigator patch compilation boundary. It then failed in the
+  Nagi-owned Albert embedder at `user/nagi-albert/src/lib.rs:124:16` with
+  `error[E0600]: cannot apply unary operator ! to type ()`. The pinned Servo
+  `Servo::spin_event_loop` API returns `()` and handles shutdown internally;
+  the adapter now calls it directly without treating it as a boolean. UEFI and
+  real QEMU first-web-pixel steps were skipped and remain required.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
@@ -2108,8 +2119,8 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
-milestone. Its current repair checkpoint is public CI run `35558265319`:
-host jobs pass, while the target job exposed and is being repaired for the
-malformed Nagi navigator patch hunk. The required next evidence remains target
-link, UEFI, real QEMU, and a real guest-rendered first web pixel; M18 cannot
-start before formal M17 PASS.
+milestone. Its current repair checkpoint is public CI run `35560131276`:
+host jobs pass, the navigator patch fix passes, and the target job exposed the
+next adapter API mismatch in `spin_event_loop`, now corrected. The required
+next evidence remains target link, UEFI, real QEMU, and a real guest-rendered
+first web pixel; M18 cannot start before formal M17 PASS.
