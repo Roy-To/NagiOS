@@ -753,6 +753,8 @@ mod tests {
             "pub unsafe extern \"C\" fn atan2f(",
             "pub unsafe extern \"C\" fn acos(",
             "pub unsafe extern \"C\" fn acosf(",
+            "pub unsafe extern \"C\" fn exp(",
+            "pub unsafe extern \"C\" fn expf(",
             "pub unsafe extern \"C\" fn fdopendir(",
             "pub unsafe extern \"C\" fn pow(",
             "pub unsafe extern \"C\" fn powf(",
@@ -762,6 +764,10 @@ mod tests {
             "pub unsafe extern \"C\" fn fork(",
             "pub unsafe extern \"C\" fn strcat(",
             "pub unsafe extern \"C\" fn bsearch(",
+            "pub unsafe extern \"C\" fn pthread_rwlock_init(",
+            "pub unsafe extern \"C\" fn pthread_rwlock_rdlock(",
+            "pub unsafe extern \"C\" fn pthread_rwlock_wrlock(",
+            "pub unsafe extern \"C\" fn pthread_rwlock_unlock(",
         ] {
             assert!(
                 relibc.contains(symbol),

@@ -1179,6 +1179,21 @@ also exposes the kernel-published root process identity through the Nagi POSIX
 facade and relibc `getpid`. M17 remains `BLOCKED` until target linking, the
 UEFI loader, real QEMU, and the real Servo first-web-pixel gate pass.
 
+## Remediation continuation (2026-09-22, target exp/rwlock ABI)
+
+Public snapshot CI run `35655720144` (head `e5fbab8`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were `expf`,
+`pthread_rwlock_init`, and `pthread_rwlock_rdlock`; UEFI and real QEMU were
+skipped.
+
+The next M17 repair adds freestanding exp/expf wrappers over the existing Nagi
+range-reduced exponent core. It also implements the target's four-byte opaque
+rwlock ABI with an atomic reader count and writer bit, including init, blocking
+read acquisition, and the complementary write/unlock operations. It does not
+call host libm or host pthreads. M17 remains `BLOCKED` until target linking,
+the UEFI loader, real QEMU, and the real Servo first-web-pixel gate pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

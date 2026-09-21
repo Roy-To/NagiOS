@@ -12,6 +12,7 @@ use core::{
     },
     fmt, mem, ptr, slice,
 };
+use core::sync::atomic::{AtomicU32, Ordering};
 
 unsafe extern "C" {
     fn nagi_posix_malloc(size: usize) -> *mut u8;
@@ -62,6 +63,8 @@ const EINVAL: c_int = 22;
 const ENOSYS: c_int = 38;
 const ENOMEM: c_int = 12;
 const EBADF: c_int = 9;
+const EBUSY: c_int = 16;
+const EAGAIN: c_int = 11;
 const EOVERFLOW: c_int = 75;
 const ERANGE: c_int = 34;
 const EOF: c_int = -1;
@@ -403,6 +406,163 @@ pub unsafe extern "C" fn chroot(path: *const c_char) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int {
     unsafe { nagi_posix_waitpid(pid, status, options) }
+}
+
+// The target-selected relibc pthread header exposes a four-byte opaque
+// pthread_rwlock_t. Keep that ABI size and implement the lock directly with a
+// Nagi user-space atomic word: bit 31 is the writer state and the lower bits
+// count active readers. This is a real guest synchronization primitive; it
+// does not call a host pthread or silently turn a read lock into a no-op.
+const NAGI_RWLOCK_WRITER: u32 = 1 << 31;
+const NAGI_RWLOCK_READERS: u32 = NAGI_RWLOCK_WRITER - 1;
+
+unsafe fn rwlock_word(lock: *mut c_void) -> &'static AtomicU32 {
+    unsafe { &*lock.cast::<AtomicU32>() }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_rwlock_init(
+    lock: *mut c_void,
+    _attributes: *const c_void,
+) -> c_int {
+    if lock.is_null() {
+        return EINVAL;
+    }
+    unsafe { ptr::write(lock.cast::<AtomicU32>(), AtomicU32::new(0)) };
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_rwlock_rdlock(lock: *mut c_void) -> c_int {
+    if lock.is_null() {
+        return EINVAL;
+    }
+    let lock = unsafe { rwlock_word(lock) };
+    loop {
+        let state = lock.load(Ordering::Acquire);
+        if state & NAGI_RWLOCK_WRITER != 0 {
+            core::hint::spin_loop();
+            continue;
+        }
+        if state & NAGI_RWLOCK_READERS == NAGI_RWLOCK_READERS {
+            return EAGAIN;
+        }
+        if lock
+            .compare_exchange(
+                state,
+                state + 1,
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            return 0;
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_rwlock_tryrdlock(lock: *mut c_void) -> c_int {
+    if lock.is_null() {
+        return EINVAL;
+    }
+    let lock = unsafe { rwlock_word(lock) };
+    let state = lock.load(Ordering::Acquire);
+    if state & NAGI_RWLOCK_WRITER != 0 || state & NAGI_RWLOCK_READERS == NAGI_RWLOCK_READERS {
+        return EBUSY;
+    }
+    if lock
+        .compare_exchange(state, state + 1, Ordering::Acquire, Ordering::Relaxed)
+        .is_ok()
+    {
+        0
+    } else {
+        EBUSY
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_rwlock_wrlock(lock: *mut c_void) -> c_int {
+    if lock.is_null() {
+        return EINVAL;
+    }
+    let lock = unsafe { rwlock_word(lock) };
+    loop {
+        if lock
+            .compare_exchange(0, NAGI_RWLOCK_WRITER, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            return 0;
+        }
+        core::hint::spin_loop();
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_rwlock_trywrlock(lock: *mut c_void) -> c_int {
+    if lock.is_null() {
+        return EINVAL;
+    }
+    let lock = unsafe { rwlock_word(lock) };
+    if lock
+        .compare_exchange(0, NAGI_RWLOCK_WRITER, Ordering::Acquire, Ordering::Relaxed)
+        .is_ok()
+    {
+        0
+    } else {
+        EBUSY
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_rwlock_unlock(lock: *mut c_void) -> c_int {
+    if lock.is_null() {
+        return EINVAL;
+    }
+    let lock = unsafe { rwlock_word(lock) };
+    loop {
+        let state = lock.load(Ordering::Acquire);
+        if state & NAGI_RWLOCK_WRITER != 0 {
+            if lock
+                .compare_exchange(
+                    state,
+                    0,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+            {
+                return 0;
+            }
+            continue;
+        }
+        if state & NAGI_RWLOCK_READERS == 0 {
+            return EINVAL;
+        }
+        if lock
+            .compare_exchange(
+                state,
+                state - 1,
+                Ordering::Release,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            return 0;
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_rwlock_destroy(lock: *mut c_void) -> c_int {
+    if lock.is_null() {
+        return EINVAL;
+    }
+    if unsafe { rwlock_word(lock) }.load(Ordering::Acquire) == 0 {
+        0
+    } else {
+        EBUSY
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1000,6 +1160,20 @@ fn nagi_pow_real(base: c_double, exponent: c_double) -> c_double {
     }
 }
 
+fn nagi_exp_real(value: c_double) -> c_double {
+    if nagi_pow_is_nan(value) {
+        return NAGI_POW_NAN;
+    }
+    if nagi_pow_is_inf(value) {
+        return if value.is_sign_negative() {
+            0.0
+        } else {
+            NAGI_POW_INF
+        };
+    }
+    nagi_pow_exp(value)
+}
+
 fn nagi_trig_reduce(value: c_double) -> c_double {
     if nagi_pow_is_nan(value) || nagi_pow_is_inf(value) {
         return NAGI_POW_NAN;
@@ -1166,6 +1340,16 @@ pub unsafe extern "C" fn pow(x: c_double, y: c_double) -> c_double {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn powf(x: c_float, y: c_float) -> c_float {
     nagi_pow_real(c_double::from(x), c_double::from(y)) as c_float
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn exp(x: c_double) -> c_double {
+    nagi_exp_real(x)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expf(x: c_float) -> c_float {
+    nagi_exp_real(c_double::from(x)) as c_float
 }
 
 #[unsafe(no_mangle)]
