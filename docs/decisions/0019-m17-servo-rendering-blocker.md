@@ -1023,6 +1023,23 @@ libc++abi. These changes require a fresh target CI link result; M17 remains
 `BLOCKED` until target linking, UEFI, real QEMU, and real first-web-pixel
 evidence all pass.
 
+## Remediation continuation (2026-09-22, libc++ ABI and process wait/exit)
+
+Public snapshot CI run `35623171268` (head `91c5669`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation
+stages, then failed at final target linking. The exact diagnostics were
+`std::__1::__libcpp_verbose_abort(char const*, ...)`, `waitpid`, and `_exit`;
+UEFI and real QEMU were skipped.
+
+The next M17 repair corrects the length field in the pinned libc++ verbose
+abort Itanium symbol and connects relibc's `_exit`, `exit`, and `waitpid` to
+the Nagi POSIX process boundary. `waitpid(1, ..., 0)` joins the existing real
+Nagi spawn slot and returns its encoded exit status; unsupported PIDs and
+options fail with errno rather than fabricating process state. Exit calls use
+the published Nagi process-exit syscall. No host libc, host process, or
+synthetic rendering path is introduced. M17 remains `BLOCKED` until target
+link, UEFI, real QEMU, and real first-web-pixel evidence pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

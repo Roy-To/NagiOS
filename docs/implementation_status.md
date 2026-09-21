@@ -25,14 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35619764841` at `f401b4a`
+**Last known repair checkpoint:** public CI run `35623171268` at `91c5669`
 passed bootstrap, Mesa, package, kernel, and target compilation, then stopped
-at final target linking with undefined `strcat`, `bsearch`, and
-`std::__1::__libcpp_verbose_abort(char const*, ...)`. The current source
-repair adds target-owned string concatenation, comparator-based binary search,
-and a Nagi C++ abort boundary for libc++ diagnostics. No host libc, host
-filesystem, host rendering, or synthetic output is used. Target link, UEFI,
-and real QEMU first-web-pixel evidence remain required.
+at final target linking with undefined
+`std::__1::__libcpp_verbose_abort(char const*, ...)`, `waitpid`, and `_exit`.
+The current source repair corrects the libc++ ABI spelling and connects POSIX
+wait/exit to Nagi's real spawn/join and process-exit boundaries. No host libc,
+host filesystem, host rendering, or synthetic output is used. Target link,
+UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1257,6 +1257,16 @@ Verification checkpoint on 2026-09-20:
   abort boundary. These changes remain M17-internal and do not claim
   target-link or guest acceptance until CI reruns.
 
+- Public snapshot CI run `35623171268` (head `91c5669`) passed bootstrap, the
+  M17 target dependency boundary, Mesa, package, kernel, and target
+  compilation, then reached final target linking. The exact diagnostics were
+  undefined `std::__1::__libcpp_verbose_abort(char const*, ...)`, `waitpid`,
+  and `_exit`; UEFI and real QEMU were skipped. The next repair corrects the
+  libc++ ABI mangling and connects target POSIX wait/exit symbols to Nagi's
+  real spawn/join and process-exit boundaries. These changes remain
+  M17-internal and do not claim target-link or guest acceptance until CI
+  reruns.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
@@ -2322,10 +2332,10 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
-milestone. Public CI run `35619764841` is the current repair checkpoint:
+milestone. Public CI run `35623171268` is the current repair checkpoint:
 bootstrap, Mesa, package, kernel, and target compilation passed, then final
-linking exposed `strcat`, `bsearch`, and
-`std::__1::__libcpp_verbose_abort(char const*, ...)`. The next target-owned
-relibc/C++ runtime repair is implemented and must be pushed and verified; the
-required next evidence remains target link, UEFI, real QEMU, and a real
-guest-rendered first web pixel. M18 cannot start before formal M17 PASS.
+linking exposed `std::__1::__libcpp_verbose_abort(char const*, ...)`,
+`waitpid`, and `_exit`. The next target-owned relibc/C++ runtime repair is
+implemented and must be pushed and verified; the required next evidence
+remains target link, UEFI, real QEMU, and a real guest-rendered first web
+pixel. M18 cannot start before formal M17 PASS.

@@ -618,9 +618,28 @@ mod tests {
         assert!(runtime.contains(
             "_ZNSt3__111this_thread9sleep_forERKNS_6chrono8durationIxNS2_5ratioILl1ELl1000000000EEEE"
         ));
-        assert!(runtime.contains("_ZNSt3__121__libcpp_verbose_abortEPKcz"));
+        assert!(runtime.contains("_ZNSt3__122__libcpp_verbose_abortEPKcz"));
         assert!(runtime.contains("-fno-rtti") || build_script.contains("-fno-rtti"));
         assert!(runtime.contains("-fno-exceptions") || build_script.contains("-fno-exceptions"));
+    }
+
+    #[test]
+    fn m17_target_process_abi_uses_nagi_spawn_and_exit_boundaries() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let relibc = fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
+            .expect("Nagi relibc backend");
+        let abi =
+            fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
+        assert!(relibc.contains("pub unsafe extern \"C\" fn _exit("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn exit("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn waitpid("));
+        assert!(relibc.contains("nagi_posix_exit"));
+        assert!(relibc.contains("nagi_posix_waitpid"));
+        assert!(abi.contains("crate::process::native_wait"));
+        assert!(abi.contains("libnagi::exit((code as u8) as u64)"));
     }
 
     #[test]

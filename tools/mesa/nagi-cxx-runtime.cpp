@@ -27,7 +27,7 @@ extern "C" [[noreturn]] void __stack_chk_fail() {
 // even when exceptions are disabled. Keep the ABI real and terminate the
 // guest through Nagi's process boundary; do not import a host libc++abi.
 extern "C" [[noreturn]] void nagi_cxx_verbose_abort(const char *, ...)
-    __asm__("_ZNSt3__121__libcpp_verbose_abortEPKcz");
+    __asm__("_ZNSt3__122__libcpp_verbose_abortEPKcz");
 
 extern "C" [[noreturn]] void nagi_cxx_verbose_abort(const char *, ...) {
     abort();

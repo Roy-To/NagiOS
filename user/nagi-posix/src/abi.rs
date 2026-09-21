@@ -1076,6 +1076,40 @@ pub unsafe extern "C" fn abort() -> ! {
     libnagi::exit(134)
 }
 
+/// Terminate the current Nagi process through the published process-exit
+/// syscall. The POSIX exit status is the low eight bits, matching the status
+/// encoding used by the waitpid adapter below.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_exit(code: c_int) -> ! {
+    libnagi::exit((code as u8) as u64)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_waitpid(
+    pid: c_int,
+    status: *mut c_int,
+    options: c_int,
+) -> c_int {
+    // M17's native process slice is deliberately spawn-oriented and exposes
+    // one joinable child slot. Do not fabricate a PID or silently implement
+    // unsupported wait options; map the real native child handle only.
+    if pid != 1 {
+        return write_errno_and_fail(EINVAL);
+    }
+    if options != 0 {
+        return write_errno_and_fail(ENOTSUP);
+    }
+    match unsafe { crate::process::native_wait(pid as u64) } {
+        Ok(code) => {
+            if !status.is_null() {
+                unsafe { status.write(((code & 0xff) << 8) as c_int) };
+            }
+            pid
+        }
+        Err(_) => write_errno_and_fail(EAGAIN),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_attr_init(attributes: *mut c_void) -> c_int {
     if attributes.is_null() {
