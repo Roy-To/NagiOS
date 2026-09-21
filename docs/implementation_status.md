@@ -25,16 +25,15 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35548995494` at `42a4597`
+**Last known repair checkpoint:** public CI run `35550551510` at `c13d463`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
-repair, condition-variable clock repair, and the no-op Nagi mmap fault-handler
-boundary. It then exposed and reproduced the bindgen include-order bug and
-passed that boundary: libc++ -> clang resource -> relibc/Mesa. The next
-failure is the pinned `jsglue.cpp` platform conditional rejecting `__NAGI__`
-before reaching the real relibc allocator bridge; ordered patch `0013` extends
-that existing bridge. Target link, UEFI, and real QEMU first-web-pixel evidence
-remain outstanding.
+repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
+boundary, and the real jsglue allocator bridge. It then reached Servo's real
+Rust compilation and exposed the missing Nagi branch for
+`script::dom::navigatorinfo::Platform`. Ordered Servo patch `0007` adds that
+target-specific Web API platform branch. Target link, UEFI, and real QEMU
+first-web-pixel evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -991,6 +990,17 @@ Verification checkpoint on 2026-09-20:
   allocator bridge already used by patch `0009`. It does not import a host
   allocator or weaken the first-pixel gate. UEFI and first-web-pixel
   acceptance remain unexecuted.
+
+- Public snapshot CI run #34 (`35550551510`, head `c13d463`) passed the
+  ordered bindgen header boundary and the real jsglue allocator bridge, then
+  reached Servo Rust compilation. `script::dom::navigatorinfo::Platform` had
+  branches for Windows, Linux/BSD, macOS, and iOS but none for
+  `target_os = "nagi"`, so both the window and worker Navigator
+  implementations failed to compile. Ordered Servo patch `0007` adds the
+  target-owned `navigator.platform` response `Nagi`. This is a real target Web
+  API boundary and does not alter rendering, substitute a host platform, or
+  provide synthetic pixel evidence. UEFI and first-web-pixel acceptance remain
+  unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

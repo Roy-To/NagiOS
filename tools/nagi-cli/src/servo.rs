@@ -736,6 +736,21 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_defines_nagi_navigator_platform() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0007-nagi-navigator-platform.patch"),
+        )
+        .expect("Nagi navigator platform patch");
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("DOMString::from_static(\"Nagi\")"));
+        assert!(patch.contains("navigatorinfo.rs"));
+    }
+
+    #[test]
     fn patch_application_uses_numeric_order() {
         let root = temp_root("patch-apply");
         let checkout = root.join("third_party/servo");

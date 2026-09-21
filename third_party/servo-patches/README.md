@@ -15,3 +15,8 @@ each patch with `git apply --check`. The generated checkout contains an ignored
 and generated worktree fingerprint. A missing or mismatched marker, unrelated
 dirty state, or an unexpected destination is a refusal, not an invitation to
 overwrite the checkout.
+
+The ordered patch `0007-nagi-navigator-platform.patch` adds the Nagi target
+branch for Servo's real `navigator.platform` Web API. It does not affect
+rendering or provide a host fallback; it only completes the target-specific
+platform information required by Servo's script component.

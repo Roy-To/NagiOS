@@ -657,6 +657,23 @@ patch `0013` selects that existing guest ABI under `__NAGI__` for the jsglue
 size reporter. It does not call a host allocator or synthesize allocator
 sizes. UEFI and real QEMU first-pixel acceptance remain required.
 
+## Remediation continuation (2026-09-21, Navigator platform target branch)
+
+Public snapshot CI run `35550551510` (head `c13d463`) passed the ordered
+bindgen header boundary and the real jsglue allocator bridge, then reached
+Servo Rust compilation. The pinned `script::dom::navigatorinfo` module had
+`Platform()` implementations for Windows, Linux/BSD, macOS, and iOS, but no
+implementation for Nagi. Both the window and worker Navigator bindings
+therefore failed with `cannot find function, tuple struct or tuple variant
+Platform in module navigatorinfo`.
+
+Ordered Servo patch `0007-nagi-navigator-platform.patch` adds the explicit
+`target_os = "nagi"` branch and returns the target-owned Web API platform
+identifier `Nagi`. This is a platform-information compatibility boundary; it
+does not render content, consult a host platform, or change the first-web-pixel
+acceptance. The next target run must verify the patched Servo Rust graph and
+continue to target link, UEFI, and real QEMU first-web-pixel evidence.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
