@@ -646,6 +646,17 @@ order, so patch `0012` now applies libc++ headers first, clang resource
 headers second, and relibc/Mesa compatibility headers after them. UEFI and
 real QEMU first-pixel acceptance remain required.
 
+## Remediation continuation (2026-09-21, jsglue allocator platform boundary)
+
+Public snapshot CI run `35548995494` (head `42a4597`) passed the corrected
+bindgen header order and reached the pinned `src/jsglue.cpp`. Its system
+allocator bridge rejected Nagi at two `unsupported platform` conditionals,
+although Nagi already exposes the real relibc `malloc.h` and
+`malloc_usable_size` ABI used by the earlier MozJS allocator patch. Ordered
+patch `0013` selects that existing guest ABI under `__NAGI__` for the jsglue
+size reporter. It does not call a host allocator or synthesize allocator
+sizes. UEFI and real QEMU first-pixel acceptance remain required.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

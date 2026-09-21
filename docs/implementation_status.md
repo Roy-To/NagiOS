@@ -25,15 +25,16 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35547606552` at `b3e8bb5`
+**Last known repair checkpoint:** public CI run `35548995494` at `42a4597`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, and the no-op Nagi mmap fault-handler
-boundary. It then exposed and reproduced a bindgen include-order bug: libc++
-could not resolve clang's builtin `<stddef.h>` after bindgen placed the
-resource directory before libc++ headers. Patch `0012` now follows the
-existing Nagi compiler wrapper order, libc++ -> clang resource -> relibc/Mesa;
-target link, UEFI, and real QEMU first-web-pixel evidence remain outstanding.
+boundary. It then exposed and reproduced the bindgen include-order bug and
+passed that boundary: libc++ -> clang resource -> relibc/Mesa. The next
+failure is the pinned `jsglue.cpp` platform conditional rejecting `__NAGI__`
+before reaching the real relibc allocator bridge; ordered patch `0013` extends
+that existing bridge. Target link, UEFI, and real QEMU first-web-pixel evidence
+remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -980,6 +981,16 @@ Verification checkpoint on 2026-09-20:
   libc++ headers, clang resource headers, then relibc/Mesa compatibility
   headers. This remains a freestanding compile-boundary repair; UEFI and
   first-web-pixel acceptance remain unexecuted.
+
+- Public snapshot CI run #33 (`35548995494`, head `42a4597`) verified both
+  ordered patch-placement repairs and the corrected libc++/clang header order;
+  bindgen no longer failed in `<cstddef>` or `<cstdint>`. It then reached the
+  pinned `src/jsglue.cpp` and stopped at its two `unsupported platform`
+  branches for Nagi. Ordered patch `0013` now selects the existing real
+  relibc `malloc.h` and `malloc_usable_size` ABI under `__NAGI__`, matching the
+  allocator bridge already used by patch `0009`. It does not import a host
+  allocator or weaken the first-pixel gate. UEFI and first-web-pixel
+  acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

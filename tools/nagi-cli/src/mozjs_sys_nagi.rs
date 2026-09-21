@@ -147,6 +147,15 @@ mod tests {
                 && mmap_fault_handler_patch.contains("sigaction")
         );
 
+        let jsglue_malloc_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0013-nagi-jsglue-malloc-platform.patch"),
+        )
+        .expect("mozjs Nagi jsglue malloc platform patch");
+        assert!(
+            jsglue_malloc_patch.contains("defined(__NAGI__)")
+                && jsglue_malloc_patch.contains("malloc_usable_size")
+        );
+
         let stdlib_cbindgen = std::fs::read_to_string(
             root.join("third_party/relibc/src/header/stdlib/cbindgen.toml"),
         )

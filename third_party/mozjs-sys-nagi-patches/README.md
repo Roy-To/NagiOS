@@ -63,6 +63,13 @@ and Nagi Mesa header roots. It does not add host headers, a host C++ runtime,
 or a synthetic target ABI; the resulting bindings still compile against the
 Nagi-owned guest interfaces.
 
+Patch `0013` extends MozJS's existing system-allocator size bridge to the Nagi
+platform. The pinned `jsglue.cpp` otherwise rejects Nagi at its platform
+conditional even though the real relibc `malloc.h` ABI already provides
+`malloc_usable_size`. The patch selects that guest header and existing ABI
+under `__NAGI__`; it does not call a host allocator or replace allocator
+accounting with a constant.
+
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the
 source fingerprint is recorded.

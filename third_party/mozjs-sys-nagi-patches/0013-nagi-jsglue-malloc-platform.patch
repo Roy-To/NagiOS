@@ -1,0 +1,11 @@
+diff --git a/src/jsglue.cpp b/src/jsglue.cpp
+--- a/src/jsglue.cpp
++++ b/src/jsglue.cpp
+@@ -897,2 +897,2 @@
+-#if defined(__linux__) || defined(__wasi__)
++#if defined(__linux__) || defined(__wasi__) || defined(__NAGI__)
+ #  include <malloc.h>
+@@ -912,2 +912,2 @@
+-#if defined(__linux__) || defined(__wasi__) || defined(__FreeBSD__)
++#if defined(__linux__) || defined(__wasi__) || defined(__FreeBSD__) || defined(__NAGI__)
+   return malloc_usable_size((void*)aPtr);
