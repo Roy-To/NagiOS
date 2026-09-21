@@ -656,6 +656,9 @@ mod tests {
             "pub unsafe extern \"C\" fn isatty(",
             "pub unsafe extern \"C\" fn strncmp(",
             "pub unsafe extern \"C\" fn snprintf(",
+            "pub unsafe extern \"C\" fn openat(",
+            "pub unsafe extern \"C\" fn unlink(",
+            "pub unsafe extern \"C\" fn unlinkat(",
             "pub unsafe extern \"C\" fn pow(",
             "pub unsafe extern \"C\" fn powf(",
         ] {
@@ -677,6 +680,9 @@ mod tests {
             "pub unsafe extern \"C\" fn nagi_posix_getsockopt(",
             "pub unsafe extern \"C\" fn nagi_posix_lstat(",
             "pub unsafe extern \"C\" fn nagi_posix_isatty(",
+            "pub unsafe extern \"C\" fn nagi_posix_openat(",
+            "pub unsafe extern \"C\" fn nagi_posix_unlink(",
+            "pub unsafe extern \"C\" fn nagi_posix_unlinkat(",
             "pub unsafe extern \"C\" fn gettimeofday(",
         ] {
             assert!(

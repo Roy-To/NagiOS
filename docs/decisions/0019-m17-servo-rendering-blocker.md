@@ -941,6 +941,22 @@ this Windows PC because MSVC `link.exe` is unavailable; that is a host review
 limitation, not target evidence. The repair is not yet accepted until target
 link, UEFI, and real QEMU first-web-pixel evidence are produced.
 
+## Remediation continuation (2026-09-21, root VFS file-operation ABI)
+
+Public snapshot CI run `35604881762` (head `0f2c05c`) passed the target
+compile boundary and reached final linking. The exact undefined symbols were
+`unlink`, `openat`, and `unlinkat`.
+
+The target POSIX layer now connects these operations to the existing Nagi VFS
+file table. `openat(AT_FDCWD, ...)` uses the established Nagi open/create/
+truncate path, while `unlink` and `unlinkat` use the VFS's durable remove
+operation. Nagi's current storage model is a bounded root-directory VFS, so
+dirfd-relative `openat`/`unlinkat` resolution is explicitly rejected with
+`ENOTSUP`; unsupported unlink flags are rejected with `EINVAL`. The relibc
+backend forwards the real operations and does not call the host filesystem or
+return a fixed success value. The target link, UEFI, and real QEMU first-web-
+pixel gates remain required.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

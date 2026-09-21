@@ -8,6 +8,7 @@ pub const ENOMEM: i32 = 12;
 pub const EAGAIN: i32 = 11;
 pub const EACCES: i32 = 13;
 pub const ENOPROTOOPT: i32 = 92;
+pub const ENOTSUP: i32 = 95;
 pub const ERANGE: i32 = 34;
 pub const ETIMEDOUT: i32 = 110;
 

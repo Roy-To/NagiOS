@@ -34,6 +34,9 @@ unsafe extern "C" {
     fn nagi_posix_lseek(fd: c_int, offset: i64, whence: c_int) -> i64;
     fn nagi_posix_lstat(path: *const c_char, buf: *mut c_void) -> c_int;
     fn nagi_posix_isatty(fd: c_int) -> c_int;
+    fn nagi_posix_openat(fd: c_int, path: *const c_char, flags: c_int, mode: c_int) -> c_int;
+    fn nagi_posix_unlink(path: *const c_char) -> c_int;
+    fn nagi_posix_unlinkat(fd: c_int, path: *const c_char, flags: c_int) -> c_int;
     fn nagi_posix_mmap_file(length: usize, protection: c_int, fd: c_int, offset: usize) -> *mut u8;
     fn nagi_posix_mmap_at(address: *mut u8, length: usize, protection: c_int) -> *mut u8;
     fn nagi_posix_munmap(address: *mut u8, length: usize) -> c_int;
@@ -536,6 +539,21 @@ pub unsafe extern "C" fn lstat(path: *const c_char, buf: *mut c_void) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn isatty(fd: c_int) -> c_int {
     unsafe { nagi_posix_isatty(fd) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn openat(fd: c_int, path: *const c_char, flags: c_int, _args: ...) -> c_int {
+    unsafe { nagi_posix_openat(fd, path, flags, 0) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn unlink(path: *const c_char) -> c_int {
+    unsafe { nagi_posix_unlink(path) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn unlinkat(fd: c_int, path: *const c_char, flags: c_int) -> c_int {
+    unsafe { nagi_posix_unlinkat(fd, path, flags) }
 }
 
 #[derive(Clone, Copy, Default)]

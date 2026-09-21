@@ -157,6 +157,12 @@ pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeErr
     Ok(index as i32)
 }
 
+pub fn remove(name: &[u8]) -> Result<(), RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume.remove(name).map_err(RuntimeError::Storage)
+}
+
 pub fn socket() -> Result<i32, RuntimeError> {
     if NETWORK.lock().is_none() {
         return Err(RuntimeError::NotInitialized);
@@ -765,6 +771,9 @@ pub fn map_error(error: RuntimeError) -> i32 {
         RuntimeError::InvalidFd => 9,
         RuntimeError::Storage(StorageError::NotFound) => 2,
         RuntimeError::Storage(StorageError::AlreadyExists) => 17,
+        RuntimeError::Storage(StorageError::NameTooLong) => 36,
+        RuntimeError::Storage(StorageError::InvalidName) => 22,
+        RuntimeError::Storage(StorageError::DirectoryFull) => 39,
         RuntimeError::Storage(StorageError::FileTooLarge) => 27,
         RuntimeError::Storage(StorageError::Capacity) => 12,
         RuntimeError::Network(NetError::TcpTimeout) => 11,

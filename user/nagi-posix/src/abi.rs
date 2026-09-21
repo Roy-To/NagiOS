@@ -9,7 +9,8 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
 
 use crate::errno::{
-    set_errno, EAGAIN, EBADF, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTTY, ERANGE, ETIMEDOUT,
+    set_errno, EAGAIN, EBADF, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTSUP, ENOTTY, ERANGE,
+    ETIMEDOUT,
 };
 use nagi_pal::time::{Clock, GuestClock};
 
@@ -542,6 +543,8 @@ pub unsafe extern "C" fn nagi_posix_getsockopt(
 
 const O_CREAT: c_int = 0x0200_0000;
 const O_TRUNC: c_int = 0x0400_0000;
+const AT_FDCWD: c_int = -100;
+const AT_REMOVEDIR: c_int = 0x0200;
 
 unsafe fn c_path(path: *const c_char, output: &mut [u8]) -> Result<&[u8], c_int> {
     if path.is_null() {
@@ -577,6 +580,47 @@ pub unsafe extern "C" fn nagi_posix_open(path: *const c_char, flags: c_int, _mod
         Ok(fd) => fd,
         Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_openat(
+    dirfd: c_int,
+    path: *const c_char,
+    flags: c_int,
+    mode: c_int,
+) -> c_int {
+    if dirfd != AT_FDCWD {
+        return write_errno_and_fail(ENOTSUP);
+    }
+    nagi_posix_open(path, flags, mode)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_unlinkat(
+    dirfd: c_int,
+    path: *const c_char,
+    flags: c_int,
+) -> c_int {
+    if dirfd != AT_FDCWD {
+        return write_errno_and_fail(ENOTSUP);
+    }
+    if flags & !AT_REMOVEDIR != 0 {
+        return write_errno_and_fail(EINVAL);
+    }
+    let mut bytes = [0_u8; 64];
+    let name = match c_path(path, &mut bytes) {
+        Ok(name) => name,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::remove(name) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_unlink(path: *const c_char) -> c_int {
+    nagi_posix_unlinkat(AT_FDCWD, path, 0)
 }
 
 #[linkage = "weak"]
