@@ -144,7 +144,7 @@ mod tests {
         assert!(
             mmap_fault_handler_patch.contains("defined(__NAGI__)")
                 && mmap_fault_handler_patch.contains("__wasi__) || defined(__NAGI__)")
-                && mmap_fault_handler_patch.contains("sigaction")
+                && mmap_fault_handler_patch.contains("MmapFaultHandler.cpp")
         );
 
         let jsglue_malloc_patch = std::fs::read_to_string(

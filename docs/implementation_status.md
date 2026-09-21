@@ -25,15 +25,16 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35550551510` at `c13d463`
+**Last known repair checkpoint:** public CI run `35552534042` at `4b585cb`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
-boundary, and the real jsglue allocator bridge. It then reached Servo's real
-Rust compilation and exposed the missing Nagi branch for
-`script::dom::navigatorinfo::Platform`. Ordered Servo patch `0007` adds that
-target-specific Web API platform branch. Target link, UEFI, and real QEMU
-first-web-pixel evidence remain outstanding.
+boundary, the real jsglue allocator bridge, and the Nagi
+`navigator.platform` branch. The target job reached `Build Nagi user init` and
+failed with exit code 101 after the Servo target compilation phase; the exact
+first compiler diagnostic still needs to be extracted from the job log before
+the next target source repair. Target link, UEFI, and real QEMU first-web-pixel
+evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1001,6 +1002,17 @@ Verification checkpoint on 2026-09-20:
   API boundary and does not alter rendering, substitute a host platform, or
   provide synthetic pixel evidence. UEFI and first-web-pixel acceptance remain
   unexecuted.
+
+- Public snapshot CI run #35 (`35552534042`, head `4b585cb`) applied Servo patch
+  `0007` and reached the `Build Nagi user init` step, which failed with exit
+  code 101. `Build UEFI loader` and the real QEMU first-web-pixel step were not
+  reached. The Ubuntu and Windows host test steps also failed because the
+  MozJS mmap contract test required the literal `sigaction` string, while the
+  tracked `0011` patch intentionally removes the Nagi Unix signal-handler
+  implementation and therefore does not contain that string. The test now
+  asserts the actual patch boundary (`MmapFaultHandler.cpp` plus the Nagi
+  conditional). The target's first compiler diagnostic remains the next
+  evidence to retrieve; no speculative target patch is recorded here.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
