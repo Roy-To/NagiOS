@@ -157,7 +157,25 @@ jobs:
           NAGI_MESA_BUILD: ${{ github.workspace }}/out/m17-mesa/mesa-build
           CC_x86_64_unknown_nagi_user: ${{ github.workspace }}/tools/nagi-target-cc.sh
           __CARGO_TESTS_ONLY_SRC_ROOT: ${{ github.workspace }}/out/rust-src/library
-        run: cargo +nightly-2025-08-01 build -p nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --release --locked
+        run: |
+          set -o pipefail
+          mkdir -p out/logs
+          set +e
+          cargo +nightly-2025-08-01 build -p nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --release --locked 2>&1 | tee out/logs/m17-nagi-user-init.log
+          cargo_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$cargo_status" -ne 0 ]; then
+            first_error=$(grep -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log || true)
+            if [ -n "$first_error" ]; then
+              first_error=${first_error//'%'/'%25'}
+              first_error=${first_error//$'\r'/'%0D'}
+              first_error=${first_error//$'\n'/'%0A'}
+              echo "::error title=M17 target first compiler diagnostic::$first_error"
+            else
+              echo '::error title=M17 target build::Build Nagi user init failed without a parsed compiler diagnostic; inspect the cargo output above'
+            fi
+          fi
+          exit "$cargo_status"
       - name: Build UEFI loader
         run: cargo +nightly-2025-08-01 build --manifest-path loader/Cargo.toml --target x86_64-unknown-uefi --release --locked
       - name: M17 first web pixel acceptance

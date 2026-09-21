@@ -25,16 +25,17 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35552534042` at `4b585cb`
+**Last known repair checkpoint:** public CI run `35554276403` at `9377d07`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
-boundary, the real jsglue allocator bridge, and the Nagi
-`navigator.platform` branch. The target job reached `Build Nagi user init` and
-failed with exit code 101 after the Servo target compilation phase; the exact
-first compiler diagnostic still needs to be extracted from the job log before
-the next target source repair. Target link, UEFI, and real QEMU first-web-pixel
-evidence remain outstanding.
+boundary, the real jsglue allocator bridge, the Nagi `navigator.platform`
+branch, and both host jobs. The target job still reaches `Build Nagi user init`
+and fails with exit code 101 after the Servo target compilation phase. GitHub's
+unauthenticated public log endpoint did not expose the first compiler
+diagnostic; the next CI revision adds a target-build log plus a first-error
+annotation so the repair remains evidence-driven. Target link, UEFI, and real
+QEMU first-web-pixel evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1013,6 +1014,14 @@ Verification checkpoint on 2026-09-20:
   asserts the actual patch boundary (`MmapFaultHandler.cpp` plus the Nagi
   conditional). The target's first compiler diagnostic remains the next
   evidence to retrieve; no speculative target patch is recorded here.
+
+- Public snapshot CI run #36 (`35554276403`, head `9377d07`) passed both host
+  jobs and again failed only at `Build Nagi user init` with exit code 101. The
+  target job completed the pinned Servo/Mesa bootstrap, dependency boundary,
+  package, and kernel build; UEFI and QEMU first-web-pixel steps were skipped.
+  The public job page exposed only the terminal annotation, so the next CI
+  revision records the complete cargo output and emits its first compiler
+  diagnostic as a check annotation without weakening the M17 gate.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
