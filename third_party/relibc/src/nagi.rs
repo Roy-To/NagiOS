@@ -567,6 +567,68 @@ pub unsafe extern "C" fn strcmp(first: *const c_char, second: *const c_char) -> 
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn strcat(destination: *mut c_char, source: *const c_char) -> *mut c_char {
+    if destination.is_null() || source.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return destination;
+    }
+    let mut destination_length = 0;
+    while unsafe { destination.add(destination_length).read() } != 0 {
+        destination_length += 1;
+    }
+    let mut source_index = 0;
+    loop {
+        let byte = unsafe { source.add(source_index).read() };
+        unsafe {
+            destination
+                .add(destination_length + source_index)
+                .write(byte)
+        };
+        if byte == 0 {
+            break;
+        }
+        source_index += 1;
+    }
+    destination
+}
+
+type BsearchComparator = unsafe extern "C" fn(*const c_void, *const c_void) -> c_int;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bsearch(
+    key: *const c_void,
+    base: *const c_void,
+    count: usize,
+    size: usize,
+    comparator: Option<BsearchComparator>,
+) -> *mut c_void {
+    if key.is_null() || base.is_null() || size == 0 || comparator.is_none() {
+        return ptr::null_mut();
+    }
+    let comparator = comparator.expect("checked comparator");
+    let mut first = 0;
+    let mut remaining = count;
+    while remaining != 0 {
+        let middle = first + remaining / 2;
+        let Some(offset) = middle.checked_mul(size) else {
+            return ptr::null_mut();
+        };
+        let candidate = unsafe { base.cast::<u8>().add(offset).cast::<c_void>() };
+        let comparison = unsafe { comparator(key, candidate) };
+        if comparison == 0 {
+            return candidate.cast_mut();
+        }
+        if comparison < 0 {
+            remaining /= 2;
+        } else {
+            first = middle + 1;
+            remaining -= remaining / 2 + 1;
+        }
+    }
+    ptr::null_mut()
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn strncmp(
     first: *const c_char,
     second: *const c_char,

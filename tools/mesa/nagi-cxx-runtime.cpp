@@ -23,6 +23,16 @@ extern "C" [[noreturn]] void __stack_chk_fail() {
     abort();
 }
 
+// libc++ uses this freestanding diagnostic entrypoint for invariant failures
+// even when exceptions are disabled. Keep the ABI real and terminate the
+// guest through Nagi's process boundary; do not import a host libc++abi.
+extern "C" [[noreturn]] void nagi_cxx_verbose_abort(const char *, ...)
+    __asm__("_ZNSt3__121__libcpp_verbose_abortEPKcz");
+
+extern "C" [[noreturn]] void nagi_cxx_verbose_abort(const char *, ...) {
+    abort();
+}
+
 static void *nagi_allocate(nagi_size_t size) {
     void *pointer = nagi_posix_malloc(size == 0 ? 1 : size);
     if (pointer == nullptr) {

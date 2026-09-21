@@ -618,6 +618,7 @@ mod tests {
         assert!(runtime.contains(
             "_ZNSt3__111this_thread9sleep_forERKNS_6chrono8durationIxNS2_5ratioILl1ELl1000000000EEEE"
         ));
+        assert!(runtime.contains("_ZNSt3__121__libcpp_verbose_abortEPKcz"));
         assert!(runtime.contains("-fno-rtti") || build_script.contains("-fno-rtti"));
         assert!(runtime.contains("-fno-exceptions") || build_script.contains("-fno-exceptions"));
     }
@@ -700,6 +701,8 @@ mod tests {
             "pub unsafe extern \"C\" fn getaddrinfo(",
             "pub unsafe extern \"C\" fn freeaddrinfo(",
             "pub unsafe extern \"C\" fn fork(",
+            "pub unsafe extern \"C\" fn strcat(",
+            "pub unsafe extern \"C\" fn bsearch(",
         ] {
             assert!(
                 relibc.contains(symbol),

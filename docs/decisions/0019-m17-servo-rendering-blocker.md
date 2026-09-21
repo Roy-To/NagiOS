@@ -1006,6 +1006,23 @@ These changes require a fresh target CI link result; M17 remains `BLOCKED`
 until target linking, UEFI, real QEMU, and real first-web-pixel evidence all
 pass.
 
+## Remediation continuation (2026-09-22, target libc++/stdlib ABI)
+
+Public snapshot CI run `35619764841` (head `f401b4a`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined diagnostics were
+`strcat`, `bsearch`, and
+`std::__1::__libcpp_verbose_abort(char const*, ...)`; UEFI and real QEMU were
+skipped.
+
+The M17 repair stream now adds target-owned `strcat` and comparator-based
+`bsearch` implementations to the relibc backend. It also maps libc++'s
+freestanding verbose-abort ABI to Nagi's real process abort boundary, keeping
+diagnostic failures terminating the guest rather than importing a host
+libc++abi. These changes require a fresh target CI link result; M17 remains
+`BLOCKED` until target linking, UEFI, real QEMU, and real first-web-pixel
+evidence all pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
