@@ -6,12 +6,12 @@ diff --git a/build.rs b/build.rs
 +    "NAGI_MESA_BUILD",
 +    "NAGI_RELIBC_HEADERS",
 +    "NAGI_TARGET_CLANG",
-@@ -434,0 +439,4 @@
-+
+@@ -435,0 +436,4 @@
 +    if target_os == "nagi" {
 +        builder = configure_nagi_bindgen(builder);
 +    }
-@@ -496,0 +505,94 @@
++
+@@ -495,3 +495,98 @@ fn build_bindings(build_dir: &Path, target: BuildTarget) {
 +/// Keep bindgen on the same freestanding Nagi C++/C header boundary as the
 +/// target compiler wrapper. cc-rs hides wrapper-internal include arguments
 +/// from libclang, and libclang also cannot consume Rust's custom `-user`
@@ -106,3 +106,7 @@ diff --git a/build.rs b/build.rs
 +
 +    builder
 +}
++
+ fn link_static_lib_binaries(build_dir: &Path) {
+     let target = env::var("TARGET").unwrap();
+     println!(

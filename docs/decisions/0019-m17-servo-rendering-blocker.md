@@ -610,6 +610,20 @@ header boundary; it does not import host headers or a host C++ runtime. The
 target build must verify bindgen and continue toward target link, UEFI, and
 real QEMU first-web-pixel acceptance.
 
+## Remediation continuation (2026-09-21, ordered-hunk placement repair)
+
+Public snapshot CI run `35545417125` (head `21cf313`) passed the target
+bootstrap and Mesa/kernel prerequisites, then failed compiling `mozjs_sys`:
+`cannot find function configure_nagi_bindgen in this scope`. The cause was not
+a missing Nagi API. Patch `0012` used line-number-only insertions; after the
+earlier ordered patches changed `build.rs` line offsets, the helper landed
+inside `link_static_lib_binaries` and the call landed inside the compiler
+argument loop. Patch `0012` now uses stable source context for the bindgen
+call and top-level helper placement. Applying the ordered build-script patches
+to the pinned source was rechecked successfully. This repair changes only
+patch reproducibility; the target build, UEFI, and real QEMU first-pixel gate
+remain required.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
