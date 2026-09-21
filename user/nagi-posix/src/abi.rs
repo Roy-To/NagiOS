@@ -569,6 +569,50 @@ unsafe fn c_path(path: *const c_char, output: &mut [u8]) -> Result<&[u8], c_int>
     Err(EINVAL)
 }
 
+unsafe fn is_root_path(path: *const c_char) -> Result<bool, c_int> {
+    if path.is_null() {
+        return Err(EINVAL);
+    }
+    let mut length = 0;
+    let mut only_slashes = true;
+    while length < 64 {
+        let byte = path.add(length).read() as u8;
+        if byte == 0 {
+            return Ok(length != 0 && only_slashes);
+        }
+        if byte != b'/' {
+            only_slashes = false;
+        }
+        length += 1;
+    }
+    Err(EINVAL)
+}
+
+/// Nagi 0.1 currently exposes one process root and a root-directory VFS.
+/// Changing to that same root is a real no-op; other directory namespaces are
+/// rejected until the VFS and process model provide them.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_chdir(path: *const c_char) -> c_int {
+    match is_root_path(path) {
+        Ok(true) => 0,
+        Ok(false) => write_errno_and_fail(ENOTSUP),
+        Err(error) => write_errno_and_fail(error),
+    }
+}
+
+/// Nagi processes already start in the single capability-scoped root. A
+/// request to chroot to that root preserves the actual process namespace;
+/// changing to another root is not represented as success without a VFS/root
+/// capability implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_chroot(path: *const c_char) -> c_int {
+    match is_root_path(path) {
+        Ok(true) => 0,
+        Ok(false) => write_errno_and_fail(ENOTSUP),
+        Err(error) => write_errno_and_fail(error),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_open(path: *const c_char, flags: c_int, _mode: c_int) -> c_int {
     let mut bytes = [0_u8; 64];
@@ -1078,6 +1122,13 @@ pub unsafe extern "C" fn setgroups(_count: c_int, _groups: *const u32) -> c_int 
 /// Report that boundary explicitly instead of returning fabricated success.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_setgid(_gid: c_uint) -> c_int {
+    write_errno_and_fail(ENOSYS)
+}
+
+/// Nagi 0.1 has capability-scoped identity, not a mutable POSIX uid store.
+/// Report that boundary explicitly instead of returning fabricated success.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_setuid(_uid: c_uint) -> c_int {
     write_errno_and_fail(ENOSYS)
 }
 

@@ -1103,6 +1103,23 @@ return, removing the warning without changing the target calling convention.
 The local `x86_64-unknown-none` compile now passes. M17 remains `BLOCKED`
 until the target link, UEFI, real QEMU, and real first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, target identity and root-directory ABI)
+
+Public snapshot CI run `35639577267` (head `6cc0d23`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation
+stages, then reached final target linking. The exact undefined diagnostics were
+`setuid`, `chroot`, and `chdir`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds relibc-owned `setuid`, `chroot`, and `chdir` symbols
+backed by Nagi POSIX adapters. Because M17's process starts in its single
+capability-scoped root, `chdir("/")` and `chroot("/")` preserve that actual
+namespace as no-ops; alternate namespaces fail closed with `ENOTSUP`, and
+mutable POSIX uid changes fail closed with `ENOSYS` because Nagi identity is
+capability-scoped rather than a mutable uid store. No host filesystem,
+privilege escalation, or fabricated success for unsupported namespaces is
+introduced. M17 remains `BLOCKED` until target linking, UEFI, real QEMU, and
+real first-web-pixel evidence pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
