@@ -9,8 +9,9 @@ pinned Mozilla configure layer to recognize it without relabeling Nagi as
 Linux/WASI or using a host runtime.
 
 The ordered patches also route Nagi C/C++ preprocessing through the existing
-freestanding compiler wrapper and suppress mozjs_sys's default host
-`stdc++` link request for `nagi-user`. They also bind Mozilla's archiver lookup
+freestanding compiler wrapper and suppress both mozjs_sys's explicit and
+`cc-rs`-inferred host `stdc++` link requests for `nagi-user`. They also bind
+Mozilla's archiver lookup
 to the pinned `llvm-ar` already used by the Nagi Mesa toolchain, rather than
 inventing a target-prefixed GNU binutils executable. Nagi's C++ sources
 therefore remain subject to the Nagi headers/toolchain and do not acquire a

@@ -1,11 +1,32 @@
 diff --git a/build.rs b/build.rs
 --- a/build.rs
 +++ b/build.rs
-@@ -495,6 +495,6 @@ fn link_static_lib_binaries(build_dir: &Path) {
+@@ -490,11 +490,13 @@ fn link_static_lib_binaries(build_dir: &Path) {
+-    if let Some(cxxstdlib) = env::var("CXXSTDLIB").ok() {
++    if target.contains("nagi-user") {
++        // Nagi owns the guest C++ runtime boundary; never import a host runtime.
++    } else if let Some(cxxstdlib) = env::var("CXXSTDLIB").ok() {
+         println!("cargo:rustc-link-lib={cxxstdlib}");
+     } else if target.contains("apple") || target.contains("freebsd") || target.contains("ohos") {
+         println!("cargo:rustc-link-lib=c++");
      } else if target.contains("windows") && target.contains("gnu") {
          println!("cargo:rustc-link-lib=stdc++");
--    } else if !target.contains("windows") && !target.contains("wasi") {
-+    } else if !target.contains("windows") && !target.contains("wasi") && !target.contains("nagi-user") {
+     } else if !target.contains("windows") && !target.contains("wasi") {
          // The build works without this for WASI, and specifying it means
          // needing to use the WASI-SDK's clang for linking, which is annoying.
          println!("cargo:rustc-link-lib=stdc++")
+     }
+@@ -620,7 +622,12 @@ fn get_common_cc(build_dir: &Path, target: BuildTarget) -> cc::Build {
++    if target_triple.contains("nagi-user") {
++        // cc-rs defaults to libstdc++ for C++ builds on unknown non-MSVC targets.
++        // Nagi must not inherit that host-runtime default.
++        builder.cpp_link_stdlib(None);
++    }
+     if get_cc_rs_env_os("CXXSTDLIB").is_none() {
+         let is_apple = target_triple.contains("apple");
+         let is_freebsd = target_triple.contains("freebsd");
+         let is_ohos = target_triple.contains("ohos");
+         if is_apple || is_freebsd || is_ohos {
+             builder.cpp_set_stdlib("c++");
+         }
+     }

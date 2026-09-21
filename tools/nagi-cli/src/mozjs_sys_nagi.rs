@@ -210,4 +210,25 @@ mod tests {
         assert!(mman_header.contains("#define PROT_NONE 0x0000"));
         assert!(mman_header.contains("#define MAP_FIXED 0x0010"));
     }
+
+    #[test]
+    fn mozjs_nagi_target_suppresses_all_host_cxx_runtime_links() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0003-nagi-no-host-cxx-runtime.patch"),
+        )
+        .expect("mozjs host C++ runtime patch");
+
+        assert!(
+            patch.contains("builder.cpp_link_stdlib(None);"),
+            "cc-rs must not infer stdc++ for the Nagi target"
+        );
+        assert!(
+            patch.contains("if target.contains(\"nagi-user\")"),
+            "MozJS's explicit link boundary must recognize the Nagi user target"
+        );
+    }
 }

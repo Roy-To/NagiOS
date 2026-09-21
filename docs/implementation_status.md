@@ -25,20 +25,20 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35562090985` at `a19cb94`
+**Last known repair checkpoint:** public CI run `35563574740` at `7a9f1ba`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
 boundary, the real jsglue allocator bridge, the Nagi `navigator.platform`
 branch, and both host jobs. The target job still reaches `Build Nagi user init`
 and fails with exit code 101 after the Servo target compilation phase. The
-the corrected navigator patch hunk and its clean-source apply probe pass. The
-target job now compiles the Nagi user init graph through the Albert adapter and
-reaches the next real target boundary: `error: linking with rust-lld failed:
-exit status: 1`. The linker detail was not available from the public job-log
-endpoint, so the target diagnostic wrapper is being extended to expose the
-first `undefined symbol`/`undefined reference`/`ld.lld` detail on the next run.
-Target link, UEFI, and real QEMU first-web-pixel evidence remain outstanding.
+target diagnostic wrapper exposed the exact linker detail:
+`rust-lld: error: unable to find library -lstdc++`. Root-cause tracing reached
+the pinned `mozjs_sys` `cc-rs` C++ build: its default non-MSVC target behavior
+adds `stdc++` independently of the explicit MozJS link branch. The tracked
+MozJS patch and patch-contract test now suppress that host-runtime default for
+`nagi-user`; target link, UEFI, and real QEMU first-web-pixel evidence remain
+required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -146,7 +146,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35562090985` passed the corrected navigator and Albert adapter boundaries, then failed at the real target link with `rust-lld` exit 1. The next CI pass exposes the first linker symbol/detail; target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35563574740` passed the corrected navigator and Albert adapter boundaries, then exposed the real target linker cause: `rust-lld` could not find `-lstdc++`, emitted by `mozjs_sys`'s `cc-rs` default C++ link behavior. The tracked Nagi patch now suppresses that host-runtime request; target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1064,6 +1064,18 @@ Verification checkpoint on 2026-09-20:
   unauthenticated audit, so the CI wrapper now extracts the first linker symbol
   or `ld.lld` error for the next evidence pass. No linker fallback or fake
   rendering was introduced.
+
+- Public snapshot CI run #41 (`35563574740`, head `7a9f1ba`) passed Ubuntu and
+  Windows host jobs, Servo bootstrap, Mesa Softpipe, package, kernel, and the
+  corrected Albert adapter. The diagnostic annotation exposed the exact target
+  linker cause: `rust-lld: error: unable to find library -lstdc++`. Tracing the
+  pinned `mozjs_sys` build showed that its `cc-rs` C++ `Build::compile()` path
+  adds the default `stdc++` request even though the existing Nagi patch already
+  suppresses MozJS's explicit link branch. Ordered patch `0003` now sets
+  `cpp_link_stdlib(None)` for `nagi-user` and makes the explicit branch fail
+  closed against any host `CXXSTDLIB` value. Its patch-boundary test and clean
+  source apply check pass locally. This is a target-owned link-boundary repair;
+  UEFI and real QEMU first-web-pixel evidence remain required.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

@@ -715,6 +715,25 @@ library, weaken the Nagi target ABI, or alter the first-web-pixel gate. The next
 target run must identify and repair the actual missing target-owned link input,
 then continue to UEFI and real QEMU first-web-pixel evidence.
 
+## Remediation continuation (2026-09-21, cc-rs host C++ runtime boundary)
+
+Public snapshot CI run `35563574740` (head `7a9f1ba`) exposed the exact linker
+diagnostic after the target user-init graph compiled:
+`rust-lld: error: unable to find library -lstdc++`. The pinned `mozjs_sys`
+build script had two independent C++ runtime paths. Its explicit
+`link_static_lib_binaries` branch was already patched for Nagi, but its
+`cc-rs` `Build::compile()` path retained `cc-rs`'s default `stdc++` request
+for unknown non-MSVC targets. This was an internal Nagi integration defect,
+not a missing host toolchain.
+
+Ordered MozJS patch `0003` now sets `builder.cpp_link_stdlib(None)` for
+`nagi-user` and places the explicit link branch behind the same target guard,
+including when `CXXSTDLIB` is present. The patch-boundary test, clean-source
+patch check, and patched `build.rs` probe pass locally. No host C++ runtime,
+fake library, or synthetic rendering path was added. The next target run must
+verify the link boundary and continue to UEFI and real QEMU first-web-pixel
+acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
