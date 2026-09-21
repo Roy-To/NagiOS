@@ -24,15 +24,15 @@ Servo/Surfman/Mesa/relibc/std vertical slice, then run the target build and
 real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
-**Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35610876131` at `45ab39c`
+**Last updated:** 2026-09-22
+**Last known repair checkpoint:** public CI run `35615722163` at `768405a`
 passed bootstrap, Mesa, package, kernel, and target compilation, then stopped
-at final target linking with undefined `__memcpy_chk`, the C++ ABI symbol
-`vtable for __cxxabiv1::__si_class_type_info`, and `dri2_init_drawable`.
-The current source repair adds a checked target memory entrypoint, explicit
-freestanding Mesa C++ flags, and a tracked Mesa DRI2 frontend patch. No host
-libc, host filesystem, host rendering, or synthetic output is used. Target
-link, UEFI, and real QEMU first-web-pixel evidence remain required.
+at final target linking with undefined `__assert_fail`, `getaddrinfo`, and
+`fork`. The current source repair adds target-owned assertion termination,
+real Nagi DNS-backed `getaddrinfo`/`freeaddrinfo`, and a truthful spawn-only
+`fork` ABI that returns `ENOSYS`. No host libc, host filesystem, host
+rendering, or synthetic output is used. Target link, UEFI, and real QEMU
+first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1236,6 +1236,17 @@ Verification checkpoint on 2026-09-20:
   included in Nagi's static `libdri`. These changes remain M17-internal and do
   not claim target-link or guest acceptance until CI reruns.
 
+- Public snapshot CI run `35615722163` (head `768405a`) passed bootstrap, the
+  M17 target dependency boundary, Mesa, package, kernel, and target
+  compilation, then reached final target linking. The exact diagnostics were
+  undefined `__assert_fail`, `getaddrinfo`, and `fork`; UEFI and real QEMU
+  were skipped. The next repair adds the target-owned `__assert_fail` abort
+  path, a standard `addrinfo` result backed by numeric IPv4 parsing or the
+  real Nagi DNS resolver, `freeaddrinfo`, and a fail-closed `fork` returning
+  `ENOSYS` because Nagi process creation is spawn-oriented. These changes
+  remain M17-internal and do not claim target-link or guest acceptance until
+  CI reruns.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
@@ -2301,11 +2312,9 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
-milestone. Public CI run `35610876131` is the current repair checkpoint:
+milestone. Public CI run `35615722163` is the current repair checkpoint:
 bootstrap, Mesa, package, kernel, and target compilation passed, then final
-linking exposed `__memcpy_chk`, the C++ ABI vtable for
-`__cxxabiv1::__si_class_type_info`, and `dri2_init_drawable`. The next
-target-owned memory/runtime and Mesa patch-boundary repair is implemented and
-must be pushed and verified; the required next evidence remains target link,
-UEFI, real QEMU, and a real guest-rendered first web pixel. M18 cannot start
-before formal M17 PASS.
+linking exposed `__assert_fail`, `getaddrinfo`, and `fork`. The next
+target-owned relibc repair is implemented and must be pushed and verified;
+the required next evidence remains target link, UEFI, real QEMU, and a real
+guest-rendered first web pixel. M18 cannot start before formal M17 PASS.

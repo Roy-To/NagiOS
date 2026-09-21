@@ -696,6 +696,10 @@ mod tests {
             "pub unsafe extern \"C\" fn fdopendir(",
             "pub unsafe extern \"C\" fn pow(",
             "pub unsafe extern \"C\" fn powf(",
+            "pub unsafe extern \"C\" fn __assert_fail(",
+            "pub unsafe extern \"C\" fn getaddrinfo(",
+            "pub unsafe extern \"C\" fn freeaddrinfo(",
+            "pub unsafe extern \"C\" fn fork(",
         ] {
             assert!(
                 relibc.contains(symbol),

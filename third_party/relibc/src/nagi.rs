@@ -38,14 +38,17 @@ unsafe extern "C" {
     fn nagi_posix_unlink(path: *const c_char) -> c_int;
     fn nagi_posix_unlinkat(fd: c_int, path: *const c_char, flags: c_int) -> c_int;
     fn nagi_posix_fdopendir(fd: c_int) -> *mut c_void;
+    fn nagi_posix_resolve_ipv4(name: *const c_char, output: *mut NagiIpv4Address) -> c_int;
     fn nagi_posix_mmap_file(length: usize, protection: c_int, fd: c_int, offset: usize) -> *mut u8;
     fn nagi_posix_mmap_at(address: *mut u8, length: usize, protection: c_int) -> *mut u8;
     fn nagi_posix_munmap(address: *mut u8, length: usize) -> c_int;
     fn nagi_posix_mprotect(address: *mut u8, length: usize, protection: c_int) -> c_int;
     fn nagi_posix_errno_location() -> *mut c_int;
+    fn abort() -> !;
 }
 
 const EINVAL: c_int = 22;
+const ENOSYS: c_int = 38;
 const ENOMEM: c_int = 12;
 const EBADF: c_int = 9;
 const EOVERFLOW: c_int = 75;
@@ -56,6 +59,283 @@ const MAP_ANONYMOUS: c_int = 0x0020;
 
 const NAGI_FILE_MEMORY: u32 = 1;
 const NAGI_FILE_FD: u32 = 2;
+
+const AF_UNSPEC: c_int = 0;
+const AF_INET: c_int = 2;
+const SOCK_STREAM: c_int = 1;
+const AI_PASSIVE: c_int = 1;
+const AI_CANONNAME: c_int = 2;
+const AI_NUMERICHOST: c_int = 4;
+const AI_NUMERICSERV: c_int = 0x400;
+const EAI_BADFLAGS: c_int = -1;
+const EAI_NONAME: c_int = -2;
+const EAI_FAIL: c_int = -4;
+const EAI_FAMILY: c_int = -6;
+const EAI_SERVICE: c_int = -8;
+const EAI_MEMORY: c_int = -10;
+
+#[repr(C)]
+struct NagiIpv4Address {
+    octets: [u8; 4],
+}
+
+#[repr(C)]
+struct NagiSockaddrIn {
+    family: u16,
+    port_be: u16,
+    address: u32,
+    zero: [u8; 8],
+}
+
+#[repr(C)]
+struct NagiAddrInfo {
+    flags: c_int,
+    family: c_int,
+    socktype: c_int,
+    protocol: c_int,
+    addrlen: u32,
+    canonname: *mut c_char,
+    address: *mut c_void,
+    next: *mut NagiAddrInfo,
+}
+
+unsafe fn c_string_len(pointer: *const c_char, limit: usize) -> Option<usize> {
+    if pointer.is_null() {
+        return None;
+    }
+    for length in 0..limit {
+        if unsafe { pointer.add(length).read() } == 0 {
+            return Some(length);
+        }
+    }
+    None
+}
+
+fn parse_ipv4(bytes: &[u8]) -> Option<[u8; 4]> {
+    let mut octets = [0_u8; 4];
+    let mut octet = 0;
+    let mut value = 0_u16;
+    let mut digits = 0;
+    for &byte in bytes.iter().chain(core::iter::once(&b'.')) {
+        if byte.is_ascii_digit() {
+            value = value.checked_mul(10)?.checked_add(u16::from(byte - b'0'))?;
+            if value > u16::from(u8::MAX) {
+                return None;
+            }
+            digits += 1;
+        } else if byte == b'.' && digits != 0 {
+            if octet >= octets.len() {
+                return None;
+            }
+            octets[octet] = value as u8;
+            octet += 1;
+            value = 0;
+            digits = 0;
+        } else {
+            return None;
+        }
+    }
+    (octet == octets.len()).then_some(octets)
+}
+
+fn parse_port(bytes: &[u8]) -> Option<u16> {
+    if bytes.is_empty() {
+        return Some(0);
+    }
+    let mut value = 0_u32;
+    for &byte in bytes {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(u32::from(byte - b'0'))?;
+    }
+    u16::try_from(value).ok()
+}
+
+unsafe fn free_addrinfo_node(info: *mut NagiAddrInfo) {
+    if info.is_null() {
+        return;
+    }
+    let node = unsafe { info.read() };
+    if !node.address.is_null() {
+        unsafe { nagi_posix_free(node.address.cast()) };
+    }
+    if !node.canonname.is_null() {
+        unsafe { nagi_posix_free(node.canonname.cast()) };
+    }
+    unsafe { nagi_posix_free(info.cast()) };
+}
+
+/// Target-owned POSIX name lookup for the network path used by Servo.
+///
+/// Numeric IPv4 literals are parsed locally; names are resolved through the
+/// real Nagi DNS/POSIX boundary. The result uses the standard `addrinfo` ABI,
+/// while its sockaddr layout remains compatible with Nagi's IPv4 connect
+/// boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getaddrinfo(
+    node: *const c_char,
+    service: *const c_char,
+    hints: *const c_void,
+    result: *mut *mut c_void,
+) -> c_int {
+    if result.is_null() {
+        return EAI_FAIL;
+    }
+    unsafe { result.write(ptr::null_mut()) };
+
+    let (flags, family, socktype, protocol) = if hints.is_null() {
+        (0, AF_UNSPEC, 0, 0)
+    } else {
+        let hint = unsafe { &*hints.cast::<NagiAddrInfo>() };
+        (hint.flags, hint.family, hint.socktype, hint.protocol)
+    };
+    if family != AF_UNSPEC && family != AF_INET {
+        return EAI_FAMILY;
+    }
+    if flags & !(AI_PASSIVE | AI_CANONNAME | AI_NUMERICHOST | AI_NUMERICSERV) != 0 {
+        return EAI_BADFLAGS;
+    }
+    if flags & AI_CANONNAME != 0 && node.is_null() {
+        return EAI_BADFLAGS;
+    }
+
+    let node_length = if node.is_null() {
+        0
+    } else if let Some(length) = unsafe { c_string_len(node, 256) } {
+        length
+    } else {
+        return EAI_NONAME;
+    };
+    let node_bytes = if node.is_null() {
+        if flags & AI_PASSIVE != 0 {
+            b"0.0.0.0".as_slice()
+        } else {
+            b"127.0.0.1".as_slice()
+        }
+    } else {
+        unsafe { core::slice::from_raw_parts(node.cast::<u8>(), node_length) }
+    };
+    if node_bytes.is_empty() {
+        return EAI_NONAME;
+    }
+
+    let service_bytes = if service.is_null() {
+        &[][..]
+    } else if let Some(length) = unsafe { c_string_len(service, 32) } {
+        unsafe { core::slice::from_raw_parts(service.cast::<u8>(), length) }
+    } else {
+        return EAI_SERVICE;
+    };
+    let port = if flags & AI_NUMERICSERV != 0 || !service_bytes.is_empty() {
+        match parse_port(service_bytes) {
+            Some(port) => port,
+            None => return EAI_SERVICE,
+        }
+    } else {
+        0
+    };
+
+    let octets = if let Some(octets) = parse_ipv4(node_bytes) {
+        octets
+    } else {
+        if flags & AI_NUMERICHOST != 0 || node_bytes.len() >= 256 {
+            return EAI_NONAME;
+        }
+        let mut query = [0_u8; 256];
+        unsafe {
+            ptr::copy_nonoverlapping(node_bytes.as_ptr(), query.as_mut_ptr(), node_bytes.len());
+            query[node_bytes.len()] = 0;
+        }
+        let mut address = NagiIpv4Address { octets: [0; 4] };
+        if unsafe { nagi_posix_resolve_ipv4(query.as_ptr().cast(), &mut address) } != 0 {
+            return EAI_FAIL;
+        }
+        address.octets
+    };
+
+    let address = unsafe { nagi_posix_malloc(mem::size_of::<NagiSockaddrIn>()) };
+    if address.is_null() {
+        return EAI_MEMORY;
+    }
+    unsafe {
+        address.cast::<NagiSockaddrIn>().write(NagiSockaddrIn {
+            family: AF_INET as u16,
+            port_be: port.to_be(),
+            address: u32::from_ne_bytes(octets),
+            zero: [0; 8],
+        });
+    }
+
+    let canonname = if flags & AI_CANONNAME != 0 {
+        let memory = unsafe { nagi_posix_malloc(node_length + 1) };
+        if memory.is_null() {
+            unsafe { nagi_posix_free(address) };
+            return EAI_MEMORY;
+        }
+        unsafe {
+            ptr::copy_nonoverlapping(node_bytes.as_ptr(), memory, node_bytes.len());
+            memory.add(node_bytes.len()).write(0);
+        }
+        memory.cast::<c_char>()
+    } else {
+        ptr::null_mut()
+    };
+    let info = unsafe { nagi_posix_malloc(mem::size_of::<NagiAddrInfo>()) };
+    if info.is_null() {
+        unsafe {
+            nagi_posix_free(address);
+            if !canonname.is_null() {
+                nagi_posix_free(canonname.cast());
+            }
+        }
+        return EAI_MEMORY;
+    }
+    unsafe {
+        info.cast::<NagiAddrInfo>().write(NagiAddrInfo {
+            flags,
+            family: AF_INET,
+            socktype: if socktype == 0 { SOCK_STREAM } else { socktype },
+            protocol,
+            addrlen: mem::size_of::<NagiSockaddrIn>() as u32,
+            canonname,
+            address: address.cast(),
+            next: ptr::null_mut(),
+        });
+        result.write(info.cast());
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn freeaddrinfo(mut result: *mut c_void) {
+    while !result.is_null() {
+        let info = result.cast::<NagiAddrInfo>();
+        let next = unsafe { (*info).next };
+        unsafe { free_addrinfo_node(info) };
+        result = next.cast();
+    }
+}
+
+/// Nagi creates processes through its spawn-oriented service boundary; fork's
+/// shared-address-space semantics are not part of the 0.1 kernel contract.
+/// Keep the ABI truthful by reporting the supported error rather than
+/// returning a fabricated child PID.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fork() -> c_int {
+    unsafe { set_errno(ENOSYS) };
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __assert_fail(
+    _expression: *const c_char,
+    _file: *const c_char,
+    _line: c_uint,
+    _function: *const c_char,
+) -> ! {
+    unsafe { abort() }
+}
 
 /// The target build does not compile relibc's Linux/Redox stdio module.  Keep
 /// the opaque C FILE ABI small and Nagi-owned for the real target facilities

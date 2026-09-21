@@ -990,6 +990,22 @@ device, host display, dynamic loader, or host runtime. These changes require a
 fresh target CI link result; M17 remains `BLOCKED` until target linking, UEFI,
 real QEMU, and real first-web-pixel evidence all pass.
 
+## Remediation continuation (2026-09-22, target network/process ABI)
+
+Public snapshot CI run `35615722163` (head `768405a`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined diagnostics were
+`__assert_fail`, `getaddrinfo`, and `fork`; UEFI and real QEMU were skipped.
+
+The M17 repair stream now adds target-owned assertion failure termination,
+`getaddrinfo`/`freeaddrinfo` using numeric IPv4 parsing or the real Nagi
+DNS/POSIX resolver, and a truthful `fork` ABI that reports `ENOSYS` because
+Nagi's process creation contract is spawn-oriented rather than fork-based.
+No host resolver, host process creation, or fabricated success result is used.
+These changes require a fresh target CI link result; M17 remains `BLOCKED`
+until target linking, UEFI, real QEMU, and real first-web-pixel evidence all
+pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
