@@ -1132,6 +1132,28 @@ pub unsafe extern "C" fn nagi_posix_setuid(_uid: c_uint) -> c_int {
     write_errno_and_fail(ENOSYS)
 }
 
+/// Nagi 0.1 does not expose Unix process groups or sessions. Keep these
+/// Tier-B POSIX operations explicit and fail closed instead of fabricating
+/// process-group state in the spawn-oriented runtime.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_setpgid(_pid: c_int, _pgid: c_int) -> c_int {
+    write_errno_and_fail(ENOSYS)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_setsid() -> c_int {
+    write_errno_and_fail(ENOSYS)
+}
+
+/// Unix signal delivery is not part of the current Nagi process ABI. Return
+/// the real `SIG_ERR` pointer value while setting errno, so callers cannot
+/// mistake the unsupported operation for a successfully installed handler.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_signal(_signal: c_int, _handler: *mut c_void) -> *mut c_void {
+    set_errno(ENOSYS);
+    usize::MAX as *mut c_void
+}
+
 // relibc owns the strong target libc abort implementation on Nagi. Keep this
 // user-space ABI fallback weak only for the target link; host builds must keep
 // a normal fallback because MSVC does not provide the target libc collision

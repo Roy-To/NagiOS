@@ -1120,6 +1120,22 @@ privilege escalation, or fabricated success for unsupported namespaces is
 introduced. M17 remains `BLOCKED` until target linking, UEFI, real QEMU, and
 real first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, process-group and signal ABI)
+
+Public snapshot CI run `35642763129` (head `5bbb66e`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation
+stages, then reached final target linking. The exact undefined diagnostics were
+`setpgid`, `setsid`, and `signal`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds relibc-owned process-group/session and classic signal
+symbols backed by Nagi POSIX adapters. Nagi 0.1's current process model is
+spawn-oriented and does not expose Unix process-group/session or signal
+delivery APIs, so `setpgid` and `setsid` return `ENOSYS`, while `signal`
+returns the ABI-correct `SIG_ERR` pointer and sets errno. This keeps the target
+link honest without claiming signal delivery, importing a host signal API, or
+fabricating process state. M17 remains `BLOCKED` until target linking, UEFI,
+real QEMU, and real first-web-pixel evidence pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

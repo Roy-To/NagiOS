@@ -25,14 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35639577267` at `6cc0d23`
+**Last known repair checkpoint:** public CI run `35642763129` at `5bbb66e`
 passed bootstrap, Mesa, package, kernel, and target compilation, then reached
-final target linking. The exact undefined symbols were `setuid`, `chroot`, and
-`chdir`. The current source repair adds Nagi-owned root-namespace handling for
-`chdir`/`chroot` and a fail-closed capability-identity `setuid` boundary,
-matching the existing `setgid` contract. No host libc, host filesystem, host
-rendering, or synthetic output is used. Target link, UEFI, and real QEMU
-first-web-pixel evidence remain required.
+final target linking. The exact undefined symbols were `setpgid`, `setsid`, and
+`signal`. The current source repair adds explicit Nagi POSIX boundaries for
+these unsupported Unix process-group and signal-delivery operations, returning
+real `ENOSYS`/`SIG_ERR` rather than fabricating state. No host libc, host
+filesystem, host rendering, or synthetic output is used. Target link, UEFI,
+and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1317,6 +1317,16 @@ Verification checkpoint on 2026-09-20:
   Nagi capability identity is not a mutable uid store. These changes remain
   M17-internal and do not claim target-link or guest acceptance until CI
   reruns.
+
+- Public snapshot CI run `35642763129` (head `5bbb66e`) passed the M17 target
+  dependency boundary, Mesa, package, kernel, and target compilation, then
+  reached final target linking. The exact diagnostics were undefined `setpgid`,
+  `setsid`, and `signal`; UEFI and QEMU were skipped. The current repair adds
+  relibc-owned symbols backed by Nagi POSIX adapters. Process groups/sessions
+  fail closed with `ENOSYS`, and unsupported signal installation returns the
+  real `SIG_ERR` pointer with errno because Nagi's current process ABI has no
+  Unix signal delivery. These changes remain M17-internal and do not claim
+  target-link or guest acceptance until CI reruns.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

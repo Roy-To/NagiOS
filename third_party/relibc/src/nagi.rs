@@ -48,8 +48,11 @@ unsafe extern "C" {
     fn nagi_posix_chdir(path: *const c_char) -> c_int;
     fn nagi_posix_chroot(path: *const c_char) -> c_int;
     fn nagi_posix_exit(code: c_int) -> !;
+    fn nagi_posix_setpgid(pid: c_int, pgid: c_int) -> c_int;
     fn nagi_posix_setgid(gid: c_uint) -> c_int;
     fn nagi_posix_setuid(uid: c_uint) -> c_int;
+    fn nagi_posix_setsid() -> c_int;
+    fn nagi_posix_signal(signal: c_int, handler: *mut c_void) -> *mut c_void;
     fn nagi_posix_waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
     fn abort() -> !;
 }
@@ -357,6 +360,28 @@ pub unsafe extern "C" fn setgid(gid: c_uint) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setuid(uid: c_uint) -> c_int {
     unsafe { nagi_posix_setuid(uid) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setpgid(pid: c_int, pgid: c_int) -> c_int {
+    unsafe { nagi_posix_setpgid(pid, pgid) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setsid() -> c_int {
+    unsafe { nagi_posix_setsid() }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn signal(
+    signal_number: c_int,
+    handler: Option<extern "C" fn(c_int)>,
+) -> Option<extern "C" fn(c_int)> {
+    let handler = handler.map_or(core::ptr::null_mut(), |function| {
+        function as *mut c_void
+    });
+    let result = unsafe { nagi_posix_signal(signal_number, handler) };
+    unsafe { core::mem::transmute::<usize, Option<extern "C" fn(c_int)>>(result as usize) }
 }
 
 #[unsafe(no_mangle)]
