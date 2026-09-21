@@ -367,6 +367,58 @@ pub unsafe extern "C" fn connect(
 
 #[linkage = "weak"]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn getpeername(
+    fd: c_int,
+    address: *mut c_void,
+    address_length: *mut c_uint,
+) -> c_int {
+    if address.is_null() || address_length.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let required = core::mem::size_of::<NagiSockaddrIpv4>() as c_uint;
+    if address_length.read() < required {
+        return write_errno_and_fail(EINVAL);
+    }
+    let (peer, port) = match crate::runtime::peer_name(fd) {
+        Ok(peer) => peer,
+        Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
+    };
+    address.cast::<NagiSockaddrIpv4>().write(NagiSockaddrIpv4 {
+        family: AF_INET as u16,
+        port_be: port.to_be(),
+        address: peer.0,
+    });
+    address_length.write(required);
+    0
+}
+
+/// Nagi 0.1 currently exposes only a client TCP service. Listener creation is
+/// not present in the user-space network service, so bind/listen fail closed
+/// instead of claiming a server endpoint that the guest cannot accept.
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bind(
+    socket: c_int,
+    _address: *const c_void,
+    _address_length: c_uint,
+) -> c_int {
+    if socket < 0 {
+        return write_errno_and_fail(EBADF);
+    }
+    write_errno_and_fail(ENOSYS)
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn listen(socket: c_int, _backlog: c_int) -> c_int {
+    if socket < 0 {
+        return write_errno_and_fail(EBADF);
+    }
+    write_errno_and_fail(ENOSYS)
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn send(
     fd: c_int,
     bytes: *const c_void,

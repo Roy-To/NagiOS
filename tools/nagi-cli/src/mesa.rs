@@ -823,6 +823,9 @@ mod tests {
             fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
         let runtime = fs::read_to_string(root.join("user/nagi-posix/src/runtime.rs"))
             .expect("Nagi POSIX runtime");
+        assert!(abi.contains("fn getpeername("));
+        assert!(abi.contains("fn bind("));
+        assert!(abi.contains("fn listen("));
         let network = fs::read_to_string(root.join("user/nagi-net/src/smoltcp_stack.rs"))
             .expect("Nagi smoltcp adapter");
         for symbol in ["fn readv(", "fn shutdown(", "fn setsockopt("] {
@@ -842,6 +845,7 @@ mod tests {
             "pub fn tcp_shutdown_write(",
             "pub fn tcp_set_nagle(",
             "pub fn tcp_set_timeout(",
+            "pub fn peer_name(",
         ] {
             assert!(
                 network.contains(operation),

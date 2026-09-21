@@ -25,6 +25,7 @@ enum FdEntry {
     },
     Socket {
         connected: bool,
+        peer: Option<(Ipv4Address, u16)>,
         read_shutdown: bool,
         write_shutdown: bool,
         nagle_enabled: bool,
@@ -178,6 +179,7 @@ pub fn socket() -> Result<i32, RuntimeError> {
     };
     *slot = Some(FdEntry::Socket {
         connected: false,
+        peer: None,
         read_shutdown: false,
         write_shutdown: false,
         nagle_enabled: true,
@@ -326,10 +328,25 @@ pub fn connect(fd: i32, address: Ipv4Address, port: u16) -> Result<(), RuntimeEr
     }
     let mut descriptors = FILE_DESCRIPTORS.lock();
     match descriptors.get_mut(fd as usize).and_then(Option::as_mut) {
-        Some(FdEntry::Socket { connected, .. }) => {
+        Some(FdEntry::Socket {
+            connected, peer, ..
+        }) => {
             *connected = true;
+            *peer = Some((address, port));
             Ok(())
         }
+        _ => Err(RuntimeError::InvalidFd),
+    }
+}
+
+pub fn peer_name(fd: i32) -> Result<(Ipv4Address, u16), RuntimeError> {
+    match descriptor(fd)? {
+        FdEntry::Socket {
+            connected: true,
+            peer: Some(peer),
+            ..
+        } => Ok(peer),
+        FdEntry::Socket { .. } => Err(RuntimeError::NotConnected),
         _ => Err(RuntimeError::InvalidFd),
     }
 }

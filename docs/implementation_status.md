@@ -25,17 +25,13 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35661181113` at `93107b7`
+**Last known repair checkpoint:** public CI run `35666372443` at `b1efeeb`
 passed bootstrap, Mesa, package, kernel, and target compilation, then reached
-final target linking. The preceding run exposed `hypotf`, GNU
-`std::__throw_length_error`, and GNU `basic_string::_M_dispose`; the current
-source repair adds freestanding hypot/hypotf and Nagi allocator-backed GNU C++
-ABI entrypoints. The latest run then exposed `std::nothrow`, `environ`, and
-`execvp`; the current source repair adds the target `abs` ABI, a bounded
-single-inheritance `__dynamic_cast`, and the real GNU tree successor helper.
-No host libc, host filesystem, host rendering, or synthetic output is used.
-Target link, UEFI, and real QEMU
-first-web-pixel evidence remain required.
+final target linking. The exact undefined symbols were `getpeername`, `bind`,
+and `listen`; the current source repair connects getpeername to the real Nagi
+client TCP peer endpoint and keeps listener-only APIs fail-closed. No host
+libc, host filesystem, host rendering, or synthetic output is used. Target
+link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1387,6 +1383,16 @@ Verification checkpoint on 2026-09-20:
    M17-internal and does not claim target-link or guest acceptance until CI
    reruns.
 
+ - Public snapshot CI run `35666372443` (head `b1efeeb`) passed target
+   bootstrap, dependency-boundary validation, Mesa, package, kernel, and
+   compilation stages, then reached final target linking. The exact undefined
+   symbols were `getpeername`, `bind`, and `listen`; UEFI and QEMU were
+   skipped. The next repair connects `getpeername` to the real Nagi smoltcp
+   client peer endpoint and keeps listener-only `bind`/`listen` fail-closed
+   with `ENOSYS`, because the current user-space network service has no
+   server-listener primitive. This remains M17-internal and does not claim
+   target-link or guest acceptance until CI reruns.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
@@ -2452,9 +2458,10 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
-milestone. Public CI run `35661181113` at `93107b7` passed bootstrap, Mesa,
+milestone. Public CI run `35666372443` at `b1efeeb` passed bootstrap, Mesa,
 package, kernel, and target compilation, then final linking exposed
-`std::nothrow`, `environ`, and `execvp` after the preceding hypot/GNU C++ ABI
-repair. The next target-owned ABI repair must be pushed and verified; the
-required next evidence remains target link, UEFI, real QEMU, and a real
-guest-rendered first web pixel. M18 cannot start before formal M17 PASS.
+`getpeername`, `bind`, and `listen` after the preceding integer/GNU container
+ABI repair. The next target-owned network ABI repair must be pushed and
+verified; the required next evidence remains target link, UEFI, real QEMU, and
+a real guest-rendered first web pixel. M18 cannot start before formal M17
+PASS.

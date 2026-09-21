@@ -1244,6 +1244,20 @@ No host C++ runtime, host container implementation, or rendering fallback is
 introduced. M17 remains `BLOCKED` until target linking, the UEFI loader, real
 QEMU, and the real Servo first-web-pixel gate pass.
 
+## Remediation continuation (2026-09-22, target client socket ABI)
+
+Public snapshot CI run `35666372443` (head `b1efeeb`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were
+`getpeername`, `bind`, and `listen`; UEFI and real QEMU were skipped.
+
+The next M17 repair connects `getpeername` to the real peer address retained by
+Nagi's smoltcp-backed client TCP descriptor. Nagi 0.1 does not yet expose a
+server-listener service, so `bind` and `listen` return the real `ENOSYS`
+boundary rather than claiming a fabricated listener or importing host sockets.
+M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and the
+real Servo first-web-pixel gate pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
