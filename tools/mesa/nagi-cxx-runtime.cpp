@@ -13,11 +13,18 @@ extern "C" int nagi_posix_sleep_ns(nagi_uintptr_t duration);
 extern "C" [[noreturn]] void abort();
 
 namespace std {
-struct nothrow_t;
+struct nothrow_t {};
 enum class align_val_t : nagi_size_t;
 } // namespace std
 
 extern "C" nagi_uintptr_t __stack_chk_guard = 0xd048c37519fcadfeULL;
+
+// Some target objects use the GNU spelling of the standard nothrow object even
+// though Nagi's normal headers are libc++.  The object is an empty tag, so a
+// Nagi-owned instance is sufficient for the ABI and does not import a host
+// C++ runtime.
+extern "C" const std::nothrow_t nagi_gnu_nothrow
+    __asm__("_ZSt7nothrow") = {};
 
 extern "C" [[noreturn]] void __stack_chk_fail() {
     abort();

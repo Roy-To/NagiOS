@@ -1194,6 +1194,39 @@ read acquisition, and the complementary write/unlock operations. It does not
 call host libm or host pthreads. M17 remains `BLOCKED` until target linking,
 the UEFI loader, real QEMU, and the real Servo first-web-pixel gate pass.
 
+## Remediation continuation (2026-09-22, target hypot and GNU C++ ABI)
+
+Public snapshot CI run `35658269625` (head `18a3442`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were `hypotf`,
+GNU `std::__throw_length_error(char const*)`, and GNU
+`basic_string::_M_dispose()`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds scaled freestanding `hypot`/`hypotf` over Nagi's
+bounded square-root implementation. It also supplies the concrete GNU C++ ABI
+length-error entrypoint and an allocator-backed C++11 `basic_string` dispose
+implementation. Local target clang output confirms the exact symbols, and the
+dispose path releases heap-backed strings through Nagi's allocator while
+leaving local-buffer strings intact. No host exception runtime, host
+allocator, or rendering fallback is introduced. M17 remains `BLOCKED` until
+target linking, the UEFI loader, real QEMU, and the real Servo first-web-pixel
+gate pass.
+
+## Remediation continuation (2026-09-22, environment and exec ABI)
+
+Public snapshot CI run `35661181113` (head `93107b7`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were GNU
+`std::nothrow`, `environ`, and `execvp`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds a Nagi-owned GNU nothrow object, publishes the real
+empty-start environment object used by Nagi user processes, and exposes
+`execvp` as a fail-closed `ENOSYS` boundary because Nagi's process model is
+spawn-oriented and has no Unix exec-in-place primitive. It does not route
+execution through the host or claim a process replacement that did not occur.
+M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and the
+real Servo first-web-pixel gate pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

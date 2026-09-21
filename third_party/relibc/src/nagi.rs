@@ -608,6 +608,14 @@ static mut NAGI_STDERR: NagiFile = NagiFile {
 #[unsafe(no_mangle)]
 pub static mut stderr: *mut c_void = ptr::addr_of_mut!(NAGI_STDERR).cast();
 
+// Nagi user processes currently start with an explicitly empty environment.
+// Keep the standard environ object real and writable at the ABI boundary; a
+// future process-service environment can replace this pointer during startup
+// without changing the relibc symbol contract. A null vector is the POSIX
+// representation of an environment containing no entries.
+#[unsafe(no_mangle)]
+pub static mut environ: *mut *mut c_char = ptr::null_mut();
+
 #[inline]
 unsafe fn set_errno(error: c_int) {
     let location = unsafe { nagi_posix_errno_location() };
@@ -1519,6 +1527,16 @@ pub unsafe extern "C" fn unlinkat(fd: c_int, path: *const c_char, flags: c_int) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fdopendir(fd: c_int) -> *mut c_void {
     unsafe { nagi_posix_fdopendir(fd) }
+}
+
+/// Nagi creates processes through its spawn-oriented service boundary and does
+/// not provide Unix exec-in-place semantics.  Returning the real ENOSYS error
+/// keeps execvp fail-closed instead of pretending that a guest process was
+/// replaced or routing execution through the host.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn execvp(_file: *const c_char, _argv: *const *const c_char) -> c_int {
+    unsafe { set_errno(ENOSYS) };
+    -1
 }
 
 #[derive(Clone, Copy, Default)]

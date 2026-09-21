@@ -624,6 +624,7 @@ mod tests {
         assert!(runtime.contains("__cxa_guard_abort"));
         assert!(runtime.contains("_ZNSt3__16locale7classicEv"));
         assert!(runtime.contains("_ZNSt3__15ctypeIcE2idE"));
+        assert!(runtime.contains("_ZSt7nothrow"));
         assert!(runtime.contains("_ZSt20__throw_length_errorPKc"));
         assert!(
             runtime.contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv")
@@ -768,6 +769,7 @@ mod tests {
             "pub unsafe extern \"C\" fn __assert_fail(",
             "pub unsafe extern \"C\" fn getaddrinfo(",
             "pub unsafe extern \"C\" fn freeaddrinfo(",
+            "pub unsafe extern \"C\" fn execvp(",
             "pub unsafe extern \"C\" fn fork(",
             "pub unsafe extern \"C\" fn strcat(",
             "pub unsafe extern \"C\" fn bsearch(",
@@ -785,6 +787,7 @@ mod tests {
             relibc.contains("const NAGI_FILE_FD: u32") && relibc.contains("nagi_posix_write_fd"),
             "stderr must use the Nagi descriptor-backed stream path"
         );
+        assert!(relibc.contains("pub static mut environ:"));
         let abi =
             fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
         for symbol in [
