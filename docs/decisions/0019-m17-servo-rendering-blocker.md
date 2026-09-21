@@ -624,6 +624,16 @@ to the pinned source was rechecked successfully. This repair changes only
 patch reproducibility; the target build, UEFI, and real QEMU first-pixel gate
 remain required.
 
+## Remediation continuation (2026-09-21, bindgen-call placement repair)
+
+The next public snapshot CI run `35546742142` (head `e832a26`) confirmed that
+the helper itself was top-level, but failed with Rust syntax errors because the
+line-number-only call hunk landed inside `builder.clang_arg(`, before its
+`arg` expression. The ordered patch now uses source context for the completed
+compiler-argument loop and the following WASI branch. Reapplying the ordered
+patches reproduces a complete call after the loop and before WASI handling;
+the target build, UEFI, and real QEMU first-pixel gate remain required.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

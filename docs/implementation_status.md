@@ -25,15 +25,15 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35545417125` at `21cf313`
+**Last known repair checkpoint:** public CI run `35546742142` at `e832a26`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, and the no-op Nagi mmap fault-handler
-boundary. It then exposed and reproduced an ordered-patch placement bug in
-the bindgen boundary: `configure_nagi_bindgen` was nested in the linker helper
-after line-number-only insertion. Patch `0012` now uses stable source context
-and places the helper at top level; target link, UEFI, and real QEMU
-first-web-pixel evidence remain outstanding.
+boundary. It then exposed and reproduced a second ordered-patch placement bug:
+the line-number-only bindgen call was inserted inside `builder.clang_arg(`
+after the previous placement repair. Patch `0012` now uses stable source
+context for both the call and the top-level helper; target link, UEFI, and
+real QEMU first-web-pixel evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -958,6 +958,17 @@ Verification checkpoint on 2026-09-20:
   the post-`0008` build script; the resulting helper is top-level and the call
   follows the compiler-argument loop. UEFI and first-web-pixel acceptance
   remain unexecuted.
+
+- Public snapshot CI run #31 (`35546742142`, head `e832a26`) verified the
+  corrected top-level helper placement but failed with Rust syntax errors
+  (`expected one of ... found arg`, followed by `String: From<()>` and an
+  extra-argument error). Reproduction showed the remaining line-number-only
+  bindgen-call hunk was inserted between `builder.clang_arg(` and its `arg`
+  expression. Patch `0012` now replaces the surrounding blank line with a
+  stable context hunk covering the completed compiler-argument loop and the
+  WASI branch. Ordered application now produces a syntactically correct
+  top-level call and helper. UEFI and first-web-pixel acceptance remain
+  unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
