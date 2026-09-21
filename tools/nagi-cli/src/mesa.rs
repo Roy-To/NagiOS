@@ -653,6 +653,8 @@ mod tests {
             "pub unsafe extern \"C\" fn accept(",
             "pub unsafe extern \"C\" fn getsockopt(",
             "pub unsafe extern \"C\" fn lstat(",
+            "pub unsafe extern \"C\" fn pow(",
+            "pub unsafe extern \"C\" fn powf(",
         ] {
             assert!(
                 relibc.contains(symbol),
@@ -671,6 +673,7 @@ mod tests {
             "pub unsafe extern \"C\" fn nagi_posix_accept(",
             "pub unsafe extern \"C\" fn nagi_posix_getsockopt(",
             "pub unsafe extern \"C\" fn nagi_posix_lstat(",
+            "pub unsafe extern \"C\" fn gettimeofday(",
         ] {
             assert!(
                 abi.contains(symbol),

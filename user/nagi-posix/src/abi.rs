@@ -654,9 +654,8 @@ pub unsafe extern "C" fn stat(path: *const c_char, output: *mut c_void) -> c_int
     result
 }
 
-#[linkage = "weak"]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn lstat(path: *const c_char, output: *mut c_void) -> c_int {
+pub unsafe extern "C" fn nagi_posix_lstat(path: *const c_char, output: *mut c_void) -> c_int {
     let fd = nagi_posix_open(path, 0, 0);
     if fd < 0 {
         return -1;
@@ -664,6 +663,12 @@ pub unsafe extern "C" fn lstat(path: *const c_char, output: *mut c_void) -> c_in
     let result = fill_stat(fd, output.cast());
     let _ = nagi_posix_close(fd);
     result
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lstat(path: *const c_char, output: *mut c_void) -> c_int {
+    nagi_posix_lstat(path, output)
 }
 
 #[unsafe(no_mangle)]
@@ -746,6 +751,23 @@ pub unsafe extern "C" fn clock_gettime(clock: c_int, output: *mut NagiTimespec) 
     output.write(NagiTimespec {
         tv_sec: (nanos / 1_000_000_000) as i64,
         tv_nsec: (nanos % 1_000_000_000) as i64,
+    });
+    0
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gettimeofday(output: *mut NagiTimeval, _timezone: *mut c_void) -> c_int {
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let nanos = match GuestClock.realtime_ns() {
+        Ok(nanos) => nanos,
+        Err(_) => return write_errno_and_fail(ENOSYS),
+    };
+    output.write(NagiTimeval {
+        seconds: (nanos / 1_000_000_000) as i64,
+        microseconds: ((nanos % 1_000_000_000) / 1_000) as i64,
     });
     0
 }

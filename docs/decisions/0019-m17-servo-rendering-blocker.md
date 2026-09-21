@@ -899,6 +899,24 @@ whitespace checks, and standalone relibc metadata compilation pass; the next
 public run must verify the target link and then continue through UEFI and real
 QEMU first-web-pixel acceptance.
 
+## Remediation continuation (2026-09-21, target clock/math facade)
+
+Public snapshot CI run `35597057716` (head `17bcc29`) passed the target
+compile boundary and reached final linking. The exact undefined symbols were
+`nagi_posix_lstat`, `gettimeofday`, and `pow`.
+
+The target POSIX layer now exports `nagi_posix_lstat` as the strong Nagi VFS
+facade and keeps `lstat` as its weak C wrapper. `gettimeofday` reads the real
+guest realtime source through `GuestClock`; it does not consult the Windows
+host clock. The target-owned relibc backend now provides `pow` and `powf`
+with a bounded IEEE-aware logarithm/exponential implementation because the
+upstream relibc math header module is excluded for `target_os = "nagi"`.
+This is a real freestanding math implementation, not a host math-library
+fallback or a constant symbol stub. Local formatting, CLI contract tests,
+clippy, whitespace checks, and standalone relibc metadata compilation pass;
+the next public run must verify target link, UEFI, and real QEMU first-web-
+pixel acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

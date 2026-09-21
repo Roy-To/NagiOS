@@ -7,8 +7,7 @@
 
 use core::{
     ffi::{
-        c_char, c_double, c_float, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong,
-        c_void,
+        c_char, c_double, c_float, c_int, c_long, c_longlong, c_uint, c_ulong, c_ulonglong, c_void,
     },
     mem, ptr,
 };
@@ -19,11 +18,7 @@ unsafe extern "C" {
     fn nagi_posix_free(pointer: *mut u8);
     fn nagi_posix_write_fd(fd: c_int, bytes: *const u8, length: usize) -> isize;
     fn nagi_posix_ioctl(fd: c_int, request: c_ulong, out: *mut c_void) -> c_int;
-    fn nagi_posix_accept(
-        socket: c_int,
-        address: *mut c_void,
-        address_len: *mut c_uint,
-    ) -> c_int;
+    fn nagi_posix_accept(socket: c_int, address: *mut c_void, address_len: *mut c_uint) -> c_int;
     fn nagi_posix_getsockopt(
         socket: c_int,
         level: c_int,
@@ -319,6 +314,175 @@ pub unsafe extern "C" fn gai_strerror(error: c_int) -> *const c_char {
         _ => GAI_NODATA,
     };
     message.as_ptr().cast()
+}
+
+const NAGI_POW_NAN: c_double = f64::from_bits(0x7ff8_0000_0000_0000);
+const NAGI_POW_INF: c_double = f64::from_bits(0x7ff0_0000_0000_0000);
+const NAGI_POW_LN2: c_double = 0.6931471805599453;
+const NAGI_POW_TWO53: c_double = 9_007_199_254_740_992.0;
+
+#[inline]
+fn nagi_pow_is_nan(value: c_double) -> bool {
+    (value.to_bits() & 0x7ff0_0000_0000_0000) == 0x7ff0_0000_0000_0000
+        && (value.to_bits() & 0x000f_ffff_ffff_ffff) != 0
+}
+
+#[inline]
+fn nagi_pow_is_inf(value: c_double) -> bool {
+    (value.to_bits() & 0x7fff_ffff_ffff_ffff) == 0x7ff0_0000_0000_0000
+}
+
+#[inline]
+fn nagi_pow_abs(value: c_double) -> c_double {
+    c_double::from_bits(value.to_bits() & 0x7fff_ffff_ffff_ffff)
+}
+
+#[inline]
+fn nagi_pow_is_negative(value: c_double) -> bool {
+    (value.to_bits() >> 63) != 0
+}
+
+fn nagi_pow_integer_info(value: c_double) -> (bool, bool) {
+    let absolute = nagi_pow_abs(value);
+    if absolute >= NAGI_POW_TWO53 {
+        return (true, false);
+    }
+    let integer = value as i64;
+    ((integer as c_double) == value, (integer & 1) != 0)
+}
+
+fn nagi_pow_ln_positive(value: c_double) -> c_double {
+    let mut bits = value.to_bits();
+    let raw_exponent = ((bits >> 52) & 0x7ff) as i32;
+    let exponent = if raw_exponent == 0 {
+        bits = (value * NAGI_POW_TWO53).to_bits();
+        (((bits >> 52) & 0x7ff) as i32 - 1023) - 52
+    } else {
+        raw_exponent - 1023
+    };
+    let mantissa = c_double::from_bits((bits & 0x000f_ffff_ffff_ffff) | 0x3ff0_0000_0000_0000);
+    let z = (mantissa - 1.0) / (mantissa + 1.0);
+    let z_squared = z * z;
+    let mut term = z;
+    let mut sum = 0.0;
+    let mut denominator = 1.0;
+    let mut index = 0;
+    while index < 24 {
+        sum += term / denominator;
+        term *= z_squared;
+        denominator += 2.0;
+        index += 1;
+    }
+    (exponent as c_double) * NAGI_POW_LN2 + 2.0 * sum
+}
+
+fn nagi_pow_exp(value: c_double) -> c_double {
+    if value > 709.782712893384 || nagi_pow_is_inf(value) {
+        return NAGI_POW_INF;
+    }
+    if value < -745.1332191019411 {
+        return 0.0;
+    }
+    let scaled = value / NAGI_POW_LN2;
+    let exponent = if scaled >= 0.0 {
+        (scaled + 0.5) as i32
+    } else {
+        (scaled - 0.5) as i32
+    };
+    let reduced = value - (exponent as c_double) * NAGI_POW_LN2;
+    let mut term = 1.0;
+    let mut sum = 1.0;
+    let mut divisor = 1.0;
+    let mut index = 1;
+    while index <= 24 {
+        divisor *= index as c_double;
+        term *= reduced;
+        sum += term / divisor;
+        index += 1;
+    }
+    if exponent > 1023 {
+        return NAGI_POW_INF;
+    }
+    if exponent < -1074 {
+        return 0.0;
+    }
+    let scale = if exponent >= -1022 {
+        c_double::from_bits(((exponent + 1023) as u64) << 52)
+    } else {
+        c_double::from_bits(1_u64 << (exponent + 1074))
+    };
+    sum * scale
+}
+
+fn nagi_pow_real(base: c_double, exponent: c_double) -> c_double {
+    if exponent == 0.0 || base == 1.0 {
+        return 1.0;
+    }
+    if nagi_pow_is_nan(base) || nagi_pow_is_nan(exponent) {
+        return NAGI_POW_NAN;
+    }
+    let base_negative = nagi_pow_is_negative(base);
+    let (exponent_integer, exponent_odd) = nagi_pow_integer_info(exponent);
+    if base_negative && !exponent_integer {
+        return NAGI_POW_NAN;
+    }
+    let absolute_base = nagi_pow_abs(base);
+    if nagi_pow_is_inf(exponent) {
+        if absolute_base == 1.0 {
+            return 1.0;
+        }
+        let grows = absolute_base > 1.0;
+        let positive = nagi_pow_is_negative(exponent) != grows;
+        let result = if positive { NAGI_POW_INF } else { 0.0 };
+        return if base_negative && exponent_odd {
+            -result
+        } else {
+            result
+        };
+    }
+    if absolute_base == 0.0 {
+        let result = if nagi_pow_is_negative(exponent) {
+            NAGI_POW_INF
+        } else {
+            0.0
+        };
+        return if base_negative && exponent_odd {
+            -result
+        } else {
+            result
+        };
+    }
+    if nagi_pow_is_inf(absolute_base) {
+        let result = if nagi_pow_is_negative(exponent) {
+            0.0
+        } else {
+            NAGI_POW_INF
+        };
+        return if base_negative && exponent_odd {
+            -result
+        } else {
+            result
+        };
+    }
+    let magnitude = nagi_pow_exp(exponent * nagi_pow_ln_positive(absolute_base));
+    if base_negative && exponent_odd {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
+/// Target-owned freestanding power implementation. The normal relibc math
+/// module is excluded for `target_os = "nagi"`; this bounded IEEE-aware
+/// implementation keeps Servo/Mesa numeric code off the host libc boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pow(x: c_double, y: c_double) -> c_double {
+    nagi_pow_real(x, y)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn powf(x: c_float, y: c_float) -> c_float {
+    nagi_pow_real(c_double::from(x), c_double::from(y)) as c_float
 }
 
 #[unsafe(no_mangle)]
