@@ -9,6 +9,7 @@ using nagi_uintptr_t = __UINTPTR_TYPE__;
 
 extern "C" void *nagi_posix_malloc(nagi_size_t size);
 extern "C" void nagi_posix_free(void *pointer);
+extern "C" int nagi_posix_sleep_ns(nagi_uintptr_t duration);
 extern "C" [[noreturn]] void abort();
 
 namespace std {
@@ -100,4 +101,16 @@ void operator delete(void *pointer, nagi_size_t, std::align_val_t) noexcept {
 
 void operator delete[](void *pointer, nagi_size_t, std::align_val_t) noexcept {
     nagi_posix_free(pointer);
+}
+
+// libc++'s freestanding Nagi path still references this concrete duration
+// overload. Keep the ABI entrypoint in the Nagi-owned runtime and delegate to
+// the existing GuestClock-backed POSIX sleep boundary.
+extern "C" void nagi_cxx_sleep_for(const long long *duration)
+    __asm__("_ZNSt3__111this_thread9sleep_forERKNS_6chrono8durationIxNS2_5ratioILl1ELl1000000000EEEE");
+
+extern "C" void nagi_cxx_sleep_for(const long long *duration) {
+    if (duration != nullptr && *duration > 0) {
+        (void)nagi_posix_sleep_ns(static_cast<nagi_uintptr_t>(*duration));
+    }
 }

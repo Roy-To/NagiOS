@@ -25,31 +25,18 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35574033249` at `1a6ca9e`
-confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
-package, kernel target build, pthread naming ABI repair, allocator header
-repair, condition-variable clock repair, the no-op Nagi mmap fault-handler
-boundary, the real jsglue allocator bridge, the Nagi `navigator.platform`
-branch, and both host jobs. The target job still reaches `Build Nagi user init`
-and fails with exit code 101 after the Servo target compilation phase. The
-target diagnostic wrapper exposed the exact linker detail:
-`rust-lld: error: unable to find library -lstdc++`. Root-cause tracing reached
-the pinned `mozjs_sys` `cc-rs` C++ build: its default non-MSVC target behavior
-adds `stdc++` independently of the explicit MozJS link branch. The tracked
-MozJS patch removed that one emission, but CI run `35566339373` proved that
-other pinned C++ build scripts still emitted the same host-runtime request.
-The pinned `cc 1.4.6` source and Nagi-specific patch at the shared `cc-rs`
-target boundary removed that host-runtime inference. CI run `35568601044` then
-reached final target linking and exposed duplicate Softpipe and libc symbols;
-the current repair makes Mesa archive extraction selective and keeps the
-Nagi POSIX `abort` fallback weak beneath relibc. CI run `35571409458` verified
-that duplicate symbols are gone and exposed the next target-owned runtime
-symbols: `__stack_chk_guard`, `__stack_chk_fail`, and `operator delete(void*)`.
-The current repair adds a freestanding Nagi C++ runtime shim backed by the
-real Nagi allocator and abort path. CI run `35574033249` verified that those
-C++ symbols were resolved and exposed the next Nagi POSIX ABI gap:
-`readv`, `shutdown`, and `setsockopt`. Target link, UEFI, and real QEMU
-first-web-pixel evidence remain required.
+**Last known repair checkpoint:** public CI run `35582239552` at `0a07fbd`
+passed bootstrap, Mesa, package, kernel, and both target C++/POSIX compile
+boundaries, then reached final target linking and exposed the next
+target-owned ABI gap: `pthread_equal`, `pthread_setname_np`, and
+`std::__1::this_thread::sleep_for` for nanoseconds. CI #46 first exposed a
+target-only `u32`/`usize` socket-option length mismatch; `0a07fbd` corrected
+that comparison and allowed the target to reach the linker. The current repair
+adds target-only weak pthread fallbacks backed by Nagi user-space thread
+metadata, and an exact libc++ Itanium ABI entrypoint that delegates to the
+existing GuestClock-backed `nagi_posix_sleep_ns`. It does not use host thread
+state, a host C++ runtime, or synthetic rendering. Target link, UEFI, and real
+QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -157,7 +144,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI runs `35563574740` and `35566339373` exposed the shared C++ runtime request; the pinned `cc 1.4.6` Nagi boundary now removes host runtime inference. Run `35568601044` reached final linking and exposed duplicate Softpipe/libc symbols; selective Mesa archive extraction and a weak Nagi POSIX abort fallback removed those duplicates in run `35571409458`. The freestanding C++ runtime shim in `1a6ca9e` resolved the next C++ ABI gap; CI `35574033249` then exposed missing `readv`, `shutdown`, and `setsockopt`. The current repair adds real Nagi POSIX vector I/O and socket option/shutdown paths backed by `nagi-net`/smoltcp. Target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI runs `35563574740` and `35566339373` exposed the shared C++ runtime request; the pinned `cc 1.4.6` Nagi boundary now removes host runtime inference. Run `35568601044` reached final linking and exposed duplicate Softpipe/libc symbols; selective Mesa archive extraction and a weak Nagi POSIX abort fallback removed those duplicates in run `35571409458`. The freestanding C++ runtime shim in `1a6ca9e` resolved the next C++ ABI gap; CI `35574033249` then exposed missing `readv`, `shutdown`, and `setsockopt`. CI `35580032533` exposed a target-only socket-option length type mismatch, fixed in `0a07fbd`; CI `35582239552` then exposed undefined `pthread_equal`, `pthread_setname_np`, and libc++ `this_thread::sleep_for`. The current repair adds real Nagi thread metadata fallbacks and the exact GuestClock-backed libc++ ABI entrypoint. Target link, UEFI, and real QEMU first-web-pixel evidence remain required. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1137,6 +1124,23 @@ Verification checkpoint on 2026-09-20:
   `ENOPROTOOPT`. The abort weak linkage is target-only so the host COFF build
   keeps its normal fallback. Target link, UEFI, and real QEMU first-web-pixel
   evidence remain required.
+
+- Public snapshot CI run #46 (`35580032533`, head `48f87a3`) compiled the
+  repaired network ABI far enough to expose a target-only `u32`/`usize`
+  comparison at `user/nagi-posix/src/abi.rs:413`. This was corrected by an
+  explicit target ABI-side cast in `0a07fbd`; no socket contract or acceptance
+  assertion was weakened.
+
+- Public snapshot CI run #47 (`35582239552`, head `0a07fbd`) passed bootstrap,
+  Mesa, package, kernel, and target compilation, then reached final user-init
+  linking. The exact linker diagnostics were undefined `pthread_equal`,
+  `pthread_setname_np`, and
+  `std::__1::this_thread::sleep_for(std::__1::chrono::duration<long long,
+  std::__1::ratio<1l, 1000000000l> > const&)`. The current repair provides
+  the first two as target-only weak Nagi thread-ABI fallbacks and defines the
+  exact libc++ symbol in the Nagi-owned C++ runtime, delegating sleep to the
+  real Nagi GuestClock boundary. UEFI and real QEMU first-web-pixel steps were
+  skipped and remain required.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
@@ -2203,9 +2207,10 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
- milestone. Public CI run `35568601044` is the current repair checkpoint:
-bootstrap, Mesa, package, and kernel passed, then final target linking
-reported duplicate Softpipe and `abort` symbols. The selective-archive and
-weak-fallback repair is ready for the next target run. The required next
-evidence remains target link, UEFI, real QEMU, and a real guest-rendered first
-web pixel; M18 cannot start before formal M17 PASS.
+ milestone. Public CI run `35582239552` is the current repair checkpoint:
+bootstrap, Mesa, package, kernel, and target compilation passed, then final
+target linking reported undefined `pthread_equal`, `pthread_setname_np`, and
+libc++ nanosecond `this_thread::sleep_for`. The current target-only weak
+thread-ABI fallbacks and GuestClock-backed C++ entrypoint are recorded in ADR
+0019. The required next evidence remains target link, UEFI, real QEMU, and a
+real guest-rendered first web pixel; M18 cannot start before formal M17 PASS.

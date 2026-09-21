@@ -809,6 +809,29 @@ target relibc ownership boundary without emitting weak COFF linkage for the
 Windows host checks. The next CI run must verify final target linking and then
 continue through UEFI and real QEMU first-web-pixel acceptance.
 
+## Remediation continuation (2026-09-21, target thread/C++ ABI)
+
+Public snapshot CI run `35580032533` (head `48f87a3`) first exposed a
+target-only `u32`/`usize` comparison in the repaired socket-option ABI. Commit
+`0a07fbd` corrected the `option_length` comparison and allowed the next run to
+reach final target linking.
+
+Run `35582239552` (head `0a07fbd`) passed the target compile boundary and
+reported the next real Nagi ABI gap: undefined `pthread_equal`,
+`pthread_setname_np`, and the libc++ nanosecond overload
+`std::__1::this_thread::sleep_for(std::__1::chrono::duration<long long,
+std::__1::ratio<1l, 1000000000l> > const&)`.
+
+The current repair keeps the existing relibc implementations as the preferred
+strong ownership where they are selected, and adds target-only weak fallbacks
+in `nagi-posix` for the final-link path. Thread names are copied into bounded
+Nagi user-space metadata; they never consult host thread state. The Nagi-owned
+C++ runtime now defines the exact libc++ Itanium symbol and delegates its
+nanosecond duration to `nagi_posix_sleep_ns`, which uses `GuestClock`. This is
+an ABI completion, not a host C++ runtime, fake sleep, or rendering shortcut.
+The next run must verify final target linking, UEFI, and real QEMU first-web-
+pixel acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

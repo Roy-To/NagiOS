@@ -8,13 +8,16 @@ use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 
-use crate::errno::{set_errno, EAGAIN, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS};
+use crate::errno::{set_errno, EAGAIN, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ERANGE};
 use nagi_pal::time::{Clock, GuestClock};
 
 const TLS_SLOTS: usize = 64;
 const THREAD_SLOTS: usize = 2;
 static NEXT_TLS_KEY: AtomicUsize = AtomicUsize::new(1);
 static mut TLS_VALUES: [[usize; TLS_SLOTS]; THREAD_SLOTS] = [[0; TLS_SLOTS]; THREAD_SLOTS];
+const THREAD_NAME_LENGTH: usize = 16;
+static mut THREAD_NAMES: [[u8; THREAD_NAME_LENGTH]; THREAD_SLOTS] =
+    [[0; THREAD_NAME_LENGTH]; THREAD_SLOTS];
 
 type PthreadStart = extern "C" fn(*mut c_void) -> *mut c_void;
 
@@ -989,6 +992,41 @@ pub unsafe extern "C" fn pthread_join(thread: usize, result: *mut *mut c_void) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_self() -> usize {
     libnagi::thread_self() as usize
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub extern "C" fn pthread_equal(first: *mut c_void, second: *mut c_void) -> c_int {
+    (first == second) as c_int
+}
+
+/// Store the bounded thread name in Nagi user-space thread metadata. This is
+/// the target fallback used when the relibc pthread object is not selected by
+/// the final link; it never consults host thread state.
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_setname_np(_thread: *mut c_void, name: *const c_char) -> c_int {
+    if name.is_null() {
+        return EINVAL;
+    }
+    let slot = current_thread_slot();
+    let names = core::ptr::addr_of_mut!(THREAD_NAMES);
+    let destination = &mut (*names)[slot];
+    destination.fill(0);
+    let mut length = 0;
+    while length < THREAD_NAME_LENGTH - 1 {
+        let byte = name.cast::<u8>().add(length).read();
+        if byte == 0 {
+            break;
+        }
+        destination[length] = byte;
+        length += 1;
+    }
+    if length == THREAD_NAME_LENGTH - 1 && name.cast::<u8>().add(length).read() != 0 {
+        destination.fill(0);
+        return ERANGE;
+    }
+    0
 }
 
 #[unsafe(no_mangle)]

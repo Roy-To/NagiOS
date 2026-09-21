@@ -615,6 +615,25 @@ mod tests {
         assert!(runtime.contains("__stack_chk_guard"));
         assert!(runtime.contains("nagi_posix_malloc"));
         assert!(runtime.contains("nagi_posix_free"));
+        assert!(runtime.contains(
+            "_ZNSt3__111this_thread9sleep_forERKNS_6chrono8durationIxNS2_5ratioILl1ELl1000000000EEEE"
+        ));
+    }
+
+    #[test]
+    fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let abi =
+            fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
+        for symbol in ["fn pthread_equal(", "fn pthread_setname_np("] {
+            assert!(
+                abi.contains(symbol),
+                "missing target thread ABI symbol: {symbol}"
+            );
+        }
     }
 
     #[test]

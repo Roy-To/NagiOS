@@ -7,6 +7,7 @@ pub const ENOMEM: i32 = 12;
 pub const EAGAIN: i32 = 11;
 pub const EACCES: i32 = 13;
 pub const ENOPROTOOPT: i32 = 92;
+pub const ERANGE: i32 = 34;
 
 #[allow(dead_code)]
 struct ErrnoCell(UnsafeCell<i32>);
