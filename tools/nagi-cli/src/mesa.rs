@@ -635,10 +635,15 @@ mod tests {
             fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
         assert!(relibc.contains("pub unsafe extern \"C\" fn _exit("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn exit("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn dup2("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn setgid("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn waitpid("));
+        assert!(relibc.contains("nagi_posix_dup2"));
         assert!(relibc.contains("nagi_posix_exit"));
+        assert!(relibc.contains("nagi_posix_setgid"));
         assert!(relibc.contains("nagi_posix_waitpid"));
         assert!(abi.contains("crate::process::native_wait"));
+        assert!(abi.contains("pub unsafe extern \"C\" fn dup2("));
         assert!(abi.contains("libnagi::exit((code as u8) as u64)"));
     }
 

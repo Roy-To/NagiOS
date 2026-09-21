@@ -1040,6 +1040,22 @@ the published Nagi process-exit syscall. No host libc, host process, or
 synthetic rendering path is introduced. M17 remains `BLOCKED` until target
 link, UEFI, real QEMU, and real first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, descriptor and identity ABI)
+
+Public snapshot CI run `35626833161` (head `d50f224`) passed the target
+bootstrap, dependency boundary, Mesa, package, kernel, and compilation
+stages, then failed at final target linking. The exact diagnostics were
+`vtable for __cxxabiv1::__si_class_type_info`, `dup2`, and `setgid`; UEFI and
+real QEMU were skipped.
+
+The next M17 repair connects regular-file `dup2` to Nagi's user-space
+descriptor table and exposes `setgid` through the capability-owned POSIX
+boundary, returning `ENOSYS` because Nagi 0.1 has no mutable POSIX gid store.
+Socket and pipe duplication remains explicitly unsupported until shared
+descriptor ownership is implemented; it is not represented by a shallow
+host-like copy. M17 remains `BLOCKED` until target link, UEFI, real QEMU, and
+real first-web-pixel evidence pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

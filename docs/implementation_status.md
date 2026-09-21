@@ -25,14 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35623171268` at `91c5669`
+**Last known repair checkpoint:** public CI run `35626833161` at `d50f224`
 passed bootstrap, Mesa, package, kernel, and target compilation, then stopped
-at final target linking with undefined
-`std::__1::__libcpp_verbose_abort(char const*, ...)`, `waitpid`, and `_exit`.
-The current source repair corrects the libc++ ABI spelling and connects POSIX
-wait/exit to Nagi's real spawn/join and process-exit boundaries. No host libc,
-host filesystem, host rendering, or synthetic output is used. Target link,
-UEFI, and real QEMU first-web-pixel evidence remain required.
+at final target linking with undefined `vtable for
+__cxxabiv1::__si_class_type_info`, `dup2`, and `setgid`. The current source
+repair connects descriptor duplication to the Nagi VFS descriptor table and
+keeps unsupported mutable POSIX identity fail-closed through errno. No host
+libc, host filesystem, host rendering, or synthetic output is used. Target
+link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -1267,6 +1267,17 @@ Verification checkpoint on 2026-09-20:
   M17-internal and do not claim target-link or guest acceptance until CI
   reruns.
 
+- Public snapshot CI run `35626833161` (head `d50f224`) passed bootstrap, the
+  M17 target dependency boundary, Mesa, package, kernel, and target
+  compilation, then reached final target linking. The exact diagnostics were
+  undefined `vtable for __cxxabiv1::__si_class_type_info`, `dup2`, and
+  `setgid`; UEFI and real QEMU were skipped. The next repair connects regular
+  file `dup2` to the Nagi descriptor table and exposes the capability-owned
+  `setgid` boundary as an explicit `ENOSYS` result; socket/pipe duplication
+  remains fail-closed until shared descriptor ownership exists. These changes
+  remain M17-internal and do not claim target-link or guest acceptance until
+  CI reruns.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
@@ -2332,10 +2343,10 @@ real QEMU guest rendered four bounded user-space GUI clients, routed actual
 VirtIO mouse and keyboard events through the M9 capability boundary, rendered
 Japanese text, and passed both M10 acceptance paths. M8 and M9 regression
 acceptance paths also remained PASS. M17 Servo Bootstrap is the active
-milestone. Public CI run `35623171268` is the current repair checkpoint:
+milestone. Public CI run `35626833161` is the current repair checkpoint:
 bootstrap, Mesa, package, kernel, and target compilation passed, then final
-linking exposed `std::__1::__libcpp_verbose_abort(char const*, ...)`,
-`waitpid`, and `_exit`. The next target-owned relibc/C++ runtime repair is
-implemented and must be pushed and verified; the required next evidence
-remains target link, UEFI, real QEMU, and a real guest-rendered first web
-pixel. M18 cannot start before formal M17 PASS.
+linking exposed `vtable for __cxxabiv1::__si_class_type_info`, `dup2`, and
+`setgid`. The next target-owned POSIX descriptor/identity repair is implemented
+and must be pushed and verified; the required next evidence remains target
+link, UEFI, real QEMU, and a real guest-rendered first web pixel. M18 cannot
+start before formal M17 PASS.

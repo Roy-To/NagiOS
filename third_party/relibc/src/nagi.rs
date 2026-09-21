@@ -44,7 +44,9 @@ unsafe extern "C" {
     fn nagi_posix_munmap(address: *mut u8, length: usize) -> c_int;
     fn nagi_posix_mprotect(address: *mut u8, length: usize, protection: c_int) -> c_int;
     fn nagi_posix_errno_location() -> *mut c_int;
+    fn nagi_posix_dup2(old_fd: c_int, new_fd: c_int) -> c_int;
     fn nagi_posix_exit(code: c_int) -> !;
+    fn nagi_posix_setgid(gid: c_uint) -> c_int;
     fn nagi_posix_waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
     fn abort() -> !;
 }
@@ -335,8 +337,18 @@ pub unsafe extern "C" fn _exit(code: c_int) -> ! {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn dup2(old_fd: c_int, new_fd: c_int) -> c_int {
+    unsafe { nagi_posix_dup2(old_fd, new_fd) }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn exit(code: c_int) -> ! {
     unsafe { nagi_posix_exit(code) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setgid(gid: c_uint) -> c_int {
+    unsafe { nagi_posix_setgid(gid) }
 }
 
 #[unsafe(no_mangle)]

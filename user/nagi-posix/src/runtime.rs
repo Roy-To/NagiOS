@@ -233,6 +233,29 @@ pub fn pipe() -> Result<(i32, i32), RuntimeError> {
     pipe2(0)
 }
 
+/// Duplicate a descriptor into the requested slot without crossing into a
+/// host descriptor table. The current M17 VFS descriptor model can safely
+/// duplicate regular files; sockets and pipe endpoints need shared ownership
+/// bookkeeping that is not yet part of this bounded slice, so they fail
+/// closed instead of pretending that a shallow copy is POSIX-correct.
+pub fn dup2(old_fd: i32, new_fd: i32) -> Result<i32, RuntimeError> {
+    let source = descriptor(old_fd)?;
+    if new_fd < 0 || new_fd as usize >= 32 {
+        return Err(RuntimeError::InvalidFd);
+    }
+    if old_fd == new_fd {
+        return Ok(new_fd);
+    }
+    if !matches!(source, FdEntry::File { .. }) {
+        return Err(RuntimeError::Unsupported);
+    }
+    if descriptor(new_fd).is_ok() {
+        close(new_fd)?;
+    }
+    FILE_DESCRIPTORS.lock()[new_fd as usize] = Some(source);
+    Ok(new_fd)
+}
+
 pub fn fcntl(fd: i32, command: i32, argument: i32) -> Result<i32, RuntimeError> {
     let mut descriptors = FILE_DESCRIPTORS.lock();
     let entry = descriptors

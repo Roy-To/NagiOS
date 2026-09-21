@@ -999,6 +999,19 @@ pub unsafe extern "C" fn fcntl(fd: c_int, command: c_int, argument: c_int) -> c_
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_dup2(old_fd: c_int, new_fd: c_int) -> c_int {
+    match crate::runtime::dup2(old_fd, new_fd) {
+        Ok(value) => value,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dup2(old_fd: c_int, new_fd: c_int) -> c_int {
+    nagi_posix_dup2(old_fd, new_fd)
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_read(_fd: c_int, _bytes: *mut u8, _length: usize) -> isize {
     if _bytes.is_null() {
         return write_errno_and_fail(EINVAL) as isize;
@@ -1063,6 +1076,13 @@ pub unsafe extern "C" fn getenv(_name: *const c_char) -> *mut c_char {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setgroups(_count: c_int, _groups: *const u32) -> c_int {
+    write_errno_and_fail(ENOSYS)
+}
+
+/// Nagi 0.1 has capability-scoped identity, not a mutable POSIX gid store.
+/// Report that boundary explicitly instead of returning fabricated success.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_setgid(_gid: c_uint) -> c_int {
     write_errno_and_fail(ENOSYS)
 }
 
