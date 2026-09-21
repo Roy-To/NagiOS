@@ -25,15 +25,15 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-21
-**Last known repair checkpoint:** public CI run `35546742142` at `e832a26`
+**Last known repair checkpoint:** public CI run `35547606552` at `b3e8bb5`
 confirmed the Nagi-owned FreeType/font boundary, mmap ABI, Mesa Softpipe,
 package, kernel target build, pthread naming ABI repair, allocator header
 repair, condition-variable clock repair, and the no-op Nagi mmap fault-handler
-boundary. It then exposed and reproduced a second ordered-patch placement bug:
-the line-number-only bindgen call was inserted inside `builder.clang_arg(`
-after the previous placement repair. Patch `0012` now uses stable source
-context for both the call and the top-level helper; target link, UEFI, and
-real QEMU first-web-pixel evidence remain outstanding.
+boundary. It then exposed and reproduced a bindgen include-order bug: libc++
+could not resolve clang's builtin `<stddef.h>` after bindgen placed the
+resource directory before libc++ headers. Patch `0012` now follows the
+existing Nagi compiler wrapper order, libc++ -> clang resource -> relibc/Mesa;
+target link, UEFI, and real QEMU first-web-pixel evidence remain outstanding.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -969,6 +969,17 @@ Verification checkpoint on 2026-09-20:
   WASI branch. Ordered application now produces a syntactically correct
   top-level call and helper. UEFI and first-web-pixel acceptance remain
   unexecuted.
+
+- Public snapshot CI run #32 (`35547606552`, head `b3e8bb5`) verified both
+  ordered-patch placement repairs and reached the real bindgen invocation
+  after the Servo/Mesa/kernel prerequisites. Clang then failed in pinned
+  libc++ `<cstddef>`/`<cstdint>` because the bindgen arguments placed the clang
+  resource include before `/usr/include/c++/v1`; libc++'s `include_next` could
+  not reach builtin `<stddef.h>`/`<stdint.h>`. The Nagi target compiler wrapper
+  already defines the correct order, so patch `0012` now matches it:
+  libc++ headers, clang resource headers, then relibc/Mesa compatibility
+  headers. This remains a freestanding compile-boundary repair; UEFI and
+  first-web-pixel acceptance remain unexecuted.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See

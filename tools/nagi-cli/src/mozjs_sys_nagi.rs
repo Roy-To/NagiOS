@@ -82,6 +82,20 @@ mod tests {
                 "missing Nagi bindgen boundary: {boundary}"
             );
         }
+        let bindgen_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0012-nagi-bindgen-header-boundary.patch"),
+        )
+        .expect("mozjs Nagi bindgen boundary patch");
+        let cxx_order = bindgen_patch
+            .find(".clang_arg(cxx_headers.to_string_lossy().into_owned())")
+            .expect("bindgen libc++ header order");
+        let resource_order = bindgen_patch
+            .find(".clang_arg(resource_dir + \"/include\")")
+            .expect("bindgen clang resource order");
+        assert!(
+            cxx_order < resource_order,
+            "bindgen must place libc++ before clang builtin headers"
+        );
 
         let thread_patch = std::fs::read_to_string(
             root.join("third_party/mozjs-sys-nagi-patches/0005-nagi-libcxx-thread-api.patch"),

@@ -634,6 +634,18 @@ compiler-argument loop and the following WASI branch. Reapplying the ordered
 patches reproduces a complete call after the loop and before WASI handling;
 the target build, UEFI, and real QEMU first-pixel gate remain required.
 
+## Remediation continuation (2026-09-21, bindgen include-order repair)
+
+Public snapshot CI run `35547606552` (head `b3e8bb5`) passed the ordered-patch
+placement boundary and reached the real bindgen invocation. Clang then failed
+in pinned libc++ `<cstddef>` and `<cstdint>` because the bindgen arguments put
+the clang resource directory before `/usr/include/c++/v1`; libc++'s
+`include_next` could not resolve builtin `<stddef.h>` and `<stdint.h>`. The
+existing Nagi target compiler wrapper establishes the correct freestanding
+order, so patch `0012` now applies libc++ headers first, clang resource
+headers second, and relibc/Mesa compatibility headers after them. UEFI and
+real QEMU first-pixel acceptance remain required.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
