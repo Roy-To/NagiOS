@@ -637,6 +637,30 @@ mod tests {
     }
 
     #[test]
+    fn m17_target_relibc_backend_covers_basic_c_runtime_symbols() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let relibc = fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
+            .expect("Nagi relibc backend");
+        for symbol in [
+            "pub unsafe extern \"C\" fn strcmp(",
+            "pub unsafe extern \"C\" fn atoi(",
+            "pub static mut stderr:",
+        ] {
+            assert!(
+                relibc.contains(symbol),
+                "missing target relibc C runtime symbol: {symbol}"
+            );
+        }
+        assert!(
+            relibc.contains("const NAGI_FILE_FD: u32") && relibc.contains("nagi_posix_write_fd"),
+            "stderr must use the Nagi descriptor-backed stream path"
+        );
+    }
+
+    #[test]
     fn m17_posix_network_abi_has_real_nagi_net_backends() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

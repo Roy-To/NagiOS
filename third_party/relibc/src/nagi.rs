@@ -37,6 +37,7 @@ const MAP_FIXED: c_int = 0x0010;
 const MAP_ANONYMOUS: c_int = 0x0020;
 
 const NAGI_FILE_MEMORY: u32 = 1;
+const NAGI_FILE_FD: u32 = 2;
 
 /// The target build does not compile relibc's Linux/Redox stdio module.  Keep
 /// the opaque C FILE ABI small and Nagi-owned for the real target facilities
@@ -46,12 +47,30 @@ const NAGI_FILE_MEMORY: u32 = 1;
 #[repr(C)]
 struct NagiFile {
     kind: u32,
+    fd: c_int,
     buffer: *mut u8,
     length: usize,
     capacity: usize,
     bufp: *mut *mut c_char,
     sizep: *mut usize,
 }
+
+// The target build does not compile relibc's upstream stdio module, so the
+// standard stream objects must be owned by this backend.  The pointer keeps
+// the generated C ABI (`FILE *stderr`) while the stream itself forwards writes
+// to Nagi's real descriptor-2 facade.
+static mut NAGI_STDERR: NagiFile = NagiFile {
+    kind: NAGI_FILE_FD,
+    fd: 2,
+    buffer: ptr::null_mut(),
+    length: 0,
+    capacity: 0,
+    bufp: ptr::null_mut(),
+    sizep: ptr::null_mut(),
+};
+
+#[unsafe(no_mangle)]
+pub static mut stderr: *mut c_void = ptr::addr_of_mut!(NAGI_STDERR).cast();
 
 #[inline]
 unsafe fn set_errno(error: c_int) {
@@ -128,6 +147,7 @@ pub unsafe extern "C" fn open_memstream(bufp: *mut *mut c_char, sizep: *mut usiz
     unsafe {
         stream.write(NagiFile {
             kind: NAGI_FILE_MEMORY,
+            fd: -1,
             buffer: ptr::null_mut(),
             length: 0,
             capacity: 0,
@@ -158,6 +178,14 @@ pub unsafe extern "C" fn fwrite(
     }
 
     let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind == NAGI_FILE_FD {
+        let written = unsafe { nagi_posix_write_fd(stream.fd, bytes.cast(), length) };
+        return if written <= 0 {
+            0
+        } else {
+            (written as usize) / size
+        };
+    }
     if stream.kind != NAGI_FILE_MEMORY {
         unsafe { set_errno(EBADF) };
         return 0;
@@ -185,6 +213,9 @@ pub unsafe extern "C" fn fflush(stream: *mut c_void) -> c_int {
         return 0;
     }
     let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind == NAGI_FILE_FD {
+        return 0;
+    }
     if stream.kind != NAGI_FILE_MEMORY {
         unsafe { set_errno(EBADF) };
         return EOF;
@@ -200,6 +231,13 @@ pub unsafe extern "C" fn fclose(stream: *mut c_void) -> c_int {
         return EOF;
     }
     let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind == NAGI_FILE_FD {
+        return if unsafe { nagi_posix_close(stream.fd) } == 0 {
+            0
+        } else {
+            EOF
+        };
+    }
     if stream.kind != NAGI_FILE_MEMORY {
         unsafe { set_errno(EBADF) };
         return EOF;
@@ -209,6 +247,25 @@ pub unsafe extern "C" fn fclose(stream: *mut c_void) -> c_int {
     // caller-owned buffer remains live until the caller releases it.
     unsafe { nagi_posix_free((stream as *mut NagiFile).cast::<u8>()) };
     0
+}
+
+/// Basic C string comparison for the Nagi target.  The upstream relibc
+/// implementation is not compiled under `target_os = "nagi"`; keep this
+/// entry point in the target-owned backend instead of linking a host libc.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strcmp(first: *const c_char, second: *const c_char) -> c_int {
+    let mut index = 0;
+    loop {
+        let left = unsafe { *first.cast::<u8>().add(index) };
+        let right = unsafe { *second.cast::<u8>().add(index) };
+        if left != right {
+            return c_int::from(left) - c_int::from(right);
+        }
+        if left == 0 {
+            return 0;
+        }
+        index += 1;
+    }
 }
 
 /// The Nagi target does not import a host libc for numeric conversion. Keep
@@ -574,6 +631,14 @@ pub unsafe extern "C" fn strtoul(
     base: c_int,
 ) -> c_ulong {
     unsafe { strtoull_l(input, endptr, base, ptr::null_mut()) as c_ulong }
+}
+
+/// Decimal integer conversion for the Nagi target.  This delegates to the
+/// target-owned parser above so whitespace, sign handling, overflow and errno
+/// behavior stay aligned with the other relibc numeric entry points.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atoi(input: *const c_char) -> c_int {
+    unsafe { strtol(input, ptr::null_mut(), 10) as c_int }
 }
 
 /// Marker used by the Nagi guest acceptance app to ensure the backend archive

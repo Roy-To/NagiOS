@@ -832,6 +832,28 @@ an ABI completion, not a host C++ runtime, fake sleep, or rendering shortcut.
 The next run must verify final target linking, UEFI, and real QEMU first-web-
 pixel acceptance.
 
+## Remediation continuation (2026-09-21, target relibc C runtime ABI)
+
+Public snapshot CI run `35585927884` (head `4b8cb81`) confirmed that the
+thread and libc++ ABI repair reached final target linking. The next diagnostic
+was undefined `strcmp`, `atoi`, and `stderr`.
+
+The source audit found that relibc's upstream `string`, `stdlib`, and `stdio`
+modules are conditionally excluded when `target_os = "nagi"`. The Nagi target
+therefore compiles only `third_party/relibc/src/nagi.rs`, so the existing
+upstream strong definitions never enter the target archive. The repair keeps
+the ownership in that Nagi-only backend: `strcmp` performs C byte comparison,
+`atoi` uses the existing target-owned decimal parser, and `stderr` points to a
+Nagi-owned descriptor-2 stream whose `fwrite` path calls the real
+`nagi_posix_write_fd` facade. This does not import host libc or provide a
+symbol-only success path; it completes a real target C runtime boundary.
+
+Local standalone metadata compilation, `cargo check -p nagi-cli --tests`,
+format, and whitespace checks pass. The host test binary remains unable to
+link locally because this Windows environment lacks MSVC `link.exe`; that is
+separate from target evidence. The next CI run must verify target archive
+linkage, then continue through UEFI and real QEMU first-web-pixel acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.
