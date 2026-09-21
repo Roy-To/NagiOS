@@ -1,3 +1,4 @@
+use core::time::Duration;
 use libnagi::storage::{FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE};
 use nagi_net::{Ipv4Address, NetError, SocketApi, SyscallDevice};
 use nagi_pal::sync::SpinMutex;
@@ -18,10 +19,25 @@ const POLLHUP: i16 = 0x0010;
 
 #[derive(Clone, Copy)]
 enum FdEntry {
-    File { handle: FileHandle, offset: usize },
-    Socket { connected: bool },
-    PipeRead { pipe: usize, nonblocking: bool },
-    PipeWrite { pipe: usize, nonblocking: bool },
+    File {
+        handle: FileHandle,
+        offset: usize,
+    },
+    Socket {
+        connected: bool,
+        read_shutdown: bool,
+        write_shutdown: bool,
+        nagle_enabled: bool,
+        timeout: Option<Duration>,
+    },
+    PipeRead {
+        pipe: usize,
+        nonblocking: bool,
+    },
+    PipeWrite {
+        pipe: usize,
+        nonblocking: bool,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -56,6 +72,8 @@ pub enum RuntimeError {
     InvalidFd,
     Storage(StorageError),
     Network(NetError),
+    NotConnected,
+    Shutdown,
     WouldBlock,
     BrokenPipe,
     Unsupported,
@@ -152,7 +170,13 @@ pub fn socket() -> Result<i32, RuntimeError> {
     else {
         return Err(RuntimeError::Storage(StorageError::Capacity));
     };
-    *slot = Some(FdEntry::Socket { connected: false });
+    *slot = Some(FdEntry::Socket {
+        connected: false,
+        read_shutdown: false,
+        write_shutdown: false,
+        nagle_enabled: true,
+        timeout: None,
+    });
     Ok(index as i32)
 }
 
@@ -238,27 +262,42 @@ pub fn fcntl(fd: i32, command: i32, argument: i32) -> Result<i32, RuntimeError> 
 }
 
 pub fn connect(fd: i32, address: Ipv4Address, port: u16) -> Result<(), RuntimeError> {
-    {
+    let (nagle_enabled, timeout) = {
         let descriptors = FILE_DESCRIPTORS.lock();
         match descriptors
             .get(fd as usize)
             .and_then(Option::as_ref)
             .copied()
         {
-            Some(FdEntry::Socket { connected: false }) => {}
-            Some(FdEntry::Socket { connected: true }) => return Err(RuntimeError::InvalidFd),
+            Some(FdEntry::Socket {
+                connected: false,
+                nagle_enabled,
+                timeout,
+                ..
+            }) => (nagle_enabled, timeout),
+            Some(FdEntry::Socket {
+                connected: true, ..
+            }) => return Err(RuntimeError::InvalidFd),
             _ => return Err(RuntimeError::InvalidFd),
         }
+    };
+    {
+        let mut network = NETWORK.lock();
+        let network = network.as_mut().ok_or(RuntimeError::NotInitialized)?;
+        network
+            .tcp_connect(address, port)
+            .map_err(RuntimeError::Network)?;
+        if let Err(error) = network
+            .tcp_set_nagle(nagle_enabled)
+            .and_then(|()| network.tcp_set_timeout(timeout))
+        {
+            let _ = network.tcp_close();
+            return Err(RuntimeError::Network(error));
+        }
     }
-    NETWORK
-        .lock()
-        .as_mut()
-        .ok_or(RuntimeError::NotInitialized)?
-        .tcp_connect(address, port)
-        .map_err(RuntimeError::Network)?;
     let mut descriptors = FILE_DESCRIPTORS.lock();
     match descriptors.get_mut(fd as usize).and_then(Option::as_mut) {
-        Some(FdEntry::Socket { connected }) => {
+        Some(FdEntry::Socket { connected, .. }) => {
             *connected = true;
             Ok(())
         }
@@ -275,7 +314,13 @@ pub fn close(fd: i32) -> Result<(), RuntimeError> {
             .copied()
             .ok_or(RuntimeError::InvalidFd)?
     };
-    if matches!(entry, FdEntry::Socket { .. }) {
+    if matches!(
+        entry,
+        FdEntry::Socket {
+            connected: true,
+            ..
+        }
+    ) {
         NETWORK
             .lock()
             .as_mut()
@@ -296,6 +341,91 @@ pub fn close(fd: i32) -> Result<(), RuntimeError> {
         return Err(RuntimeError::InvalidFd);
     }
     Ok(())
+}
+
+pub fn shutdown(fd: i32, how: i32) -> Result<(), RuntimeError> {
+    let entry = descriptor(fd)?;
+    let FdEntry::Socket { connected, .. } = entry else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    if !connected {
+        return Err(RuntimeError::NotConnected);
+    }
+
+    if how == 1 || how == 2 {
+        NETWORK
+            .lock()
+            .as_mut()
+            .ok_or(RuntimeError::NotInitialized)?
+            .tcp_shutdown_write()
+            .map_err(RuntimeError::Network)?;
+    }
+
+    let mut descriptors = FILE_DESCRIPTORS.lock();
+    let Some(Some(FdEntry::Socket {
+        read_shutdown: current_read_shutdown,
+        write_shutdown: current_write_shutdown,
+        ..
+    })) = descriptors.get_mut(fd as usize)
+    else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    if how == 0 || how == 2 {
+        *current_read_shutdown = true;
+    }
+    if how == 1 || how == 2 {
+        *current_write_shutdown = true;
+    }
+    Ok(())
+}
+
+pub fn set_tcp_nodelay(fd: i32, enabled: bool) -> Result<(), RuntimeError> {
+    let entry = descriptor(fd)?;
+    let FdEntry::Socket { connected, .. } = entry else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    if connected {
+        NETWORK
+            .lock()
+            .as_mut()
+            .ok_or(RuntimeError::NotInitialized)?
+            .tcp_set_nagle(!enabled)
+            .map_err(RuntimeError::Network)?;
+    }
+    let mut descriptors = FILE_DESCRIPTORS.lock();
+    match descriptors.get_mut(fd as usize).and_then(Option::as_mut) {
+        Some(FdEntry::Socket { nagle_enabled, .. }) => {
+            *nagle_enabled = !enabled;
+            Ok(())
+        }
+        _ => Err(RuntimeError::InvalidFd),
+    }
+}
+
+pub fn set_socket_timeout(fd: i32, timeout: Option<Duration>) -> Result<(), RuntimeError> {
+    let entry = descriptor(fd)?;
+    let FdEntry::Socket { connected, .. } = entry else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    if connected {
+        NETWORK
+            .lock()
+            .as_mut()
+            .ok_or(RuntimeError::NotInitialized)?
+            .tcp_set_timeout(timeout)
+            .map_err(RuntimeError::Network)?;
+    }
+    let mut descriptors = FILE_DESCRIPTORS.lock();
+    match descriptors.get_mut(fd as usize).and_then(Option::as_mut) {
+        Some(FdEntry::Socket {
+            timeout: current_timeout,
+            ..
+        }) => {
+            *current_timeout = timeout;
+            Ok(())
+        }
+        _ => Err(RuntimeError::InvalidFd),
+    }
 }
 
 fn close_pipe_endpoint(pipe_index: usize, reader: bool) {
@@ -323,13 +453,24 @@ pub fn read(fd: i32, destination: &mut [u8]) -> Result<usize, RuntimeError> {
             update_offset(fd, handle, offset + count)?;
             Ok(count)
         }
-        FdEntry::Socket { connected: true } => NETWORK
+        FdEntry::Socket {
+            connected: true,
+            read_shutdown: true,
+            ..
+        } => Ok(0),
+        FdEntry::Socket {
+            connected: true,
+            read_shutdown: false,
+            ..
+        } => NETWORK
             .lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
             .tcp_receive(destination)
             .map_err(RuntimeError::Network),
-        FdEntry::Socket { connected: false } => Err(RuntimeError::InvalidFd),
+        FdEntry::Socket {
+            connected: false, ..
+        } => Err(RuntimeError::InvalidFd),
         FdEntry::PipeRead { pipe, nonblocking } => read_pipe(pipe, nonblocking, destination),
         FdEntry::PipeWrite { .. } => Err(RuntimeError::InvalidFd),
     }
@@ -397,13 +538,44 @@ pub fn readiness(fd: i32, requested: i16) -> Result<i16, RuntimeError> {
             }
             Ok(ready)
         }
-        FdEntry::Socket { connected: true } => NETWORK
+        FdEntry::Socket {
+            connected: true,
+            read_shutdown: true,
+            write_shutdown,
+            ..
+        } => {
+            let mut ready = if requested & POLLIN != 0 {
+                POLLIN | POLLHUP
+            } else {
+                0
+            };
+            if !write_shutdown && requested & POLLOUT != 0 {
+                ready |= POLLOUT;
+            }
+            Ok(ready)
+        }
+        FdEntry::Socket {
+            connected: true,
+            write_shutdown: true,
+            ..
+        } => NETWORK
+            .lock()
+            .as_mut()
+            .ok_or(RuntimeError::NotInitialized)?
+            .tcp_ready(requested & !POLLOUT)
+            .map(|ready| ready | (requested & POLLOUT))
+            .map_err(RuntimeError::Network),
+        FdEntry::Socket {
+            connected: true, ..
+        } => NETWORK
             .lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
             .tcp_ready(requested)
             .map_err(RuntimeError::Network),
-        FdEntry::Socket { connected: false } => Ok(requested & 0x0004),
+        FdEntry::Socket {
+            connected: false, ..
+        } => Ok(requested & POLLOUT),
         FdEntry::PipeRead { pipe, .. } => pipe_readiness(pipe, requested),
         FdEntry::PipeWrite { pipe, .. } => pipe_write_readiness(pipe, requested),
     }
@@ -452,13 +624,24 @@ pub fn write(fd: i32, bytes: &[u8]) -> Result<usize, RuntimeError> {
             update_offset(fd, handle, bytes.len())?;
             Ok(bytes.len())
         }
-        FdEntry::Socket { connected: true } => NETWORK
+        FdEntry::Socket {
+            connected: true,
+            write_shutdown: true,
+            ..
+        } => Err(RuntimeError::Shutdown),
+        FdEntry::Socket {
+            connected: true,
+            write_shutdown: false,
+            ..
+        } => NETWORK
             .lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
             .tcp_send(bytes)
             .map_err(RuntimeError::Network),
-        FdEntry::Socket { connected: false } => Err(RuntimeError::InvalidFd),
+        FdEntry::Socket {
+            connected: false, ..
+        } => Err(RuntimeError::InvalidFd),
         FdEntry::PipeWrite { pipe, nonblocking } => write_pipe(pipe, nonblocking, bytes),
         FdEntry::PipeRead { .. } => Err(RuntimeError::InvalidFd),
     }
@@ -574,6 +757,8 @@ pub fn map_error(error: RuntimeError) -> i32 {
         RuntimeError::Network(NetError::DnsTimeout) => 11,
         RuntimeError::Network(NetError::ConnectionReset) => 104,
         RuntimeError::Network(NetError::Unsupported) => 95,
+        RuntimeError::NotConnected => 107,
+        RuntimeError::Shutdown => 108,
         RuntimeError::WouldBlock => 11,
         RuntimeError::BrokenPipe => 32,
         RuntimeError::Unsupported => 95,

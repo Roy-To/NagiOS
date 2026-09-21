@@ -792,6 +792,23 @@ This preserves the real Servo/Mesa link path; it does not provide host
 rendering or a synthetic pixel. The next run must verify the final target link,
 UEFI, and real QEMU first-web-pixel evidence.
 
+## Remediation continuation (2026-09-21, POSIX network ABI)
+
+Public snapshot CI run `35574033249` (head `1a6ca9e`) verified that the
+freestanding target C++ runtime resolved the previous `__stack_chk_*` and
+`operator delete(void*)` link gaps. The next target linker diagnostic was the
+Nagi POSIX network ABI: undefined `readv`, `shutdown`, and `setsockopt`.
+
+The current repair adds `readv` over the existing Nagi user-space read path,
+and maps socket shutdown, `TCP_NODELAY`, and POSIX receive/send timeouts from
+the POSIX descriptor runtime to the existing capability-scoped `nagi-net`
+SocketApi and smoltcp TCP socket. Unsupported socket options return
+`ENOPROTOOPT`; no host socket, fake success, or synthetic rendering path is
+used. The abort fallback is weak only for `target_os = "nagi"`, preserving the
+target relibc ownership boundary without emitting weak COFF linkage for the
+Windows host checks. The next CI run must verify final target linking and then
+continue through UEFI and real QEMU first-web-pixel acceptance.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

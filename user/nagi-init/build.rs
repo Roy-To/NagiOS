@@ -145,5 +145,8 @@ fn main() {
     if !status.success() {
         panic!("{} failed with {status}", compiler.display());
     }
-    println!("cargo:rustc-link-arg-bin=nagi-init={}", cxx_output.display());
+    println!(
+        "cargo:rustc-link-arg-bin=nagi-init={}",
+        cxx_output.display()
+    );
 }

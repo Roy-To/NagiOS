@@ -381,6 +381,44 @@ impl<D: Device> SmoltcpStack<D> {
         Ok(sent)
     }
 
+    /// Close only the transmit half of the retained TCP stream. This is the
+    /// user-space implementation boundary for POSIX `shutdown(SHUT_WR)`.
+    pub fn tcp_shutdown_write(&mut self) -> Result<(), NetError> {
+        let (Some(sockets), Some(handle)) = (self.tcp_sockets.as_mut(), self.tcp_handle) else {
+            return Err(NetError::ConnectionReset);
+        };
+        sockets.get_mut::<tcp::Socket>(handle).close();
+        Ok(())
+    }
+
+    /// Apply TCP_NODELAY to the retained stream. The setting is owned by
+    /// smoltcp rather than treated as a successful no-op.
+    pub fn tcp_set_nagle(&mut self, enabled: bool) -> Result<(), NetError> {
+        let (Some(sockets), Some(handle)) = (self.tcp_sockets.as_mut(), self.tcp_handle) else {
+            return Err(NetError::ConnectionReset);
+        };
+        sockets
+            .get_mut::<tcp::Socket>(handle)
+            .set_nagle_enabled(enabled);
+        Ok(())
+    }
+
+    /// Apply a bounded TCP timeout to the retained stream.
+    pub fn tcp_set_timeout(&mut self, timeout: Option<(u64, u32)>) -> Result<(), NetError> {
+        let (Some(sockets), Some(handle)) = (self.tcp_sockets.as_mut(), self.tcp_handle) else {
+            return Err(NetError::ConnectionReset);
+        };
+        let timeout = timeout.map(|(seconds, microseconds)| {
+            Duration::from_micros(
+                seconds
+                    .saturating_mul(1_000_000)
+                    .saturating_add(u64::from(microseconds)),
+            )
+        });
+        sockets.get_mut::<tcp::Socket>(handle).set_timeout(timeout);
+        Ok(())
+    }
+
     /// Receive available bytes from the retained TCP stream. This is a
     /// bounded polling operation; callers use `tcp_ready` for readiness.
     pub fn tcp_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {
@@ -587,6 +625,23 @@ impl<D: Device> SocketApi<D> {
 
     pub fn tcp_send(&mut self, data: &[u8]) -> Result<usize, NetError> {
         self.stack.tcp_send(data)
+    }
+
+    pub fn tcp_shutdown_write(&mut self) -> Result<(), NetError> {
+        self.stack.tcp_shutdown_write()
+    }
+
+    pub fn tcp_set_nagle(&mut self, enabled: bool) -> Result<(), NetError> {
+        self.stack.tcp_set_nagle(enabled)
+    }
+
+    pub fn tcp_set_timeout(
+        &mut self,
+        timeout: Option<core::time::Duration>,
+    ) -> Result<(), NetError> {
+        self.stack.tcp_set_timeout(
+            timeout.map(|duration| (duration.as_secs(), duration.subsec_nanos() / 1_000)),
+        )
     }
 
     pub fn tcp_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {

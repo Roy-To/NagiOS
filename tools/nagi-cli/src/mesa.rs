@@ -594,7 +594,9 @@ mod tests {
             .find("pub unsafe extern \"C\" fn abort() -> !")
             .expect("abort");
         let prefix = &abi[..abort];
-        assert!(prefix.ends_with("#[linkage = \"weak\"]\n#[unsafe(no_mangle)]\n"));
+        assert!(prefix.ends_with(
+            "#[cfg_attr(target_os = \"nagi\", linkage = \"weak\")]\n#[unsafe(no_mangle)]\n"
+        ));
     }
 
     #[test]
@@ -613,5 +615,42 @@ mod tests {
         assert!(runtime.contains("__stack_chk_guard"));
         assert!(runtime.contains("nagi_posix_malloc"));
         assert!(runtime.contains("nagi_posix_free"));
+    }
+
+    #[test]
+    fn m17_posix_network_abi_has_real_nagi_net_backends() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let abi =
+            fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
+        let runtime = fs::read_to_string(root.join("user/nagi-posix/src/runtime.rs"))
+            .expect("Nagi POSIX runtime");
+        let network = fs::read_to_string(root.join("user/nagi-net/src/smoltcp_stack.rs"))
+            .expect("Nagi smoltcp adapter");
+        for symbol in ["fn readv(", "fn shutdown(", "fn setsockopt("] {
+            assert!(abi.contains(symbol), "missing target ABI symbol: {symbol}");
+        }
+        for operation in [
+            "pub fn shutdown(",
+            "pub fn set_tcp_nodelay(",
+            "pub fn set_socket_timeout(",
+        ] {
+            assert!(
+                runtime.contains(operation),
+                "missing runtime operation: {operation}"
+            );
+        }
+        for operation in [
+            "pub fn tcp_shutdown_write(",
+            "pub fn tcp_set_nagle(",
+            "pub fn tcp_set_timeout(",
+        ] {
+            assert!(
+                network.contains(operation),
+                "missing smoltcp operation: {operation}"
+            );
+        }
     }
 }

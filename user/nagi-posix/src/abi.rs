@@ -6,8 +6,9 @@
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use core::time::Duration;
 
-use crate::errno::{set_errno, EAGAIN, EINVAL, ENOMEM, ENOSYS};
+use crate::errno::{set_errno, EAGAIN, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS};
 use nagi_pal::time::{Clock, GuestClock};
 
 const TLS_SLOTS: usize = 64;
@@ -156,15 +157,22 @@ pub unsafe extern "C" fn write(fd: c_int, bytes: *const u8, length: usize) -> is
 #[linkage = "weak"]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn writev(fd: c_int, vectors: *const Iovec, count: c_int) -> isize {
-    if vectors.is_null() || count < 0 {
+    const MAX_IOV: c_int = 1024;
+    if count < 0 || count > MAX_IOV || (count != 0 && vectors.is_null()) {
         return write_errno_and_fail(EINVAL) as isize;
     }
     let mut written = 0_isize;
     for index in 0..count as usize {
         let vector = vectors.add(index).read();
+        if vector.length == 0 {
+            continue;
+        }
+        if vector.base.is_null() {
+            return write_errno_and_fail(EINVAL) as isize;
+        }
         let result = write(fd, vector.base, vector.length);
         if result < 0 {
-            return result;
+            return if written == 0 { result } else { written };
         }
         written = written.saturating_add(result);
         if result as usize != vector.length {
@@ -174,9 +182,37 @@ pub unsafe extern "C" fn writev(fd: c_int, vectors: *const Iovec, count: c_int) 
     written
 }
 
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn readv(fd: c_int, vectors: *const Iovec, count: c_int) -> isize {
+    const MAX_IOV: c_int = 1024;
+    if count < 0 || count > MAX_IOV || (count != 0 && vectors.is_null()) {
+        return write_errno_and_fail(EINVAL) as isize;
+    }
+    let mut read = 0_isize;
+    for index in 0..count as usize {
+        let vector = vectors.add(index).read();
+        if vector.length == 0 {
+            continue;
+        }
+        if vector.base.is_null() {
+            return write_errno_and_fail(EINVAL) as isize;
+        }
+        let result = nagi_posix_read(fd, vector.base, vector.length);
+        if result < 0 {
+            return if read == 0 { result } else { read };
+        }
+        read = read.saturating_add(result);
+        if result as usize != vector.length {
+            break;
+        }
+    }
+    read
+}
+
 #[repr(C)]
 pub struct Iovec {
-    base: *const u8,
+    base: *mut u8,
     length: usize,
 }
 
@@ -256,6 +292,14 @@ pub unsafe extern "C" fn nagi_posix_default_gateway(output: *mut NagiIpv4Address
 
 const AF_INET: c_int = 2;
 const SOCK_STREAM: c_int = 1;
+const SOL_SOCKET: c_int = 1;
+const SO_RCVTIMEO: c_int = 20;
+const SO_SNDTIMEO: c_int = 21;
+const IPPROTO_TCP: c_int = 6;
+const TCP_NODELAY: c_int = 1;
+const SHUT_RD: c_int = 0;
+const SHUT_WR: c_int = 1;
+const SHUT_RDWR: c_int = 2;
 
 #[repr(C)]
 pub struct NagiSockaddrIpv4 {
@@ -331,6 +375,78 @@ pub unsafe extern "C" fn recv(
     match crate::runtime::read(fd, core::slice::from_raw_parts_mut(bytes.cast(), length)) {
         Ok(count) => count as isize,
         Err(error) => write_errno_and_fail(crate::runtime::map_error(error)) as isize,
+    }
+}
+
+#[repr(C)]
+struct NagiTimeval {
+    seconds: i64,
+    microseconds: i64,
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shutdown(fd: c_int, how: c_int) -> c_int {
+    if !matches!(how, SHUT_RD | SHUT_WR | SHUT_RDWR) {
+        return write_errno_and_fail(EINVAL);
+    }
+    match crate::runtime::shutdown(fd, how) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setsockopt(
+    fd: c_int,
+    level: c_int,
+    option_name: c_int,
+    option_value: *const c_void,
+    option_length: u32,
+) -> c_int {
+    if option_value.is_null() && option_length != 0 {
+        return write_errno_and_fail(EINVAL);
+    }
+    match (level, option_name) {
+        (IPPROTO_TCP, TCP_NODELAY) => {
+            if option_length != core::mem::size_of::<c_int>() || option_value.is_null() {
+                return write_errno_and_fail(EINVAL);
+            }
+            let bytes = core::slice::from_raw_parts(
+                option_value.cast::<u8>(),
+                core::mem::size_of::<c_int>(),
+            );
+            let enabled = c_int::from_ne_bytes(bytes.try_into().expect("c_int width")) != 0;
+            match crate::runtime::set_tcp_nodelay(fd, enabled) {
+                Ok(()) => 0,
+                Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+            }
+        }
+        (SOL_SOCKET, SO_RCVTIMEO) | (SOL_SOCKET, SO_SNDTIMEO) => {
+            if option_length as usize != core::mem::size_of::<NagiTimeval>()
+                || option_value.is_null()
+            {
+                return write_errno_and_fail(EINVAL);
+            }
+            let timeval = option_value.cast::<NagiTimeval>().read_unaligned();
+            if timeval.seconds < 0 || !(0..1_000_000).contains(&timeval.microseconds) {
+                return write_errno_and_fail(EINVAL);
+            }
+            let timeout = if timeval.seconds == 0 && timeval.microseconds == 0 {
+                None
+            } else {
+                Some(Duration::new(
+                    timeval.seconds as u64,
+                    timeval.microseconds as u32 * 1_000,
+                ))
+            };
+            match crate::runtime::set_socket_timeout(fd, timeout) {
+                Ok(()) => 0,
+                Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+            }
+        }
+        _ => write_errno_and_fail(ENOPROTOOPT),
     }
 }
 
@@ -756,10 +872,11 @@ pub unsafe extern "C" fn setgroups(_count: c_int, _groups: *const u32) -> c_int 
     write_errno_and_fail(ENOSYS)
 }
 
-// relibc owns the strong target libc abort implementation. Keep this
-// user-space ABI fallback weak so it remains usable when relibc is absent in
-// a narrow host/test link without colliding with the target libc symbol.
-#[linkage = "weak"]
+// relibc owns the strong target libc abort implementation on Nagi. Keep this
+// user-space ABI fallback weak only for the target link; host builds must keep
+// a normal fallback because MSVC does not provide the target libc collision
+// boundary and does not need a weak COFF symbol here.
+#[cfg_attr(target_os = "nagi", linkage = "weak")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn abort() -> ! {
     libnagi::exit(134)
