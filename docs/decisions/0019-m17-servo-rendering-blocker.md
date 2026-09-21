@@ -775,6 +775,23 @@ host library or stub was introduced, and the real rendering path is unchanged.
 The next target run must verify final link, UEFI, and the real QEMU first-web-
 pixel gate.
 
+## Remediation continuation (2026-09-21, target C++ runtime symbols)
+
+Public snapshot CI run `35571409458` (head `8f2a773`) confirmed that the
+duplicate Softpipe and `abort` symbols were removed and reached the final
+target link. The linker then exposed the next target-owned ABI gap:
+`__stack_chk_guard`, `__stack_chk_fail`, and `operator delete(void*)` were
+unresolved.
+
+The tracked Nagi-owned `tools/mesa/nagi-cxx-runtime.cpp` is compiled by
+`user/nagi-init/build.rs` for `x86_64-unknown-none` without host C++ headers or
+runtime libraries. It provides the required allocation and deallocation
+operators through the real `nagi_posix_malloc`/`nagi_posix_free` allocator
+boundary and routes stack-protector failure through the target abort boundary.
+This preserves the real Servo/Mesa link path; it does not provide host
+rendering or a synthetic pixel. The next run must verify the final target link,
+UEFI, and real QEMU first-web-pixel evidence.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

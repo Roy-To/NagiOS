@@ -64,6 +64,13 @@ fn main() {
     for source in &sources {
         println!("cargo:rerun-if-changed={}", source.display());
     }
+    let cxx_runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tools")
+        .join("mesa")
+        .join("nagi-cxx-runtime.cpp");
+    println!("cargo:rerun-if-changed={}", cxx_runtime.display());
 
     let compiler = env::var_os("NAGI_TARGET_CLANG")
         .map(PathBuf::from)
@@ -113,4 +120,30 @@ fn main() {
         }
         println!("cargo:rustc-link-arg-bin=nagi-init={}", output.display());
     }
+
+    let cxx_output = out_dir.join("nagi-cxx-runtime.o");
+    let status = Command::new(&compiler)
+        .args([
+            "--target=x86_64-unknown-none",
+            "-x",
+            "c++",
+            "-ffreestanding",
+            "-fno-stack-protector",
+            "-fno-builtin",
+            "-fno-asynchronous-unwind-tables",
+            "-fno-exceptions",
+            "-fno-rtti",
+            "-nostdinc",
+            "-mcmodel=large",
+            "-c",
+        ])
+        .arg(&cxx_runtime)
+        .arg("-o")
+        .arg(&cxx_output)
+        .status()
+        .unwrap_or_else(|error| panic!("failed to start {}: {error}", compiler.display()));
+    if !status.success() {
+        panic!("{} failed with {status}", compiler.display());
+    }
+    println!("cargo:rustc-link-arg-bin=nagi-init={}", cxx_output.display());
 }

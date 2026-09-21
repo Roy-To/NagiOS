@@ -596,4 +596,22 @@ mod tests {
         let prefix = &abi[..abort];
         assert!(prefix.ends_with("#[linkage = \"weak\"]\n#[unsafe(no_mangle)]\n"));
     }
+
+    #[test]
+    fn m17_target_cxx_runtime_is_linked_from_nagi_allocator_boundary() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let build_script = fs::read_to_string(root.join("user/nagi-init/build.rs"))
+            .expect("Nagi init build script");
+        let runtime = fs::read_to_string(root.join("tools/mesa/nagi-cxx-runtime.cpp"))
+            .expect("Nagi C++ runtime shim");
+        assert!(build_script.contains("nagi-cxx-runtime.cpp"));
+        assert!(build_script.contains("-x") && build_script.contains("c++"));
+        assert!(runtime.contains("operator delete"));
+        assert!(runtime.contains("__stack_chk_guard"));
+        assert!(runtime.contains("nagi_posix_malloc"));
+        assert!(runtime.contains("nagi_posix_free"));
+    }
 }
