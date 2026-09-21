@@ -872,6 +872,13 @@ and returns `ENOTTY` for unsupported device-control requests without calling a
 host ioctl. No host synchronization, resolver, device, or fake-success path is
 introduced. UEFI and real QEMU first-web-pixel acceptance remain required.
 
+The follow-up run `35591875406` (head `697dd08`) passed bootstrap, Mesa,
+package, and kernel but stopped before linking with
+`error[E0412]: cannot find type AtomicU32` in `user/nagi-posix/src/abi.rs`.
+The implementation imported `AtomicUsize` but omitted `AtomicU32`; the
+corrective import is now added. Target link and all later acceptance stages
+remain unverified.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

@@ -5,7 +5,7 @@
 
 use core::ffi::{c_char, c_int, c_ulong, c_void};
 use core::ptr;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
 
 use crate::errno::{
