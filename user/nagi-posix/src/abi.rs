@@ -410,7 +410,7 @@ pub unsafe extern "C" fn setsockopt(
     }
     match (level, option_name) {
         (IPPROTO_TCP, TCP_NODELAY) => {
-            if option_length != core::mem::size_of::<c_int>() || option_value.is_null() {
+            if option_length as usize != core::mem::size_of::<c_int>() || option_value.is_null() {
                 return write_errno_and_fail(EINVAL);
             }
             let bytes = core::slice::from_raw_parts(
