@@ -1132,6 +1132,14 @@ pub unsafe extern "C" fn nagi_posix_setuid(_uid: c_uint) -> c_int {
     write_errno_and_fail(ENOSYS)
 }
 
+/// The initial Nagi user process is the kernel's published root process with
+/// pid 1. Return that real process identity through the POSIX facade rather
+/// than consulting a host process or inventing a per-thread identifier.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_getpid() -> c_int {
+    1
+}
+
 /// Nagi 0.1 does not expose Unix process groups or sessions. Keep these
 /// Tier-B POSIX operations explicit and fail closed instead of fabricating
 /// process-group state in the spawn-oriented runtime.

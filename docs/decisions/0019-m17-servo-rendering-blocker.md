@@ -1164,6 +1164,21 @@ not import host libm or claim unsupported rendering behavior. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and the real Servo
 first-web-pixel gate pass.
 
+## Remediation continuation (2026-09-22, target C++ RTTI/process identity ABI)
+
+Public snapshot CI run `35652406841` (head `a188f9a`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were the
+Itanium ABI vtables for `__cxxabiv1::__class_type_info` and
+`__cxxabiv1::__si_class_type_info`, plus `getpid`; UEFI and real QEMU were
+skipped.
+
+The next M17 repair adds the required virtual slot order to the Nagi-owned
+freestanding C++ runtime so the target links without importing libc++abi. It
+also exposes the kernel-published root process identity through the Nagi POSIX
+facade and relibc `getpid`. M17 remains `BLOCKED` until target linking, the
+UEFI loader, real QEMU, and the real Servo first-web-pixel gate pass.
+
 ## Exit criteria
 
 Reopen M17 from this ADR after the guest rendering dependency is available.

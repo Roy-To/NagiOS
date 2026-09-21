@@ -209,3 +209,59 @@ extern "C" const void *nagi_cxx_locale_classic() {
 // number. A pointer-sized target object matches the pinned x86-64 libc++ ABI.
 extern "C" nagi_uintptr_t nagi_ctype_char_id
     __asm__("_ZNSt3__15ctypeIcE2idE") = 0;
+
+// The pinned target objects retain the Itanium ABI type-info vtable
+// references even though the Nagi build disables RTTI and exceptions. Keep
+// the ABI boundary self-contained instead of importing libc++abi. The virtual
+// slot order follows __shim_type_info/__class_type_info: destructor pair,
+// noop1, noop2, can_catch, search_above_dst, search_below_dst, and
+// has_unambiguous_public_base. These methods are not a browser-facing RTTI
+// service; they make the target's statically linked ABI objects well-formed.
+namespace __cxxabiv1 {
+struct nagi_dynamic_cast_info;
+
+class __class_type_info {
+  public:
+    virtual ~__class_type_info();
+    virtual void noop1() const;
+    virtual void noop2() const;
+    virtual bool can_catch(const void *, void *&) const;
+    virtual void search_above_dst(nagi_dynamic_cast_info *, const void *,
+                                  const void *, int, bool) const;
+    virtual void search_below_dst(nagi_dynamic_cast_info *, const void *, int,
+                                  bool) const;
+    virtual void has_unambiguous_public_base(nagi_dynamic_cast_info *, void *,
+                                             int) const;
+};
+
+__class_type_info::~__class_type_info() {}
+void __class_type_info::noop1() const {}
+void __class_type_info::noop2() const {}
+bool __class_type_info::can_catch(const void *, void *&) const { return false; }
+void __class_type_info::search_above_dst(nagi_dynamic_cast_info *, const void *,
+                                         const void *, int, bool) const {}
+void __class_type_info::search_below_dst(nagi_dynamic_cast_info *, const void *,
+                                         int, bool) const {}
+void __class_type_info::has_unambiguous_public_base(nagi_dynamic_cast_info *,
+                                                    void *, int) const {}
+
+class __si_class_type_info final : public __class_type_info {
+  public:
+    ~__si_class_type_info() override;
+    void search_above_dst(nagi_dynamic_cast_info *, const void *, const void *,
+                          int, bool) const override;
+    void search_below_dst(nagi_dynamic_cast_info *, const void *, int,
+                          bool) const override;
+    void has_unambiguous_public_base(nagi_dynamic_cast_info *, void *,
+                                     int) const override;
+};
+
+__si_class_type_info::~__si_class_type_info() {}
+void __si_class_type_info::search_above_dst(nagi_dynamic_cast_info *,
+                                             const void *, const void *, int,
+                                             bool) const {}
+void __si_class_type_info::search_below_dst(nagi_dynamic_cast_info *,
+                                             const void *, int, bool) const {}
+void __si_class_type_info::has_unambiguous_public_base(
+    nagi_dynamic_cast_info *, void *, int) const {}
+} // namespace __cxxabiv1

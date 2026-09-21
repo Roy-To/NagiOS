@@ -51,6 +51,7 @@ unsafe extern "C" {
     fn nagi_posix_setpgid(pid: c_int, pgid: c_int) -> c_int;
     fn nagi_posix_setgid(gid: c_uint) -> c_int;
     fn nagi_posix_setuid(uid: c_uint) -> c_int;
+    fn nagi_posix_getpid() -> c_int;
     fn nagi_posix_setsid() -> c_int;
     fn nagi_posix_signal(signal: c_int, handler: *mut c_void) -> *mut c_void;
     fn nagi_posix_waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
@@ -360,6 +361,11 @@ pub unsafe extern "C" fn setgid(gid: c_uint) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn setuid(uid: c_uint) -> c_int {
     unsafe { nagi_posix_setuid(uid) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getpid() -> c_int {
+    unsafe { nagi_posix_getpid() }
 }
 
 #[unsafe(no_mangle)]

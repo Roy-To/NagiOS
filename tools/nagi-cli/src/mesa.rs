@@ -624,6 +624,8 @@ mod tests {
         assert!(runtime.contains("__cxa_guard_abort"));
         assert!(runtime.contains("_ZNSt3__16locale7classicEv"));
         assert!(runtime.contains("_ZNSt3__15ctypeIcE2idE"));
+        assert!(runtime.contains("class __class_type_info"));
+        assert!(runtime.contains("class __si_class_type_info"));
         assert!(runtime.contains("-fno-rtti") || build_script.contains("-fno-rtti"));
         assert!(runtime.contains("-fno-exceptions") || build_script.contains("-fno-exceptions"));
     }
@@ -643,6 +645,7 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn dup2("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn setgid("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn setuid("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn getpid("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn chdir("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn chroot("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn setpgid("));
@@ -656,6 +659,7 @@ mod tests {
         assert!(relibc.contains("nagi_posix_setpgid"));
         assert!(relibc.contains("nagi_posix_setgid"));
         assert!(relibc.contains("nagi_posix_setuid"));
+        assert!(relibc.contains("nagi_posix_getpid"));
         assert!(relibc.contains("nagi_posix_setsid"));
         assert!(relibc.contains("nagi_posix_signal"));
         assert!(relibc.contains("nagi_posix_waitpid"));
