@@ -1385,6 +1385,21 @@ path. No host C++ standard library, host unwinder, or symbol-only success path
 is introduced. M17 remains `BLOCKED` until target linking, the UEFI loader,
 real QEMU, and real Servo first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-22, substring and FILE ABI)
+
+Public snapshot CI run `35692225348` (#88, head `5625a18`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, kernel, and
+target compilation stages, then failed at final target linking. The exact
+undefined symbols were `fprintf`, `strstr`, and `fopen`; UEFI and real QEMU
+were skipped.
+
+The next M17 repair adds target-owned `strstr` over guest memory. It also maps
+`fopen` modes to Nagi POSIX/VFS descriptors and sends bounded `fprintf` output
+through the existing Nagi formatter and FILE write boundary. The implementation
+does not import host stdio or claim output without a real Nagi descriptor. M17
+remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
+Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-22, base-2 math and descriptor stdio)
 
 Public snapshot CI run `35690360685` (#87, head `5f90040`) passed target

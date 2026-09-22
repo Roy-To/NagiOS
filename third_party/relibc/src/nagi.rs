@@ -128,6 +128,8 @@ const MAP_ANONYMOUS: c_int = 0x0020;
 
 const NAGI_FILE_MEMORY: u32 = 1;
 const NAGI_FILE_FD: u32 = 2;
+const NAGI_O_CREAT: c_int = 0x0200_0000;
+const NAGI_O_TRUNC: c_int = 0x0400_0000;
 
 const AF_UNSPEC: c_int = 0;
 const AF_INET: c_int = 2;
@@ -639,6 +641,7 @@ pub unsafe extern "C" fn __assert_fail(
 struct NagiFile {
     kind: u32,
     fd: c_int,
+    owned: bool,
     buffer: *mut u8,
     length: usize,
     capacity: usize,
@@ -653,6 +656,7 @@ struct NagiFile {
 static mut NAGI_STDERR: NagiFile = NagiFile {
     kind: NAGI_FILE_FD,
     fd: 2,
+    owned: false,
     buffer: ptr::null_mut(),
     length: 0,
     capacity: 0,
@@ -747,11 +751,59 @@ pub unsafe extern "C" fn open_memstream(bufp: *mut *mut c_char, sizep: *mut usiz
         stream.write(NagiFile {
             kind: NAGI_FILE_MEMORY,
             fd: -1,
+            owned: false,
             buffer: ptr::null_mut(),
             length: 0,
             capacity: 0,
             bufp,
             sizep,
+        });
+    }
+    stream.cast()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fopen(path: *const c_char, mode: *const c_char) -> *mut c_void {
+    if path.is_null() || mode.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+
+    let first = unsafe { *mode.cast::<u8>() };
+    let flags = match first {
+        b'r' => 0,
+        b'w' => NAGI_O_CREAT | NAGI_O_TRUNC,
+        b'a' => NAGI_O_CREAT,
+        _ => {
+            unsafe { set_errno(EINVAL) };
+            return ptr::null_mut();
+        }
+    };
+    let fd = unsafe { nagi_posix_open(path, flags, 0o666) };
+    if fd < 0 {
+        return ptr::null_mut();
+    }
+    if first == b'a' && unsafe { nagi_posix_lseek(fd, 0, 2) } < 0 {
+        unsafe { nagi_posix_close(fd) };
+        return ptr::null_mut();
+    }
+
+    let stream = unsafe { nagi_posix_malloc(mem::size_of::<NagiFile>()) }.cast::<NagiFile>();
+    if stream.is_null() {
+        unsafe { nagi_posix_close(fd) };
+        unsafe { set_errno(ENOMEM) };
+        return ptr::null_mut();
+    }
+    unsafe {
+        stream.write(NagiFile {
+            kind: NAGI_FILE_FD,
+            fd,
+            owned: true,
+            buffer: ptr::null_mut(),
+            length: 0,
+            capacity: 0,
+            bufp: ptr::null_mut(),
+            sizep: ptr::null_mut(),
         });
     }
     stream.cast()
@@ -867,11 +919,15 @@ pub unsafe extern "C" fn fclose(stream: *mut c_void) -> c_int {
     }
     let stream = unsafe { &mut *stream.cast::<NagiFile>() };
     if stream.kind == NAGI_FILE_FD {
-        return if unsafe { nagi_posix_close(stream.fd) } == 0 {
+        let result = if unsafe { nagi_posix_close(stream.fd) } == 0 {
             0
         } else {
             EOF
         };
+        if stream.owned {
+            unsafe { nagi_posix_free((stream as *mut NagiFile).cast()) };
+        }
+        return result;
     }
     if stream.kind != NAGI_FILE_MEMORY {
         unsafe { set_errno(EBADF) };
@@ -946,6 +1002,48 @@ pub unsafe extern "C" fn strrchr(string: *const c_char, needle: c_int) -> *mut c
             return last;
         }
         index += 1;
+    }
+}
+
+/// Target-owned NUL-terminated substring search for the Nagi relibc backend.
+/// The search stays inside guest memory and returns the first haystack
+/// position that contains the complete needle, including the empty-needle
+/// contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strstr(
+    haystack: *const c_char,
+    needle: *const c_char,
+) -> *mut c_char {
+    if haystack.is_null() || needle.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    let mut needle_length = 0;
+    while unsafe { needle.add(needle_length).read() } != 0 {
+        needle_length += 1;
+    }
+    if needle_length == 0 {
+        return haystack.cast_mut();
+    }
+
+    let mut position = 0;
+    loop {
+        if unsafe { haystack.add(position).read() } == 0 {
+            return ptr::null_mut();
+        }
+        let mut index = 0;
+        while index < needle_length {
+            let haystack_byte = unsafe { haystack.add(position + index).read() };
+            let needle_byte = unsafe { needle.add(index).read() };
+            if haystack_byte == 0 || haystack_byte != needle_byte {
+                break;
+            }
+            index += 1;
+        }
+        if index == needle_length {
+            return unsafe { haystack.add(position).cast_mut() };
+        }
+        position += 1;
     }
 }
 
@@ -2270,6 +2368,43 @@ pub unsafe extern "C" fn snprintf(
     mut args: ...
 ) -> c_int {
     unsafe { nagi_vsnprintf(output, capacity, format, args.as_va_list()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fprintf(
+    stream: *mut c_void,
+    format: *const c_char,
+    mut args: ...,
+) -> c_int {
+    if stream.is_null() || format.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+
+    // Mesa's target diagnostics are bounded and the formatter already
+    // reports the complete length even when a destination is truncated. Keep
+    // the FILE write bounded; an oversized diagnostic fails closed instead of
+    // claiming that bytes were emitted when they were not.
+    let mut buffer = [0_u8; 4096];
+    let written = unsafe {
+        nagi_vsnprintf(
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            format,
+            args.as_va_list(),
+        )
+    };
+    if written < 0 || written as usize >= buffer.len() {
+        unsafe { set_errno(EOVERFLOW) };
+        return EOF;
+    }
+    let count = written as usize;
+    let emitted = unsafe { fwrite(buffer.as_ptr().cast(), 1, count, stream) };
+    if emitted == count {
+        written
+    } else {
+        EOF
+    }
 }
 
 /// The Nagi target does not import a host libc for numeric conversion. Keep
