@@ -52,9 +52,9 @@ fn main() {
         // target-owned aggregate must be rescanned as a linker group. This is
         // archive resolution, not whole-archive extraction, and does not import
         // a host graphics implementation.
-        println!("cargo:rustc-link-arg-bin=nagi-init=-Wl,--start-group");
+        println!("cargo:rustc-link-arg-bin=nagi-init=--start-group");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
-        println!("cargo:rustc-link-arg-bin=nagi-init=-Wl,--end-group");
+        println!("cargo:rustc-link-arg-bin=nagi-init=--end-group");
     }
 
     let app_directory =
