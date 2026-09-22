@@ -824,6 +824,32 @@ pub unsafe extern "C" fn nagi_posix_readdir(directory: *mut c_void) -> *mut c_vo
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_readdir_r(
+    directory: *mut c_void,
+    entry: *mut c_void,
+    result: *mut *mut c_void,
+) -> c_int {
+    if directory.is_null() || entry.is_null() || result.is_null() {
+        if !result.is_null() {
+            result.write(ptr::null_mut());
+        }
+        return write_errno_and_fail(EINVAL);
+    }
+    let current = nagi_posix_readdir(directory);
+    if current.is_null() {
+        result.write(ptr::null_mut());
+        return 0;
+    }
+    ptr::copy_nonoverlapping(
+        current.cast::<u8>(),
+        entry.cast::<u8>(),
+        core::mem::size_of::<NagiDirent>(),
+    );
+    result.write(entry);
+    0
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_closedir(directory: *mut c_void) -> c_int {
     if directory.is_null() {
         return write_errno_and_fail(EBADF);

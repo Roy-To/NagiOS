@@ -14,6 +14,56 @@ use core::{
 };
 use core::sync::atomic::{AtomicU32, Ordering};
 
+#[cfg(target_arch = "x86_64")]
+core::arch::global_asm!(
+    r#"
+        .text
+        .globl __setjmp
+        .globl _setjmp
+        .globl setjmp
+        .type __setjmp,@function
+        .type _setjmp,@function
+        .type setjmp,@function
+__setjmp:
+_setjmp:
+setjmp:
+        movq %rbx, 0(%rdi)
+        movq %rbp, 8(%rdi)
+        movq %r12, 16(%rdi)
+        movq %r13, 24(%rdi)
+        movq %r14, 32(%rdi)
+        movq %r15, 40(%rdi)
+        leaq 8(%rsp), %rdx
+        movq %rdx, 48(%rdi)
+        movq (%rsp), %rdx
+        movq %rdx, 56(%rdi)
+        xorl %eax, %eax
+        retq
+
+        .globl _longjmp
+        .globl longjmp
+        .type _longjmp,@function
+        .type longjmp,@function
+_longjmp:
+longjmp:
+        movl %esi, %eax
+        testl %eax, %eax
+        jne 1f
+        incl %eax
+1:
+        movq 0(%rdi), %rbx
+        movq 8(%rdi), %rbp
+        movq 16(%rdi), %r12
+        movq 24(%rdi), %r13
+        movq 32(%rdi), %r14
+        movq 40(%rdi), %r15
+        movq 48(%rdi), %rdx
+        movq %rdx, %rsp
+        movq 56(%rdi), %rdx
+        jmp *%rdx
+"#
+);
+
 unsafe extern "C" {
     fn nagi_posix_malloc(size: usize) -> *mut u8;
     fn nagi_posix_malloc_usable_size(pointer: *mut u8) -> usize;
@@ -42,6 +92,11 @@ unsafe extern "C" {
     fn nagi_posix_rmdir(path: *const c_char) -> c_int;
     fn nagi_posix_opendir(path: *const c_char) -> *mut c_void;
     fn nagi_posix_readdir(directory: *mut c_void) -> *mut c_void;
+    fn nagi_posix_readdir_r(
+        directory: *mut c_void,
+        entry: *mut c_void,
+        result: *mut *mut c_void,
+    ) -> c_int;
     fn nagi_posix_closedir(directory: *mut c_void) -> c_int;
     fn nagi_posix_fdopendir(fd: c_int) -> *mut c_void;
     fn nagi_posix_resolve_ipv4(name: *const c_char, output: *mut NagiIpv4Address) -> c_int;
@@ -1556,6 +1611,15 @@ pub unsafe extern "C" fn opendir(path: *const c_char) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn readdir(directory: *mut c_void) -> *mut c_void {
     unsafe { nagi_posix_readdir(directory) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn readdir_r(
+    directory: *mut c_void,
+    entry: *mut c_void,
+    result: *mut *mut c_void,
+) -> c_int {
+    unsafe { nagi_posix_readdir_r(directory, entry, result) }
 }
 
 #[unsafe(no_mangle)]

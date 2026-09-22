@@ -1279,3 +1279,18 @@ Reopen M17 from this ADR after the guest rendering dependency is available.
 Run the target build, focused adapter tests, and the QEMU acceptance wrapper.
 Only then change the status to `PASS`; otherwise retain `BLOCKED` with updated
 command output and the next concrete experiment.
+
+## Remediation continuation (2026-09-22, target context and reentrant directory ABI)
+
+Public snapshot CI run `35671405076` (head `c1395a0`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were
+`setjmp`, `longjmp`, and `readdir_r`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds the real x86-64 callee-saved register, stack, and
+return-address context ABI for `setjmp`/`longjmp` in the Nagi-owned relibc
+backend. It also adds the reentrant directory copy operation over the existing
+root-VFS snapshot, with invalid pointers rejected at the Nagi POSIX boundary.
+No host exception, signal, filesystem, or rendering implementation is used.
+M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and the
+real Servo first-web-pixel gate pass.

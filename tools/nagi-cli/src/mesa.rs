@@ -754,6 +754,7 @@ mod tests {
             "pub unsafe extern \"C\" fn rmdir(",
             "pub unsafe extern \"C\" fn opendir(",
             "pub unsafe extern \"C\" fn readdir(",
+            "pub unsafe extern \"C\" fn readdir_r(",
             "pub unsafe extern \"C\" fn closedir(",
             "pub unsafe extern \"C\" fn sinf(",
             "pub unsafe extern \"C\" fn cosf(",
@@ -796,6 +797,8 @@ mod tests {
             "stderr must use the Nagi descriptor-backed stream path"
         );
         assert!(relibc.contains("pub static mut environ:"));
+        assert!(relibc.contains("core::arch::global_asm!"));
+        assert!(relibc.contains(".globl setjmp") && relibc.contains(".globl longjmp"));
         let abi =
             fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
         for symbol in [
@@ -812,6 +815,7 @@ mod tests {
             "pub unsafe extern \"C\" fn nagi_posix_rmdir(",
             "pub unsafe extern \"C\" fn nagi_posix_opendir(",
             "pub unsafe extern \"C\" fn nagi_posix_readdir(",
+            "pub unsafe extern \"C\" fn nagi_posix_readdir_r(",
             "pub unsafe extern \"C\" fn nagi_posix_closedir(",
             "pub unsafe extern \"C\" fn nagi_posix_fdopendir(",
             "pub unsafe extern \"C\" fn gettimeofday(",
