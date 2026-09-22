@@ -1304,3 +1304,14 @@ passed in run `35671405076`, so this run does not establish a new Nagi source
 blocker or acceptance result. Re-run the unchanged implementation path before
 classifying the target ABI repair; M17 remains `BLOCKED` until target linking,
 UEFI, real QEMU, and the real Servo first-web-pixel gate pass.
+
+## Validation continuation (2026-09-22, assembler syntax correction)
+
+Public snapshot CI run `35673934729` (head `a2be48a`) failed at the same pinned
+Mesa Softpipe archive step before target linking. Local object emission then
+reproduced the hidden compiler failure: the Nagi relibc `global_asm!` context
+switch used AT&T syntax while Rust/LLVM expected Intel syntax. The assembly is
+now corrected, and local object emission plus symbol inspection succeeds. This
+was an implementation defect, not M17 acceptance evidence; rerun the complete
+target path. M17 remains `BLOCKED` until target linking, UEFI, real QEMU, and
+the real Servo first-web-pixel gate pass.

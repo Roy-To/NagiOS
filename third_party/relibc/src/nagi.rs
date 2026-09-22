@@ -21,46 +21,41 @@ core::arch::global_asm!(
         .globl __setjmp
         .globl _setjmp
         .globl setjmp
-        .type __setjmp,@function
-        .type _setjmp,@function
-        .type setjmp,@function
 __setjmp:
 _setjmp:
 setjmp:
-        movq %rbx, 0(%rdi)
-        movq %rbp, 8(%rdi)
-        movq %r12, 16(%rdi)
-        movq %r13, 24(%rdi)
-        movq %r14, 32(%rdi)
-        movq %r15, 40(%rdi)
-        leaq 8(%rsp), %rdx
-        movq %rdx, 48(%rdi)
-        movq (%rsp), %rdx
-        movq %rdx, 56(%rdi)
-        xorl %eax, %eax
-        retq
+        mov [rdi], rbx
+        mov [rdi + 8], rbp
+        mov [rdi + 16], r12
+        mov [rdi + 24], r13
+        mov [rdi + 32], r14
+        mov [rdi + 40], r15
+        lea rdx, [rsp + 8]
+        mov [rdi + 48], rdx
+        mov rdx, [rsp]
+        mov [rdi + 56], rdx
+        xor eax, eax
+        ret
 
         .globl _longjmp
         .globl longjmp
-        .type _longjmp,@function
-        .type longjmp,@function
 _longjmp:
 longjmp:
-        movl %esi, %eax
-        testl %eax, %eax
+        mov eax, esi
+        test eax, eax
         jne 1f
-        incl %eax
+        inc eax
 1:
-        movq 0(%rdi), %rbx
-        movq 8(%rdi), %rbp
-        movq 16(%rdi), %r12
-        movq 24(%rdi), %r13
-        movq 32(%rdi), %r14
-        movq 40(%rdi), %r15
-        movq 48(%rdi), %rdx
-        movq %rdx, %rsp
-        movq 56(%rdi), %rdx
-        jmp *%rdx
+        mov rbx, [rdi]
+        mov rbp, [rdi + 8]
+        mov r12, [rdi + 16]
+        mov r13, [rdi + 24]
+        mov r14, [rdi + 32]
+        mov r15, [rdi + 40]
+        mov rdx, [rdi + 48]
+        mov rsp, rdx
+        mov rdx, [rdi + 56]
+        jmp rdx
 "#
 );
 
