@@ -416,4 +416,29 @@ void __si_class_type_info::search_below_dst(nagi_dynamic_cast_info *,
                                              const void *, int, bool) const {}
 void __si_class_type_info::has_unambiguous_public_base(
     nagi_dynamic_cast_info *, void *, int) const {}
+
+// Multiple-inheritance metadata is present in the pinned Servo/MozJS C++
+// objects even though the Nagi build disables new RTTI emission. Keep the
+// Itanium ABI vtable in the target-owned runtime so the final link does not
+// import libc++abi. M17 does not expose a general RTTI service: the existing
+// fail-closed ABI methods remain the only supported behavior for this
+// freestanding boundary.
+class __vmi_class_type_info final : public __class_type_info {
+  public:
+    ~__vmi_class_type_info() override;
+    void search_above_dst(nagi_dynamic_cast_info *, const void *, const void *,
+                          int, bool) const override;
+    void search_below_dst(nagi_dynamic_cast_info *, const void *, int,
+                          bool) const override;
+    void has_unambiguous_public_base(nagi_dynamic_cast_info *, void *,
+                                     int) const override;
+};
+
+__vmi_class_type_info::~__vmi_class_type_info() {}
+void __vmi_class_type_info::search_above_dst(
+    nagi_dynamic_cast_info *, const void *, const void *, int, bool) const {}
+void __vmi_class_type_info::search_below_dst(nagi_dynamic_cast_info *,
+                                              const void *, int, bool) const {}
+void __vmi_class_type_info::has_unambiguous_public_base(
+    nagi_dynamic_cast_info *, void *, int) const {}
 } // namespace __cxxabiv1

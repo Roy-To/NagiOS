@@ -580,6 +580,8 @@ mod tests {
             .expect("Nagi init build script");
         assert!(build_script.contains("static=nagi_mesa"));
         assert!(!build_script.contains("static:+whole-archive=nagi_mesa"));
+        assert!(build_script.contains("cargo:rustc-link-arg-bin=nagi-init=-Wl,--start-group"));
+        assert!(build_script.contains("cargo:rustc-link-arg-bin=nagi-init=-Wl,--end-group"));
     }
 
     #[test]
@@ -634,6 +636,7 @@ mod tests {
         assert!(runtime.contains("nagi_gnu_basic_string_layout"));
         assert!(runtime.contains("class __class_type_info"));
         assert!(runtime.contains("class __si_class_type_info"));
+        assert!(runtime.contains("class __vmi_class_type_info"));
         assert!(runtime.contains("-fno-rtti") || build_script.contains("-fno-rtti"));
         assert!(runtime.contains("-fno-exceptions") || build_script.contains("-fno-exceptions"));
     }

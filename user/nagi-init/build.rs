@@ -47,8 +47,14 @@ fn main() {
         // static dependencies that may also be reachable through another archive;
         // forcing every member out creates duplicate Softpipe symbols at final
         // link. The real EGL/Softpipe symbols referenced by Servo are still
-        // resolved from this target-owned archive normally.
+        // resolved from this target-owned archive normally. Mesa's state tracker
+        // and Gallium archives are mutually recursive, however, so the one
+        // target-owned aggregate must be rescanned as a linker group. This is
+        // archive resolution, not whole-archive extraction, and does not import
+        // a host graphics implementation.
+        println!("cargo:rustc-link-arg-bin=nagi-init=-Wl,--start-group");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
+        println!("cargo:rustc-link-arg-bin=nagi-init=-Wl,--end-group");
     }
 
     let app_directory =
