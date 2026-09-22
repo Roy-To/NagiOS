@@ -1400,6 +1400,20 @@ does not import host stdio or claim output without a real Nagi descriptor. M17
 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
 Servo first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, exceptions-disabled C++ ABI)
+
+Public snapshot CI run `35793927424` (#92, head `b53d990`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, and kernel
+stages, then failed at final target linking. The exact undefined symbols were
+`std::__throw_bad_array_new_length()`, `__cxa_begin_catch`, and
+`__cxa_rethrow`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds target-owned fail-closed entrypoints for these
+exceptions-disabled C++ ABI paths. If reached, they terminate through Nagi's
+real abort boundary instead of importing host libc++abi or an unwinder, and
+M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and
+real Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-23, errno, scanning, and duplication ABI)
 
 Public snapshot CI run `35791007289` (#91, head `1723c49`) passed target

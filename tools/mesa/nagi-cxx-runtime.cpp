@@ -289,6 +289,32 @@ extern "C" [[noreturn]] void nagi_gnu_throw_length_error(const char *) {
     abort();
 }
 
+// The M17 target is built with C++ exceptions disabled and has no host
+// libc++abi.  These exception entrypoints are retained by a small number of
+// standard-library code paths; if one is reached, terminating through Nagi's
+// real abort boundary is the only truthful behavior.  Returning a fabricated
+// exception object would make the link pass while violating the target
+// runtime contract.
+extern "C" void *nagi_cxa_begin_catch(void *exception)
+    __asm__("__cxa_begin_catch");
+
+extern "C" void *nagi_cxa_begin_catch(void *) {
+    abort();
+}
+
+extern "C" void nagi_cxa_rethrow() __asm__("__cxa_rethrow");
+
+extern "C" void nagi_cxa_rethrow() {
+    abort();
+}
+
+extern "C" [[noreturn]] void nagi_gnu_throw_bad_array_new_length()
+    __asm__("_ZSt28__throw_bad_array_new_lengthv");
+
+extern "C" [[noreturn]] void nagi_gnu_throw_bad_array_new_length() {
+    abort();
+}
+
 // libstdc++'s C++11 basic_string ABI stores the data pointer at offset zero,
 // the length at offset eight, and either the allocated capacity or the
 // 16-byte local buffer at offset sixteen on the x86-64 target.  Its destructor

@@ -633,6 +633,9 @@ mod tests {
         assert!(runtime.contains("_ZNSt3__15ctypeIcE2idE"));
         assert!(runtime.contains("_ZSt7nothrow"));
         assert!(runtime.contains("_ZSt20__throw_length_errorPKc"));
+        assert!(runtime.contains("_ZSt28__throw_bad_array_new_lengthv"));
+        assert!(runtime.contains("__cxa_begin_catch"));
+        assert!(runtime.contains("__cxa_rethrow"));
         assert!(runtime.contains("__dynamic_cast"));
         assert!(runtime.contains("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base"));
         assert!(
