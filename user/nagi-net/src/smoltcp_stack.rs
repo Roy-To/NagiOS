@@ -500,6 +500,23 @@ impl<D: Device> SmoltcpStack<D> {
         Ok(())
     }
 
+    /// Return the local endpoint selected by smoltcp for the retained TCP
+    /// stream. The POSIX adapter uses this to implement `getsockname` without
+    /// inventing a port or consulting a host socket table.
+    pub fn tcp_local_name(&self) -> Result<(Ipv4Address, u16), NetError> {
+        let config = self.network_config.ok_or(NetError::ConnectionReset)?;
+        let handle = self.tcp_handle.ok_or(NetError::ConnectionReset)?;
+        let sockets = self.tcp_sockets.as_ref().ok_or(NetError::ConnectionReset)?;
+        let endpoint = sockets
+            .get::<tcp::Socket>(handle)
+            .local_endpoint()
+            .ok_or(NetError::ConnectionReset)?;
+        if !matches!(endpoint.addr, IpAddress::Ipv4(_)) {
+            return Err(NetError::Unsupported);
+        }
+        Ok((from_smol_ipv4(config.address.address()), endpoint.port))
+    }
+
     /// Send one ICMP echo request and require an echo reply from the target.
     pub fn icmp_echo(&mut self, target: Ipv4Address) -> Result<(), NetError> {
         let network_config = self.ensure_dhcp()?;
@@ -654,6 +671,10 @@ impl<D: Device> SocketApi<D> {
 
     pub fn tcp_close(&mut self) -> Result<(), NetError> {
         self.stack.tcp_close()
+    }
+
+    pub fn tcp_local_name(&self) -> Result<(Ipv4Address, u16), NetError> {
+        self.stack.tcp_local_name()
     }
 }
 

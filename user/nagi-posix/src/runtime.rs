@@ -368,6 +368,21 @@ pub fn peer_name(fd: i32) -> Result<(Ipv4Address, u16), RuntimeError> {
     }
 }
 
+pub fn local_name(fd: i32) -> Result<(Ipv4Address, u16), RuntimeError> {
+    match descriptor(fd)? {
+        FdEntry::Socket {
+            connected: true, ..
+        } => NETWORK
+            .lock()
+            .as_ref()
+            .ok_or(RuntimeError::NotInitialized)?
+            .tcp_local_name()
+            .map_err(RuntimeError::Network),
+        FdEntry::Socket { .. } => Err(RuntimeError::NotConnected),
+        _ => Err(RuntimeError::InvalidFd),
+    }
+}
+
 pub fn close(fd: i32) -> Result<(), RuntimeError> {
     let entry = {
         let descriptors = FILE_DESCRIPTORS.lock();

@@ -816,6 +816,7 @@ mod tests {
             "pub unsafe extern \"C\" fn nagi_posix_ioctl(",
             "pub unsafe extern \"C\" fn nagi_posix_accept(",
             "pub unsafe extern \"C\" fn nagi_posix_getsockopt(",
+            "pub unsafe extern \"C\" fn nagi_posix_getsockname(",
             "pub unsafe extern \"C\" fn nagi_posix_lstat(",
             "pub unsafe extern \"C\" fn nagi_posix_isatty(",
             "pub unsafe extern \"C\" fn nagi_posix_openat(",
@@ -828,6 +829,8 @@ mod tests {
             "pub unsafe extern \"C\" fn nagi_posix_readdir_r(",
             "pub unsafe extern \"C\" fn nagi_posix_closedir(",
             "pub unsafe extern \"C\" fn nagi_posix_fdopendir(",
+            "pub unsafe extern \"C\" fn nagi_posix_dirfd(",
+            "pub unsafe extern \"C\" fn pthread_detach(",
             "pub unsafe extern \"C\" fn gettimeofday(",
         ] {
             assert!(
@@ -852,7 +855,14 @@ mod tests {
         assert!(abi.contains("fn listen("));
         let network = fs::read_to_string(root.join("user/nagi-net/src/smoltcp_stack.rs"))
             .expect("Nagi smoltcp adapter");
-        for symbol in ["fn readv(", "fn shutdown(", "fn setsockopt("] {
+        for symbol in [
+            "fn readv(",
+            "fn shutdown(",
+            "fn setsockopt(",
+            "fn getsockname(",
+            "fn dirfd(",
+            "fn pthread_detach(",
+        ] {
             assert!(abi.contains(symbol), "missing target ABI symbol: {symbol}");
         }
         for operation in [
@@ -870,6 +880,7 @@ mod tests {
             "pub fn tcp_set_nagle(",
             "pub fn tcp_set_timeout(",
             "pub fn peer_name(",
+            "pub fn tcp_local_name(",
         ] {
             assert!(
                 network.contains(operation),

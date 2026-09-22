@@ -38,6 +38,7 @@ static mut PTHREAD_START_RECORD: PthreadStartRecord = PthreadStartRecord {
     argument: ptr::null_mut(),
 };
 static mut PTHREAD_STACK: *mut u8 = ptr::null_mut();
+static mut PTHREAD_DETACHED: bool = false;
 
 #[inline]
 fn current_thread_slot() -> usize {
@@ -393,6 +394,42 @@ pub unsafe extern "C" fn getpeername(
     0
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_getsockname(
+    fd: c_int,
+    address: *mut c_void,
+    address_length: *mut c_uint,
+) -> c_int {
+    if address.is_null() || address_length.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    let required = core::mem::size_of::<NagiSockaddrIpv4>() as c_uint;
+    if address_length.read() < required {
+        return write_errno_and_fail(EINVAL);
+    }
+    let (local, port) = match crate::runtime::local_name(fd) {
+        Ok(local) => local,
+        Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
+    };
+    address.cast::<NagiSockaddrIpv4>().write(NagiSockaddrIpv4 {
+        family: AF_INET as u16,
+        port_be: port.to_be(),
+        address: local.0,
+    });
+    address_length.write(required);
+    0
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getsockname(
+    fd: c_int,
+    address: *mut c_void,
+    address_length: *mut c_uint,
+) -> c_int {
+    nagi_posix_getsockname(fd, address, address_length)
+}
+
 /// Nagi 0.1 currently exposes only a client TCP service. Listener creation is
 /// not present in the user-space network service, so bind/listen fail closed
 /// instead of claiming a server endpoint that the guest cannot accept.
@@ -613,6 +650,7 @@ pub struct NagiDir {
     entries: [DirectoryEntry; MAX_DIRECTORY_ENTRIES],
     count: usize,
     cursor: usize,
+    fd: c_int,
     current: NagiDirent,
 }
 
@@ -786,6 +824,7 @@ pub unsafe extern "C" fn nagi_posix_opendir(path: *const c_char) -> *mut c_void 
         entries,
         count,
         cursor: 0,
+        fd: AT_FDCWD,
         current: NagiDirent {
             d_ino: 0,
             d_off: 0,
@@ -869,6 +908,20 @@ pub unsafe extern "C" fn nagi_posix_fdopendir(fd: c_int) -> *mut c_void {
         }
     }
     ptr::null_mut()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_dirfd(directory: *mut c_void) -> c_int {
+    if directory.is_null() {
+        return write_errno_and_fail(EBADF);
+    }
+    (*directory.cast::<NagiDir>()).fd
+}
+
+#[linkage = "weak"]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dirfd(directory: *mut c_void) -> c_int {
+    nagi_posix_dirfd(directory)
 }
 
 #[linkage = "weak"]
@@ -1471,6 +1524,9 @@ pub unsafe extern "C" fn pthread_create(
     if thread.is_null() || start.is_none() {
         return EINVAL;
     }
+    if !PTHREAD_STACK.is_null() && !PTHREAD_DETACHED {
+        return EAGAIN;
+    }
     let stack = crate::nagi_posix_mmap(4 * 4096, 3);
     if stack.is_null() {
         return EAGAIN;
@@ -1490,7 +1546,16 @@ pub unsafe extern "C" fn pthread_create(
         set_errno(EAGAIN);
         return EAGAIN;
     };
+    let previous_detached_stack = if PTHREAD_DETACHED {
+        PTHREAD_STACK
+    } else {
+        ptr::null_mut()
+    };
     PTHREAD_STACK = stack;
+    PTHREAD_DETACHED = false;
+    if !previous_detached_stack.is_null() {
+        let _ = crate::nagi_posix_munmap(previous_detached_stack, 4 * 4096);
+    }
     thread.write(thread_id as usize);
     0
 }
@@ -1498,6 +1563,9 @@ pub unsafe extern "C" fn pthread_create(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_join(thread: usize, result: *mut *mut c_void) -> c_int {
     if thread != 1 {
+        return EINVAL;
+    }
+    if PTHREAD_DETACHED {
         return EINVAL;
     }
     let Some(code) = libnagi::thread_join(thread as u64) else {
@@ -1509,8 +1577,23 @@ pub unsafe extern "C" fn pthread_join(thread: usize, result: *mut *mut c_void) -
     if !PTHREAD_STACK.is_null() {
         let stack = PTHREAD_STACK;
         PTHREAD_STACK = ptr::null_mut();
+        PTHREAD_DETACHED = false;
         let _ = crate::nagi_posix_munmap(stack, 4 * 4096);
     }
+    0
+}
+
+/// Mark the single native child as detached. Nagi's kernel already releases
+/// the child execution context at `thread_exit`; the user-space stack is
+/// reclaimed when the next detached child is successfully created, after the
+/// kernel has accepted the replacement stack. This avoids unmapping a stack
+/// that may still be executing while preserving the bounded native model.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_detach(thread: usize) -> c_int {
+    if thread != 1 || PTHREAD_STACK.is_null() || PTHREAD_DETACHED {
+        return EINVAL;
+    }
+    PTHREAD_DETACHED = true;
     0
 }
 
