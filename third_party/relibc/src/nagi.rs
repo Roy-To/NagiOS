@@ -892,6 +892,52 @@ pub unsafe extern "C" fn fread(
     }
 }
 
+/// Target-owned seek for descriptor-backed FILE streams.  The target stdio
+/// backend deliberately has no host file object; cursor movement is forwarded
+/// to Nagi's descriptor runtime so file-size probes and cursor-dependent
+/// operations observe the guest VFS position.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fseek(
+    stream: *mut c_void,
+    offset: c_long,
+    whence: c_int,
+) -> c_int {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        unsafe { set_errno(EBADF) };
+        return EOF;
+    }
+    if unsafe { nagi_posix_lseek(stream.fd, offset as i64, whence) } < 0 {
+        EOF
+    } else {
+        0
+    }
+}
+
+/// Return the descriptor-backed FILE cursor from Nagi's real VFS runtime.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ftell(stream: *mut c_void) -> c_long {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return -1;
+    }
+    let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        unsafe { set_errno(EBADF) };
+        return -1;
+    }
+    let position = unsafe { nagi_posix_lseek(stream.fd, 0, 1) };
+    if position < 0 {
+        -1
+    } else {
+        position as c_long
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fflush(stream: *mut c_void) -> c_int {
     if stream.is_null() {
@@ -1066,6 +1112,38 @@ pub unsafe extern "C" fn strcpy(
         }
         index += 1;
     }
+}
+
+/// Target-owned bounded string copy.  Match the C contract: copy at most `n`
+/// source bytes and pad the remainder with NUL bytes when the source ends
+/// early.  All accesses remain in guest memory; no host libc is involved.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strncpy(
+    destination: *mut c_char,
+    source: *const c_char,
+    length: usize,
+) -> *mut c_char {
+    if length == 0 {
+        return destination;
+    }
+    if destination.is_null() || source.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return destination;
+    }
+    let mut index = 0;
+    while index < length {
+        let byte = unsafe { source.add(index).read() };
+        unsafe { destination.add(index).write(byte) };
+        index += 1;
+        if byte == 0 {
+            while index < length {
+                unsafe { destination.add(index).write(0) };
+                index += 1;
+            }
+            break;
+        }
+    }
+    destination
 }
 
 /// Target-owned byte search for the Nagi relibc backend. The upstream string

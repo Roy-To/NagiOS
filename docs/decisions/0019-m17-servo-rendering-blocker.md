@@ -1415,3 +1415,17 @@ Nagi descriptor-backed FILE streams by forwarding reads to the real
 non-readable and return `EBADF`. No host stdio, host filesystem, or synthetic
 read result is introduced. M17 remains `BLOCKED` until target linking, the
 UEFI loader, real QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, FILE cursor and bounded string ABI)
+
+Public snapshot CI run `35694703468` (#89, head `41de72a`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, kernel, and
+target compilation stages, then failed at final target linking. The exact
+undefined symbols were `fseek`, `ftell`, and `strncpy`; UEFI and real QEMU
+were skipped.
+
+The next M17 repair adds descriptor-backed `fseek` and `ftell` through
+`nagi_posix_lseek`, plus POSIX bounded `strncpy` over guest memory. The
+implementation does not import host stdio or host string routines, and M17
+remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
+Servo first-web-pixel evidence pass.
