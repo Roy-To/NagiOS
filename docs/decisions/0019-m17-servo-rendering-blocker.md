@@ -1400,6 +1400,20 @@ does not import host stdio or claim output without a real Nagi descriptor. M17
 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
 Servo first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, errno, scanning, and duplication ABI)
+
+Public snapshot CI run `35791007289` (#91, head `1723c49`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, and kernel
+stages, then failed at final target linking. The exact undefined symbols were
+`__errno_location`, `sscanf`, and `strdup`; UEFI and real QEMU were skipped.
+
+The next M17 repair exposes the existing Nagi errno slot, implements bounded
+guest-memory `sscanf` support for the integer/string formats used by pinned
+Mesa, and duplicates strings through the Nagi allocator. No host libc parser,
+host errno storage, or host allocator is introduced. M17 remains `BLOCKED`
+until target linking, the UEFI loader, real QEMU, and real Servo first-web-pixel
+evidence pass.
+
 ## Remediation continuation (2026-09-22, base-2 math and descriptor stdio)
 
 Public snapshot CI run `35690360685` (#87, head `5f90040`) passed target

@@ -735,6 +735,13 @@ unsafe fn set_errno(error: c_int) {
     }
 }
 
+/// Expose the target's capability-scoped errno slot to code compiled against
+/// the normal C ABI.  This never aliases a host libc TLS object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __errno_location() -> *mut c_int {
+    unsafe { nagi_posix_errno_location() }
+}
+
 unsafe fn grow_memory_stream(stream: &mut NagiFile, required: usize) -> bool {
     if required <= stream.capacity {
         return true;
@@ -1232,6 +1239,30 @@ pub unsafe extern "C" fn strncpy(
         }
     }
     destination
+}
+
+/// Duplicate a NUL-terminated string through the Nagi allocator.  The target
+/// copy is bounded by the guest string contract and can be released with the
+/// matching target `free`; it never crosses into a host allocator.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strdup(source: *const c_char) -> *mut c_char {
+    let Some(length) = (unsafe { c_string_len(source, 16 * 1024 * 1024) }) else {
+        unsafe { set_errno(if source.is_null() { EINVAL } else { EOVERFLOW }) };
+        return ptr::null_mut();
+    };
+    let Some(allocation_length) = length.checked_add(1) else {
+        unsafe { set_errno(EOVERFLOW) };
+        return ptr::null_mut();
+    };
+    let allocation = unsafe { nagi_posix_malloc(allocation_length) }.cast::<c_char>();
+    if allocation.is_null() {
+        unsafe { set_errno(ENOMEM) };
+        return ptr::null_mut();
+    }
+    unsafe {
+        ptr::copy_nonoverlapping(source, allocation, allocation_length);
+    }
+    allocation
 }
 
 /// Target-owned byte search for the Nagi relibc backend. The upstream string
@@ -2534,6 +2565,245 @@ pub unsafe extern "C" fn snprintf(
     mut args: ...
 ) -> c_int {
     unsafe { nagi_vsnprintf(output, capacity, format, args.as_va_list()) }
+}
+
+#[inline]
+unsafe fn nagi_scan_skip_space(mut cursor: *const c_char) -> *const c_char {
+    while matches!(unsafe { nagi_byte(cursor) }, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c) {
+        cursor = unsafe { cursor.add(1) };
+    }
+    cursor
+}
+
+unsafe fn nagi_vsscanf(
+    input: *const c_char,
+    format: *const c_char,
+    mut args: VaList,
+) -> c_int {
+    if input.is_null() || format.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    let mut cursor = input;
+    let mut format_index = 0;
+    let mut assigned = 0;
+    loop {
+        let format_byte = unsafe { format.cast::<u8>().add(format_index).read() };
+        if format_byte == 0 {
+            return assigned;
+        }
+        if format_byte.is_ascii_whitespace() {
+            while unsafe { format.cast::<u8>().add(format_index).read() }.is_ascii_whitespace() {
+                format_index += 1;
+            }
+            cursor = unsafe { nagi_scan_skip_space(cursor) };
+            continue;
+        }
+        if format_byte != b'%' {
+            if unsafe { nagi_byte(cursor) } != format_byte {
+                return assigned;
+            }
+            cursor = unsafe { cursor.add(1) };
+            format_index += 1;
+            continue;
+        }
+
+        format_index += 1;
+        if unsafe { format.cast::<u8>().add(format_index).read() } == b'%' {
+            if unsafe { nagi_byte(cursor) } != b'%' {
+                return assigned;
+            }
+            cursor = unsafe { cursor.add(1) };
+            format_index += 1;
+            continue;
+        }
+
+        let suppress = if unsafe { format.cast::<u8>().add(format_index).read() } == b'*' {
+            format_index += 1;
+            true
+        } else {
+            false
+        };
+        let mut width = 0usize;
+        while unsafe { format.cast::<u8>().add(format_index).read() }.is_ascii_digit() {
+            width = width
+                .saturating_mul(10)
+                .saturating_add(usize::from(unsafe {
+                    format.cast::<u8>().add(format_index).read() - b'0'
+                }));
+            format_index += 1;
+        }
+        let mut longness = 0_u8;
+        match unsafe { format.cast::<u8>().add(format_index).read() } {
+            b'h' => {
+                longness = 1;
+                format_index += 1;
+                if unsafe { format.cast::<u8>().add(format_index).read() } == b'h' {
+                    longness = 2;
+                    format_index += 1;
+                }
+            }
+            b'l' => {
+                longness = 3;
+                format_index += 1;
+                if unsafe { format.cast::<u8>().add(format_index).read() } == b'l' {
+                    longness = 4;
+                    format_index += 1;
+                }
+            }
+            b'z' | b'j' | b't' => {
+                longness = 3;
+                format_index += 1;
+            }
+            _ => {}
+        }
+        let conversion = unsafe { format.cast::<u8>().add(format_index).read() };
+        if conversion == 0 {
+            unsafe { set_errno(EINVAL) };
+            return assigned;
+        }
+        format_index += 1;
+
+        match conversion {
+            b'd' | b'i' | b'u' | b'o' | b'x' | b'X' => {
+                let signed = matches!(conversion, b'd' | b'i');
+                let base = match conversion {
+                    b'i' => 0,
+                    b'd' | b'u' => 10,
+                    b'o' => 8,
+                    _ => 16,
+                };
+                let original = cursor;
+                let mut end = ptr::null_mut();
+                let (value, negative) = unsafe {
+                    nagi_parse_unsigned(cursor, &mut end, base, signed)
+                };
+                if end.is_null() || end.cast_const() == original {
+                    return assigned;
+                }
+                cursor = end.cast_const();
+                if !suppress {
+                    if signed {
+                        let value = value as i64;
+                        match longness {
+                            3 | 4 => unsafe { args.arg::<*mut c_longlong>().write(value) },
+                            1 => unsafe { args.arg::<*mut i16>().write(value as i16) },
+                            2 => unsafe { args.arg::<*mut i8>().write(value as i8) },
+                            _ => unsafe { args.arg::<*mut c_int>().write(value as c_int) },
+                        }
+                    } else {
+                        let value = if negative { 0_u64.wrapping_sub(value) } else { value };
+                        match longness {
+                            3 | 4 => unsafe { args.arg::<*mut c_ulonglong>().write(value) },
+                            1 => unsafe { args.arg::<*mut u16>().write(value as u16) },
+                            2 => unsafe { args.arg::<*mut u8>().write(value as u8) },
+                            _ => unsafe { args.arg::<*mut c_uint>().write(value as c_uint) },
+                        }
+                    }
+                    assigned += 1;
+                }
+            }
+            b's' => {
+                cursor = unsafe { nagi_scan_skip_space(cursor) };
+                let destination = if suppress {
+                    ptr::null_mut()
+                } else {
+                    unsafe { args.arg::<*mut c_char>() }
+                };
+                if !suppress && destination.is_null() {
+                    unsafe { set_errno(EINVAL) };
+                    return assigned;
+                }
+                let limit = if width == 0 { 16 * 1024 * 1024 } else { width };
+                let mut length = 0;
+                while length < limit {
+                    let byte = unsafe { nagi_byte(cursor) };
+                    if byte == 0 || byte.is_ascii_whitespace() {
+                        break;
+                    }
+                    if !suppress {
+                        unsafe { destination.add(length).write(byte as c_char) };
+                    }
+                    length += 1;
+                    cursor = unsafe { cursor.add(1) };
+                }
+                if length == 0 {
+                    return assigned;
+                }
+                if !suppress {
+                    unsafe { destination.add(length).write(0) };
+                    assigned += 1;
+                }
+            }
+            b'c' => {
+                let count = if width == 0 { 1 } else { width };
+                let destination = if suppress {
+                    ptr::null_mut()
+                } else {
+                    unsafe { args.arg::<*mut c_char>() }
+                };
+                if !suppress && destination.is_null() {
+                    unsafe { set_errno(EINVAL) };
+                    return assigned;
+                }
+                for index in 0..count {
+                    let byte = unsafe { nagi_byte(cursor) };
+                    if byte == 0 {
+                        return assigned;
+                    }
+                    if !suppress {
+                        unsafe { destination.add(index).write(byte as c_char) };
+                    }
+                    cursor = unsafe { cursor.add(1) };
+                }
+                if !suppress {
+                    assigned += 1;
+                }
+            }
+            b'p' => {
+                let original = cursor;
+                let mut end = ptr::null_mut();
+                let (value, _) = unsafe { nagi_parse_unsigned(cursor, &mut end, 16, false) };
+                if end.is_null() || end.cast_const() == original {
+                    return assigned;
+                }
+                cursor = end.cast_const();
+                if !suppress {
+                    let destination = unsafe { args.arg::<*mut *mut c_void>() };
+                    if destination.is_null() {
+                        unsafe { set_errno(EINVAL) };
+                        return assigned;
+                    }
+                    unsafe { destination.write(value as *mut c_void) };
+                    assigned += 1;
+                }
+            }
+            b'n' => {
+                if !suppress {
+                    let consumed = unsafe { cursor.offset_from(input) } as c_int;
+                    match longness {
+                        3 | 4 => unsafe { args.arg::<*mut c_longlong>().write(consumed as c_longlong) },
+                        1 => unsafe { args.arg::<*mut i16>().write(consumed as i16) },
+                        2 => unsafe { args.arg::<*mut i8>().write(consumed as i8) },
+                        _ => unsafe { args.arg::<*mut c_int>().write(consumed) },
+                    }
+                }
+            }
+            _ => {
+                unsafe { set_errno(ENOSYS) };
+                return assigned;
+            }
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sscanf(
+    input: *const c_char,
+    format: *const c_char,
+    mut args: ...,
+) -> c_int {
+    unsafe { nagi_vsscanf(input, format, args.as_va_list()) }
 }
 
 #[unsafe(no_mangle)]
