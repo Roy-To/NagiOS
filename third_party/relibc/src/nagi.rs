@@ -398,6 +398,58 @@ pub unsafe extern "C" fn fork() -> c_int {
     -1
 }
 
+/// Nagi user images are statically linked and do not expose a dynamic loader
+/// namespace.  Keep the ABI truthful: a dynamic lookup fails closed instead
+/// of returning a fabricated function pointer or consulting the host process.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dlsym(
+    _handle: *mut c_void,
+    _symbol: *const c_char,
+) -> *mut c_void {
+    unsafe { set_errno(ENOSYS) };
+    ptr::null_mut()
+}
+
+// `pthread_once_t` is a four-byte target ABI object in the selected relibc
+// headers.  0 means not started, 1 means an initializer is in progress, and 2
+// means completed.  The state lives in guest memory supplied by the caller;
+// no host pthread or process-global lock is involved.
+const NAGI_ONCE_RUNNING: u32 = 1;
+const NAGI_ONCE_COMPLETE: u32 = 2;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_once(
+    once_control: *mut c_void,
+    init_routine: Option<extern "C" fn()>,
+) -> c_int {
+    if once_control.is_null() || init_routine.is_none() {
+        return EINVAL;
+    }
+    let state = unsafe { &*once_control.cast::<AtomicU32>() };
+    loop {
+        match state.load(Ordering::Acquire) {
+            NAGI_ONCE_COMPLETE => return 0,
+            0 => {
+                if state
+                    .compare_exchange(
+                        0,
+                        NAGI_ONCE_RUNNING,
+                        Ordering::Acquire,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+                {
+                    unsafe { init_routine.unwrap_unchecked()() };
+                    state.store(NAGI_ONCE_COMPLETE, Ordering::Release);
+                    return 0;
+                }
+            }
+            NAGI_ONCE_RUNNING => core::hint::spin_loop(),
+            _ => return EINVAL,
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _exit(code: c_int) -> ! {
     unsafe { nagi_posix_exit(code) }
@@ -890,6 +942,42 @@ pub unsafe extern "C" fn fread(
     } else {
         (read as usize) / size
     }
+}
+
+fn nagi_errno_message(error: c_int) -> &'static [u8] {
+    match error {
+        9 => b"Bad file descriptor\n",
+        11 => b"Resource temporarily unavailable\n",
+        12 => b"Out of memory\n",
+        22 => b"Invalid argument\n",
+        34 => b"Numerical result out of range\n",
+        38 => b"Function not implemented\n",
+        75 => b"Value too large for defined data type\n",
+        _ => b"Unknown error\n",
+    }
+}
+
+/// Write a truthful Nagi diagnostic to the guest stderr descriptor.  The
+/// target backend has no host `errno` string table or host stderr; both the
+/// prefix and the error text use the Nagi descriptor boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn perror(prefix: *const c_char) {
+    let error = unsafe {
+        let location = nagi_posix_errno_location();
+        if location.is_null() {
+            0
+        } else {
+            location.read()
+        }
+    };
+    if !prefix.is_null() {
+        if let Some(length) = unsafe { c_string_len(prefix, 4096) } {
+            unsafe { nagi_posix_write_fd(2, prefix.cast(), length) };
+            unsafe { nagi_posix_write_fd(2, b": ".as_ptr(), 2) };
+        }
+    }
+    let message = nagi_errno_message(error);
+    unsafe { nagi_posix_write_fd(2, message.as_ptr(), message.len()) };
 }
 
 /// Target-owned seek for descriptor-backed FILE streams.  The target stdio

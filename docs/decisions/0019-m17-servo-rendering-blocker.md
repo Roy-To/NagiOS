@@ -1416,6 +1416,20 @@ non-readable and return `EBADF`. No host stdio, host filesystem, or synthetic
 read result is introduced. M17 remains `BLOCKED` until target linking, the
 UEFI loader, real QEMU, and real Servo first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, static symbol, once, and diagnostic ABI)
+
+Public snapshot CI run `35787930674` (#90, head `04a47e6`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, and kernel
+stages, then failed at final target linking. The exact undefined symbols were
+`dlsym`, `pthread_once`, and `perror`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds a fail-closed `dlsym` because the Nagi user target is
+statically linked and has no dynamic loader namespace, a four-byte guest
+atomic `pthread_once`, and a `perror` implementation that writes diagnostics
+through Nagi descriptor 2. No host dynamic loader, host pthread, or host
+stderr is introduced. M17 remains `BLOCKED` until target linking, the UEFI
+loader, real QEMU, and real Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-23, FILE cursor and bounded string ABI)
 
 Public snapshot CI run `35694703468` (#89, head `41de72a`) passed target
