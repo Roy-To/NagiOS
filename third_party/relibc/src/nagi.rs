@@ -805,6 +805,42 @@ pub unsafe extern "C" fn fwrite(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn fread(
+    bytes: *mut c_void,
+    size: usize,
+    count: usize,
+    stream: *mut c_void,
+) -> usize {
+    if size == 0 || count == 0 {
+        return 0;
+    }
+    let Some(length) = size.checked_mul(count) else {
+        unsafe { set_errno(EOVERFLOW) };
+        return 0;
+    };
+    if bytes.is_null() || stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0;
+    }
+
+    let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        // open_memstream is a write stream in this target ABI. Do not treat
+        // its output buffer as an implicit readable file or claim bytes that
+        // were not read through a Nagi descriptor.
+        unsafe { set_errno(EBADF) };
+        return 0;
+    }
+
+    let read = unsafe { nagi_posix_read(stream.fd, bytes.cast(), length) };
+    if read <= 0 {
+        0
+    } else {
+        (read as usize) / size
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn fflush(stream: *mut c_void) -> c_int {
     if stream.is_null() {
         // There is no global stream registry in the target backend.  Mesa's
@@ -1545,6 +1581,16 @@ pub unsafe extern "C" fn expf(x: c_float) -> c_float {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn exp2(x: c_double) -> c_double {
+    nagi_exp_real(x * NAGI_POW_LN2)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn exp2f(x: c_float) -> c_float {
+    nagi_exp_real(c_double::from(x) * NAGI_POW_LN2) as c_float
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn log(x: c_double) -> c_double {
     nagi_log_real(x)
 }
@@ -1685,6 +1731,11 @@ pub unsafe extern "C" fn log2(value: c_double) -> c_double {
         return NAGI_POW_INF;
     }
     nagi_pow_ln_positive(value) / NAGI_POW_LN2
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn log2f(value: c_float) -> c_float {
+    unsafe { log2(c_double::from(value)) as c_float }
 }
 
 #[unsafe(no_mangle)]

@@ -25,14 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35688435791` (#86) at
-`496550a` passed the target bootstrap, dependency boundary, Mesa Softpipe,
+**Last known repair checkpoint:** public CI run `35690360685` (#87) at
+`5f90040` passed the target bootstrap, dependency boundary, Mesa Softpipe,
 package, kernel, and target compilation stages, then failed at final target
-linking with undefined `_Unwind_Resume` and GNU C++11 `basic_string` methods
-`_M_append` and `find`. The current repair adds a Nagi allocator-backed
-append/find implementation and a fail-closed exception-resume boundary. This
-run is not target-link acceptance evidence. No host libc, host filesystem,
-host rendering, or synthetic output is used.
+linking with undefined `exp2f`, `log2f`, and `fread`. The current repair adds
+target-owned base-2 math entrypoints and connects `fread` for Nagi descriptor
+streams to the real POSIX read boundary. This run is not target-link
+acceptance evidence. No host libc, host filesystem, host rendering, or
+synthetic output is used.
 Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
@@ -141,7 +141,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35688435791` (#86) at `496550a` passed bootstrap, dependency boundary, Mesa, package, kernel, and target compilation, then failed at final target linking on `_Unwind_Resume`, GNU `basic_string::_M_append`, and GNU `basic_string::find`; the current repair adds target-owned allocator-backed string operations and a fail-closed unwind boundary. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35690360685` (#87) at `5f90040` passed bootstrap, dependency boundary, Mesa, package, kernel, and target compilation, then failed at final target linking on `exp2f`, `log2f`, and `fread`; the current repair adds target-owned base-2 math and descriptor-backed stdio read paths. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1425,6 +1425,13 @@ Recent target-link repair history:
   append/find operations and a fail-closed `_Unwind_Resume` boundary for the
   exception-disabled target. M17 remains `BLOCKED` until the complete gate
   passes.
+- Public CI run `35690360685` (#87, head `5f90040`) passed the target
+  bootstrap, dependency boundary, Mesa, package, kernel, and target compile
+  stages, then reached final linking with undefined `exp2f`, `log2f`, and
+  `fread`; UEFI and QEMU were skipped. The current repair adds target-owned
+  base-2 math entrypoints and forwards descriptor-backed `fread` to the real
+  Nagi POSIX read boundary. M17 remains `BLOCKED` until the complete gate
+  passes.
 
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
@@ -2538,4 +2545,16 @@ operations over the existing Nagi allocator/layout, and terminate through the
 real Nagi abort boundary if an incompatible exception path attempts to resume.
 Local Windows lacks `clang++` as well as MSVC `link.exe`/CRT, so C++ compile
 validation remains delegated to the Ubuntu target CI. M18 remains
+`NOT STARTED`; no M17 PASS is recorded.
+
+### Current M17 continuation after CI run #87 (2026-09-22)
+
+The pushed implementation head is `5f90040` on `main`. CI run #87
+(`35690360685`) passed target bootstrap, dependency validation, Mesa Softpipe,
+package, kernel, and target compilation, then failed final target linking on
+`exp2f`, `log2f`, and `fread`. UEFI and real QEMU first-web-pixel acceptance
+were skipped. The next repair is target-owned and remains within M17:
+freestanding `exp2`/`exp2f` and `log2f` over the existing Nagi math core, plus
+descriptor-backed `fread` through `nagi_posix_read`; memory output streams
+remain explicitly non-readable rather than claiming data. M18 remains
 `NOT STARTED`; no M17 PASS is recorded.
