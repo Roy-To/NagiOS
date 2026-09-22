@@ -53,9 +53,7 @@ fn main() {
         // seed those real symbols. This remains selective archive extraction;
         // it does not force every Mesa member out or import a host graphics
         // implementation.
-        println!(
-            "cargo:rustc-link-arg-bin=nagi-init=--undefined=_mesa_glthread_finish"
-        );
+        println!("cargo:rustc-link-arg-bin=nagi-init=--undefined=_mesa_glthread_finish");
         println!("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
     }
