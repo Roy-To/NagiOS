@@ -1294,3 +1294,13 @@ root-VFS snapshot, with invalid pointers rejected at the Nagi POSIX boundary.
 No host exception, signal, filesystem, or rendering implementation is used.
 M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and the
 real Servo first-web-pixel gate pass.
+
+## Validation continuation (2026-09-22, Mesa archive retry)
+
+Public snapshot CI run `35673531417` (head `51deb09`) failed at the pinned Mesa
+Softpipe archive step with exit code 2 and no compiler annotation; the target
+build and all later M17 gates were skipped. The identical pinned Mesa path
+passed in run `35671405076`, so this run does not establish a new Nagi source
+blocker or acceptance result. Re-run the unchanged implementation path before
+classifying the target ABI repair; M17 remains `BLOCKED` until target linking,
+UEFI, real QEMU, and the real Servo first-web-pixel gate pass.
