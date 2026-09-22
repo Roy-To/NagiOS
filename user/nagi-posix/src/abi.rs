@@ -3,7 +3,7 @@
 //! These symbols are user-space adapters.  They do not map to host libc or
 //! add high-level filesystem/network syscalls to the kernel.
 
-use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
+use core::ffi::{c_char, c_int, c_long, c_uint, c_ulong, c_void};
 use core::ptr;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
@@ -12,6 +12,7 @@ use crate::errno::{
     set_errno, EAGAIN, EBADF, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP, ENOTTY,
     ERANGE, ETIMEDOUT,
 };
+use libnagi::storage::{DirectoryEntry, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH};
 use nagi_pal::time::{Clock, GuestClock};
 
 const TLS_SLOTS: usize = 64;
@@ -598,6 +599,23 @@ const O_TRUNC: c_int = 0x0400_0000;
 const AT_FDCWD: c_int = -100;
 const AT_REMOVEDIR: c_int = 0x0200;
 
+#[repr(C)]
+pub struct NagiDirent {
+    pub d_ino: u64,
+    pub d_off: c_long,
+    pub d_reclen: u16,
+    pub d_type: u8,
+    pub d_name: [c_char; 256],
+}
+
+#[repr(C)]
+pub struct NagiDir {
+    entries: [DirectoryEntry; MAX_DIRECTORY_ENTRIES],
+    count: usize,
+    cursor: usize,
+    current: NagiDirent,
+}
+
 unsafe fn c_path(path: *const c_char, output: &mut [u8]) -> Result<&[u8], c_int> {
     if path.is_null() {
         return Err(EINVAL);
@@ -717,6 +735,101 @@ pub unsafe extern "C" fn nagi_posix_unlinkat(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_unlink(path: *const c_char) -> c_int {
     nagi_posix_unlinkat(AT_FDCWD, path, 0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_mkdir(path: *const c_char, _mode: c_uint) -> c_int {
+    let mut bytes = [0_u8; 64];
+    let name = match c_path(path, &mut bytes) {
+        Ok(name) => name,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::mkdir(name) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_rmdir(path: *const c_char) -> c_int {
+    nagi_posix_unlinkat(AT_FDCWD, path, AT_REMOVEDIR)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_opendir(path: *const c_char) -> *mut c_void {
+    match is_root_path(path) {
+        Ok(true) => {}
+        Ok(false) => {
+            set_errno(ENOTSUP);
+            return ptr::null_mut();
+        }
+        Err(error) => {
+            set_errno(error);
+            return ptr::null_mut();
+        }
+    }
+
+    let mut entries = [DirectoryEntry::empty(); MAX_DIRECTORY_ENTRIES];
+    let count = match crate::runtime::list_root(&mut entries) {
+        Ok(count) => count,
+        Err(error) => {
+            set_errno(crate::runtime::map_error(error));
+            return ptr::null_mut();
+        }
+    };
+    let directory = crate::nagi_posix_malloc(core::mem::size_of::<NagiDir>()).cast::<NagiDir>();
+    if directory.is_null() {
+        set_errno(ENOMEM);
+        return ptr::null_mut();
+    }
+    directory.write(NagiDir {
+        entries,
+        count,
+        cursor: 0,
+        current: NagiDirent {
+            d_ino: 0,
+            d_off: 0,
+            d_reclen: 0,
+            d_type: 0,
+            d_name: [0; 256],
+        },
+    });
+    directory.cast()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_readdir(directory: *mut c_void) -> *mut c_void {
+    if directory.is_null() {
+        set_errno(EBADF);
+        return ptr::null_mut();
+    }
+    let directory = &mut *directory.cast::<NagiDir>();
+    let Some(entry) = directory.entries.get(directory.cursor).copied() else {
+        return ptr::null_mut();
+    };
+    directory.cursor += 1;
+    directory.current.d_ino = u64::from(entry.inode);
+    directory.current.d_off = directory.cursor as c_long;
+    directory.current.d_type = entry.file_type;
+    directory.current.d_name = [0; 256];
+    let length = usize::from(entry.name_len).min(MAX_NAME_LENGTH);
+    for (destination, source) in directory.current.d_name[..length]
+        .iter_mut()
+        .zip(entry.name().iter().copied())
+    {
+        *destination = source as c_char;
+    }
+    directory.current.d_reclen = (19 + length + 1).next_multiple_of(8) as u16;
+    (&mut directory.current as *mut NagiDirent).cast()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_closedir(directory: *mut c_void) -> c_int {
+    if directory.is_null() {
+        return write_errno_and_fail(EBADF);
+    }
+    crate::nagi_posix_free(directory.cast());
+    0
 }
 
 #[unsafe(no_mangle)]

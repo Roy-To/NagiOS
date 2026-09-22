@@ -1,5 +1,8 @@
 use core::time::Duration;
-use libnagi::storage::{FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE};
+use libnagi::storage::{
+    DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
+    MAX_DIRECTORY_ENTRIES,
+};
 use nagi_net::{Ipv4Address, NetError, SocketApi, SyscallDevice};
 use nagi_pal::sync::SpinMutex;
 use nagi_pal::time::{Clock, GuestClock};
@@ -162,6 +165,20 @@ pub fn remove(name: &[u8]) -> Result<(), RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
     volume.remove(name).map_err(RuntimeError::Storage)
+}
+
+pub fn mkdir(name: &[u8]) -> Result<(), RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume.mkdir(name).map_err(RuntimeError::Storage)
+}
+
+pub fn list_root(
+    entries: &mut [DirectoryEntry; MAX_DIRECTORY_ENTRIES],
+) -> Result<usize, RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume.list_root(entries).map_err(RuntimeError::Storage)
 }
 
 pub fn socket() -> Result<i32, RuntimeError> {

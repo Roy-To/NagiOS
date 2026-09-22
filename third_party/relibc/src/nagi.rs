@@ -38,6 +38,11 @@ unsafe extern "C" {
     fn nagi_posix_openat(fd: c_int, path: *const c_char, flags: c_int, mode: c_int) -> c_int;
     fn nagi_posix_unlink(path: *const c_char) -> c_int;
     fn nagi_posix_unlinkat(fd: c_int, path: *const c_char, flags: c_int) -> c_int;
+    fn nagi_posix_mkdir(path: *const c_char, mode: c_uint) -> c_int;
+    fn nagi_posix_rmdir(path: *const c_char) -> c_int;
+    fn nagi_posix_opendir(path: *const c_char) -> *mut c_void;
+    fn nagi_posix_readdir(directory: *mut c_void) -> *mut c_void;
+    fn nagi_posix_closedir(directory: *mut c_void) -> c_int;
     fn nagi_posix_fdopendir(fd: c_int) -> *mut c_void;
     fn nagi_posix_resolve_ipv4(name: *const c_char, output: *mut NagiIpv4Address) -> c_int;
     fn nagi_posix_mmap_file(length: usize, protection: c_int, fd: c_int, offset: usize) -> *mut u8;
@@ -1531,6 +1536,31 @@ pub unsafe extern "C" fn unlink(path: *const c_char) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unlinkat(fd: c_int, path: *const c_char, flags: c_int) -> c_int {
     unsafe { nagi_posix_unlinkat(fd, path, flags) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mkdir(path: *const c_char, mode: c_uint) -> c_int {
+    unsafe { nagi_posix_mkdir(path, mode) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rmdir(path: *const c_char) -> c_int {
+    unsafe { nagi_posix_rmdir(path) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn opendir(path: *const c_char) -> *mut c_void {
+    unsafe { nagi_posix_opendir(path) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn readdir(directory: *mut c_void) -> *mut c_void {
+    unsafe { nagi_posix_readdir(directory) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn closedir(directory: *mut c_void) -> c_int {
+    unsafe { nagi_posix_closedir(directory) }
 }
 
 #[unsafe(no_mangle)]

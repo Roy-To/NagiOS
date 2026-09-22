@@ -1260,6 +1260,21 @@ real Servo first-web-pixel gate pass.
 
 ## Exit criteria
 
+## Remediation continuation (2026-09-22, target root-VFS directory ABI)
+
+Public snapshot CI run `35668983049` (head `e5925d9`) passed target bootstrap,
+dependency-boundary validation, Mesa, package, kernel, and compilation stages,
+then failed at final target linking. The exact undefined symbols were `rmdir`,
+`mkdir`, and `opendir`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds target-owned `mkdir` and `rmdir` operations over the
+existing Nagi root VFS and a bounded `opendir`/`readdir`/`closedir` adapter that
+enumerates the real root directory snapshot. Non-root directory namespaces
+remain explicitly rejected by the Nagi POSIX boundary. This does not import
+host filesystem behavior or claim a synthetic directory. M17 remains
+`BLOCKED` until target linking, the UEFI loader, real QEMU, and the real Servo
+first-web-pixel gate pass.
+
 Reopen M17 from this ADR after the guest rendering dependency is available.
 Run the target build, focused adapter tests, and the QEMU acceptance wrapper.
 Only then change the status to `PASS`; otherwise retain `BLOCKED` with updated
