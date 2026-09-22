@@ -1363,11 +1363,24 @@ pub unsafe extern "C" fn abort() -> ! {
     libnagi::exit(134)
 }
 
+// C++ target images replace this weak lifecycle hook with the strong
+// freestanding registry from tools/mesa/nagi-cxx-runtime.cpp. Other Nagi
+// target images have no C++ static-destructor table and therefore retain the
+// valid empty hook without importing a host runtime.
+#[cfg(target_os = "nagi")]
+#[cfg_attr(target_os = "nagi", linkage = "weak")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_cxx_finalize() {}
+
 /// Terminate the current Nagi process through the published process-exit
 /// syscall. The POSIX exit status is the low eight bits, matching the status
 /// encoding used by the waitpid adapter below.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_exit(code: c_int) -> ! {
+    #[cfg(target_os = "nagi")]
+    unsafe {
+        nagi_cxx_finalize();
+    }
     libnagi::exit((code as u8) as u64)
 }
 

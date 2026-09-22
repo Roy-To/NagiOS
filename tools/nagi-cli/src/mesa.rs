@@ -626,6 +626,9 @@ mod tests {
         assert!(runtime.contains("__cxa_guard_acquire"));
         assert!(runtime.contains("__cxa_guard_release"));
         assert!(runtime.contains("__cxa_guard_abort"));
+        assert!(runtime.contains("__cxa_atexit"));
+        assert!(runtime.contains("__cxa_finalize"));
+        assert!(runtime.contains("nagi_cxx_finalize"));
         assert!(runtime.contains("_ZNSt3__16locale7classicEv"));
         assert!(runtime.contains("_ZNSt3__15ctypeIcE2idE"));
         assert!(runtime.contains("_ZSt7nothrow"));
@@ -764,6 +767,8 @@ mod tests {
             "pub unsafe extern \"C\" fn sinf(",
             "pub unsafe extern \"C\" fn cosf(",
             "pub unsafe extern \"C\" fn tan(",
+            "pub unsafe extern \"C\" fn tanf(",
+            "pub unsafe extern \"C\" fn log2(",
             "pub unsafe extern \"C\" fn asin(",
             "pub unsafe extern \"C\" fn asinf(",
             "pub unsafe extern \"C\" fn atan(",

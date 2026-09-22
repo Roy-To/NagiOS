@@ -87,6 +87,84 @@ extern "C" void __cxa_guard_abort(nagi_guard_t *guard) {
     __atomic_store_n(guard, 0, __ATOMIC_RELEASE);
 }
 
+// Static objects in the pinned C++ dependencies register their destructors
+// through the Itanium ABI. Keep that lifecycle contract in the target image
+// instead of silently discarding destructors or importing libc++abi. The
+// table is bounded because M17's freestanding image has no heap-backed C++
+// runtime; registration reports failure when the explicit capacity is full.
+using nagi_cxx_destructor = void (*)(void *);
+
+struct nagi_cxx_atexit_record {
+    nagi_cxx_destructor destructor;
+    void *object;
+    void *dso_handle;
+    bool active;
+};
+
+static constexpr nagi_uintptr_t NAGI_CXX_ATEXIT_CAPACITY = 512;
+static nagi_cxx_atexit_record nagi_cxx_atexit_records[NAGI_CXX_ATEXIT_CAPACITY]{};
+static nagi_uintptr_t nagi_cxx_atexit_count = 0;
+static unsigned char nagi_cxx_atexit_lock = 0;
+
+static void nagi_cxx_atexit_lock_acquire() {
+    while (__atomic_test_and_set(&nagi_cxx_atexit_lock, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile("pause" ::: "memory");
+    }
+}
+
+static void nagi_cxx_atexit_lock_release() {
+    __atomic_clear(&nagi_cxx_atexit_lock, __ATOMIC_RELEASE);
+}
+
+extern "C" int __cxa_atexit(nagi_cxx_destructor destructor, void *object,
+                            void *dso_handle) {
+    if (destructor == nullptr) {
+        return -1;
+    }
+
+    nagi_cxx_atexit_lock_acquire();
+    if (nagi_cxx_atexit_count >= NAGI_CXX_ATEXIT_CAPACITY) {
+        nagi_cxx_atexit_lock_release();
+        return -1;
+    }
+    nagi_cxx_atexit_records[nagi_cxx_atexit_count++] = {
+        destructor, object, dso_handle, true};
+    nagi_cxx_atexit_lock_release();
+    return 0;
+}
+
+extern "C" void __cxa_finalize(void *dso_handle) {
+    for (;;) {
+        nagi_cxx_destructor destructor = nullptr;
+        void *object = nullptr;
+
+        nagi_cxx_atexit_lock_acquire();
+        for (nagi_uintptr_t index = nagi_cxx_atexit_count; index != 0; --index) {
+            nagi_cxx_atexit_record &record = nagi_cxx_atexit_records[index - 1];
+            if (record.active &&
+                (dso_handle == nullptr || record.dso_handle == dso_handle)) {
+                record.active = false;
+                destructor = record.destructor;
+                object = record.object;
+                break;
+            }
+        }
+        nagi_cxx_atexit_lock_release();
+
+        if (destructor == nullptr) {
+            return;
+        }
+        destructor(object);
+    }
+}
+
+// Nagi's POSIX exit boundary calls this hook before the process-exit syscall.
+// A weak no-op is supplied by nagi-posix for non-C++ target images; this strong
+// definition activates the real destructor registry for M17's Servo image.
+extern "C" void nagi_cxx_finalize() {
+    __cxa_finalize(nullptr);
+}
+
 // libc++ uses this freestanding diagnostic entrypoint for invariant failures
 // even when exceptions are disabled. Keep the ABI real and terminate the
 // guest through Nagi's process boundary; do not import a host libc++abi.

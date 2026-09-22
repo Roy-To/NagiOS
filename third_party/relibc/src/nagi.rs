@@ -1544,6 +1544,28 @@ pub unsafe extern "C" fn tan(x: c_double) -> c_double {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn tanf(x: c_float) -> c_float {
+    unsafe { tan(c_double::from(x)) as c_float }
+}
+
+/// Target-owned base-2 logarithm. The implementation reuses the same
+/// mantissa/exponent reduction as Nagi's real `pow` path, so it does not
+/// depend on a host libm or silently return a placeholder value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn log2(value: c_double) -> c_double {
+    if nagi_pow_is_nan(value) || value < 0.0 {
+        return NAGI_POW_NAN;
+    }
+    if value == 0.0 {
+        return -NAGI_POW_INF;
+    }
+    if nagi_pow_is_inf(value) {
+        return NAGI_POW_INF;
+    }
+    nagi_pow_ln_positive(value) / NAGI_POW_LN2
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn accept(
     socket: c_int,
     address: *mut c_void,
