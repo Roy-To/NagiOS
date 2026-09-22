@@ -25,13 +25,13 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35684235079` (#84) at
-`43a3e0c` passed the target bootstrap, dependency boundary, Mesa Softpipe,
+**Last known repair checkpoint:** public CI run `35686392969` (#85) at
+`de1796d` passed the target bootstrap, dependency boundary, Mesa Softpipe,
 package, kernel, and target compilation stages, then failed at final target
-linking with undefined `getsockname`, `dirfd`, and `pthread_detach`. The
-current repair adds those Nagi-owned socket, root-directory, and bounded
-native-thread ABI paths. This run is not target-link acceptance evidence. No
-host libc, host filesystem, host rendering, or synthetic output is used.
+linking with undefined `log`, `tanhf`, and `logf`. The current repair adds
+target-owned freestanding logarithm and hyperbolic-tangent entrypoints over
+the existing Nagi math core. This run is not target-link acceptance evidence.
+No host libc, host filesystem, host rendering, or synthetic output is used.
 Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
@@ -140,7 +140,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35684235079` (#84) at `43a3e0c` passed bootstrap, dependency boundary, Mesa, package, kernel, and target compilation, then failed at final target linking on `getsockname`, `dirfd`, and `pthread_detach`; the current repair is in the next pushed commit. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35686392969` (#85) at `de1796d` passed bootstrap, dependency boundary, Mesa, package, kernel, and target compilation, then failed at final target linking on `log`, `tanhf`, and `logf`; the current repair adds target-owned freestanding math entrypoints. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1408,7 +1408,13 @@ Recent target-link repair history:
   linking with `getsockname`, `dirfd`, and `pthread_detach`; the current
   repair adds real smoltcp local-endpoint reporting, root-only directory-fd
   identity, and bounded detached-thread lifecycle state. UEFI and QEMU were
-  skipped in all these runs. M17 remains `BLOCKED` until the complete gate
+  skipped in all these runs.
+- Public CI run `35686392969` (#85, head `de1796d`) passed the target
+  bootstrap, dependency boundary, Mesa, package, kernel, and target compile
+  stages, then reached final linking with undefined `log`, `tanhf`, and
+  `logf`; UEFI and QEMU were skipped. The current repair adds real
+  target-owned `log`, `logf`, `tanh`, and `tanhf` implementations using the
+  freestanding Nagi math core. M17 remains `BLOCKED` until the complete gate
   passes.
 
 No host rendering, alternate browser engine, fake GL implementation, or
@@ -2496,3 +2502,17 @@ bounded detached-thread stack lifecycle. M18 remains `NOT STARTED` and no
 M17 PASS is recorded. Local Windows host Cargo linking remains limited by the
 missing MSVC `link.exe`/CRT; Ubuntu target CI is the authoritative compile,
 UEFI, and QEMU environment.
+
+### Current M17 continuation after CI run #85 (2026-09-22)
+
+The pushed implementation head is `de1796d` on `main`. CI run #85
+(`35686392969`) passed target bootstrap, dependency validation, Mesa Softpipe,
+package, kernel, and target compilation, then failed final target linking on
+`log`, `tanhf`, and `logf`. UEFI and real QEMU first-web-pixel acceptance were
+skipped. The next repair is target-owned and remains within M17: freestanding
+`log`/`logf` based on the existing Nagi logarithm reduction and stable
+`tanh`/`tanhf` based on the existing Nagi exponential implementation. The
+source contract now covers these symbols. M18 remains `NOT STARTED`; no M17
+PASS is recorded. Local Windows Cargo test linking remains limited by the
+missing MSVC `link.exe`/CRT; target CI remains authoritative for target,
+UEFI, and QEMU validation.

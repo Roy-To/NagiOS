@@ -1352,3 +1352,19 @@ with deferred stack reclamation after a replacement child is accepted. It does
 not use host sockets/filesystem/threads or return synthetic success for an
 unsupported target operation. M17 remains `BLOCKED` until target linking,
 UEFI, real QEMU, and real first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-22, target freestanding math ABI)
+
+Public snapshot CI run `35686392969` (#85, head `de1796d`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, kernel, and
+target compilation stages, then failed at final target linking. The exact
+undefined symbols were `log`, `tanhf`, and `logf`; UEFI and real QEMU were
+skipped.
+
+The next M17 repair adds target-owned freestanding `log` and `logf` entrypoints
+over Nagi's existing mantissa/exponent logarithm reduction, and stable `tanh`
+and `tanhf` entrypoints over the existing Nagi exponential implementation.
+The implementation remains independent of host libm and does not turn symbol
+presence into a fake success path. The source contract records all four
+entrypoints. M17 remains `BLOCKED` until target linking, the UEFI loader, real
+QEMU, and real Servo first-web-pixel evidence pass.

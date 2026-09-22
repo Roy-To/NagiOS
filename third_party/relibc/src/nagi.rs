@@ -1304,6 +1304,41 @@ fn nagi_exp_real(value: c_double) -> c_double {
     nagi_pow_exp(value)
 }
 
+fn nagi_log_real(value: c_double) -> c_double {
+    if nagi_pow_is_nan(value) || value < 0.0 {
+        return NAGI_POW_NAN;
+    }
+    if value == 0.0 {
+        return -NAGI_POW_INF;
+    }
+    if nagi_pow_is_inf(value) {
+        return NAGI_POW_INF;
+    }
+    nagi_pow_ln_positive(value)
+}
+
+fn nagi_tanh_real(value: c_double) -> c_double {
+    if nagi_pow_is_nan(value) {
+        return NAGI_POW_NAN;
+    }
+    if nagi_pow_is_inf(value) {
+        return if value.is_sign_negative() { -1.0 } else { 1.0 };
+    }
+
+    // Evaluate the stable form (1 - exp(-2*|x|)) / (1 + exp(-2*|x|)) so
+    // large finite inputs cannot turn the equivalent exp(2*x) form into
+    // infinity minus infinity. Restore the sign, including signed zero,
+    // after evaluating the non-negative magnitude.
+    let absolute = nagi_pow_abs(value);
+    let decay = nagi_exp_real(-2.0 * absolute);
+    let magnitude = (1.0 - decay) / (1.0 + decay);
+    if value.is_sign_negative() {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
 fn nagi_trig_reduce(value: c_double) -> c_double {
     if nagi_pow_is_nan(value) || nagi_pow_is_inf(value) {
         return NAGI_POW_NAN;
@@ -1510,6 +1545,16 @@ pub unsafe extern "C" fn expf(x: c_float) -> c_float {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn log(x: c_double) -> c_double {
+    nagi_log_real(x)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn logf(x: c_float) -> c_float {
+    nagi_log_real(c_double::from(x)) as c_float
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hypot(x: c_double, y: c_double) -> c_double {
     nagi_hypot_real(x, y)
 }
@@ -1613,6 +1658,16 @@ pub unsafe extern "C" fn tan(x: c_double) -> c_double {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tanf(x: c_float) -> c_float {
     unsafe { tan(c_double::from(x)) as c_float }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tanh(x: c_double) -> c_double {
+    nagi_tanh_real(x)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tanhf(x: c_float) -> c_float {
+    nagi_tanh_real(c_double::from(x)) as c_float
 }
 
 /// Target-owned base-2 logarithm. The implementation reuses the same
