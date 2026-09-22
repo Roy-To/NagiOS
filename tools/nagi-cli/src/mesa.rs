@@ -580,8 +580,10 @@ mod tests {
             .expect("Nagi init build script");
         assert!(build_script.contains("static=nagi_mesa"));
         assert!(!build_script.contains("static:+whole-archive=nagi_mesa"));
-        assert!(build_script.contains("cargo:rustc-link-arg-bin=nagi-init=--start-group"));
-        assert!(build_script.contains("cargo:rustc-link-arg-bin=nagi-init=--end-group"));
+        assert!(build_script
+            .contains("cargo:rustc-link-arg-bin=nagi-init=--undefined=_mesa_glthread_finish"));
+        assert!(build_script
+            .contains("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush"));
     }
 
     #[test]
