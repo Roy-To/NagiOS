@@ -1384,6 +1384,20 @@ pub unsafe extern "C" fn nagi_posix_getpid() -> c_int {
     1
 }
 
+/// Nagi's POSIX compatibility layer maps the initial capability-scoped root
+/// process to the conventional uid 0 identity. This is only the explicit
+/// POSIX view used by relibc; authorization remains capability-checked and
+/// does not derive authority from the numeric uid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_getuid() -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_geteuid() -> c_int {
+    0
+}
+
 /// Nagi 0.1 does not expose Unix process groups or sessions. Keep these
 /// Tier-B POSIX operations explicit and fail closed instead of fabricating
 /// process-group state in the spawn-oriented runtime.

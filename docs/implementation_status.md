@@ -25,14 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-23
-**Last known repair checkpoint:** public CI run `35793927424` (#92) at
-`b53d990` passed the target bootstrap, dependency boundary, Mesa Softpipe,
+**Last known repair checkpoint:** public CI run `35795642028` (#93) at
+`43ee78e` passed the target bootstrap, dependency boundary, Mesa Softpipe,
 package, and kernel stages, then failed at final target linking with undefined
-`std::__throw_bad_array_new_length()`, `__cxa_begin_catch`, and
-`__cxa_rethrow`. The current repair adds fail-closed Nagi-owned C++ exception
-boundaries for the exceptions-disabled target. This run is not target-link
-acceptance evidence. No host libc, host filesystem, host rendering, or
-synthetic output is used.
+`__cxa_pure_virtual`, `geteuid`, and `getuid`. The current repair adds the
+Nagi-owned pure-virtual abort boundary and the capability-scoped root's
+explicit POSIX UID view through relibc and nagi-posix. This run is not
+target-link acceptance evidence. No host libc, host filesystem, host rendering,
+or synthetic output is used.
 Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
@@ -141,7 +141,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35793927424` (#92) at `b53d990` passed bootstrap, dependency boundary, Mesa, package, and kernel stages, then failed at final target linking on `std::__throw_bad_array_new_length()`, `__cxa_begin_catch`, and `__cxa_rethrow`; the current repair adds target-owned fail-closed exception boundaries. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35795642028` (#93) at `43ee78e` passed bootstrap, dependency boundary, Mesa, package, and kernel stages, then failed at final target linking on `__cxa_pure_virtual`, `geteuid`, and `getuid`; the current repair adds the Nagi-owned pure-virtual abort boundary and capability-scoped root POSIX UID adapters. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -2643,3 +2643,17 @@ The next repair is target-owned and remains within M17: terminate through the
 real Nagi abort boundary if the exceptions-disabled target reaches these
 retained C++ exception entrypoints, without importing host libc++abi or an
 unwinder. M18 remains `NOT STARTED`; no M17 PASS is recorded.
+
+### Current M17 continuation after CI run #93 (2026-09-23)
+
+The pushed implementation head was `43ee78e` on `main`. CI run #93
+(`35795642028`) passed target bootstrap, dependency validation, Mesa Softpipe,
+package, and kernel compilation, then failed final target linking on
+`__cxa_pure_virtual`, `geteuid`, and `getuid`. UEFI and real QEMU first-web-
+pixel acceptance were skipped. The next repair is target-owned and remains
+within M17: add the Nagi C++ pure-virtual abort boundary and expose the
+capability-scoped root as the explicit POSIX compatibility uid 0 view through
+nagi-posix and relibc. Local relibc object compilation and formatting passed;
+local cargo tests remain unavailable because the generated `third_party/cc-nagi`
+checkout lacks its `Cargo.toml`. M18 remains `NOT STARTED`; no M17 PASS is
+recorded.

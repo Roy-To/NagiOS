@@ -636,6 +636,7 @@ mod tests {
         assert!(runtime.contains("_ZSt28__throw_bad_array_new_lengthv"));
         assert!(runtime.contains("__cxa_begin_catch"));
         assert!(runtime.contains("__cxa_rethrow"));
+        assert!(runtime.contains("__cxa_pure_virtual"));
         assert!(runtime.contains("__dynamic_cast"));
         assert!(runtime.contains("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base"));
         assert!(
@@ -671,6 +672,8 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn setgid("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn setuid("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn getpid("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn getuid("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn geteuid("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn chdir("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn chroot("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn setpgid("));
@@ -685,6 +688,8 @@ mod tests {
         assert!(relibc.contains("nagi_posix_setgid"));
         assert!(relibc.contains("nagi_posix_setuid"));
         assert!(relibc.contains("nagi_posix_getpid"));
+        assert!(relibc.contains("nagi_posix_getuid"));
+        assert!(relibc.contains("nagi_posix_geteuid"));
         assert!(relibc.contains("nagi_posix_setsid"));
         assert!(relibc.contains("nagi_posix_signal"));
         assert!(relibc.contains("nagi_posix_waitpid"));
@@ -693,6 +698,8 @@ mod tests {
         assert!(abi.contains("nagi_posix_setpgid"));
         assert!(abi.contains("nagi_posix_setsid"));
         assert!(abi.contains("nagi_posix_signal"));
+        assert!(abi.contains("pub unsafe extern \"C\" fn nagi_posix_getuid("));
+        assert!(abi.contains("pub unsafe extern \"C\" fn nagi_posix_geteuid("));
         assert!(abi.contains("libnagi::exit((code as u8) as u64)"));
     }
 

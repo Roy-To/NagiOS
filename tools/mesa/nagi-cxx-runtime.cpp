@@ -315,6 +315,13 @@ extern "C" [[noreturn]] void nagi_gnu_throw_bad_array_new_length() {
     abort();
 }
 
+// A pure-virtual dispatch is a programming error in the target image. Keep
+// the Itanium ABI entrypoint real and terminate through Nagi's process
+// boundary instead of importing libc++abi or returning to an invalid vtable.
+extern "C" [[noreturn]] void __cxa_pure_virtual() {
+    abort();
+}
+
 // libstdc++'s C++11 basic_string ABI stores the data pointer at offset zero,
 // the length at offset eight, and either the allocated capacity or the
 // 16-byte local buffer at offset sixteen on the x86-64 target.  Its destructor

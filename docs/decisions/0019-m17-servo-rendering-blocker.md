@@ -1471,3 +1471,19 @@ The next M17 repair adds descriptor-backed `fseek` and `ftell` through
 implementation does not import host stdio or host string routines, and M17
 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
 Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, pure-virtual and POSIX UID ABI)
+
+Public snapshot CI run `35795642028` (#93, head `43ee78e`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, and kernel
+stages, then failed at final target linking. The exact undefined symbols were
+`__cxa_pure_virtual`, `geteuid`, and `getuid`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds the target-owned Itanium pure-virtual entrypoint, which
+terminates through Nagi's real abort boundary if an invalid virtual dispatch is
+reached. It also exposes the initial capability-scoped root as the explicit
+POSIX compatibility uid 0 view through nagi-posix and relibc; authorization
+continues to use capabilities and does not derive authority from the numeric
+uid. No host libc++abi, host identity, or host filesystem is introduced. M17
+remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
+Servo first-web-pixel evidence pass.
