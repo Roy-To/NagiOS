@@ -1368,3 +1368,19 @@ The implementation remains independent of host libm and does not turn symbol
 presence into a fake success path. The source contract records all four
 entrypoints. M17 remains `BLOCKED` until target linking, the UEFI loader, real
 QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-22, GNU string and unwind ABI)
+
+Public snapshot CI run `35688435791` (#86, head `496550a`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, kernel, and
+target compilation stages, then failed at final target linking. The exact
+undefined symbols were `_Unwind_Resume` and GNU C++11 `basic_string` methods
+`_M_append` and `find`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds concrete GNU C++11 string append/find operations over
+the existing Nagi allocator-backed string layout. It also provides the
+exception-disabled target's `_Unwind_Resume` boundary, which terminates through
+the real Nagi abort path if an incompatible object enters an exception resume
+path. No host C++ standard library, host unwinder, or symbol-only success path
+is introduced. M17 remains `BLOCKED` until target linking, the UEFI loader,
+real QEMU, and real Servo first-web-pixel evidence pass.

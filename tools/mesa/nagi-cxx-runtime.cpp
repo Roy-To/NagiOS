@@ -320,6 +320,135 @@ extern "C" void nagi_gnu_basic_string_dispose(void *object) {
     }
 }
 
+static void nagi_copy_bytes(char *destination, const char *source,
+                            nagi_size_t count) {
+    for (nagi_size_t index = 0; index < count; ++index) {
+        destination[index] = source[index];
+    }
+}
+
+static constexpr nagi_size_t NAGI_GNU_BASIC_STRING_LOCAL_CAPACITY = 15;
+
+static nagi_size_t nagi_gnu_basic_string_capacity(
+    const nagi_gnu_basic_string_layout *string) {
+    const char *local = reinterpret_cast<const char *>(string) + 16;
+    return string->data == local ? NAGI_GNU_BASIC_STRING_LOCAL_CAPACITY
+                                 : string->storage.capacity;
+}
+
+// These are the concrete GNU C++11 basic_string operations still referenced by
+// the pinned target objects.  Implement them over the same Nagi allocator and
+// object layout as _M_dispose; providing only the mangled names would make a
+// link succeed while leaving the actual string operation undefined.
+extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_append(
+    nagi_gnu_basic_string_layout *object, const char *source,
+    nagi_size_t count)
+    __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE9_M_appendEPKcm");
+
+extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_append(
+    nagi_gnu_basic_string_layout *object, const char *source,
+    nagi_size_t count) {
+    if (object == nullptr || (source == nullptr && count != 0)) {
+        abort();
+    }
+    if (count == 0) {
+        return object;
+    }
+
+    const nagi_size_t maximum = ~static_cast<nagi_size_t>(0);
+    if (object->length > maximum - count || object->length + count >= maximum) {
+        abort();
+    }
+
+    const nagi_size_t old_length = object->length;
+    const nagi_size_t required = old_length + count;
+    const nagi_size_t capacity = nagi_gnu_basic_string_capacity(object);
+    char *old_data = object->data;
+
+    if (required <= capacity) {
+        nagi_copy_bytes(old_data + old_length, source, count);
+        object->length = required;
+        old_data[required] = '\0';
+        return object;
+    }
+
+    nagi_size_t new_capacity = capacity;
+    if (new_capacity <= (maximum - 1) / 2) {
+        new_capacity *= 2;
+    }
+    if (new_capacity < required) {
+        new_capacity = required;
+    }
+    if (new_capacity >= maximum) {
+        abort();
+    }
+
+    char *new_data = static_cast<char *>(nagi_posix_malloc(new_capacity + 1));
+    if (new_data == nullptr) {
+        abort();
+    }
+    nagi_copy_bytes(new_data, old_data, old_length);
+    nagi_copy_bytes(new_data + old_length, source, count);
+    new_data[required] = '\0';
+    const char *local = reinterpret_cast<const char *>(object) + 16;
+    if (old_data != local) {
+        nagi_posix_free(old_data);
+    }
+    object->data = new_data;
+    object->length = required;
+    object->storage.capacity = new_capacity;
+    return object;
+}
+
+extern "C" nagi_size_t nagi_gnu_basic_string_find(
+    const nagi_gnu_basic_string_layout *object, const char *needle,
+    nagi_size_t needle_length, nagi_size_t position)
+    __asm__("_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcmm");
+
+extern "C" nagi_size_t nagi_gnu_basic_string_find(
+    const nagi_gnu_basic_string_layout *object, const char *needle,
+    nagi_size_t needle_length, nagi_size_t position) {
+    const nagi_size_t npos = ~static_cast<nagi_size_t>(0);
+    if (object == nullptr || (needle == nullptr && needle_length != 0)) {
+        abort();
+    }
+    if (position > object->length) {
+        return npos;
+    }
+    if (needle_length == 0) {
+        return position;
+    }
+    if (needle_length > object->length - position) {
+        return npos;
+    }
+
+    for (nagi_size_t candidate = position;
+         candidate <= object->length - needle_length; ++candidate) {
+        bool matches = true;
+        for (nagi_size_t index = 0; index < needle_length; ++index) {
+            if (object->data[candidate + index] != needle[index]) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) {
+            return candidate;
+        }
+    }
+    return npos;
+}
+
+// The Nagi target is compiled with C++ exceptions disabled and provides no
+// host unwinder. If an incompatible object nevertheless enters an exception
+// resume path, fail closed through the real Nagi abort boundary instead of
+// importing a host unwind runtime or returning as if unwinding succeeded.
+extern "C" [[noreturn]] void nagi_unwind_resume(void *)
+    __asm__("_Unwind_Resume");
+
+extern "C" [[noreturn]] void nagi_unwind_resume(void *) {
+    abort();
+}
+
 static void *nagi_allocate(nagi_size_t size) {
     void *pointer = nagi_posix_malloc(size == 0 ? 1 : size);
     if (pointer == nullptr) {

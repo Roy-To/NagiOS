@@ -638,6 +638,12 @@ mod tests {
         assert!(
             runtime.contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv")
         );
+        assert!(runtime
+            .contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE9_M_appendEPKcm"));
+        assert!(
+            runtime.contains("_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcmm")
+        );
+        assert!(runtime.contains("_Unwind_Resume"));
         assert!(runtime.contains("nagi_gnu_basic_string_layout"));
         assert!(runtime.contains("class __class_type_info"));
         assert!(runtime.contains("class __si_class_type_info"));
