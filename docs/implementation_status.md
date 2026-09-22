@@ -25,13 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-22
-**Last known repair checkpoint:** public CI run `35673934729` at `a2be48a`
-failed before target linking at the pinned Mesa Softpipe archive step. The
-`setjmp`, `longjmp`, and `readdir_r` repair is now corrected for the
-Rust/LLVM Intel-syntax assembler; local object emission reproduces and then
-passes that boundary. This run is not target-link evidence. No host libc, host
-filesystem, host rendering, or synthetic output is used. Target link, UEFI,
-and real QEMU first-web-pixel evidence remain required.
+**Last known repair checkpoint:** public CI run `35684235079` (#84) at
+`43a3e0c` passed the target bootstrap, dependency boundary, Mesa Softpipe,
+package, kernel, and target compilation stages, then failed at final target
+linking with undefined `getsockname`, `dirfd`, and `pthread_detach`. The
+current repair adds those Nagi-owned socket, root-directory, and bounded
+native-thread ABI paths. This run is not target-link acceptance evidence. No
+host libc, host filesystem, host rendering, or synthetic output is used.
+Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -139,7 +140,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35673934729` at `a2be48a` failed before target linking in the pinned Mesa Softpipe archive step; local object emission identified and reproduced the relibc assembly syntax error, now corrected in the implementation. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35684235079` (#84) at `43a3e0c` passed bootstrap, dependency boundary, Mesa, package, kernel, and target compilation, then failed at final target linking on `getsockname`, `dirfd`, and `pthread_detach`; the current repair is in the next pushed commit. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -1393,6 +1394,23 @@ Verification checkpoint on 2026-09-20:
    server-listener primitive. This remains M17-internal and does not claim
    target-link or guest acceptance until CI reruns.
 
+Recent target-link repair history:
+
+- Public CI runs `35674424033` (#78, head `73b20bd`), `35676523724` (#79,
+  head `af5533f`), and `35678180409` (#80, head `798e527`) passed the target
+  Mesa/package/kernel/compile stages and successively exposed the C++ RTTI and
+  Mesa archive roots, the raw rust-lld group-argument boundary, then
+  `__cxa_atexit`, `tanf`, and `log2`.
+- Public CI run `35680421808` (#82, head `039166e`) again reached final
+  linking with `__cxa_atexit`, `tanf`, and `log2`; the next repair added a
+  bounded Nagi C++ destructor registry and target-owned math entrypoints.
+- Public CI run `35682596273` (#83, head `0588c8b`) then reached final
+  linking with `getsockname`, `dirfd`, and `pthread_detach`; the current
+  repair adds real smoltcp local-endpoint reporting, root-only directory-fd
+  identity, and bounded detached-thread lifecycle state. UEFI and QEMU were
+  skipped in all these runs. M17 remains `BLOCKED` until the complete gate
+  passes.
+
 No host rendering, alternate browser engine, fake GL implementation, or
 synthetic web pixel was introduced. See
 `docs/decisions/0019-m17-servo-rendering-blocker.md` for the historical block
@@ -2465,3 +2483,16 @@ ABI repair. The next target-owned network ABI repair must be pushed and
 verified; the required next evidence remains target link, UEFI, real QEMU, and
 a real guest-rendered first web pixel. M18 cannot start before formal M17
 PASS.
+
+### Current M17 continuation (2026-09-22)
+
+The current pushed implementation head before this handoff update is
+`43a3e0c` on `main`. CI run #84 (`35684235079`) passed target bootstrap,
+dependency validation, Mesa Softpipe, package, kernel, and target compilation,
+then failed final target linking on `getsockname`, `dirfd`, and
+`pthread_detach`. The next repair is target-owned and remains within M17:
+smoltcp local endpoint reporting, root-only directory descriptor identity, and
+bounded detached-thread stack lifecycle. M18 remains `NOT STARTED` and no
+M17 PASS is recorded. Local Windows host Cargo linking remains limited by the
+missing MSVC `link.exe`/CRT; Ubuntu target CI is the authoritative compile,
+UEFI, and QEMU environment.

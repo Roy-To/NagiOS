@@ -743,6 +743,9 @@ mod tests {
             .expect("Nagi relibc backend");
         for symbol in [
             "pub unsafe extern \"C\" fn strcmp(",
+            "pub unsafe extern \"C\" fn strchr(",
+            "pub unsafe extern \"C\" fn strrchr(",
+            "pub unsafe extern \"C\" fn strcpy(",
             "pub unsafe extern \"C\" fn memchr(",
             "pub unsafe extern \"C\" fn qsort(",
             "pub unsafe extern \"C\" fn atoi(",

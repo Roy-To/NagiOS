@@ -1315,3 +1315,40 @@ now corrected, and local object emission plus symbol inspection succeeds. This
 was an implementation defect, not M17 acceptance evidence; rerun the complete
 target path. M17 remains `BLOCKED` until target linking, UEFI, real QEMU, and
 the real Servo first-web-pixel gate pass.
+
+## Remediation continuation (2026-09-22, Mesa archive roots and C++/math ABI)
+
+Public CI run `35674424033` (#78, head `73b20bd`) passed the target Mesa
+archive and reached final linking. The exact diagnostics were the
+`__cxxabiv1::__vmi_class_type_info` vtable and Mesa state-tracker roots
+`_mesa_glthread_finish` and `st_context_flush`. The next repair supplied the
+Nagi-owned freestanding RTTI object and selective raw linker roots; it did not
+force the entire Mesa archive into the image.
+
+Run `35676523724` (#79, head `af5533f`) confirmed the roots but rejected
+`-Wl,--start-group`/`--end-group` because Cargo passes these values directly to
+rust-lld. Run `35678180409` (#80, head `798e527`) then reached the next real
+target ABI boundary: `__cxa_atexit`, `tanf`, and `log2`. Run
+`35680421808` (#82, head `039166e`) reproduced those exact final-link
+diagnostics after the selective Mesa archive correction.
+
+The next repair adds a bounded Nagi C++ destructor registry wired into the real
+POSIX exit boundary, plus target-owned `tanf` and `log2` implementations over
+the existing freestanding math core. No host libc++abi, host libm, or symbol-
+only success path is introduced. M17 remains `BLOCKED` until target linking,
+UEFI, real QEMU, and real first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-22, socket, directory, and thread ABI)
+
+Public CI run `35682596273` (#83, head `0588c8b`) passed target bootstrap,
+dependency validation, Mesa Softpipe, package, kernel, and compilation stages,
+then reached final target linking. The exact undefined symbols were
+`getsockname`, `dirfd`, and `pthread_detach`; UEFI and real QEMU were skipped.
+
+The next repair adds real smoltcp local-endpoint reporting for `getsockname`,
+represents the only supported root directory namespace through its actual
+`AT_FDCWD` identity for `dirfd`, and implements bounded detached-thread state
+with deferred stack reclamation after a replacement child is accepted. It does
+not use host sockets/filesystem/threads or return synthetic success for an
+unsupported target operation. M17 remains `BLOCKED` until target linking,
+UEFI, real QEMU, and real first-web-pixel evidence pass.

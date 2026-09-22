@@ -867,6 +867,73 @@ pub unsafe extern "C" fn strcmp(first: *const c_char, second: *const c_char) -> 
     }
 }
 
+/// Target-owned forward character search. The Nagi target does not select
+/// relibc's upstream string module, so keep the C ABI on the guest memory
+/// boundary rather than importing a host libc implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strchr(string: *const c_char, needle: c_int) -> *mut c_char {
+    if string.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    let needle = needle as u8;
+    let mut index = 0;
+    loop {
+        let current = unsafe { string.add(index).read() as u8 };
+        if current == needle {
+            return unsafe { string.add(index).cast_mut() };
+        }
+        if current == 0 {
+            return ptr::null_mut();
+        }
+        index += 1;
+    }
+}
+
+/// Target-owned reverse character search, including the terminating NUL when
+/// requested with `needle == 0` as required by the C string contract.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strrchr(string: *const c_char, needle: c_int) -> *mut c_char {
+    if string.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    let needle = needle as u8;
+    let mut last = ptr::null_mut();
+    let mut index = 0;
+    loop {
+        let current = unsafe { string.add(index).read() as u8 };
+        if current == needle {
+            last = unsafe { string.add(index).cast_mut() };
+        }
+        if current == 0 {
+            return last;
+        }
+        index += 1;
+    }
+}
+
+/// Target-owned NUL-terminated copy for the Nagi relibc backend.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strcpy(
+    destination: *mut c_char,
+    source: *const c_char,
+) -> *mut c_char {
+    if destination.is_null() || source.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return destination;
+    }
+    let mut index = 0;
+    loop {
+        let byte = unsafe { source.add(index).read() };
+        unsafe { destination.add(index).write(byte) };
+        if byte == 0 {
+            return destination;
+        }
+        index += 1;
+    }
+}
+
 /// Target-owned byte search for the Nagi relibc backend. The upstream string
 /// module is not selected for `target_os = "nagi"`; keep this bounded loop
 /// independent of host libc or the registry `memchr` implementation.
