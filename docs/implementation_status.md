@@ -25,14 +25,13 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-23
-**Last known repair checkpoint:** public CI run `35809154991` (#100) at
-`409f15d` passed Servo bootstrap, then failed while building the pinned Mesa
-Softpipe archive during explicit core-target selection. Target link, UEFI, and
-QEMU were not reached. The current repair accepts Meson/Ninja target names
-that contain `libmesa.a`, including `.p` output-layout forms, before
-symbol-aware archive aggregation. This run is not target-link acceptance
-evidence. No host libc, host filesystem, host rendering, or synthetic output is
-used.
+**Last known repair checkpoint:** public CI run `35860649042` (#127) at
+`7fa87c9` passed Servo bootstrap, Mesa Softpipe archive construction, package,
+and kernel compilation, then failed final target linking in Nagi user init on
+the real target-owned relibc symbols `vfprintf`, `regcomp`, and `regexec`.
+The current M17 repair adds those symbols to the Nagi backend; target link,
+UEFI, and QEMU are not yet acceptance evidence. No host libc, host filesystem,
+host rendering, or synthetic output is used.
 Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 

@@ -3435,6 +3435,35 @@ pub unsafe extern "C" fn fprintf(
     }
 }
 
+/// The target backend cannot use relibc's Linux/Redox `stdio` module, but
+/// variadic callers still need the same descriptor-backed formatting path as
+/// `fprintf`.  Keep the `va_list` ABI at this boundary and never introduce a
+/// host FILE object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vfprintf(
+    stream: *mut c_void,
+    format: *const c_char,
+    args: VaList,
+) -> c_int {
+    if stream.is_null() || format.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+
+    let mut buffer = [0_u8; 4096];
+    let written = unsafe { nagi_vsnprintf(buffer.as_mut_ptr().cast(), buffer.len(), format, args) };
+    if written < 0 || written as usize >= buffer.len() {
+        unsafe { set_errno(EOVERFLOW) };
+        return EOF;
+    }
+    let count = written as usize;
+    if unsafe { fwrite(buffer.as_ptr().cast(), 1, count, stream) } == count {
+        written
+    } else {
+        EOF
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn printf(format: *const c_char, mut args: ...) -> c_int {
     if format.is_null() {
@@ -3521,6 +3550,858 @@ pub unsafe extern "C" fn fputc(value: c_int, stream: *mut c_void) -> c_int {
     } else {
         EOF
     }
+}
+
+// The normal relibc regex module depends on the host-oriented `posix_regex`
+// crate and is intentionally not compiled for target_os=nagi.  Servo's C
+// dependencies still use the POSIX ABI, so the Nagi backend owns a bounded
+// freestanding implementation here.  It supports literals, '.', bracket
+// expressions (including the common POSIX named classes), anchors, grouping,
+// alternation, and the POSIX repetition operators.  Compilation stores only
+// guest-owned bytes allocated through the Nagi process allocator.
+const NAGI_REGEX_MAX_PATTERN: usize = 4096;
+const NAGI_REGEX_MAX_RECURSION: usize = 4096;
+const NAGI_REGEX_MAX_GROUPS: usize = 32;
+const NAGI_REGEX_MAX_INPUT: usize = 16 * 1024 * 1024;
+const NAGI_REG_EXTENDED: c_int = 1;
+const NAGI_REG_ICASE: c_int = 2;
+const NAGI_REG_NOSUB: c_int = 4;
+const NAGI_REG_NEWLINE: c_int = 8;
+const NAGI_REG_NOTBOL: c_int = 16;
+const NAGI_REG_NOTEOL: c_int = 32;
+const NAGI_REG_NOMATCH: c_int = 1;
+const NAGI_REG_BADPAT: c_int = 2;
+const NAGI_REG_ECOLLATE: c_int = 3;
+const NAGI_REG_ECTYPE: c_int = 4;
+const NAGI_REG_EESCAPE: c_int = 5;
+const NAGI_REG_ESUBREG: c_int = 6;
+const NAGI_REG_EBRACK: c_int = 7;
+const NAGI_REG_ENOSYS: c_int = 8;
+const NAGI_REG_EPAREN: c_int = 9;
+const NAGI_REG_EBRACE: c_int = 10;
+const NAGI_REG_BADBR: c_int = 11;
+const NAGI_REG_ERANGE: c_int = 12;
+const NAGI_REG_ESPACE: c_int = 13;
+const NAGI_REG_BADRPT: c_int = 14;
+
+#[repr(C)]
+pub struct NagiRegex {
+    ptr: *mut c_void,
+    cflags: c_int,
+    re_nsub: usize,
+}
+
+#[repr(C)]
+pub struct NagiRegmatch {
+    rm_so: usize,
+    rm_eo: usize,
+}
+
+#[repr(C)]
+struct NagiRegexProgram {
+    pattern: *mut u8,
+    length: usize,
+    cflags: c_int,
+    groups: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct NagiRegexCaptures {
+    starts: [usize; NAGI_REGEX_MAX_GROUPS],
+    ends: [usize; NAGI_REGEX_MAX_GROUPS],
+}
+
+impl NagiRegexCaptures {
+    const fn empty() -> Self {
+        Self {
+            starts: [usize::MAX; NAGI_REGEX_MAX_GROUPS],
+            ends: [usize::MAX; NAGI_REGEX_MAX_GROUPS],
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct NagiRegexContext {
+    pattern: *const u8,
+    pattern_length: usize,
+    input: *const u8,
+    input_length: usize,
+    cflags: c_int,
+    eflags: c_int,
+}
+
+#[inline]
+unsafe fn nagi_regex_pattern_byte(context: NagiRegexContext, index: usize) -> u8 {
+    unsafe { context.pattern.add(index).read() }
+}
+
+#[inline]
+unsafe fn nagi_regex_input_byte(context: NagiRegexContext, index: usize) -> u8 {
+    unsafe { context.input.add(index).read() }
+}
+
+#[inline]
+fn nagi_regex_extended(context: NagiRegexContext) -> bool {
+    context.cflags & NAGI_REG_EXTENDED != 0
+}
+
+fn nagi_regex_group_open(context: NagiRegexContext, index: usize) -> usize {
+    if index >= context.pattern_length {
+        return 0;
+    }
+    let byte = unsafe { nagi_regex_pattern_byte(context, index) };
+    if byte == b'(' && nagi_regex_extended(context) {
+        1
+    } else if byte == b'\\'
+        && index + 1 < context.pattern_length
+        && unsafe { nagi_regex_pattern_byte(context, index + 1) } == b'('
+        && !nagi_regex_extended(context)
+    {
+        2
+    } else {
+        0
+    }
+}
+
+fn nagi_regex_group_close(context: NagiRegexContext, index: usize) -> usize {
+    if index >= context.pattern_length {
+        return 0;
+    }
+    let byte = unsafe { nagi_regex_pattern_byte(context, index) };
+    if byte == b')' && nagi_regex_extended(context) {
+        1
+    } else if byte == b'\\'
+        && index + 1 < context.pattern_length
+        && unsafe { nagi_regex_pattern_byte(context, index + 1) } == b')'
+        && !nagi_regex_extended(context)
+    {
+        2
+    } else {
+        0
+    }
+}
+
+fn nagi_regex_class_end(context: NagiRegexContext, start: usize, end: usize) -> Option<usize> {
+    let mut index = start + 1;
+    let mut first = true;
+    while index < end {
+        let byte = unsafe { nagi_regex_pattern_byte(context, index) };
+        if byte == b'\\' {
+            index = index.saturating_add(2);
+            first = false;
+            continue;
+        }
+        if byte == b']' && !first {
+            return Some(index + 1);
+        }
+        first = false;
+        index += 1;
+    }
+    None
+}
+
+fn nagi_regex_find_group_close(
+    context: NagiRegexContext,
+    start: usize,
+    end: usize,
+) -> Option<usize> {
+    let open = nagi_regex_group_open(context, start);
+    if open == 0 {
+        return None;
+    }
+    let mut depth = 1usize;
+    let mut index = start + open;
+    while index < end {
+        let byte = unsafe { nagi_regex_pattern_byte(context, index) };
+        if byte == b'\\' {
+            index = index.saturating_add(2);
+            continue;
+        }
+        if byte == b'[' {
+            if let Some(class_end) = nagi_regex_class_end(context, index, end) {
+                index = class_end;
+                continue;
+            }
+            return None;
+        }
+        if nagi_regex_group_open(context, index) != 0 {
+            depth += 1;
+            index += nagi_regex_group_open(context, index);
+            continue;
+        }
+        if nagi_regex_group_close(context, index) != 0 {
+            depth -= 1;
+            if depth == 0 {
+                return Some(index);
+            }
+            index += nagi_regex_group_close(context, index);
+            continue;
+        }
+        index += 1;
+    }
+    None
+}
+
+fn nagi_regex_atom_end(context: NagiRegexContext, start: usize, end: usize) -> Option<usize> {
+    if start >= end {
+        return None;
+    }
+    if nagi_regex_group_open(context, start) != 0 {
+        let close = nagi_regex_find_group_close(context, start, end)?;
+        return Some(close + nagi_regex_group_close(context, close));
+    }
+    let byte = unsafe { nagi_regex_pattern_byte(context, start) };
+    if byte == b'[' {
+        return nagi_regex_class_end(context, start, end);
+    }
+    if byte == b'\\' {
+        return (start + 2 <= end).then_some(start + 2);
+    }
+    Some(start + 1)
+}
+
+fn nagi_regex_group_index(context: NagiRegexContext, target: usize) -> usize {
+    let mut index = 0;
+    let mut groups = 0;
+    while index < target && index < context.pattern_length {
+        if nagi_regex_group_open(context, index) != 0 {
+            groups += 1;
+            index += nagi_regex_group_open(context, index);
+        } else if unsafe { nagi_regex_pattern_byte(context, index) } == b'[' {
+            index = nagi_regex_class_end(context, index, target).unwrap_or(target);
+        } else if unsafe { nagi_regex_pattern_byte(context, index) } == b'\\' {
+            index += 2;
+        } else {
+            index += 1;
+        }
+    }
+    groups
+}
+
+fn nagi_regex_decimal(context: NagiRegexContext, start: usize, end: usize) -> Option<(usize, usize)> {
+    let mut index = start;
+    let mut value = 0usize;
+    let mut digits = 0;
+    while index < end {
+        let byte = unsafe { nagi_regex_pattern_byte(context, index) };
+        if !byte.is_ascii_digit() {
+            break;
+        }
+        value = value.checked_mul(10)?.checked_add(usize::from(byte - b'0'))?;
+        digits += 1;
+        index += 1;
+    }
+    (digits != 0).then_some((value, index))
+}
+
+fn nagi_regex_quantifier(
+    context: NagiRegexContext,
+    start: usize,
+    end: usize,
+) -> (usize, usize, usize) {
+    if start >= end {
+        return (1, 1, start);
+    }
+    let byte = unsafe { nagi_regex_pattern_byte(context, start) };
+    let extended = nagi_regex_extended(context);
+    let (kind, mut index) = if matches!(byte, b'*' | b'+' | b'?') && (extended || byte == b'*') {
+        (byte, start + 1)
+    } else if !extended
+        && byte == b'\\'
+        && start + 1 < end
+        && matches!(unsafe { nagi_regex_pattern_byte(context, start + 1) }, b'+' | b'?')
+    {
+        (unsafe { nagi_regex_pattern_byte(context, start + 1) }, start + 2)
+    } else {
+        (0, start)
+    };
+    if kind != 0 {
+        return match kind {
+            b'*' => (0, usize::MAX, index),
+            b'+' => (1, usize::MAX, index),
+            _ => (0, 1, index),
+        };
+    }
+
+    let brace = if byte == b'{' && extended {
+        Some(start + 1)
+    } else if !extended
+        && byte == b'\\'
+        && start + 1 < end
+        && unsafe { nagi_regex_pattern_byte(context, start + 1) } == b'{'
+    {
+        Some(start + 2)
+    } else {
+        None
+    };
+    let Some(brace_start) = brace else {
+        return (1, 1, start);
+    };
+    let Some((minimum, after_minimum)) = nagi_regex_decimal(context, brace_start, end) else {
+        return (1, 1, start);
+    };
+    index = after_minimum;
+    let maximum = if index < end && unsafe { nagi_regex_pattern_byte(context, index) } == b',' {
+        index += 1;
+        if let Some((maximum, after_maximum)) = nagi_regex_decimal(context, index, end) {
+            index = after_maximum;
+            maximum
+        } else {
+            usize::MAX
+        }
+    } else {
+        minimum
+    };
+    let close = if extended {
+        index < end && unsafe { nagi_regex_pattern_byte(context, index) } == b'}'
+    } else {
+        index + 1 < end
+            && unsafe { nagi_regex_pattern_byte(context, index) } == b'\\'
+            && unsafe { nagi_regex_pattern_byte(context, index + 1) } == b'}'
+    };
+    if !close || maximum < minimum {
+        return (1, 1, start);
+    }
+    (minimum, maximum, if extended { index + 1 } else { index + 2 })
+}
+
+fn nagi_regex_class_named(name: &[u8], byte: u8) -> bool {
+    let alpha = byte.is_ascii_alphabetic();
+    let digit = byte.is_ascii_digit();
+    let space = byte.is_ascii_whitespace();
+    let value = match name {
+        b"alnum" => alpha || digit,
+        b"alpha" => alpha,
+        b"blank" => byte == b' ' || byte == b'\t',
+        b"cntrl" => byte < 0x20 || byte == 0x7f,
+        b"digit" => digit,
+        b"graph" => (0x21..=0x7e).contains(&byte),
+        b"lower" => byte.is_ascii_lowercase(),
+        b"print" => (0x20..=0x7e).contains(&byte),
+        b"punct" => (0x21..=0x7e).contains(&byte) && !alpha && !digit,
+        b"space" => space,
+        b"upper" => byte.is_ascii_uppercase(),
+        b"xdigit" => digit || (b'a'..=b'f').contains(&byte) || (b'A'..=b'F').contains(&byte),
+        _ => false,
+    };
+    value
+}
+
+fn nagi_regex_equal(context: NagiRegexContext, left: u8, right: u8) -> bool {
+    if context.cflags & NAGI_REG_ICASE == 0 {
+        left == right
+    } else {
+        left.eq_ignore_ascii_case(&right)
+    }
+}
+
+fn nagi_regex_class_matches(
+    context: NagiRegexContext,
+    start: usize,
+    end: usize,
+    value: u8,
+) -> bool {
+    let mut index = start + 1;
+    let mut negate = false;
+    if index < end && unsafe { nagi_regex_pattern_byte(context, index) } == b'^' {
+        negate = true;
+        index += 1;
+    }
+    let mut matched = false;
+    let mut first = true;
+    while index < end {
+        let byte = unsafe { nagi_regex_pattern_byte(context, index) };
+        if byte == b']' && !first {
+            break;
+        }
+        first = false;
+        if byte == b'[' && index + 1 < end && unsafe { nagi_regex_pattern_byte(context, index + 1) } == b':' {
+            let name_start = index + 2;
+            let mut close = name_start;
+            while close + 1 < end
+                && !(unsafe { nagi_regex_pattern_byte(context, close) } == b':'
+                    && unsafe { nagi_regex_pattern_byte(context, close + 1) } == b']')
+            {
+                close += 1;
+            }
+            if close + 1 < end {
+                let name = unsafe {
+                    core::slice::from_raw_parts(context.pattern.add(name_start), close - name_start)
+                };
+                matched |= nagi_regex_class_named(name, value);
+                index = close + 2;
+                continue;
+            }
+        }
+        let (left, next) = if byte == b'\\' && index + 1 < end {
+            (unsafe { nagi_regex_pattern_byte(context, index + 1) }, index + 2)
+        } else {
+            (byte, index + 1)
+        };
+        if next + 1 < end
+            && unsafe { nagi_regex_pattern_byte(context, next) } == b'-'
+            && unsafe { nagi_regex_pattern_byte(context, next + 1) } != b']'
+        {
+            let right = unsafe { nagi_regex_pattern_byte(context, next + 1) };
+            let left_cmp = if context.cflags & NAGI_REG_ICASE != 0 {
+                left.to_ascii_lowercase()
+            } else {
+                left
+            };
+            let right_cmp = if context.cflags & NAGI_REG_ICASE != 0 {
+                right.to_ascii_lowercase()
+            } else {
+                right
+            };
+            let value_cmp = if context.cflags & NAGI_REG_ICASE != 0 {
+                value.to_ascii_lowercase()
+            } else {
+                value
+            };
+            matched |= left_cmp <= value_cmp && value_cmp <= right_cmp;
+            index = next + 2;
+        } else {
+            matched |= nagi_regex_equal(context, left, value);
+            index = next;
+        }
+    }
+    if negate { !matched } else { matched }
+}
+
+fn nagi_regex_match_atom(
+    context: NagiRegexContext,
+    start: usize,
+    end: usize,
+    position: usize,
+    captures: NagiRegexCaptures,
+    depth: usize,
+) -> Option<(usize, NagiRegexCaptures)> {
+    if position > context.input_length || start >= end || depth > NAGI_REGEX_MAX_RECURSION {
+        return None;
+    }
+    let byte = unsafe { nagi_regex_pattern_byte(context, start) };
+    if nagi_regex_group_open(context, start) != 0 {
+        let open = nagi_regex_group_open(context, start);
+        let close = nagi_regex_find_group_close(context, start, end)?;
+        let (next, mut output) = nagi_regex_match_expression(
+            context,
+            start + open,
+            close,
+            position,
+            captures,
+            depth + 1,
+        )?;
+        let group = nagi_regex_group_index(context, start);
+        if group < NAGI_REGEX_MAX_GROUPS {
+            output.starts[group] = position;
+            output.ends[group] = next;
+        }
+        return Some((next, output));
+    }
+    if byte == b'[' {
+        if position < context.input_length
+            && nagi_regex_class_matches(context, start, end, unsafe {
+                nagi_regex_input_byte(context, position)
+            })
+        {
+            return Some((position + 1, captures));
+        }
+        return None;
+    }
+    let value = if byte == b'\\' && start + 1 < end {
+        match unsafe { nagi_regex_pattern_byte(context, start + 1) } {
+            b'n' => b'\n',
+            b'r' => b'\r',
+            b't' => b'\t',
+            b'f' => 0x0c,
+            b'v' => 0x0b,
+            value => value,
+        }
+    } else {
+        byte
+    };
+    if value == b'.' && byte == b'.' {
+        if position < context.input_length
+            && (context.cflags & NAGI_REG_NEWLINE == 0
+                || unsafe { nagi_regex_input_byte(context, position) } != b'\n')
+        {
+            return Some((position + 1, captures));
+        }
+    } else if position < context.input_length
+        && nagi_regex_equal(context, value, unsafe { nagi_regex_input_byte(context, position) })
+    {
+        return Some((position + 1, captures));
+    }
+    None
+}
+
+fn nagi_regex_match_repeat(
+    context: NagiRegexContext,
+    atom_start: usize,
+    atom_end: usize,
+    next: usize,
+    sequence_end: usize,
+    minimum: usize,
+    maximum: usize,
+    count: usize,
+    position: usize,
+    captures: NagiRegexCaptures,
+    depth: usize,
+) -> Option<(usize, NagiRegexCaptures)> {
+    if depth > NAGI_REGEX_MAX_RECURSION {
+        return None;
+    }
+    if count < maximum {
+        if let Some((after_atom, after_captures)) = nagi_regex_match_atom(
+            context,
+            atom_start,
+            atom_end,
+            position,
+            captures,
+            depth + 1,
+        ) {
+            if after_atom != position {
+                if let Some(result) = nagi_regex_match_repeat(
+                    context,
+                    atom_start,
+                    atom_end,
+                    next,
+                    sequence_end,
+                    minimum,
+                    maximum,
+                    count + 1,
+                    after_atom,
+                    after_captures,
+                    depth + 1,
+                ) {
+                    return Some(result);
+                }
+            }
+        }
+    }
+    if count >= minimum {
+        nagi_regex_match_sequence(context, next, sequence_end, position, captures, depth + 1)
+    } else {
+        None
+    }
+}
+
+fn nagi_regex_match_sequence(
+    context: NagiRegexContext,
+    start: usize,
+    end: usize,
+    position: usize,
+    captures: NagiRegexCaptures,
+    depth: usize,
+) -> Option<(usize, NagiRegexCaptures)> {
+    if depth > NAGI_REGEX_MAX_RECURSION || start > end {
+        return None;
+    }
+    if start >= end {
+        return Some((position, captures));
+    }
+    let byte = unsafe { nagi_regex_pattern_byte(context, start) };
+    if byte == b'^' && start == 0 {
+        if context.eflags & NAGI_REG_NOTBOL != 0 || position != 0 {
+            return None;
+        }
+        return nagi_regex_match_sequence(context, start + 1, end, position, captures, depth + 1);
+    }
+    if byte == b'$' && start + 1 == end {
+        if context.eflags & NAGI_REG_NOTEOL != 0 || position != context.input_length {
+            return None;
+        }
+        return Some((position, captures));
+    }
+    let atom_end = nagi_regex_atom_end(context, start, end)?;
+    let (minimum, maximum, after_quantifier) = nagi_regex_quantifier(context, atom_end, end);
+    nagi_regex_match_repeat(
+        context,
+        start,
+        atom_end,
+        after_quantifier,
+        end,
+        minimum,
+        maximum,
+        0,
+        position,
+        captures,
+        depth + 1,
+    )
+}
+
+fn nagi_regex_match_expression(
+    context: NagiRegexContext,
+    start: usize,
+    end: usize,
+    position: usize,
+    captures: NagiRegexCaptures,
+    depth: usize,
+) -> Option<(usize, NagiRegexCaptures)> {
+    if depth > NAGI_REGEX_MAX_RECURSION {
+        return None;
+    }
+    let mut index = start;
+    let mut nested = 0usize;
+    while index < end {
+        if unsafe { nagi_regex_pattern_byte(context, index) } == b'\\' {
+            index += 2;
+            continue;
+        }
+        if unsafe { nagi_regex_pattern_byte(context, index) } == b'[' {
+            index = nagi_regex_class_end(context, index, end).unwrap_or(end);
+            continue;
+        }
+        if nagi_regex_group_open(context, index) != 0 {
+            nested += 1;
+            index += nagi_regex_group_open(context, index);
+        } else if nagi_regex_group_close(context, index) != 0 {
+            nested = nested.saturating_sub(1);
+            index += nagi_regex_group_close(context, index);
+        } else if nested == 0 && unsafe { nagi_regex_pattern_byte(context, index) } == b'|' {
+            if let Some(result) = nagi_regex_match_sequence(
+                context,
+                start,
+                index,
+                position,
+                captures,
+                depth + 1,
+            ) {
+                return Some(result);
+            }
+            return nagi_regex_match_expression(
+                context,
+                index + 1,
+                end,
+                position,
+                captures,
+                depth + 1,
+            );
+        } else {
+            index += 1;
+        }
+    }
+    nagi_regex_match_sequence(context, start, end, position, captures, depth + 1)
+}
+
+fn nagi_regex_validate(context: NagiRegexContext) -> Result<usize, c_int> {
+    let mut index = 0usize;
+    let mut groups = 0usize;
+    let mut depth = 0usize;
+    while index < context.pattern_length {
+        let byte = unsafe { nagi_regex_pattern_byte(context, index) };
+        if byte == b'\\' {
+            if index + 1 >= context.pattern_length {
+                return Err(NAGI_REG_EESCAPE);
+            }
+            index += 2;
+            continue;
+        }
+        if byte == b'[' {
+            let Some(next) = nagi_regex_class_end(context, index, context.pattern_length) else {
+                return Err(NAGI_REG_EBRACK);
+            };
+            index = next;
+            continue;
+        }
+        if nagi_regex_group_open(context, index) != 0 {
+            depth += 1;
+            groups += 1;
+            index += nagi_regex_group_open(context, index);
+            continue;
+        }
+        if nagi_regex_group_close(context, index) != 0 {
+            if depth == 0 {
+                return Err(NAGI_REG_EPAREN);
+            }
+            depth -= 1;
+            index += nagi_regex_group_close(context, index);
+            continue;
+        }
+        index += 1;
+    }
+    if depth != 0 {
+        return Err(NAGI_REG_EPAREN);
+    }
+    if groups > NAGI_REGEX_MAX_GROUPS {
+        return Err(NAGI_REG_ESPACE);
+    }
+    Ok(groups)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn regcomp(
+    output: *mut NagiRegex,
+    pattern: *const c_char,
+    cflags: c_int,
+) -> c_int {
+    if output.is_null() || pattern.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return NAGI_REG_BADPAT;
+    }
+    let Some(length) = (unsafe { c_string_len(pattern, NAGI_REGEX_MAX_PATTERN) }) else {
+        unsafe { set_errno(EOVERFLOW) };
+        return NAGI_REG_ESPACE;
+    };
+    let pattern_copy = unsafe { nagi_posix_malloc(length.max(1)) };
+    if pattern_copy.is_null() {
+        unsafe { set_errno(ENOMEM) };
+        return NAGI_REG_ESPACE;
+    }
+    unsafe { ptr::copy_nonoverlapping(pattern.cast::<u8>(), pattern_copy, length) };
+    let context = NagiRegexContext {
+        pattern: pattern_copy,
+        pattern_length: length,
+        input: ptr::null(),
+        input_length: 0,
+        cflags,
+        eflags: 0,
+    };
+    let groups = match nagi_regex_validate(context) {
+        Ok(groups) => groups,
+        Err(error) => {
+            unsafe { nagi_posix_free(pattern_copy) };
+            return error;
+        }
+    };
+    let program = unsafe { nagi_posix_malloc(mem::size_of::<NagiRegexProgram>()) }
+        .cast::<NagiRegexProgram>();
+    if program.is_null() {
+        unsafe { nagi_posix_free(pattern_copy) };
+        unsafe { set_errno(ENOMEM) };
+        return NAGI_REG_ESPACE;
+    }
+    unsafe {
+        program.write(NagiRegexProgram {
+            pattern: pattern_copy,
+            length,
+            cflags,
+            groups,
+        });
+        output.write(NagiRegex {
+            ptr: program.cast(),
+            cflags,
+            re_nsub: groups,
+        });
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn regfree(regex: *mut NagiRegex) {
+    if regex.is_null() {
+        return;
+    }
+    let program = unsafe { (*regex).ptr.cast::<NagiRegexProgram>() };
+    if !program.is_null() {
+        let pattern = unsafe { (*program).pattern };
+        if !pattern.is_null() {
+            unsafe { nagi_posix_free(pattern) };
+        }
+        unsafe { nagi_posix_free(program.cast()) };
+    }
+    unsafe {
+        (*regex).ptr = ptr::null_mut();
+        (*regex).re_nsub = 0;
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn regexec(
+    regex: *const NagiRegex,
+    input: *const c_char,
+    nmatch: usize,
+    matches: *mut NagiRegmatch,
+    eflags: c_int,
+) -> c_int {
+    if regex.is_null() || input.is_null() {
+        return NAGI_REG_NOMATCH;
+    }
+    let program = unsafe { (*regex).ptr.cast::<NagiRegexProgram>() };
+    if program.is_null() {
+        return NAGI_REG_NOMATCH;
+    }
+    let Some(input_length) = (unsafe { c_string_len(input, NAGI_REGEX_MAX_INPUT) }) else {
+        return NAGI_REG_NOMATCH;
+    };
+    let program_ref = unsafe { &*program };
+    let context = NagiRegexContext {
+        pattern: program_ref.pattern,
+        pattern_length: program_ref.length,
+        input: input.cast(),
+        input_length,
+        cflags: program_ref.cflags,
+        eflags,
+    };
+    let anchored = context.pattern_length > 0
+        && unsafe { nagi_regex_pattern_byte(context, 0) } == b'^';
+    let last_start = if anchored { 0 } else { input_length };
+    let mut start = 0usize;
+    while start <= last_start {
+        let captures = NagiRegexCaptures::empty();
+        if let Some((end, captures)) = nagi_regex_match_expression(
+            context,
+            0,
+            context.pattern_length,
+            start,
+            captures,
+            0,
+        ) {
+            if program_ref.cflags & NAGI_REG_NOSUB == 0 && !matches.is_null() {
+                if nmatch > 0 {
+                    unsafe { matches.write(NagiRegmatch { rm_so: start, rm_eo: end }) };
+                }
+                let group_count = nmatch.saturating_sub(1).min(NAGI_REGEX_MAX_GROUPS);
+                for group in 0..group_count {
+                    let (rm_so, rm_eo) = if captures.starts[group] == usize::MAX {
+                        (usize::MAX, usize::MAX)
+                    } else {
+                        (captures.starts[group], captures.ends[group])
+                    };
+                    unsafe {
+                        matches.add(group + 1).write(NagiRegmatch { rm_so, rm_eo });
+                    }
+                }
+            }
+            return 0;
+        }
+        if anchored {
+            break;
+        }
+        start += 1;
+    }
+    NAGI_REG_NOMATCH
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn regerror(
+    code: c_int,
+    _regex: *const NagiRegex,
+    output: *mut c_char,
+    capacity: usize,
+) -> usize {
+    let message: &[u8] = match code {
+        0 => b"No error\0",
+        NAGI_REG_NOMATCH => b"No match\0",
+        NAGI_REG_BADPAT => b"Invalid regexp\0",
+        NAGI_REG_ECOLLATE => b"Unknown collating element\0",
+        NAGI_REG_ECTYPE => b"Unknown character class name\0",
+        NAGI_REG_EESCAPE => b"Trailing backslash\0",
+        NAGI_REG_ESUBREG => b"Invalid back reference\0",
+        NAGI_REG_EBRACK => b"Missing ]\0",
+        NAGI_REG_ENOSYS => b"Unsupported operation\0",
+        NAGI_REG_EPAREN => b"Missing )\0",
+        NAGI_REG_EBRACE => b"Missing }\0",
+        NAGI_REG_BADBR => b"Invalid repetition\0",
+        NAGI_REG_ERANGE => b"Invalid character range\0",
+        NAGI_REG_ESPACE => b"Out of memory\0",
+        NAGI_REG_BADRPT => b"Invalid repetition operator\0",
+        _ => b"Unknown regexp error\0",
+    };
+    if !output.is_null() && capacity != 0 {
+        unsafe { ptr::copy_nonoverlapping(message.as_ptr(), output.cast(), message.len().min(capacity)) };
+    }
+    message.len().saturating_sub(1)
 }
 
 /// Nagi's user VFS commits each descriptor write through its service boundary

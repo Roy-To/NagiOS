@@ -53,6 +53,18 @@ The fetch implementation in `5672893` remains useful and is retained: it
 applies sorted tracked patches, records generated-checkout fingerprints, and
 refuses unsafe or stale generated state without overwriting it.
 
+## Target-link continuation after CI run #127 (2026-09-23)
+
+Public CI run `35860649042` (`7fa87c9`) passed the pinned Servo bootstrap,
+Nagi Mesa Softpipe archive, package, and kernel stages. The real target link
+then exposed three missing Nagi-owned relibc entry points: `vfprintf`,
+`regcomp`, and `regexec`. This is an implementation blocker inside the M17
+vertical slice, not a host-toolchain or external-asset blocker. The repair
+keeps the descriptor-backed `vfprintf` path and adds a bounded target-owned
+POSIX regex implementation; no host libc or fake rendering path is used.
+Target link, UEFI, and real QEMU first-web-pixel evidence remain pending until
+the repaired target job succeeds.
+
 ## Remediation continuation (2026-09-19)
 
 The `BLOCKED` status is retained as the historical acceptance state, not as a
