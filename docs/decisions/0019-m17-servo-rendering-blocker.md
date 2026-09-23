@@ -1606,6 +1606,17 @@ for discovery; no rendering implementation is bypassed. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, Mesa generated SPIR-V header)
+
+Public snapshot CI run `35813251531` (#104, head `3f3bcde`) reached the real
+`src/mesa/libmesa.a` compilation and exposed a Nagi Mesa dependency-graph
+defect: `glspirv.c` could not find generated
+`compiler/spirv/spirv_info.h`. The next repair adds that generated header as
+a source of the existing `idep_vtn` dependency through numbered Mesa patch
+`0019`. It does not add a host header or replace SPIR-V compilation. M17
+remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
+Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-23, Mesa core compiler diagnostics)
 
 Public snapshot CI run `35812210395` (#103, head `e6cbde1`) selected the real

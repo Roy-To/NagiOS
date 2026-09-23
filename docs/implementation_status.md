@@ -2671,6 +2671,17 @@ pinned Mesa `_mesa_glthread_finish` object through a non-executing Nagi link
 anchor rather than substituting a rendering stub. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
 
+### Current M17 continuation after CI run #104 (2026-09-23)
+
+The pushed implementation head was `3f3bcde` on `main`. CI run #104
+(`35813251531`) reached the real `src/mesa/libmesa.a` compile and exposed a
+Nagi Mesa dependency-graph defect: `glspirv.c` could not find generated
+`compiler/spirv/spirv_info.h`. The next repair adds the generated header as a
+source of the existing `idep_vtn` dependency through numbered Mesa patch
+`0019`; it does not add a host header or replace SPIR-V compilation. Target
+link, UEFI, and real QEMU first-web-pixel acceptance were not reached. M18
+remains `NOT STARTED`; no M17 PASS is recorded.
+
 ### Current M17 continuation after CI run #95 (2026-09-23)
 
 The pushed implementation head was `d9db493` on `main`. CI run #95

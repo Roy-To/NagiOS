@@ -1,0 +1,11 @@
+diff --git a/src/compiler/spirv/meson.build b/src/compiler/spirv/meson.build
+--- a/src/compiler/spirv/meson.build
++++ b/src/compiler/spirv/meson.build
+@@ -60,6 +60,7 @@ libvtn = static_library(
+ )
+ 
+ idep_vtn = declare_dependency(
++  sources : [spirv_info_h],
+   dependencies : [dep_spirv_tools, idep_nir, idep_mesautil],
+   link_with : libvtn,
+ )

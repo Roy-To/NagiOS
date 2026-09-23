@@ -109,6 +109,13 @@ the Nagi surfaceless build. Mesa's drawable dispatch references the real
 patch includes that implementation in `libdri` without enabling a host DRM
 platform or dynamic driver.
 
+`0019-nagi-vtn-generated-header.patch` propagates Mesa's generated SPIR-V
+metadata header through the real `idep_vtn` dependency. The explicitly built
+`libmesa.a` target contains `glspirv.c`, so the generated header must be a
+declared target source even though the normal default target graph may reach it
+through another archive. This changes only Meson's dependency graph; it does
+not replace SPIR-V compilation or add a host header.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache
