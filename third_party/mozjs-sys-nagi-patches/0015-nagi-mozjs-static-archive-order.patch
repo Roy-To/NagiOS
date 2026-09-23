@@ -1,0 +1,21 @@
+diff --git a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
+@@ -369,4 +369,17 @@ fn build(build_dir: &Path, target: BuildTarget) {
+     }
+ 
+     build.out_dir(build_dir).compile(target.output());
++
++    if target == BuildTarget::JSGlue
++        && env::var("TARGET")
++            .map(|target| target.contains("nagi-user"))
++            .unwrap_or(false)
++    {
++        // The Nagi freestanding link keeps MozJS in two static archives. The
++        // glue object owns real wrapper calls into js_static; retain that
++        // object and rescan js_static after it so its concrete providers are
++        // extracted without importing a host runtime.
++        println!("cargo:rustc-link-lib=static:+whole-archive=jsglue");
++        println!("cargo:rustc-link-lib=static=js_static");
++    }
+ }

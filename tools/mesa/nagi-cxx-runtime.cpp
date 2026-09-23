@@ -1177,6 +1177,17 @@ extern "C" [[noreturn]] void nagi_unwind_resume(void *) {
     abort();
 }
 
+// MozJS target objects may retain an EH personality reference even though the
+// Nagi build disables C++ exceptions and provides no unwinder. If an unwind
+// path is reached, terminate through the real guest boundary rather than
+// pretending that a personality search succeeded.
+extern "C" int nagi_gxx_personality(int, int, nagi_uintptr_t, void *, void *)
+    __asm__("__gxx_personality_v0");
+
+extern "C" int nagi_gxx_personality(int, int, nagi_uintptr_t, void *, void *) {
+    abort();
+}
+
 static void *nagi_allocate(nagi_size_t size) {
     void *pointer = nagi_posix_malloc(size == 0 ? 1 : size);
     if (pointer == nullptr) {

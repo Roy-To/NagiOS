@@ -2045,3 +2045,17 @@ repair implements the real const iterator operations, GNU deletion
 rebalancing/header maintenance, and Nagi allocator-backed string capacity
 creation. No host C++ runtime or synthetic link-only definition is used.
 UEFI and real QEMU first-web-pixel evidence remain pending.
+
+## Target-link continuation after CI run #140 (2026-09-24)
+
+Public CI run `35911899646` (#140, head `3546db3`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The target user-init link resolved `__isnormal`, `__isnormalf`,
+and `frexp`, then exposed the real MozJS static-archive ordering boundary:
+`JS::NewArrayBufferWithContents(...)`,
+`JS::RestoreMicroTaskQueue(...)`, and `__gxx_personality_v0`. UEFI and real
+QEMU first-web-pixel acceptance were skipped. The next repair adds the
+target-only MozJS archive-order patch `0015`, which retains the real jsglue
+object and rescans `js_static`, plus a fail-closed Nagi C++ personality ABI.
+It does not link host C++ or fabricate a provider; M17 remains `BLOCKED` and
+M18 remains `NOT STARTED`.

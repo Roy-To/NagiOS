@@ -698,6 +698,7 @@ mod tests {
             "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructEmc"
         ));
         assert!(runtime.contains("_ZSt24__throw_out_of_range_fmtPKcz"));
+        assert!(runtime.contains("__gxx_personality_v0"));
         assert!(runtime.contains(
             "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE14_M_replace_auxEmmmc"
         ));

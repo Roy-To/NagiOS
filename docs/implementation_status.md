@@ -25,18 +25,32 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35909004970` (#139) at
-`44afc1efeeb6dfac4962a0eb29a244cc904c5afa` passed Servo bootstrap, dependency
+**Last known repair checkpoint:** public CI run `35911899646` (#140) at
+`3546db3ece5382057d041788d04aa335ed788a57` passed Servo bootstrap, dependency
 validation, Mesa Softpipe archive construction, package, and kernel
-compilation. The repair resolved the MozJS ArrayBuffer wrapper, GNU
-basic_string `_M_construct(unsigned long, char)`, and `sincosf`; the next real
-target link set was `__isnormal`, `__isnormalf`, and `frexp`. The next repair
-adds IEEE-bit-level normal predicates and frexp/frexpf decomposition to the
-Nagi math ABI. It does not link host C++ or libm, create synthetic rendering,
-or weaken M17 acceptance. Target link, UEFI, and QEMU are not yet acceptance
-evidence. No host libc, host filesystem, host rendering, or synthetic output
-is used. Target link, UEFI, and real QEMU first-web-pixel evidence remain
-required.
+compilation. The IEEE normal/frexp math repair resolved `__isnormal`,
+`__isnormalf`, and `frexp`; the next target link exposed static MozJS archive
+ordering for the real ArrayBuffer and microtask providers plus
+`__gxx_personality_v0`. The next repair adds target-only jsglue whole-archive
+retention with a js_static rescan and a fail-closed Nagi C++ personality ABI.
+It does not link host C++ or libm, create synthetic rendering, or weaken M17
+acceptance. Target link, UEFI, and QEMU are not yet acceptance evidence. No
+host libc, host filesystem, host rendering, or synthetic output is used.
+Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
+
+### Current M17 continuation after CI run #140 (2026-09-24)
+
+Public CI run `35911899646` (#140, head `3546db3`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The target user-init link resolved `__isnormal`, `__isnormalf`,
+and `frexp`, then exposed the real MozJS static-archive ordering boundary:
+`JS::NewArrayBufferWithContents(...)`,
+`JS::RestoreMicroTaskQueue(...)`, and `__gxx_personality_v0`. UEFI and real
+QEMU first-web-pixel acceptance were skipped. The next repair adds the
+target-only MozJS archive-order patch `0015`, which retains the real jsglue
+object and rescans `js_static`, plus a fail-closed Nagi C++ personality ABI.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)

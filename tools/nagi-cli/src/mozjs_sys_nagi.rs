@@ -163,6 +163,13 @@ mod tests {
         assert!(arraybuffer_patch.contains("NewArrayBufferOutOfMemory::CallerMustFreeMemory"));
         assert!(arraybuffer_patch.contains("contents.release()"));
 
+        let archive_order_patch = std::fs::read_to_string(root.join(
+            "third_party/mozjs-sys-nagi-patches/0015-nagi-mozjs-static-archive-order.patch",
+        ))
+        .expect("mozjs Nagi static archive order patch");
+        assert!(archive_order_patch.contains("static:+whole-archive=jsglue"));
+        assert!(archive_order_patch.contains("static=js_static"));
+
         let stdlib_cbindgen = std::fs::read_to_string(
             root.join("third_party/relibc/src/header/stdlib/cbindgen.toml"),
         )
