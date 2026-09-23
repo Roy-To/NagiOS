@@ -1712,3 +1712,17 @@ the stream's recorded end-of-file state. Read errors and EOF are tracked on
 the Nagi stream object; no host stdio, host filesystem, or synthetic stream is
 introduced. M17 remains `BLOCKED` until target linking, the UEFI loader, real
 QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, numeric and stdout ABI)
+
+Public snapshot CI run `35825148240` (#112, head `c58ecda`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages. It also passed the prior `feof`/`fgets`/`stdout`
+repair and reached final target linking, where the exact remaining undefined
+symbols were `lround`, `atof`, and `puts`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds target-owned `lround` over the existing Nagi rounding
+core, `atof` over the real target `strtod` parser, and `puts` over the real
+descriptor-1 stdout stream. No host libm, host stdio, or synthetic output is
+introduced. M17 remains `BLOCKED` until target linking, the UEFI loader, real
+QEMU, and real Servo first-web-pixel evidence pass.

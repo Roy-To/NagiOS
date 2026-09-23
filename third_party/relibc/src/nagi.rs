@@ -2243,6 +2243,11 @@ pub unsafe extern "C" fn lroundf(value: c_float) -> c_long {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn lround(value: c_double) -> c_long {
+    nagi_lround_real(value) as c_long
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn llround(value: c_double) -> c_longlong {
     nagi_lround_real(value)
 }
@@ -3089,6 +3094,28 @@ pub unsafe extern "C" fn printf(format: *const c_char, mut args: ...) -> c_int {
     }
 }
 
+/// Write a NUL-terminated line through the real Nagi stdout descriptor.
+/// `puts` is kept separate from `printf` so it has no formatting parser and
+/// cannot accidentally interpret guest content as a format string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn puts(input: *const c_char) -> c_int {
+    let Some(length) = (unsafe { c_string_len(input, 16 * 1024 * 1024) }) else {
+        unsafe { set_errno(if input.is_null() { EINVAL } else { EOVERFLOW }) };
+        return EOF;
+    };
+
+    let stream = unsafe { stdout };
+    let emitted = unsafe { fwrite(input.cast(), 1, length, stream) };
+    if emitted != length {
+        return EOF;
+    }
+    let newline = b"\n";
+    if unsafe { fwrite(newline.as_ptr().cast(), 1, 1, stream) } != 1 {
+        return EOF;
+    }
+    (length + 1) as c_int
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sprintf(
     output: *mut c_char,
@@ -3389,6 +3416,11 @@ pub unsafe extern "C" fn strtod_l(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strtod(input: *const c_char, endptr: *mut *mut c_char) -> c_double {
     unsafe { strtod_l(input, endptr, ptr::null_mut()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atof(input: *const c_char) -> c_double {
+    unsafe { strtod(input, ptr::null_mut()) }
 }
 
 #[unsafe(no_mangle)]
