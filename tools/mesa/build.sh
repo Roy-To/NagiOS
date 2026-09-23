@@ -162,6 +162,31 @@ if ! ninja -C "$mesa_build" "$mesa_gallium_target" 2>&1 | tee "$mesa_gallium_log
     exit 1
 fi
 rm -f "$mesa_gallium_log"
+
+# The explicit user-init link also reaches Mesa's real GLSL linker helpers
+# through shader-query/state-tracker code. Build the pinned libglsl target so
+# its linker_util implementation is present in the aggregate archive.
+mesa_glsl_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libglsl\.a$/) { print target; exit } }')
+if [[ -z "$mesa_glsl_target" ]]; then
+    echo "::error title=M17 Mesa GLSL target::Meson target graph has no libglsl.a output target" >&2
+    exit 1
+fi
+echo "M17 Mesa build: GLSL target: $mesa_glsl_target"
+mesa_glsl_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_glsl_target" 2>&1 | tee "$mesa_glsl_log"; then
+    mesa_glsl_error=$(grep -E '(^| )(fatal )?error:' "$mesa_glsl_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_glsl_error" ]]; then
+        mesa_glsl_error=$(tail -n 30 "$mesa_glsl_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
+    echo "::error title=M17 Mesa GLSL target build::target=$mesa_glsl_target; $mesa_glsl_error" >&2
+    rm -f "$mesa_glsl_log"
+    exit 1
+fi
+rm -f "$mesa_glsl_log"
 ninja -C "$mesa_build"
 
 # Keep the real glthread implementation reachable when the aggregated archive

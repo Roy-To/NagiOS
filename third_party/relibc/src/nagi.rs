@@ -2085,6 +2085,24 @@ pub unsafe extern "C" fn lrintf(value: c_float) -> c_long {
     }
 }
 
+/// Target-owned floating-point predicates used by Mesa's freestanding math
+/// and format code. Keep both the POSIX spelling and openlibm's float helper
+/// in the Nagi ABI; neither is delegated to a host libm.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isnan(value: c_double) -> c_int {
+    if value.is_nan() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __isnanf(value: c_float) -> c_int {
+    if value.is_nan() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isnanf(value: c_float) -> c_int {
+    unsafe { __isnanf(value) }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn accept(
     socket: c_int,

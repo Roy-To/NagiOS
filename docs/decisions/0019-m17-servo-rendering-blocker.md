@@ -1674,3 +1674,15 @@ default Nagi graph; `lrintf` was a missing target-owned relibc C ABI export.
 The next repair explicitly builds `libgallium.a` and adds target-owned
 `lrintf`. M17 remains `BLOCKED` until target linking, the UEFI loader, real
 QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, GLSL archive and math predicates)
+
+Public snapshot CI run `35818125262` (#108, head `228551c`) passed Mesa
+Softpipe and the prior `libgallium.a`/`lrintf` repair, then reached target
+linking with the remaining undefined symbols
+`link_util_parse_program_resource_name`, `isnan`, and `__isnanf`. The first is
+from Mesa's real GLSL linker archive, whose `libglsl.a` target was not yet
+explicitly built; the latter two are missing target math predicates. The next
+repair explicitly builds `libglsl.a` and adds target-owned `isnan`/`__isnanf`.
+M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and
+real Servo first-web-pixel evidence pass.

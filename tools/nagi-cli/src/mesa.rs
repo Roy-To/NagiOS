@@ -591,6 +591,7 @@ mod tests {
         assert!(mesa_build.contains("_mesa_glthread_finish"));
         assert!(mesa_build.contains("libnagi_mesa_roots.a"));
         assert!(mesa_build.contains("libgallium\\.a"));
+        assert!(mesa_build.contains("libglsl\\.a"));
     }
 
     #[test]

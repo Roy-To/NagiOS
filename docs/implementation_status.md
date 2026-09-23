@@ -2671,6 +2671,18 @@ pinned Mesa `_mesa_glthread_finish` object through a non-executing Nagi link
 anchor rather than substituting a rendering stub. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
 
+### Current M17 continuation after CI run #108 (2026-09-23)
+
+The pushed implementation head was `228551c` on `main`. CI run #108
+(`35818125262`) passed Mesa Softpipe and the prior `libgallium.a`/`lrintf`
+repair, then reached target linking with the remaining undefined symbols
+`link_util_parse_program_resource_name`, `isnan`, and `__isnanf`. The first is
+from Mesa's real GLSL linker archive, whose `libglsl.a` target was not yet
+explicitly built; the latter two are missing target math predicates. The next
+repair explicitly builds `libglsl.a` and adds target-owned `isnan`/`__isnanf`.
+UEFI and real QEMU first-web-pixel acceptance were not reached. M18 remains
+`NOT STARTED`; no M17 PASS is recorded.
+
 ### Current M17 continuation after CI run #107 (2026-09-23)
 
 The pushed implementation head was `54ed6d3` on `main`. CI run #107
