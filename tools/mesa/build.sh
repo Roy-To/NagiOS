@@ -112,10 +112,18 @@ ninja -C "$mesa_build"
 # is scanned by rust-lld. Select the pinned Mesa archive by its defined symbol,
 # then extract only the member that defines it; this remains valid across
 # Meson's object-directory layout without forcing the whole Mesa archive out.
-mesa_glthread_archive=$(find "$mesa_build" -type f -name 'libmesa.a' -print -quit)
+mesa_glthread_archive=""
+while IFS= read -r archive; do
+    if llvm-nm -g --defined-only "$archive" 2>/dev/null \
+        | grep -q '_mesa_glthread_finish'; then
+        mesa_glthread_archive="$archive"
+        break
+    fi
+done < <(find "$mesa_build" -type f -name '*.a' -print | sort)
 
 if [[ -z "$mesa_glthread_archive" ]]; then
-    echo "::error title=M17 Mesa glthread archive::cannot locate the pinned libmesa.a" >&2
+    archive_candidates=$(find "$mesa_build" -type f -name '*.a' -printf '%f ' | cut -c1-1000)
+    echo "::error title=M17 Mesa glthread archive::no generated archive defines _mesa_glthread_finish; candidates=${archive_candidates}" >&2
     exit 1
 fi
 echo "M17 Mesa build: glthread source archive: $mesa_glthread_archive"

@@ -1522,6 +1522,20 @@ stdout, host identity, or host filesystem is introduced. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, generated Mesa archive naming)
+
+Public snapshot CI run `35805855427` (#98, head `f004387`) passed Servo
+bootstrap but failed during the pinned Mesa Softpipe archive build because the
+generated output did not contain the fixed `libmesa.a` filename. Target link,
+UEFI, and real QEMU were not reached.
+
+The next M17 repair removes that filename assumption and searches every
+generated target archive with `llvm-nm --defined-only` for the real
+`_mesa_glthread_finish` definition before extracting its exact member. No host
+archive, whole-archive shortcut, or fake Mesa rendering function is introduced.
+M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
+Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-23, Mesa archive-member discovery)
 
 Public snapshot CI run `35804263561` (#96, head `96d830d`) passed Servo
