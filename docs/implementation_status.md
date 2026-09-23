@@ -2760,3 +2760,14 @@ and real QEMU first-web-pixel acceptance were not reached. The public job
 summary exposed only `Process completed with exit code 1`, so the next repair
 adds target-name and captured Ninja stderr-tail annotations around the real
 `libmesa.a` build. M18 remains `NOT STARTED`; no M17 PASS is recorded.
+
+### Current M17 continuation after CI run #103 (2026-09-23)
+
+The pushed implementation head was `e6cbde1` on `main`. CI run #103
+(`35812210395`) selected the real `src/mesa/libmesa.a` target and entered
+its 256-object compile, but the Mesa core target failed before archive
+creation. The public annotation retained only the warning tail and
+`ninja: build stopped`, so the next repair prioritizes compiler `error:` and
+`fatal error:` lines in the bounded annotation. Target link, UEFI, and real
+QEMU first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`;
+no M17 PASS is recorded.

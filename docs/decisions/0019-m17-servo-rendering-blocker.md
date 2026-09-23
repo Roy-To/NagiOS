@@ -1606,6 +1606,18 @@ for discovery; no rendering implementation is bypassed. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, Mesa core compiler diagnostics)
+
+Public snapshot CI run `35812210395` (#103, head `e6cbde1`) selected the real
+`src/mesa/libmesa.a` target and entered its 256-object compile, but the Mesa
+core target failed before archive creation. The public annotation retained
+only the warning tail and `ninja: build stopped`, so the next repair
+prioritizes compiler `error:` and `fatal error:` lines in the bounded
+annotation. This preserves the real pinned Mesa build and does not replace
+the core archive or rendering path. M17 remains `BLOCKED` until target
+linking, the UEFI loader, real QEMU, and real Servo first-web-pixel evidence
+pass.
+
 ## Remediation continuation (2026-09-23, Mesa core target diagnostics)
 
 Public snapshot CI run `35810511071` (#102, head `4694c6c`) passed Servo

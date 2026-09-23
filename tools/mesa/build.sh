@@ -124,7 +124,13 @@ fi
 echo "M17 Mesa build: core target: $mesa_core_target"
 mesa_core_log=$(mktemp)
 if ! ninja -C "$mesa_build" "$mesa_core_target" 2>&1 | tee "$mesa_core_log"; then
-    mesa_core_error=$(tail -n 30 "$mesa_core_log" | tr '\n' ' ' | cut -c1-3000)
+    mesa_core_error=$(grep -E '(^| )(fatal )?error:' "$mesa_core_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_core_error" ]]; then
+        mesa_core_error=$(tail -n 30 "$mesa_core_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
     echo "::error title=M17 Mesa core target build::target=$mesa_core_target; $mesa_core_error" >&2
     rm -f "$mesa_core_log"
     exit 1
