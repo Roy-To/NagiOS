@@ -1769,3 +1769,19 @@ Nagi UTC timezone contract through `tzset` and the POSIX `timezone` global.
 No host locale table or host timezone database is imported. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, unsupported SysV shared-memory ABI)
+
+Public snapshot CI run `35835203783` (#116, head `bea57d7`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages. It reached final target linking with the exact
+remaining undefined symbols `shmat`, `shmctl`, and `shmdt`; UEFI and real QEMU
+were skipped.
+
+The next M17 repair adds target-owned fail-closed entries for those SysV
+shared-memory symbols. Each entry returns `ENOSYS` and never returns a host
+pointer or claims a guest mapping that Nagi 0.1 does not provide. This keeps
+the optional X11/DRI shared-memory ABI explicit while preserving the real
+Servo-to-Nagi surfaceless Softpipe boundary. M17 remains `BLOCKED` until
+target linking, the UEFI loader, real QEMU, and real Servo first-web-pixel
+evidence pass.

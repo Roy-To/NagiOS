@@ -1283,6 +1283,37 @@ pub unsafe extern "C" fn shmget(_key: c_int, _size: usize, _flags: c_int) -> c_i
     -1
 }
 
+/// Nagi 0.1 does not expose System V shared-memory mappings.  Keep the
+/// remaining ABI entry points explicit as well: returning a host pointer or
+/// accepting an untracked detach/control operation would cross the guest
+/// memory boundary and falsely claim a capability that the target runtime
+/// does not provide.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shmat(
+    _shmid: c_int,
+    _shmaddr: *const c_void,
+    _shmflg: c_int,
+) -> *mut c_void {
+    unsafe { set_errno(ENOSYS) };
+    (-1isize) as *mut c_void
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shmdt(_shmaddr: *const c_void) -> c_int {
+    unsafe { set_errno(ENOSYS) };
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shmctl(
+    _shmid: c_int,
+    _cmd: c_int,
+    _buf: *mut c_void,
+) -> c_int {
+    unsafe { set_errno(ENOSYS) };
+    -1
+}
+
 // Nagi 0.1 exposes guest wall-clock time as UTC and does not import a host
 // timezone database. Keep the legacy POSIX global and setter at that explicit
 // target contract for freestanding consumers.
