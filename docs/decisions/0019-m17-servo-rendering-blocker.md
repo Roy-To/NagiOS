@@ -65,6 +65,15 @@ POSIX regex implementation; no host libc or fake rendering path is used.
 Target link, UEFI, and real QEMU first-web-pixel evidence remain pending until
 the repaired target job succeeds.
 
+## Target-link continuation after CI run #128 (2026-09-23)
+
+Public CI run `35864684193` (`6f552bc`) reached the real target link after the
+previous relibc repair. The remaining Nagi-owned formatting ABI was
+`vasprintf`, `asprintf`, and `__vsnprintf_chk`. The next repair keeps the
+descriptor/allocator boundary in Nagi relibc, uses `va_copy`-equivalent
+`VaList::with_copy` for sized formatting, and honors the fortified object-size
+bound. UEFI and real QEMU first-web-pixel evidence remain pending.
+
 ## Remediation continuation (2026-09-19)
 
 The `BLOCKED` status is retained as the historical acceptance state, not as a

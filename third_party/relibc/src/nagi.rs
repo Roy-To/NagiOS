@@ -3464,6 +3464,108 @@ pub unsafe extern "C" fn vfprintf(
     }
 }
 
+const NAGI_FORMAT_ALLOCATION_LIMIT: usize = 16 * 1024 * 1024;
+
+/// Format into a Nagi-owned allocation.  `VaList::with_copy` is the Rust
+/// equivalent of `va_copy`, so the sizing pass and the emitting pass consume
+/// independent target argument lists.  The allocation is deliberately bounded
+/// to keep a malformed guest diagnostic from exhausting the process service.
+unsafe fn nagi_vasprintf(
+    output: *mut *mut c_char,
+    format: *const c_char,
+    args: VaList,
+) -> c_int {
+    if output.is_null() || format.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    let required = unsafe {
+        args.with_copy(|copy| nagi_vsnprintf(ptr::null_mut(), 0, format, copy))
+    };
+    if required < 0 || required as usize >= NAGI_FORMAT_ALLOCATION_LIMIT {
+        unsafe { set_errno(EOVERFLOW) };
+        return EOF;
+    }
+    let length = required as usize;
+    let Some(capacity) = length.checked_add(1) else {
+        unsafe { set_errno(EOVERFLOW) };
+        return EOF;
+    };
+    let buffer = unsafe { nagi_posix_malloc(capacity) };
+    if buffer.is_null() {
+        unsafe { set_errno(ENOMEM) };
+        return EOF;
+    }
+    let written = unsafe {
+        args.with_copy(|copy| nagi_vsnprintf(buffer.cast(), capacity, format, copy))
+    };
+    if written != required {
+        unsafe { nagi_posix_free(buffer) };
+        unsafe { set_errno(EOVERFLOW) };
+        return EOF;
+    }
+    unsafe { output.write(buffer.cast()) };
+    written
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vasprintf(
+    output: *mut *mut c_char,
+    format: *const c_char,
+    args: VaList,
+) -> c_int {
+    unsafe { nagi_vasprintf(output, format, args) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn asprintf(
+    output: *mut *mut c_char,
+    format: *const c_char,
+    mut args: ...,
+) -> c_int {
+    unsafe { nagi_vasprintf(output, format, args.as_va_list()) }
+}
+
+/// GCC's fortified stdio entry point.  `object_size` is an upper bound from
+/// the caller's real guest object; honoring it keeps this ABI from writing
+/// beyond the Nagi allocation even when the caller was compiled with _FORTIFY_SOURCE.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __vsnprintf_chk(
+    output: *mut c_char,
+    capacity: usize,
+    _flag: c_int,
+    object_size: usize,
+    format: *const c_char,
+    args: VaList,
+) -> c_int {
+    if format.is_null() || (output.is_null() && capacity != 0) {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    unsafe { nagi_vsnprintf(output, capacity.min(object_size), format, args) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __snprintf_chk(
+    output: *mut c_char,
+    capacity: usize,
+    flag: c_int,
+    object_size: usize,
+    format: *const c_char,
+    mut args: ...,
+) -> c_int {
+    unsafe {
+        __vsnprintf_chk(
+            output,
+            capacity,
+            flag,
+            object_size,
+            format,
+            args.as_va_list(),
+        )
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn printf(format: *const c_char, mut args: ...) -> c_int {
     if format.is_null() {
