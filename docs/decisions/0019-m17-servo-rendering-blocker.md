@@ -1785,3 +1785,17 @@ the optional X11/DRI shared-memory ABI explicit while preserving the real
 Servo-to-Nagi surfaceless Softpipe boundary. M17 remains `BLOCKED` until
 target linking, the UEFI loader, real QEMU, and real Servo first-web-pixel
 evidence pass.
+
+## Remediation continuation (2026-09-23, target time, errno, and random ABI)
+
+Public snapshot CI run `35838340415` (#117, head `32c1313`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages. It reached final target linking with the exact
+remaining undefined symbols `strerror`, `time`, and `srand`; UEFI and real
+QEMU were skipped.
+
+The next M17 repair adds Nagi-owned errno text, forwards `time` to the real
+guest `clock_gettime(CLOCK_REALTIME)` ABI, and supplies target-local seeded
+`rand`/`srand` state. These paths do not import a host clock, host libc error
+table, or host random source. M17 remains `BLOCKED` until target linking, the
+UEFI loader, real QEMU, and real Servo first-web-pixel evidence pass.

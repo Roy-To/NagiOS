@@ -115,6 +115,7 @@ unsafe extern "C" {
     fn nagi_posix_setsid() -> c_int;
     fn nagi_posix_signal(signal: c_int, handler: *mut c_void) -> *mut c_void;
     fn nagi_posix_waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
+    fn clock_gettime(clock: c_int, output: *mut NagiTimespec) -> c_int;
     fn abort() -> !;
 }
 
@@ -1312,6 +1313,91 @@ pub unsafe extern "C" fn shmctl(
 ) -> c_int {
     unsafe { set_errno(ENOSYS) };
     -1
+}
+
+#[repr(C)]
+struct NagiTimespec {
+    tv_sec: c_longlong,
+    tv_nsec: c_longlong,
+}
+
+const NAGI_CLOCK_REALTIME: c_int = 1;
+
+/// Use the real guest realtime clock exposed by Nagi POSIX.  The underlying
+/// path is the Nagi kernel realtime syscall; no host clock is consulted.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn time(tloc: *mut c_longlong) -> c_longlong {
+    let mut timespec = NagiTimespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    if unsafe { clock_gettime(NAGI_CLOCK_REALTIME, &mut timespec) } != 0 {
+        return -1;
+    }
+    if !tloc.is_null() {
+        unsafe { tloc.write(timespec.tv_sec) };
+    }
+    timespec.tv_sec
+}
+
+static NAGI_STRERROR_UNKNOWN: &[u8] = b"Unknown error\0";
+static NAGI_STRERROR_BAD_FD: &[u8] = b"Bad file descriptor\0";
+static NAGI_STRERROR_TRY_AGAIN: &[u8] = b"Resource temporarily unavailable\0";
+static NAGI_STRERROR_NO_MEMORY: &[u8] = b"Out of memory\0";
+static NAGI_STRERROR_PERMISSION: &[u8] = b"Permission denied\0";
+static NAGI_STRERROR_BUSY: &[u8] = b"Device or resource busy\0";
+static NAGI_STRERROR_INVALID: &[u8] = b"Invalid argument\0";
+static NAGI_STRERROR_RANGE: &[u8] = b"Numerical result out of range\0";
+static NAGI_STRERROR_NOT_IMPLEMENTED: &[u8] = b"Function not implemented\0";
+static NAGI_STRERROR_OVERFLOW: &[u8] = b"Value too large for defined data type\0";
+
+/// Return Nagi-owned errno text without importing a host libc string table.
+/// The returned storage is static target data, matching the ordinary C
+/// `strerror` lifetime contract for this single-locale Nagi backend.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strerror(error: c_int) -> *mut c_char {
+    let message = match error {
+        EBADF => NAGI_STRERROR_BAD_FD,
+        EAGAIN => NAGI_STRERROR_TRY_AGAIN,
+        ENOMEM => NAGI_STRERROR_NO_MEMORY,
+        EACCES => NAGI_STRERROR_PERMISSION,
+        EBUSY => NAGI_STRERROR_BUSY,
+        EINVAL => NAGI_STRERROR_INVALID,
+        ERANGE => NAGI_STRERROR_RANGE,
+        ENOSYS => NAGI_STRERROR_NOT_IMPLEMENTED,
+        EOVERFLOW => NAGI_STRERROR_OVERFLOW,
+        _ => NAGI_STRERROR_UNKNOWN,
+    };
+    message.as_ptr().cast_mut().cast()
+}
+
+static NAGI_RAND_STATE: AtomicU32 = AtomicU32::new(1);
+
+/// Target-local C pseudo-random state.  This is intentionally deterministic
+/// until the caller seeds it; entropy-sensitive code must use Nagi getrandom,
+/// not `rand`/`srand`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn srand(seed: c_uint) {
+    NAGI_RAND_STATE.store(seed.max(1), Ordering::Relaxed);
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rand() -> c_int {
+    let mut current = NAGI_RAND_STATE.load(Ordering::Relaxed);
+    loop {
+        let next = current
+            .wrapping_mul(1_103_515_245)
+            .wrapping_add(12_345);
+        match NAGI_RAND_STATE.compare_exchange_weak(
+            current,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return ((next >> 1) & 0x7fff_ffff) as c_int,
+            Err(observed) => current = observed,
+        }
+    }
 }
 
 // Nagi 0.1 exposes guest wall-clock time as UTC and does not import a host
