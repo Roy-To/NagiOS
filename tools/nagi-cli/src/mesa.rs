@@ -650,6 +650,9 @@ mod tests {
         assert!(runtime.contains("nagi_mesa_glthread_finish_link_anchor"));
         assert!(runtime.contains("__dynamic_cast"));
         assert!(runtime.contains("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base"));
+        assert!(runtime.contains("_ZSt27_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_"));
+        assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
+        assert!(runtime.contains("__popcountdi2"));
         assert!(
             runtime.contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv")
         );

@@ -1929,3 +1929,13 @@ again reached the real target link. The remaining Nagi-owned symbols were
 exit-handler storage and freestanding IEEE math/predicate entry points; it
 does not link a host CRT or libm. UEFI and real QEMU first-web-pixel evidence
 remain pending.
+
+## Target-link continuation after CI run #130 (2026-09-23)
+
+Public CI run `35871531770` (`4c726ce`) passed the repaired exit/math ABI and
+again reached the real target link. The remaining target-owned C++/compiler
+runtime symbols were `std::_Rb_tree_insert_and_rebalance`,
+`std::_Rb_tree_decrement`, and `__popcountdi2`. The next repair adds real GNU
+red-black tree insertion/predecessor operations and a target popcount to the
+Nagi-owned C++ runtime; it does not import host libstdc++ or compiler-rt.
+UEFI and real QEMU first-web-pixel evidence remain pending.

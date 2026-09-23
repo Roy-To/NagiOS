@@ -25,14 +25,18 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-23
-**Last known repair checkpoint:** public CI run `35868771255` (#129) at
-`cfbeb5c` passed Servo bootstrap, Mesa Softpipe archive construction, package,
-and kernel compilation, then failed final target linking in Nagi user init on
-the real target-owned relibc symbols `atexit`, `ldexp`, and `__isfinite`.
-The current M17 repair adds those symbols to the Nagi backend; target link,
-UEFI, and QEMU are not yet acceptance evidence. No host libc, host filesystem,
-host rendering, or synthetic output is used.
-Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
+**Last known repair checkpoint:** public CI run `35871531770` (#130) at
+`4c726cedd8835b54ca843c71103e66759cdb0063` passed Servo bootstrap, Mesa
+Softpipe archive construction, package, kernel compilation, and the repaired
+target-owned relibc exit/math ABI, then failed final target linking in Nagi
+user init on the real target-owned C++/compiler runtime symbols
+`std::_Rb_tree_insert_and_rebalance`, `std::_Rb_tree_decrement`, and
+`__popcountdi2`. The current M17 repair adds real Nagi-owned red-black tree
+insertion/predecessor operations and the target popcount ABI; it does not link
+a host C++ runtime or compiler-rt. Target link, UEFI, and QEMU are not yet
+acceptance evidence. No host libc, host filesystem, host rendering, or
+synthetic output is used. Target link, UEFI, and real QEMU first-web-pixel
+evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -2881,6 +2885,18 @@ objects whose `libgallium.a` target was not part of the default Nagi graph;
 explicitly builds `libgallium.a` and adds target-owned `lrintf`. UEFI and real
 QEMU first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
+
+### Current M17 continuation after CI run #130 (2026-09-23)
+
+Public CI run `35871531770` (#130, head `4c726ce`) passed Servo bootstrap,
+Mesa Softpipe archive construction, package, kernel compilation, and the
+repaired target-owned relibc exit/math ABI. It then reached the real target
+link and failed on `std::_Rb_tree_insert_and_rebalance`,
+`std::_Rb_tree_decrement`, and `__popcountdi2`. The next repair adds real
+Nagi-owned GNU red-black tree insertion/predecessor operations and the target
+popcount ABI; it does not import host libstdc++ or compiler-rt. UEFI and real
+QEMU first-web-pixel acceptance remain pending. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #106 (2026-09-23)
 

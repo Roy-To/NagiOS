@@ -284,6 +284,172 @@ extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_increment(
     return parent;
 }
 
+static constexpr unsigned NAGI_GNU_RB_RED = 0;
+static constexpr unsigned NAGI_GNU_RB_BLACK = 1;
+
+static void nagi_gnu_rb_rotate_left(
+    nagi_gnu_rb_tree_node_base *node,
+    nagi_gnu_rb_tree_node_base *&root) {
+    auto *replacement = node->right;
+    node->right = replacement->left;
+    if (replacement->left != nullptr) {
+        replacement->left->parent = node;
+    }
+    replacement->parent = node->parent;
+    if (node == root) {
+        root = replacement;
+    } else if (node == node->parent->left) {
+        node->parent->left = replacement;
+    } else {
+        node->parent->right = replacement;
+    }
+    replacement->left = node;
+    node->parent = replacement;
+}
+
+static void nagi_gnu_rb_rotate_right(
+    nagi_gnu_rb_tree_node_base *node,
+    nagi_gnu_rb_tree_node_base *&root) {
+    auto *replacement = node->left;
+    node->left = replacement->right;
+    if (replacement->right != nullptr) {
+        replacement->right->parent = node;
+    }
+    replacement->parent = node->parent;
+    if (node == root) {
+        root = replacement;
+    } else if (node == node->parent->right) {
+        node->parent->right = replacement;
+    } else {
+        node->parent->left = replacement;
+    }
+    replacement->right = node;
+    node->parent = replacement;
+}
+
+// This is the GNU libstdc++ red-black insertion algorithm over the stable
+// _Rb_tree_node_base prefix above. It maintains the real tree invariants and
+// header min/max links; it is not a linker-only no-op.
+extern "C" void nagi_gnu_rb_insert_and_rebalance(
+    bool insert_left,
+    nagi_gnu_rb_tree_node_base *node,
+    nagi_gnu_rb_tree_node_base *parent,
+    nagi_gnu_rb_tree_node_base &header)
+    __asm__("_ZSt27_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_");
+
+extern "C" void nagi_gnu_rb_insert_and_rebalance(
+    bool insert_left,
+    nagi_gnu_rb_tree_node_base *node,
+    nagi_gnu_rb_tree_node_base *parent,
+    nagi_gnu_rb_tree_node_base &header) {
+    auto *&root = header.parent;
+    node->parent = parent;
+    node->left = nullptr;
+    node->right = nullptr;
+    node->color = NAGI_GNU_RB_RED;
+
+    if (insert_left) {
+        parent->left = node;
+        if (parent == &header) {
+            root = node;
+            header.right = node;
+        } else if (parent == header.left) {
+            header.left = node;
+        }
+    } else {
+        parent->right = node;
+        if (parent == header.right) {
+            header.right = node;
+        }
+    }
+
+    while (node != root && node->parent->color == NAGI_GNU_RB_RED) {
+        auto *parent_node = node->parent;
+        auto *grandparent = parent_node->parent;
+        if (parent_node == grandparent->left) {
+            auto *uncle = grandparent->right;
+            if (uncle != nullptr && uncle->color == NAGI_GNU_RB_RED) {
+                parent_node->color = NAGI_GNU_RB_BLACK;
+                uncle->color = NAGI_GNU_RB_BLACK;
+                grandparent->color = NAGI_GNU_RB_RED;
+                node = grandparent;
+            } else {
+                if (node == parent_node->right) {
+                    node = parent_node;
+                    nagi_gnu_rb_rotate_left(node, root);
+                    parent_node = node->parent;
+                    grandparent = parent_node->parent;
+                }
+                parent_node->color = NAGI_GNU_RB_BLACK;
+                grandparent->color = NAGI_GNU_RB_RED;
+                nagi_gnu_rb_rotate_right(grandparent, root);
+            }
+        } else {
+            auto *uncle = grandparent->left;
+            if (uncle != nullptr && uncle->color == NAGI_GNU_RB_RED) {
+                parent_node->color = NAGI_GNU_RB_BLACK;
+                uncle->color = NAGI_GNU_RB_BLACK;
+                grandparent->color = NAGI_GNU_RB_RED;
+                node = grandparent;
+            } else {
+                if (node == parent_node->left) {
+                    node = parent_node;
+                    nagi_gnu_rb_rotate_right(node, root);
+                    parent_node = node->parent;
+                    grandparent = parent_node->parent;
+                }
+                parent_node->color = NAGI_GNU_RB_BLACK;
+                grandparent->color = NAGI_GNU_RB_RED;
+                nagi_gnu_rb_rotate_left(grandparent, root);
+            }
+        }
+    }
+    root->color = NAGI_GNU_RB_BLACK;
+}
+
+extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_decrement(
+    nagi_gnu_rb_tree_node_base *node)
+    __asm__("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base");
+
+extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_decrement(
+    nagi_gnu_rb_tree_node_base *node) {
+    if (node == nullptr) {
+        return nullptr;
+    }
+    if (node->color == NAGI_GNU_RB_RED && node->parent != nullptr &&
+        node->parent->parent == node) {
+        return node->right;
+    }
+    if (node->left != nullptr) {
+        node = node->left;
+        while (node->right != nullptr) {
+            node = node->right;
+        }
+        return node;
+    }
+    auto *parent = node->parent;
+    while (parent != nullptr && node == parent->left) {
+        node = parent;
+        parent = parent->parent;
+    }
+    return parent;
+}
+
+// Compiler-rt's target-independent 64-bit popcount ABI used by freestanding
+// Mesa objects. Keep the operation in this Nagi-owned runtime instead of
+// pulling a host compiler runtime into the guest image.
+extern "C" int nagi_popcountdi2(unsigned long long value)
+    __asm__("__popcountdi2");
+
+extern "C" int nagi_popcountdi2(unsigned long long value) {
+    int count = 0;
+    while (value != 0) {
+        value &= value - 1;
+        ++count;
+    }
+    return count;
+}
+
 // A small subset of the pinned target objects is emitted with the GNU
 // libstdc++ ABI even though the normal Nagi C++ headers are libc++.  The
 // no-exception target still needs the concrete length-error entrypoint when a
