@@ -48,6 +48,18 @@ experiment seeds the exact real relibc pthread symbols used by the new
 libc++ mutex/condition-variable bridge before the archive scan. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #146 (2026-09-24)
+
+Public CI run `35930495046` (#146, head `f90d12c`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init custom build command still failed
+after the target-link stage; the public annotation exposed no symbol-level
+diagnostic, and UEFI/QEMU were skipped. The pthread provider seeds therefore
+did not complete the link. The next targeted repair adds the real Itanium
+deleting-destructor (`D0`) entrypoints for libc++ mutex and condition-variable
+objects, including real relibc-backed destruction and allocator release. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #140 (2026-09-24)
 
 Public CI run `35911899646` (#140, head `3546db3`) passed Servo bootstrap,

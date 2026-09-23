@@ -860,6 +860,17 @@ extern "C" void nagi_libcpp_mutex_destroy_base(void *mutex) {
     nagi_libcpp_mutex_destroy(mutex);
 }
 
+// The Itanium deleting-destructor entrypoint is used when a libc++ mutex is
+// destroyed through delete. Run the real pthread destructor first, then free
+// the object through Nagi's allocator boundary.
+extern "C" void nagi_libcpp_mutex_destroy_deleting(void *mutex)
+    __asm__("_ZNSt3__15mutexD0Ev");
+
+extern "C" void nagi_libcpp_mutex_destroy_deleting(void *mutex) {
+    nagi_libcpp_mutex_destroy(mutex);
+    nagi_posix_free(mutex);
+}
+
 extern "C" int pthread_cond_signal(void *condition);
 extern "C" int pthread_cond_broadcast(void *condition);
 extern "C" int pthread_cond_wait(void *condition, void *mutex);
@@ -919,6 +930,14 @@ extern "C" void nagi_libcpp_condition_variable_destroy_base(void *condition)
 
 extern "C" void nagi_libcpp_condition_variable_destroy_base(void *condition) {
     nagi_libcpp_condition_variable_destroy(condition);
+}
+
+extern "C" void nagi_libcpp_condition_variable_destroy_deleting(void *condition)
+    __asm__("_ZNSt3__118condition_variableD0Ev");
+
+extern "C" void nagi_libcpp_condition_variable_destroy_deleting(void *condition) {
+    nagi_libcpp_condition_variable_destroy(condition);
+    nagi_posix_free(condition);
 }
 
 // libstdc++'s C++11 basic_string ABI stores the data pointer at offset zero,

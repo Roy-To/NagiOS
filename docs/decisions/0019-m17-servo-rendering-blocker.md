@@ -2107,3 +2107,15 @@ explicitly bounded: seed only the real relibc pthread mutex and condition
 variable providers referenced by the Nagi-owned libc++ bridge. This is a link
 ordering repair, not a host synchronization fallback or an acceptance
 shortcut. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #146 (2026-09-24)
+
+Public CI run `35930495046` (#146, head `f90d12c`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The target user-init custom build command still failed after the
+target-link stage; its public annotation did not include the compiler/linker
+symbol detail, so UEFI and real QEMU first-web-pixel acceptance were not
+reached. The pthread provider seed was insufficient. The next bounded repair
+adds the real Itanium deleting-destructor (`D0`) entrypoints for libc++ mutex
+and condition-variable objects, with relibc destruction followed by the Nagi
+allocator release. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
