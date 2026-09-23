@@ -1920,3 +1920,12 @@ Nagi static helper target that compiles the real `sw_helper.h` Softpipe
 implementation, explicitly materializes upstream `libwsw.a`, and adds
 target-owned guest allocator `strndup`. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
+
+## Target-link continuation after CI run #129 (2026-09-23)
+
+Public CI run `35868771255` (`cfbeb5c`) passed the repaired formatting ABI and
+again reached the real target link. The remaining Nagi-owned symbols were
+`atexit`, `ldexp`, and `__isfinite`. The next repair provides target-owned
+exit-handler storage and freestanding IEEE math/predicate entry points; it
+does not link a host CRT or libm. UEFI and real QEMU first-web-pixel evidence
+remain pending.

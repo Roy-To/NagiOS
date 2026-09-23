@@ -25,13 +25,13 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-23
-**Last known repair checkpoint:** public CI run `35864684193` (#128) at
-`6f552bc` passed Servo bootstrap, Mesa Softpipe archive construction, package,
+**Last known repair checkpoint:** public CI run `35868771255` (#129) at
+`cfbeb5c` passed Servo bootstrap, Mesa Softpipe archive construction, package,
 and kernel compilation, then failed final target linking in Nagi user init on
-the real target-owned relibc symbols `vasprintf`, `asprintf`, and
-`__vsnprintf_chk`. The current M17 repair adds those symbols to the Nagi
-backend; target link, UEFI, and QEMU are not yet acceptance evidence. No host
-libc, host filesystem, host rendering, or synthetic output is used.
+the real target-owned relibc symbols `atexit`, `ldexp`, and `__isfinite`.
+The current M17 repair adds those symbols to the Nagi backend; target link,
+UEFI, and QEMU are not yet acceptance evidence. No host libc, host filesystem,
+host rendering, or synthetic output is used.
 Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 

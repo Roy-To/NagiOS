@@ -463,6 +463,30 @@ pub unsafe extern "C" fn pthread_once(
     }
 }
 
+const NAGI_ATEXIT_LIMIT: usize = 32;
+static NAGI_ATEXIT_COUNT: AtomicU32 = AtomicU32::new(0);
+static mut NAGI_ATEXIT_HANDLERS: [Option<extern "C" fn()>; NAGI_ATEXIT_LIMIT] =
+    [None; NAGI_ATEXIT_LIMIT];
+
+/// Keep normal `exit` handlers in target-owned storage. `_exit` deliberately
+/// bypasses this table, matching POSIX process semantics; `exit` drains it in
+/// reverse registration order before crossing the Nagi process boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atexit(function: Option<extern "C" fn()>) -> c_int {
+    let Some(function) = function else {
+        unsafe { set_errno(EINVAL) };
+        return -1;
+    };
+    let index = NAGI_ATEXIT_COUNT.fetch_add(1, Ordering::AcqRel) as usize;
+    if index >= NAGI_ATEXIT_LIMIT {
+        NAGI_ATEXIT_COUNT.fetch_sub(1, Ordering::AcqRel);
+        unsafe { set_errno(ENOMEM) };
+        return -1;
+    }
+    unsafe { NAGI_ATEXIT_HANDLERS[index] = Some(function) };
+    0
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _exit(code: c_int) -> ! {
     unsafe { nagi_posix_exit(code) }
@@ -475,6 +499,13 @@ pub unsafe extern "C" fn dup2(old_fd: c_int, new_fd: c_int) -> c_int {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn exit(code: c_int) -> ! {
+    let count = (NAGI_ATEXIT_COUNT.load(Ordering::Acquire) as usize).min(NAGI_ATEXIT_LIMIT);
+    for index in (0..count).rev() {
+        let handler = unsafe { NAGI_ATEXIT_HANDLERS[index].take() };
+        if let Some(handler) = handler {
+            handler();
+        }
+    }
     unsafe { nagi_posix_exit(code) }
 }
 
@@ -2520,6 +2551,22 @@ pub unsafe extern "C" fn log2f(value: c_float) -> c_float {
     unsafe { log2(c_double::from(value)) as c_float }
 }
 
+/// Target-owned binary exponent scaling. This uses the same freestanding
+/// IEEE-aware exponential reduction as the other Nagi math entry points and
+/// therefore does not import a host libm implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ldexp(value: c_double, exponent: c_int) -> c_double {
+    if value == 0.0 || nagi_pow_is_nan(value) || nagi_pow_is_inf(value) || exponent == 0 {
+        return value;
+    }
+    value * nagi_pow_exp(c_double::from(exponent) * NAGI_POW_LN2)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ldexpf(value: c_float, exponent: c_int) -> c_float {
+    unsafe { ldexp(c_double::from(value), exponent) as c_float }
+}
+
 /// Target-owned nearest-integer conversion used by Mesa's color and format
 /// helpers. The Nagi target excludes relibc's normal libm module, so expose
 /// the bounded C ABI directly instead of leaving `lrintf` to a host libm.
@@ -2559,6 +2606,30 @@ pub unsafe extern "C" fn isnan(value: c_double) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __isnanf(value: c_float) -> c_int {
     if value.is_nan() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __isfinite(value: c_double) -> c_int {
+    if !nagi_pow_is_nan(value) && !nagi_pow_is_inf(value) {
+        1
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __isfinitef(value: c_float) -> c_int {
+    unsafe { __isfinite(c_double::from(value)) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isfinite(value: c_double) -> c_int {
+    unsafe { __isfinite(value) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isfinitef(value: c_float) -> c_int {
+    unsafe { __isfinitef(value) }
 }
 
 #[unsafe(no_mangle)]
