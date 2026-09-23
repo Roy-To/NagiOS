@@ -109,23 +109,45 @@ meson setup --wipe "$mesa_build" "$repo_root/third_party/mesa" \
 ninja -C "$mesa_build"
 
 # Keep the real glthread implementation reachable when the aggregated archive
-# is scanned by rust-lld. The Mesa object is selected by its defined symbol,
-# not by a guessed path, so this remains valid across pinned Meson layouts.
-mesa_glthread_object=""
-while IFS= read -r object; do
-    if llvm-nm -gP "$object" 2>/dev/null \
-        | awk '$1 == "_mesa_glthread_finish" && $2 != "U" { found = 1 } END { exit(found ? 0 : 1) }'; then
-        mesa_glthread_object="$object"
+# is scanned by rust-lld. Select the pinned Mesa archive by its defined symbol,
+# then extract only the member that defines it; this remains valid across
+# Meson's object-directory layout without forcing the whole Mesa archive out.
+mesa_glthread_archive=""
+while IFS= read -r archive; do
+    if llvm-nm -g --defined-only "$archive" 2>/dev/null \
+        | grep -q '_mesa_glthread_finish'; then
+        mesa_glthread_archive="$archive"
         break
     fi
-done < <(find "$mesa_build" -type f -name '*.o' -print | sort)
+done < <(find "$mesa_build" -type f -name '*.a' -print | sort)
+
+if [[ -z "$mesa_glthread_archive" ]]; then
+    echo "M17 Mesa build: cannot locate _mesa_glthread_finish in the pinned archives" >&2
+    exit 1
+fi
+
+mesa_root_temp=$(mktemp -d)
+trap 'rm -f "$archive_manifest"; rm -rf "$mesa_root_temp"' EXIT
+mesa_glthread_object=""
+member_index=0
+while IFS= read -r member; do
+    candidate="$mesa_root_temp/member-$member_index.o"
+    member_index=$((member_index + 1))
+    llvm-ar p "$mesa_glthread_archive" "$member" >"$candidate"
+    if llvm-nm -gP "$candidate" 2>/dev/null \
+        | awk '$1 == "_mesa_glthread_finish" && $2 != "U" { found = 1 } END { exit(found ? 0 : 1) }'; then
+        mesa_glthread_object="$candidate"
+        break
+    fi
+done < <(llvm-ar t "$mesa_glthread_archive")
 
 if [[ -z "$mesa_glthread_object" ]]; then
-    echo "M17 Mesa build: cannot locate the real _mesa_glthread_finish object" >&2
+    echo "M17 Mesa build: archive member scan could not extract _mesa_glthread_finish" >&2
     exit 1
 fi
 
 mesa_roots_archive="$output_root/libnagi_mesa_roots.a"
+rm -f "$mesa_roots_archive"
 llvm-ar rcs "$mesa_roots_archive" "$mesa_glthread_object"
 llvm-ranlib "$mesa_roots_archive"
 
@@ -135,7 +157,6 @@ llvm-ranlib "$mesa_roots_archive"
 # also avoids relying on host linker search paths or shared libraries.
 mesa_archive="$output_root/libnagi_mesa.a"
 archive_manifest=$(mktemp)
-trap 'rm -f "$archive_manifest"' EXIT
 printf 'create %s\n' "$mesa_archive" >"$archive_manifest"
 while IFS= read -r archive; do
     printf 'addlib %s\n' "$archive" >>"$archive_manifest"

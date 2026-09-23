@@ -1521,3 +1521,18 @@ to the explicit POSIX gid 0 compatibility view. No Mesa rendering stub, host
 stdout, host identity, or host filesystem is introduced. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, Mesa archive-member discovery)
+
+Public snapshot CI run `35804263561` (#96, head `96d830d`) passed Servo
+bootstrap but failed during the pinned Mesa Softpipe archive build while
+discovering the real `_mesa_glthread_finish` object. Target link, UEFI, and
+real QEMU were not reached.
+
+The next M17 repair keeps the extraction target-owned and reproducible: search
+the pinned Mesa archives with `llvm-nm`, identify the exact member, extract it
+with the pinned LLVM archiver, and place that real object in the dedicated Nagi
+roots archive before the aggregate archive. No whole-archive shortcut or fake
+Mesa rendering function is introduced. M17 remains `BLOCKED` until target
+linking, the UEFI loader, real QEMU, and real Servo first-web-pixel evidence
+pass.
