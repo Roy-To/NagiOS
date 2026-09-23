@@ -142,9 +142,12 @@ ninja -C "$mesa_build"
 # is scanned by rust-lld. Select the pinned Mesa archive by its defined symbol,
 # then extract only the member that defines it; this remains valid across
 # Meson's object-directory layout without forcing the whole Mesa archive out.
+# Do not use llvm-nm's external-only filter here: Mesa compiles this target with
+# hidden visibility, while the final Nagi link still needs the real object that
+# owns the hidden implementation and its references.
 mesa_glthread_archive=""
 while IFS= read -r archive; do
-    if llvm-nm -g --defined-only "$archive" 2>/dev/null \
+    if llvm-nm --defined-only "$archive" 2>/dev/null \
         | grep -q '_mesa_glthread_finish'; then
         mesa_glthread_archive="$archive"
         break
@@ -169,7 +172,7 @@ while IFS= read -r member; do
         rm -f "$candidate"
         continue
     fi
-    if llvm-nm -g --defined-only "$candidate" 2>/dev/null \
+    if llvm-nm --defined-only "$candidate" 2>/dev/null \
         | grep -q '_mesa_glthread_finish'; then
         mesa_glthread_object="$candidate"
         break

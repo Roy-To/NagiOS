@@ -1640,3 +1640,14 @@ next repair preserves the real target build and emits the selected target plus
 the captured Ninja stderr tail as a bounded CI annotation. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, hidden Mesa symbol scan)
+
+Public snapshot CI run `35813827384` (#105, head `9bb8bf0`) passed the
+generated SPIR-V header repair and produced the real `libmesa.a` archive, but
+the archive scan did not find `_mesa_glthread_finish`; the candidate list
+included `libmesa.a`. The scan used `llvm-nm -g`, which can exclude
+hidden-visibility Mesa symbols. The next repair scans all defined symbols
+while preserving exact member extraction. No fake rendering function or host
+archive is introduced. M17 remains `BLOCKED` until target linking, the UEFI
+loader, real QEMU, and real Servo first-web-pixel evidence pass.

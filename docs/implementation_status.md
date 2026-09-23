@@ -2682,6 +2682,17 @@ source of the existing `idep_vtn` dependency through numbered Mesa patch
 link, UEFI, and real QEMU first-web-pixel acceptance were not reached. M18
 remains `NOT STARTED`; no M17 PASS is recorded.
 
+### Current M17 continuation after CI run #105 (2026-09-23)
+
+The pushed implementation head was `9bb8bf0` on `main`. CI run #105
+(`35813827384`) passed the generated SPIR-V header repair and produced the
+real `libmesa.a` archive, but the archive scan did not find
+`_mesa_glthread_finish`; the candidate list now includes `libmesa.a`. The
+scan used `llvm-nm -g`, which can exclude Mesa's hidden-visibility symbols.
+The next repair scans all defined symbols while preserving exact member
+extraction. Target link, UEFI, and real QEMU first-web-pixel acceptance were
+not reached. M18 remains `NOT STARTED`; no M17 PASS is recorded.
+
 ### Current M17 continuation after CI run #95 (2026-09-23)
 
 The pushed implementation head was `d9db493` on `main`. CI run #95
