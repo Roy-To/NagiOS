@@ -3591,6 +3591,60 @@ pub unsafe extern "C" fn __fprintf_chk(
     unsafe { vfprintf(stream, format, args.as_va_list()) }
 }
 
+static mut NAGI_SYSLOG_IDENT: *const c_char = ptr::null();
+static mut NAGI_SYSLOG_OPTIONS: c_int = 0;
+static mut NAGI_SYSLOG_FACILITY: c_int = 0;
+
+/// Keep syslog inside Nagi's real descriptor-backed diagnostic boundary.  The
+/// target has no host syslog socket or daemon ABI; descriptor 2 is the Nagi
+/// console service boundary already used by `perror` and target stdio.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn openlog(
+    ident: *const c_char,
+    options: c_int,
+    facility: c_int,
+) {
+    unsafe {
+        NAGI_SYSLOG_IDENT = ident;
+        NAGI_SYSLOG_OPTIONS = options;
+        NAGI_SYSLOG_FACILITY = facility;
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn closelog() {
+    unsafe {
+        NAGI_SYSLOG_IDENT = ptr::null();
+        NAGI_SYSLOG_OPTIONS = 0;
+        NAGI_SYSLOG_FACILITY = 0;
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syslog(
+    _priority: c_int,
+    format: *const c_char,
+    mut args: ...,
+) {
+    if format.is_null() {
+        return;
+    }
+    let mut buffer = [0_u8; 4096];
+    let written = unsafe {
+        nagi_vsnprintf(buffer.as_mut_ptr().cast(), buffer.len(), format, args.as_va_list())
+    };
+    if written <= 0 {
+        return;
+    }
+    let count = (written as usize).min(buffer.len() - 1);
+    unsafe {
+        nagi_posix_write_fd(2, buffer.as_ptr(), count);
+    }
+    let _ = unsafe { NAGI_SYSLOG_IDENT };
+    let _ = unsafe { NAGI_SYSLOG_OPTIONS };
+    let _ = unsafe { NAGI_SYSLOG_FACILITY };
+}
+
 const NAGI_FORMAT_ALLOCATION_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Format into a Nagi-owned allocation.  `VaList::with_copy` is the Rust

@@ -303,6 +303,104 @@ extern "C" const nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_increment_const(
 static constexpr unsigned NAGI_GNU_RB_RED = 0;
 static constexpr unsigned NAGI_GNU_RB_BLACK = 1;
 
+struct nagi_gnu_rehash_result {
+    bool needs_rehash;
+    unsigned char padding[7];
+    nagi_size_t bucket_count;
+};
+
+struct nagi_gnu_prime_rehash_policy {
+    float max_load_factor;
+    unsigned padding;
+    mutable nagi_size_t next_resize;
+};
+
+static_assert(sizeof(nagi_gnu_rehash_result) == 16);
+static_assert(__builtin_offsetof(nagi_gnu_rehash_result, bucket_count) == 8);
+static_assert(sizeof(nagi_gnu_prime_rehash_policy) == 16);
+static_assert(__builtin_offsetof(nagi_gnu_prime_rehash_policy, next_resize) == 8);
+
+static bool nagi_gnu_is_prime(nagi_size_t value) {
+    if (value < 2) {
+        return false;
+    }
+    if ((value & 1) == 0) {
+        return value == 2;
+    }
+    for (nagi_size_t divisor = 3; divisor <= value / divisor;
+         divisor += 2) {
+        if (value % divisor == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static nagi_size_t nagi_gnu_next_prime(nagi_size_t requested) {
+    if (requested <= 2) {
+        return 2;
+    }
+    if ((requested & 1) == 0) {
+        ++requested;
+    }
+    while (!nagi_gnu_is_prime(requested)) {
+        if (requested == ~static_cast<nagi_size_t>(0)) {
+            abort();
+        }
+        requested += 2;
+    }
+    return requested;
+}
+
+extern "C" nagi_gnu_rehash_result nagi_gnu_prime_need_rehash(
+    const nagi_gnu_prime_rehash_policy *policy, nagi_size_t bucket_count,
+    nagi_size_t element_count, nagi_size_t insertion_count)
+    __asm__("_ZNKSt8__detail20_Prime_rehash_policy14_M_need_rehashEmmm");
+
+extern "C" nagi_gnu_rehash_result nagi_gnu_prime_need_rehash(
+    const nagi_gnu_prime_rehash_policy *policy, nagi_size_t bucket_count,
+    nagi_size_t element_count, nagi_size_t insertion_count) {
+    if (policy == nullptr ||
+        insertion_count > ~static_cast<nagi_size_t>(0) - element_count ||
+        !(policy->max_load_factor > 0.0f)) {
+        abort();
+    }
+    const nagi_size_t total = element_count + insertion_count;
+    if (total <= policy->next_resize) {
+        return {false, {}, 0};
+    }
+
+    // The Nagi Servo/Mesa objects use the libstdc++ default factor (1.0).
+    // Match libstdc++'s double arithmetic here; this is part of the policy's
+    // observable bucket-growth behavior, not merely an ABI-shaped stub.
+    const float factor = policy->max_load_factor;
+    const nagi_size_t initial = policy->next_resize == 0 ? 11 : 0;
+    const double minimum_buckets =
+        static_cast<double>(total > initial ? total : initial) /
+        static_cast<double>(factor);
+    const nagi_size_t maximum = ~static_cast<nagi_size_t>(0);
+    const nagi_size_t minimum =
+        minimum_buckets >= static_cast<double>(maximum)
+            ? maximum
+            : static_cast<nagi_size_t>(minimum_buckets);
+    const nagi_size_t growth =
+        bucket_count > (maximum / 2)
+            ? maximum
+            : bucket_count * 2;
+    if (minimum >= bucket_count) {
+        const nagi_size_t requested =
+            minimum == maximum
+                ? minimum
+                : (minimum + 1 > growth ? minimum + 1 : growth);
+        return {true, {}, nagi_gnu_next_prime(requested)};
+    }
+
+    const double next = static_cast<double>(bucket_count) *
+        static_cast<double>(factor);
+    policy->next_resize = static_cast<nagi_size_t>(next);
+    return {false, {}, 0};
+}
+
 static void nagi_gnu_rb_rotate_left(
     nagi_gnu_rb_tree_node_base *node,
     nagi_gnu_rb_tree_node_base *&root) {

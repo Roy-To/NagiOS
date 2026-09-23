@@ -1940,6 +1940,17 @@ red-black tree insertion/predecessor operations and a target popcount to the
 Nagi-owned C++ runtime; it does not import host libstdc++ or compiler-rt.
 UEFI and real QEMU first-web-pixel evidence remain pending.
 
+## Target-link continuation after CI run #134 (2026-09-24)
+
+Public CI run `35887795498` (#134, head `4665387`) resolved `strnlen`, `div`,
+and GNU basic_string `_M_replace`, then reached the next real target-link set:
+`syslog`, `openlog`, and
+`std::__detail::_Prime_rehash_policy::_M_need_rehash(...)`. UEFI and real
+QEMU first-web-pixel acceptance were skipped. The next repair adds
+descriptor-backed target syslog/openlog handling and a Nagi-owned GNU prime
+rehash policy ABI; it does not import a host syslog daemon, host libc, or host
+C++ runtime. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ## Target-link continuation after CI run #133 (2026-09-24)
 
 Public CI run `35884059558` (`659a76a`) resolved the const GNU tree iterator,

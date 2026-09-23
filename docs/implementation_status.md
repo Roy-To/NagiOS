@@ -25,17 +25,17 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35884059558` (#133) at
-`659a76a76b7d7d4110346d0211befa239d29582b` passed Servo bootstrap, Mesa
+**Last known repair checkpoint:** public CI run `35887795498` (#134) at
+`46653870837e456ce58c7350e656a80829aa9538` passed Servo bootstrap, Mesa
 Softpipe archive construction, package, and kernel compilation, then reached
-the real target link. The const tree iterator, erase/rebalance, and string
-create symbols were resolved. The remaining target-owned symbols are
-`strnlen`, `div`, and GNU basic_string `_M_replace`. The current M17 repair
-adds bounded guest-memory `strnlen`, a real C `div` ABI, and allocator-backed
-string replacement; it does not link a host libc or C++ runtime. Target link,
-UEFI, and QEMU are not yet acceptance evidence. No host libc, host
-filesystem, host rendering, or synthetic output is used. Target link, UEFI,
-and real QEMU first-web-pixel evidence remain required.
+the real target link. The `strnlen`, `div`, and basic_string `_M_replace`
+symbols were resolved. The remaining target-owned symbols are `syslog`,
+`openlog`, and GNU `_Prime_rehash_policy::_M_need_rehash`. The current M17
+repair adds descriptor-backed guest logging and a Nagi-owned GNU rehash ABI;
+it does not link a host libc or C++ runtime. Target link, UEFI, and QEMU are
+not yet acceptance evidence. No host libc, host filesystem, host rendering,
+or synthetic output is used. Target link, UEFI, and real QEMU first-web-pixel
+evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -2930,6 +2930,17 @@ tree iterator, erase/rebalance, and `_M_create` symbols, then failed on
 first-web-pixel acceptance were skipped. The next repair adds bounded
 guest-memory `strnlen`, the C `div_t` ABI, and real allocator-backed string
 replacement. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #134 (2026-09-24)
+
+Public CI run `35887795498` (#134, head `4665387`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The real target user-init build resolved `strnlen`,
+`div`, and GNU basic_string `_M_replace`, then failed on `syslog`, `openlog`,
+and `std::__detail::_Prime_rehash_policy::_M_need_rehash(...)`; UEFI and real
+QEMU first-web-pixel acceptance were skipped. The next repair adds
+descriptor-backed guest logging and the Nagi-owned GNU rehash ABI. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #106 (2026-09-23)
 
