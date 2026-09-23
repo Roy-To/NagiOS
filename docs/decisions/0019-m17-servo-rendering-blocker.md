@@ -1951,3 +1951,14 @@ ABI spelling. The next repair adds Nagi-owned fortified stdio entrypoints that
 reuse the bounded target `vfprintf` path and corrects the GNU tree symbol. No
 host stdio, host C++ runtime, or compiler-rt is imported. UEFI and real QEMU
 first-web-pixel evidence remain pending.
+
+## Target-link continuation after CI run #132 (2026-09-24)
+
+Public CI run `35879561669` (`79f2bf1`) resolved the fortified stdio symbols
+and the correctly mangled GNU tree insertion symbol, then reached the next
+real target-link set: const `_Rb_tree_increment`,
+`_Rb_tree_rebalance_for_erase`, and GNU basic_string `_M_create`. The next
+repair implements the real const iterator operations, GNU deletion
+rebalancing/header maintenance, and Nagi allocator-backed string capacity
+creation. No host C++ runtime or synthetic link-only definition is used.
+UEFI and real QEMU first-web-pixel evidence remain pending.

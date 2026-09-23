@@ -260,6 +260,12 @@ struct nagi_gnu_rb_tree_node_base {
     nagi_gnu_rb_tree_node_base *right;
 };
 
+static_assert(sizeof(void *) == 8);
+static_assert(sizeof(nagi_gnu_rb_tree_node_base) == 32);
+static_assert(__builtin_offsetof(nagi_gnu_rb_tree_node_base, parent) == 8);
+static_assert(__builtin_offsetof(nagi_gnu_rb_tree_node_base, left) == 16);
+static_assert(__builtin_offsetof(nagi_gnu_rb_tree_node_base, right) == 24);
+
 extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_increment(
     nagi_gnu_rb_tree_node_base *node)
     __asm__("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base");
@@ -282,6 +288,16 @@ extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_increment(
         parent = parent->parent;
     }
     return parent;
+}
+
+extern "C" const nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_increment_const(
+    const nagi_gnu_rb_tree_node_base *node)
+    __asm__("_ZSt18_Rb_tree_incrementPKSt18_Rb_tree_node_base");
+
+extern "C" const nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_increment_const(
+    const nagi_gnu_rb_tree_node_base *node) {
+    return nagi_gnu_rb_tree_increment(
+        const_cast<nagi_gnu_rb_tree_node_base *>(node));
 }
 
 static constexpr unsigned NAGI_GNU_RB_RED = 0;
@@ -435,6 +451,180 @@ extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_decrement(
     return parent;
 }
 
+extern "C" const nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_decrement_const(
+    const nagi_gnu_rb_tree_node_base *node)
+    __asm__("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base");
+
+extern "C" const nagi_gnu_rb_tree_node_base *nagi_gnu_rb_tree_decrement_const(
+    const nagi_gnu_rb_tree_node_base *node) {
+    return nagi_gnu_rb_tree_decrement(
+        const_cast<nagi_gnu_rb_tree_node_base *>(node));
+}
+
+// This is the real GNU erase/rebalance operation. The returned node is the
+// physical node that the caller must destroy; all root, header, parent, color,
+// and black-height invariants are updated before returning.
+extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_rebalance_for_erase(
+    nagi_gnu_rb_tree_node_base *node,
+    nagi_gnu_rb_tree_node_base &header)
+    __asm__("_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_");
+
+extern "C" nagi_gnu_rb_tree_node_base *nagi_gnu_rb_rebalance_for_erase(
+    nagi_gnu_rb_tree_node_base *node,
+    nagi_gnu_rb_tree_node_base &header) {
+    auto *&root = header.parent;
+    auto *&leftmost = header.left;
+    auto *&rightmost = header.right;
+    auto *replacement = node;
+    nagi_gnu_rb_tree_node_base *child = nullptr;
+    nagi_gnu_rb_tree_node_base *child_parent = nullptr;
+
+    if (replacement->left == nullptr) {
+        child = replacement->right;
+    } else if (replacement->right == nullptr) {
+        child = replacement->left;
+    } else {
+        replacement = replacement->right;
+        while (replacement->left != nullptr) {
+            replacement = replacement->left;
+        }
+        child = replacement->right;
+    }
+
+    if (replacement != node) {
+        node->left->parent = replacement;
+        replacement->left = node->left;
+        if (replacement != node->right) {
+            child_parent = replacement->parent;
+            if (child != nullptr) {
+                child->parent = replacement->parent;
+            }
+            replacement->parent->left = child;
+            replacement->right = node->right;
+            node->right->parent = replacement;
+        } else {
+            child_parent = replacement;
+        }
+        if (root == node) {
+            root = replacement;
+        } else if (node->parent->left == node) {
+            node->parent->left = replacement;
+        } else {
+            node->parent->right = replacement;
+        }
+        replacement->parent = node->parent;
+        const unsigned color = replacement->color;
+        replacement->color = node->color;
+        node->color = color;
+        replacement = node;
+    } else {
+        child_parent = replacement->parent;
+        if (child != nullptr) {
+            child->parent = replacement->parent;
+        }
+        if (root == node) {
+            root = child;
+        } else if (node->parent->left == node) {
+            node->parent->left = child;
+        } else {
+            node->parent->right = child;
+        }
+        if (leftmost == node) {
+            if (node->right == nullptr) {
+                leftmost = node->parent;
+            } else {
+                leftmost = child;
+                while (leftmost->left != nullptr) {
+                    leftmost = leftmost->left;
+                }
+            }
+        }
+        if (rightmost == node) {
+            if (node->left == nullptr) {
+                rightmost = node->parent;
+            } else {
+                rightmost = child;
+                while (rightmost->right != nullptr) {
+                    rightmost = rightmost->right;
+                }
+            }
+        }
+    }
+
+    if (replacement->color != NAGI_GNU_RB_RED) {
+        while (child != root &&
+               (child == nullptr || child->color == NAGI_GNU_RB_BLACK)) {
+            if (child == child_parent->left) {
+                auto *sibling = child_parent->right;
+                if (sibling->color == NAGI_GNU_RB_RED) {
+                    sibling->color = NAGI_GNU_RB_BLACK;
+                    child_parent->color = NAGI_GNU_RB_RED;
+                    nagi_gnu_rb_rotate_left(child_parent, root);
+                    sibling = child_parent->right;
+                }
+                if ((sibling->left == nullptr ||
+                     sibling->left->color == NAGI_GNU_RB_BLACK) &&
+                    (sibling->right == nullptr ||
+                     sibling->right->color == NAGI_GNU_RB_BLACK)) {
+                    sibling->color = NAGI_GNU_RB_RED;
+                    child = child_parent;
+                    child_parent = child_parent->parent;
+                } else {
+                    if (sibling->right == nullptr ||
+                        sibling->right->color == NAGI_GNU_RB_BLACK) {
+                        sibling->left->color = NAGI_GNU_RB_BLACK;
+                        sibling->color = NAGI_GNU_RB_RED;
+                        nagi_gnu_rb_rotate_right(sibling, root);
+                        sibling = child_parent->right;
+                    }
+                    sibling->color = child_parent->color;
+                    child_parent->color = NAGI_GNU_RB_BLACK;
+                    if (sibling->right != nullptr) {
+                        sibling->right->color = NAGI_GNU_RB_BLACK;
+                    }
+                    nagi_gnu_rb_rotate_left(child_parent, root);
+                    break;
+                }
+            } else {
+                auto *sibling = child_parent->left;
+                if (sibling->color == NAGI_GNU_RB_RED) {
+                    sibling->color = NAGI_GNU_RB_BLACK;
+                    child_parent->color = NAGI_GNU_RB_RED;
+                    nagi_gnu_rb_rotate_right(child_parent, root);
+                    sibling = child_parent->left;
+                }
+                if ((sibling->right == nullptr ||
+                     sibling->right->color == NAGI_GNU_RB_BLACK) &&
+                    (sibling->left == nullptr ||
+                     sibling->left->color == NAGI_GNU_RB_BLACK)) {
+                    sibling->color = NAGI_GNU_RB_RED;
+                    child = child_parent;
+                    child_parent = child_parent->parent;
+                } else {
+                    if (sibling->left == nullptr ||
+                        sibling->left->color == NAGI_GNU_RB_BLACK) {
+                        sibling->right->color = NAGI_GNU_RB_BLACK;
+                        sibling->color = NAGI_GNU_RB_RED;
+                        nagi_gnu_rb_rotate_left(sibling, root);
+                        sibling = child_parent->left;
+                    }
+                    sibling->color = child_parent->color;
+                    child_parent->color = NAGI_GNU_RB_BLACK;
+                    if (sibling->left != nullptr) {
+                        sibling->left->color = NAGI_GNU_RB_BLACK;
+                    }
+                    nagi_gnu_rb_rotate_right(child_parent, root);
+                    break;
+                }
+            }
+        }
+        if (child != nullptr) {
+            child->color = NAGI_GNU_RB_BLACK;
+        }
+    }
+    return replacement;
+}
+
 // Compiler-rt's target-independent 64-bit popcount ABI used by freestanding
 // Mesa objects. Keep the operation in this Nagi-owned runtime instead of
 // pulling a host compiler runtime into the guest image.
@@ -522,6 +712,11 @@ struct nagi_gnu_basic_string_layout {
         char local[16];
     } storage;
 };
+
+static_assert(sizeof(nagi_gnu_basic_string_layout) == 32);
+static_assert(__builtin_offsetof(nagi_gnu_basic_string_layout, data) == 0);
+static_assert(__builtin_offsetof(nagi_gnu_basic_string_layout, length) == 8);
+static_assert(__builtin_offsetof(nagi_gnu_basic_string_layout, storage) == 16);
 
 extern "C" void nagi_gnu_basic_string_dispose(void *object)
     __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_disposeEv");
@@ -616,6 +811,34 @@ extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_append(
     object->length = required;
     object->storage.capacity = new_capacity;
     return object;
+}
+
+extern "C" char *nagi_gnu_basic_string_create(
+    nagi_gnu_basic_string_layout *, nagi_size_t &capacity,
+    nagi_size_t old_capacity)
+    __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE9_M_createERmm");
+
+extern "C" char *nagi_gnu_basic_string_create(
+    nagi_gnu_basic_string_layout *, nagi_size_t &capacity,
+    nagi_size_t old_capacity) {
+    const nagi_size_t maximum = ~static_cast<nagi_size_t>(0);
+    if (capacity >= maximum) {
+        abort();
+    }
+    if (capacity > old_capacity && capacity < maximum / 2) {
+        const nagi_size_t doubled = old_capacity * 2;
+        if (doubled > capacity) {
+            capacity = doubled;
+        }
+    }
+    if (capacity >= maximum) {
+        abort();
+    }
+    auto *buffer = static_cast<char *>(nagi_posix_malloc(capacity + 1));
+    if (buffer == nullptr) {
+        abort();
+    }
+    return buffer;
 }
 
 extern "C" nagi_size_t nagi_gnu_basic_string_find(

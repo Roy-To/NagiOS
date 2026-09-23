@@ -24,19 +24,19 @@ Servo/Surfman/Mesa/relibc/std vertical slice, then run the target build and
 real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
-**Last updated:** 2026-09-23
-**Last known repair checkpoint:** public CI run `35876355907` (#131) at
-`7a698f34d58f2131e69f78def82b1d8eb1db7376` passed Servo bootstrap, Mesa
-Softpipe archive construction, package, kernel compilation, and entered the
-real target user-init build. The final target link then reported the remaining
-fortified stdio symbols `__fprintf_chk` and `__vfprintf_chk`, while the GNU
-red-black insertion symbol remained unresolved because its previous mangled
-length was incorrect. The current M17 repair adds Nagi-owned fortified stdio
-entrypoints and corrects the real `_Rb_tree_insert_and_rebalance` ABI name; it
-does not link a host C++ runtime or compiler-rt. Target link, UEFI, and QEMU
-are not yet acceptance evidence. No host libc, host filesystem, host
-rendering, or synthetic output is used. Target link, UEFI, and real QEMU
-first-web-pixel evidence remain required.
+**Last updated:** 2026-09-24
+**Last known repair checkpoint:** public CI run `35879561669` (#132) at
+`79f2bf1fb0d0653fbebd613e81c051f1c6508d71` passed Servo bootstrap, Mesa
+Softpipe archive construction, package, and kernel compilation, then reached
+the real target link. The previous fortified stdio and GNU tree insertion
+failures were resolved. The remaining target-owned symbols are const GNU tree
+increment, GNU tree erase/rebalance, and GNU basic_string `_M_create`. The
+current M17 repair adds real const iterator forwarding, full red-black erase
+rebalancing, and allocator-backed `_M_create`; it does not link a host C++
+runtime or compiler-rt. Target link, UEFI, and QEMU are not yet acceptance
+evidence. No host libc, host filesystem, host rendering, or synthetic output
+is used. Target link, UEFI, and real QEMU first-web-pixel evidence remain
+required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -2909,6 +2909,17 @@ acceptance were skipped. The next repair adds the fortified stdio entrypoints
 through the existing bounded Nagi `vfprintf` path and corrects the GNU ABI
 mangled length from `_ZSt27` to `_ZSt29`. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
+
+### Current M17 continuation after CI run #132 (2026-09-24)
+
+Public CI run `35879561669` (#132, head `79f2bf1`) resolved the fortified
+stdio symbols and the correctly mangled GNU tree insertion symbol, then
+reached the next real target-link set: const `_Rb_tree_increment`,
+`_Rb_tree_rebalance_for_erase`, and GNU basic_string `_M_create`. The next
+repair implements the real const iterator operations, GNU deletion
+rebalancing/header maintenance, and Nagi allocator-backed string capacity
+creation. UEFI and real QEMU first-web-pixel evidence remain pending. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #106 (2026-09-23)
 
