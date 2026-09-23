@@ -111,7 +111,7 @@ meson setup --wipe "$mesa_build" "$repo_root/third_party/mesa" \
 # by Meson's graph explicitly so the real glthread implementation is present
 # in the target-owned archive set before aggregation.
 mesa_core_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libmesa\.a$/) { print target; exit } }')
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /libmesa\.a/) { print target; exit } }')
 if [[ -z "$mesa_core_target" ]]; then
     echo "::error title=M17 Mesa core target::Meson target graph has no libmesa.a target" >&2
     exit 1

@@ -1445,6 +1445,19 @@ host errno storage, or host allocator is introduced. M17 remains `BLOCKED`
 until target linking, the UEFI loader, real QEMU, and real Servo first-web-pixel
 evidence pass.
 
+## Remediation continuation (2026-09-23, Meson core target layout)
+
+Public snapshot CI run `35809154991` (#100, head `409f15d`) passed Servo
+bootstrap but failed during the pinned Mesa Softpipe archive build while
+selecting the explicit Mesa core target. Target link, UEFI, and real QEMU were
+not reached.
+
+The next M17 repair accepts every Ninja target name containing `libmesa.a`,
+including Meson `.p` output-layout forms, before repeating the target-owned
+archive extraction. No host archive, whole-archive shortcut, or fake Mesa
+rendering function is introduced. M17 remains `BLOCKED` until target linking,
+the UEFI loader, real QEMU, and real Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-22, base-2 math and descriptor stdio)
 
 Public snapshot CI run `35690360685` (#87, head `5f90040`) passed target
