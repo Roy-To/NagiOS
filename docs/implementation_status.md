@@ -2717,6 +2717,16 @@ first-error annotation, so the exact pinned-source, patch-order, fingerprint,
 or Servo Cargo-fetch failure can be corrected from evidence. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #123 (2026-09-23)
+
+Public CI run `35858275718` (#123, head `68f07cb`) confirmed the bootstrap
+diagnostic: the new Mesa static-helper patch was rejected as a corrupt patch
+at line 70 because its added hunk counts did not match the actual additions.
+No Mesa, target build, UEFI, or real QEMU acceptance ran. The patch hunk
+counts are now corrected and the added hunk was checked against the generated
+Mesa source without altering that checkout. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #121 (2026-09-23)
 
 Public CI run `35854076101` (#121, head `3d0286b`) passed Servo bootstrap,

@@ -51,7 +51,7 @@ diff --git a/src/gallium/targets/pipe-loader/meson.build b/src/gallium/targets/p
 index 4a28f9f9c1e..f5d1ec0b7a2 100644
 --- a/src/gallium/targets/pipe-loader/meson.build
 +++ b/src/gallium/targets/pipe-loader/meson.build
-@@ -87,0 +88,18 @@ endforeach
+@@ -87,0 +88,15 @@ endforeach
 +if with_platform_nagi
 +  # The static EGL path uses pipe_loader_static directly.  Upstream's
 +  # public sw helper is normally supplied by a shared pipe_swrast target,
@@ -72,7 +72,7 @@ new file mode 100644
 index 00000000000..6c2a4a0f71e
 --- /dev/null
 +++ b/src/gallium/targets/pipe-loader/nagi_roots.c
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,3 @@
 +/* Nagi M17 static Softpipe helper roots. */
 +
 +#include "target-helpers/sw_helper.h"
