@@ -1536,3 +1536,17 @@ roots archive before the aggregate archive. No whole-archive shortcut or fake
 Mesa rendering function is introduced. M17 remains `BLOCKED` until target
 linking, the UEFI loader, real QEMU, and real Servo first-web-pixel evidence
 pass.
+
+## Remediation continuation (2026-09-23, direct Mesa core archive selection)
+
+Public snapshot CI run `35805304582` (#97, head `934f230`) passed Servo
+bootstrap but failed again during the pinned Mesa Softpipe archive build while
+discovering the real `_mesa_glthread_finish` member. Target link, UEFI, and
+real QEMU were not reached.
+
+The next M17 repair selects the Meson-produced `libmesa.a` directly, extracts
+the exact member with the pinned LLVM archiver, and emits explicit annotations
+for missing archive/member state. Malformed archive members are skipped only
+for discovery; no rendering implementation is bypassed. M17 remains
+`BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
+first-web-pixel evidence pass.

@@ -112,19 +112,13 @@ ninja -C "$mesa_build"
 # is scanned by rust-lld. Select the pinned Mesa archive by its defined symbol,
 # then extract only the member that defines it; this remains valid across
 # Meson's object-directory layout without forcing the whole Mesa archive out.
-mesa_glthread_archive=""
-while IFS= read -r archive; do
-    if llvm-nm -g --defined-only "$archive" 2>/dev/null \
-        | grep -q '_mesa_glthread_finish'; then
-        mesa_glthread_archive="$archive"
-        break
-    fi
-done < <(find "$mesa_build" -type f -name '*.a' -print | sort)
+mesa_glthread_archive=$(find "$mesa_build" -type f -name 'libmesa.a' -print -quit)
 
 if [[ -z "$mesa_glthread_archive" ]]; then
-    echo "M17 Mesa build: cannot locate _mesa_glthread_finish in the pinned archives" >&2
+    echo "::error title=M17 Mesa glthread archive::cannot locate the pinned libmesa.a" >&2
     exit 1
 fi
+echo "M17 Mesa build: glthread source archive: $mesa_glthread_archive"
 
 mesa_root_temp=$(mktemp -d)
 trap 'rm -f "$archive_manifest"; rm -rf "$mesa_root_temp"' EXIT
@@ -133,16 +127,19 @@ member_index=0
 while IFS= read -r member; do
     candidate="$mesa_root_temp/member-$member_index.o"
     member_index=$((member_index + 1))
-    llvm-ar p "$mesa_glthread_archive" "$member" >"$candidate"
-    if llvm-nm -gP "$candidate" 2>/dev/null \
-        | awk '$1 == "_mesa_glthread_finish" && $2 != "U" { found = 1 } END { exit(found ? 0 : 1) }'; then
+    if ! llvm-ar p "$mesa_glthread_archive" "$member" >"$candidate"; then
+        rm -f "$candidate"
+        continue
+    fi
+    if llvm-nm -g --defined-only "$candidate" 2>/dev/null \
+        | grep -q '_mesa_glthread_finish'; then
         mesa_glthread_object="$candidate"
         break
     fi
 done < <(llvm-ar t "$mesa_glthread_archive")
 
 if [[ -z "$mesa_glthread_object" ]]; then
-    echo "M17 Mesa build: archive member scan could not extract _mesa_glthread_finish" >&2
+    echo "::error title=M17 Mesa glthread member::libmesa.a has no extractable _mesa_glthread_finish member" >&2
     exit 1
 fi
 
