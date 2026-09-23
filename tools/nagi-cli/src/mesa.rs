@@ -655,6 +655,16 @@ mod tests {
         assert!(runtime.contains("_ZNSt3__15mutex4lockEv"));
         assert!(runtime.contains("_ZNSt3__15mutex8try_lockEv"));
         assert!(runtime.contains("_ZNSt3__15mutex6unlockEv"));
+        assert!(runtime.contains("_ZNSt3__15mutexD1Ev"));
+        assert!(runtime.contains("_ZNSt3__118condition_variable10notify_oneEv"));
+        assert!(runtime.contains("_ZNSt3__118condition_variable10notify_allEv"));
+        assert!(runtime.contains(
+            "_ZNSt3__118condition_variable4waitERNS_11unique_lockINS_5mutexEEE"
+        ));
+        assert!(runtime.contains("_ZNSt3__118condition_variableD1Ev"));
+        assert!(runtime.contains("pthread_cond_wait"));
+        assert!(runtime.contains("pthread_cond_broadcast"));
+        assert!(runtime.contains("pthread_mutex_destroy"));
         assert!(runtime.contains("__cxa_end_catch"));
         assert!(runtime.contains("nagi_mesa_glthread_finish_link_anchor"));
         assert!(runtime.contains("__dynamic_cast"));

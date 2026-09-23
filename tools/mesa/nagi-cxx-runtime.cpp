@@ -844,6 +844,83 @@ extern "C" void nagi_libcpp_mutex_unlock(void *mutex) {
     }
 }
 
+extern "C" void nagi_libcpp_mutex_destroy(void *mutex)
+    __asm__("_ZNSt3__15mutexD1Ev");
+
+extern "C" void nagi_libcpp_mutex_destroy(void *mutex) {
+    if (mutex == nullptr || pthread_mutex_destroy(mutex) != 0) {
+        abort();
+    }
+}
+
+extern "C" void nagi_libcpp_mutex_destroy_base(void *mutex)
+    __asm__("_ZNSt3__15mutexD2Ev");
+
+extern "C" void nagi_libcpp_mutex_destroy_base(void *mutex) {
+    nagi_libcpp_mutex_destroy(mutex);
+}
+
+extern "C" int pthread_cond_signal(void *condition);
+extern "C" int pthread_cond_broadcast(void *condition);
+extern "C" int pthread_cond_wait(void *condition, void *mutex);
+extern "C" int pthread_cond_destroy(void *condition);
+
+extern "C" void nagi_libcpp_condition_variable_notify_one(void *condition)
+    __asm__("_ZNSt3__118condition_variable10notify_oneEv");
+
+extern "C" void nagi_libcpp_condition_variable_notify_one(void *condition) {
+    if (condition == nullptr || pthread_cond_signal(condition) != 0) {
+        abort();
+    }
+}
+
+extern "C" void nagi_libcpp_condition_variable_notify_all(void *condition)
+    __asm__("_ZNSt3__118condition_variable10notify_allEv");
+
+extern "C" void nagi_libcpp_condition_variable_notify_all(void *condition) {
+    if (condition == nullptr || pthread_cond_broadcast(condition) != 0) {
+        abort();
+    }
+}
+
+// libc++'s unique_lock stores the mutex pointer at offset zero and its
+// ownership byte immediately after that pointer. The target libc++ pthread
+// backend uses the pthread condition-variable object as the first field of
+// std::__1::condition_variable, so this preserves the real unlock/wait/relock
+// operation through relibc rather than returning from a synthetic wait.
+extern "C" void nagi_libcpp_condition_variable_wait(void *condition,
+                                                     void *unique_lock)
+    __asm__("_ZNSt3__118condition_variable4waitERNS_11unique_lockINS_5mutexEEE");
+
+extern "C" void nagi_libcpp_condition_variable_wait(void *condition,
+                                                     void *unique_lock) {
+    if (condition == nullptr || unique_lock == nullptr) {
+        abort();
+    }
+    void *mutex = *reinterpret_cast<void **>(unique_lock);
+    const unsigned char owns = *reinterpret_cast<unsigned char *>(
+        reinterpret_cast<unsigned char *>(unique_lock) + sizeof(void *));
+    if (mutex == nullptr || owns == 0 || pthread_cond_wait(condition, mutex) != 0) {
+        abort();
+    }
+}
+
+extern "C" void nagi_libcpp_condition_variable_destroy(void *condition)
+    __asm__("_ZNSt3__118condition_variableD1Ev");
+
+extern "C" void nagi_libcpp_condition_variable_destroy(void *condition) {
+    if (condition == nullptr || pthread_cond_destroy(condition) != 0) {
+        abort();
+    }
+}
+
+extern "C" void nagi_libcpp_condition_variable_destroy_base(void *condition)
+    __asm__("_ZNSt3__118condition_variableD2Ev");
+
+extern "C" void nagi_libcpp_condition_variable_destroy_base(void *condition) {
+    nagi_libcpp_condition_variable_destroy(condition);
+}
+
 // libstdc++'s C++11 basic_string ABI stores the data pointer at offset zero,
 // the length at offset eight, and either the allocated capacity or the
 // 16-byte local buffer at offset sixteen on the x86-64 target.  Its destructor

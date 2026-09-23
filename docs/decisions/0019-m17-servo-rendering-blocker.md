@@ -2082,3 +2082,16 @@ link then exposed `scalbn`, `__cxa_bad_typeid`, and
 skipped. The next repair adds target-owned scaling, libc++ mutex ABI routing
 to relibc pthreads, and fail-closed typeid handling. M17 remains `BLOCKED` and
 M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #143 (2026-09-24)
+
+Public CI run `35923751011` (#143, head `d3564a0`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The target user-init link resolved `scalbn`,
+`__cxa_bad_typeid`, and `std::__1::mutex::lock()`, then exposed the real
+libc++ condition-variable and mutex-destruction boundary:
+`std::__1::condition_variable::notify_all()`,
+`std::__1::condition_variable::wait(unique_lock<mutex>&)`, and
+`std::__1::mutex::~mutex()`. UEFI and real QEMU first-web-pixel acceptance
+were skipped. The next repair routes these operations to relibc pthreads with
+real ownership checks. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
