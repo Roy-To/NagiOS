@@ -47,6 +47,13 @@ index e9e7366568a..b18666048ae 100644
 @@ -29 +29 @@ endif
 -libglapi = shared_library(
 +libglapi = library(
+diff --git a/src/gallium/meson.build b/src/gallium/meson.build
+index 46685aa19a5..89fead1f5b7 100644
+--- a/src/gallium/meson.build
++++ b/src/gallium/meson.build
+@@ -191 +191 @@
+-if with_gallium_clover or with_tests
++if with_gallium_clover or with_tests or with_platform_nagi
 diff --git a/src/gallium/targets/pipe-loader/meson.build b/src/gallium/targets/pipe-loader/meson.build
 index 4a28f9f9c1e..f5d1ec0b7a2 100644
 --- a/src/gallium/targets/pipe-loader/meson.build

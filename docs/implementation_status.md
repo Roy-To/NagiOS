@@ -2706,6 +2706,18 @@ loader/winsys symbols through Cargo's target link arguments and implements
 guest-memory `strspn` in the Nagi relibc ABI. M17 remains `BLOCKED`; M18
 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #126 (2026-09-23)
+
+Public CI run `35858894366` (#126, head `4d90f2b`) passed Servo bootstrap and
+then failed in the Mesa Softpipe step because the Meson graph had no
+`libpipe_loader_nagi_roots.a` output target. The new helper definition was
+correct, but `src/gallium/targets/pipe-loader` is normally configured only
+for clover/tests, both disabled by the M17 configuration. The next repair
+adds `with_platform_nagi` to that existing subdirectory condition, preserving
+the pinned Mesa source and patch boundary. Target build, UEFI, and real QEMU
+first-web-pixel acceptance were not reached. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #122 (2026-09-23)
 
 Public CI run `35857472389` (#122, head `63bb9b8`) failed during the pinned
