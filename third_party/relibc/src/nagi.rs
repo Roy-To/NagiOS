@@ -1313,6 +1313,52 @@ pub unsafe extern "C" fn strcmp(first: *const c_char, second: *const c_char) -> 
     }
 }
 
+#[inline]
+fn nagi_ascii_lower(byte: u8) -> u8 {
+    if byte.is_ascii_uppercase() {
+        byte + (b'a' - b'A')
+    } else {
+        byte
+    }
+}
+
+/// Locale-independent ASCII case-insensitive comparison for the Nagi target.
+/// UTF-8 bytes outside ASCII compare bytewise; no host locale table is read.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strcasecmp(
+    first: *const c_char,
+    second: *const c_char,
+) -> c_int {
+    if first.is_null() || second.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0;
+    }
+    let mut index = 0;
+    loop {
+        let left = nagi_ascii_lower(unsafe { first.cast::<u8>().add(index).read() });
+        let right = nagi_ascii_lower(unsafe { second.cast::<u8>().add(index).read() });
+        if left != right {
+            return c_int::from(left) - c_int::from(right);
+        }
+        if left == 0 {
+            return 0;
+        }
+        index += 1;
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isalnum(value: c_int) -> c_int {
+    if (b'0' as c_int..=b'9' as c_int).contains(&value)
+        || (b'a' as c_int..=b'z' as c_int).contains(&value)
+        || (b'A' as c_int..=b'Z' as c_int).contains(&value)
+    {
+        1
+    } else {
+        0
+    }
+}
+
 /// Target-owned forward character search. The Nagi target does not select
 /// relibc's upstream string module, so keep the C ABI on the guest memory
 /// boundary rather than importing a host libc implementation.
@@ -1398,6 +1444,39 @@ pub unsafe extern "C" fn strstr(
             return unsafe { haystack.add(position).cast_mut() };
         }
         position += 1;
+    }
+}
+
+/// Return the length of the initial guest-memory segment containing none of
+/// the reject bytes. The scan is bounded only by the C NUL terminators and
+/// never consults host string routines.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strcspn(
+    input: *const c_char,
+    reject: *const c_char,
+) -> usize {
+    if input.is_null() || reject.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0;
+    }
+    let mut length = 0;
+    loop {
+        let current = unsafe { input.cast::<u8>().add(length).read() };
+        if current == 0 {
+            return length;
+        }
+        let mut reject_index = 0;
+        loop {
+            let rejected = unsafe { reject.cast::<u8>().add(reject_index).read() };
+            if rejected == 0 {
+                break;
+            }
+            if rejected == current {
+                return length;
+            }
+            reject_index += 1;
+        }
+        length += 1;
     }
 }
 

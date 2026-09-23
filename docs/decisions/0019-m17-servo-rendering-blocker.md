@@ -1535,6 +1535,19 @@ stdout, host identity, or host filesystem is introduced. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, string and ctype ABI)
+
+Public snapshot CI run `35833047798` (#115, head `2a6c59e`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages, including the prior ctype/timezone repair. It
+reached final target linking with the remaining undefined symbols `strcasecmp`,
+`isalnum`, and `strcspn`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds locale-independent ASCII `strcasecmp` and `isalnum`,
+plus guest-memory `strcspn`. No host locale, host string routines, or host
+filesystem is imported. M17 remains `BLOCKED` until target linking, the UEFI
+loader, real QEMU, and real Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-23, generated Mesa archive naming)
 
 Public snapshot CI run `35805855427` (#98, head `f004387`) passed Servo
