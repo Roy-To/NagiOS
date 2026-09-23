@@ -2655,20 +2655,70 @@ pub unsafe extern "C" fn log2f(value: c_float) -> c_float {
     unsafe { log2(c_double::from(value)) as c_float }
 }
 
-/// Target-owned binary exponent scaling. This uses the same freestanding
-/// IEEE-aware exponential reduction as the other Nagi math entry points and
-/// therefore does not import a host libm implementation.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ldexp(value: c_double, exponent: c_int) -> c_double {
+/// Target-owned binary exponent scaling. The multiplier is assembled from
+/// exact IEEE powers of two, so this path does not import a host libm
+/// implementation or approximate an integer exponent through `exp`.
+fn nagi_scale_pow2(value: c_double, exponent: c_int) -> c_double {
     if value == 0.0 || nagi_pow_is_nan(value) || nagi_pow_is_inf(value) || exponent == 0 {
         return value;
     }
-    value * nagi_pow_exp(c_double::from(exponent) * NAGI_POW_LN2)
+
+    let negative = exponent < 0;
+    let mut remaining = if negative {
+        (-(exponent as i64)) as u32
+    } else {
+        exponent as u32
+    };
+    let mut result = value;
+    let large_factor = if negative {
+        f64::from_bits(0x1ff0_0000_0000_0000)
+    } else {
+        f64::from_bits(0x5ff0_0000_0000_0000)
+    };
+
+    while remaining >= 512 {
+        result *= large_factor;
+        remaining -= 512;
+        if result == 0.0 || result.is_infinite() {
+            return result;
+        }
+    }
+
+    if remaining == 0 {
+        return result;
+    }
+    let factor = if negative {
+        if remaining > 1022 {
+            0.0
+        } else {
+            f64::from_bits(((1023 - remaining) as u64) << 52)
+        }
+    } else {
+        f64::from_bits(((1023 + remaining) as u64) << 52)
+    };
+    result * factor
+}
+
+/// Target-owned binary exponent scaling. This uses exact freestanding IEEE
+/// powers and therefore does not delegate to a host `exp`/`ldexp` provider.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ldexp(value: c_double, exponent: c_int) -> c_double {
+    nagi_scale_pow2(value, exponent)
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ldexpf(value: c_float, exponent: c_int) -> c_float {
     unsafe { ldexp(c_double::from(value), exponent) as c_float }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scalbn(value: c_double, exponent: c_int) -> c_double {
+    nagi_scale_pow2(value, exponent)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scalbnf(value: c_float, exponent: c_int) -> c_float {
+    unsafe { scalbn(c_double::from(value), exponent) as c_float }
 }
 
 /// Target-owned nearest-integer conversion used by Mesa's color and format

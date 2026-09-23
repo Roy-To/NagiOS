@@ -800,8 +800,48 @@ extern "C" [[noreturn]] void nagi_gnu_throw_bad_alloc() {
     abort();
 }
 
+extern "C" [[noreturn]] void nagi_cxa_bad_typeid()
+    __asm__("__cxa_bad_typeid");
+
+extern "C" [[noreturn]] void nagi_cxa_bad_typeid() {
+    abort();
+}
+
 extern "C" [[noreturn]] void __cxa_end_catch() {
     abort();
+}
+
+// libc++'s target pthread configuration keeps the opaque pthread mutex as
+// the first field of std::__1::mutex. Route its out-of-line ABI entrypoints to
+// Nagi's real relibc pthread implementation; no host synchronization runtime
+// or unlocked success path is substituted.
+extern "C" int pthread_mutex_lock(void *mutex);
+extern "C" int pthread_mutex_trylock(void *mutex);
+extern "C" int pthread_mutex_unlock(void *mutex);
+
+extern "C" void nagi_libcpp_mutex_lock(void *mutex)
+    __asm__("_ZNSt3__15mutex4lockEv");
+
+extern "C" void nagi_libcpp_mutex_lock(void *mutex) {
+    if (mutex == nullptr || pthread_mutex_lock(mutex) != 0) {
+        abort();
+    }
+}
+
+extern "C" bool nagi_libcpp_mutex_try_lock(void *mutex)
+    __asm__("_ZNSt3__15mutex8try_lockEv");
+
+extern "C" bool nagi_libcpp_mutex_try_lock(void *mutex) {
+    return mutex != nullptr && pthread_mutex_trylock(mutex) == 0;
+}
+
+extern "C" void nagi_libcpp_mutex_unlock(void *mutex)
+    __asm__("_ZNSt3__15mutex6unlockEv");
+
+extern "C" void nagi_libcpp_mutex_unlock(void *mutex) {
+    if (mutex == nullptr || pthread_mutex_unlock(mutex) != 0) {
+        abort();
+    }
 }
 
 // libstdc++'s C++11 basic_string ABI stores the data pointer at offset zero,

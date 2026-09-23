@@ -2070,3 +2070,15 @@ command line is not supported`. The next repair keeps the pinned source and
 replaces that syntax with ordered raw lld archive state flags. UEFI and real
 QEMU first-web-pixel acceptance remain pending; M17 remains `BLOCKED` and M18
 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #142 (2026-09-24)
+
+Public CI run `35919768358` (#142, head `0526f17`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The ordered raw lld archive state resolved the prior MozJS
+ArrayBuffer/microtask provider and personality failures. The target user-init
+link then exposed `scalbn`, `__cxa_bad_typeid`, and
+`std::__1::mutex::lock()`. UEFI and real QEMU first-web-pixel acceptance were
+skipped. The next repair adds target-owned scaling, libc++ mutex ABI routing
+to relibc pthreads, and fail-closed typeid handling. M17 remains `BLOCKED` and
+M18 remains `NOT STARTED`.

@@ -651,6 +651,10 @@ mod tests {
         assert!(runtime.contains("__cxa_rethrow"));
         assert!(runtime.contains("__cxa_pure_virtual"));
         assert!(runtime.contains("_ZSt17__throw_bad_allocv"));
+        assert!(runtime.contains("__cxa_bad_typeid"));
+        assert!(runtime.contains("_ZNSt3__15mutex4lockEv"));
+        assert!(runtime.contains("_ZNSt3__15mutex8try_lockEv"));
+        assert!(runtime.contains("_ZNSt3__15mutex6unlockEv"));
         assert!(runtime.contains("__cxa_end_catch"));
         assert!(runtime.contains("nagi_mesa_glthread_finish_link_anchor"));
         assert!(runtime.contains("__dynamic_cast"));
@@ -670,6 +674,8 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn __isnormal("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn __isnormalf("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn frexp("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn scalbn("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn scalbnf("));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_"));

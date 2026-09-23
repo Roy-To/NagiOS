@@ -25,17 +25,18 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35916232106` (#141) at
-`4b3c5f8` passed Servo bootstrap, dependency validation, Mesa Softpipe archive
-construction, package, and kernel compilation, then rejected the target-only
-`static:+whole-archive=jsglue` Rust link modifier as an unsupported modifier
-override. The next repair uses raw lld `--whole-archive` and
-`--no-whole-archive` state around the real jsglue archive, followed by a
-`js_static` rescan. It does not link host C++ or libm, create synthetic
-rendering, or weaken M17 acceptance. Target link, UEFI, and QEMU are not yet
-acceptance evidence. No host libc, host filesystem, host rendering, or
-synthetic output is used. Target link, UEFI, and real QEMU first-web-pixel
-evidence remain required.
+**Last known repair checkpoint:** public CI run `35919768358` (#142) at
+`0526f17` passed Servo bootstrap, dependency validation, Mesa Softpipe archive
+construction, package, and kernel compilation. Ordered raw lld archive state
+was accepted and resolved the MozJS ArrayBuffer/microtask providers and
+personality boundary; the next target link exposed `scalbn`,
+`__cxa_bad_typeid`, and `std::__1::mutex::lock()`. The next repair adds
+target-owned IEEE power-of-two scaling and real relibc-backed libc++ mutex
+entrypoints, with fail-closed typeid exception behavior. It does not link host
+C++ or libm, create synthetic rendering, or weaken M17 acceptance. Target
+link, UEFI, and QEMU are not yet acceptance evidence. No host libc, host
+filesystem, host rendering, or synthetic output is used. Target link, UEFI,
+and real QEMU first-web-pixel evidence remain required.
 
 ### Current M17 continuation after CI run #140 (2026-09-24)
 
@@ -49,6 +50,18 @@ QEMU first-web-pixel acceptance were skipped. The next repair adds the
 target-only MozJS archive-order patch `0015`, which retains the real jsglue
 object and rescans `js_static`, plus a fail-closed Nagi C++ personality ABI.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #142 (2026-09-24)
+
+Public CI run `35919768358` (#142, head `0526f17`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The ordered raw lld archive state resolved the prior MozJS
+ArrayBuffer/microtask provider and personality failures. The target user-init
+link then exposed `scalbn`, `__cxa_bad_typeid`, and
+`std::__1::mutex::lock()`. UEFI and real QEMU first-web-pixel acceptance were
+skipped. The next repair adds target-owned scaling, libc++ mutex ABI routing
+to relibc pthreads, and fail-closed typeid handling. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
