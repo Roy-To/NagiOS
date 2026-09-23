@@ -580,8 +580,9 @@ mod tests {
             .expect("Nagi init build script");
         assert!(build_script.contains("static=nagi_mesa"));
         assert!(!build_script.contains("static:+whole-archive=nagi_mesa"));
-        assert!(build_script
-            .contains("cargo:rustc-link-arg-bin=nagi-init=--undefined=_mesa_glthread_finish"));
+        assert!(build_script.contains(
+            "cargo:rustc-link-arg-bin=nagi-init=--undefined=nagi_mesa_glthread_finish_link_anchor"
+        ));
         assert!(build_script
             .contains("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush"));
     }
@@ -637,6 +638,9 @@ mod tests {
         assert!(runtime.contains("__cxa_begin_catch"));
         assert!(runtime.contains("__cxa_rethrow"));
         assert!(runtime.contains("__cxa_pure_virtual"));
+        assert!(runtime.contains("_ZSt17__throw_bad_allocv"));
+        assert!(runtime.contains("__cxa_end_catch"));
+        assert!(runtime.contains("nagi_mesa_glthread_finish_link_anchor"));
         assert!(runtime.contains("__dynamic_cast"));
         assert!(runtime.contains("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base"));
         assert!(

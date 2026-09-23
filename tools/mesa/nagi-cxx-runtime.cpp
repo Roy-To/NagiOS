@@ -12,6 +12,14 @@ extern "C" void nagi_posix_free(void *pointer);
 extern "C" int nagi_posix_sleep_ns(nagi_uintptr_t duration);
 extern "C" [[noreturn]] void abort();
 
+// Keep the real Mesa glthread implementation reachable from the aggregated
+// static archive. The pointer is a link-only anchor; it is never called as a
+// Nagi substitute for Mesa and therefore cannot provide synthetic rendering.
+extern "C" void nagi_mesa_glthread_finish(void *context)
+    __asm__("_mesa_glthread_finish");
+extern "C" void (*nagi_mesa_glthread_finish_link_anchor)(void *) =
+    &nagi_mesa_glthread_finish;
+
 namespace std {
 struct nothrow_t {};
 enum class align_val_t : nagi_size_t;
@@ -319,6 +327,17 @@ extern "C" [[noreturn]] void nagi_gnu_throw_bad_array_new_length() {
 // the Itanium ABI entrypoint real and terminate through Nagi's process
 // boundary instead of importing libc++abi or returning to an invalid vtable.
 extern "C" [[noreturn]] void __cxa_pure_virtual() {
+    abort();
+}
+
+extern "C" [[noreturn]] void nagi_gnu_throw_bad_alloc()
+    __asm__("_ZSt17__throw_bad_allocv");
+
+extern "C" [[noreturn]] void nagi_gnu_throw_bad_alloc() {
+    abort();
+}
+
+extern "C" [[noreturn]] void __cxa_end_catch() {
     abort();
 }
 

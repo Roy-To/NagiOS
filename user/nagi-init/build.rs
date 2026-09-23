@@ -47,13 +47,16 @@ fn main() {
         // static dependencies that may also be reachable through another archive;
         // forcing every member out creates duplicate Softpipe symbols at final
         // link. The real EGL/Softpipe symbols referenced by Servo are still
-        // resolved from this target-owned archive normally. The two state
-        // tracker entry points below can be reached only through a later
-        // archive member in rust-lld's single archive scan, so explicitly
-        // seed those real symbols. This remains selective archive extraction;
-        // it does not force every Mesa member out or import a host graphics
-        // implementation.
-        println!("cargo:rustc-link-arg-bin=nagi-init=--undefined=_mesa_glthread_finish");
+        // resolved from this target-owned archive normally. The state tracker
+        // entry points below can be reached only through a later archive
+        // member in rust-lld's single archive scan, so explicitly seed the
+        // real Mesa glthread function through the Nagi-owned link anchor and
+        // seed the state tracker function directly. This remains selective
+        // archive extraction; it does not force every Mesa member out or
+        // import a host graphics implementation.
+        println!(
+            "cargo:rustc-link-arg-bin=nagi-init=--undefined=nagi_mesa_glthread_finish_link_anchor"
+        );
         println!("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
     }

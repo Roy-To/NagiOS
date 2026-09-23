@@ -1400,6 +1400,23 @@ does not import host stdio or claim output without a real Nagi descriptor. M17
 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
 Servo first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, C++ allocation and Mesa glthread link ABI)
+
+Public snapshot CI run `35797964401` (#94, head `9f14d21`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, and kernel
+stages, then failed at final target linking. The exact undefined symbols were
+`std::__throw_bad_alloc()`, `__cxa_end_catch`, and `_mesa_glthread_finish`;
+UEFI and real QEMU were skipped.
+
+The next M17 repair adds fail-closed target-owned C++ ABI entrypoints for bad
+allocation and exception-end paths. It also replaces the direct archive root
+for `_mesa_glthread_finish` with a Nagi-owned link-only data anchor that points
+to the real pinned Mesa implementation, so rust-lld extracts the actual
+glthread object without providing a fake rendering function. No host
+libc++abi, host graphics implementation, or synthetic pixel path is added.
+M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and
+real Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-23, exceptions-disabled C++ ABI)
 
 Public snapshot CI run `35793927424` (#92, head `b53d990`) passed target
