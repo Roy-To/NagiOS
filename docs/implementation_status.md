@@ -25,14 +25,14 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-23
-**Last known repair checkpoint:** public CI run `35805855427` (#98) at
-`f004387` passed Servo bootstrap, then failed while building the pinned Mesa
-Softpipe archive because the generated output does not use the fixed
-`libmesa.a` filename. Target link, UEFI, and QEMU were not reached. The
-current repair scans all generated `.a` files by defined symbol, then extracts
-the exact real `_mesa_glthread_finish` member. This run is not target-link
-acceptance evidence. No host libc, host filesystem, host rendering, or
-synthetic output is used.
+**Last known repair checkpoint:** public CI run `35806844547` (#99) at
+`61f9247` passed Servo bootstrap, then failed while building the pinned Mesa
+Softpipe archive because none of the default generated archives defined
+`_mesa_glthread_finish`. Target link, UEFI, and QEMU were not reached. The
+current repair explicitly builds the Meson `libmesa.a` target discovered from
+the Ninja graph before symbol-aware archive aggregation. This run is not
+target-link acceptance evidence. No host libc, host filesystem, host rendering,
+or synthetic output is used.
 Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
@@ -141,7 +141,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35805855427` (#98) at `f004387` passed Servo bootstrap, then failed during the pinned Mesa Softpipe archive build because the generated archive did not use the fixed `libmesa.a` filename; target link, UEFI, and QEMU were not reached. The current repair scans all generated archives by defined symbol and extracts the real `_mesa_glthread_finish` member. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35806844547` (#99) at `61f9247` passed Servo bootstrap, then failed during the pinned Mesa Softpipe archive build because none of the default generated archives defined `_mesa_glthread_finish`; target link, UEFI, and QEMU were not reached. The current repair explicitly builds the Meson `libmesa.a` target discovered from the Ninja graph before symbol-aware archive aggregation. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -2715,3 +2715,15 @@ acceptance were not reached. The next repair removes that filename assumption,
 searches every generated target archive by defined `_mesa_glthread_finish`, and
 extracts the exact member with LLVM tools. M18 remains `NOT STARTED`; no M17
 PASS is recorded.
+
+### Current M17 continuation after CI run #99 (2026-09-23)
+
+The pushed implementation head was `61f9247` on `main`. CI run #99
+(`35806844547`) passed Servo bootstrap but failed during the pinned Mesa
+Softpipe archive build because the default generated archive set contained no
+definition of `_mesa_glthread_finish` (`libglapi.a`, `libdri.a`, `libEGL.a`,
+and related archives were present). Target link, UEFI, and real QEMU
+first-web-pixel acceptance were not reached. The next repair explicitly
+builds the `libmesa.a` target discovered from Ninja's target graph, then
+repeats symbol-aware extraction. M18 remains `NOT STARTED`; no M17 PASS is
+recorded.

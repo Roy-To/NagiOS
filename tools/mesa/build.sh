@@ -106,6 +106,17 @@ meson setup --wipe "$mesa_build" "$repo_root/third_party/mesa" \
     "-Dcpp_args=$mesa_c_args" \
     "-Dprefix=$output_root/staging"
 
+# Mesa's core static target is intentionally not always a default Ninja target
+# when only the Nagi EGL/Softpipe outputs are requested. Build the target named
+# by Meson's graph explicitly so the real glthread implementation is present
+# in the target-owned archive set before aggregation.
+mesa_core_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libmesa\.a$/) { print target; exit } }')
+if [[ -z "$mesa_core_target" ]]; then
+    echo "::error title=M17 Mesa core target::Meson target graph has no libmesa.a target" >&2
+    exit 1
+fi
+ninja -C "$mesa_build" "$mesa_core_target"
 ninja -C "$mesa_build"
 
 # Keep the real glthread implementation reachable when the aggregated archive
