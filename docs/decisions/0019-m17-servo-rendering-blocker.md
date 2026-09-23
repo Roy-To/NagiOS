@@ -1713,6 +1713,22 @@ the Nagi stream object; no host stdio, host filesystem, or synthetic stream is
 introduced. M17 remains `BLOCKED` until target linking, the UEFI loader, real
 QEMU, and real Servo first-web-pixel evidence pass.
 
+## Remediation continuation (2026-09-23, VFS access and unsupported IPC ABI)
+
+Public snapshot CI run `35827739822` (#113, head `240e501`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages, including the prior numeric/stdout repair. It
+reached final target linking with the remaining undefined symbols `access`,
+`setvbuf`, and `shmget`; UEFI and real QEMU were skipped.
+
+The next M17 repair implements `access` through Nagi's real VFS open/close
+boundary, exposes the target's explicit unbuffered `setvbuf` contract, and
+adds a truthful fail-closed `shmget` for optional SysV/X11/DRI objects that
+are outside the M17 surfaceless Softpipe path. No host filesystem, host stdio
+buffer, shared-memory handle, or synthetic success result is introduced. M17
+remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
+Servo first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-23, numeric and stdout ABI)
 
 Public snapshot CI run `35825148240` (#112, head `c58ecda`) passed the pinned

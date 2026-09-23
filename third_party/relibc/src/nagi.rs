@@ -119,6 +119,7 @@ unsafe extern "C" {
 }
 
 const EINVAL: c_int = 22;
+const EACCES: c_int = 13;
 const ENOSYS: c_int = 38;
 const ENOMEM: c_int = 12;
 const EBADF: c_int = 9;
@@ -127,6 +128,13 @@ const EAGAIN: c_int = 11;
 const EOVERFLOW: c_int = 75;
 const ERANGE: c_int = 34;
 const EOF: c_int = -1;
+const NAGI_F_OK: c_int = 0;
+const NAGI_R_OK: c_int = 4;
+const NAGI_W_OK: c_int = 2;
+const NAGI_X_OK: c_int = 1;
+const NAGI_IOFBF: c_int = 0;
+const NAGI_IOLBF: c_int = 1;
+const NAGI_IONBF: c_int = 2;
 const MAP_FIXED: c_int = 0x0010;
 const MAP_ANONYMOUS: c_int = 0x0020;
 
@@ -871,6 +879,32 @@ pub unsafe extern "C" fn open_memstream(bufp: *mut *mut c_char, sizep: *mut usiz
     stream.cast()
 }
 
+/// Check a path through the real Nagi VFS descriptor boundary.  Nagi 0.1's
+/// user VFS exposes readable files but does not yet publish POSIX permission
+/// or executable-bit metadata, so W_OK/X_OK fail closed instead of claiming a
+/// permission result that the capability runtime cannot prove.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn access(path: *const c_char, mode: c_int) -> c_int {
+    if path.is_null() || mode & !(NAGI_F_OK | NAGI_R_OK | NAGI_W_OK | NAGI_X_OK) != 0 {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    if mode & (NAGI_W_OK | NAGI_X_OK) != 0 {
+        unsafe { set_errno(EACCES) };
+        return EOF;
+    }
+
+    let fd = unsafe { nagi_posix_open(path, 0, 0) };
+    if fd < 0 {
+        return EOF;
+    }
+    if unsafe { nagi_posix_close(fd) } == 0 {
+        0
+    } else {
+        EOF
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fopen(path: *const c_char, mode: *const c_char) -> *mut c_void {
     if path.is_null() || mode.is_null() {
@@ -1178,6 +1212,38 @@ pub unsafe extern "C" fn fflush(stream: *mut c_void) -> c_int {
     0
 }
 
+/// Nagi target FILE streams are deliberately unbuffered: each write crosses
+/// the descriptor or guest-memory stream boundary immediately.  Accept the
+/// corresponding `_IONBF` request and report unsupported buffered modes
+/// explicitly rather than pretending to install host-owned buffering.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setvbuf(
+    stream: *mut c_void,
+    _buffer: *mut c_char,
+    mode: c_int,
+    _size: usize,
+) -> c_int {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    if !matches!(mode, NAGI_IOFBF | NAGI_IOLBF | NAGI_IONBF) {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    let stream = unsafe { &*stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD && stream.kind != NAGI_FILE_MEMORY {
+        unsafe { set_errno(EBADF) };
+        return EOF;
+    }
+    if mode == NAGI_IONBF {
+        0
+    } else {
+        unsafe { set_errno(ENOSYS) };
+        EOF
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fclose(stream: *mut c_void) -> c_int {
     if stream.is_null() {
@@ -1205,6 +1271,16 @@ pub unsafe extern "C" fn fclose(stream: *mut c_void) -> c_int {
     // caller-owned buffer remains live until the caller releases it.
     unsafe { nagi_posix_free((stream as *mut NagiFile).cast::<u8>()) };
     0
+}
+
+/// Nagi 0.1 intentionally does not expose System V shared memory.  Mesa's
+/// pinned static graph contains optional X11/DRI shared-memory objects, but
+/// the M17 surfaceless Softpipe path must not turn that optional dependency
+/// into a fake shared-memory handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn shmget(_key: c_int, _size: usize, _flags: c_int) -> c_int {
+    unsafe { set_errno(ENOSYS) };
+    -1
 }
 
 /// Basic C string comparison for the Nagi target.  The upstream relibc
