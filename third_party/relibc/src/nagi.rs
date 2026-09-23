@@ -56,6 +56,13 @@ longjmp:
         mov rsp, rdx
         mov rdx, [rdi + 56]
         jmp rdx
+
+        # x86-64 SysV passes the target's C long double in x87 ST(0).
+        # Keep the ABI exact instead of narrowing it to Rust f64.
+        .globl fabsl
+fabsl:
+        fabs
+        ret
 "#
 );
 

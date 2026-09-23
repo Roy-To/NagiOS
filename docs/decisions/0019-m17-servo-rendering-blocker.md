@@ -1951,6 +1951,18 @@ descriptor-backed target syslog/openlog handling and a Nagi-owned GNU prime
 rehash policy ABI; it does not import a host syslog daemon, host libc, or host
 C++ runtime. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+## Target-link continuation after CI run #136 (2026-09-24)
+
+Public CI run `35896205811` (#136, head `0a31126`) resolved fortified
+`__memset_chk`, `__memmove_chk`, and GNU basic_string `resize(unsigned long,
+char)`, then reached the next real target-link set: `fabsl`, GNU
+`__throw_out_of_range_fmt`, and basic_string `_M_replace_aux(unsigned long,
+unsigned long, unsigned long, char)`. UEFI and real QEMU first-web-pixel
+acceptance were skipped. The next repair adds an x86-64 long-double ABI
+implementation, a fail-closed GNU throw entrypoint, and allocator-backed
+character replacement; it does not import a host libc or C++ runtime. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ## Target-link continuation after CI run #135 (2026-09-24)
 
 Public CI run `35892368804` (#135, head `8e039d2`) resolved `syslog`,

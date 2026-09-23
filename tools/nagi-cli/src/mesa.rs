@@ -662,6 +662,7 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn syslog("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn __memset_chk("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn __memmove_chk("));
+        assert!(relibc.contains(".globl fabsl"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_"));
@@ -685,6 +686,10 @@ mod tests {
         ));
         assert!(runtime.contains(
             "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6resizeEmc"
+        ));
+        assert!(runtime.contains("_ZSt24__throw_out_of_range_fmtPKcz"));
+        assert!(runtime.contains(
+            "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE14_M_replace_auxEmmmc"
         ));
         assert!(runtime.contains("_Unwind_Resume"));
         assert!(runtime.contains("nagi_gnu_basic_string_layout"));

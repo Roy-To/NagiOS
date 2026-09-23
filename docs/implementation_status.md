@@ -25,17 +25,18 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35892368804` (#135) at
-`8e039d287d15f98f6c9b2528a109912709005fe8` passed Servo bootstrap, Mesa
+**Last known repair checkpoint:** public CI run `35896205811` (#136) at
+`0a311268d19872a03d807fa036cbc6788a7e1304` passed Servo bootstrap, Mesa
 Softpipe archive construction, package, and kernel compilation, then reached
-the real target link. The `syslog`, `openlog`, and GNU rehash symbols were
-resolved. The remaining target-owned symbols are `__memset_chk`,
-`__memmove_chk`, and GNU basic_string `resize(unsigned long, char)`. The
-current M17 repair adds bounded guest-memory fortified operations and
-allocator-backed string resize; it does not link a host libc or C++ runtime.
-Target link, UEFI, and QEMU are not yet acceptance evidence. No host libc,
-host filesystem, host rendering, or synthetic output is used. Target link,
-UEFI, and real QEMU first-web-pixel evidence remain required.
+the real target link. The fortified memory and GNU string resize symbols were
+resolved. The remaining target-owned symbols are `fabsl`, GNU
+`__throw_out_of_range_fmt`, and basic_string `_M_replace_aux`. The current
+M17 repair adds target-ABI-correct long-double absolute value, fail-closed
+out-of-range handling, and allocator-backed character replacement; it does
+not link a host libc or C++ runtime. Target link, UEFI, and QEMU are not yet
+acceptance evidence. No host libc, host filesystem, host rendering, or
+synthetic output is used. Target link, UEFI, and real QEMU first-web-pixel
+evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -2953,6 +2954,19 @@ fortified `__memset_chk`, `__memmove_chk`, and GNU basic_string
 were skipped. The next repair adds bounded guest-memory fortified operations
 and allocator-backed GNU string resize. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
+
+### Current M17 continuation after CI run #136 (2026-09-24)
+
+Public CI run `35896205811` (#136, head `0a31126`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The real target user-init link resolved fortified
+`__memset_chk`, `__memmove_chk`, and GNU basic_string `resize(unsigned long,
+char)`, then failed on `fabsl`, GNU `__throw_out_of_range_fmt`, and
+basic_string `_M_replace_aux(unsigned long, unsigned long, unsigned long,
+char)`. UEFI and real QEMU first-web-pixel acceptance were skipped. The next
+repair adds an x86-64 long-double ABI implementation, a fail-closed GNU throw
+entrypoint, and allocator-backed character replacement. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #106 (2026-09-23)
 

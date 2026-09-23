@@ -751,6 +751,15 @@ extern "C" [[noreturn]] void nagi_gnu_throw_length_error(const char *) {
     abort();
 }
 
+extern "C" [[noreturn]] void nagi_gnu_throw_out_of_range_fmt(
+    const char *, ...)
+    __asm__("_ZSt24__throw_out_of_range_fmtPKcz");
+
+extern "C" [[noreturn]] void nagi_gnu_throw_out_of_range_fmt(
+    const char *, ...) {
+    abort();
+}
+
 // The M17 target is built with C++ exceptions disabled and has no host
 // libc++abi.  These exception entrypoints are retained by a small number of
 // standard-library code paths; if one is reached, terminating through Nagi's
@@ -1039,6 +1048,51 @@ extern "C" void nagi_gnu_basic_string_resize(
     object->data = new_data;
     object->length = new_length;
     object->storage.capacity = new_capacity;
+}
+
+extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_replace_aux(
+    nagi_gnu_basic_string_layout *object, nagi_size_t position,
+    nagi_size_t removed, nagi_size_t inserted, char value)
+    __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE14_M_replace_auxEmmmc");
+
+extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_replace_aux(
+    nagi_gnu_basic_string_layout *object, nagi_size_t position,
+    nagi_size_t removed, nagi_size_t inserted, char value) {
+    if (object == nullptr || object->data == nullptr ||
+        position > object->length) {
+        abort();
+    }
+    const nagi_size_t available = object->length - position;
+    if (removed > available) {
+        removed = available;
+    }
+    const nagi_size_t maximum = ~static_cast<nagi_size_t>(0);
+    if (inserted > maximum - (object->length - removed)) {
+        abort();
+    }
+    const nagi_size_t new_length = object->length - removed + inserted;
+    if (new_length >= maximum) {
+        abort();
+    }
+    const nagi_size_t old_capacity = nagi_gnu_basic_string_capacity(object);
+    nagi_size_t new_capacity = new_length;
+    char *new_data = nagi_gnu_basic_string_create(object, new_capacity,
+                                                   old_capacity);
+    const char *old_data = object->data;
+    nagi_copy_bytes(new_data, old_data, position);
+    nagi_fill_bytes(new_data + position, value, inserted);
+    nagi_copy_bytes(new_data + position + inserted,
+                    old_data + position + removed,
+                    object->length - position - removed);
+    new_data[new_length] = '\0';
+    const char *local = reinterpret_cast<const char *>(object) + 16;
+    if (old_data != local) {
+        nagi_posix_free(object->data);
+    }
+    object->data = new_data;
+    object->length = new_length;
+    object->storage.capacity = new_capacity;
+    return object;
 }
 
 extern "C" nagi_size_t nagi_gnu_basic_string_find(
