@@ -1979,6 +1979,18 @@ math implementation's `sincosf` ABI. No host libc, host C++ runtime,
 synthetic JS object, or synthetic rendering path is introduced. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
 
+## Target-link continuation after CI run #139 (2026-09-24)
+
+Public CI run `35909004970` (#139, head `44afc1e`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The target user-init link resolved the MozJS ArrayBuffer wrapper,
+GNU basic_string `_M_construct(unsigned long, char)`, and `sincosf`, then
+reported `__isnormal`, `__isnormalf`, and `frexp`. UEFI and real QEMU
+first-web-pixel acceptance were skipped. The next repair adds Nagi-owned
+IEEE-bit-level normal predicates and frexp/frexpf decomposition; no host libm,
+host C++ runtime, synthetic rendering, or weakened acceptance is introduced.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ## Target-link continuation after CI run #136 (2026-09-24)
 
 Public CI run `35896205811` (#136, head `0a31126`) resolved fortified

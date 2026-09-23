@@ -2727,6 +2727,18 @@ pub unsafe extern "C" fn __isfinitef(value: c_float) -> c_int {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __isnormal(value: c_double) -> c_int {
+    let exponent = (value.to_bits() >> 52) & 0x7ff;
+    if exponent != 0 && exponent != 0x7ff { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __isnormalf(value: c_float) -> c_int {
+    let exponent = (value.to_bits() >> 23) & 0xff;
+    if exponent != 0 && exponent != 0xff { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn isfinite(value: c_double) -> c_int {
     unsafe { __isfinite(value) }
 }
@@ -2739,6 +2751,67 @@ pub unsafe extern "C" fn isfinitef(value: c_float) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn isnanf(value: c_float) -> c_int {
     unsafe { __isnanf(value) }
+}
+
+fn nagi_frexp_real(value: c_double, exponent: *mut c_int) -> c_double {
+    if exponent.is_null() {
+        unsafe { abort() };
+    }
+    if value == 0.0 || value.is_nan() || value.is_infinite() {
+        unsafe { *exponent = 0 };
+        return value;
+    }
+
+    let mut bits = value.to_bits();
+    let mut scale_exponent = 0;
+    let mut exponent_bits = (bits >> 52) & 0x7ff;
+    if exponent_bits == 0 {
+        // Scale subnormal values into the normal range before extracting the
+        // IEEE exponent. This is a pure target arithmetic operation, not a
+        // delegation to libm or a host floating-point provider.
+        bits = (value * 18_014_398_509_481_984.0).to_bits();
+        scale_exponent = -54;
+        exponent_bits = (bits >> 52) & 0x7ff;
+    }
+
+    let fraction = bits & ((1_u64 << 52) - 1);
+    let normalized = f64::from_bits((bits & (1_u64 << 63)) | (1022_u64 << 52) | fraction);
+    unsafe { *exponent = exponent_bits as c_int - 1022 + scale_exponent };
+    normalized
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn frexp(value: c_double, exponent: *mut c_int) -> c_double {
+    nagi_frexp_real(value, exponent)
+}
+
+fn nagi_frexpf_real(value: c_float, exponent: *mut c_int) -> c_float {
+    if exponent.is_null() {
+        unsafe { abort() };
+    }
+    if value == 0.0 || value.is_nan() || value.is_infinite() {
+        unsafe { *exponent = 0 };
+        return value;
+    }
+
+    let mut bits = value.to_bits();
+    let mut scale_exponent = 0;
+    let mut exponent_bits = (bits >> 23) & 0xff;
+    if exponent_bits == 0 {
+        bits = (value * 33_554_432.0).to_bits();
+        scale_exponent = -25;
+        exponent_bits = (bits >> 23) & 0xff;
+    }
+
+    let fraction = bits & ((1_u32 << 23) - 1);
+    let normalized = f32::from_bits((bits & (1_u32 << 31)) | (126_u32 << 23) | fraction);
+    unsafe { *exponent = exponent_bits as c_int - 126 + scale_exponent };
+    normalized
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn frexpf(value: c_float, exponent: *mut c_int) -> c_float {
+    nagi_frexpf_real(value, exponent)
 }
 
 /// Nagi's target ctype contract is ASCII/UTF-8 and locale-independent for

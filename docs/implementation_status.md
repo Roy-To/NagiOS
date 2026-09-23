@@ -25,20 +25,18 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35904323947` (#138) at
-`7bc9e6aa4700c27fd6f0c5feb51fac84738ac4fb` passed Servo bootstrap, dependency
+**Last known repair checkpoint:** public CI run `35909004970` (#139) at
+`44afc1efeeb6dfac4962a0eb29a244cc904c5afa` passed Servo bootstrap, dependency
 validation, Mesa Softpipe archive construction, package, and kernel
-compilation, then reached the real target link. The target-only MozJS
-ownership patch was applied but the link still reported
-`JS::NewArrayBufferWithContents(JSContext*, unsigned long,
-std::unique_ptr<void, JS::FreePolicy>)`, alongside GNU basic_string
-`_M_construct(unsigned long, char)` and `sincosf`. The next repair adds a
-selective jsglue archive extraction anchor, real allocator-backed string
-construction, and the existing Nagi sin/cos math path's `sincosf` ABI. It does
-not create a synthetic JS object or link a host C++/libm runtime. Target link,
-UEFI, and QEMU are not yet acceptance evidence. No host libc, host filesystem,
-host rendering, or synthetic output is used. Target link, UEFI, and real QEMU
-first-web-pixel evidence remain required.
+compilation. The repair resolved the MozJS ArrayBuffer wrapper, GNU
+basic_string `_M_construct(unsigned long, char)`, and `sincosf`; the next real
+target link set was `__isnormal`, `__isnormalf`, and `frexp`. The next repair
+adds IEEE-bit-level normal predicates and frexp/frexpf decomposition to the
+Nagi math ABI. It does not link host C++ or libm, create synthetic rendering,
+or weaken M17 acceptance. Target link, UEFI, and QEMU are not yet acceptance
+evidence. No host libc, host filesystem, host rendering, or synthetic output
+is used. Target link, UEFI, and real QEMU first-web-pixel evidence remain
+required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -2757,6 +2755,17 @@ selective jsglue extraction anchor for the tracked target-only ownership
 wrapper, real allocator-backed GNU string construction, and the Nagi sin/cos
 math implementation's `sincosf` ABI. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
+
+### Current M17 continuation after CI run #139 (2026-09-24)
+
+Public CI run `35909004970` (#139, head `44afc1e`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The target user-init link resolved the MozJS ArrayBuffer wrapper,
+GNU basic_string `_M_construct(unsigned long, char)`, and `sincosf`, then
+reported `__isnormal`, `__isnormalf`, and `frexp`. UEFI and real QEMU
+first-web-pixel acceptance were skipped. The next repair adds Nagi-owned
+IEEE-bit-level normal predicates and frexp/frexpf decomposition; M17 remains
+`BLOCKED` and M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #123 (2026-09-23)
 

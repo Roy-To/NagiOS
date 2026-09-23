@@ -667,6 +667,9 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn __memmove_chk("));
         assert!(relibc.contains(".globl fabsl"));
         assert!(relibc.contains("pub unsafe extern \"C\" fn sincosf("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn __isnormal("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn __isnormalf("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn frexp("));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_"));
