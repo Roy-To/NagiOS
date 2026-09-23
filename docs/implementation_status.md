@@ -2671,6 +2671,19 @@ pinned Mesa `_mesa_glthread_finish` object through a non-executing Nagi link
 anchor rather than substituting a rendering stub. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
 
+### Current M17 continuation after CI run #107 (2026-09-23)
+
+The pushed implementation head was `54ed6d3` on `main`. CI run #107
+(`35815283540`) passed Servo bootstrap and the pinned Mesa Softpipe archive,
+then reached final Nagi user-init target linking. The remaining undefined
+symbols were `lrintf`, `u_surface_default_template`, and `pp_init`.
+`u_surface_default_template` and `pp_init` are real Mesa Gallium auxiliary
+objects whose `libgallium.a` target was not part of the default Nagi graph;
+`lrintf` was a missing target-owned relibc C ABI export. The next repair
+explicitly builds `libgallium.a` and adds target-owned `lrintf`. UEFI and real
+QEMU first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`;
+no M17 PASS is recorded.
+
 ### Current M17 continuation after CI run #106 (2026-09-23)
 
 The pushed implementation head was `61556cd` on `main`. CI run #106

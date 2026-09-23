@@ -2057,6 +2057,34 @@ pub unsafe extern "C" fn log2f(value: c_float) -> c_float {
     unsafe { log2(c_double::from(value)) as c_float }
 }
 
+/// Target-owned nearest-integer conversion used by Mesa's color and format
+/// helpers. The Nagi target excludes relibc's normal libm module, so expose
+/// the bounded C ABI directly instead of leaving `lrintf` to a host libm.
+/// This follows the default C round-to-nearest, ties-to-even mode used by the
+/// freestanding target; out-of-range and non-finite inputs fail closed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lrintf(value: c_float) -> c_long {
+    if value.is_nan() || value.is_infinite() {
+        return 0;
+    }
+
+    let truncated = value as c_long;
+    let fraction = value - truncated as c_float;
+    if fraction > 0.5 {
+        truncated.saturating_add(1)
+    } else if fraction < -0.5 {
+        truncated.saturating_sub(1)
+    } else if (fraction == 0.5 || fraction == -0.5) && (truncated & 1) != 0 {
+        if value.is_sign_negative() {
+            truncated.saturating_sub(1)
+        } else {
+            truncated.saturating_add(1)
+        }
+    } else {
+        truncated
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn accept(
     socket: c_int,

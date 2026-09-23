@@ -590,6 +590,7 @@ mod tests {
             .contains("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush"));
         assert!(mesa_build.contains("_mesa_glthread_finish"));
         assert!(mesa_build.contains("libnagi_mesa_roots.a"));
+        assert!(mesa_build.contains("libgallium\\.a"));
     }
 
     #[test]

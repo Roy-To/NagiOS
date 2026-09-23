@@ -136,6 +136,32 @@ if ! ninja -C "$mesa_build" "$mesa_core_target" 2>&1 | tee "$mesa_core_log"; the
     exit 1
 fi
 rm -f "$mesa_core_log"
+
+# Mesa's default target graph does not necessarily materialize the auxiliary
+# Gallium archive when only the Nagi EGL/Softpipe outputs are requested. The
+# final user-init link reaches real state-tracker and postprocess entrypoints
+# from that archive, so build the target explicitly as well.
+mesa_gallium_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libgallium\.a$/) { print target; exit } }')
+if [[ -z "$mesa_gallium_target" ]]; then
+    echo "::error title=M17 Mesa Gallium target::Meson target graph has no libgallium.a output target" >&2
+    exit 1
+fi
+echo "M17 Mesa build: Gallium target: $mesa_gallium_target"
+mesa_gallium_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_gallium_target" 2>&1 | tee "$mesa_gallium_log"; then
+    mesa_gallium_error=$(grep -E '(^| )(fatal )?error:' "$mesa_gallium_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_gallium_error" ]]; then
+        mesa_gallium_error=$(tail -n 30 "$mesa_gallium_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
+    echo "::error title=M17 Mesa Gallium target build::target=$mesa_gallium_target; $mesa_gallium_error" >&2
+    rm -f "$mesa_gallium_log"
+    exit 1
+fi
+rm -f "$mesa_gallium_log"
 ninja -C "$mesa_build"
 
 # Keep the real glthread implementation reachable when the aggregated archive

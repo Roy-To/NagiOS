@@ -1662,3 +1662,15 @@ selecting only the real defining object for the dedicated roots archive. No
 fake rendering function or whole-archive shortcut is introduced. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, Gallium archive and lrintf ABI)
+
+Public snapshot CI run `35815283540` (#107, head `54ed6d3`) passed Servo
+bootstrap and the pinned Mesa Softpipe archive, then reached final Nagi
+user-init target linking. The remaining undefined symbols were `lrintf`,
+`u_surface_default_template`, and `pp_init`. The latter two are real Mesa
+Gallium auxiliary objects whose `libgallium.a` target was not part of the
+default Nagi graph; `lrintf` was a missing target-owned relibc C ABI export.
+The next repair explicitly builds `libgallium.a` and adds target-owned
+`lrintf`. M17 remains `BLOCKED` until target linking, the UEFI loader, real
+QEMU, and real Servo first-web-pixel evidence pass.
