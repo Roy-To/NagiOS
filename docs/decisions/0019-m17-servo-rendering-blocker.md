@@ -1964,6 +1964,21 @@ existing four-argument ArrayBuffer API; it does not create a synthetic JS
 object or import a host runtime. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
 
+## Target-link continuation after CI run #138 (2026-09-24)
+
+Public CI run `35904323947` (#138, head `7bc9e6a`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The real target user-init link still reported MozJS
+`JS::NewArrayBufferWithContents(JSContext*, unsigned long,
+std::unique_ptr<void, JS::FreePolicy>)`, GNU basic_string
+`_M_construct(unsigned long, char)`, and `sincosf`; UEFI and real QEMU
+first-web-pixel acceptance were skipped. The next repair adds an exact
+selective jsglue extraction anchor for the tracked target-only ownership
+wrapper, real allocator-backed GNU string construction, and the Nagi sin/cos
+math implementation's `sincosf` ABI. No host libc, host C++ runtime,
+synthetic JS object, or synthetic rendering path is introduced. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
 ## Target-link continuation after CI run #136 (2026-09-24)
 
 Public CI run `35896205811` (#136, head `0a31126`) resolved fortified

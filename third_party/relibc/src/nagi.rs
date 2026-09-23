@@ -2542,6 +2542,21 @@ pub unsafe extern "C" fn cosf(x: c_float) -> c_float {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn sincosf(
+    x: c_float,
+    sine: *mut c_float,
+    cosine: *mut c_float,
+) {
+    if sine.is_null() || cosine.is_null() {
+        unsafe { abort() };
+    }
+    unsafe {
+        *sine = nagi_sin_real(c_double::from(x)) as c_float;
+        *cosine = nagi_cos_real(c_double::from(x)) as c_float;
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn asin(x: c_double) -> c_double {
     nagi_asin_real(x)
 }

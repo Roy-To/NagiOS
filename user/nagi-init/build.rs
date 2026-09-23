@@ -71,6 +71,13 @@ fn main() {
                 "cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}"
             );
         }
+        // The pinned MozJS build emits the real three-argument UniquePtr
+        // ArrayBuffer forwarding wrapper into the jsglue archive. Seed its
+        // exact Itanium ABI symbol before the archive scan so rust-lld extracts
+        // that object instead of leaving the inline JSAPI wrapper unresolved.
+        println!(
+            "cargo:rustc-link-arg-bin=nagi-init=--undefined=_ZN2JS26NewArrayBufferWithContentsEP9JSContextmSt10unique_ptrIvNS_10FreePolicyEE"
+        );
         println!("cargo:rustc-link-lib=static=nagi_mesa_roots");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
     }

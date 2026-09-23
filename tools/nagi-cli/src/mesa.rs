@@ -588,6 +588,9 @@ mod tests {
         ));
         assert!(build_script
             .contains("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush"));
+        assert!(build_script.contains(
+            "--undefined=_ZN2JS26NewArrayBufferWithContentsEP9JSContextmSt10unique_ptrIvNS_10FreePolicyEE"
+        ));
         assert!(mesa_build.contains("_mesa_glthread_finish"));
         assert!(mesa_build.contains("libnagi_mesa_roots.a"));
         assert!(mesa_build.contains("libgallium\\.a"));
@@ -663,6 +666,7 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn __memset_chk("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn __memmove_chk("));
         assert!(relibc.contains(".globl fabsl"));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn sincosf("));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_"));
@@ -686,6 +690,9 @@ mod tests {
         ));
         assert!(runtime.contains(
             "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6resizeEmc"
+        ));
+        assert!(runtime.contains(
+            "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructEmc"
         ));
         assert!(runtime.contains("_ZSt24__throw_out_of_range_fmtPKcz"));
         assert!(runtime.contains(

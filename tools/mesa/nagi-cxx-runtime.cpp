@@ -1055,6 +1055,39 @@ extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_replace_aux(
     nagi_size_t removed, nagi_size_t inserted, char value)
     __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE14_M_replace_auxEmmmc");
 
+extern "C" void nagi_gnu_basic_string_construct(
+    nagi_gnu_basic_string_layout *object, nagi_size_t count, char value)
+    __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructEmc");
+
+extern "C" void nagi_gnu_basic_string_construct(
+    nagi_gnu_basic_string_layout *object, nagi_size_t count, char value) {
+    if (object == nullptr) {
+        abort();
+    }
+    const nagi_size_t maximum = ~static_cast<nagi_size_t>(0);
+    if (count >= maximum) {
+        abort();
+    }
+    const char *local = reinterpret_cast<const char *>(object) + 16;
+    if (count <= NAGI_GNU_BASIC_STRING_LOCAL_CAPACITY) {
+        object->data = const_cast<char *>(local);
+        object->length = count;
+        nagi_fill_bytes(object->data, value, count);
+        object->data[count] = '\0';
+        return;
+    }
+
+    char *data = static_cast<char *>(nagi_posix_malloc(count + 1));
+    if (data == nullptr) {
+        abort();
+    }
+    nagi_fill_bytes(data, value, count);
+    data[count] = '\0';
+    object->data = data;
+    object->length = count;
+    object->storage.capacity = count;
+}
+
 extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_replace_aux(
     nagi_gnu_basic_string_layout *object, nagi_size_t position,
     nagi_size_t removed, nagi_size_t inserted, char value) {

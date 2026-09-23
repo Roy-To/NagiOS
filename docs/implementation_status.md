@@ -25,19 +25,20 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35899807167` (#137) at
-`7e1cd530829c28d769acc787b8941d289c77b769` passed Servo bootstrap, Mesa
-Softpipe archive construction, package, and kernel compilation, then reached
-the real target link. The long-double, out-of-range, and character replacement
-symbols were resolved. The remaining target-owned symbol is
+**Last known repair checkpoint:** public CI run `35904323947` (#138) at
+`7bc9e6aa4700c27fd6f0c5feb51fac84738ac4fb` passed Servo bootstrap, dependency
+validation, Mesa Softpipe archive construction, package, and kernel
+compilation, then reached the real target link. The target-only MozJS
+ownership patch was applied but the link still reported
 `JS::NewArrayBufferWithContents(JSContext*, unsigned long,
-std::unique_ptr<void, JS::FreePolicy>)`. The current M17 repair adds a
-target-only MozJS UniquePtr ownership wrapper delegating to the real
-four-argument ArrayBuffer API; it does not create a synthetic JS object or
-link a host C++ runtime. Target link, UEFI, and QEMU are not yet acceptance
-evidence. No host libc, host filesystem, host rendering, or synthetic output
-is used. Target link, UEFI, and real QEMU first-web-pixel evidence remain
-required.
+std::unique_ptr<void, JS::FreePolicy>)`, alongside GNU basic_string
+`_M_construct(unsigned long, char)` and `sincosf`. The next repair adds a
+selective jsglue archive extraction anchor, real allocator-backed string
+construction, and the existing Nagi sin/cos math path's `sincosf` ABI. It does
+not create a synthetic JS object or link a host C++/libm runtime. Target link,
+UEFI, and QEMU are not yet acceptance evidence. No host libc, host filesystem,
+host rendering, or synthetic output is used. Target link, UEFI, and real QEMU
+first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -2742,6 +2743,20 @@ bootstrap failure and writes `out/logs/m17-bootstrap.log`, with a bounded
 first-error annotation, so the exact pinned-source, patch-order, fingerprint,
 or Servo Cargo-fetch failure can be corrected from evidence. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #138 (2026-09-24)
+
+Public CI run `35904323947` (#138, head `7bc9e6a`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The real target user-init link still reported MozJS
+`JS::NewArrayBufferWithContents(JSContext*, unsigned long,
+std::unique_ptr<void, JS::FreePolicy>)`, GNU basic_string
+`_M_construct(unsigned long, char)`, and `sincosf`; UEFI and real QEMU
+first-web-pixel acceptance were skipped. The next repair adds an exact
+selective jsglue extraction anchor for the tracked target-only ownership
+wrapper, real allocator-backed GNU string construction, and the Nagi sin/cos
+math implementation's `sincosf` ABI. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Current M17 continuation after CI run #123 (2026-09-23)
 
