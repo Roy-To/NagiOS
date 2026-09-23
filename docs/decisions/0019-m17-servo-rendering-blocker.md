@@ -2119,3 +2119,14 @@ reached. The pthread provider seed was insufficient. The next bounded repair
 adds the real Itanium deleting-destructor (`D0`) entrypoints for libc++ mutex
 and condition-variable objects, with relibc destruction followed by the Nagi
 allocator release. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #147 (2026-09-24)
+
+Public CI run `35933099876` (#147, head `216d909`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The target user-init custom build command still failed after the
+target-link stage; the D0 destructor repair was insufficient, and UEFI/QEMU
+were not reached. The public annotation again exposed only the generic custom
+build error. The target build diagnostic parser is extended to include
+clang/runtime/linker/undefined-symbol details in the next annotation. M17
+remains `BLOCKED` and M18 remains `NOT STARTED`.

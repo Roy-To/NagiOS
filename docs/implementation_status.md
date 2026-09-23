@@ -60,6 +60,17 @@ deleting-destructor (`D0`) entrypoints for libc++ mutex and condition-variable
 objects, including real relibc-backed destruction and allocator release. M17
 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #147 (2026-09-24)
+
+Public CI run `35933099876` (#147, head `216d909`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init custom build command still failed
+after the target-link stage; the D0 destructor repair did not complete the
+build, and UEFI/QEMU were skipped. The public annotation again contained only
+the generic custom-build error. The target diagnostic parser is now extended
+to preserve clang/runtime/linker/undefined-symbol details in that annotation
+for the next repair. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #140 (2026-09-24)
 
 Public CI run `35911899646` (#140, head `3546db3`) passed Servo bootstrap,
