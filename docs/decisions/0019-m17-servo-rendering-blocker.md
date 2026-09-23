@@ -2095,3 +2095,15 @@ libc++ condition-variable and mutex-destruction boundary:
 `std::__1::mutex::~mutex()`. UEFI and real QEMU first-web-pixel acceptance
 were skipped. The next repair routes these operations to relibc pthreads with
 real ownership checks. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #145 (2026-09-24)
+
+Public CI run `35927852465` (#145, head `157958d`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. The target user-init build still failed after the target link
+stage; UEFI and real QEMU first-web-pixel acceptance were not reached. The
+public annotation exposed only the failed step, so the next experiment is
+explicitly bounded: seed only the real relibc pthread mutex and condition
+variable providers referenced by the Nagi-owned libc++ bridge. This is a link
+ordering repair, not a host synchronization fallback or an acceptance
+shortcut. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.

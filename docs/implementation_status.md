@@ -25,20 +25,28 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35923751011` (#143) at
-`d3564a0` passed Servo bootstrap, dependency validation, Mesa Softpipe archive
-construction, package, and kernel compilation. The target-owned scaling and
-libc++ mutex/typeid repair resolved `scalbn`, `__cxa_bad_typeid`, and
-`std::__1::mutex::lock()`; the next target link exposed the real relibc-backed
-condition-variable and mutex-destruction boundary:
-`std::__1::condition_variable::notify_all()`,
-`std::__1::condition_variable::wait(unique_lock<mutex>&)`, and
-`std::__1::mutex::~mutex()`. The next repair adds real pthread
-signal/broadcast/wait/destroy routing. It does not link host C++ or libm,
-create synthetic rendering, or weaken M17 acceptance. Target link, UEFI, and
-QEMU are not yet acceptance evidence. No host libc, host filesystem, host
-rendering, or synthetic output is used. Target link, UEFI, and real QEMU
-first-web-pixel evidence remain required.
+**Last known repair checkpoint:** public CI run `35927852465` (#145) at
+`157958d` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+archive construction, package, and kernel compilation, but
+`Build Nagi user init` still failed after the target link stage. UEFI and real
+QEMU first-web-pixel acceptance were not reached. The same run's Ubuntu format
+step passed after the prior formatting repair; its host lint step failed with
+exit code 101, separately from the target failure. The current repair adds
+selective link seeds for the real relibc pthread providers referenced by the
+Nagi-owned libc++ runtime. It does not link host C++ or libm, create synthetic
+rendering, or weaken M17 acceptance. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+### Current M17 continuation after CI run #145 (2026-09-24)
+
+Public CI run `35927852465` (#145, head `157958d`) passed target bootstrap,
+dependency validation, Mesa Softpipe, package, and kernel stages. The target
+user-init build then failed after roughly seventeen minutes; the UEFI loader
+and real QEMU first-web-pixel steps were skipped. The public job annotation
+exposed only the step failure, not the compiler detail, so the next targeted
+experiment seeds the exact real relibc pthread symbols used by the new
+libc++ mutex/condition-variable bridge before the archive scan. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #140 (2026-09-24)
 

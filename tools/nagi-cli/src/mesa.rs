@@ -665,6 +665,18 @@ mod tests {
         assert!(runtime.contains("pthread_cond_wait"));
         assert!(runtime.contains("pthread_cond_broadcast"));
         assert!(runtime.contains("pthread_mutex_destroy"));
+        for symbol in [
+            "pthread_mutex_lock",
+            "pthread_mutex_trylock",
+            "pthread_mutex_unlock",
+            "pthread_mutex_destroy",
+            "pthread_cond_signal",
+            "pthread_cond_broadcast",
+            "pthread_cond_wait",
+            "pthread_cond_destroy",
+        ] {
+            assert!(build_script.contains(symbol));
+        }
         assert!(runtime.contains("__cxa_end_catch"));
         assert!(runtime.contains("nagi_mesa_glthread_finish_link_anchor"));
         assert!(runtime.contains("__dynamic_cast"));

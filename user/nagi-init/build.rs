@@ -76,6 +76,23 @@ fn main() {
         println!(
             "cargo:rustc-link-arg-bin=nagi-init=--undefined=_ZN2JS26NewArrayBufferWithContentsEP9JSContextmSt10unique_ptrIvNS_10FreePolicyEE"
         );
+        // The libc++ pthread backend used by the pinned Servo/Mesa graph
+        // reaches these real relibc entry points from the Nagi-owned C++
+        // runtime object. Seed only those providers before the relibc archive
+        // scan; this is selective archive extraction, not a host fallback or
+        // whole-archive import.
+        for symbol in [
+            "pthread_mutex_lock",
+            "pthread_mutex_trylock",
+            "pthread_mutex_unlock",
+            "pthread_mutex_destroy",
+            "pthread_cond_signal",
+            "pthread_cond_broadcast",
+            "pthread_cond_wait",
+            "pthread_cond_destroy",
+        ] {
+            println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
+        }
         println!("cargo:rustc-link-lib=static=nagi_mesa_roots");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
     }
