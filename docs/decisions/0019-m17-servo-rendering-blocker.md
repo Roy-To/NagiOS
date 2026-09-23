@@ -1843,3 +1843,16 @@ those real Softpipe loader/winsys symbols through the Nagi target link and
 adds guest-memory `strspn` to the Nagi relibc ABI. UEFI and real QEMU
 first-web-pixel acceptance were not reached. M17 remains `BLOCKED`; M18
 remains `NOT STARTED`.
+
+## Remediation continuation (2026-09-23, static helper roots and `strndup`)
+
+Public CI run `35854076101` (#121, head `3d0286b`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive, package, kernel, and target
+compilation. The link-root repair resolved `null_sw_create` and `strspn`, but
+the final target link still reported `sw_screen_create_vk`,
+`wrapper_sw_winsys_wrap_pipe_screen`, and `strndup`. UEFI and real QEMU
+first-web-pixel acceptance were skipped. The next repair adds a pinned Mesa
+Nagi static helper target that compiles the real `sw_helper.h` Softpipe
+implementation, explicitly materializes upstream `libwsw.a`, and adds
+target-owned guest allocator `strndup`. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.

@@ -235,6 +235,50 @@ if ! ninja -C "$mesa_build" "$mesa_null_winsys_target" 2>&1 | tee "$mesa_null_wi
     exit 1
 fi
 rm -f "$mesa_null_winsys_log"
+
+mesa_wrapper_winsys_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libwsw\.a$/) { print target; exit } }')
+if [[ -z "$mesa_wrapper_winsys_target" ]]; then
+    echo "::error title=M17 Mesa wrapper winsys target::Meson target graph has no libwsw.a output target" >&2
+    exit 1
+fi
+echo "M17 Mesa build: wrapper winsys target: $mesa_wrapper_winsys_target"
+mesa_wrapper_winsys_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_wrapper_winsys_target" 2>&1 | tee "$mesa_wrapper_winsys_log"; then
+    mesa_wrapper_winsys_error=$(grep -E '(^| )(fatal )?error:' "$mesa_wrapper_winsys_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_wrapper_winsys_error" ]]; then
+        mesa_wrapper_winsys_error=$(tail -n 30 "$mesa_wrapper_winsys_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
+    echo "::error title=M17 Mesa wrapper winsys target build::target=$mesa_wrapper_winsys_target; $mesa_wrapper_winsys_error" >&2
+    rm -f "$mesa_wrapper_winsys_log"
+    exit 1
+fi
+rm -f "$mesa_wrapper_winsys_log"
+
+mesa_nagi_roots_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libpipe_loader_nagi_roots\.a$/) { print target; exit } }')
+if [[ -z "$mesa_nagi_roots_target" ]]; then
+    echo "::error title=M17 Mesa Nagi helper target::Meson target graph has no libpipe_loader_nagi_roots.a output target" >&2
+    exit 1
+fi
+echo "M17 Mesa build: Nagi helper target: $mesa_nagi_roots_target"
+mesa_nagi_roots_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_nagi_roots_target" 2>&1 | tee "$mesa_nagi_roots_log"; then
+    mesa_nagi_roots_error=$(grep -E '(^| )(fatal )?error:' "$mesa_nagi_roots_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_nagi_roots_error" ]]; then
+        mesa_nagi_roots_error=$(tail -n 30 "$mesa_nagi_roots_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
+    echo "::error title=M17 Mesa Nagi helper target build::target=$mesa_nagi_roots_target; $mesa_nagi_roots_error" >&2
+    rm -f "$mesa_nagi_roots_log"
+    exit 1
+fi
+rm -f "$mesa_nagi_roots_log"
 ninja -C "$mesa_build"
 
 # Keep the real glthread implementation reachable when the aggregated archive

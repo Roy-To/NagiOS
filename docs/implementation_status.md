@@ -2706,6 +2706,19 @@ loader/winsys symbols through Cargo's target link arguments and implements
 guest-memory `strspn` in the Nagi relibc ABI. M17 remains `BLOCKED`; M18
 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #121 (2026-09-23)
+
+Public CI run `35854076101` (#121, head `3d0286b`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive, package, kernel, and target
+compilation. The link-root repair resolved `null_sw_create` and `strspn`, but
+the final target link still reported `sw_screen_create_vk`,
+`wrapper_sw_winsys_wrap_pipe_screen`, and `strndup`. UEFI and real QEMU
+first-web-pixel acceptance were skipped. The next repair adds a pinned Mesa
+Nagi static helper target for the real `sw_helper.h` Softpipe implementation,
+explicitly materializes the upstream `libwsw.a` wrapper winsys target, and
+adds target-owned guest allocator `strndup`. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #117 (2026-09-23)
 
 The pushed implementation head was `32c1313` on `main`. Public CI run #117

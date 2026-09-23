@@ -47,3 +47,32 @@ index e9e7366568a..b18666048ae 100644
 @@ -29 +29 @@ endif
 -libglapi = shared_library(
 +libglapi = library(
+diff --git a/src/gallium/targets/pipe-loader/meson.build b/src/gallium/targets/pipe-loader/meson.build
+index 4a28f9f9c1e..f5d1ec0b7a2 100644
+--- a/src/gallium/targets/pipe-loader/meson.build
++++ b/src/gallium/targets/pipe-loader/meson.build
+@@ -87,0 +88,18 @@ endforeach
++if with_platform_nagi
++  # The static EGL path uses pipe_loader_static directly.  Upstream's
++  # public sw helper is normally supplied by a shared pipe_swrast target,
++  # which is not part of the Nagi static archive graph.  Compile the pinned
++  # Mesa helper into a target-owned archive so sw_screen_create_vk is a real
++  # Softpipe entry point, not an adapter stub.
++  libpipe_loader_nagi_roots = static_library(
++    'pipe_loader_nagi_roots',
++    'nagi_roots.c',
++    include_directories : pipe_loader_incs,
++    c_args : ['-DGALLIUM_SOFTPIPE'],
++    dependencies : [driver_swrast, idep_mesautil],
++    build_by_default : false,
++  )
++endif
+diff --git a/src/gallium/targets/pipe-loader/nagi_roots.c b/src/gallium/targets/pipe-loader/nagi_roots.c
+new file mode 100644
+index 00000000000..6c2a4a0f71e
+--- /dev/null
++++ b/src/gallium/targets/pipe-loader/nagi_roots.c
+@@ -0,0 +1,8 @@
++/* Nagi M17 static Softpipe helper roots. */
++
++#include "target-helpers/sw_helper.h"

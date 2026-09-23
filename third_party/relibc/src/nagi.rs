@@ -1721,6 +1721,37 @@ pub unsafe extern "C" fn strdup(source: *const c_char) -> *mut c_char {
     allocation
 }
 
+/// Duplicate at most `length` bytes from a guest NUL-terminated string.  The
+/// result is always NUL-terminated and allocated by the Nagi allocator, so it
+/// remains compatible with the target `free` boundary used by Mesa.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strndup(source: *const c_char, length: usize) -> *mut c_char {
+    if source.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    let mut source_length = 0;
+    while source_length < length
+        && unsafe { source.cast::<u8>().add(source_length).read() } != 0
+    {
+        source_length += 1;
+    }
+    let Some(allocation_length) = source_length.checked_add(1) else {
+        unsafe { set_errno(EOVERFLOW) };
+        return ptr::null_mut();
+    };
+    let allocation = unsafe { nagi_posix_malloc(allocation_length) }.cast::<c_char>();
+    if allocation.is_null() {
+        unsafe { set_errno(ENOMEM) };
+        return ptr::null_mut();
+    }
+    unsafe {
+        ptr::copy_nonoverlapping(source, allocation, source_length);
+        allocation.add(source_length).write(0);
+    }
+    allocation
+}
+
 /// Target-owned byte search for the Nagi relibc backend. The upstream string
 /// module is not selected for `target_os = "nagi"`; keep this bounded loop
 /// independent of host libc or the registry `memchr` implementation.
