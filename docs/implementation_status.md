@@ -2671,6 +2671,17 @@ pinned Mesa `_mesa_glthread_finish` object through a non-executing Nagi link
 anchor rather than substituting a rendering stub. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
 
+### Current M17 continuation after CI run #109 (2026-09-23)
+
+The pushed implementation head was `6296567` on `main`. CI run #109
+(`35820755188`) passed the Mesa GLSL archive and math-predicate repairs, then
+reached target linking with the remaining undefined symbols `lroundf`,
+`llround`, and `sprintf`. The next repair adds target-owned nearest-away-from-
+zero rounding and unbounded-format C ABI entrypoints over the existing Nagi
+formatter; no host libm or host stdio is introduced. UEFI and real QEMU
+first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`; no
+M17 PASS is recorded.
+
 ### Current M17 continuation after CI run #108 (2026-09-23)
 
 The pushed implementation head was `228551c` on `main`. CI run #108

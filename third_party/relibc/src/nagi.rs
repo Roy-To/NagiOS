@@ -2103,6 +2103,48 @@ pub unsafe extern "C" fn isnanf(value: c_float) -> c_int {
     unsafe { __isnanf(value) }
 }
 
+#[inline]
+fn nagi_lroundf_real(value: c_float) -> c_longlong {
+    if value.is_nan() || value.is_infinite() {
+        return 0;
+    }
+    let truncated = value as c_longlong;
+    let fraction = value - truncated as c_float;
+    if fraction >= 0.5 {
+        truncated.saturating_add(1)
+    } else if fraction <= -0.5 {
+        truncated.saturating_sub(1)
+    } else {
+        truncated
+    }
+}
+
+#[inline]
+fn nagi_lround_real(value: c_double) -> c_longlong {
+    if value.is_nan() || value.is_infinite() {
+        return 0;
+    }
+    let truncated = value as c_longlong;
+    let fraction = value - truncated as c_double;
+    if fraction >= 0.5 {
+        truncated.saturating_add(1)
+    } else if fraction <= -0.5 {
+        truncated.saturating_sub(1)
+    } else {
+        truncated
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lroundf(value: c_float) -> c_long {
+    nagi_lroundf_real(value) as c_long
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn llround(value: c_double) -> c_longlong {
+    nagi_lround_real(value)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn accept(
     socket: c_int,
@@ -2943,6 +2985,19 @@ pub unsafe extern "C" fn printf(format: *const c_char, mut args: ...) -> c_int {
     } else {
         EOF
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sprintf(
+    output: *mut c_char,
+    format: *const c_char,
+    mut args: ...,
+) -> c_int {
+    if output.is_null() || format.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    unsafe { nagi_vsnprintf(output, usize::MAX, format, args.as_va_list()) }
 }
 
 /// The Nagi target does not import a host libc for numeric conversion. Keep

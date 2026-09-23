@@ -1686,3 +1686,13 @@ explicitly built; the latter two are missing target math predicates. The next
 repair explicitly builds `libglsl.a` and adds target-owned `isnan`/`__isnanf`.
 M17 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and
 real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, rounding and sprintf ABI)
+
+Public snapshot CI run `35820755188` (#109, head `6296567`) passed the Mesa
+GLSL archive and math-predicate repairs, then reached target linking with the
+remaining undefined symbols `lroundf`, `llround`, and `sprintf`. The next
+repair adds target-owned nearest-away-from-zero rounding and an
+unbounded-format C ABI entrypoint over Nagi's existing formatter. No host
+libm or host stdio is introduced. M17 remains `BLOCKED` until target linking,
+the UEFI loader, real QEMU, and real Servo first-web-pixel evidence pass.
