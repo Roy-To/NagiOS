@@ -25,18 +25,17 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35879561669` (#132) at
-`79f2bf1fb0d0653fbebd613e81c051f1c6508d71` passed Servo bootstrap, Mesa
+**Last known repair checkpoint:** public CI run `35884059558` (#133) at
+`659a76a76b7d7d4110346d0211befa239d29582b` passed Servo bootstrap, Mesa
 Softpipe archive construction, package, and kernel compilation, then reached
-the real target link. The previous fortified stdio and GNU tree insertion
-failures were resolved. The remaining target-owned symbols are const GNU tree
-increment, GNU tree erase/rebalance, and GNU basic_string `_M_create`. The
-current M17 repair adds real const iterator forwarding, full red-black erase
-rebalancing, and allocator-backed `_M_create`; it does not link a host C++
-runtime or compiler-rt. Target link, UEFI, and QEMU are not yet acceptance
-evidence. No host libc, host filesystem, host rendering, or synthetic output
-is used. Target link, UEFI, and real QEMU first-web-pixel evidence remain
-required.
+the real target link. The const tree iterator, erase/rebalance, and string
+create symbols were resolved. The remaining target-owned symbols are
+`strnlen`, `div`, and GNU basic_string `_M_replace`. The current M17 repair
+adds bounded guest-memory `strnlen`, a real C `div` ABI, and allocator-backed
+string replacement; it does not link a host libc or C++ runtime. Target link,
+UEFI, and QEMU are not yet acceptance evidence. No host libc, host
+filesystem, host rendering, or synthetic output is used. Target link, UEFI,
+and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -2920,6 +2919,17 @@ repair implements the real const iterator operations, GNU deletion
 rebalancing/header maintenance, and Nagi allocator-backed string capacity
 creation. UEFI and real QEMU first-web-pixel evidence remain pending. M17
 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #133 (2026-09-24)
+
+Public CI run `35884059558` (#133, head `659a76a`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The real target user-init build resolved the const GNU
+tree iterator, erase/rebalance, and `_M_create` symbols, then failed on
+`strnlen`, `div`, and GNU basic_string `_M_replace`; UEFI and real QEMU
+first-web-pixel acceptance were skipped. The next repair adds bounded
+guest-memory `strnlen`, the C `div_t` ABI, and real allocator-backed string
+replacement. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #106 (2026-09-23)
 

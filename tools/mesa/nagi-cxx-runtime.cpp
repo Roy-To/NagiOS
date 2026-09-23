@@ -841,6 +841,47 @@ extern "C" char *nagi_gnu_basic_string_create(
     return buffer;
 }
 
+extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_replace(
+    nagi_gnu_basic_string_layout *object, nagi_size_t position,
+    nagi_size_t removed, const char *source, nagi_size_t inserted)
+    __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_replaceEmmPKcm");
+
+extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_replace(
+    nagi_gnu_basic_string_layout *object, nagi_size_t position,
+    nagi_size_t removed, const char *source, nagi_size_t inserted) {
+    if (object == nullptr || (source == nullptr && inserted != 0) ||
+        position > object->length) {
+        abort();
+    }
+    const nagi_size_t available = object->length - position;
+    if (removed > available) {
+        removed = available;
+    }
+    const nagi_size_t maximum = ~static_cast<nagi_size_t>(0);
+    if (inserted > maximum - (object->length - removed)) {
+        abort();
+    }
+    const nagi_size_t new_length = object->length - removed + inserted;
+    const nagi_size_t old_capacity = nagi_gnu_basic_string_capacity(object);
+    nagi_size_t new_capacity = new_length;
+    char *new_data = nagi_gnu_basic_string_create(object, new_capacity, old_capacity);
+    const char *old_data = object->data;
+    nagi_copy_bytes(new_data, old_data, position);
+    nagi_copy_bytes(new_data + position, source, inserted);
+    nagi_copy_bytes(new_data + position + inserted,
+                    old_data + position + removed,
+                    object->length - position - removed);
+    new_data[new_length] = '\0';
+    const char *local = reinterpret_cast<const char *>(object) + 16;
+    if (old_data != nullptr && old_data != local) {
+        nagi_posix_free(object->data);
+    }
+    object->data = new_data;
+    object->length = new_length;
+    object->storage.capacity = new_capacity;
+    return object;
+}
+
 extern "C" nagi_size_t nagi_gnu_basic_string_find(
     const nagi_gnu_basic_string_layout *object, const char *needle,
     nagi_size_t needle_length, nagi_size_t position)

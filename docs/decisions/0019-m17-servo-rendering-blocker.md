@@ -1940,6 +1940,16 @@ red-black tree insertion/predecessor operations and a target popcount to the
 Nagi-owned C++ runtime; it does not import host libstdc++ or compiler-rt.
 UEFI and real QEMU first-web-pixel evidence remain pending.
 
+## Target-link continuation after CI run #133 (2026-09-24)
+
+Public CI run `35884059558` (`659a76a`) resolved the const GNU tree iterator,
+erase/rebalance, and basic_string `_M_create` symbols, then reached the next
+real target-link set: `strnlen`, `div`, and GNU basic_string `_M_replace`. The
+next repair adds bounded guest-memory `strnlen`, the C `div_t` ABI, and real
+Nagi allocator-backed string replacement. No host libc, host C++ runtime, or
+synthetic link-only definition is imported. UEFI and real QEMU first-web-pixel
+evidence remain pending.
+
 ## Target-link continuation after CI run #131 (2026-09-24)
 
 Public CI run `35876355907` (`7a698f3`) passed Servo bootstrap, Mesa

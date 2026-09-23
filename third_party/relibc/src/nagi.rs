@@ -144,6 +144,12 @@ const NAGI_FILE_FD: u32 = 2;
 const NAGI_O_CREAT: c_int = 0x0200_0000;
 const NAGI_O_TRUNC: c_int = 0x0400_0000;
 
+#[repr(C)]
+pub struct NagiDivT {
+    pub quot: c_int,
+    pub rem: c_int,
+}
+
 const AF_UNSPEC: c_int = 0;
 const AF_INET: c_int = 2;
 const SOCK_STREAM: c_int = 1;
@@ -1440,6 +1446,32 @@ pub static mut timezone: c_long = 0;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tzset() {
     unsafe { timezone = 0 };
+}
+
+/// Bounded C string length for the Nagi target. The upstream relibc string
+/// module is not selected for `target_os = "nagi"`; keep all reads in guest
+/// memory and stop at the caller-provided bound.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strnlen(string: *const c_char, maximum: usize) -> usize {
+    if string.is_null() {
+        return 0;
+    }
+    let mut length = 0;
+    while length < maximum && unsafe { string.cast::<u8>().add(length).read() } != 0 {
+        length += 1;
+    }
+    length
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn div(numerator: c_int, denominator: c_int) -> NagiDivT {
+    if denominator == 0 || (numerator == c_int::MIN && denominator == -1) {
+        unsafe { abort() };
+    }
+    NagiDivT {
+        quot: numerator / denominator,
+        rem: numerator % denominator,
+    }
 }
 
 /// Basic C string comparison for the Nagi target.  The upstream relibc
