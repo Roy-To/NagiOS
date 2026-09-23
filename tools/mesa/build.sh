@@ -113,10 +113,23 @@ meson setup --wipe "$mesa_build" "$repo_root/third_party/mesa" \
 mesa_core_target=$(ninja -C "$mesa_build" -t targets all \
     | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libmesa\.a$/) { print target; exit } }')
 if [[ -z "$mesa_core_target" ]]; then
-    echo "::error title=M17 Mesa core target::Meson target graph has no libmesa.a target" >&2
+    mesa_core_candidates=$(ninja -C "$mesa_build" -t targets all \
+        | grep -E 'mesa|libmesa' \
+        | head -n 40 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    echo "::error title=M17 Mesa core target::Meson target graph has no libmesa.a output target; candidates=$mesa_core_candidates" >&2
     exit 1
 fi
-ninja -C "$mesa_build" "$mesa_core_target"
+echo "M17 Mesa build: core target: $mesa_core_target"
+mesa_core_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_core_target" 2>&1 | tee "$mesa_core_log"; then
+    mesa_core_error=$(tail -n 30 "$mesa_core_log" | tr '\n' ' ' | cut -c1-3000)
+    echo "::error title=M17 Mesa core target build::target=$mesa_core_target; $mesa_core_error" >&2
+    rm -f "$mesa_core_log"
+    exit 1
+fi
+rm -f "$mesa_core_log"
 ninja -C "$mesa_build"
 
 # Keep the real glthread implementation reachable when the aggregated archive

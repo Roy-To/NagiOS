@@ -2750,3 +2750,13 @@ could select an object under Meson's `libmesa.a.p` directory instead of the
 archive output itself. The next repair restricts the Ninja selection to a
 target whose final path component is `libmesa.a`, then repeats real target
 archive extraction. M18 remains `NOT STARTED`; no M17 PASS is recorded.
+
+### Current M17 continuation after CI run #102 (2026-09-23)
+
+The pushed implementation head was `4694c6c` on `main`. CI run #102
+(`35810511071`) passed Servo bootstrap but failed in the Mesa Softpipe step
+after the stricter archive-target selection was applied; target link, UEFI,
+and real QEMU first-web-pixel acceptance were not reached. The public job
+summary exposed only `Process completed with exit code 1`, so the next repair
+adds target-name and captured Ninja stderr-tail annotations around the real
+`libmesa.a` build. M18 remains `NOT STARTED`; no M17 PASS is recorded.

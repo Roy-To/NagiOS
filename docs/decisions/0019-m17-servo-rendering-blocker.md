@@ -1605,3 +1605,15 @@ for missing archive/member state. Malformed archive members are skipped only
 for discovery; no rendering implementation is bypassed. M17 remains
 `BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
 first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, Mesa core target diagnostics)
+
+Public snapshot CI run `35810511071` (#102, head `4694c6c`) passed Servo
+bootstrap but failed in the Mesa Softpipe step after the stricter
+`libmesa.a` target matching was applied. The public job summary exposed only
+`Process completed with exit code 1`, so it did not yet distinguish a real
+Mesa core compilation failure from a Ninja target-resolution failure. The
+next repair preserves the real target build and emits the selected target plus
+the captured Ninja stderr tail as a bounded CI annotation. M17 remains
+`BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
+first-web-pixel evidence pass.
