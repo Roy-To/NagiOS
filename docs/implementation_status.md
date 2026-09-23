@@ -141,7 +141,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35838340415` (#117) at `32c1313` passed Servo bootstrap, dependency validation, Mesa Softpipe, package, kernel, and target compilation, then failed at final target linking with `strerror`, `time`, and `srand`; UEFI, QEMU, and first-web-pixel acceptance were not reached. The current repair adds Nagi-owned errno text, guest realtime clock forwarding, and target-local seeded random ABI. The run is not M17 acceptance evidence. M17 remains BLOCKED until target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35841735587` (#118) at `4ebf10d` passed Servo bootstrap, dependency validation, Mesa Softpipe, package, kernel, and target compilation, then failed at final target linking with `fputs`, `isspace`, and `sync`; UEFI, QEMU, and first-web-pixel acceptance were not reached. The current repair adds descriptor/guest-memory-backed `fputs`, locale-independent ASCII `isspace`, and the Nagi VFS write-barrier contract for `sync`. The run is not M17 acceptance evidence. M17 remains BLOCKED until target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -2665,6 +2665,19 @@ return `ENOSYS`, because Nagi 0.1 does not expose a guest shared-memory
 mapping service for the M17 surfaceless Softpipe path. No host pointer,
 synthetic mapping, or fake success is introduced. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
+
+### Current M17 continuation after CI run #118 (2026-09-23)
+
+The pushed implementation head was `4ebf10d` on `main`. Public CI run #118
+(`35841735587`) passed Servo bootstrap, dependency validation, Mesa Softpipe,
+package, kernel, and target compilation, then reached final target linking.
+The exact remaining undefined symbols were `fputs`, `isspace`, and `sync`;
+UEFI and real QEMU first-web-pixel acceptance were skipped. The next repair
+adds `fputs` over the target-owned FILE boundary, locale-independent ASCII
+`isspace`, and a truthful `sync` completion contract because Nagi VFS writes
+are committed through the service boundary before returning. No host stdio,
+host locale, or host filesystem flush is introduced. M18 remains
+`NOT STARTED`; no M17 PASS is recorded.
 
 ### Current M17 continuation after CI run #117 (2026-09-23)
 

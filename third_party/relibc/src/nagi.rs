@@ -1476,6 +1476,15 @@ pub unsafe extern "C" fn isalnum(value: c_int) -> c_int {
     }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isspace(value: c_int) -> c_int {
+    if matches!(value, 0x09 | 0x0a | 0x0b | 0x0c | 0x0d | 0x20) {
+        1
+    } else {
+        0
+    }
+}
+
 /// Target-owned forward character search. The Nagi target does not select
 /// relibc's upstream string module, so keep the C ABI on the guest memory
 /// boundary rather than importing a host libc implementation.
@@ -3410,6 +3419,32 @@ pub unsafe extern "C" fn puts(input: *const c_char) -> c_int {
     }
     (length + 1) as c_int
 }
+
+/// Write guest string bytes to a caller-selected Nagi FILE stream.  The
+/// stream remains descriptor-backed or guest-memory-backed through `fwrite`;
+/// no host stdio object is used.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fputs(input: *const c_char, stream: *mut c_void) -> c_int {
+    let Some(length) = (unsafe { c_string_len(input, 16 * 1024 * 1024) }) else {
+        unsafe { set_errno(if input.is_null() { EINVAL } else { EOVERFLOW }) };
+        return EOF;
+    };
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    if unsafe { fwrite(input.cast(), 1, length, stream) } != length {
+        return EOF;
+    }
+    0
+}
+
+/// Nagi's user VFS commits each descriptor write through its service boundary
+/// before returning.  There is no process-local stdio or host filesystem
+/// cache for `sync` to flush, so the POSIX void operation is a truthful
+/// completed barrier with no host side effect.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sync() {}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sprintf(

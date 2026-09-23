@@ -1799,3 +1799,18 @@ guest `clock_gettime(CLOCK_REALTIME)` ABI, and supplies target-local seeded
 `rand`/`srand` state. These paths do not import a host clock, host libc error
 table, or host random source. M17 remains `BLOCKED` until target linking, the
 UEFI loader, real QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, FILE, ctype, and VFS sync ABI)
+
+Public snapshot CI run `35841735587` (#118, head `4ebf10d`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages. It reached final target linking with the exact
+remaining undefined symbols `fputs`, `isspace`, and `sync`; UEFI and real
+QEMU were skipped.
+
+The next M17 repair adds `fputs` over the target-owned descriptor or guest
+memory FILE boundary, locale-independent ASCII `isspace`, and the Nagi VFS
+write-barrier contract for `sync`. Nagi descriptor writes are committed by
+the service boundary before returning, so no host stdio or host filesystem
+flush is substituted. M17 remains `BLOCKED` until target linking, the UEFI
+loader, real QEMU, and real Servo first-web-pixel evidence pass.
