@@ -25,17 +25,17 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35887795498` (#134) at
-`46653870837e456ce58c7350e656a80829aa9538` passed Servo bootstrap, Mesa
+**Last known repair checkpoint:** public CI run `35892368804` (#135) at
+`8e039d287d15f98f6c9b2528a109912709005fe8` passed Servo bootstrap, Mesa
 Softpipe archive construction, package, and kernel compilation, then reached
-the real target link. The `strnlen`, `div`, and basic_string `_M_replace`
-symbols were resolved. The remaining target-owned symbols are `syslog`,
-`openlog`, and GNU `_Prime_rehash_policy::_M_need_rehash`. The current M17
-repair adds descriptor-backed guest logging and a Nagi-owned GNU rehash ABI;
-it does not link a host libc or C++ runtime. Target link, UEFI, and QEMU are
-not yet acceptance evidence. No host libc, host filesystem, host rendering,
-or synthetic output is used. Target link, UEFI, and real QEMU first-web-pixel
-evidence remain required.
+the real target link. The `syslog`, `openlog`, and GNU rehash symbols were
+resolved. The remaining target-owned symbols are `__memset_chk`,
+`__memmove_chk`, and GNU basic_string `resize(unsigned long, char)`. The
+current M17 repair adds bounded guest-memory fortified operations and
+allocator-backed string resize; it does not link a host libc or C++ runtime.
+Target link, UEFI, and QEMU are not yet acceptance evidence. No host libc,
+host filesystem, host rendering, or synthetic output is used. Target link,
+UEFI, and real QEMU first-web-pixel evidence remain required.
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
 
 ## 1B. CI normalization checkpoint (2026-09-19)
@@ -2941,6 +2941,18 @@ and `std::__detail::_Prime_rehash_policy::_M_need_rehash(...)`; UEFI and real
 QEMU first-web-pixel acceptance were skipped. The next repair adds
 descriptor-backed guest logging and the Nagi-owned GNU rehash ABI. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #135 (2026-09-24)
+
+Public CI run `35892368804` (#135, head `8e039d2`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The real target user-init link resolved `syslog`,
+`openlog`, and GNU `_Prime_rehash_policy::_M_need_rehash`, then failed on
+fortified `__memset_chk`, `__memmove_chk`, and GNU basic_string
+`resize(unsigned long, char)`. UEFI and real QEMU first-web-pixel acceptance
+were skipped. The next repair adds bounded guest-memory fortified operations
+and allocator-backed GNU string resize. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Current M17 continuation after CI run #106 (2026-09-23)
 

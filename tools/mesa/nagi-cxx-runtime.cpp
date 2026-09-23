@@ -838,6 +838,12 @@ static void nagi_copy_bytes(char *destination, const char *source,
     }
 }
 
+static void nagi_fill_bytes(char *destination, char value, nagi_size_t count) {
+    for (nagi_size_t index = 0; index < count; ++index) {
+        destination[index] = value;
+    }
+}
+
 static constexpr nagi_size_t NAGI_GNU_BASIC_STRING_LOCAL_CAPACITY = 15;
 
 static nagi_size_t nagi_gnu_basic_string_capacity(
@@ -978,6 +984,61 @@ extern "C" nagi_gnu_basic_string_layout *nagi_gnu_basic_string_replace(
     object->length = new_length;
     object->storage.capacity = new_capacity;
     return object;
+}
+
+extern "C" void nagi_gnu_basic_string_resize(
+    nagi_gnu_basic_string_layout *object, nagi_size_t new_length, char value)
+    __asm__("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6resizeEmc");
+
+extern "C" void nagi_gnu_basic_string_resize(
+    nagi_gnu_basic_string_layout *object, nagi_size_t new_length, char value) {
+    if (object == nullptr || object->data == nullptr) {
+        abort();
+    }
+    const nagi_size_t maximum = ~static_cast<nagi_size_t>(0);
+    if (new_length >= maximum) {
+        abort();
+    }
+    if (new_length <= object->length) {
+        object->length = new_length;
+        object->data[new_length] = '\0';
+        return;
+    }
+
+    const nagi_size_t old_length = object->length;
+    const nagi_size_t capacity = nagi_gnu_basic_string_capacity(object);
+    if (new_length <= capacity) {
+        nagi_fill_bytes(object->data + old_length, value,
+                        new_length - old_length);
+        object->length = new_length;
+        object->data[new_length] = '\0';
+        return;
+    }
+
+    nagi_size_t new_capacity = capacity;
+    if (new_capacity <= (maximum - 1) / 2) {
+        new_capacity *= 2;
+    }
+    if (new_capacity < new_length) {
+        new_capacity = new_length;
+    }
+    if (new_capacity >= maximum) {
+        abort();
+    }
+    char *new_data = static_cast<char *>(nagi_posix_malloc(new_capacity + 1));
+    if (new_data == nullptr) {
+        abort();
+    }
+    nagi_copy_bytes(new_data, object->data, old_length);
+    nagi_fill_bytes(new_data + old_length, value, new_length - old_length);
+    new_data[new_length] = '\0';
+    const char *local = reinterpret_cast<const char *>(object) + 16;
+    if (object->data != local) {
+        nagi_posix_free(object->data);
+    }
+    object->data = new_data;
+    object->length = new_length;
+    object->storage.capacity = new_capacity;
 }
 
 extern "C" nagi_size_t nagi_gnu_basic_string_find(

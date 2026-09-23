@@ -1707,6 +1707,56 @@ pub unsafe extern "C" fn strspn(
     }
 }
 
+/// Fortified target memory set.  The destination object size is supplied by
+/// the caller's checked libc expansion; reject an inconsistent request at the
+/// Nagi process boundary instead of writing beyond the guest object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __memset_chk(
+    destination: *mut c_void,
+    value: c_int,
+    length: usize,
+    destination_length: usize,
+) -> *mut c_void {
+    if length > destination_length {
+        unsafe { abort() };
+    }
+    if length == 0 {
+        return destination;
+    }
+    if destination.is_null() {
+        unsafe { abort() };
+    }
+    unsafe {
+        ptr::write_bytes(destination.cast::<u8>(), value as u8, length);
+    }
+    destination
+}
+
+/// Fortified overlap-safe target memory move. `ptr::copy` is Rust's checked
+/// implementation of the C `memmove` overlap semantics and remains entirely
+/// within the supplied guest pointers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __memmove_chk(
+    destination: *mut c_void,
+    source: *const c_void,
+    length: usize,
+    destination_length: usize,
+) -> *mut c_void {
+    if length > destination_length {
+        unsafe { abort() };
+    }
+    if length == 0 {
+        return destination;
+    }
+    if destination.is_null() || source.is_null() {
+        unsafe { abort() };
+    }
+    unsafe {
+        ptr::copy(source.cast::<u8>(), destination.cast::<u8>(), length);
+    }
+    destination
+}
+
 /// Target-owned NUL-terminated copy for the Nagi relibc backend.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strcpy(

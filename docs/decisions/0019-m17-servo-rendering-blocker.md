@@ -1951,6 +1951,16 @@ descriptor-backed target syslog/openlog handling and a Nagi-owned GNU prime
 rehash policy ABI; it does not import a host syslog daemon, host libc, or host
 C++ runtime. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+## Target-link continuation after CI run #135 (2026-09-24)
+
+Public CI run `35892368804` (#135, head `8e039d2`) resolved `syslog`,
+`openlog`, and GNU `_Prime_rehash_policy::_M_need_rehash`, then reached the
+next real target-link set: fortified `__memset_chk`, `__memmove_chk`, and GNU
+basic_string `resize(unsigned long, char)`. UEFI and real QEMU first-web-pixel
+acceptance were skipped. The next repair adds bounded guest-memory fortified
+operations and allocator-backed GNU string resize; it does not import a host
+libc or C++ runtime. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ## Target-link continuation after CI run #133 (2026-09-24)
 
 Public CI run `35884059558` (`659a76a`) resolved the const GNU tree iterator,
