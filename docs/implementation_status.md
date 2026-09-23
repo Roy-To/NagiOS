@@ -2737,3 +2737,16 @@ link, UEFI, and real QEMU first-web-pixel acceptance were not reached. The
 next repair accepts all Ninja target names containing `libmesa.a`, including
 Meson `.p` output-layout forms, then repeats the real archive extraction.
 M18 remains `NOT STARTED`; no M17 PASS is recorded.
+
+### Current M17 continuation after CI run #101 (2026-09-23)
+
+The pushed implementation head was `4c4c92e` on `main`. CI run #101
+(`35809747498`) passed Servo bootstrap, then the Mesa Softpipe archive step
+completed without finding `_mesa_glthread_finish`; the generated candidates
+were `libglapi.a`, `libmesa_sse41.a`, `libdri.a`, `libswdri.a`,
+`libsoftpipe.a`, and related archives. Target link, UEFI, and real QEMU
+first-web-pixel acceptance were not reached. The preceding target matcher
+could select an object under Meson's `libmesa.a.p` directory instead of the
+archive output itself. The next repair restricts the Ninja selection to a
+target whose final path component is `libmesa.a`, then repeats real target
+archive extraction. M18 remains `NOT STARTED`; no M17 PASS is recorded.

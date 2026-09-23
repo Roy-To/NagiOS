@@ -1578,6 +1578,20 @@ Mesa rendering function is introduced. M17 remains `BLOCKED` until target
 linking, the UEFI loader, real QEMU, and real Servo first-web-pixel evidence
 pass.
 
+## Remediation continuation (2026-09-23, Ninja archive target matching)
+
+Public snapshot CI run `35809747498` (#101, head `4c4c92e`) passed Servo
+bootstrap but still failed during the pinned Mesa Softpipe archive build: the
+target matcher could select a generated object target below Meson's
+`libmesa.a.p` directory, so the real `libmesa.a` archive was never built by
+the explicit command. The archive scan consequently found no definition of
+`_mesa_glthread_finish`. The next repair matches only a Ninja target whose
+final path component is `libmesa.a`; the existing symbol-aware extraction then
+operates on the real generated archive. No host archive, whole-archive
+shortcut, or fake Mesa rendering function is introduced. M17 remains
+`BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
+first-web-pixel evidence pass.
+
 ## Remediation continuation (2026-09-23, direct Mesa core archive selection)
 
 Public snapshot CI run `35805304582` (#97, head `934f230`) passed Servo
