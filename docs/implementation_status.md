@@ -25,18 +25,17 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35911899646` (#140) at
-`3546db3ece5382057d041788d04aa335ed788a57` passed Servo bootstrap, dependency
-validation, Mesa Softpipe archive construction, package, and kernel
-compilation. The IEEE normal/frexp math repair resolved `__isnormal`,
-`__isnormalf`, and `frexp`; the next target link exposed static MozJS archive
-ordering for the real ArrayBuffer and microtask providers plus
-`__gxx_personality_v0`. The next repair adds target-only jsglue whole-archive
-retention with a js_static rescan and a fail-closed Nagi C++ personality ABI.
-It does not link host C++ or libm, create synthetic rendering, or weaken M17
-acceptance. Target link, UEFI, and QEMU are not yet acceptance evidence. No
-host libc, host filesystem, host rendering, or synthetic output is used.
-Target link, UEFI, and real QEMU first-web-pixel evidence remain required.
+**Last known repair checkpoint:** public CI run `35916232106` (#141) at
+`4b3c5f8` passed Servo bootstrap, dependency validation, Mesa Softpipe archive
+construction, package, and kernel compilation, then rejected the target-only
+`static:+whole-archive=jsglue` Rust link modifier as an unsupported modifier
+override. The next repair uses raw lld `--whole-archive` and
+`--no-whole-archive` state around the real jsglue archive, followed by a
+`js_static` rescan. It does not link host C++ or libm, create synthetic
+rendering, or weaken M17 acceptance. Target link, UEFI, and QEMU are not yet
+acceptance evidence. No host libc, host filesystem, host rendering, or
+synthetic output is used. Target link, UEFI, and real QEMU first-web-pixel
+evidence remain required.
 
 ### Current M17 continuation after CI run #140 (2026-09-24)
 
@@ -52,6 +51,16 @@ object and rescans `js_static`, plus a fail-closed Nagi C++ personality ABI.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 **Reference target:** QEMU x86-64 / q35 / UEFI / 4 vCPU / 8 GB RAM
+
+### Current M17 continuation after CI run #141 (2026-09-24)
+
+Public CI run `35916232106` (#141, head `4b3c5f8`) passed the target bootstrap,
+dependency, Mesa Softpipe, package, and kernel stages. `Build Nagi user init`
+stopped before link resolution because rustc rejected the duplicate
+`static:+whole-archive=jsglue` modifier with `overriding linking modifiers from
+command line is not supported`. The next repair keeps the pinned source and
+replaces that syntax with ordered raw lld archive state flags. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ## 1B. CI normalization checkpoint (2026-09-19)
 

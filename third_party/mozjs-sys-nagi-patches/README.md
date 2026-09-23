@@ -78,10 +78,11 @@ API and releases the guest allocation only after successful ArrayBuffer
 creation; failed creation retains the UniquePtr deleter. It is target-only
 and does not return a synthetic object or leak contents.
 
-Patch `0015` keeps the target-only `jsglue` archive object and rescans the real
-`js_static` archive after it. This preserves the pinned MozJS static archive
-dependency graph for wrapper calls such as microtask restoration and does not
-force a host library or replace a provider with a link-only symbol.
+Patch `0015` brackets the target-only `jsglue` archive with the raw lld
+`--whole-archive` state and rescans the real `js_static` archive after it. This
+preserves the pinned MozJS static archive dependency graph for wrapper calls
+such as microtask restoration and does not use an unsupported Rust `-l` modifier,
+force a host library, or replace a provider with a link-only symbol.
 
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the

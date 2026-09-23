@@ -1,9 +1,20 @@
 diff --git a/build.rs b/build.rs
 --- a/build.rs
 +++ b/build.rs
-@@ -369,4 +369,17 @@ fn build(build_dir: &Path, target: BuildTarget) {
+@@ -369,4 +369,26 @@ fn build(build_dir: &Path, target: BuildTarget) {
      }
  
++    if target == BuildTarget::JSGlue
++        && env::var("TARGET")
++            .map(|target| target.contains("nagi-user"))
++            .unwrap_or(false)
++    {
++        // Put the raw linker state before cc-rs emits libjsglue.a. The
++        // target's rustc rejects duplicate -l modifier forms, so use the
++        // lld state flags around the archive instead of static:+whole-archive.
++        println!("cargo:rustc-link-arg=--whole-archive");
++    }
++
      build.out_dir(build_dir).compile(target.output());
 +
 +    if target == BuildTarget::JSGlue
@@ -11,11 +22,9 @@ diff --git a/build.rs b/build.rs
 +            .map(|target| target.contains("nagi-user"))
 +            .unwrap_or(false)
 +    {
-+        // The Nagi freestanding link keeps MozJS in two static archives. The
-+        // glue object owns real wrapper calls into js_static; retain that
-+        // object and rescan js_static after it so its concrete providers are
-+        // extracted without importing a host runtime.
-+        println!("cargo:rustc-link-lib=static:+whole-archive=jsglue");
++        // Rescan js_static after jsglue so its real microtask and ownership
++        // providers are extracted without importing a host runtime.
++        println!("cargo:rustc-link-arg=--no-whole-archive");
 +        println!("cargo:rustc-link-lib=static=js_static");
 +    }
  }

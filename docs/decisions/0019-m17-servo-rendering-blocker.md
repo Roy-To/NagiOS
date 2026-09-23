@@ -2059,3 +2059,14 @@ target-only MozJS archive-order patch `0015`, which retains the real jsglue
 object and rescans `js_static`, plus a fail-closed Nagi C++ personality ABI.
 It does not link host C++ or fabricate a provider; M17 remains `BLOCKED` and
 M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #141 (2026-09-24)
+
+Public CI run `35916232106` (#141, head `4b3c5f8`) passed the target bootstrap,
+dependency, Mesa Softpipe, package, and kernel stages. `Build Nagi user init`
+stopped before link resolution because rustc rejected the duplicate
+`static:+whole-archive=jsglue` modifier with `overriding linking modifiers from
+command line is not supported`. The next repair keeps the pinned source and
+replaces that syntax with ordered raw lld archive state flags. UEFI and real
+QEMU first-web-pixel acceptance remain pending; M17 remains `BLOCKED` and M18
+remains `NOT STARTED`.

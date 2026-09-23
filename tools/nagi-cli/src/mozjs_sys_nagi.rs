@@ -167,7 +167,8 @@ mod tests {
             "third_party/mozjs-sys-nagi-patches/0015-nagi-mozjs-static-archive-order.patch",
         ))
         .expect("mozjs Nagi static archive order patch");
-        assert!(archive_order_patch.contains("static:+whole-archive=jsglue"));
+        assert!(archive_order_patch.contains("rustc-link-arg=--whole-archive"));
+        assert!(archive_order_patch.contains("rustc-link-arg=--no-whole-archive"));
         assert!(archive_order_patch.contains("static=js_static"));
 
         let stdlib_cbindgen = std::fs::read_to_string(
