@@ -1951,6 +1951,19 @@ descriptor-backed target syslog/openlog handling and a Nagi-owned GNU prime
 rehash policy ABI; it does not import a host syslog daemon, host libc, or host
 C++ runtime. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+## Target-link continuation after CI run #137 (2026-09-24)
+
+Public CI run `35899807167` (#137, head `7e1cd53`) resolved `fabsl`, GNU
+`__throw_out_of_range_fmt`, and basic_string `_M_replace_aux(...)`, then
+reached the next real target-link set:
+`JS::NewArrayBufferWithContents(JSContext*, unsigned long,
+std::unique_ptr<void, JS::FreePolicy>)`. UEFI and real QEMU first-web-pixel
+acceptance were skipped. The next repair adds target-only MozJS patch `0014`,
+which restores the real UniquePtr ownership wrapper by delegating to the
+existing four-argument ArrayBuffer API; it does not create a synthetic JS
+object or import a host runtime. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
 ## Target-link continuation after CI run #136 (2026-09-24)
 
 Public CI run `35896205811` (#136, head `0a31126`) resolved fortified

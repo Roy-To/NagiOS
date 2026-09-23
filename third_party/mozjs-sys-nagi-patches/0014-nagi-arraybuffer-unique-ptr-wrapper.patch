@@ -1,0 +1,36 @@
+diff --git a/src/jsglue.cpp b/src/jsglue.cpp
+--- a/src/jsglue.cpp
++++ b/src/jsglue.cpp
+@@ -15,5 +15,6 @@
+ #endif
+ 
+ #include "assert.h"
++#include "js/ArrayBuffer.h"
+ #include "js/BuildId.h"
+ #include "js/Class.h"
+@@ -1279,3 +1279,25 @@ JSString* const* StackGCVectorStringAtIndex(
+ }
+ 
+ }  // extern "C"
++
++#if defined(__NAGI__)
++// The pinned target configuration may omit SpiderMonkey's inline wrapper
++// object from the JSAPI archive. Keep the real ownership transfer in the
++// Nagi-owned glue object and delegate to the underlying four-argument API;
++// this is not a null-returning link shim.
++namespace JS {
++
++JS_PUBLIC_API JSObject* NewArrayBufferWithContents(
++    JSContext* cx, size_t nbytes,
++    mozilla::UniquePtr<void, JS::FreePolicy> contents) {
++  JSObject* result = NewArrayBufferWithContents(
++      cx, nbytes, contents.get(),
++      JS::NewArrayBufferOutOfMemory::CallerMustFreeMemory);
++  if (result != nullptr) {
++    (void)contents.release();
++  }
++  return result;
++}
++
++}  // namespace JS
++#endif
