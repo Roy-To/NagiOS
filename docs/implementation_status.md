@@ -2718,6 +2718,16 @@ the pinned Mesa source and patch boundary. Target build, UEFI, and real QEMU
 first-web-pixel acceptance were not reached. M17 remains `BLOCKED`; M18
 remains `NOT STARTED`.
 
+### Current M17 continuation after CI target Mesa helper compile (2026-09-23)
+
+The latest target CI run for commit `208387f` registered the Nagi helper
+archive but failed compiling its real Mesa `sw_helper.h` source. Clang
+reported conflicting `pipe_screen_config` types because the new translation
+unit did not include Mesa's defining `pipe/p_screen.h` before the helper
+header, causing C prototype-scope tags. The next repair adds that standard
+Mesa header before `sw_helper.h`; no rendering or ABI stub is introduced.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #122 (2026-09-23)
 
 Public CI run `35857472389` (#122, head `63bb9b8`) failed during the pinned
