@@ -67,9 +67,7 @@ fn main() {
             "wrapper_sw_winsys_wrap_pipe_screen",
             "null_sw_create",
         ] {
-            println!(
-                "cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}"
-            );
+            println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }
         // The pinned MozJS build emits the real three-argument UniquePtr
         // ArrayBuffer forwarding wrapper into the jsglue archive. Seed its

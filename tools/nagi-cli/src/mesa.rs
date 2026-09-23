@@ -658,9 +658,9 @@ mod tests {
         assert!(runtime.contains("_ZNSt3__15mutexD1Ev"));
         assert!(runtime.contains("_ZNSt3__118condition_variable10notify_oneEv"));
         assert!(runtime.contains("_ZNSt3__118condition_variable10notify_allEv"));
-        assert!(runtime.contains(
-            "_ZNSt3__118condition_variable4waitERNS_11unique_lockINS_5mutexEEE"
-        ));
+        assert!(
+            runtime.contains("_ZNSt3__118condition_variable4waitERNS_11unique_lockINS_5mutexEEE")
+        );
         assert!(runtime.contains("_ZNSt3__118condition_variableD1Ev"));
         assert!(runtime.contains("pthread_cond_wait"));
         assert!(runtime.contains("pthread_cond_broadcast"));
@@ -670,7 +670,9 @@ mod tests {
         assert!(runtime.contains("__dynamic_cast"));
         assert!(runtime.contains("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_incrementPKSt18_Rb_tree_node_base"));
-        assert!(runtime.contains("_ZSt29_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_"));
+        assert!(
+            runtime.contains("_ZSt29_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_")
+        );
         assert!(relibc.contains("pub unsafe extern \"C\" fn __fprintf_chk("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn __vfprintf_chk("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn strnlen("));
@@ -698,21 +700,15 @@ mod tests {
         assert!(
             runtime.contains("_ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE4findEPKcmm")
         );
-        assert!(runtime.contains(
-            "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE9_M_createERmm"
-        ));
-        assert!(runtime.contains(
-            "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_replaceEmmPKcm"
-        ));
-        assert!(runtime.contains(
-            "_ZNKSt8__detail20_Prime_rehash_policy14_M_need_rehashEmmm"
-        ));
-        assert!(runtime.contains(
-            "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6resizeEmc"
-        ));
-        assert!(runtime.contains(
-            "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructEmc"
-        ));
+        assert!(
+            runtime.contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE9_M_createERmm")
+        );
+        assert!(runtime
+            .contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE10_M_replaceEmmPKcm"));
+        assert!(runtime.contains("_ZNKSt8__detail20_Prime_rehash_policy14_M_need_rehashEmmm"));
+        assert!(runtime.contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6resizeEmc"));
+        assert!(runtime
+            .contains("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructEmc"));
         assert!(runtime.contains("_ZSt24__throw_out_of_range_fmtPKcz"));
         assert!(runtime.contains("__gxx_personality_v0"));
         assert!(runtime.contains(
