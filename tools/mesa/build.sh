@@ -146,6 +146,7 @@ ninja -C "$mesa_build"
 # hidden visibility, while the final Nagi link still needs the real object that
 # owns the hidden implementation and its references.
 mesa_glthread_archive=""
+mesa_glthread_object=""
 while IFS= read -r archive; do
     if llvm-nm --defined-only "$archive" 2>/dev/null \
         | grep -q '_mesa_glthread_finish'; then
@@ -155,32 +156,49 @@ while IFS= read -r archive; do
 done < <(find "$mesa_build" -type f -name '*.a' -print | sort)
 
 if [[ -z "$mesa_glthread_archive" ]]; then
-    archive_candidates=$(find "$mesa_build" -type f -name '*.a' -printf '%f ' | cut -c1-1000)
-    echo "::error title=M17 Mesa glthread archive::no generated archive defines _mesa_glthread_finish; candidates=${archive_candidates}" >&2
-    exit 1
+    # Some LLVM archive layouts do not expose hidden-visibility members to
+    # archive-level nm enumeration even though the target object is present.
+    # Inspect the objects emitted by the same Meson target before failing; this
+    # still selects only the real pinned Mesa implementation.
+    while IFS= read -r object; do
+        if llvm-nm --defined-only "$object" 2>/dev/null \
+            | grep -q '_mesa_glthread_finish'; then
+            mesa_glthread_object="$object"
+            break
+        fi
+    done < <(find "$mesa_build" -type f -name '*.o' -print | sort)
+    if [[ -z "$mesa_glthread_object" ]]; then
+        archive_candidates=$(find "$mesa_build" -type f -name '*.a' -printf '%f ' | cut -c1-1000)
+        object_candidates=$(find "$mesa_build" -type f -name '*.o' -printf '%f ' | cut -c1-1000)
+        echo "::error title=M17 Mesa glthread archive::no generated archive or object defines _mesa_glthread_finish; archives=${archive_candidates}; objects=${object_candidates}" >&2
+        exit 1
+    fi
+    echo "M17 Mesa build: glthread source object: $mesa_glthread_object"
+else
+    echo "M17 Mesa build: glthread source archive: $mesa_glthread_archive"
 fi
-echo "M17 Mesa build: glthread source archive: $mesa_glthread_archive"
 
 mesa_root_temp=$(mktemp -d)
 trap 'rm -f "$archive_manifest"; rm -rf "$mesa_root_temp"' EXIT
-mesa_glthread_object=""
-member_index=0
-while IFS= read -r member; do
-    candidate="$mesa_root_temp/member-$member_index.o"
-    member_index=$((member_index + 1))
-    if ! llvm-ar p "$mesa_glthread_archive" "$member" >"$candidate"; then
-        rm -f "$candidate"
-        continue
-    fi
-    if llvm-nm --defined-only "$candidate" 2>/dev/null \
-        | grep -q '_mesa_glthread_finish'; then
-        mesa_glthread_object="$candidate"
-        break
-    fi
-done < <(llvm-ar t "$mesa_glthread_archive")
+if [[ -n "$mesa_glthread_archive" ]]; then
+    member_index=0
+    while IFS= read -r member; do
+        candidate="$mesa_root_temp/member-$member_index.o"
+        member_index=$((member_index + 1))
+        if ! llvm-ar p "$mesa_glthread_archive" "$member" >"$candidate"; then
+            rm -f "$candidate"
+            continue
+        fi
+        if llvm-nm --defined-only "$candidate" 2>/dev/null \
+            | grep -q '_mesa_glthread_finish'; then
+            mesa_glthread_object="$candidate"
+            break
+        fi
+    done < <(llvm-ar t "$mesa_glthread_archive")
+fi
 
 if [[ -z "$mesa_glthread_object" ]]; then
-    echo "::error title=M17 Mesa glthread member::libmesa.a has no extractable _mesa_glthread_finish member" >&2
+    echo "::error title=M17 Mesa glthread member::generated Mesa archive has no extractable _mesa_glthread_finish member" >&2
     exit 1
 fi
 

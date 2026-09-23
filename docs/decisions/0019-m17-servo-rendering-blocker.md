@@ -1651,3 +1651,14 @@ hidden-visibility Mesa symbols. The next repair scans all defined symbols
 while preserving exact member extraction. No fake rendering function or host
 archive is introduced. M17 remains `BLOCKED` until target linking, the UEFI
 loader, real QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, Mesa object-level symbol scan)
+
+Public snapshot CI run `35814387308` (#106, head `61556cd`) produced the real
+`libmesa.a`, but neither archive-level `llvm-nm` nor archive-member extraction
+exposed `_mesa_glthread_finish`. The next repair preserves archive discovery
+and additionally scans the `.o` files emitted by that same Meson target,
+selecting only the real defining object for the dedicated roots archive. No
+fake rendering function or whole-archive shortcut is introduced. M17 remains
+`BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
+first-web-pixel evidence pass.

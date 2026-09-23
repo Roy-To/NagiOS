@@ -2671,6 +2671,17 @@ pinned Mesa `_mesa_glthread_finish` object through a non-executing Nagi link
 anchor rather than substituting a rendering stub. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
 
+### Current M17 continuation after CI run #106 (2026-09-23)
+
+The pushed implementation head was `61556cd` on `main`. CI run #106
+(`35814387308`) produced `libmesa.a`, but neither the archive-level
+`llvm-nm` scan nor the generated archive member scan exposed
+`_mesa_glthread_finish`. The next repair retains the archive path and adds a
+fallback scan of the actual `.o` files emitted by the same Meson target,
+placing only the real defining object into the roots archive. Target link,
+UEFI, and real QEMU first-web-pixel acceptance were not reached. M18 remains
+`NOT STARTED`; no M17 PASS is recorded.
+
 ### Current M17 continuation after CI run #104 (2026-09-23)
 
 The pushed implementation head was `3f3bcde` on `main`. CI run #104
