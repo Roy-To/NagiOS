@@ -141,7 +141,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35809154991` (#100) at `409f15d` passed Servo bootstrap, then failed during the pinned Mesa Softpipe archive build while selecting the explicit core target; target link, UEFI, and QEMU were not reached. The current repair accepts Meson/Ninja target names containing `libmesa.a`, including `.p` output-layout forms, before symbol-aware archive aggregation. The run is not M17 acceptance evidence. M17 remains BLOCKED until the target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35823065041` (#110) at `9073c44` passed Servo bootstrap, Mesa Softpipe, package, kernel, and target compilation, then failed at final target linking with `feof`, `fgets`, and `stdout`; UEFI, QEMU, and first-web-pixel acceptance were not reached. The current repair adds descriptor-backed target stdio streams over Nagi's POSIX/VFS boundary. The run is not M17 acceptance evidence. M17 remains BLOCKED until target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -2681,6 +2681,17 @@ zero rounding and unbounded-format C ABI entrypoints over the existing Nagi
 formatter; no host libm or host stdio is introduced. UEFI and real QEMU
 first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`; no
 M17 PASS is recorded.
+
+### Current M17 continuation after CI run #110 (2026-09-23)
+
+The pushed implementation head was `9073c44` on `main`. CI run #110
+(`35823065041`) passed target bootstrap, dependency validation, Mesa Softpipe,
+package, kernel, and compilation stages, then reached final target linking
+with the remaining undefined symbols `feof`, `fgets`, and `stdout`. UEFI and
+real QEMU first-web-pixel acceptance were not reached. The next repair adds a
+real descriptor-1 Nagi `stdout` object plus descriptor-backed `fgets` and EOF
+state reporting through `feof`; no host stdio or synthetic stream is used.
+M18 remains `NOT STARTED`; no M17 PASS is recorded.
 
 ### Current M17 continuation after CI run #108 (2026-09-23)
 

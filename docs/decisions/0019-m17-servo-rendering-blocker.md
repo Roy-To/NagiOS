@@ -1696,3 +1696,19 @@ repair adds target-owned nearest-away-from-zero rounding and an
 unbounded-format C ABI entrypoint over Nagi's existing formatter. No host
 libm or host stdio is introduced. M17 remains `BLOCKED` until target linking,
 the UEFI loader, real QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, target stdio stream ABI)
+
+Public snapshot CI run `35823065041` (#110, head `9073c44`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages, then reached final target linking. The exact
+remaining undefined symbols were `feof`, `fgets`, and `stdout`; UEFI and real
+QEMU were not reached.
+
+The next M17 repair completes the target-owned descriptor-backed stdio slice:
+`stdout` now points to a real Nagi descriptor-1 `FILE` object, `fgets` reads
+line bytes through the Nagi POSIX/VFS descriptor boundary, and `feof` reports
+the stream's recorded end-of-file state. Read errors and EOF are tracked on
+the Nagi stream object; no host stdio, host filesystem, or synthetic stream is
+introduced. M17 remains `BLOCKED` until target linking, the UEFI loader, real
+QEMU, and real Servo first-web-pixel evidence pass.

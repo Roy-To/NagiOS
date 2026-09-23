@@ -718,6 +718,8 @@ struct NagiFile {
     kind: u32,
     fd: c_int,
     owned: bool,
+    eof: bool,
+    error: bool,
     buffer: *mut u8,
     length: usize,
     capacity: usize,
@@ -733,6 +735,8 @@ static mut NAGI_STDERR: NagiFile = NagiFile {
     kind: NAGI_FILE_FD,
     fd: 2,
     owned: false,
+    eof: false,
+    error: false,
     buffer: ptr::null_mut(),
     length: 0,
     capacity: 0,
@@ -742,6 +746,26 @@ static mut NAGI_STDERR: NagiFile = NagiFile {
 
 #[unsafe(no_mangle)]
 pub static mut stderr: *mut c_void = ptr::addr_of_mut!(NAGI_STDERR).cast();
+
+// Keep stdout as a real Nagi descriptor-backed FILE object.  Mesa/libc++ use
+// the C symbol directly in diagnostics and stream helpers; exposing the
+// target descriptor here preserves the guest stdout boundary instead of
+// routing output through a host stdio object.
+static mut NAGI_STDOUT: NagiFile = NagiFile {
+    kind: NAGI_FILE_FD,
+    fd: 1,
+    owned: false,
+    eof: false,
+    error: false,
+    buffer: ptr::null_mut(),
+    length: 0,
+    capacity: 0,
+    bufp: ptr::null_mut(),
+    sizep: ptr::null_mut(),
+};
+
+#[unsafe(no_mangle)]
+pub static mut stdout: *mut c_void = ptr::addr_of_mut!(NAGI_STDOUT).cast();
 
 // Nagi user processes currently start with an explicitly empty environment.
 // Keep the standard environ object real and writable at the ABI boundary; a
@@ -835,6 +859,8 @@ pub unsafe extern "C" fn open_memstream(bufp: *mut *mut c_char, sizep: *mut usiz
             kind: NAGI_FILE_MEMORY,
             fd: -1,
             owned: false,
+            eof: false,
+            error: false,
             buffer: ptr::null_mut(),
             length: 0,
             capacity: 0,
@@ -882,6 +908,8 @@ pub unsafe extern "C" fn fopen(path: *const c_char, mode: *const c_char) -> *mut
             kind: NAGI_FILE_FD,
             fd,
             owned: true,
+            eof: false,
+            error: false,
             buffer: ptr::null_mut(),
             length: 0,
             capacity: 0,
@@ -968,11 +996,85 @@ pub unsafe extern "C" fn fread(
     }
 
     let read = unsafe { nagi_posix_read(stream.fd, bytes.cast(), length) };
-    if read <= 0 {
+    if read < 0 {
+        stream.error = true;
+        0
+    } else if read == 0 {
+        stream.eof = true;
         0
     } else {
         (read as usize) / size
     }
+}
+
+/// Read one line from a real Nagi descriptor-backed stream.  This is the
+/// minimal unbuffered target stdio operation required by the pinned Mesa and
+/// libc++ sources; every byte still crosses the Nagi descriptor/VFS boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fgets(
+    output: *mut c_char,
+    length: c_int,
+    stream: *mut c_void,
+) -> *mut c_char {
+    if output.is_null() || stream.is_null() || length <= 0 {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+
+    let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        unsafe { set_errno(EBADF) };
+        stream.error = true;
+        return ptr::null_mut();
+    }
+    if length == 1 {
+        unsafe { output.write(0) };
+        return output;
+    }
+
+    let mut written = 0usize;
+    while written < (length as usize - 1) {
+        let mut byte = 0u8;
+        let read = unsafe { nagi_posix_read(stream.fd, &mut byte, 1) };
+        if read < 0 {
+            stream.error = true;
+            break;
+        }
+        if read == 0 {
+            stream.eof = true;
+            break;
+        }
+
+        unsafe { output.add(written).cast::<u8>().write(byte) };
+        written += 1;
+        if byte == b'\n' {
+            break;
+        }
+    }
+
+    unsafe { output.add(written).write(0) };
+    if written == 0 {
+        ptr::null_mut()
+    } else {
+        output
+    }
+}
+
+/// Return the EOF state recorded by the target descriptor-backed stream.
+/// Reading to end-of-file is the only operation that sets this flag; a
+/// successful read clears neither EOF nor error, matching C stream state.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn feof(stream: *mut c_void) -> c_int {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0;
+    }
+    let stream = unsafe { &*stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        unsafe { set_errno(EBADF) };
+        return 0;
+    }
+    if stream.eof { 1 } else { 0 }
 }
 
 fn nagi_errno_message(error: c_int) -> &'static [u8] {
