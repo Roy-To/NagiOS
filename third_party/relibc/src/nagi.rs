@@ -1283,6 +1283,17 @@ pub unsafe extern "C" fn shmget(_key: c_int, _size: usize, _flags: c_int) -> c_i
     -1
 }
 
+// Nagi 0.1 exposes guest wall-clock time as UTC and does not import a host
+// timezone database. Keep the legacy POSIX global and setter at that explicit
+// target contract for freestanding consumers.
+#[unsafe(no_mangle)]
+pub static mut timezone: c_long = 0;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tzset() {
+    unsafe { timezone = 0 };
+}
+
 /// Basic C string comparison for the Nagi target.  The upstream relibc
 /// implementation is not compiled under `target_os = "nagi"`; keep this
 /// entry point in the target-owned backend instead of linking a host libc.
@@ -2279,6 +2290,18 @@ pub unsafe extern "C" fn __isnanf(value: c_float) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn isnanf(value: c_float) -> c_int {
     unsafe { __isnanf(value) }
+}
+
+/// Nagi's target ctype contract is ASCII/UTF-8 and locale-independent for
+/// the M17 freestanding path. Keep the C ABI result independent of host
+/// locale tables.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isdigit(value: c_int) -> c_int {
+    if (b'0' as c_int..=b'9' as c_int).contains(&value) {
+        1
+    } else {
+        0
+    }
 }
 
 #[inline]

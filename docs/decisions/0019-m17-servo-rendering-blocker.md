@@ -1742,3 +1742,17 @@ core, `atof` over the real target `strtod` parser, and `puts` over the real
 descriptor-1 stdout stream. No host libm, host stdio, or synthetic output is
 introduced. M17 remains `BLOCKED` until target linking, the UEFI loader, real
 QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, ctype and UTC timezone ABI)
+
+Public snapshot CI run `35830580426` (#114, head `acca2e9`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages, including the prior VFS/stdio/IPC repair. It
+reached final target linking with the remaining undefined symbols `isdigit`,
+`tzset`, and `timezone`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds locale-independent target ctype `isdigit` and the
+Nagi UTC timezone contract through `tzset` and the POSIX `timezone` global.
+No host locale table or host timezone database is imported. M17 remains
+`BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
+first-web-pixel evidence pass.
