@@ -124,7 +124,23 @@ jobs:
           out/mesa-venv/bin/python -m pip install --requirement tools/mesa/requirements.txt
           cargo install cbindgen --version 0.28.0 --locked
       - name: Bootstrap pinned Servo source
-        run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
+        run: |
+          set -o pipefail
+          mkdir -p out/logs
+          set +e
+          cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch 2>&1 | tee out/logs/m17-bootstrap.log
+          bootstrap_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$bootstrap_status" -ne 0 ]; then
+            first_error=$(grep -m1 -E '(^FAIL |^error:|patch check failed|patch application failed|fingerprint|source hash|cannot |refusing )' out/logs/m17-bootstrap.log || true)
+            if [ -z "$first_error" ]; then
+              first_error=$(tail -n 30 out/logs/m17-bootstrap.log | tr '\n' ' ' | cut -c1-3000)
+            fi
+            first_error=${first_error//$'\r'/'%0D'}
+            first_error=${first_error//$'\n'/'%0A'}
+            echo "::error title=M17 Servo bootstrap diagnostic::$first_error"
+          fi
+          exit "$bootstrap_status"
       - name: Verify M17 target dependency feature boundary
         run: |
           graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p}')

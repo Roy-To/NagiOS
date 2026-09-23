@@ -1844,6 +1844,17 @@ adds guest-memory `strspn` to the Nagi relibc ABI. UEFI and real QEMU
 first-web-pixel acceptance were not reached. M17 remains `BLOCKED`; M18
 remains `NOT STARTED`.
 
+## Remediation continuation (2026-09-23, Servo bootstrap diagnostics)
+
+Public CI run `35857472389` (#122, head `63bb9b8`) failed during the pinned
+Servo bootstrap before dependency-boundary, Mesa, target build, UEFI, or real
+QEMU acceptance. The public check exposed only exit code 4, so no source or
+linker conclusion is drawn from this run. The next repair preserves the
+failure in `out/logs/m17-bootstrap.log` and emits a bounded first-error
+annotation, allowing the exact pinned-source, patch-order, fingerprint, or
+Servo Cargo-fetch failure to be corrected from evidence. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
 ## Remediation continuation (2026-09-23, static helper roots and `strndup`)
 
 Public CI run `35854076101` (#121, head `3d0286b`) passed Servo bootstrap,

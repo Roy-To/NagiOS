@@ -2706,6 +2706,17 @@ loader/winsys symbols through Cargo's target link arguments and implements
 guest-memory `strspn` in the Nagi relibc ABI. M17 remains `BLOCKED`; M18
 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #122 (2026-09-23)
+
+Public CI run `35857472389` (#122, head `63bb9b8`) failed during the pinned
+Servo bootstrap before dependency-boundary, Mesa, target build, UEFI, or real
+QEMU acceptance. The public check exposed only exit code 4, so no source or
+linker conclusion is drawn from this run. The next repair preserves the
+bootstrap failure and writes `out/logs/m17-bootstrap.log`, with a bounded
+first-error annotation, so the exact pinned-source, patch-order, fingerprint,
+or Servo Cargo-fetch failure can be corrected from evidence. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #121 (2026-09-23)
 
 Public CI run `35854076101` (#121, head `3d0286b`) passed Servo bootstrap,
