@@ -1606,6 +1606,44 @@ pub unsafe extern "C" fn strcspn(
     }
 }
 
+/// Return the length of the initial guest-memory segment containing only
+/// bytes from `accept`.  This is the companion operation to `strcspn` used by
+/// Mesa's XML/configuration parser; it never consults a host libc table.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strspn(
+    input: *const c_char,
+    accept: *const c_char,
+) -> usize {
+    if input.is_null() || accept.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0;
+    }
+    let mut length = 0;
+    loop {
+        let current = unsafe { input.cast::<u8>().add(length).read() };
+        if current == 0 {
+            return length;
+        }
+        let mut accept_index = 0;
+        let mut matched = false;
+        loop {
+            let accepted = unsafe { accept.cast::<u8>().add(accept_index).read() };
+            if accepted == 0 {
+                break;
+            }
+            if accepted == current {
+                matched = true;
+                break;
+            }
+            accept_index += 1;
+        }
+        if !matched {
+            return length;
+        }
+        length += 1;
+    }
+}
+
 /// Target-owned NUL-terminated copy for the Nagi relibc backend.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn strcpy(

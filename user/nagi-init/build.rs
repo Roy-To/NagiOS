@@ -58,6 +58,19 @@ fn main() {
             "cargo:rustc-link-arg-bin=nagi-init=--undefined=nagi_mesa_glthread_finish_link_anchor"
         );
         println!("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush");
+        // The target-owned archive intentionally preserves Mesa's static
+        // dependency graph instead of forcing every object into the image.
+        // Seed the real Softpipe loader/winsys entry points whose providers
+        // occur after their users in that single archive scan.
+        for symbol in [
+            "sw_screen_create_vk",
+            "wrapper_sw_winsys_wrap_pipe_screen",
+            "null_sw_create",
+        ] {
+            println!(
+                "cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}"
+            );
+        }
         println!("cargo:rustc-link-lib=static=nagi_mesa_roots");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
     }

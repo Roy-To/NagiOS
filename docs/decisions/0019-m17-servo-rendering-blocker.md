@@ -1829,3 +1829,17 @@ targets are `build_by_default=false`; selecting and aggregating those real
 objects preserves the Servo-to-Nagi Softpipe path without a fake renderer or
 host fallback. M17 remains `BLOCKED` until target linking, the UEFI loader,
 real QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, Mesa archive extraction and `strspn`)
+
+Public snapshot CI run `35851514326` (#120, head `87cc024`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages. It reached final target linking with
+`sw_screen_create_vk`, `wrapper_sw_winsys_wrap_pipe_screen`, `null_sw_create`,
+and `strspn` still unresolved. Building the real `build_by_default=false`
+Mesa targets was insufficient because the single aggregate archive scan did
+not extract providers that occur after their users. The next repair seeds
+those real Softpipe loader/winsys symbols through the Nagi target link and
+adds guest-memory `strspn` to the Nagi relibc ABI. UEFI and real QEMU
+first-web-pixel acceptance were not reached. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
