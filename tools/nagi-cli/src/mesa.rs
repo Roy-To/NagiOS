@@ -621,6 +621,8 @@ mod tests {
             .expect("Nagi init build script");
         let runtime = fs::read_to_string(root.join("tools/mesa/nagi-cxx-runtime.cpp"))
             .expect("Nagi C++ runtime shim");
+        let relibc = fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
+            .expect("Nagi relibc backend");
         assert!(build_script.contains("nagi-cxx-runtime.cpp"));
         assert!(build_script.contains("-x") && build_script.contains("c++"));
         assert!(runtime.contains("operator delete"));
@@ -650,7 +652,9 @@ mod tests {
         assert!(runtime.contains("nagi_mesa_glthread_finish_link_anchor"));
         assert!(runtime.contains("__dynamic_cast"));
         assert!(runtime.contains("_ZSt18_Rb_tree_incrementPSt18_Rb_tree_node_base"));
-        assert!(runtime.contains("_ZSt27_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_"));
+        assert!(runtime.contains("_ZSt29_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_"));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn __fprintf_chk("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn __vfprintf_chk("));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("__popcountdi2"));
         assert!(

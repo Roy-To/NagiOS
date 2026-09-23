@@ -3535,6 +3535,30 @@ pub unsafe extern "C" fn vfprintf(
     }
 }
 
+/// GCC's fortified stdio entry points preserve the same real Nagi FILE and
+/// descriptor boundary as `fprintf`/`vfprintf`.  The flag is a compile-time
+/// fortify mode, not a permission to bypass the bounded formatter, so it is
+/// intentionally ignored after the existing checked path is selected.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __vfprintf_chk(
+    stream: *mut c_void,
+    _flag: c_int,
+    format: *const c_char,
+    args: VaList,
+) -> c_int {
+    unsafe { vfprintf(stream, format, args) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __fprintf_chk(
+    stream: *mut c_void,
+    _flag: c_int,
+    format: *const c_char,
+    mut args: ...,
+) -> c_int {
+    unsafe { vfprintf(stream, format, args.as_va_list()) }
+}
+
 const NAGI_FORMAT_ALLOCATION_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Format into a Nagi-owned allocation.  `VaList::with_copy` is the Rust

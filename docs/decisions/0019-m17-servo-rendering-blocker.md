@@ -1939,3 +1939,15 @@ runtime symbols were `std::_Rb_tree_insert_and_rebalance`,
 red-black tree insertion/predecessor operations and a target popcount to the
 Nagi-owned C++ runtime; it does not import host libstdc++ or compiler-rt.
 UEFI and real QEMU first-web-pixel evidence remain pending.
+
+## Target-link continuation after CI run #131 (2026-09-24)
+
+Public CI run `35876355907` (`7a698f3`) passed Servo bootstrap, Mesa
+Softpipe archive construction, package, and kernel compilation, then reached
+the real target link. The remaining symbols were `__fprintf_chk`,
+`__vfprintf_chk`, and `std::_Rb_tree_insert_and_rebalance(...)`; the latter
+was declared with an incorrect `_ZSt27` length instead of the real `_ZSt29`
+ABI spelling. The next repair adds Nagi-owned fortified stdio entrypoints that
+reuse the bounded target `vfprintf` path and corrects the GNU tree symbol. No
+host stdio, host C++ runtime, or compiler-rt is imported. UEFI and real QEMU
+first-web-pixel evidence remain pending.

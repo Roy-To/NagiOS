@@ -335,7 +335,7 @@ extern "C" void nagi_gnu_rb_insert_and_rebalance(
     nagi_gnu_rb_tree_node_base *node,
     nagi_gnu_rb_tree_node_base *parent,
     nagi_gnu_rb_tree_node_base &header)
-    __asm__("_ZSt27_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_");
+    __asm__("_ZSt29_Rb_tree_insert_and_rebalancebPSt18_Rb_tree_node_baseS0_RS_");
 
 extern "C" void nagi_gnu_rb_insert_and_rebalance(
     bool insert_left,
