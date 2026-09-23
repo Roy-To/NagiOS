@@ -1814,3 +1814,18 @@ write-barrier contract for `sync`. Nagi descriptor writes are committed by
 the service boundary before returning, so no host stdio or host filesystem
 flush is substituted. M17 remains `BLOCKED` until target linking, the UEFI
 loader, real QEMU, and real Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, Mesa static loader/winsys targets)
+
+Public snapshot CI run `35844150510` (#119, head `cbb114e`) passed the pinned
+Servo bootstrap, dependency boundary, Mesa Softpipe archive, package, kernel,
+and target compilation stages. It reached final target linking with the exact
+remaining undefined symbols `fputc`, `sw_screen_create_vk`, and
+`null_sw_create`; UEFI and real QEMU were skipped.
+
+The next M17 repair adds target FILE `fputc` and explicitly builds Mesa's
+pinned `libpipe_loader_static.a` and `libws_null.a` targets. Both upstream
+targets are `build_by_default=false`; selecting and aggregating those real
+objects preserves the Servo-to-Nagi Softpipe path without a fake renderer or
+host fallback. M17 remains `BLOCKED` until target linking, the UEFI loader,
+real QEMU, and real Servo first-web-pixel evidence pass.

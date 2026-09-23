@@ -3439,6 +3439,21 @@ pub unsafe extern "C" fn fputs(input: *const c_char, stream: *mut c_void) -> c_i
     0
 }
 
+/// Write one byte through the target-owned FILE boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fputc(value: c_int, stream: *mut c_void) -> c_int {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    let byte = [value as u8];
+    if unsafe { fwrite(byte.as_ptr().cast(), 1, 1, stream) } == 1 {
+        (value as u8) as c_int
+    } else {
+        EOF
+    }
+}
+
 /// Nagi's user VFS commits each descriptor write through its service boundary
 /// before returning.  There is no process-local stdio or host filesystem
 /// cache for `sync` to flush, so the POSIX void operation is a truthful

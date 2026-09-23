@@ -187,6 +187,54 @@ if ! ninja -C "$mesa_build" "$mesa_glsl_target" 2>&1 | tee "$mesa_glsl_log"; the
     exit 1
 fi
 rm -f "$mesa_glsl_log"
+
+# The Nagi EGL target uses Mesa's static software loader path. These targets
+# are intentionally build_by_default=false upstream, so the aggregate archive
+# can otherwise contain the real Softpipe core while still omitting the
+# loader/winsys objects that define sw_screen_create_vk and null_sw_create.
+mesa_pipe_loader_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libpipe_loader_static\.a$/) { print target; exit } }')
+if [[ -z "$mesa_pipe_loader_target" ]]; then
+    echo "::error title=M17 Mesa pipe loader target::Meson target graph has no libpipe_loader_static.a output target" >&2
+    exit 1
+fi
+echo "M17 Mesa build: static pipe loader target: $mesa_pipe_loader_target"
+mesa_pipe_loader_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_pipe_loader_target" 2>&1 | tee "$mesa_pipe_loader_log"; then
+    mesa_pipe_loader_error=$(grep -E '(^| )(fatal )?error:' "$mesa_pipe_loader_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_pipe_loader_error" ]]; then
+        mesa_pipe_loader_error=$(tail -n 30 "$mesa_pipe_loader_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
+    echo "::error title=M17 Mesa static pipe loader target build::target=$mesa_pipe_loader_target; $mesa_pipe_loader_error" >&2
+    rm -f "$mesa_pipe_loader_log"
+    exit 1
+fi
+rm -f "$mesa_pipe_loader_log"
+
+mesa_null_winsys_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libws_null\.a$/) { print target; exit } }')
+if [[ -z "$mesa_null_winsys_target" ]]; then
+    echo "::error title=M17 Mesa null winsys target::Meson target graph has no libws_null.a output target" >&2
+    exit 1
+fi
+echo "M17 Mesa build: null winsys target: $mesa_null_winsys_target"
+mesa_null_winsys_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_null_winsys_target" 2>&1 | tee "$mesa_null_winsys_log"; then
+    mesa_null_winsys_error=$(grep -E '(^| )(fatal )?error:' "$mesa_null_winsys_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_null_winsys_error" ]]; then
+        mesa_null_winsys_error=$(tail -n 30 "$mesa_null_winsys_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
+    echo "::error title=M17 Mesa null winsys target build::target=$mesa_null_winsys_target; $mesa_null_winsys_error" >&2
+    rm -f "$mesa_null_winsys_log"
+    exit 1
+fi
+rm -f "$mesa_null_winsys_log"
 ninja -C "$mesa_build"
 
 # Keep the real glthread implementation reachable when the aggregated archive
