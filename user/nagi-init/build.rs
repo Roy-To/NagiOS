@@ -58,6 +58,7 @@ fn main() {
             "cargo:rustc-link-arg-bin=nagi-init=--undefined=nagi_mesa_glthread_finish_link_anchor"
         );
         println!("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush");
+        println!("cargo:rustc-link-lib=static=nagi_mesa_roots");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
     }
 

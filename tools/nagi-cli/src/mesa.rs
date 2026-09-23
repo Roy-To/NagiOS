@@ -578,13 +578,18 @@ mod tests {
             .expect("workspace root");
         let build_script = fs::read_to_string(root.join("user/nagi-init/build.rs"))
             .expect("Nagi init build script");
+        let mesa_build =
+            fs::read_to_string(root.join("tools/mesa/build.sh")).expect("Nagi Mesa build script");
         assert!(build_script.contains("static=nagi_mesa"));
+        assert!(build_script.contains("static=nagi_mesa_roots"));
         assert!(!build_script.contains("static:+whole-archive=nagi_mesa"));
         assert!(build_script.contains(
             "cargo:rustc-link-arg-bin=nagi-init=--undefined=nagi_mesa_glthread_finish_link_anchor"
         ));
         assert!(build_script
             .contains("cargo:rustc-link-arg-bin=nagi-init=--undefined=st_context_flush"));
+        assert!(mesa_build.contains("_mesa_glthread_finish"));
+        assert!(mesa_build.contains("libnagi_mesa_roots.a"));
     }
 
     #[test]
@@ -678,6 +683,9 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn getpid("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn getuid("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn geteuid("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn getgid("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn getegid("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn printf("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn chdir("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn chroot("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn setpgid("));
@@ -694,6 +702,8 @@ mod tests {
         assert!(relibc.contains("nagi_posix_getpid"));
         assert!(relibc.contains("nagi_posix_getuid"));
         assert!(relibc.contains("nagi_posix_geteuid"));
+        assert!(relibc.contains("nagi_posix_getgid"));
+        assert!(relibc.contains("nagi_posix_getegid"));
         assert!(relibc.contains("nagi_posix_setsid"));
         assert!(relibc.contains("nagi_posix_signal"));
         assert!(relibc.contains("nagi_posix_waitpid"));
@@ -704,6 +714,8 @@ mod tests {
         assert!(abi.contains("nagi_posix_signal"));
         assert!(abi.contains("pub unsafe extern \"C\" fn nagi_posix_getuid("));
         assert!(abi.contains("pub unsafe extern \"C\" fn nagi_posix_geteuid("));
+        assert!(abi.contains("pub unsafe extern \"C\" fn nagi_posix_getgid("));
+        assert!(abi.contains("pub unsafe extern \"C\" fn nagi_posix_getegid("));
         assert!(abi.contains("libnagi::exit((code as u8) as u64)"));
     }
 

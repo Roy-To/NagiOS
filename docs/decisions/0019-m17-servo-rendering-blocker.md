@@ -1504,3 +1504,20 @@ continues to use capabilities and does not derive authority from the numeric
 uid. No host libc++abi, host identity, or host filesystem is introduced. M17
 remains `BLOCKED` until target linking, the UEFI loader, real QEMU, and real
 Servo first-web-pixel evidence pass.
+
+## Remediation continuation (2026-09-23, Mesa glthread extraction and POSIX output ABI)
+
+Public snapshot CI run `35801744073` (#95, head `d9db493`) passed target
+bootstrap, dependency-boundary validation, Mesa Softpipe, package, and kernel
+stages, then failed at final target linking. The exact undefined symbols were
+`_mesa_glthread_finish`, `printf`, and `getegid`; UEFI and real QEMU were
+skipped.
+
+The next M17 repair locates the real pinned Mesa object defining
+`_mesa_glthread_finish` with `llvm-nm`, places that object in a dedicated
+target archive, and links it before the aggregate archive. It also implements
+`printf` through Nagi stdout descriptor 1 and maps the capability-scoped root
+to the explicit POSIX gid 0 compatibility view. No Mesa rendering stub, host
+stdout, host identity, or host filesystem is introduced. M17 remains
+`BLOCKED` until target linking, the UEFI loader, real QEMU, and real Servo
+first-web-pixel evidence pass.

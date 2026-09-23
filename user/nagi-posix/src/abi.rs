@@ -1398,6 +1398,18 @@ pub unsafe extern "C" fn nagi_posix_geteuid() -> c_int {
     0
 }
 
+/// The capability-scoped root also has the conventional POSIX gid 0 view.
+/// Group authorization remains capability-checked rather than uid/gid based.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_getgid() -> c_int {
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_getegid() -> c_int {
+    0
+}
+
 /// Nagi 0.1 does not expose Unix process groups or sessions. Keep these
 /// Tier-B POSIX operations explicit and fail closed instead of fabricating
 /// process-group state in the spawn-oriented runtime.

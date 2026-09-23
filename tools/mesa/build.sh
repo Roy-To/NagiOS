@@ -108,6 +108,27 @@ meson setup --wipe "$mesa_build" "$repo_root/third_party/mesa" \
 
 ninja -C "$mesa_build"
 
+# Keep the real glthread implementation reachable when the aggregated archive
+# is scanned by rust-lld. The Mesa object is selected by its defined symbol,
+# not by a guessed path, so this remains valid across pinned Meson layouts.
+mesa_glthread_object=""
+while IFS= read -r object; do
+    if llvm-nm -gP "$object" 2>/dev/null \
+        | awk '$1 == "_mesa_glthread_finish" && $2 != "U" { found = 1 } END { exit(found ? 0 : 1) }'; then
+        mesa_glthread_object="$object"
+        break
+    fi
+done < <(find "$mesa_build" -type f -name '*.o' -print | sort)
+
+if [[ -z "$mesa_glthread_object" ]]; then
+    echo "M17 Mesa build: cannot locate the real _mesa_glthread_finish object" >&2
+    exit 1
+fi
+
+mesa_roots_archive="$output_root/libnagi_mesa_roots.a"
+llvm-ar rcs "$mesa_roots_archive" "$mesa_glthread_object"
+llvm-ranlib "$mesa_roots_archive"
+
 # Cargo's final Nagi link must see the EGL, Gallium, Softpipe, and utility
 # archives as one target-owned native library. Combining only libEGL.a would
 # leave its static Gallium dependencies unresolved; combining the archives

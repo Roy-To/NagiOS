@@ -110,6 +110,8 @@ unsafe extern "C" {
     fn nagi_posix_getpid() -> c_int;
     fn nagi_posix_getuid() -> c_int;
     fn nagi_posix_geteuid() -> c_int;
+    fn nagi_posix_getgid() -> c_int;
+    fn nagi_posix_getegid() -> c_int;
     fn nagi_posix_setsid() -> c_int;
     fn nagi_posix_signal(signal: c_int, handler: *mut c_void) -> *mut c_void;
     fn nagi_posix_waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
@@ -490,6 +492,16 @@ pub unsafe extern "C" fn getuid() -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn geteuid() -> c_int {
     unsafe { nagi_posix_geteuid() }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getgid() -> c_int {
+    unsafe { nagi_posix_getgid() }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getegid() -> c_int {
+    unsafe { nagi_posix_getegid() }
 }
 
 #[unsafe(no_mangle)]
@@ -2849,6 +2861,38 @@ pub unsafe extern "C" fn fprintf(
     let count = written as usize;
     let emitted = unsafe { fwrite(buffer.as_ptr().cast(), 1, count, stream) };
     if emitted == count {
+        written
+    } else {
+        EOF
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn printf(format: *const c_char, mut args: ...) -> c_int {
+    if format.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+
+    // stdout is the real Nagi descriptor 1. Keep the bounded formatting and
+    // write path identical to fprintf without fabricating a FILE object.
+    let mut buffer = [0_u8; 4096];
+    let written = unsafe {
+        nagi_vsnprintf(
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            format,
+            args.as_va_list(),
+        )
+    };
+    if written < 0 || written as usize >= buffer.len() {
+        unsafe { set_errno(EOVERFLOW) };
+        return EOF;
+    }
+
+    let count = written as usize;
+    let emitted = unsafe { nagi_posix_write_fd(1, buffer.as_ptr(), count) };
+    if emitted == count as isize {
         written
     } else {
         EOF
