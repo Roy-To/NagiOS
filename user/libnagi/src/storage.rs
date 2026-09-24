@@ -47,6 +47,8 @@ pub trait BlockDevice {
 
     fn write_sector(&mut self, sector: u64, source: &[u8; SECTOR_SIZE])
         -> Result<(), StorageError>;
+
+    fn flush(&mut self) -> Result<(), StorageError>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,6 +81,14 @@ impl BlockDevice for SyscallBlockDevice {
         source: &[u8; SECTOR_SIZE],
     ) -> Result<(), StorageError> {
         if block_write(self.capability, sector, source) {
+            Ok(())
+        } else {
+            Err(StorageError::Block)
+        }
+    }
+
+    fn flush(&mut self) -> Result<(), StorageError> {
+        if block_flush(self.capability) {
             Ok(())
         } else {
             Err(StorageError::Block)
@@ -132,9 +142,27 @@ impl DirectoryEntry {
 #[derive(Clone, Copy)]
 struct InodeInfo {
     mode: u16,
+    uid: u16,
+    gid: u16,
     size: u32,
+    atime: u32,
+    ctime: u32,
+    mtime: u32,
     blocks: u32,
     direct_block: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FileMetadata {
+    pub inode: u32,
+    pub mode: u16,
+    pub uid: u16,
+    pub gid: u16,
+    pub size: u32,
+    pub atime: u32,
+    pub ctime: u32,
+    pub mtime: u32,
+    pub blocks: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -204,11 +232,17 @@ impl<D: BlockDevice> Vfs<D> {
                 return Err(error);
             }
         };
+        let now = current_timestamp();
         self.write_inode(
             inode,
             InodeInfo {
                 mode: 0x8000,
+                uid: 0,
+                gid: 0,
                 size: 0,
+                atime: now,
+                ctime: now,
+                mtime: now,
                 blocks: 0,
                 direct_block: data_block,
             },
@@ -238,11 +272,17 @@ impl<D: BlockDevice> Vfs<D> {
                 return Err(error);
             }
         };
+        let now = current_timestamp();
         self.write_inode(
             inode,
             InodeInfo {
                 mode: 0x4000,
+                uid: 0,
+                gid: 0,
                 size: BLOCK_SIZE as u32,
+                atime: now,
+                ctime: now,
+                mtime: now,
                 blocks: 2,
                 direct_block: data_block,
             },
@@ -410,7 +450,78 @@ impl<D: BlockDevice> Vfs<D> {
         self.write_block(inode.direct_block, &block)?;
         inode.size = data.len() as u32;
         inode.blocks = 2;
+        let now = current_timestamp();
+        inode.ctime = now;
+        inode.mtime = now;
         self.write_inode(handle.inode, inode)
+    }
+
+    pub fn truncate(&mut self, handle: FileHandle, length: usize) -> Result<(), StorageError> {
+        if length > MAX_FILE_SIZE {
+            return Err(StorageError::FileTooLarge);
+        }
+        let mut contents = [0; MAX_FILE_SIZE];
+        let old_length = self.read(handle, &mut contents)?;
+        if length > old_length {
+            contents[old_length..length].fill(0);
+        }
+        self.write(handle, &contents[..length])
+    }
+
+    pub fn metadata(&mut self, handle: FileHandle) -> Result<FileMetadata, StorageError> {
+        let inode = self.validate_handle(handle)?;
+        Ok(FileMetadata {
+            inode: handle.inode,
+            mode: inode.mode,
+            uid: inode.uid,
+            gid: inode.gid,
+            size: inode.size,
+            atime: inode.atime,
+            ctime: inode.ctime,
+            mtime: inode.mtime,
+            blocks: inode.blocks,
+        })
+    }
+
+    pub fn set_mode(&mut self, handle: FileHandle, mode: u16) -> Result<(), StorageError> {
+        let mut inode = self.validate_handle(handle)?;
+        inode.mode = (inode.mode & 0xf000) | (mode & 0x0fff);
+        inode.ctime = current_timestamp();
+        self.write_inode(handle.inode, inode)
+    }
+
+    pub fn set_owner(
+        &mut self,
+        handle: FileHandle,
+        uid: Option<u16>,
+        gid: Option<u16>,
+    ) -> Result<(), StorageError> {
+        let mut inode = self.validate_handle(handle)?;
+        if let Some(uid) = uid {
+            inode.uid = uid;
+        }
+        if let Some(gid) = gid {
+            inode.gid = gid;
+        }
+        inode.ctime = current_timestamp();
+        self.write_inode(handle.inode, inode)
+    }
+
+    pub fn set_times(
+        &mut self,
+        handle: FileHandle,
+        atime: u32,
+        mtime: u32,
+    ) -> Result<(), StorageError> {
+        let mut inode = self.validate_handle(handle)?;
+        inode.atime = atime;
+        inode.mtime = mtime;
+        inode.ctime = current_timestamp();
+        self.write_inode(handle.inode, inode)
+    }
+
+    pub fn flush(&mut self) -> Result<(), StorageError> {
+        self.device.flush()
     }
 
     pub fn read(
@@ -418,7 +529,7 @@ impl<D: BlockDevice> Vfs<D> {
         handle: FileHandle,
         destination: &mut [u8],
     ) -> Result<usize, StorageError> {
-        let inode = self.validate_handle(handle)?;
+        let mut inode = self.validate_handle(handle)?;
         let length = usize::try_from(inode.size).map_err(|_| StorageError::Corrupt)?;
         if length > MAX_FILE_SIZE {
             return Err(StorageError::Corrupt);
@@ -429,6 +540,8 @@ impl<D: BlockDevice> Vfs<D> {
         let mut block = [0; BLOCK_SIZE];
         self.read_block(inode.direct_block, &mut block)?;
         copy_bytes(destination, block_as_slice(&block, length));
+        inode.atime = current_timestamp();
+        self.write_inode(handle.inode, inode)?;
         Ok(length)
     }
 
@@ -489,7 +602,12 @@ impl<D: BlockDevice> Vfs<D> {
             ROOT_INODE,
             InodeInfo {
                 mode: 0x4000,
+                uid: 0,
+                gid: 0,
                 size: BLOCK_SIZE as u32,
+                atime: 0,
+                ctime: 0,
+                mtime: 0,
                 blocks: 2,
                 direct_block: ROOT_DIRECTORY_BLOCK,
             },
@@ -677,7 +795,12 @@ impl<D: BlockDevice> Vfs<D> {
             inode,
             InodeInfo {
                 mode: 0,
+                uid: 0,
+                gid: 0,
                 size: 0,
+                atime: 0,
+                ctime: 0,
+                mtime: 0,
                 blocks: 0,
                 direct_block: 0,
             },
@@ -708,7 +831,12 @@ impl<D: BlockDevice> Vfs<D> {
         self.read_block(block, &mut bytes)?;
         Ok(InodeInfo {
             mode: read_u16(&bytes, offset),
+            uid: read_u16(&bytes, offset + 2),
             size: read_u32(&bytes, offset + 4),
+            atime: read_u32(&bytes, offset + 8),
+            ctime: read_u32(&bytes, offset + 12),
+            mtime: read_u32(&bytes, offset + 16),
+            gid: read_u16(&bytes, offset + 24),
             blocks: read_u32(&bytes, offset + 28),
             direct_block: read_u32(&bytes, offset + 40),
         })
@@ -723,7 +851,12 @@ impl<D: BlockDevice> Vfs<D> {
         let mut bytes = [0; BLOCK_SIZE];
         self.read_block(block, &mut bytes)?;
         write_u16(&mut bytes, offset, info.mode);
+        write_u16(&mut bytes, offset + 2, info.uid);
         write_u32(&mut bytes, offset + 4, info.size);
+        write_u32(&mut bytes, offset + 8, info.atime);
+        write_u32(&mut bytes, offset + 12, info.ctime);
+        write_u32(&mut bytes, offset + 16, info.mtime);
+        write_u16(&mut bytes, offset + 24, info.gid);
         write_u32(&mut bytes, offset + 28, info.blocks);
         write_u32(&mut bytes, offset + 40, info.direct_block);
         self.write_block(block, &bytes)
@@ -758,6 +891,23 @@ fn block_read(capability: u64, sector: u64, buffer: &mut [u8; SECTOR_SIZE]) -> b
 
 fn block_write(capability: u64, sector: u64, buffer: &[u8; SECTOR_SIZE]) -> bool {
     crate::block_write(capability, sector, buffer)
+}
+
+fn block_flush(capability: u64) -> bool {
+    crate::block_flush(capability)
+}
+
+fn current_timestamp() -> u32 {
+    #[cfg(target_os = "nagi")]
+    {
+        return crate::time_realtime_ns()
+            .map(|nanoseconds| u32::try_from(nanoseconds / 1_000_000_000).unwrap_or(u32::MAX))
+            .unwrap_or(0);
+    }
+    #[cfg(not(target_os = "nagi"))]
+    {
+        0
+    }
 }
 
 fn validate_superblock(superblock: &[u8; BLOCK_SIZE]) -> Result<(), StorageError> {
@@ -962,6 +1112,10 @@ mod tests {
             destination.copy_from_slice(source);
             Ok(())
         }
+
+        fn flush(&mut self) -> Result<(), StorageError> {
+            Ok(())
+        }
     }
 
     #[test]
@@ -988,6 +1142,43 @@ mod tests {
             .read(handle, &mut remounted)
             .expect("remounted read");
         assert_eq!(&remounted[..length], payload);
+    }
+
+    #[test]
+    fn truncate_and_inode_metadata_round_trip_through_ext2_fields() {
+        let (mut volume, _) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        let handle = volume.create(b"metadata").expect("create");
+        volume.write(handle, b"abcdef").expect("write");
+        volume.truncate(handle, 3).expect("shrink");
+        volume.truncate(handle, 6).expect("extend");
+        volume.set_mode(handle, 0o100640).expect("mode");
+        volume
+            .set_owner(handle, Some(123), Some(456))
+            .expect("owner");
+
+        let mut contents = [0; 8];
+        let length = volume.read(handle, &mut contents).expect("read");
+        assert_eq!(length, 6);
+        assert_eq!(&contents[..length], b"abc\0\0\0");
+        volume.set_times(handle, 101, 202).expect("times");
+        let metadata = volume.metadata(handle).expect("metadata");
+        assert_eq!(metadata.mode, 0o100640);
+        assert_eq!(metadata.uid, 123);
+        assert_eq!(metadata.gid, 456);
+        assert_eq!(metadata.size, 6);
+        assert_eq!(metadata.atime, 101);
+        assert_eq!(metadata.mtime, 202);
+        assert_eq!(metadata.blocks, 2);
+
+        let device = volume.into_device();
+        let (mut remounted, formatted) = Vfs::mount_or_format(device).expect("remount");
+        assert!(!formatted);
+        let handle = remounted.open(b"metadata").expect("open after remount");
+        let persisted = remounted.metadata(handle).expect("persisted metadata");
+        assert_eq!(persisted.uid, 123);
+        assert_eq!(persisted.gid, 456);
+        assert_eq!(persisted.atime, 101);
+        assert_eq!(persisted.mtime, 202);
     }
 
     #[test]

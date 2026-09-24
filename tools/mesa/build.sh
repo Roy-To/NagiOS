@@ -11,7 +11,7 @@ relibc_build="$relibc_target_dir/$target"
 relibc_headers="$relibc_build/include"
 mesa_build="$output_root/mesa-build"
 
-for command_name in cargo make cbindgen meson ninja python3 llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-strip; do
+for command_name in cargo make patch cbindgen meson ninja python3 llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-strip; do
     command -v "$command_name" >/dev/null 2>&1 || {
         echo "M17 Mesa build: required command not found: $command_name" >&2
         exit 2
@@ -32,6 +32,25 @@ if [[ ! -d "$repo_root/third_party/mesa" || ! -f "$repo_root/third_party/mesa/.n
 fi
 
 mkdir -p "$output_root"
+
+# Apply the narrow Nagi-owned build-host portability patch before relibc
+# generates the target C headers. The patch is checked both before applying
+# and after application so a changed vendored source is never rewritten
+# silently.
+relibc_header_patch="$repo_root/third_party/relibc-patches/0001-nagi-portable-header-find.patch"
+relibc_makefile="$repo_root/third_party/relibc/Makefile"
+if grep -Fq -- '-printf "%f\n"' "$relibc_makefile"; then
+    if ! patch --dry-run --silent --batch --forward -p1 -d "$repo_root/third_party/relibc" < "$relibc_header_patch"; then
+        echo "M17 Mesa build: relibc header portability patch does not match the pinned source" >&2
+        exit 1
+    fi
+    patch --silent --batch --forward -p1 -d "$repo_root/third_party/relibc" < "$relibc_header_patch"
+elif grep -Fq -- '-exec basename {} \;' "$relibc_makefile"; then
+    :
+else
+    echo "M17 Mesa build: relibc header portability patch does not match the pinned source" >&2
+    exit 1
+fi
 
 # relibc is the Nagi C ABI boundary. The generated headers come from the same
 # target Rust backend used by Nagi user space; no host /usr/include is used as
@@ -311,8 +330,8 @@ if [[ -z "$mesa_glthread_archive" ]]; then
         fi
     done < <(find "$mesa_build" -type f -name '*.o' -print | sort)
     if [[ -z "$mesa_glthread_object" ]]; then
-        archive_candidates=$(find "$mesa_build" -type f -name '*.a' -printf '%f ' | cut -c1-1000)
-        object_candidates=$(find "$mesa_build" -type f -name '*.o' -printf '%f ' | cut -c1-1000)
+        archive_candidates=$(find "$mesa_build" -type f -name '*.a' -exec basename {} \; | tr '\n' ' ' | cut -c1-1000)
+        object_candidates=$(find "$mesa_build" -type f -name '*.o' -exec basename {} \; | tr '\n' ' ' | cut -c1-1000)
         echo "::error title=M17 Mesa glthread archive::no generated archive or object defines _mesa_glthread_finish; archives=${archive_candidates}; objects=${object_candidates}" >&2
         exit 1
     fi

@@ -9,7 +9,7 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
 
 use crate::errno::{
-    set_errno, EAGAIN, EBADF, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP, ENOTTY,
+    set_errno, EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP, ENOTTY,
     ERANGE, ETIMEDOUT,
 };
 use libnagi::storage::{DirectoryEntry, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH};
@@ -649,6 +649,8 @@ pub unsafe extern "C" fn nagi_posix_getsockopt(
 const O_CREAT: c_int = 0x0200_0000;
 const O_TRUNC: c_int = 0x0400_0000;
 const AT_FDCWD: c_int = -100;
+const EFBIG: c_int = 27;
+const EOVERFLOW: c_int = 75;
 const AT_REMOVEDIR: c_int = 0x0200;
 
 #[repr(C)]
@@ -806,6 +808,114 @@ pub unsafe extern "C" fn nagi_posix_mkdir(path: *const c_char, _mode: c_uint) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_rmdir(path: *const c_char) -> c_int {
     nagi_posix_unlinkat(AT_FDCWD, path, AT_REMOVEDIR)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_fsync(fd: c_int) -> c_int {
+    match crate::runtime::sync(fd) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_ftruncate(fd: c_int, length: i64) -> c_int {
+    if length < 0 {
+        return write_errno_and_fail(EINVAL);
+    }
+    let Ok(length) = usize::try_from(length) else {
+        return write_errno_and_fail(EFBIG);
+    };
+    match crate::runtime::truncate(fd, length) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_fchmod(fd: c_int, mode: c_uint) -> c_int {
+    match crate::runtime::set_mode(fd, mode as u16) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_fchown(fd: c_int, uid: c_uint, gid: c_uint) -> c_int {
+    if (uid != c_uint::MAX && uid > u16::MAX as c_uint)
+        || (gid != c_uint::MAX && gid > u16::MAX as c_uint)
+    {
+        return write_errno_and_fail(EOVERFLOW);
+    }
+    let uid = (uid != c_uint::MAX).then_some(uid as u16);
+    let gid = (gid != c_uint::MAX).then_some(gid as u16);
+    match crate::runtime::set_owner(fd, uid, gid) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_utimes(path: *const c_char, times: *const c_void) -> c_int {
+    let mut bytes = [0_u8; 64];
+    let name = match c_path(path, &mut bytes) {
+        Ok(name) => name,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    let fd = match crate::runtime::open(name, false, false) {
+        Ok(fd) => fd,
+        Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
+    };
+    let result = if times.is_null() {
+        match GuestClock.realtime_ns() {
+            Ok(now) => {
+                let seconds = now / 1_000_000_000;
+                if seconds > u64::from(u32::MAX) {
+                    write_errno_and_fail(EOVERFLOW)
+                } else {
+                    let seconds = seconds as u32;
+                    match crate::runtime::set_times(fd, seconds, seconds) {
+                        Ok(()) => 0,
+                        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+                    }
+                }
+            }
+            Err(_) => write_errno_and_fail(ENOSYS),
+        }
+    } else {
+        let times = times.cast::<NagiTimeval>();
+        let atime = unsafe { times.read() };
+        let mtime = unsafe { times.add(1).read() };
+        if !(0..1_000_000).contains(&atime.microseconds)
+            || !(0..1_000_000).contains(&mtime.microseconds)
+        {
+            write_errno_and_fail(EINVAL)
+        } else if atime.microseconds != 0 || mtime.microseconds != 0 {
+            // This EXT2 format stores inode timestamps at one-second
+            // resolution; reject precision that cannot be preserved.
+            write_errno_and_fail(ENOTSUP)
+        } else if atime.seconds < 0
+            || mtime.seconds < 0
+            || atime.seconds > i64::from(u32::MAX)
+            || mtime.seconds > i64::from(u32::MAX)
+        {
+            write_errno_and_fail(EOVERFLOW)
+        } else {
+            match crate::runtime::set_times(fd, atime.seconds as u32, mtime.seconds as u32) {
+                Ok(()) => 0,
+                Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+            }
+        }
+    };
+    let close_result = crate::runtime::close(fd);
+    if result == 0 {
+        close_result.map_or_else(
+            |error| write_errno_and_fail(crate::runtime::map_error(error)),
+            |_| 0,
+        )
+    } else {
+        result
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -970,26 +1080,26 @@ unsafe fn fill_stat(fd: c_int, output: *mut NagiStat) -> c_int {
     if output.is_null() {
         return write_errno_and_fail(EINVAL);
     }
-    let size = match crate::runtime::size(fd) {
-        Ok(size) => size,
+    let metadata = match crate::runtime::metadata(fd) {
+        Ok(metadata) => metadata,
         Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
     };
     output.write(NagiStat {
         st_dev: 0,
-        st_ino: 1,
+        st_ino: u64::from(metadata.inode),
         st_nlink: 1,
-        st_mode: 0o100644,
-        st_uid: 0,
-        st_gid: 0,
+        st_mode: i32::from(metadata.mode),
+        st_uid: u32::from(metadata.uid),
+        st_gid: u32::from(metadata.gid),
         st_rdev: 0,
-        st_size: size as i64,
+        st_size: i64::from(metadata.size),
         st_blksize: 1024,
-        st_blocks: size.div_ceil(512) as u64,
-        st_atime: 0,
+        st_blocks: u64::from(metadata.blocks),
+        st_atime: i64::from(metadata.atime),
         st_atime_nsec: 0,
-        st_mtime: 0,
+        st_mtime: i64::from(metadata.mtime),
         st_mtime_nsec: 0,
-        st_ctime: 0,
+        st_ctime: i64::from(metadata.ctime),
         st_ctime_nsec: 0,
         _pad: [0; 24],
     });
@@ -1768,6 +1878,114 @@ unsafe fn condition_sequence(condition: *mut c_void) -> *mut AtomicU32 {
     condition.cast()
 }
 
+const NAGI_PTHREAD_BARRIER_MAGIC: u32 = 0x4e41_4749;
+const PTHREAD_BARRIER_SERIAL_THREAD: c_int = -1;
+const PTHREAD_PROCESS_PRIVATE: c_int = 1;
+
+/// Layout for the 24-byte relibc pthread_barrier_t. Its mutex and condition
+/// members use the same target ABI words as the pthread mutex/condition
+/// adapters below.
+#[repr(C)]
+struct NagiPthreadBarrier {
+    mutex: AtomicU32,
+    condition: AtomicU32,
+    count: AtomicU32,
+    waiters: AtomicU32,
+    generation: AtomicU32,
+    magic: AtomicU32,
+}
+
+const _: () = assert!(core::mem::size_of::<NagiPthreadBarrier>() == 24);
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_barrier_init(
+    barrier: *mut c_void,
+    attr: *const c_void,
+    count: c_uint,
+) -> c_int {
+    if barrier.is_null() || count == 0 {
+        return EINVAL;
+    }
+    if !attr.is_null() && unsafe { attr.cast::<c_int>().read() } != PTHREAD_PROCESS_PRIVATE {
+        return ENOTSUP;
+    }
+    let state = barrier.cast::<NagiPthreadBarrier>();
+    unsafe {
+        state.write(NagiPthreadBarrier {
+            mutex: AtomicU32::new(0),
+            condition: AtomicU32::new(0),
+            count: AtomicU32::new(count),
+            waiters: AtomicU32::new(0),
+            generation: AtomicU32::new(0),
+            magic: AtomicU32::new(NAGI_PTHREAD_BARRIER_MAGIC),
+        });
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_barrier_destroy(barrier: *mut c_void) -> c_int {
+    if barrier.is_null() {
+        return EINVAL;
+    }
+    let state = unsafe { &*barrier.cast::<NagiPthreadBarrier>() };
+    if state.magic.load(Ordering::Acquire) != NAGI_PTHREAD_BARRIER_MAGIC {
+        return EINVAL;
+    }
+    if state.waiters.load(Ordering::Acquire) != 0 {
+        return EBUSY;
+    }
+    state.magic.store(0, Ordering::Release);
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_barrier_wait(barrier: *mut c_void) -> c_int {
+    if barrier.is_null() {
+        return EINVAL;
+    }
+    let state = unsafe { &*barrier.cast::<NagiPthreadBarrier>() };
+    if state.magic.load(Ordering::Acquire) != NAGI_PTHREAD_BARRIER_MAGIC {
+        return EINVAL;
+    }
+    let mutex = core::ptr::addr_of!(state.mutex).cast_mut().cast::<c_void>();
+    let condition = core::ptr::addr_of!(state.condition)
+        .cast_mut()
+        .cast::<c_void>();
+    let lock_result = unsafe { pthread_mutex_lock(mutex) };
+    if lock_result != 0 {
+        return lock_result;
+    }
+
+    let generation = state.generation.load(Ordering::Acquire);
+    let waiters = state.waiters.load(Ordering::Relaxed).saturating_add(1);
+    state.waiters.store(waiters, Ordering::Release);
+    if waiters == state.count.load(Ordering::Acquire) {
+        state.waiters.store(0, Ordering::Release);
+        state.generation.fetch_add(1, Ordering::AcqRel);
+        let unlock_result = unsafe { pthread_mutex_unlock(mutex) };
+        if unlock_result != 0 {
+            return unlock_result;
+        }
+        let broadcast_result = unsafe { pthread_cond_broadcast(condition) };
+        return if broadcast_result == 0 {
+            PTHREAD_BARRIER_SERIAL_THREAD
+        } else {
+            broadcast_result
+        };
+    }
+
+    while state.generation.load(Ordering::Acquire) == generation {
+        let wait_result = unsafe { pthread_cond_wait(condition, mutex) };
+        if wait_result != 0 {
+            state.waiters.fetch_sub(1, Ordering::AcqRel);
+            let _ = unsafe { pthread_mutex_unlock(mutex) };
+            return wait_result;
+        }
+    }
+    unsafe { pthread_mutex_unlock(mutex) }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_mutex_init(mutex: *mut c_void, _attr: *const c_void) -> c_int {
     if mutex.is_null() {
@@ -1945,6 +2163,37 @@ pub unsafe extern "C" fn pthread_cond_destroy(condition: *mut c_void) -> c_int {
         return EINVAL;
     }
     0
+}
+
+/// The Nagi 0.1 signal service does not deliver POSIX signals. Preserve the
+/// signal-set ABI operations used by Mesa while reporting that thread signal
+/// masks cannot be applied to a nonexistent delivery mechanism.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sigfillset(set: *mut c_void) -> c_int {
+    if set.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
+    unsafe { set.cast::<u64>().write(u64::MAX) };
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sigdelset(set: *mut c_void, signal: c_int) -> c_int {
+    if set.is_null() || !(1..=64).contains(&signal) {
+        return write_errno_and_fail(EINVAL);
+    }
+    let bits = unsafe { &mut *set.cast::<u64>() };
+    *bits &= !(1_u64 << (signal - 1));
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_sigmask(
+    _how: c_int,
+    _set: *const c_void,
+    _old_set: *mut c_void,
+) -> c_int {
+    ENOSYS
 }
 
 #[unsafe(no_mangle)]

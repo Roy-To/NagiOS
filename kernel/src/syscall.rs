@@ -20,11 +20,12 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 pub use nagi_abi::{
     BLOCK_SECTOR_SIZE, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_RANDOM_BYTES,
-    SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ,
-    SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ,
-    SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP,
-    SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_EXIT,
-    SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
+    SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE,
+    SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ,
+    SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT,
+    SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE,
+    SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ,
+    SYS_TIME_REALTIME,
 };
 
 #[cfg(not(test))]
@@ -333,6 +334,7 @@ extern "sysv64" fn dispatch(frame: &SyscallFrame) -> u64 {
         SYS_PROCESS_EXIT => process_exit(frame.arg1),
         SYS_BLOCK_READ => block_read(frame.arg1, frame.arg2, frame.arg3),
         SYS_BLOCK_WRITE => block_write(frame.arg1, frame.arg2, frame.arg3),
+        SYS_BLOCK_FLUSH => block_flush(frame.arg1),
         SYS_CONSOLE_READ => console_read(frame.arg1, frame.arg2),
         SYS_PROCESS_INFO => process_info(frame.arg1, frame.arg2),
         SYS_MEMORY_INFO => memory_info(frame.arg1, frame.arg2),
@@ -839,6 +841,17 @@ fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
 }
 
 #[cfg(not(test))]
+fn block_flush(capability: u64) -> u64 {
+    if !nagi_kernel::virtio::capability_matches(capability) {
+        return u64::MAX;
+    }
+    if nagi_kernel::virtio::flush().is_err() {
+        return u64::MAX;
+    }
+    0
+}
+
+#[cfg(not(test))]
 fn random_get(address: u64, length: u64) -> u64 {
     let Ok(length) = usize::try_from(length) else {
         return u64::MAX;
@@ -908,11 +921,11 @@ mod tests {
     use super::{
         efer_with_sce, is_valid_user_console_read, is_valid_user_read, star_value,
         BLOCK_SECTOR_SIZE, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, SYS_AUDIO_CAPTURE,
-        SYS_AUDIO_PLAY, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE,
-        SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO,
-        SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT,
-        SYS_PROCESS_INFO, SYS_THREAD_CREATE, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF,
-        SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
+        SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ,
+        SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ,
+        SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP,
+        SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_THREAD_CREATE, SYS_THREAD_EXIT, SYS_THREAD_JOIN,
+        SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
     };
     use crate::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
 
@@ -1020,6 +1033,7 @@ mod tests {
         assert_eq!(SYS_PROCESS_EXIT, 2);
         assert_eq!(SYS_BLOCK_READ, 3);
         assert_eq!(SYS_BLOCK_WRITE, 4);
+        assert_eq!(SYS_BLOCK_FLUSH, 28);
         assert_eq!(BLOCK_SECTOR_SIZE, 512);
         assert_eq!(SYS_CONSOLE_READ, 5);
         assert_eq!(SYS_PROCESS_INFO, 6);

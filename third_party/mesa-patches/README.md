@@ -116,6 +116,12 @@ declared target source even though the normal default target graph may reach it
 through another archive. This changes only Meson's dependency graph; it does
 not replace SPIR-V compilation or add a host header.
 
+`0020-nagi-no-thread-cpu-clock.patch` routes Mesa's optional per-thread CPU
+time query through its existing unsupported-platform result on Nagi. The
+kernel exposes guest monotonic/realtime clocks but not per-thread CPU
+accounting; this avoids reading an uninitialized clock id or reporting host
+CPU time. Thread creation, synchronization, and rendering stay enabled.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

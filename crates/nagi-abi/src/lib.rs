@@ -27,6 +27,7 @@ pub const SYS_AUDIO_PLAY: u64 = 24;
 pub const SYS_AUDIO_CAPTURE: u64 = 25;
 pub const SYS_RANDOM_GET: u64 = 26;
 pub const SYS_MEMORY_MAP_AT: u64 = 27;
+pub const SYS_BLOCK_FLUSH: u64 = 28;
 
 // POSIX-compatible protection bits used by the Nagi user-space mapping ABI.
 // They intentionally match the standard mmap contract so relibc and Servo

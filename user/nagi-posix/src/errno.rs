@@ -7,6 +7,7 @@ pub const ENOTDIR: i32 = 20;
 pub const ENOSYS: i32 = 38;
 pub const ENOMEM: i32 = 12;
 pub const EAGAIN: i32 = 11;
+pub const EBUSY: i32 = 16;
 pub const EACCES: i32 = 13;
 pub const ENOPROTOOPT: i32 = 92;
 pub const ENOTSUP: i32 = 95;

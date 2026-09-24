@@ -1,6 +1,6 @@
 use core::time::Duration;
 use libnagi::storage::{
-    DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
+    DirectoryEntry, FileHandle, FileMetadata, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
     MAX_DIRECTORY_ENTRIES,
 };
 use nagi_net::{Ipv4Address, NetError, SocketApi, SyscallDevice};
@@ -799,6 +799,78 @@ pub fn size(fd: i32) -> Result<usize, RuntimeError> {
         return Err(RuntimeError::InvalidFd);
     };
     file_size(handle)
+}
+
+pub fn metadata(fd: i32) -> Result<FileMetadata, RuntimeError> {
+    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    let mut filesystem = FILESYSTEM.lock();
+    filesystem
+        .as_mut()
+        .ok_or(RuntimeError::NotInitialized)?
+        .metadata(handle)
+        .map_err(RuntimeError::Storage)
+}
+
+pub fn truncate(fd: i32, length: usize) -> Result<(), RuntimeError> {
+    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    let mut filesystem = FILESYSTEM.lock();
+    filesystem
+        .as_mut()
+        .ok_or(RuntimeError::NotInitialized)?
+        .truncate(handle, length)
+        .map_err(RuntimeError::Storage)
+}
+
+pub fn set_mode(fd: i32, mode: u16) -> Result<(), RuntimeError> {
+    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    let mut filesystem = FILESYSTEM.lock();
+    filesystem
+        .as_mut()
+        .ok_or(RuntimeError::NotInitialized)?
+        .set_mode(handle, mode)
+        .map_err(RuntimeError::Storage)
+}
+
+pub fn set_owner(fd: i32, uid: Option<u16>, gid: Option<u16>) -> Result<(), RuntimeError> {
+    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    let mut filesystem = FILESYSTEM.lock();
+    filesystem
+        .as_mut()
+        .ok_or(RuntimeError::NotInitialized)?
+        .set_owner(handle, uid, gid)
+        .map_err(RuntimeError::Storage)
+}
+
+pub fn set_times(fd: i32, atime: u32, mtime: u32) -> Result<(), RuntimeError> {
+    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    let mut filesystem = FILESYSTEM.lock();
+    filesystem
+        .as_mut()
+        .ok_or(RuntimeError::NotInitialized)?
+        .set_times(handle, atime, mtime)
+        .map_err(RuntimeError::Storage)
+}
+
+pub fn sync(fd: i32) -> Result<(), RuntimeError> {
+    let FdEntry::File { .. } = descriptor(fd)? else {
+        return Err(RuntimeError::InvalidFd);
+    };
+    let mut filesystem = FILESYSTEM.lock();
+    filesystem
+        .as_mut()
+        .ok_or(RuntimeError::NotInitialized)?
+        .flush()
+        .map_err(RuntimeError::Storage)
 }
 
 fn descriptor(fd: i32) -> Result<FdEntry, RuntimeError> {

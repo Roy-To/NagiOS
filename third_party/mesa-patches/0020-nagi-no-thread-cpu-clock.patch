@@ -1,0 +1,7 @@
+diff --git a/src/util/u_thread.c b/src/util/u_thread.c
+index 255c5f66a4b3..000000000000 100644
+--- a/src/util/u_thread.c
++++ b/src/util/u_thread.c
+@@ -157 +157 @@
+-#if defined(HAVE_PTHREAD) && !defined(__APPLE__) && !defined(__HAIKU__) && !defined(__managarm__)
++#if defined(HAVE_PTHREAD) && !defined(__APPLE__) && !defined(__HAIKU__) && !defined(__managarm__) && !defined(__NAGI__)

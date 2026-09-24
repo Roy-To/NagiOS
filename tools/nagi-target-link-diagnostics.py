@@ -109,17 +109,13 @@ def markdown_code(value: str) -> str:
     return "`" + value.replace("\\", "\\\\").replace("`", "\\`") + "`"
 
 
-def append_summary(
-    summary_path: Path | None,
+def render_report(
     symbols: list[str],
     providers: dict[str, list[str]],
     notes: list[str],
     input_count: int,
     roots: list[str],
-) -> None:
-    if summary_path is None:
-        return
-
+) -> str:
     lines = [
         "## M17 target linker inventory",
         "",
@@ -153,9 +149,21 @@ def append_summary(
         lines.extend(f"- {note}" for note in notes)
     lines.append("")
 
-    summary_path.parent.mkdir(parents=True, exist_ok=True)
-    with summary_path.open("a", encoding="utf-8") as summary:
-        summary.write("\n".join(lines))
+    return "\n".join(lines)
+
+
+def publish_report(report_path: Path, summary_path: Path | None, report: str) -> None:
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(report, encoding="utf-8")
+    if summary_path is not None:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        with summary_path.open("a", encoding="utf-8") as summary:
+            summary.write(report)
+
+    # Keep provider evidence in the failed step log as well as the job summary.
+    # This makes it retrievable from CI log APIs when a downstream consumer
+    # cannot access GitHub's step-summary rendering.
+    print(report, end="")
 
 
 def emit_annotations(symbols: list[str]) -> None:
@@ -202,14 +210,14 @@ def main() -> int:
     providers, notes, candidates, scanned_roots = find_providers(
         symbols, args.search_root, args.search_top_level, args.nm
     )
-    append_summary(
-        args.summary,
+    report = render_report(
         symbols,
         providers,
         notes,
         len(candidates),
         scanned_roots,
     )
+    publish_report(args.inventory.with_suffix(".report.md"), args.summary, report)
 
     print(f"M17 target linker inventory: {len(symbols)} unique undefined symbol(s)")
     for symbol in symbols:

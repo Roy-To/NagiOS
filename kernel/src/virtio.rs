@@ -16,6 +16,8 @@ const LEGACY_QUEUE_SELECT: u16 = 0x0e;
 const LEGACY_QUEUE_NOTIFY: u16 = 0x10;
 const LEGACY_DEVICE_STATUS: u16 = 0x12;
 const LEGACY_DEVICE_CONFIG: u16 = 0x14;
+const LEGACY_HOST_FEATURES: u16 = 0x00;
+const LEGACY_GUEST_FEATURES: u16 = 0x04;
 const QUEUE_SIZE: usize = 256;
 const QUEUE_USED_RING_OFFSET: usize = 8192;
 const QUEUE_AVAILABLE_END: usize = 4614;
@@ -27,6 +29,8 @@ const DESC_F_NEXT: u16 = 1;
 const DESC_F_WRITE: u16 = 2;
 const BLOCK_IN: u32 = 0;
 const BLOCK_OUT: u32 = 1;
+const BLOCK_FLUSH: u32 = 4;
+const VIRTIO_BLK_F_FLUSH: u32 = 1 << 9;
 const BLOCK_SECTOR_SIZE: usize = 512;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +45,7 @@ pub enum BlockError {
     QueueCorrupt,
     SectorOutOfRange,
     Busy,
+    UnsupportedFeature,
 }
 
 #[repr(C)]
@@ -108,6 +113,7 @@ struct DeviceState {
     io_base: u16,
     capacity_sectors: u64,
     capability: u64,
+    flush_supported: bool,
 }
 
 static REQUEST_LOCK: AtomicBool = AtomicBool::new(false);
@@ -139,6 +145,13 @@ pub fn initialize() -> Result<(), BlockError> {
     if queue_address & 0xfff != 0 || queue_address >> 12 > u64::from(u32::MAX) {
         return Err(BlockError::AddressOutOfRange);
     }
+    let host_features = unsafe { io_read32(candidate.io_base + LEGACY_HOST_FEATURES) };
+    let flush_supported = host_features & VIRTIO_BLK_F_FLUSH != 0;
+    let guest_features = if flush_supported {
+        VIRTIO_BLK_F_FLUSH
+    } else {
+        0
+    };
 
     unsafe {
         io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, 0);
@@ -147,7 +160,7 @@ pub fn initialize() -> Result<(), BlockError> {
             candidate.io_base + LEGACY_DEVICE_STATUS,
             STATUS_ACKNOWLEDGE | STATUS_DRIVER,
         );
-        io_write32(candidate.io_base + 0x04, 0);
+        io_write32(candidate.io_base + LEGACY_GUEST_FEATURES, guest_features);
         io_write16(candidate.io_base + LEGACY_QUEUE_SELECT, 0);
         ptr::write_bytes(
             ptr::addr_of_mut!(QUEUE).cast::<u8>(),
@@ -176,6 +189,7 @@ pub fn initialize() -> Result<(), BlockError> {
                 io_base: candidate.io_base,
                 capacity_sectors: candidate.capacity_sectors,
                 capability,
+                flush_supported,
             }),
         );
     }
@@ -214,6 +228,77 @@ pub fn write_sector(sector: u64, source: &[u8; BLOCK_SECTOR_SIZE]) -> Result<(),
     let mut buffer = [0; BLOCK_SECTOR_SIZE];
     copy_bytes(&mut buffer, source);
     transfer(sector, &mut buffer, true)
+}
+
+pub fn flush() -> Result<(), BlockError> {
+    let Some(device) = (unsafe { ptr::addr_of!(DEVICE).read_volatile() }) else {
+        return Err(BlockError::NotInitialized);
+    };
+    if !device.flush_supported {
+        return Err(BlockError::UnsupportedFeature);
+    }
+    if REQUEST_LOCK
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        return Err(BlockError::Busy);
+    }
+    let result = unsafe { flush_locked(device) };
+    REQUEST_LOCK.store(false, Ordering::Release);
+    result
+}
+
+unsafe fn flush_locked(device: DeviceState) -> Result<(), BlockError> {
+    ptr::write_volatile(
+        ptr::addr_of_mut!(REQUEST_HEADER),
+        request_header(BLOCK_FLUSH, 0),
+    );
+    ptr::write_volatile(ptr::addr_of_mut!(REQUEST_STATUS), 0xff);
+
+    let header_address = ptr::addr_of!(REQUEST_HEADER) as u64;
+    let status_address = ptr::addr_of!(REQUEST_STATUS) as u64;
+    if header_address > u64::from(u32::MAX) << 12 || status_address > u64::from(u32::MAX) << 12 {
+        return Err(BlockError::AddressOutOfRange);
+    }
+
+    let queue = &mut *ptr::addr_of_mut!(QUEUE);
+    let previous_used = queue.used_index;
+    queue.descriptors[0] = Descriptor {
+        address: header_address,
+        length: size_of::<BlockRequestHeader>() as u32,
+        flags: DESC_F_NEXT,
+        next: 1,
+    };
+    queue.descriptors[1] = Descriptor {
+        address: status_address,
+        length: 1,
+        flags: DESC_F_WRITE,
+        next: 0,
+    };
+    let available_slot = usize::from(queue.available_index) % QUEUE_SIZE;
+    queue.available_ring[available_slot] = 0;
+    fence(Ordering::SeqCst);
+    queue.available_index = queue.available_index.wrapping_add(1);
+    fence(Ordering::SeqCst);
+    io_write16(device.io_base + LEGACY_QUEUE_NOTIFY, 0);
+
+    let mut spins = 0;
+    while ptr::read_volatile(&queue.used_index) == previous_used {
+        if spins == MAX_REQUEST_SPINS {
+            return Err(BlockError::RequestTimeout);
+        }
+        spins += 1;
+        core::hint::spin_loop();
+    }
+    let used_slot = usize::from(previous_used) % QUEUE_SIZE;
+    let used = ptr::read_volatile(queue.used_ring.as_ptr().add(used_slot));
+    if used.id != 0 || used.length == 0 {
+        return Err(BlockError::QueueCorrupt);
+    }
+    if ptr::read_volatile(ptr::addr_of!(REQUEST_STATUS)) != 0 {
+        return Err(BlockError::DeviceFailure);
+    }
+    Ok(())
 }
 
 fn transfer(

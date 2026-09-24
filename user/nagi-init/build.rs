@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_TARGET_CLANG");
     println!("cargo:rerun-if-env-changed=NAGI_MESA_BUILD");
+    println!("cargo:rerun-if-env-changed=NAGI_CXX_HEADERS");
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     let package_output = out_dir.join("m16-package.xapp");
     if env::var_os("CARGO_FEATURE_M16_PACKAGE").is_some() {
@@ -71,6 +72,12 @@ fn main() {
             "sw_screen_create_vk",
             "wrapper_sw_winsys_wrap_pipe_screen",
             "null_sw_create",
+            // Shader compiler and preprocessor providers are later members in
+            // the combined target Mesa archive. Seed the real implementations
+            // so the archive scan retains GLSL and SPIR-V compilation.
+            "glcpp_preprocess",
+            "spirv_to_nir",
+            "spirv_verify_gl_specialization_constants",
         ] {
             println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }
@@ -81,6 +88,16 @@ fn main() {
         println!(
             "cargo:rustc-link-arg-bin=nagi-init=--undefined=_ZN2JS26NewArrayBufferWithContentsEP9JSContextmSt10unique_ptrIvNS_10FreePolicyEE"
         );
+        // These exact SpiderMonkey providers live in the later js_static
+        // archive members; seed their Itanium ABI names so the documented
+        // MozJS archive rescan can extract the real implementations.
+        for symbol in [
+            "_ZN2JS21RestoreMicroTaskQueueEP9JSContextNSt3__110unique_ptrINS_19SavedMicroTaskQueueENS_12DeletePolicyIS4_EEEE",
+            "_ZN2JS22InitAsyncTaskCallbacksEP9JSContextPFbPvONSt3__110unique_ptrINS_12DispatchableENS_12DeletePolicyIS5_EEEEEPFbS2_S9_jEPFvS2_PS5_ESG_S2_",
+            "_ZN2JS12Dispatchable3RunEP9JSContextONSt3__110unique_ptrIS0_NS_12DeletePolicyIS0_EEEENS0_17MaybeShuttingDownE",
+        ] {
+            println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
+        }
         // The libc++ pthread backend used by the pinned Servo/Mesa graph
         // reaches these real relibc entry points from the Nagi-owned C++
         // runtime object. Seed only those providers before the relibc archive
@@ -110,6 +127,42 @@ fn main() {
             "mktime",
             "gmtime_r",
             "readlink",
+            // These are real relibc/POSIX providers for the complete #157
+            // target link inventory. They can be introduced by later Mesa,
+            // MozJS, and SQLite archive members, so seed their exact C ABI
+            // names before the one-pass Rust static archive scan.
+            "remove",
+            "madvise",
+            "getrusage",
+            "fsync",
+            "ftruncate",
+            "fchmod",
+            "fchown",
+            "utimes",
+            "__fpclassifyf",
+            "getc",
+            "ferror",
+            "clearerr",
+            "stdin",
+            "fileno",
+            "strtok",
+            "strtok_r",
+            "llabs",
+            "__program_invocation_short_name",
+            "log10",
+            "sigfillset",
+            "sigdelset",
+            "pthread_sigmask",
+            "pthread_barrier_init",
+            "pthread_barrier_destroy",
+            "pthread_barrier_wait",
+            "fdopen",
+            // The guest has no dynamic loader. These relibc ABI providers
+            // fail closed with a per-thread dlerror message and must be
+            // extracted when downstream archives introduce their references.
+            "dlopen",
+            "dlerror",
+            "dlclose",
         ] {
             println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }
@@ -218,4 +271,54 @@ fn main() {
         "cargo:rustc-link-arg-bin=nagi-init={}",
         cxx_output.display()
     );
+
+    // Some pinned Servo/MozJS objects use libc++ extern-template entrypoints
+    // which are normally supplied by libc++.a. Nagi deliberately has no host
+    // C++ runtime, so instantiate the exact required algorithms/string method
+    // from the target's libc++ headers and provide sleep_for through the real
+    // guest POSIX clock bridge.
+    let cxx_abi_source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tools")
+        .join("mesa")
+        .join("nagi-libcpp-abi.cpp");
+    println!("cargo:rerun-if-changed={}", cxx_abi_source.display());
+    let cxx_sort_source = cxx_abi_source.with_file_name("nagi-libcpp-sort.cpp");
+    println!("cargo:rerun-if-changed={}", cxx_sort_source.display());
+    let target_cc_wrapper = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tools")
+        .join("nagi-target-cc.sh");
+    for (source, stem) in [
+        (&cxx_abi_source, "nagi-libcpp-abi"),
+        (&cxx_sort_source, "nagi-libcpp-sort"),
+    ] {
+        let output = out_dir.join(format!("{stem}.o"));
+        let status = Command::new("bash")
+            .arg(&target_cc_wrapper)
+            .args([
+                "-x",
+                "c++",
+                "-fno-asynchronous-unwind-tables",
+                "-fno-exceptions",
+                "-fno-rtti",
+                // The custom target triple cannot select libc++'s pthread
+                // backend or default rune table on its own. Match the
+                // target flags used by the pinned MozJS C++ build.
+                "-D_LIBCPP_HAS_THREAD_API_PTHREAD=1",
+                "-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1",
+                "-c",
+            ])
+            .arg(source)
+            .arg("-o")
+            .arg(&output)
+            .status()
+            .unwrap_or_else(|error| panic!("failed to compile libc++ ABI object: {error}"));
+        if !status.success() {
+            panic!("Nagi libc++ ABI compilation failed with {status}");
+        }
+        println!("cargo:rustc-link-arg-bin=nagi-init={}", output.display());
+    }
 }

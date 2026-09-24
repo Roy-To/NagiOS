@@ -23,22 +23,30 @@ if [[ ! -f "$relibc_headers/pthread.h" ]]; then
     exit 2
 fi
 
-cxx_include_args=()
-mesa_include_args=(-I "$repo_root/tools/mesa/nagi-headers" -I "$relibc_headers")
 if [[ -n "${NAGI_CXX_HEADERS:-}" ]]; then
     if [[ ! -f "$NAGI_CXX_HEADERS/cstddef" ]]; then
         echo "Nagi target C compiler: configured C++ headers missing cstddef: $NAGI_CXX_HEADERS" >&2
         exit 2
     fi
-    cxx_include_args=(-isystem "$NAGI_CXX_HEADERS")
-    # libc++ owns the C++ standard headers. Keep the Nagi/Mesa compatibility
-    # headers after libc++ so include_next in libc++ reaches relibc instead of
-    # selecting Mesa's intentionally minimal C++ shims.
-    mesa_include_args=(-idirafter "$repo_root/tools/mesa/nagi-headers" -idirafter "$relibc_headers")
 fi
 
 resource_dir=$("$compiler" --target=x86_64-unknown-elf -print-resource-dir)
-exec "$compiler" \
+target_compile_definition=""
+for argument in "$@"; do
+    # Servo's bundled SQLite explicitly enables its dynamic extension loader,
+    # but the guest is fully static and has no dynamic loader namespace. Keep
+    # that compile-time feature omitted only for SQLite's amalgamation; other
+    # target code retains its normal headers and APIs.
+    if [[ "$argument" == */libsqlite3-sys-*/sqlite3/sqlite3.c ]]; then
+        target_compile_definition=-DSQLITE_OMIT_LOAD_EXTENSION=1
+        break
+    fi
+done
+
+# Build a nonempty argument vector using conditional appends. This also works
+# with macOS's system Bash 3.2, whose `set -u` handling rejects expansion of an
+# empty array.
+compiler_args=(
     --target=x86_64-unknown-elf \
     -D__NAGI__ \
     -ffreestanding \
@@ -46,7 +54,18 @@ exec "$compiler" \
     -fno-builtin \
     -mcmodel=large \
     -nostdinc \
-    "${cxx_include_args[@]}" \
-    -isystem "$resource_dir/include" \
-    "${mesa_include_args[@]}" \
-    "$@"
+)
+if [[ -n "${NAGI_CXX_HEADERS:-}" ]]; then
+    compiler_args+=(-isystem "$NAGI_CXX_HEADERS")
+    # libc++ owns the C++ standard headers. Keep the Nagi/Mesa compatibility
+    # headers after libc++ so include_next in libc++ reaches relibc instead of
+    # selecting Mesa's intentionally minimal C++ shims.
+    compiler_args+=(-idirafter "$repo_root/tools/mesa/nagi-headers" -idirafter "$relibc_headers")
+else
+    compiler_args+=(-I "$repo_root/tools/mesa/nagi-headers" -I "$relibc_headers")
+fi
+compiler_args+=(-isystem "$resource_dir/include")
+if [[ -n "$target_compile_definition" ]]; then
+    compiler_args+=("$target_compile_definition")
+fi
+exec "$compiler" "${compiler_args[@]}" "$@"

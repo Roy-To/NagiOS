@@ -15,11 +15,12 @@ pub use nagi_abi::{
     MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_NET_FRAME_SIZE, MAX_PROCESS_NAME,
     MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE,
     SURFACE_BYTES, SURFACE_HEIGHT, SURFACE_WIDTH, SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY,
-    SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO,
-    SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP,
-    SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_NET_RECEIVE, SYS_NET_SEND,
-    SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_EXIT,
-    SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
+    SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE,
+    SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO,
+    SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_NET_RECEIVE,
+    SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE,
+    SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ,
+    SYS_TIME_REALTIME,
 };
 
 #[cfg(target_os = "nagi")]
@@ -309,6 +310,24 @@ pub fn block_write(capability: u64, sector: u64, buffer: &[u8; BLOCK_SECTOR_SIZE
         );
     }
     result == BLOCK_SECTOR_SIZE as u64
+}
+
+/// Flush writes through the capability-authorized block device when its
+/// negotiated interface supports durable flushes.
+#[inline]
+pub fn block_flush(capability: u64) -> bool {
+    let mut result = SYS_BLOCK_FLUSH;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") capability,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
 }
 
 #[inline]
@@ -666,6 +685,7 @@ mod tests {
         assert_eq!(SYS_PROCESS_EXIT, 2);
         assert_eq!(SYS_BLOCK_READ, 3);
         assert_eq!(SYS_BLOCK_WRITE, 4);
+        assert_eq!(SYS_BLOCK_FLUSH, 28);
         assert_eq!(BLOCK_SECTOR_SIZE, 512);
         assert_eq!(MAX_CONSOLE_WRITE, 256);
         assert_eq!(SYS_CONSOLE_READ, 5);

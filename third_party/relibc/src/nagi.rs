@@ -11,8 +11,8 @@ use core::{
         c_void,
     },
     fmt, mem, ptr, slice,
+    sync::atomic::{AtomicU32, Ordering},
 };
-use core::sync::atomic::{AtomicU32, Ordering};
 
 #[cfg(target_arch = "x86_64")]
 core::arch::global_asm!(
@@ -92,6 +92,13 @@ unsafe extern "C" {
     fn nagi_posix_unlinkat(fd: c_int, path: *const c_char, flags: c_int) -> c_int;
     fn nagi_posix_mkdir(path: *const c_char, mode: c_uint) -> c_int;
     fn nagi_posix_rmdir(path: *const c_char) -> c_int;
+    fn nagi_posix_fsync(fd: c_int) -> c_int;
+    fn nagi_posix_ftruncate(fd: c_int, length: i64) -> c_int;
+    fn nagi_posix_fchmod(fd: c_int, mode: c_uint) -> c_int;
+    fn nagi_posix_fchown(fd: c_int, uid: c_uint, gid: c_uint) -> c_int;
+    fn nagi_posix_utimes(path: *const c_char, times: *const c_void) -> c_int;
+    fn nagi_posix_copy_process_name(output: *mut u8, capacity: usize) -> isize;
+    fn fcntl(fd: c_int, command: c_int, argument: c_int) -> c_int;
     fn nagi_posix_opendir(path: *const c_char) -> *mut c_void;
     fn nagi_posix_readdir(directory: *mut c_void) -> *mut c_void;
     fn nagi_posix_readdir_r(
@@ -128,6 +135,7 @@ unsafe extern "C" {
 
 const EINVAL: c_int = 22;
 const EACCES: c_int = 13;
+const EISDIR: c_int = 21;
 const ENOSYS: c_int = 38;
 const ENOMEM: c_int = 12;
 const EBADF: c_int = 9;
@@ -206,6 +214,83 @@ unsafe fn c_string_len(pointer: *const c_char, limit: usize) -> Option<usize> {
         }
     }
     None
+}
+
+unsafe fn byte_in_delimiters(byte: u8, delimiters: *const c_char, length: usize) -> bool {
+    let mut index = 0;
+    while index < length {
+        if unsafe { delimiters.cast::<u8>().add(index).read() } == byte {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtok_r(
+    input: *mut c_char,
+    delimiters: *const c_char,
+    save_pointer: *mut *mut c_char,
+) -> *mut c_char {
+    if delimiters.is_null() || save_pointer.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    let Some(delimiter_length) = (unsafe { c_string_len(delimiters, 4096) }) else {
+        unsafe { set_errno(EOVERFLOW) };
+        return ptr::null_mut();
+    };
+    let mut cursor = if input.is_null() {
+        unsafe { save_pointer.read() }
+    } else {
+        input
+    };
+    if cursor.is_null() {
+        return ptr::null_mut();
+    }
+
+    while unsafe { cursor.cast::<u8>().read() } != 0
+        && unsafe { byte_in_delimiters(cursor.cast::<u8>().read(), delimiters, delimiter_length) }
+    {
+        cursor = unsafe { cursor.add(1) };
+    }
+    if unsafe { cursor.cast::<u8>().read() } == 0 {
+        unsafe { save_pointer.write(ptr::null_mut()) };
+        return ptr::null_mut();
+    }
+
+    let token = cursor;
+    loop {
+        let byte = unsafe { cursor.cast::<u8>().read() };
+        if byte == 0 {
+            unsafe { save_pointer.write(ptr::null_mut()) };
+            break;
+        }
+        if unsafe { byte_in_delimiters(byte, delimiters, delimiter_length) } {
+            unsafe {
+                cursor.cast::<u8>().write(0);
+                save_pointer.write(cursor.add(1));
+            }
+            break;
+        }
+        cursor = unsafe { cursor.add(1) };
+    }
+    token
+}
+
+#[thread_local]
+static mut NAGI_STRTOK_SAVE_POINTER: *mut c_char = ptr::null_mut();
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strtok(input: *mut c_char, delimiters: *const c_char) -> *mut c_char {
+    unsafe {
+        strtok_r(
+            input,
+            delimiters,
+            ptr::addr_of_mut!(NAGI_STRTOK_SAVE_POINTER),
+        )
+    }
 }
 
 fn parse_ipv4(bytes: &[u8]) -> Option<[u8; 4]> {
@@ -428,12 +513,49 @@ pub unsafe extern "C" fn fork() -> c_int {
 /// namespace.  Keep the ABI truthful: a dynamic lookup fails closed instead
 /// of returning a fabricated function pointer or consulting the host process.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dlsym(
-    _handle: *mut c_void,
-    _symbol: *const c_char,
-) -> *mut c_void {
-    unsafe { set_errno(ENOSYS) };
+pub unsafe extern "C" fn dlsym(_handle: *mut c_void, _symbol: *const c_char) -> *mut c_void {
+    unsafe {
+        set_errno(ENOSYS);
+        NAGI_DL_ERROR_PENDING = true;
+    }
     ptr::null_mut()
+}
+
+static NAGI_DL_ERROR_TEXT: &[u8] = b"dynamic loading is not supported\0";
+
+#[thread_local]
+static mut NAGI_DL_ERROR_PENDING: bool = false;
+
+/// Nagi 0.1 user images do not have a dynamic loader namespace. Keep the
+/// POSIX ABI explicit and fail closed instead of consulting host libraries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dlopen(_filename: *const c_char, _flags: c_int) -> *mut c_void {
+    unsafe {
+        set_errno(ENOSYS);
+        NAGI_DL_ERROR_PENDING = true;
+    }
+    ptr::null_mut()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dlclose(_handle: *mut c_void) -> c_int {
+    unsafe {
+        set_errno(ENOSYS);
+        NAGI_DL_ERROR_PENDING = true;
+    }
+    -1
+}
+
+/// POSIX consumes the most recent loader error on read. The immutable message
+/// is shared, while the pending bit follows each guest thread independently.
+#[unsafe(no_mangle)]
+pub extern "C" fn dlerror() -> *mut c_char {
+    if unsafe { NAGI_DL_ERROR_PENDING } {
+        unsafe { NAGI_DL_ERROR_PENDING = false };
+        NAGI_DL_ERROR_TEXT.as_ptr().cast_mut().cast()
+    } else {
+        ptr::null_mut()
+    }
 }
 
 // `pthread_once_t` is a four-byte target ABI object in the selected relibc
@@ -457,12 +579,7 @@ pub unsafe extern "C" fn pthread_once(
             NAGI_ONCE_COMPLETE => return 0,
             0 => {
                 if state
-                    .compare_exchange(
-                        0,
-                        NAGI_ONCE_RUNNING,
-                        Ordering::Acquire,
-                        Ordering::Relaxed,
-                    )
+                    .compare_exchange(0, NAGI_ONCE_RUNNING, Ordering::Acquire, Ordering::Relaxed)
                     .is_ok()
                 {
                     unsafe { init_routine.unwrap_unchecked()() };
@@ -572,9 +689,7 @@ pub unsafe extern "C" fn signal(
     signal_number: c_int,
     handler: Option<extern "C" fn(c_int)>,
 ) -> Option<extern "C" fn(c_int)> {
-    let handler = handler.map_or(core::ptr::null_mut(), |function| {
-        function as *mut c_void
-    });
+    let handler = handler.map_or(core::ptr::null_mut(), |function| function as *mut c_void);
     let result = unsafe { nagi_posix_signal(signal_number, handler) };
     unsafe { core::mem::transmute::<usize, Option<extern "C" fn(c_int)>>(result as usize) }
 }
@@ -634,12 +749,7 @@ pub unsafe extern "C" fn pthread_rwlock_rdlock(lock: *mut c_void) -> c_int {
             return EAGAIN;
         }
         if lock
-            .compare_exchange(
-                state,
-                state + 1,
-                Ordering::Acquire,
-                Ordering::Relaxed,
-            )
+            .compare_exchange(state, state + 1, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
         {
             return 0;
@@ -710,12 +820,7 @@ pub unsafe extern "C" fn pthread_rwlock_unlock(lock: *mut c_void) -> c_int {
         let state = lock.load(Ordering::Acquire);
         if state & NAGI_RWLOCK_WRITER != 0 {
             if lock
-                .compare_exchange(
-                    state,
-                    0,
-                    Ordering::Release,
-                    Ordering::Relaxed,
-                )
+                .compare_exchange(state, 0, Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 return 0;
@@ -726,12 +831,7 @@ pub unsafe extern "C" fn pthread_rwlock_unlock(lock: *mut c_void) -> c_int {
             return EINVAL;
         }
         if lock
-            .compare_exchange(
-                state,
-                state - 1,
-                Ordering::Release,
-                Ordering::Relaxed,
-            )
+            .compare_exchange(state, state - 1, Ordering::Release, Ordering::Relaxed)
             .is_ok()
         {
             return 0;
@@ -800,6 +900,22 @@ static mut NAGI_STDERR: NagiFile = NagiFile {
 #[unsafe(no_mangle)]
 pub static mut stderr: *mut c_void = ptr::addr_of_mut!(NAGI_STDERR).cast();
 
+static mut NAGI_STDIN: NagiFile = NagiFile {
+    kind: NAGI_FILE_FD,
+    fd: 0,
+    owned: false,
+    eof: false,
+    error: false,
+    buffer: ptr::null_mut(),
+    length: 0,
+    capacity: 0,
+    bufp: ptr::null_mut(),
+    sizep: ptr::null_mut(),
+};
+
+#[unsafe(no_mangle)]
+pub static mut stdin: *mut c_void = ptr::addr_of_mut!(NAGI_STDIN).cast();
+
 // Keep stdout as a real Nagi descriptor-backed FILE object.  Mesa/libc++ use
 // the C symbol directly in diagnostics and stream helpers; exposing the
 // target descriptor here preserves the guest stdout boundary instead of
@@ -827,6 +943,42 @@ pub static mut stdout: *mut c_void = ptr::addr_of_mut!(NAGI_STDOUT).cast();
 // representation of an environment containing no entries.
 #[unsafe(no_mangle)]
 pub static mut environ: *mut *mut c_char = ptr::null_mut();
+
+static mut NAGI_PROCESS_NAME: [c_char; 17] = [0; 17];
+static mut NAGI_PROCESS_NAME_POINTER: *mut c_char = ptr::null_mut();
+static NAGI_PROCESS_NAME_STATE: AtomicU32 = AtomicU32::new(0);
+
+/// Return the address of the process-name pointer used by relibc's GNU
+/// `program_invocation_short_name` macro. The bytes come from Nagi's real
+/// process-info syscall through nagi-posix, not from a host process or a
+/// guessed executable name.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __program_invocation_short_name() -> *mut *mut c_char {
+    match NAGI_PROCESS_NAME_STATE.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed) {
+        Ok(_) => {
+            let name = ptr::addr_of_mut!(NAGI_PROCESS_NAME).cast::<u8>();
+            let length = unsafe { nagi_posix_copy_process_name(name, 17) };
+            let pointer = if (0..=16).contains(&length) {
+                name.cast::<c_char>()
+            } else {
+                // An unavailable process-info service is represented by an
+                // empty name, matching Mesa's documented unsupported-OS
+                // fallback without inventing an identity.
+                unsafe { name.write(0) };
+                name.cast::<c_char>()
+            };
+            unsafe { ptr::addr_of_mut!(NAGI_PROCESS_NAME_POINTER).write(pointer) };
+            NAGI_PROCESS_NAME_STATE.store(2, Ordering::Release);
+        }
+        Err(1) => {
+            while NAGI_PROCESS_NAME_STATE.load(Ordering::Acquire) != 2 {
+                core::hint::spin_loop();
+            }
+        }
+        Err(_) => {}
+    }
+    ptr::addr_of_mut!(NAGI_PROCESS_NAME_POINTER)
+}
 
 #[inline]
 unsafe fn set_errno(error: c_int) {
@@ -1086,6 +1238,17 @@ pub unsafe extern "C" fn fread(
     }
 }
 
+/// Read one byte from the target-owned FILE representation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getc(stream: *mut c_void) -> c_int {
+    let mut byte = 0_u8;
+    if unsafe { fread((&mut byte as *mut u8).cast(), 1, 1, stream) } == 1 {
+        c_int::from(byte)
+    } else {
+        EOF
+    }
+}
+
 /// Read one line from a real Nagi descriptor-backed stream.  This is the
 /// minimal unbuffered target stdio operation required by the pinned Mesa and
 /// libc++ sources; every byte still crosses the Nagi descriptor/VFS boundary.
@@ -1156,6 +1319,102 @@ pub unsafe extern "C" fn feof(stream: *mut c_void) -> c_int {
     if stream.eof { 1 } else { 0 }
 }
 
+/// Report the real error state maintained by Nagi's descriptor-backed and
+/// memory-stream FILE objects.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ferror(stream: *mut c_void) -> c_int {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0;
+    }
+    let stream = unsafe { &*stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD && stream.kind != NAGI_FILE_MEMORY {
+        unsafe { set_errno(EBADF) };
+        return 0;
+    }
+    c_int::from(stream.error)
+}
+
+/// Clear the EOF and error indicators on a valid Nagi FILE object.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn clearerr(stream: *mut c_void) {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return;
+    }
+    let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD && stream.kind != NAGI_FILE_MEMORY {
+        unsafe { set_errno(EBADF) };
+        return;
+    }
+    stream.eof = false;
+    stream.error = false;
+}
+
+/// Return the Nagi descriptor owned by a descriptor-backed FILE stream.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fileno(stream: *mut c_void) -> c_int {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return -1;
+    }
+    let stream = unsafe { &*stream.cast::<NagiFile>() };
+    if stream.kind == NAGI_FILE_FD {
+        stream.fd
+    } else {
+        unsafe { set_errno(EBADF) };
+        -1
+    }
+}
+
+/// Wrap an existing Nagi descriptor in the target-owned FILE representation.
+/// Closing this stream closes the descriptor, as required by POSIX fdopen.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fdopen(fd: c_int, mode: *const c_char) -> *mut c_void {
+    let Some(mode_length) = (unsafe { c_string_len(mode, 8) }) else {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    };
+    let mode_bytes = unsafe { slice::from_raw_parts(mode.cast::<u8>(), mode_length) };
+    let valid_mode = match mode_bytes {
+        [b'r' | b'w' | b'a'] => true,
+        [b'r' | b'w' | b'a', b'+'] | [b'r' | b'w' | b'a', b'b'] => true,
+        [b'r' | b'w' | b'a', b'+', b'b'] | [b'r' | b'w' | b'a', b'b', b'+'] => true,
+        _ => false,
+    };
+    if !valid_mode {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    if fd < 0 || unsafe { fcntl(fd, 1, 0) } < 0 {
+        if fd < 0 {
+            unsafe { set_errno(EBADF) };
+        }
+        return ptr::null_mut();
+    }
+
+    let stream = unsafe { nagi_posix_malloc(mem::size_of::<NagiFile>()) }.cast::<NagiFile>();
+    if stream.is_null() {
+        unsafe { set_errno(ENOMEM) };
+        return ptr::null_mut();
+    }
+    unsafe {
+        stream.write(NagiFile {
+            kind: NAGI_FILE_FD,
+            fd,
+            owned: true,
+            eof: false,
+            error: false,
+            buffer: ptr::null_mut(),
+            length: 0,
+            capacity: 0,
+            bufp: ptr::null_mut(),
+            sizep: ptr::null_mut(),
+        });
+    }
+    stream.cast()
+}
+
 fn nagi_errno_message(error: c_int) -> &'static [u8] {
     match error {
         9 => b"Bad file descriptor\n",
@@ -1197,11 +1456,7 @@ pub unsafe extern "C" fn perror(prefix: *const c_char) {
 /// to Nagi's descriptor runtime so file-size probes and cursor-dependent
 /// operations observe the guest VFS position.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fseek(
-    stream: *mut c_void,
-    offset: c_long,
-    whence: c_int,
-) -> c_int {
+pub unsafe extern "C" fn fseek(stream: *mut c_void, offset: c_long, whence: c_int) -> c_int {
     if stream.is_null() {
         unsafe { set_errno(EINVAL) };
         return EOF;
@@ -1231,11 +1486,7 @@ pub unsafe extern "C" fn ftell(stream: *mut c_void) -> c_long {
         return -1;
     }
     let position = unsafe { nagi_posix_lseek(stream.fd, 0, 1) };
-    if position < 0 {
-        -1
-    } else {
-        position as c_long
-    }
+    if position < 0 { -1 } else { position as c_long }
 }
 
 #[unsafe(no_mangle)]
@@ -1350,11 +1601,7 @@ pub unsafe extern "C" fn shmdt(_shmaddr: *const c_void) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn shmctl(
-    _shmid: c_int,
-    _cmd: c_int,
-    _buf: *mut c_void,
-) -> c_int {
+pub unsafe extern "C" fn shmctl(_shmid: c_int, _cmd: c_int, _buf: *mut c_void) -> c_int {
     unsafe { set_errno(ENOSYS) };
     -1
 }
@@ -1421,10 +1668,7 @@ fn nagi_is_leap_year(year: i64) -> bool {
 /// Convert a Unix timestamp to a proleptic Gregorian UTC date without a host
 /// time library. The layout matches relibc's x86-64 `struct tm` ABI.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn localtime_r(
-    timer: *const c_longlong,
-    result: *mut NagiTm,
-) -> *mut NagiTm {
+pub unsafe extern "C" fn localtime_r(timer: *const c_longlong, result: *mut NagiTm) -> *mut NagiTm {
     if timer.is_null() || result.is_null() {
         return ptr::null_mut();
     }
@@ -1442,12 +1686,11 @@ pub unsafe extern "C" fn localtime_r(
         adjusted_days - 146_096
     } / 146_097;
     let day_of_era = adjusted_days - era * 146_097;
-    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524
-        - day_of_era / 146_096)
-        / 365;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let year_base = year_of_era + era * 400;
-    let day_of_year_from_march = day_of_era
-        - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let day_of_year_from_march =
+        day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_from_march = (5 * day_of_year_from_march + 2) / 153;
     let day = day_of_year_from_march - (153 * month_from_march + 2) / 5 + 1;
     let month = month_from_march + if month_from_march < 10 { 3 } else { -9 };
@@ -1484,10 +1727,7 @@ pub unsafe extern "C" fn localtime_r(
 /// `localtime_r`. Keep the implementation in this target-owned backend
 /// rather than delegating to a host timezone database.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gmtime_r(
-    timer: *const c_longlong,
-    result: *mut NagiTm,
-) -> *mut NagiTm {
+pub unsafe extern "C" fn gmtime_r(timer: *const c_longlong, result: *mut NagiTm) -> *mut NagiTm {
     unsafe { localtime_r(timer, result) }
 }
 
@@ -1502,10 +1742,7 @@ fn nagi_days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year_of_era = adjusted_year - era * 400;
     let month_from_march = month + if month > 2 { -3 } else { 9 };
     let day_of_year = (153 * month_from_march + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365
-        + year_of_era / 4
-        - year_of_era / 100
-        + day_of_year;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     era * 146_097 + day_of_era - 719_468
 }
 
@@ -1618,9 +1855,7 @@ pub unsafe extern "C" fn srand(seed: c_uint) {
 pub unsafe extern "C" fn rand() -> c_int {
     let mut current = NAGI_RAND_STATE.load(Ordering::Relaxed);
     loop {
-        let next = current
-            .wrapping_mul(1_103_515_245)
-            .wrapping_add(12_345);
+        let next = current.wrapping_mul(1_103_515_245).wrapping_add(12_345);
         match NAGI_RAND_STATE.compare_exchange_weak(
             current,
             next,
@@ -1701,10 +1936,7 @@ fn nagi_ascii_lower(byte: u8) -> u8 {
 /// Locale-independent ASCII case-insensitive comparison for the Nagi target.
 /// UTF-8 bytes outside ASCII compare bytewise; no host locale table is read.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strcasecmp(
-    first: *const c_char,
-    second: *const c_char,
-) -> c_int {
+pub unsafe extern "C" fn strcasecmp(first: *const c_char, second: *const c_char) -> c_int {
     if first.is_null() || second.is_null() {
         unsafe { set_errno(EINVAL) };
         return 0;
@@ -1803,10 +2035,7 @@ pub unsafe extern "C" fn strrchr(string: *const c_char, needle: c_int) -> *mut c
 /// position that contains the complete needle, including the empty-needle
 /// contract.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strstr(
-    haystack: *const c_char,
-    needle: *const c_char,
-) -> *mut c_char {
+pub unsafe extern "C" fn strstr(haystack: *const c_char, needle: *const c_char) -> *mut c_char {
     if haystack.is_null() || needle.is_null() {
         unsafe { set_errno(EINVAL) };
         return ptr::null_mut();
@@ -1844,10 +2073,7 @@ pub unsafe extern "C" fn strstr(
 /// the reject bytes. The scan is bounded only by the C NUL terminators and
 /// never consults host string routines.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strcspn(
-    input: *const c_char,
-    reject: *const c_char,
-) -> usize {
+pub unsafe extern "C" fn strcspn(input: *const c_char, reject: *const c_char) -> usize {
     if input.is_null() || reject.is_null() {
         unsafe { set_errno(EINVAL) };
         return 0;
@@ -1877,10 +2103,7 @@ pub unsafe extern "C" fn strcspn(
 /// bytes from `accept`.  This is the companion operation to `strcspn` used by
 /// Mesa's XML/configuration parser; it never consults a host libc table.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strspn(
-    input: *const c_char,
-    accept: *const c_char,
-) -> usize {
+pub unsafe extern "C" fn strspn(input: *const c_char, accept: *const c_char) -> usize {
     if input.is_null() || accept.is_null() {
         unsafe { set_errno(EINVAL) };
         return 0;
@@ -1963,10 +2186,7 @@ pub unsafe extern "C" fn __memmove_chk(
 
 /// Target-owned NUL-terminated copy for the Nagi relibc backend.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn strcpy(
-    destination: *mut c_char,
-    source: *const c_char,
-) -> *mut c_char {
+pub unsafe extern "C" fn strcpy(destination: *mut c_char, source: *const c_char) -> *mut c_char {
     if destination.is_null() || source.is_null() {
         unsafe { set_errno(EINVAL) };
         return destination;
@@ -2048,9 +2268,7 @@ pub unsafe extern "C" fn strndup(source: *const c_char, length: usize) -> *mut c
         return ptr::null_mut();
     }
     let mut source_length = 0;
-    while source_length < length
-        && unsafe { source.cast::<u8>().add(source_length).read() } != 0
-    {
+    while source_length < length && unsafe { source.cast::<u8>().add(source_length).read() } != 0 {
         source_length += 1;
     }
     let Some(allocation_length) = source_length.checked_add(1) else {
@@ -2147,9 +2365,7 @@ pub unsafe extern "C" fn strncat(
         }
     }
     unsafe {
-        destination
-            .add(destination_length + source_index)
-            .write(0);
+        destination.add(destination_length + source_index).write(0);
     }
     destination
 }
@@ -2737,6 +2953,60 @@ pub unsafe extern "C" fn logf(x: c_float) -> c_float {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn log10(x: c_double) -> c_double {
+    nagi_log_real(x) / core::f64::consts::LN_10
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn llabs(value: c_longlong) -> c_longlong {
+    value.wrapping_abs()
+}
+
+/// Classify an IEEE-754 single-precision value using the C `FP_*` constants
+/// emitted by the pinned relibc `math.h` (NAN, INFINITE, ZERO, SUBNORMAL,
+/// NORMAL respectively).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __fpclassifyf(value: c_float) -> c_int {
+    if value.is_nan() {
+        0x02
+    } else if value.is_infinite() {
+        0x01
+    } else if value == 0.0 {
+        0x10
+    } else if value.is_subnormal() {
+        0x08
+    } else {
+        0x04
+    }
+}
+
+/// Nagi 0.1 has no VM advice operation yet. Return ENOSYS so callers such as
+/// SpiderMonkey retain their pages instead of claiming that pages were
+/// discarded when they were not.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn madvise(address: *mut c_void, length: usize, _advice: c_int) -> c_int {
+    if address.is_null() || length == 0 {
+        unsafe { set_errno(EINVAL) };
+    } else {
+        unsafe { set_errno(ENOSYS) };
+    }
+    -1
+}
+
+/// Per-thread CPU and page-fault accounting is not exposed by the Nagi 0.1
+/// process-info ABI. Report that limitation rather than filling rusage with
+/// fabricated zero counters.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getrusage(who: c_int, output: *mut c_void) -> c_int {
+    if output.is_null() || !matches!(who, -1 | 0 | 1) {
+        unsafe { set_errno(EINVAL) };
+    } else {
+        unsafe { set_errno(ENOSYS) };
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn hypot(x: c_double, y: c_double) -> c_double {
     nagi_hypot_real(x, y)
 }
@@ -2776,11 +3046,7 @@ pub unsafe extern "C" fn cosf(x: c_float) -> c_float {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn sincosf(
-    x: c_float,
-    sine: *mut c_float,
-    cosine: *mut c_float,
-) {
+pub unsafe extern "C" fn sincosf(x: c_float, sine: *mut c_float, cosine: *mut c_float) {
     if sine.is_null() || cosine.is_null() {
         unsafe { abort() };
     }
@@ -3132,13 +3398,21 @@ pub unsafe extern "C" fn __isfinitef(value: c_float) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __isnormal(value: c_double) -> c_int {
     let exponent = (value.to_bits() >> 52) & 0x7ff;
-    if exponent != 0 && exponent != 0x7ff { 1 } else { 0 }
+    if exponent != 0 && exponent != 0x7ff {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __isnormalf(value: c_float) -> c_int {
     let exponent = (value.to_bits() >> 23) & 0xff;
-    if exponent != 0 && exponent != 0xff { 1 } else { 0 }
+    if exponent != 0 && exponent != 0xff {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -3314,6 +3588,32 @@ pub unsafe extern "C" fn openat(fd: c_int, path: *const c_char, flags: c_int, _a
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unlink(path: *const c_char) -> c_int {
     unsafe { nagi_posix_unlink(path) }
+}
+
+/// Remove a real VFS file or an empty directory. The second attempt is made
+/// only when the Nagi VFS reported that the path names a directory.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn remove(path: *const c_char) -> c_int {
+    if path.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    if unsafe { nagi_posix_unlink(path) } == 0 {
+        return 0;
+    }
+    let error = unsafe {
+        let location = nagi_posix_errno_location();
+        if location.is_null() {
+            0
+        } else {
+            location.read()
+        }
+    };
+    if error == EISDIR {
+        unsafe { nagi_posix_rmdir(path) }
+    } else {
+        EOF
+    }
 }
 
 /// Symlinks are a documented Tier-B Nagi POSIX capability and are not part
@@ -3825,17 +4125,16 @@ pub unsafe extern "C" fn snprintf(
 
 #[inline]
 unsafe fn nagi_scan_skip_space(mut cursor: *const c_char) -> *const c_char {
-    while matches!(unsafe { nagi_byte(cursor) }, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c) {
+    while matches!(
+        unsafe { nagi_byte(cursor) },
+        b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c
+    ) {
         cursor = unsafe { cursor.add(1) };
     }
     cursor
 }
 
-unsafe fn nagi_vsscanf(
-    input: *const c_char,
-    format: *const c_char,
-    mut args: VaList,
-) -> c_int {
+unsafe fn nagi_vsscanf(input: *const c_char, format: *const c_char, mut args: VaList) -> c_int {
     if input.is_null() || format.is_null() {
         unsafe { set_errno(EINVAL) };
         return EOF;
@@ -3882,11 +4181,9 @@ unsafe fn nagi_vsscanf(
         };
         let mut width = 0usize;
         while unsafe { format.cast::<u8>().add(format_index).read() }.is_ascii_digit() {
-            width = width
-                .saturating_mul(10)
-                .saturating_add(usize::from(unsafe {
-                    format.cast::<u8>().add(format_index).read() - b'0'
-                }));
+            width = width.saturating_mul(10).saturating_add(usize::from(unsafe {
+                format.cast::<u8>().add(format_index).read() - b'0'
+            }));
             format_index += 1;
         }
         let mut longness = 0_u8;
@@ -3931,9 +4228,8 @@ unsafe fn nagi_vsscanf(
                 };
                 let original = cursor;
                 let mut end = ptr::null_mut();
-                let (value, negative) = unsafe {
-                    nagi_parse_unsigned(cursor, &mut end, base, signed)
-                };
+                let (value, negative) =
+                    unsafe { nagi_parse_unsigned(cursor, &mut end, base, signed) };
                 if end.is_null() || end.cast_const() == original {
                     return assigned;
                 }
@@ -3948,7 +4244,11 @@ unsafe fn nagi_vsscanf(
                             _ => unsafe { args.arg::<*mut c_int>().write(value as c_int) },
                         }
                     } else {
-                        let value = if negative { 0_u64.wrapping_sub(value) } else { value };
+                        let value = if negative {
+                            0_u64.wrapping_sub(value)
+                        } else {
+                            value
+                        };
                         match longness {
                             3 | 4 => unsafe { args.arg::<*mut c_ulonglong>().write(value) },
                             1 => unsafe { args.arg::<*mut u16>().write(value as u16) },
@@ -4038,7 +4338,9 @@ unsafe fn nagi_vsscanf(
                 if !suppress {
                     let consumed = unsafe { cursor.offset_from(input) } as c_int;
                     match longness {
-                        3 | 4 => unsafe { args.arg::<*mut c_longlong>().write(consumed as c_longlong) },
+                        3 | 4 => unsafe {
+                            args.arg::<*mut c_longlong>().write(consumed as c_longlong)
+                        },
                         1 => unsafe { args.arg::<*mut i16>().write(consumed as i16) },
                         2 => unsafe { args.arg::<*mut i8>().write(consumed as i8) },
                         _ => unsafe { args.arg::<*mut c_int>().write(consumed) },
@@ -4057,7 +4359,7 @@ unsafe fn nagi_vsscanf(
 pub unsafe extern "C" fn sscanf(
     input: *const c_char,
     format: *const c_char,
-    mut args: ...,
+    mut args: ...
 ) -> c_int {
     unsafe { nagi_vsscanf(input, format, args.as_va_list()) }
 }
@@ -4066,7 +4368,7 @@ pub unsafe extern "C" fn sscanf(
 pub unsafe extern "C" fn fprintf(
     stream: *mut c_void,
     format: *const c_char,
-    mut args: ...,
+    mut args: ...
 ) -> c_int {
     if stream.is_null() || format.is_null() {
         unsafe { set_errno(EINVAL) };
@@ -4092,11 +4394,7 @@ pub unsafe extern "C" fn fprintf(
     }
     let count = written as usize;
     let emitted = unsafe { fwrite(buffer.as_ptr().cast(), 1, count, stream) };
-    if emitted == count {
-        written
-    } else {
-        EOF
-    }
+    if emitted == count { written } else { EOF }
 }
 
 /// The target backend cannot use relibc's Linux/Redox `stdio` module, but
@@ -4147,7 +4445,7 @@ pub unsafe extern "C" fn __fprintf_chk(
     stream: *mut c_void,
     _flag: c_int,
     format: *const c_char,
-    mut args: ...,
+    mut args: ...
 ) -> c_int {
     unsafe { vfprintf(stream, format, args.as_va_list()) }
 }
@@ -4160,11 +4458,7 @@ static mut NAGI_SYSLOG_FACILITY: c_int = 0;
 /// target has no host syslog socket or daemon ABI; descriptor 2 is the Nagi
 /// console service boundary already used by `perror` and target stdio.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn openlog(
-    ident: *const c_char,
-    options: c_int,
-    facility: c_int,
-) {
+pub unsafe extern "C" fn openlog(ident: *const c_char, options: c_int, facility: c_int) {
     unsafe {
         NAGI_SYSLOG_IDENT = ident;
         NAGI_SYSLOG_OPTIONS = options;
@@ -4182,17 +4476,18 @@ pub unsafe extern "C" fn closelog() {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn syslog(
-    _priority: c_int,
-    format: *const c_char,
-    mut args: ...,
-) {
+pub unsafe extern "C" fn syslog(_priority: c_int, format: *const c_char, mut args: ...) {
     if format.is_null() {
         return;
     }
     let mut buffer = [0_u8; 4096];
     let written = unsafe {
-        nagi_vsnprintf(buffer.as_mut_ptr().cast(), buffer.len(), format, args.as_va_list())
+        nagi_vsnprintf(
+            buffer.as_mut_ptr().cast(),
+            buffer.len(),
+            format,
+            args.as_va_list(),
+        )
     };
     if written <= 0 {
         return;
@@ -4212,18 +4507,13 @@ const NAGI_FORMAT_ALLOCATION_LIMIT: usize = 16 * 1024 * 1024;
 /// equivalent of `va_copy`, so the sizing pass and the emitting pass consume
 /// independent target argument lists.  The allocation is deliberately bounded
 /// to keep a malformed guest diagnostic from exhausting the process service.
-unsafe fn nagi_vasprintf(
-    output: *mut *mut c_char,
-    format: *const c_char,
-    args: VaList,
-) -> c_int {
+unsafe fn nagi_vasprintf(output: *mut *mut c_char, format: *const c_char, args: VaList) -> c_int {
     if output.is_null() || format.is_null() {
         unsafe { set_errno(EINVAL) };
         return EOF;
     }
-    let required = unsafe {
-        args.with_copy(|copy| nagi_vsnprintf(ptr::null_mut(), 0, format, copy))
-    };
+    let required =
+        unsafe { args.with_copy(|copy| nagi_vsnprintf(ptr::null_mut(), 0, format, copy)) };
     if required < 0 || required as usize >= NAGI_FORMAT_ALLOCATION_LIMIT {
         unsafe { set_errno(EOVERFLOW) };
         return EOF;
@@ -4238,9 +4528,8 @@ unsafe fn nagi_vasprintf(
         unsafe { set_errno(ENOMEM) };
         return EOF;
     }
-    let written = unsafe {
-        args.with_copy(|copy| nagi_vsnprintf(buffer.cast(), capacity, format, copy))
-    };
+    let written =
+        unsafe { args.with_copy(|copy| nagi_vsnprintf(buffer.cast(), capacity, format, copy)) };
     if written != required {
         unsafe { nagi_posix_free(buffer) };
         unsafe { set_errno(EOVERFLOW) };
@@ -4263,7 +4552,7 @@ pub unsafe extern "C" fn vasprintf(
 pub unsafe extern "C" fn asprintf(
     output: *mut *mut c_char,
     format: *const c_char,
-    mut args: ...,
+    mut args: ...
 ) -> c_int {
     unsafe { nagi_vasprintf(output, format, args.as_va_list()) }
 }
@@ -4294,7 +4583,7 @@ pub unsafe extern "C" fn __snprintf_chk(
     flag: c_int,
     object_size: usize,
     format: *const c_char,
-    mut args: ...,
+    mut args: ...
 ) -> c_int {
     unsafe {
         __vsnprintf_chk(
@@ -4622,7 +4911,11 @@ fn nagi_regex_group_index(context: NagiRegexContext, target: usize) -> usize {
     groups
 }
 
-fn nagi_regex_decimal(context: NagiRegexContext, start: usize, end: usize) -> Option<(usize, usize)> {
+fn nagi_regex_decimal(
+    context: NagiRegexContext,
+    start: usize,
+    end: usize,
+) -> Option<(usize, usize)> {
     let mut index = start;
     let mut value = 0usize;
     let mut digits = 0;
@@ -4631,7 +4924,9 @@ fn nagi_regex_decimal(context: NagiRegexContext, start: usize, end: usize) -> Op
         if !byte.is_ascii_digit() {
             break;
         }
-        value = value.checked_mul(10)?.checked_add(usize::from(byte - b'0'))?;
+        value = value
+            .checked_mul(10)?
+            .checked_add(usize::from(byte - b'0'))?;
         digits += 1;
         index += 1;
     }
@@ -4653,9 +4948,15 @@ fn nagi_regex_quantifier(
     } else if !extended
         && byte == b'\\'
         && start + 1 < end
-        && matches!(unsafe { nagi_regex_pattern_byte(context, start + 1) }, b'+' | b'?')
+        && matches!(
+            unsafe { nagi_regex_pattern_byte(context, start + 1) },
+            b'+' | b'?'
+        )
     {
-        (unsafe { nagi_regex_pattern_byte(context, start + 1) }, start + 2)
+        (
+            unsafe { nagi_regex_pattern_byte(context, start + 1) },
+            start + 2,
+        )
     } else {
         (0, start)
     };
@@ -4706,7 +5007,11 @@ fn nagi_regex_quantifier(
     if !close || maximum < minimum {
         return (1, 1, start);
     }
-    (minimum, maximum, if extended { index + 1 } else { index + 2 })
+    (
+        minimum,
+        maximum,
+        if extended { index + 1 } else { index + 2 },
+    )
 }
 
 fn nagi_regex_class_named(name: &[u8], byte: u8) -> bool {
@@ -4759,7 +5064,10 @@ fn nagi_regex_class_matches(
             break;
         }
         first = false;
-        if byte == b'[' && index + 1 < end && unsafe { nagi_regex_pattern_byte(context, index + 1) } == b':' {
+        if byte == b'['
+            && index + 1 < end
+            && unsafe { nagi_regex_pattern_byte(context, index + 1) } == b':'
+        {
             let name_start = index + 2;
             let mut close = name_start;
             while close + 1 < end
@@ -4778,7 +5086,10 @@ fn nagi_regex_class_matches(
             }
         }
         let (left, next) = if byte == b'\\' && index + 1 < end {
-            (unsafe { nagi_regex_pattern_byte(context, index + 1) }, index + 2)
+            (
+                unsafe { nagi_regex_pattern_byte(context, index + 1) },
+                index + 2,
+            )
         } else {
             (byte, index + 1)
         };
@@ -4872,7 +5183,9 @@ fn nagi_regex_match_atom(
             return Some((position + 1, captures));
         }
     } else if position < context.input_length
-        && nagi_regex_equal(context, value, unsafe { nagi_regex_input_byte(context, position) })
+        && nagi_regex_equal(context, value, unsafe {
+            nagi_regex_input_byte(context, position)
+        })
     {
         return Some((position + 1, captures));
     }
@@ -4896,14 +5209,9 @@ fn nagi_regex_match_repeat(
         return None;
     }
     if count < maximum {
-        if let Some((after_atom, after_captures)) = nagi_regex_match_atom(
-            context,
-            atom_start,
-            atom_end,
-            position,
-            captures,
-            depth + 1,
-        ) {
+        if let Some((after_atom, after_captures)) =
+            nagi_regex_match_atom(context, atom_start, atom_end, position, captures, depth + 1)
+        {
             if after_atom != position {
                 if let Some(result) = nagi_regex_match_repeat(
                     context,
@@ -5003,14 +5311,9 @@ fn nagi_regex_match_expression(
             nested = nested.saturating_sub(1);
             index += nagi_regex_group_close(context, index);
         } else if nested == 0 && unsafe { nagi_regex_pattern_byte(context, index) } == b'|' {
-            if let Some(result) = nagi_regex_match_sequence(
-                context,
-                start,
-                index,
-                position,
-                captures,
-                depth + 1,
-            ) {
+            if let Some(result) =
+                nagi_regex_match_sequence(context, start, index, position, captures, depth + 1)
+            {
                 return Some(result);
             }
             return nagi_regex_match_expression(
@@ -5108,8 +5411,8 @@ pub unsafe extern "C" fn regcomp(
             return error;
         }
     };
-    let program = unsafe { nagi_posix_malloc(mem::size_of::<NagiRegexProgram>()) }
-        .cast::<NagiRegexProgram>();
+    let program =
+        unsafe { nagi_posix_malloc(mem::size_of::<NagiRegexProgram>()) }.cast::<NagiRegexProgram>();
     if program.is_null() {
         unsafe { nagi_posix_free(pattern_copy) };
         unsafe { set_errno(ENOMEM) };
@@ -5177,23 +5480,23 @@ pub unsafe extern "C" fn regexec(
         cflags: program_ref.cflags,
         eflags,
     };
-    let anchored = context.pattern_length > 0
-        && unsafe { nagi_regex_pattern_byte(context, 0) } == b'^';
+    let anchored =
+        context.pattern_length > 0 && unsafe { nagi_regex_pattern_byte(context, 0) } == b'^';
     let last_start = if anchored { 0 } else { input_length };
     let mut start = 0usize;
     while start <= last_start {
         let captures = NagiRegexCaptures::empty();
-        if let Some((end, captures)) = nagi_regex_match_expression(
-            context,
-            0,
-            context.pattern_length,
-            start,
-            captures,
-            0,
-        ) {
+        if let Some((end, captures)) =
+            nagi_regex_match_expression(context, 0, context.pattern_length, start, captures, 0)
+        {
             if program_ref.cflags & NAGI_REG_NOSUB == 0 && !matches.is_null() {
                 if nmatch > 0 {
-                    unsafe { matches.write(NagiRegmatch { rm_so: start, rm_eo: end }) };
+                    unsafe {
+                        matches.write(NagiRegmatch {
+                            rm_so: start,
+                            rm_eo: end,
+                        })
+                    };
                 }
                 let group_count = nmatch.saturating_sub(1).min(NAGI_REGEX_MAX_GROUPS);
                 for group in 0..group_count {
@@ -5243,7 +5546,9 @@ pub unsafe extern "C" fn regerror(
         _ => b"Unknown regexp error\0",
     };
     if !output.is_null() && capacity != 0 {
-        unsafe { ptr::copy_nonoverlapping(message.as_ptr(), output.cast(), message.len().min(capacity)) };
+        unsafe {
+            ptr::copy_nonoverlapping(message.as_ptr(), output.cast(), message.len().min(capacity))
+        };
     }
     message.len().saturating_sub(1)
 }
@@ -5259,7 +5564,7 @@ pub unsafe extern "C" fn sync() {}
 pub unsafe extern "C" fn sprintf(
     output: *mut c_char,
     format: *const c_char,
-    mut args: ...,
+    mut args: ...
 ) -> c_int {
     if output.is_null() || format.is_null() {
         unsafe { set_errno(EINVAL) };
@@ -5716,6 +6021,33 @@ pub unsafe extern "C" fn malloc_usable_size(pointer: *mut c_void) -> usize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn write(fd: c_int, bytes: *const u8, length: usize) -> isize {
     unsafe { nagi_posix_write_fd(fd, bytes, length) }
+}
+
+/// Persist pending block-device writes through the descriptor's capability-
+/// scoped Nagi VFS. The POSIX facade returns an error if VirtIO cannot flush.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fsync(fd: c_int) -> c_int {
+    unsafe { nagi_posix_fsync(fd) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ftruncate(fd: c_int, length: i64) -> c_int {
+    unsafe { nagi_posix_ftruncate(fd, length) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fchmod(fd: c_int, mode: c_uint) -> c_int {
+    unsafe { nagi_posix_fchmod(fd, mode) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fchown(fd: c_int, uid: c_uint, gid: c_uint) -> c_int {
+    unsafe { nagi_posix_fchown(fd, uid, gid) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn utimes(path: *const c_char, times: *const c_void) -> c_int {
+    unsafe { nagi_posix_utimes(path, times) }
 }
 
 /// Forward the C ioctl boundary to Nagi's user-space POSIX facade.  Unsupported

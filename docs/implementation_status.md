@@ -19,25 +19,65 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. First collect a complete rust-lld undefined-symbol inventory from
-the real target link, including possible archive/object providers, then group
-architecture-correct repairs before the next implementation CI. Continue with
-the pinned Servo/Surfman/Mesa/relibc/std vertical slice and real QEMU
-first-web-pixel gate. Do not substitute another browser engine or host
-rendering. M18 remains forbidden until M17 is formally PASS.
+milestone. The complete #157 rust-lld inventory is now grouped and the
+architecture-correct repairs are in the working tree. Run focused checks, then
+the next authoritative Ubuntu `nagi-target` CI. Continue with the pinned
+Servo/Surfman/Mesa/relibc/std vertical slice and real QEMU first-web-pixel gate.
+Do not substitute another browser engine or host rendering. M18 remains
+forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35954492666` (#156) at
-`fcdd0ba` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+**Last known repair checkpoint:** public CI run `35959281238` (#157) at
+`8b5c6e4` passed Servo bootstrap, target dependency validation, Mesa Softpipe
 archive construction, package, and kernel compilation. The real target
-user-init link then reported 20 unique undefined symbols before rust-lld
-stopped at its default error limit; UEFI and real QEMU first-web-pixel
-acceptance were not reached. The previous CI annotation showed only the first
-three symbols. The next step disables the M17 linker's error cap, writes a
-deduplicated complete inventory to the job summary and annotations, and scans
-target archives/objects with `llvm-nm` for possible definitions. Runtime
-repairs follow only after the complete inventory is reviewed. M17 remains
-`BLOCKED`; M18 remains `NOT STARTED`.
+user-init link produced a complete inventory of 46 unique undefined symbols;
+UEFI and real QEMU first-web-pixel acceptance were not reached. The current
+working tree groups the repairs across relibc/POSIX, libc++ ABI, MozJS link
+roots, and Mesa link roots. Local Mac verification reaches Mesa Meson setup but
+cannot link its ELF feature probes because Homebrew clang routes this
+`unknown-elf` link through the host `ld64.lld`; the resulting `atomic` probe
+failure is a Mac toolchain limitation, so Ubuntu `nagi-target` remains the
+authoritative target evidence. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #157 (2026-09-24)
+
+Public CI run `35959281238` (#157, head
+`8b5c6e451c9afc5142a91264cb0e9b6b527e0f09`) passed Servo bootstrap, target
+dependency validation, Mesa Softpipe archive construction, package, and kernel
+compilation. `Build Nagi user init` failed at the real target link. The
+diagnostic now reports all 46 distinct undefined symbols, grouped as follows:
+
+- libc/POSIX: `remove`, `madvise`, `getrusage`, `fsync`, `utimes`,
+  `ftruncate`, `fchmod`, `fchown`, `__fpclassifyf`, `getc`, `ferror`,
+  `clearerr`, `stdin`, `fileno`, `strtok`, `strtok_r`, `llabs`,
+  `__program_invocation_short_name`, `log10`, `sigfillset`, `sigdelset`,
+  `pthread_sigmask`, `pthread_getcpuclockid`, `pthread_barrier_destroy`,
+  `pthread_barrier_wait`, and `fdopen` (26).
+- dynamic-loader boundary: `dlopen`, `dlerror`, and `dlclose` (3).
+- Mesa: `glcpp_preprocess`, `spirv_to_nir`, and
+  `spirv_verify_gl_specialization_constants` (3).
+- libc++: `this_thread::sleep_for`, `basic_string::append(size_t, char)`, and
+  eight integer `__sort` specializations (10).
+- MozJS: `JS::RestoreMicroTaskQueue`, `JS::InitAsyncTaskCallbacks`,
+  `JS::Dispatchable::Run`, and `JS::NewArrayBufferWithContents` (4).
+
+The working tree adds target-side providers and link roots for these groups,
+including explicit fail-closed dynamic-loader APIs, uses truthful unsupported
+behavior for unavailable guest capabilities, adds a pinned-source portability
+patch for relibc header generation, and records the VirtIO durable-flush
+syscall decision in ADR 0020. Local checks pass: `cargo test -p nagi-cli
+--locked` (65 tests), target `cargo check` for the kernel, relibc, and
+`nagi-posix`, `cargo clippy -p nagi-cli --all-targets --locked -- -D warnings`,
+Rust formatting checks for modified sources, `bash -n` for both changed shell
+scripts, and Python diagnostic-script smoke checks. The full host-workspace
+Clippy command cannot run on this Apple Silicon host because `libnagi`'s
+x86-64-only syscall register assembly does not compile for arm64; Ubuntu CI is
+the authoritative host lint. The official `./nagi m17` attempt on this Mac
+stops during Mesa Meson configuration: clang 19 sends ELF link probes through
+the host `ld64.lld`, which rejects ELF flags and makes the `libatomic` probe
+fail. No guest or host runtime fallback was introduced. Run the Ubuntu
+`nagi-target` CI after reviewing the grouped changes; it remains the
+authoritative target build. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #156 (2026-09-24)
 

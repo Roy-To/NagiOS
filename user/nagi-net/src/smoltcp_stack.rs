@@ -656,9 +656,8 @@ impl<D: Device> SocketApi<D> {
         &mut self,
         timeout: Option<core::time::Duration>,
     ) -> Result<(), NetError> {
-        self.stack.tcp_set_timeout(
-            timeout.map(|duration| (duration.as_secs(), duration.subsec_nanos() / 1_000)),
-        )
+        self.stack
+            .tcp_set_timeout(timeout.map(|duration| (duration.as_secs(), duration.subsec_micros())))
     }
 
     pub fn tcp_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {

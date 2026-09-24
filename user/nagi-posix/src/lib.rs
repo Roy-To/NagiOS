@@ -13,6 +13,41 @@ mod runtime;
 #[cfg(target_os = "nagi")]
 pub use abi::{nagi_posix_initialize_filesystem, nagi_posix_initialize_network};
 
+/// Copy the current guest process name into a C buffer through the kernel's
+/// process-info ABI. The result is NUL-terminated when capacity is nonzero.
+#[cfg(target_os = "nagi")]
+#[no_mangle]
+pub unsafe extern "C" fn nagi_posix_copy_process_name(output: *mut u8, capacity: usize) -> isize {
+    if output.is_null() || capacity == 0 {
+        errno::set_errno(EINVAL);
+        return -1;
+    }
+    let mut info = libnagi::ProcessInfo {
+        pid: 0,
+        parent_pid: 0,
+        state: 0,
+        flags: 0,
+        image_pages: 0,
+        stack_pages: 0,
+        name: [0; libnagi::MAX_PROCESS_NAME],
+    };
+    if !libnagi::process_info(&mut info) {
+        errno::set_errno(ENOSYS);
+        return -1;
+    }
+    let length = info
+        .name
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(info.name.len())
+        .min(capacity - 1);
+    unsafe {
+        core::ptr::copy_nonoverlapping(info.name.as_ptr(), output, length);
+        output.add(length).write(0);
+    }
+    length as isize
+}
+
 #[cfg(target_os = "nagi")]
 pub fn nagi_posix_network_http_get(
     target: nagi_net::Ipv4Address,

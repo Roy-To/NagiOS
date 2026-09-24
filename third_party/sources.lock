@@ -15,6 +15,7 @@ source_hash = "git:69bb008af1f6d93758631cf0df250500d53a065b"
 license = "MIT"
 vendored_path = "third_party/relibc"
 nagi_adapter = "third_party/relibc/src/nagi.rs"
+nagi_patch = "third_party/relibc-patches"
 
 [sources.libc]
 component = "libc"

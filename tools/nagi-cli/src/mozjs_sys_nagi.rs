@@ -66,7 +66,10 @@ mod tests {
         assert!(compiler_wrapper.contains("NAGI_CXX_HEADERS"));
         assert!(compiler_wrapper.contains("-isystem"));
         assert!(compiler_wrapper.contains("-idirafter"));
-        assert!(compiler_wrapper.contains("cxx_include_args"));
+        assert!(compiler_wrapper.contains("compiler_args+=(-isystem \"$NAGI_CXX_HEADERS\")"));
+        assert!(compiler_wrapper.contains(
+            "compiler_args+=(-idirafter \"$repo_root/tools/mesa/nagi-headers\" -idirafter \"$relibc_headers\")"
+        ));
 
         let mozjs_build = std::fs::read_to_string(root.join("third_party/mozjs-sys-nagi/build.rs"))
             .expect("Nagi mozjs_sys build script");

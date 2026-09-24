@@ -578,8 +578,6 @@ mod tests {
             .expect("workspace root");
         let build_script = fs::read_to_string(root.join("user/nagi-init/build.rs"))
             .expect("Nagi init build script");
-        let mesa_build =
-            fs::read_to_string(root.join("tools/mesa/build.sh")).expect("Nagi Mesa build script");
         assert!(build_script.contains("static=nagi_mesa"));
         assert!(build_script.contains("static=nagi_mesa_roots"));
         assert!(!build_script.contains("static:+whole-archive=nagi_mesa"));
@@ -591,6 +589,74 @@ mod tests {
         assert!(build_script.contains(
             "--undefined=_ZN2JS26NewArrayBufferWithContentsEP9JSContextmSt10unique_ptrIvNS_10FreePolicyEE"
         ));
+        for symbol in [
+            "glcpp_preprocess",
+            "spirv_to_nir",
+            "spirv_verify_gl_specialization_constants",
+            "pthread_barrier_init",
+            "pthread_barrier_destroy",
+            "pthread_barrier_wait",
+            "fsync",
+            "ftruncate",
+            "fchmod",
+            "fchown",
+            "utimes",
+            "dlopen",
+            "dlerror",
+            "dlclose",
+        ] {
+            assert!(
+                build_script.contains(symbol),
+                "missing target link root {symbol}"
+            );
+        }
+        let cxx_abi = fs::read_to_string(root.join("tools/mesa/nagi-libcpp-abi.cpp"))
+            .expect("target libc++ ABI providers");
+        let cxx_sort = fs::read_to_string(root.join("tools/mesa/nagi-libcpp-sort.cpp"))
+            .expect("target libc++ sort providers");
+        let target_cc = fs::read_to_string(root.join("tools/nagi-target-cc.sh"))
+            .expect("target C compiler wrapper");
+        let relibc_backend = fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
+            .expect("Nagi relibc backend");
+        let mesa_build =
+            fs::read_to_string(root.join("tools/mesa/build.sh")).expect("Nagi Mesa build script");
+        let relibc_portability_patch = fs::read_to_string(
+            root.join("third_party/relibc-patches/0001-nagi-portable-header-find.patch"),
+        )
+        .expect("relibc host portability patch");
+        assert!(build_script.contains("nagi-libcpp-abi.cpp"));
+        assert!(build_script.contains("nagi-libcpp-sort.cpp"));
+        assert!(build_script.contains("_LIBCPP_HAS_THREAD_API_PTHREAD=1"));
+        assert!(build_script.contains("_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1"));
+        assert!(cxx_abi.contains("nagi_posix_sleep_ns"));
+        assert!(cxx_abi.contains("this_thread") && cxx_abi.contains("sleep_for"));
+        assert!(cxx_abi.contains("basic_string<char>::append"));
+        for type_name in [
+            "signed char",
+            "int",
+            "long",
+            "short",
+            "unsigned short",
+            "unsigned char",
+            "unsigned int",
+            "unsigned long",
+        ] {
+            assert!(
+                cxx_sort.contains(type_name),
+                "missing libc++ sort type {type_name}"
+            );
+        }
+        assert!(target_cc.contains("SQLITE_OMIT_LOAD_EXTENSION=1"));
+        assert!(target_cc.contains("*/libsqlite3-sys-*/sqlite3/sqlite3.c"));
+        for symbol in ["fn dlopen(", "fn dlsym(", "fn dlerror(", "fn dlclose("] {
+            assert!(
+                relibc_backend.contains(symbol),
+                "missing fail-closed dynamic-loader symbol {symbol}"
+            );
+        }
+        assert!(mesa_build.contains("relibc_header_patch"));
+        assert!(relibc_portability_patch.contains("-exec basename {}"));
+        assert!(relibc_portability_patch.contains("-printf"));
         assert!(mesa_build.contains("_mesa_glthread_finish"));
         assert!(mesa_build.contains("libnagi_mesa_roots.a"));
         assert!(mesa_build.contains("libgallium\\.a"));
@@ -605,6 +671,7 @@ mod tests {
             .expect("workspace root");
         let abi =
             fs::read_to_string(root.join("user/nagi-posix/src/abi.rs")).expect("Nagi POSIX ABI");
+        let abi = abi.replace("\r\n", "\n");
         let abort = abi
             .find("pub unsafe extern \"C\" fn abort() -> !")
             .expect("abort");
@@ -632,9 +699,6 @@ mod tests {
         assert!(runtime.contains("__stack_chk_guard"));
         assert!(runtime.contains("nagi_posix_malloc"));
         assert!(runtime.contains("nagi_posix_free"));
-        assert!(runtime.contains(
-            "_ZNSt3__111this_thread9sleep_forERKNS_6chrono8durationIxNS2_5ratioILl1ELl1000000000EEEE"
-        ));
         assert!(runtime.contains("_ZNSt3__122__libcpp_verbose_abortEPKcz"));
         assert!(runtime.contains("__cxa_guard_acquire"));
         assert!(runtime.contains("__cxa_guard_release"));
@@ -1036,6 +1100,7 @@ mod tests {
             "pub fn shutdown(",
             "pub fn set_tcp_nodelay(",
             "pub fn set_socket_timeout(",
+            "pub fn peer_name(",
         ] {
             assert!(
                 runtime.contains(operation),
@@ -1046,7 +1111,6 @@ mod tests {
             "pub fn tcp_shutdown_write(",
             "pub fn tcp_set_nagle(",
             "pub fn tcp_set_timeout(",
-            "pub fn peer_name(",
             "pub fn tcp_local_name(",
         ] {
             assert!(

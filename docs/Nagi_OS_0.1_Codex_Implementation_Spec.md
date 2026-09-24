@@ -403,6 +403,12 @@ RAX = return/result
 
 Published syscall numbers are never reused.
 
+The block-device ABI includes `SYS_BLOCK_READ` (3), `SYS_BLOCK_WRITE` (4),
+and `SYS_BLOCK_FLUSH` (28). All three require the caller's block-device
+capability; flush accepts only that capability and reports failure when the
+device does not support the negotiated VirtIO flush feature. Filesystem and
+POSIX operations such as `fsync` remain user-space responsibilities.
+
 ---
 
 # 7. Kernel object model
