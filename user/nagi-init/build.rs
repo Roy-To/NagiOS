@@ -272,53 +272,56 @@ fn main() {
         cxx_output.display()
     );
 
-    // Some pinned Servo/MozJS objects use libc++ extern-template entrypoints
-    // which are normally supplied by libc++.a. Nagi deliberately has no host
-    // C++ runtime, so instantiate the exact required algorithms/string method
-    // from the target's libc++ headers and provide sleep_for through the real
-    // guest POSIX clock bridge.
-    let cxx_abi_source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("tools")
-        .join("mesa")
-        .join("nagi-libcpp-abi.cpp");
-    println!("cargo:rerun-if-changed={}", cxx_abi_source.display());
-    let cxx_sort_source = cxx_abi_source.with_file_name("nagi-libcpp-sort.cpp");
-    println!("cargo:rerun-if-changed={}", cxx_sort_source.display());
-    let target_cc_wrapper = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("tools")
-        .join("nagi-target-cc.sh");
-    for (source, stem) in [
-        (&cxx_abi_source, "nagi-libcpp-abi"),
-        (&cxx_sort_source, "nagi-libcpp-sort"),
-    ] {
-        let output = out_dir.join(format!("{stem}.o"));
-        let status = Command::new("bash")
-            .arg(&target_cc_wrapper)
-            .args([
-                "-x",
-                "c++",
-                "-fno-asynchronous-unwind-tables",
-                "-fno-exceptions",
-                "-fno-rtti",
-                // The custom target triple cannot select libc++'s pthread
-                // backend or default rune table on its own. Match the
-                // target flags used by the pinned MozJS C++ build.
-                "-D_LIBCPP_HAS_THREAD_API_PTHREAD=1",
-                "-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1",
-                "-c",
-            ])
-            .arg(source)
-            .arg("-o")
-            .arg(&output)
-            .status()
-            .unwrap_or_else(|error| panic!("failed to compile libc++ ABI object: {error}"));
-        if !status.success() {
-            panic!("Nagi libc++ ABI compilation failed with {status}");
+    if env::var_os("CARGO_FEATURE_M17_SERVO").is_some() {
+        // Some pinned Servo/MozJS objects use libc++ extern-template entrypoints
+        // which are normally supplied by libc++.a. Nagi deliberately has no host
+        // C++ runtime, so instantiate the exact required algorithms/string method
+        // from the target's libc++ headers and provide sleep_for through the real
+        // guest POSIX clock bridge. These objects are M17-only: M0 image builds
+        // do not generate the relibc headers they require and do not link Servo.
+        let cxx_abi_source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("tools")
+            .join("mesa")
+            .join("nagi-libcpp-abi.cpp");
+        println!("cargo:rerun-if-changed={}", cxx_abi_source.display());
+        let cxx_sort_source = cxx_abi_source.with_file_name("nagi-libcpp-sort.cpp");
+        println!("cargo:rerun-if-changed={}", cxx_sort_source.display());
+        let target_cc_wrapper = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("tools")
+            .join("nagi-target-cc.sh");
+        for (source, stem) in [
+            (&cxx_abi_source, "nagi-libcpp-abi"),
+            (&cxx_sort_source, "nagi-libcpp-sort"),
+        ] {
+            let output = out_dir.join(format!("{stem}.o"));
+            let status = Command::new("bash")
+                .arg(&target_cc_wrapper)
+                .args([
+                    "-x",
+                    "c++",
+                    "-fno-asynchronous-unwind-tables",
+                    "-fno-exceptions",
+                    "-fno-rtti",
+                    // The custom target triple cannot select libc++'s pthread
+                    // backend or default rune table on its own. Match the
+                    // target flags used by the pinned MozJS C++ build.
+                    "-D_LIBCPP_HAS_THREAD_API_PTHREAD=1",
+                    "-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1",
+                    "-c",
+                ])
+                .arg(source)
+                .arg("-o")
+                .arg(&output)
+                .status()
+                .unwrap_or_else(|error| panic!("failed to compile libc++ ABI object: {error}"));
+            if !status.success() {
+                panic!("Nagi libc++ ABI compilation failed with {status}");
+            }
+            println!("cargo:rustc-link-arg-bin=nagi-init={}", output.display());
         }
-        println!("cargo:rustc-link-arg-bin=nagi-init={}", output.display());
     }
 }
