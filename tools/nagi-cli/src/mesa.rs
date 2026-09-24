@@ -583,7 +583,8 @@ mod tests {
         let process_source = fs::read_to_string(root.join("kernel/src/user_process.rs"))
             .expect("Nagi user process loader");
         let syscall_source = fs::read_to_string(root.join("kernel/src/syscall.rs"))
-            .expect("Nagi syscall thread context");
+            .expect("Nagi syscall thread context")
+            .replace("\r\n", "\n");
         assert!(build_script.contains("static=nagi_mesa"));
         assert!(build_script.contains("static=nagi_mesa_roots"));
         assert!(!build_script.contains("static:+whole-archive=nagi_mesa"));

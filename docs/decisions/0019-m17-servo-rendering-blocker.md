@@ -2340,3 +2340,27 @@ Silicon host because existing x86 port-I/O assembly uses x86 registers
 unavailable to the arm64 host. Authoritative target CI remains pending. M17 stays
 `BLOCKED`; M18 stays `NOT STARTED` until the full guest-rendered first pixel
 acceptance passes.
+
+## Target TLS validation and first-pixel continuation after CI run #168 (2026-09-24)
+
+Public CI run `36019101924` (#168, head `ef69ff4066658eabaed33d1871f432f73bc01d59`)
+passed Ubuntu host checks, target dependency validation, Mesa Softpipe archive
+construction, package, kernel, the real `nagi-init` target link, and UEFI
+loader build. This is the first target link after adding bounded static TLS;
+the link completed with zero undefined symbols. The M17 first-web-pixel
+acceptance command then failed with exit code 4, approximately two seconds
+after starting `./nagi m17`. Its shell wrapper captured stdout and stderr in a
+command substitution while `set -e` was active, so the nonzero assignment
+terminated the wrapper before printing the diagnostic. No serial-log marker
+or first-pixel evidence was reported, and M17 remains `BLOCKED`.
+
+The local acceptance-script repair preserves the CLI exit code while printing
+captured output on both success and failure. It does not relax either the
+`PASS M17 first web pixel` CLI check or the guest serial checksum/pass-marker
+requirements. The same CI run's Windows job failed on a static test expecting
+LF in `kernel/src/syscall.rs`; Windows `text=auto` checkout provided CRLF.
+Normalizing CRLF in the test source fixes the cross-platform assertion, and
+the focused test passes locally. The next authoritative CI run must pass the
+Windows suite, surface the exact `./nagi m17` diagnostic, and continue through
+real guest-rendered pixels. No host-rendered or synthetic path is introduced.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

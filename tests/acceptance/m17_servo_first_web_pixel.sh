@@ -9,8 +9,13 @@ if [ -f out/mesa-venv/bin/activate ]; then
     . out/mesa-venv/bin/activate
 fi
 
-output=$(./nagi m17 2>&1)
+m17_status=0
+output=$(./nagi m17 2>&1) || m17_status=$?
 printf '%s\n' "$output"
+if [ "$m17_status" -ne 0 ]; then
+    printf 'FAIL M17 command exited with status %s\n' "$m17_status" >&2
+    exit "$m17_status"
+fi
 printf '%s\n' "$output" | grep -F 'PASS M17 first web pixel:' >/dev/null
 
 serial_log="$repository_root/out/logs/m17-servo.log"

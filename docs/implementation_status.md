@@ -19,28 +19,28 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #167 passed host acceptance and target setup through the real
-user-init link, which reported zero undefined symbols but failed because
-target TLS objects require a `PT_TLS` program header. ADR 0021 records bounded
-static TLS support; the linker, ELF loader, and process address space now
-validate and initialize that template for the initial thread and its one
-native child. Parser tests, a target kernel build, and linker micro-probes pass;
-the full kernel test crate cannot run on this Apple Silicon host because its
-x86 port-I/O assembly is invalid for the host target. Run authoritative Ubuntu
-target CI, then continue to UEFI and real QEMU first-web-pixel acceptance. M18 remains
-forbidden until M17 is formally PASS.
+milestone. CI #168 passed the real target user-init link and UEFI loader build,
+then the M17 first-web-pixel command returned exit code 4 before reporting
+guest serial evidence. The acceptance shell captured the CLI output but
+`set -e` exited before printing it; the current repair prints captured output
+and preserves the command's exit status so the next authoritative run exposes
+the actual blocker. The same run's Windows host test failed because a source
+inspection assumed LF line endings; the local repair normalizes CRLF before
+checking. M17 remains blocked until real guest-rendered Servo pixels pass.
+M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36006860116` (#167) at
-`daf55d081b96ee5e82045acf9c8f38e32cad3f6d` passed Ubuntu and Windows host
-acceptance, target dependency validation, Mesa Softpipe archive construction,
-package, and kernel build. The real target link emitted zero undefined
-symbols, then rust-lld rejected TLS-bearing Mesa and relibc objects because
-the executable had no `PT_TLS`. The current repair adds bounded static TLS
-template parsing and initialization plus linker `PT_TLS` output. Focused
-verification and authoritative CI are pending. UEFI and real QEMU
-first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+**Last known repair checkpoint:** public CI run `36019101924` (#168, head
+`ef69ff4066658eabaed33d1871f432f73bc01d59`) passed Ubuntu host checks,
+target dependency validation, Mesa Softpipe archive construction, package,
+kernel, user-init link, and UEFI loader build. The target acceptance invocation
+`./nagi m17` returned exit code 4; its diagnostic was hidden by the acceptance
+script's errexit behavior, so guest boot/serial state is unknown. The Windows
+host test also failed at an LF-specific source assertion on a CRLF checkout.
+The local worktree now contains narrow fixes for both issues; focused unit,
+format, shell syntax, and diff checks pass. Push and rerun authoritative CI to
+expose the CLI diagnostic and resume the real QEMU acceptance. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 
@@ -233,6 +233,30 @@ not run on macOS arm64 because existing x86 port-I/O assembly uses unavailable
 host registers. These changes still need authoritative Ubuntu target CI, UEFI,
 and real QEMU first-web-pixel evidence. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
+
+### Current M17 continuation after CI run #168 (2026-09-24)
+
+Public CI run `36019101924` (#168, head
+`ef69ff4066658eabaed33d1871f432f73bc01d59`) passed `ubuntu-host`, target
+dependency validation, Mesa Softpipe archive construction, package, kernel,
+the real `nagi-init` target link, and the UEFI loader build. The link completed
+with zero undefined symbols after the bounded static TLS repair. The M17
+first-web-pixel acceptance then failed with exit code 4, about two seconds
+after invoking `./nagi m17`. The acceptance script assigned the combined CLI
+output under `set -e`, so the failing assignment exited before the script
+printed the captured diagnostic. No guest serial log or first-pixel evidence
+was reported; M17 is not PASS.
+
+The same run's Windows host test failed in
+`mesa::tests::m17_mesa_link_does_not_force_duplicate_archive_members`: an
+assertion compared an LF substring in `kernel/src/syscall.rs`, while the
+Windows checkout had CRLF. The local source-inspection test now normalizes
+CRLF to LF, and the focused test passes on macOS. The acceptance script now
+captures and prints `./nagi m17` output even when the command exits nonzero,
+then returns that original status; the first-pixel checks are unchanged. The
+next CI run must reveal the actual CLI/QEMU failure, pass the Windows suite,
+and continue until real guest-rendered pixels reach Nagi Surface. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -591,7 +615,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #167 (`36006860116`) passed host acceptance and target setup to the real user-init link, which had zero undefined symbols but rejected TLS-bearing objects because the ELF omitted `PT_TLS`. Bounded static TLS is implemented for the initial thread and one isolated child slot, with per-thread FS-base restoration and child-template reset. ELF parser tests (14), `nagi-cli` tests (49 unit and 18 CLI), the x86-64 Nagi kernel release build, and linker-script ELF probes pass. The full kernel test crate cannot run on macOS arm64 because of existing x86 port-I/O assembly. The repair awaits authoritative target CI, then UEFI and real QEMU first-web-pixel acceptance before M17 PASS. See ADR 0019, ADR 0020, and ADR 0021. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #168 (`36019101924`) passed the real target user-init link and UEFI loader, then `./nagi m17` returned exit 4 before serial/first-pixel evidence; the acceptance script now prints this diagnostic on failure. The same run exposed an LF-only source assertion on Windows CRLF checkout; its local normalization fix passes the focused test. CI rerun must expose the actual QEMU/CLI blocker and reach real guest-rendered pixels. M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
