@@ -326,6 +326,19 @@ fully for each required archive, avoiding early pipeline termination. The
 real guest-pixel acceptance remains unchanged. No QEMU boot or pixel evidence
 was produced by #172. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #173 (2026-09-25)
+
+Public CI run `36039057472` (#173, head
+`9dcf843f0b9f35dfcf3c282902e5355446e7f69e`) failed both host workspace
+test jobs because `m17_mesa_link_does_not_force_duplicate_archive_members`
+still expected the previous escaped-regex strings from `tools/mesa/build.sh`.
+The assertion now checks that the full Ninja graph is captured, scans to
+completion, selects exact archive suffixes, and does not use the old
+early-exit pipeline. The focused test passes locally. In the target job, the
+top-level Mesa Softpipe archive build passed and the real user-init link was
+still running when this checkpoint was recorded; QEMU acceptance remains
+pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
 Public CI run `35959281238` (#157, head
@@ -683,7 +696,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #172 (`36034194228`) passed both host jobs, real target user-init link, and UEFI loader, then reached the CLI acceptance. `nagi m17` passed source validation but its repeated Mesa build stopped just after Meson setup; the likely fault is an early-exit `awk` closing a `ninja -t targets all` pipe under `pipefail`. `tools/mesa/build.sh` now caches and scans the complete target graph. Re-run unchanged real guest-rendered First Web Pixel acceptance; M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #173 (`36039057472`) had both host jobs fail because the source-inspection test still expected the old Mesa target regexes. The updated selector assertions pass locally. In the target job, the top-level Mesa Softpipe archive passed and the real user-init link was still running at this checkpoint; first-pixel acceptance remains pending. M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

@@ -2435,3 +2435,17 @@ target graph once and scans all its input for each required archive. This
 keeps the same target names and real Mesa build; it changes only how the graph
 is read. QEMU and guest-pixel acceptance remain pending; M17 is `BLOCKED` and
 M18 is `NOT STARTED`.
+
+## Mesa selector source test after CI run #173 (2026-09-25)
+
+Public CI run `36039057472` (#173, head
+`9dcf843f0b9f35dfcf3c282902e5355446e7f69e`) failed the `nagi-cli` host test
+`m17_mesa_link_does_not_force_duplicate_archive_members` on Ubuntu and
+Windows because the source-inspection assertion still expected escaped-regex
+target strings. The test now checks the cached full target graph, exact
+archive-suffix matching, and absence of the old early-exit pipeline. The
+focused test passes locally. CI #173's independent target job passed the
+top-level Mesa Softpipe archive build and continued into the real user-init
+link; the job was still running at this checkpoint. The real QEMU acceptance
+criteria remain unchanged, M17 remains `BLOCKED`, and M18 remains
+`NOT STARTED`.

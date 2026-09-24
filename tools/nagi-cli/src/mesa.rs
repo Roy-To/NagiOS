@@ -701,16 +701,20 @@ mod tests {
             );
         }
         assert!(mesa_build.contains("relibc_header_patch"));
+        assert!(mesa_build.contains("mesa_target_graph=$(ninja -C"));
+        assert!(mesa_build.contains("if (!found && (target == archive ||"));
+        assert!(mesa_build.contains("substr(target, archive_start) == archive"));
+        assert!(!mesa_build.contains("| awk '{ target = $1;"));
         assert!(mesa_build.contains("mesa_glcpp_target"));
-        assert!(mesa_build.contains("libglcpp\\.a"));
+        assert!(mesa_build.contains("find_mesa_target 'libglcpp.a'"));
         assert!(mesa_build.contains("mesa_vtn_target"));
-        assert!(mesa_build.contains("libvtn\\.a"));
+        assert!(mesa_build.contains("find_mesa_target 'libvtn.a'"));
         assert!(relibc_portability_patch.contains("-exec basename {}"));
         assert!(relibc_portability_patch.contains("-printf"));
         assert!(mesa_build.contains("_mesa_glthread_finish"));
         assert!(mesa_build.contains("libnagi_mesa_roots.a"));
-        assert!(mesa_build.contains("libgallium\\.a"));
-        assert!(mesa_build.contains("libglsl\\.a"));
+        assert!(mesa_build.contains("find_mesa_target 'libgallium.a'"));
+        assert!(mesa_build.contains("find_mesa_target 'libglsl.a'"));
     }
 
     #[test]
