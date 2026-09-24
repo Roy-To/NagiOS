@@ -2193,3 +2193,19 @@ unversioned libc++ `std::exception`/`std::bad_alloc` Itanium ABI in the
 Nagi-owned freestanding runtime and a target-owned C-locale `islower` with a
 selective archive seed. No host C++/libc/locale implementation or synthetic
 rendering path is used. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #153 (2026-09-24)
+
+Public CI run `35947092812` (#153, head `0a390c5`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The real target user-init link passed the `bad_alloc` and
+`islower` repairs, then exposed
+`std::__1::__next_prime(unsigned long)`,
+`std::__1::locale::use_facet(std::__1::locale::id&) const`, and `nearbyint`
+after approximately nineteen minutes. UEFI and real QEMU first-web-pixel
+acceptance were not reached. The next bounded repair supplies the exact
+libc++ hash-prime ABI, keeps unsupported locale-facet access fail-closed at
+the Nagi abort boundary instead of returning a fabricated facet, and adds
+target-owned IEEE `nearbyint` with a selective archive seed. No host
+C++/libc/locale implementation or synthetic rendering is used. M17 remains
+`BLOCKED` and M18 remains `NOT STARTED`.

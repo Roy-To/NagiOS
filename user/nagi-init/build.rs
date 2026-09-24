@@ -94,6 +94,7 @@ fn main() {
             // before the static archive scan because Mesa's C++ archive can
             // introduce the use after relibc's normal extraction point.
             "islower",
+            "nearbyint",
         ] {
             println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }

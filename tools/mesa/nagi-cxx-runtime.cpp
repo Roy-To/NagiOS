@@ -384,6 +384,21 @@ static nagi_size_t nagi_gnu_next_prime(nagi_size_t requested) {
     return requested;
 }
 
+// libc++ keeps its hash-table growth helper outside the header. The pinned
+// target uses the same C++11 ABI namespace as libc++; expose the real
+// Nagi-owned prime search under that exact symbol instead of linking a host
+// libc++ archive. libc++ returns 0 for 0, while every request in [1, 2]
+// resolves to the first usable bucket count, 2.
+extern "C" nagi_size_t nagi_libcpp_next_prime(nagi_size_t requested)
+    __asm__("_ZNSt3__112__next_primeEm");
+
+extern "C" nagi_size_t nagi_libcpp_next_prime(nagi_size_t requested) {
+    if (requested == 0) {
+        return 0;
+    }
+    return nagi_gnu_next_prime(requested);
+}
+
 extern "C" nagi_gnu_rehash_result nagi_gnu_prime_need_rehash(
     const nagi_gnu_prime_rehash_policy *policy, nagi_size_t bucket_count,
     nagi_size_t element_count, nagi_size_t insertion_count)
@@ -1544,6 +1559,21 @@ extern "C" const void *nagi_cxx_locale_classic() {
 // number. A pointer-sized target object matches the pinned x86-64 libc++ ABI.
 extern "C" nagi_uintptr_t nagi_ctype_char_id
     __asm__("_ZNSt3__15ctypeIcE2idE") = 0;
+
+// libc++'s locale::use_facet is an out-of-line ABI boundary. Nagi 0.1 has no
+// host locale database and the current target image does not yet expose a
+// complete facet table, so an attempted access must terminate through the
+// real guest abort path rather than return a fabricated facet pointer. This
+// keeps unsupported locale use fail-closed while allowing the target linker
+// to validate the rest of the Servo/Mesa graph.
+extern "C" [[noreturn]] const void *nagi_cxx_locale_use_facet(
+    const void *locale, void *id)
+    __asm__("_ZNKSt3__16locale9use_facetERNS0_2idE");
+
+extern "C" [[noreturn]] const void *nagi_cxx_locale_use_facet(
+    const void *, void *) {
+    abort();
+}
 
 // The pinned target objects retain the Itanium ABI type-info vtable
 // references even though the Nagi build disables RTTI and exceptions. Keep

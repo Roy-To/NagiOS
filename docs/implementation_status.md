@@ -25,16 +25,33 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35944501706` (#152) at
-`12b0e40` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+**Last known repair checkpoint:** public CI run `35947092812` (#153) at
+`0a390c5` passed Servo bootstrap, target dependency validation, Mesa Softpipe
 archive construction, package, and kernel compilation. The target user-init
-link then exposed `std::bad_alloc::bad_alloc()`,
-`std::bad_alloc::what() const`, and `islower`. UEFI and real QEMU first-web-
-pixel acceptance were not reached. The next repair adds the matching
-freestanding libc++ exception hierarchy/vtable ABI, a target-owned C-locale
-`islower`, and its selective archive seed. It does not import host C++/libc,
-create synthetic rendering, or weaken M17 acceptance. M17 remains `BLOCKED`;
-M18 remains `NOT STARTED`.
+link passed the `std::bad_alloc` and `islower` repair, then exposed
+`std::__1::__next_prime(unsigned long)`,
+`std::__1::locale::use_facet(std::__1::locale::id&) const`, and `nearbyint`.
+UEFI and real QEMU first-web-pixel acceptance were not reached. The next
+repair adds the exact libc++ hash-prime ABI, a fail-closed locale facet ABI
+boundary, and target-owned IEEE `nearbyint` plus its selective archive seed.
+It does not import host C++/libc/locale, create synthetic rendering, or weaken
+M17 acceptance. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #153 (2026-09-24)
+
+Public CI run `35947092812` (#153, head `0a390c5`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. `Build Nagi user init` completed the real target link
+after roughly nineteen minutes; the #152 `bad_alloc` and `islower` symbols
+were resolved. The new link diagnostics exposed
+`std::__1::__next_prime(unsigned long)`,
+`std::__1::locale::use_facet(std::__1::locale::id&) const`, and `nearbyint`.
+The UEFI loader and real QEMU first-web-pixel steps were skipped. The bounded
+repair supplies libc++'s exact `_ZNSt3__112__next_primeEm` ABI using a
+Nagi-owned prime search, keeps unsupported locale-facet access fail-closed at
+the Nagi abort boundary rather than returning a fabricated facet, and adds a
+target-owned IEEE round-to-even `nearbyint` with a selective archive seed.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #152 (2026-09-24)
 

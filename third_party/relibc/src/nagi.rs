@@ -2972,6 +2972,40 @@ pub unsafe extern "C" fn llrint(value: c_double) -> c_longlong {
     }
 }
 
+/// Target-owned `nearbyint` using the Nagi C ABI's default IEEE round-to-
+/// nearest, ties-to-even mode. Nagi does not currently expose mutable fenv
+/// rounding state, so preserve non-finite and already-integral values and do
+/// not import a host libm implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nearbyint(value: c_double) -> c_double {
+    if !value.is_finite() {
+        return value;
+    }
+    let magnitude = if value < 0.0 { -value } else { value };
+    if magnitude >= 4_503_599_627_370_496.0 {
+        return value;
+    }
+
+    let truncated_integer = value as i64;
+    let truncated = truncated_integer as c_double;
+    let fraction = value - truncated;
+    if fraction > 0.5 {
+        truncated + 1.0
+    } else if fraction < -0.5 {
+        truncated - 1.0
+    } else if (fraction == 0.5 || fraction == -0.5) && (truncated_integer & 1) != 0 {
+        if value.is_sign_negative() {
+            truncated - 1.0
+        } else {
+            truncated + 1.0
+        }
+    } else if truncated == 0.0 && value.is_sign_negative() {
+        -0.0
+    } else {
+        truncated
+    }
+}
+
 /// Target-owned floating-point predicates used by Mesa's freestanding math
 /// and format code. Keep both the POSIX spelling and openlibm's float helper
 /// in the Nagi ABI; neither is delegated to a host libm.
