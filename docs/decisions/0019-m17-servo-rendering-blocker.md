@@ -2417,3 +2417,21 @@ This keeps generated configuration out of the pinned source checkout while
 making the real FreeType/libpng bundled build see the same generated header.
 No target link, UEFI build, or QEMU acceptance was reached in #171; M17
 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Repeated Mesa build after CI run #172 (2026-09-25)
+
+Public CI run `36034194228` (#172, head
+`40c00607288e3e29e10d1e0ac918d83ca375efc7`) passed both host jobs, the real
+user-init link, and UEFI loader build. The acceptance CLI passed pinned-source
+validation and reached its own Mesa/Softpipe build, but the script stopped
+immediately after Meson configuration, before its first target-selection
+message. The captured output contained no direct lower-level error.
+
+`tools/mesa/build.sh` selects archive targets using Ninja target-list pipes.
+Under `set -o pipefail`, an `awk` that exits after finding one target can
+close the pipe while Ninja is still writing, causing a silent SIGPIPE before
+the script's explicit target diagnostics. The script now captures the full
+target graph once and scans all its input for each required archive. This
+keeps the same target names and real Mesa build; it changes only how the graph
+is read. QEMU and guest-pixel acceptance remain pending; M17 is `BLOCKED` and
+M18 is `NOT STARTED`.

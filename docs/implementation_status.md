@@ -308,6 +308,24 @@ directory to both C builders. No target link, UEFI build, QEMU boot, or pixel
 evidence was produced by #171. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
 
+### Current M17 continuation after CI run #172 (2026-09-25)
+
+Public CI run `36034194228` (#172, head
+`40c00607288e3e29e10d1e0ac918d83ca375efc7`) passed both host jobs, target
+bootstrap through the real `nagi-init` link, and UEFI loader build. During
+the first-web-pixel acceptance invocation, `./nagi m17` passed source
+validation and reached its Mesa/Softpipe rebuild, which stopped just after
+Meson configuration and before reporting the first selected core target. The
+failure output contained no lower-level diagnostic. The likely cause is an
+early-exit `awk` in a `ninja -t targets all | awk ... exit` pipeline: with
+`pipefail`, Ninja can receive SIGPIPE and terminate the script before its
+missing-target diagnostic.
+
+`tools/mesa/build.sh` now captures the complete target graph once and scans it
+fully for each required archive, avoiding early pipeline termination. The
+real guest-pixel acceptance remains unchanged. No QEMU boot or pixel evidence
+was produced by #172. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
 Public CI run `35959281238` (#157, head
@@ -665,7 +683,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #171 (`36032710471`) passed both host jobs and target bootstrap through kernel build, then failed compiling pinned `freetype-sys`: `pngshim.c` could not find generated `pnglibconf.h` because the new `OUT_DIR` include path was added only to the libpng C builder. Nagi patch `0002` now adds it to both FreeType and libpng C builders while preserving source immutability. Re-run unchanged real guest-rendered First Web Pixel acceptance; M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #172 (`36034194228`) passed both host jobs, real target user-init link, and UEFI loader, then reached the CLI acceptance. `nagi m17` passed source validation but its repeated Mesa build stopped just after Meson setup; the likely fault is an early-exit `awk` closing a `ninja -t targets all` pipe under `pipefail`. `tools/mesa/build.sh` now caches and scans the complete target graph. Re-run unchanged real guest-rendered First Web Pixel acceptance; M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

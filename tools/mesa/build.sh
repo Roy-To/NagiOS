@@ -125,18 +125,45 @@ meson setup --wipe "$mesa_build" "$repo_root/third_party/mesa" \
     "-Dcpp_args=$mesa_c_args" \
     "-Dprefix=$output_root/staging"
 
+# Read the complete target list before selecting targets. The script runs with
+# pipefail, so exiting awk early can SIGPIPE Ninja while it is still writing
+# its target list and abort the build before the missing-target diagnostic.
+if ! mesa_target_graph=$(ninja -C "$mesa_build" -t targets all); then
+    echo "M17 Mesa build: cannot read Meson target graph" >&2
+    exit 1
+fi
+
+find_mesa_target() {
+    local archive="$1"
+    awk -v archive="$archive" '
+        {
+            target = $1
+            sub(/:$/, "", target)
+            archive_start = length(target) - length(archive) + 1
+            if (!found && (target == archive ||
+                (archive_start > 1 &&
+                    substr(target, archive_start - 1, 1) == "/" &&
+                    substr(target, archive_start) == archive))) {
+                selected = target
+                found = 1
+            }
+        }
+        END {
+            if (found) {
+                print selected
+            }
+        }
+    ' <<< "$mesa_target_graph"
+}
+
 # Mesa's core static target is intentionally not always a default Ninja target
 # when only the Nagi EGL/Softpipe outputs are requested. Build the target named
 # by Meson's graph explicitly so the real glthread implementation is present
 # in the target-owned archive set before aggregation.
-mesa_core_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libmesa\.a$/) { print target; exit } }')
+mesa_core_target=$(find_mesa_target 'libmesa.a')
 if [[ -z "$mesa_core_target" ]]; then
-    mesa_core_candidates=$(ninja -C "$mesa_build" -t targets all \
-        | grep -E 'mesa|libmesa' \
-        | head -n 40 \
-        | tr '\n' ' ' \
-        | cut -c1-3000)
+    mesa_core_candidates=$(awk '/mesa|libmesa/ && count < 40 { print; count++ }' \
+        <<< "$mesa_target_graph" | tr '\n' ' ' | cut -c1-3000)
     echo "::error title=M17 Mesa core target::Meson target graph has no libmesa.a output target; candidates=$mesa_core_candidates" >&2
     exit 1
 fi
@@ -160,8 +187,7 @@ rm -f "$mesa_core_log"
 # Gallium archive when only the Nagi EGL/Softpipe outputs are requested. The
 # final user-init link reaches real state-tracker and postprocess entrypoints
 # from that archive, so build the target explicitly as well.
-mesa_gallium_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libgallium\.a$/) { print target; exit } }')
+mesa_gallium_target=$(find_mesa_target 'libgallium.a')
 if [[ -z "$mesa_gallium_target" ]]; then
     echo "::error title=M17 Mesa Gallium target::Meson target graph has no libgallium.a output target" >&2
     exit 1
@@ -185,8 +211,7 @@ rm -f "$mesa_gallium_log"
 # The explicit user-init link also reaches Mesa's real GLSL linker helpers
 # through shader-query/state-tracker code. Build the pinned libglsl target so
 # its linker_util implementation is present in the aggregate archive.
-mesa_glsl_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libglsl\.a$/) { print target; exit } }')
+mesa_glsl_target=$(find_mesa_target 'libglsl.a')
 if [[ -z "$mesa_glsl_target" ]]; then
     echo "::error title=M17 Mesa GLSL target::Meson target graph has no libglsl.a output target" >&2
     exit 1
@@ -210,8 +235,7 @@ rm -f "$mesa_glsl_log"
 # libglsl references Mesa's real preprocessor implementation, but libglcpp is
 # build_by_default=false and a static-library dependency is not folded into
 # libglsl.a. Build it explicitly so archive aggregation retains its provider.
-mesa_glcpp_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libglcpp\.a$/) { print target; exit } }')
+mesa_glcpp_target=$(find_mesa_target 'libglcpp.a')
 if [[ -z "$mesa_glcpp_target" ]]; then
     echo "::error title=M17 Mesa glcpp target::Meson target graph has no libglcpp.a output target" >&2
     exit 1
@@ -235,8 +259,7 @@ rm -f "$mesa_glcpp_log"
 # Mesa's GL SPIR-V entry points call into the real Vulkan-to-NIR translator.
 # libvtn is also build_by_default=false, so materialize it before aggregating
 # the target-owned archives.
-mesa_vtn_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libvtn\.a$/) { print target; exit } }')
+mesa_vtn_target=$(find_mesa_target 'libvtn.a')
 if [[ -z "$mesa_vtn_target" ]]; then
     echo "::error title=M17 Mesa SPIR-V target::Meson target graph has no libvtn.a output target" >&2
     exit 1
@@ -261,8 +284,7 @@ rm -f "$mesa_vtn_log"
 # are intentionally build_by_default=false upstream, so the aggregate archive
 # can otherwise contain the real Softpipe core while still omitting the
 # loader/winsys objects that define sw_screen_create_vk and null_sw_create.
-mesa_pipe_loader_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libpipe_loader_static\.a$/) { print target; exit } }')
+mesa_pipe_loader_target=$(find_mesa_target 'libpipe_loader_static.a')
 if [[ -z "$mesa_pipe_loader_target" ]]; then
     echo "::error title=M17 Mesa pipe loader target::Meson target graph has no libpipe_loader_static.a output target" >&2
     exit 1
@@ -283,8 +305,7 @@ if ! ninja -C "$mesa_build" "$mesa_pipe_loader_target" 2>&1 | tee "$mesa_pipe_lo
 fi
 rm -f "$mesa_pipe_loader_log"
 
-mesa_null_winsys_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libws_null\.a$/) { print target; exit } }')
+mesa_null_winsys_target=$(find_mesa_target 'libws_null.a')
 if [[ -z "$mesa_null_winsys_target" ]]; then
     echo "::error title=M17 Mesa null winsys target::Meson target graph has no libws_null.a output target" >&2
     exit 1
@@ -305,8 +326,7 @@ if ! ninja -C "$mesa_build" "$mesa_null_winsys_target" 2>&1 | tee "$mesa_null_wi
 fi
 rm -f "$mesa_null_winsys_log"
 
-mesa_wrapper_winsys_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libwsw\.a$/) { print target; exit } }')
+mesa_wrapper_winsys_target=$(find_mesa_target 'libwsw.a')
 if [[ -z "$mesa_wrapper_winsys_target" ]]; then
     echo "::error title=M17 Mesa wrapper winsys target::Meson target graph has no libwsw.a output target" >&2
     exit 1
@@ -327,8 +347,7 @@ if ! ninja -C "$mesa_build" "$mesa_wrapper_winsys_target" 2>&1 | tee "$mesa_wrap
 fi
 rm -f "$mesa_wrapper_winsys_log"
 
-mesa_nagi_roots_target=$(ninja -C "$mesa_build" -t targets all \
-    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libpipe_loader_nagi_roots\.a$/) { print target; exit } }')
+mesa_nagi_roots_target=$(find_mesa_target 'libpipe_loader_nagi_roots.a')
 if [[ -z "$mesa_nagi_roots_target" ]]; then
     echo "::error title=M17 Mesa Nagi helper target::Meson target graph has no libpipe_loader_nagi_roots.a output target" >&2
     exit 1
