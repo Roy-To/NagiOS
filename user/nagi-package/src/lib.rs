@@ -1,7 +1,11 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use nagi_model::AppId;
+use nagi_security::CapabilityDeclaration;
 
 pub const MAX_PACKAGE_BYTES: usize = 8192;
 pub const MAX_MANIFEST_BYTES: usize = 1024;
@@ -9,6 +13,7 @@ pub const MAX_ID_BYTES: usize = 64;
 pub const MAX_NAME_BYTES: usize = 64;
 pub const MAX_VERSION_BYTES: usize = 32;
 pub const MAX_ENTRY_BYTES: usize = 64;
+pub const MAX_CAPABILITY_DECLARATIONS: usize = 8;
 pub const MAX_SLOTS: usize = 8;
 pub const SIGNATURE_BYTES: usize = 64;
 /// RFC 8032 test-vector public key, pinned as the Developer Preview signer.
@@ -81,6 +86,8 @@ pub struct PackageManifest {
     version: Text<MAX_VERSION_BYTES>,
     entry: Text<MAX_ENTRY_BYTES>,
     surfaces: u8,
+    capabilities: [Option<CapabilityDeclaration>; MAX_CAPABILITY_DECLARATIONS],
+    capability_count: u8,
 }
 
 impl PackageManifest {
@@ -93,6 +100,9 @@ impl PackageManifest {
         let mut version = None;
         let mut entry = None;
         let mut surfaces = 0;
+        let mut capabilities: [Option<CapabilityDeclaration>; MAX_CAPABILITY_DECLARATIONS] =
+            [None; MAX_CAPABILITY_DECLARATIONS];
+        let mut capability_count = 0;
         for line in text.split(|byte| *byte == b'\n') {
             let line = line.strip_suffix(b"\r").unwrap_or(line);
             if line.is_empty() {
@@ -118,6 +128,22 @@ impl PackageManifest {
                 b"surfaces" => {
                     surfaces = parse_surfaces(value)?;
                 }
+                b"capability" => {
+                    let declaration = CapabilityDeclaration::parse(value)
+                        .map_err(|_| PackageError::InvalidManifest)?;
+                    if capabilities[..capability_count]
+                        .iter()
+                        .flatten()
+                        .any(|existing| existing.capability == declaration.capability)
+                    {
+                        return Err(PackageError::InvalidManifest);
+                    }
+                    let Some(slot) = capabilities.get_mut(capability_count) else {
+                        return Err(PackageError::InvalidManifest);
+                    };
+                    *slot = Some(declaration);
+                    capability_count += 1;
+                }
                 _ => return Err(PackageError::InvalidManifest),
             }
         }
@@ -139,6 +165,8 @@ impl PackageManifest {
             version,
             entry,
             surfaces,
+            capabilities,
+            capability_count: capability_count as u8,
         })
     }
 
@@ -164,6 +192,14 @@ impl PackageManifest {
 
     pub const fn supports_surfaces(self) -> u8 {
         self.surfaces
+    }
+
+    pub const fn capability_declaration_count(self) -> usize {
+        self.capability_count as usize
+    }
+
+    pub fn capability_declaration(&self, index: usize) -> Option<CapabilityDeclaration> {
+        self.capabilities.get(index).copied().flatten()
     }
 }
 
@@ -519,9 +555,12 @@ fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
 mod tests {
     use super::{
         build_xapp, InstallPolicy, PackageError, PackageManifest, PackageStore, PackageView,
-        MAX_PACKAGE_BYTES, SIGNATURE_BYTES, TRUSTED_SIGNING_PUBLIC_KEY,
+        MAX_CAPABILITY_DECLARATIONS, MAX_PACKAGE_BYTES, SIGNATURE_BYTES,
+        TRUSTED_SIGNING_PUBLIC_KEY,
     };
     use ed25519_dalek::{Signer, SigningKey};
+    use nagi_model::ObjectId;
+    use nagi_security::{CapabilityRequirement, CapabilityScope};
 
     const MANIFEST: &[u8] = b"id=com.example.hello\nname=Hello Nagi\nversion=0.1.0\nentry=hello.elf\nsurfaces=compact,expanded\n";
 
@@ -548,6 +587,63 @@ mod tests {
         assert_eq!(manifest.entry(), b"hello.elf");
         assert_ne!(manifest.app_id().0, 0);
         assert_eq!(manifest.supports_surfaces(), 5);
+    }
+
+    #[test]
+    fn notes_manifest_declares_required_user_selected_document_write() {
+        let manifest = PackageManifest::parse(include_bytes!(
+            "../../../samples/manifests/notes.nagi-manifest"
+        ))
+        .expect("Notes manifest");
+        assert_eq!(manifest.id(), b"com.nagi.notes");
+        assert_eq!(manifest.capability_declaration_count(), 1);
+        let declaration = manifest
+            .capability_declaration(0)
+            .expect("capability declaration");
+        assert_eq!(declaration.capability.as_bytes(), b"files.write");
+        assert_eq!(declaration.requirement, CapabilityRequirement::Required);
+        assert!(declaration
+            .scope
+            .permits(CapabilityScope::Object(ObjectId(9))));
+        assert!(!declaration.scope.permits(CapabilityScope::Any));
+    }
+
+    #[test]
+    fn legacy_manifest_without_capabilities_remains_valid() {
+        let manifest = PackageManifest::parse(MANIFEST).expect("legacy manifest");
+        assert_eq!(manifest.capability_declaration_count(), 0);
+    }
+
+    #[test]
+    fn malformed_duplicate_and_excess_capability_rows_fail_closed() {
+        let malformed = b"id=com.example.app\nname=App\nversion=1\nentry=app\ncapability=files.write|required|unknown|app.reason\n";
+        assert_eq!(
+            PackageManifest::parse(malformed),
+            Err(PackageError::InvalidManifest)
+        );
+
+        let duplicate = b"id=com.example.app\nname=App\nversion=1\nentry=app\ncapability=files.read|required|any|app.read\ncapability=files.read|optional|any|app.read_again\n";
+        assert_eq!(
+            PackageManifest::parse(duplicate),
+            Err(PackageError::InvalidManifest)
+        );
+
+        let mut text =
+            std::vec::Vec::from(&b"id=com.example.app\nname=App\nversion=1\nentry=app\n"[..]);
+        use std::fmt::Write as _;
+        let mut declarations = std::string::String::new();
+        for index in 0..=MAX_CAPABILITY_DECLARATIONS {
+            writeln!(
+                declarations,
+                "capability=vendor.cap{index}|required|any|app.reason{index}"
+            )
+            .expect("format declaration");
+        }
+        text.extend_from_slice(declarations.as_bytes());
+        assert_eq!(
+            PackageManifest::parse(&text),
+            Err(PackageError::InvalidManifest)
+        );
     }
 
     #[test]

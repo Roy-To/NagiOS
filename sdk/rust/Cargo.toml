@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 nagi-model = { path = "../../crates/nagi-model" }
+nagi-security = { path = "../../crates/nagi-security" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

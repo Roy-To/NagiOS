@@ -3351,3 +3351,33 @@ creation. The public annotation retained only the warning tail and
 `fatal error:` lines in the bounded annotation. Target link, UEFI, and real
 QEMU first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
+
+## Parallel Capability / Permission / Security Core (2026-09-24)
+
+Capability-core track: `PASS` for the independently testable shared model,
+policy evaluator, bounded permission/delegation store, package-manifest parser,
+versioned grant codecs, audit event boundary, and Notes manifest fixture.
+This status does not claim OS-wide enforcement or runtime integration. M17 and
+the first-party application workstreams were not modified.
+
+The full root Cargo workspace and `./nagi doctor` could not load because the
+generated pinned Servo checkout is absent at
+`third_party/servo/components/servo/Cargo.toml`. Verification used a temporary
+minimal workspace containing `nagi-model`, `nagi-security`, `nagi-sdk`, and
+`nagi-package`; the source and fixture were copied directly from this branch.
+
+```text
+cargo test --offline --workspace PASS (31 tests including existing nagi-model tests)
+cargo check --offline --workspace --all-targets PASS
+cargo clippy --offline --workspace --all-targets -- -D warnings PASS
+rustfmt --check <changed Rust files> PASS
+git diff --check PASS
+```
+
+The 20 new security-core tests cover unknown/malformed capabilities, default
+deny, Allow/Deny/Ask and precedence, scope matching and narrowing, background
+gates, revoke/enumerate, serialization, AI delegation and non-inheritance,
+high-risk Ask, actor separation, capability kind, localhost scope, and audit
+events. Eight package tests include legacy compatibility, Notes declaration,
+malformed/duplicate/over-limit declarations, and existing package behavior.
+M17 remains `BLOCKED` with its existing status unchanged.

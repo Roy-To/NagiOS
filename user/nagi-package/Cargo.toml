@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 nagi-model = { path = "../../crates/nagi-model" }
+nagi-security = { path = "../../crates/nagi-security" }
 ed25519-dalek = { version = "=2.1.1", default-features = false }
 
 [lints.rust]

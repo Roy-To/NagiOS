@@ -8,6 +8,13 @@ pub use nagi_model::{
     AppId, AppSessionId, ExecutionInstanceId, NodeId, ObjectId, PresentationClass,
     PresentationContext, PresentationSurface, SurfaceId, TransactionId, UserId, WorkspaceId,
 };
+pub use nagi_security::{
+    ActionCorrelationId, Actor, AuditEvent, CapabilityDeclaration, CapabilityId, CapabilityKind,
+    CapabilityRequirement, CapabilityScope, CapabilityScopeTemplate, DecisionReason,
+    DelegationGrant, DelegationId, DeviceClassId, DomainName, Evaluation, EvaluationContext,
+    IdentifierError, InvocationKind, LocalizationKey, PermissionDecision, PermissionGrant,
+    PermissionKey, PermissionStore, PolicyRequest, RiskClass, StoreError, SystemServiceId,
+};
 
 pub const HELLO_APP_ID: AppId = AppId::from_identifier(b"com.example.hello-nagi");
 pub const HELLO_MANIFEST: &[u8] =

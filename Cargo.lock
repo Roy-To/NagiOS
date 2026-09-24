@@ -3480,6 +3480,7 @@ version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
  "nagi-model",
+ "nagi-security",
 ]
 
 [[package]]
@@ -3502,6 +3503,14 @@ dependencies = [
 
 [[package]]
 name = "nagi-sdk"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "nagi-security",
+]
+
+[[package]]
+name = "nagi-security"
 version = "0.1.0"
 dependencies = [
  "nagi-model",

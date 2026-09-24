@@ -1,0 +1,6 @@
+id=com.nagi.notes
+name=Nagi Notes
+version=0.1.0
+entry=notes.napp
+surfaces=compact,expanded
+capability=files.write|required|selected-object|notes.permissions.write_document
