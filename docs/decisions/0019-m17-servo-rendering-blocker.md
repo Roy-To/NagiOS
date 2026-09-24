@@ -2385,3 +2385,20 @@ the acceptance step. CI #169 also passed the Windows host suite after the
 CRLF-normalized source inspection repair. No guest boot or serial evidence was
 produced by #169; the actual first-pixel criteria are unchanged. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Generated FreeType source mutation after CI run #170 (2026-09-25)
+
+Public CI run `36027813442` (#170, head
+`e28602a12d87ba37b52852b42527753753f573fd`) passed the real target link with
+zero undefined symbols and built the UEFI loader. The M17 acceptance command
+then failed before QEMU because the generated `freetype-sys` checkout
+fingerprint differed from its marker.
+
+The pinned `freetype-sys 0.23.0` build script copied the canonical libpng
+configuration header into its own generated source directory. Since
+`nagi m17` revalidates the pinned checkout after the target build, that
+build-time output was treated as an unexpected source edit. Nagi patch `0002`
+now places the generated header in Cargo's `OUT_DIR` and adds it to the libpng
+compiler include path. This preserves the real bundled FreeType/libpng build
+and the source immutability check. QEMU and first-pixel acceptance still need
+to run; M17 remains `BLOCKED` and M18 remains `NOT STARTED`.

@@ -5,3 +5,5 @@ This directory contains the numbered Nagi patches applied to the exact
 The source is generated under `third_party/freetype-sys/`; do not edit that
 checkout directly. The patch keeps bundled FreeType/libpng target builds on
 the pinned `libz-sys` include metadata instead of a host zlib include path.
+It also writes libpng's generated `pnglibconf.h` to Cargo's `OUT_DIR`, keeping
+the pinned source checkout immutable across repeated fetch validation.

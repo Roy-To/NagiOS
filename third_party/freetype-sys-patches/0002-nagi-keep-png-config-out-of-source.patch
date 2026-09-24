@@ -1,0 +1,19 @@
+diff --git a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
+@@ -26,7 +26,11 @@ fn main() {
+     // From libpng/png.h:
+     // "If pnglibconf.h is missing, you can copy scripts/pnglibconf.h.prebuilt to pnglibconf.h"
++    println!("cargo:rerun-if-changed=libpng/scripts/pnglibconf.h.prebuilt");
++    let out_dir = std::path::PathBuf::from(
++        env::var_os("OUT_DIR").expect("Cargo build scripts set OUT_DIR"),
++    );
+     std::fs::copy(
+         "libpng/scripts/pnglibconf.h.prebuilt",
+-        "libpng/pnglibconf.h",
++        out_dir.join("pnglibconf.h"),
+     )
+     .unwrap();
+@@ -98,1 +102,1 @@ fn main() {
+-    build.include("libpng");
++    build.include(&out_dir).include("libpng");

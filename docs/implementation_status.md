@@ -276,6 +276,23 @@ acceptance invocation. This only repairs build configuration; the real QEMU
 and guest-pixel acceptance criteria remain unchanged. M17 remains `BLOCKED`;
 M18 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #170 (2026-09-25)
+
+Public CI run `36027813442` (#170, head
+`e28602a12d87ba37b52852b42527753753f573fd`) passed both host jobs, target
+dependency validation, Mesa Softpipe archive construction, package, kernel,
+the real `nagi-init` target link, and UEFI loader build. The target link
+completed with zero undefined symbols. The real first-web-pixel acceptance
+then stopped before QEMU launch: `./nagi m17` revalidated generated
+`freetype-sys` source and found that its checkout no longer matched its marker.
+
+The source fingerprint changed because the pinned crate's build script copied
+`libpng/scripts/pnglibconf.h.prebuilt` into the generated source tree at
+`libpng/pnglibconf.h`. The new Nagi patch `0002` writes that generated header
+to Cargo's `OUT_DIR` and adds that directory to libpng's include path, keeping
+the pinned checkout immutable. No guest boot or rendered-pixel evidence was
+produced by #170. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
 Public CI run `35959281238` (#157, head
@@ -633,7 +650,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #169 (`36023620387`) passed Ubuntu and Windows host gates, the real target user-init link, and UEFI loader. The CLI acceptance stopped before QEMU because its step omitted the `NAGI_CXX_HEADERS` value used by the user-init build; CI now passes the same `clang-19` and `/usr/include/c++/v1` settings. The CRLF-sensitive Windows test fix passed. Re-run the unchanged real guest-rendered First Web Pixel acceptance. M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #170 (`36027813442`) passed host gates, the real target user-init link with zero undefined symbols, and UEFI loader. Acceptance stopped before QEMU because `freetype-sys`'s build script wrote generated `pnglibconf.h` into its pinned source checkout, invalidating the source marker. Nagi patch `0002` moves that generated file to Cargo `OUT_DIR`; re-run unchanged real guest-rendered First Web Pixel acceptance. M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
