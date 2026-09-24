@@ -183,7 +183,6 @@ jobs:
           if [ "$cargo_status" -ne 0 ]; then
             first_error=$(grep -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log || true)
             first_location=""
-            linker_detail=""
             build_detail=""
             if [ -n "$first_error" ]; then
               error_line=$(grep -n -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log | cut -d: -f1 || true)
@@ -193,7 +192,19 @@ jobs:
               fi
             fi
             if [[ "$first_error" == *"linking with"* ]]; then
-              linker_detail=$(grep -m3 -E 'undefined symbol|undefined reference|rust-lld: error|ld\.lld: error|cannot find -l|library not found' out/logs/m17-nagi-user-init.log | paste -sd '; ' - || true)
+              python3 tools/nagi-target-link-diagnostics.py \
+                --log out/logs/m17-nagi-user-init.log \
+                --inventory out/logs/m17-undefined-symbols.txt \
+                --summary "$GITHUB_STEP_SUMMARY" \
+                --search-root target/x86_64-unknown-nagi-user/release/build \
+                --search-root target/x86_64-unknown-nagi-user/release/deps \
+                --search-top-level out/m17-mesa \
+                || echo '::warning title=M17 linker inventory::Could not complete symbol/provider diagnostics'
+              symbol_count=0
+              if [ -f out/logs/m17-undefined-symbols.txt ]; then
+                symbol_count=$(wc -l < out/logs/m17-undefined-symbols.txt | tr -d ' ')
+              fi
+              first_error="$first_error [$symbol_count unique undefined symbols; full inventory is in the job summary and build log]"
             fi
             if [[ "$first_error" == *"failed to run custom build command"* ]]; then
               build_detail=$(grep -m5 -E 'nagi-cxx-runtime\.cpp:[0-9]+|fatal error:|clang(\+\+)?[^:]*: error:|rust-lld: error|undefined (symbol|reference)|could not compile' out/logs/m17-nagi-user-init.log | paste -sd '; ' - || true)
@@ -201,9 +212,6 @@ jobs:
             if [ -n "$first_error" ]; then
               if [ -n "$first_location" ]; then
                 first_error="$first_error ($first_location)"
-              fi
-              if [ -n "$linker_detail" ]; then
-                first_error="$first_error [$linker_detail]"
               fi
               if [ -n "$build_detail" ]; then
                 first_error="$first_error [$build_detail]"

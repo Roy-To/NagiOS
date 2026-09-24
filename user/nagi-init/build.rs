@@ -28,6 +28,11 @@ fn main() {
     }
 
     if env::var_os("CARGO_FEATURE_M17_SERVO").is_some() {
+        // Keep rust-lld from truncating the undefined-symbol inventory at its
+        // default error cap. This is the authoritative M17 target link; seeing
+        // every unresolved symbol lets one CI run expose a whole repair group.
+        println!("cargo:rustc-link-arg-bin=nagi-init=--error-limit=0");
+
         let mesa_build = env::var_os("NAGI_MESA_BUILD")
             .map(PathBuf::from)
             .expect("NAGI_MESA_BUILD must point to the guest Mesa build for m17-servo");

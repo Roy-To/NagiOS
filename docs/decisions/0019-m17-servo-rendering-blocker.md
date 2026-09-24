@@ -2239,3 +2239,39 @@ target-owned UTC `mktime`/`gmtime_r` conversion and a fail-closed Nagi
 selective archive seeds. It does not import host time/filesystem/path state
 or create synthetic rendering. M17 remains `BLOCKED` and M18 remains
 `NOT STARTED`.
+
+## Target-link continuation after CI run #156 (2026-09-24)
+
+Public CI run `35954492666` (#156, head `fcdd0baf5fa4b37a934736464de4f84c872a6dea`)
+passed Servo bootstrap, dependency validation, Mesa Softpipe archive
+construction, package, and kernel compilation. The real user-init link failed
+after about twenty-two minutes. rust-lld printed 20 distinct undefined
+symbols, then stopped with `too many errors emitted`; its diagnostic explicitly
+recommended `--error-limit=0`. The workflow annotation additionally truncated
+the list to three entries. The visible symbols included POSIX file/runtime
+entries, libc++ thread/sort/string entries, four SpiderMonkey APIs, and
+`dlopen`/`dlerror`; the complete set is not yet known, so no runtime fix is
+chosen from this partial list.
+
+The first 20 are classified as follows:
+
+- **Nagi relibc / POSIX ABI:** `remove`, `madvise`, `getrusage`, `fsync`.
+- **Nagi C++ runtime / libc++:** `std::__1::this_thread::sleep_for`,
+  `std::__1::__sort` instantiations for `signed char`, `int`, `long`, `short`,
+  `unsigned short`, `unsigned char`, `unsigned int`, and `unsigned long`, plus
+  `std::__1::basic_string::append(unsigned long, char)`.
+- **SpiderMonkey / MozJS:** `JS::RestoreMicroTaskQueue`,
+  `JS::InitAsyncTaskCallbacks`, `JS::Dispatchable::Run`, and
+  `JS::NewArrayBufferWithContents`.
+- **Dynamic loader / unsupported target facility:** `dlopen`, `dlerror`.
+- **Mesa / other:** no entries appeared in the first 20. This is not evidence
+  that the truncated remainder has no symbols in those categories.
+
+The next bounded change is diagnostic-only: add `--error-limit=0` to the M17
+`nagi-init` link, deduplicate all rust-lld undefined-symbol records, publish
+the complete list in the GitHub job summary and chunked annotations, and scan
+generated target archives/objects with `llvm-nm` for exact candidate
+definitions. A definition match is evidence to inspect archive ordering or
+extraction, not proof that the provider is linkable. No host runtime, fake ABI
+entrypoint, acceptance change, or rendering shortcut is introduced. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.

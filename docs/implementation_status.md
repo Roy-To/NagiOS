@@ -19,23 +19,45 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Continue the internal blocker-remediation work for the pinned
-Servo/Surfman/Mesa/relibc/std vertical slice, then run the target build and
-real QEMU first-web-pixel gate. Do not substitute another browser engine or
-host rendering. M18 remains forbidden until M17 is formally PASS.
+milestone. First collect a complete rust-lld undefined-symbol inventory from
+the real target link, including possible archive/object providers, then group
+architecture-correct repairs before the next implementation CI. Continue with
+the pinned Servo/Surfman/Mesa/relibc/std vertical slice and real QEMU
+first-web-pixel gate. Do not substitute another browser engine or host
+rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35952148203` (#155) at
-`c87f349` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+**Last known repair checkpoint:** public CI run `35954492666` (#156) at
+`fcdd0ba` passed Servo bootstrap, target dependency validation, Mesa Softpipe
 archive construction, package, and kernel compilation. The real target
-user-init link passed the #154 pthread-stack and `nearbyintf` repairs, then
-exposed `mktime`, `gmtime_r`, and `readlink` after approximately twenty-one
-minutes. UEFI and real QEMU first-web-pixel acceptance were not reached. The
-next repair adds target-owned UTC `mktime`/`gmtime_r` conversion and a
-fail-closed Nagi `readlink` ABI for the currently unsupported Tier-B symlink
-operation, with selective archive seeds. It does not import host time,
-filesystem, or path state, create synthetic rendering, or weaken M17
-acceptance. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+user-init link then reported 20 unique undefined symbols before rust-lld
+stopped at its default error limit; UEFI and real QEMU first-web-pixel
+acceptance were not reached. The previous CI annotation showed only the first
+three symbols. The next step disables the M17 linker's error cap, writes a
+deduplicated complete inventory to the job summary and annotations, and scans
+target archives/objects with `llvm-nm` for possible definitions. Runtime
+repairs follow only after the complete inventory is reviewed. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #156 (2026-09-24)
+
+Public CI run `35954492666` (#156, head `fcdd0baf5fa4b37a934736464de4f84c872a6dea`)
+passed Servo bootstrap, target dependency validation, Mesa Softpipe archive
+construction, package, and kernel compilation. `Build Nagi user init` failed
+at the real target link after about twenty-two minutes. rust-lld emitted 20
+distinct undefined symbols and then stopped with `too many errors emitted`;
+the log explicitly recommends `--error-limit=0`. The visible set includes
+`remove`, libc++ `this_thread::sleep_for`, eight libc++ `__sort` instantiations,
+`madvise`, `getrusage`, libc++ `basic_string::append(size_t, char)`, four
+SpiderMonkey `JS::*` entries, `fsync`, `dlopen`, and `dlerror`. This is a
+partial inventory, not a complete list. UEFI and real QEMU first-web-pixel
+acceptance were skipped. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+The same run's non-target jobs also failed: Ubuntu Clippy flagged
+`duration.subsec_nanos() / 1_000` in `user/nagi-net/src/smoltcp_stack.rs:660`,
+and Windows host tests reported a missing `peer_name` source-contract entry
+plus an outdated weak-fallback attribute-order assertion in `tools/nagi-cli`.
+Track these for final host-CI cleanup; they do not change the failed target
+link result.
 
 ### Current M17 continuation after CI run #155 (2026-09-24)
 
@@ -334,7 +356,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | The pinned Servo/Surfman/libc/mio/socket2/tokio patch boundary, Nagi static Mesa/Softpipe build path, relibc-header preparation, and real Servo-to-Nagi Surface adapter are implemented. Public CI run `35851514326` (#120) at `87cc024` passed Servo bootstrap, dependency validation, Mesa Softpipe, package, kernel, and target compilation, then failed at final target linking with `sw_screen_create_vk`, `wrapper_sw_winsys_wrap_pipe_screen`, `null_sw_create`, and `strspn`; UEFI, QEMU, and first-web-pixel acceptance were not reached. The current repair seeds the three real Softpipe loader/winsys symbols through the target link and adds target-owned guest-memory `strspn`. The run is not M17 acceptance evidence. M17 remains BLOCKED until target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI run `35954492666` (#156) passed Servo bootstrap, target dependency validation, Mesa Softpipe, package, and kernel, then failed the real user-init link with 20 visible undefined symbols before rust-lld's default error limit truncated the list. UEFI, real QEMU, and first-web-pixel acceptance were not reached. The next checkpoint adds unlimited rust-lld diagnostics, a complete deduplicated job-summary inventory, and an `llvm-nm` scan for possible target definitions; grouped runtime/archive repairs follow only after the complete inventory is reviewed. M17 remains BLOCKED until target link, UEFI loader, real QEMU, and real Servo-generated first-web-pixel evidence pass. See ADR 0019. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
