@@ -1,4 +1,5 @@
 use core::cell::UnsafeCell;
+use core::ptr;
 use core::slice;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -7,7 +8,8 @@ use nagi_bootinfo::{BootInfo, BootInfoError};
 
 use crate::display::{self, SURFACE_PAGE_COUNT, USER_SURFACE_BASE};
 use crate::memory::{
-    current_cr3, identity_mapped, PageTable, PageTableEntry, PAGE_SIZE, PAGE_TABLE_ENTRIES,
+    current_cr3, identity_mapped, PageAllocator, PageTable, PageTableEntry, PAGE_SIZE,
+    PAGE_TABLE_ENTRIES,
 };
 use crate::user_elf::{
     self, UserElfError, UserLoadPlan, PF_W, PF_X, USER_IMAGE_BASE, USER_IMAGE_LIMIT,
@@ -17,13 +19,13 @@ use crate::user_elf::{
 #[path = "syscall.rs"]
 mod syscall;
 
-pub const USER_STACK_BASE: u64 = USER_IMAGE_BASE + 0x0020_0000;
+pub const USER_STACK_BASE: u64 = USER_IMAGE_LIMIT;
 // M14's bounded audio service keeps a PCM capture buffer and mixer work area
 // in the init process. Keep the native user stack large enough for that real
 // service path without exposing an unbounded stack allocation mechanism.
 pub const USER_STACK_PAGES: usize = 8;
 pub const USER_STACK_LIMIT: u64 = USER_STACK_BASE + USER_STACK_PAGES as u64 * PAGE_SIZE;
-pub const USER_TLS_BASE: u64 = USER_IMAGE_BASE + 0x0040_0000;
+pub const USER_TLS_BASE: u64 = USER_IMAGE_LIMIT + 0x0040_0000;
 pub const USER_TLS_THREAD_SLOT_COUNT: usize = 2;
 pub const USER_TLS_PAGES_PER_THREAD: usize = 2;
 pub const USER_TLS_PAGE_COUNT: usize = USER_TLS_THREAD_SLOT_COUNT * USER_TLS_PAGES_PER_THREAD;
@@ -31,14 +33,20 @@ pub const USER_TLS_CONTROL_BASE: u64 = USER_TLS_BASE + PAGE_SIZE;
 pub const USER_TLS_CHILD_BASE: u64 = USER_TLS_BASE + USER_TLS_PAGES_PER_THREAD as u64 * PAGE_SIZE;
 pub const USER_TLS_CHILD_CONTROL_BASE: u64 = USER_TLS_CHILD_BASE + PAGE_SIZE;
 pub const USER_TLS_LIMIT: u64 = USER_TLS_BASE + USER_TLS_PAGE_COUNT as u64 * PAGE_SIZE;
-pub const USER_MMAP_BASE: u64 = USER_IMAGE_BASE + 0x0080_0000;
+pub const USER_MMAP_BASE: u64 = USER_IMAGE_LIMIT + 0x0080_0000;
 const USER_MMAP_PAGE_TABLES: usize = 8;
 pub const USER_MMAP_PAGES: usize = PAGE_TABLE_ENTRIES * USER_MMAP_PAGE_TABLES;
 pub const USER_MMAP_LIMIT: u64 = USER_MMAP_BASE + USER_MMAP_PAGES as u64 * PAGE_SIZE;
 pub const USER_SURFACE_LIMIT: u64 = USER_SURFACE_BASE + SURFACE_PAGE_COUNT as u64 * PAGE_SIZE;
 const USER_PML4_INDEX: usize = 128;
-const MAX_IMAGE_PAGES: usize = 256;
-const MAX_INIT_IMAGE_SIZE: usize = 4 * 1024 * 1024;
+const USER_PDPT_INDEX: usize = ((USER_IMAGE_BASE >> 30) & 0x1ff) as usize;
+const USER_IMAGE_FIRST_PD_INDEX: usize = ((USER_IMAGE_BASE >> 21) & 0x1ff) as usize;
+const USER_IMAGE_PAGE_TABLE_COUNT: usize =
+    ((USER_IMAGE_LIMIT - USER_IMAGE_BASE) / (PAGE_TABLE_ENTRIES as u64 * PAGE_SIZE)) as usize;
+const MAX_INIT_IMAGE_SIZE: usize = 128 * 1024 * 1024;
+#[cfg(test)]
+const MAX_TEST_IMAGE_PAGES: usize = 256;
+const MAX_IDENTITY_MAPPED_ADDRESS: u64 = 1 << 32;
 const MAX_MMAP_REGIONS: usize = 4;
 const IA32_EFER: u32 = 0xC000_0080;
 const IA32_FS_BASE: u32 = 0xC000_0100;
@@ -80,6 +88,7 @@ pub enum UserProcessError {
     ImageOutOfBounds,
     KernelUserSlotOccupied,
     InvalidPhysicalAddress,
+    PhysicalMemoryExhausted,
 }
 
 #[repr(C, align(4096))]
@@ -97,11 +106,13 @@ pub(crate) struct BootstrapStorage {
     pdpt: PageTable,
     pd: PageTable,
     pub(crate) image_pt: PageTable,
+    image_extra_pts: [PageTable; USER_IMAGE_PAGE_TABLE_COUNT - 1],
     pub(crate) stack_pt: PageTable,
     pub(crate) tls_pt: PageTable,
     mmap_pts: [PageTable; USER_MMAP_PAGE_TABLES],
     surface_pt: PageTable,
-    image_pages: [PageBytes; MAX_IMAGE_PAGES],
+    #[cfg(test)]
+    image_pages: [PageBytes; MAX_TEST_IMAGE_PAGES],
     stack_pages: [PageBytes; USER_STACK_PAGES],
     tls_pages: [PageBytes; USER_TLS_PAGE_COUNT],
     tls_initial_page: PageBytes,
@@ -116,11 +127,13 @@ impl BootstrapStorage {
             pdpt: PageTable::empty(),
             pd: PageTable::empty(),
             image_pt: PageTable::empty(),
+            image_extra_pts: [const { PageTable::empty() }; USER_IMAGE_PAGE_TABLE_COUNT - 1],
             stack_pt: PageTable::empty(),
             tls_pt: PageTable::empty(),
             mmap_pts: [const { PageTable::empty() }; USER_MMAP_PAGE_TABLES],
             surface_pt: PageTable::empty(),
-            image_pages: [const { PageBytes::zeroed() }; MAX_IMAGE_PAGES],
+            #[cfg(test)]
+            image_pages: [const { PageBytes::zeroed() }; MAX_TEST_IMAGE_PAGES],
             stack_pages: [const { PageBytes::zeroed() }; USER_STACK_PAGES],
             tls_pages: [const { PageBytes::zeroed() }; USER_TLS_PAGE_COUNT],
             tls_initial_page: PageBytes::zeroed(),
@@ -134,12 +147,16 @@ impl BootstrapStorage {
         self.pdpt.clear();
         self.pd.clear();
         self.image_pt.clear();
+        for table in &mut self.image_extra_pts {
+            table.clear();
+        }
         self.stack_pt.clear();
         self.tls_pt.clear();
         for table in &mut self.mmap_pts {
             table.clear();
         }
         self.surface_pt.clear();
+        #[cfg(test)]
         for page in &mut self.image_pages {
             page.0.fill(0);
         }
@@ -165,13 +182,16 @@ static BOOTSTRAP_STORAGE: BootstrapCell = BootstrapCell(UnsafeCell::new(Bootstra
 static BOOTSTRAP_IN_USE: AtomicBool = AtomicBool::new(false);
 static CURRENT_IMAGE_PAGES: AtomicUsize = AtomicUsize::new(0);
 
-/// Validate and prepare the one-shot M5 process image.
+/// Validate and prepare the one-shot M17 bootstrap process image.
 ///
 /// The loader leaves the active address space identity mapped, so the CR3
 /// value and kernel static-storage addresses are physical=virtual addresses
 /// in this bootstrap path. The init image must pass `identity_mapped` before
 /// this function forms a slice and dereferences its bytes.
-pub fn prepare(boot_info: &BootInfo) -> Result<UserContext, UserProcessError> {
+pub fn prepare(
+    boot_info: &BootInfo,
+    allocator: &mut PageAllocator,
+) -> Result<UserContext, UserProcessError> {
     boot_info
         .validate_for_user_bootstrap()
         .map_err(UserProcessError::InvalidBootInfo)?;
@@ -207,8 +227,17 @@ pub fn prepare(boot_info: &BootInfo) -> Result<UserContext, UserProcessError> {
         return Err(UserProcessError::KernelUserSlotOccupied);
     }
     let kernel_pml4 = unsafe { &*(active_cr3 as *const PageTable) };
-    let result =
-        unsafe { build_address_space(&plan, image, kernel_pml4, &mut *BOOTSTRAP_STORAGE.0.get()) };
+    let result = unsafe {
+        build_address_space_with_allocator(
+            &plan,
+            image,
+            boot_info.init_image.address,
+            kernel_pml4,
+            &mut *BOOTSTRAP_STORAGE.0.get(),
+            allocator,
+            active_cr3,
+        )
+    };
     if result.is_ok() {
         CURRENT_IMAGE_PAGES.store(image_pages(&plan), Ordering::Release);
     }
@@ -422,13 +451,12 @@ fn find_mmap_region(address: u64, length: u64) -> Option<(usize, MmapRegion)> {
 
 /// Confirm that each page in a previously range-checked console buffer is a
 /// present user image page. Bootstrap storage is immutable after `prepare`
-/// succeeds, and M5 permits only the BSP to enter this address space.
+/// succeeds, and the M17 bootstrap permits only the BSP to enter this address
+/// space.
 pub fn is_user_image_range_mapped(address: u64, length: usize) -> bool {
     let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
-    mapped_range(
-        &storage.image_pt,
-        USER_IMAGE_BASE,
-        USER_IMAGE_LIMIT,
+    mapped_image_range(
+        storage,
         address,
         length,
         PageTableEntry::PRESENT | PageTableEntry::USER,
@@ -437,10 +465,8 @@ pub fn is_user_image_range_mapped(address: u64, length: usize) -> bool {
 
 pub fn is_user_readable_range_mapped(address: u64, length: usize) -> bool {
     let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
-    mapped_range(
-        &storage.image_pt,
-        USER_IMAGE_BASE,
-        USER_IMAGE_LIMIT,
+    mapped_image_range(
+        storage,
         address,
         length,
         PageTableEntry::PRESENT | PageTableEntry::USER,
@@ -490,7 +516,7 @@ pub fn is_user_executable_range_mapped(address: u64, length: usize) -> bool {
     let first = ((address - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
     let last = ((end - 1 - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
     (first..=last).all(|index| {
-        storage.image_pt.raw_entry(index).is_some_and(|entry| {
+        image_page_entry(storage, index).is_some_and(|entry| {
             entry & (PageTableEntry::PRESENT | PageTableEntry::USER)
                 == (PageTableEntry::PRESENT | PageTableEntry::USER)
                 && entry & PageTableEntry::NO_EXECUTE == 0
@@ -500,10 +526,8 @@ pub fn is_user_executable_range_mapped(address: u64, length: usize) -> bool {
 
 pub fn is_user_writable_range_mapped(address: u64, length: usize) -> bool {
     let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
-    mapped_range(
-        &storage.image_pt,
-        USER_IMAGE_BASE,
-        USER_IMAGE_LIMIT,
+    mapped_image_range(
+        storage,
         address,
         length,
         PageTableEntry::PRESENT | PageTableEntry::USER | PageTableEntry::WRITABLE,
@@ -539,6 +563,42 @@ fn image_range_is_mapped(table: &PageTable, address: u64, length: usize) -> bool
         length,
         PageTableEntry::PRESENT | PageTableEntry::USER,
     )
+}
+
+fn mapped_image_range(
+    storage: &BootstrapStorage,
+    address: u64,
+    length: usize,
+    required_flags: u64,
+) -> bool {
+    if length == 0 || address < USER_IMAGE_BASE {
+        return false;
+    }
+    let Some(end) = address.checked_add(length as u64) else {
+        return false;
+    };
+    if end > USER_IMAGE_LIMIT {
+        return false;
+    }
+    let first = ((address - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
+    let last = ((end - 1 - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
+    (first..=last).all(|page| {
+        image_page_entry(storage, page)
+            .is_some_and(|entry| entry & required_flags == required_flags)
+    })
+}
+
+fn image_page_entry(storage: &BootstrapStorage, page: usize) -> Option<u64> {
+    let table = page / PAGE_TABLE_ENTRIES;
+    let entry = page % PAGE_TABLE_ENTRIES;
+    if table >= USER_IMAGE_PAGE_TABLE_COUNT {
+        return None;
+    }
+    if table == 0 {
+        storage.image_pt.raw_entry(entry)
+    } else {
+        storage.image_extra_pts[table - 1].raw_entry(entry)
+    }
 }
 
 fn mapped_range(
@@ -608,16 +668,51 @@ fn mapped_mmap_range(
     true
 }
 
+#[cfg(test)]
 pub(crate) fn build_address_space(
     plan: &UserLoadPlan,
     image: &[u8],
     kernel_pml4: &PageTable,
     storage: &mut BootstrapStorage,
 ) -> Result<UserContext, UserProcessError> {
-    // In production, `kernel_pml4` and `storage` are physical=virtual because
-    // the loader's active address space is identity mapped. The caller must
-    // validate the init image before passing any bytes to this builder.
     validate_plan(plan, image)?;
+    prepare_address_space_storage(plan, image, kernel_pml4, storage)?;
+    for segment in &plan.segments[..plan.segment_count] {
+        map_segment_for_test(segment, image, storage)?;
+    }
+    build_user_context(plan, storage)
+}
+
+fn build_address_space_with_allocator(
+    plan: &UserLoadPlan,
+    image: &[u8],
+    image_physical_base: u64,
+    kernel_pml4: &PageTable,
+    storage: &mut BootstrapStorage,
+    allocator: &mut PageAllocator,
+    active_cr3: u64,
+) -> Result<UserContext, UserProcessError> {
+    validate_plan(plan, image)?;
+    prepare_address_space_storage(plan, image, kernel_pml4, storage)?;
+    for segment in &plan.segments[..plan.segment_count] {
+        map_segment_from_image(
+            segment,
+            image,
+            image_physical_base,
+            storage,
+            allocator,
+            active_cr3,
+        )?;
+    }
+    build_user_context(plan, storage)
+}
+
+fn prepare_address_space_storage(
+    plan: &UserLoadPlan,
+    image: &[u8],
+    kernel_pml4: &PageTable,
+    storage: &mut BootstrapStorage,
+) -> Result<(), UserProcessError> {
     if kernel_pml4.raw_entry(USER_PML4_INDEX).is_some() {
         return Err(UserProcessError::KernelUserSlotOccupied);
     }
@@ -636,9 +731,6 @@ pub(crate) fn build_address_space(
     }
 
     map_hierarchy(storage)?;
-    for segment in &plan.segments[..plan.segment_count] {
-        map_segment(segment, image, storage)?;
-    }
     initialize_tls(plan, image, storage)?;
     for index in 0..USER_STACK_PAGES {
         map_leaf(
@@ -673,7 +765,13 @@ pub(crate) fn build_address_space(
                 | PageTableEntry::NO_EXECUTE,
         )?;
     }
+    Ok(())
+}
 
+fn build_user_context(
+    plan: &UserLoadPlan,
+    storage: &BootstrapStorage,
+) -> Result<UserContext, UserProcessError> {
     Ok(UserContext {
         entry: plan.entry,
         // The compiler-generated `_start` follows the SysV entry convention:
@@ -694,7 +792,6 @@ fn validate_plan(plan: &UserLoadPlan, image: &[u8]) -> Result<(), UserProcessErr
     if plan.segment_count == 0 || plan.segment_count > plan.segments.len() {
         return Err(UserProcessError::InvalidLoadPlan);
     }
-    let mut mapped_pages = 0_u64;
     let segments = &plan.segments[..plan.segment_count];
     for (index, segment) in segments.iter().enumerate() {
         if segment.memory_size == 0
@@ -721,9 +818,21 @@ fn validate_plan(plan: &UserLoadPlan, image: &[u8]) -> Result<(), UserProcessErr
             if segment.virtual_address < existing_end && existing.virtual_address < memory_end {
                 return Err(UserProcessError::InvalidLoadPlan);
             }
+            let segment_direct_end = segment
+                .file_offset
+                .checked_add(segment.file_size / PAGE_SIZE * PAGE_SIZE)
+                .ok_or(UserProcessError::ImageOutOfBounds)?;
+            let existing_direct_end = existing
+                .file_offset
+                .checked_add(existing.file_size / PAGE_SIZE * PAGE_SIZE)
+                .ok_or(UserProcessError::ImageOutOfBounds)?;
+            let direct_file_pages_overlap = segment.file_offset < existing_direct_end
+                && existing.file_offset < segment_direct_end;
+            let aliased_permissions_differ = (segment.flags ^ existing.flags) & (PF_W | PF_X) != 0;
+            if direct_file_pages_overlap && aliased_permissions_differ {
+                return Err(UserProcessError::InvalidLoadPlan);
+            }
         }
-        let relative_end = memory_end - USER_IMAGE_BASE;
-        mapped_pages = mapped_pages.max(relative_end.div_ceil(PAGE_SIZE));
         let file_end = segment
             .file_offset
             .checked_add(segment.file_size)
@@ -731,9 +840,6 @@ fn validate_plan(plan: &UserLoadPlan, image: &[u8]) -> Result<(), UserProcessErr
         if file_end > image.len() as u64 {
             return Err(UserProcessError::ImageOutOfBounds);
         }
-    }
-    if mapped_pages > MAX_IMAGE_PAGES as u64 {
-        return Err(UserProcessError::ImageTooLarge);
     }
     let entry_is_executable = segments.iter().any(|segment| {
         let Some(file_end) = segment.virtual_address.checked_add(segment.file_size) else {
@@ -884,27 +990,105 @@ fn map_hierarchy(storage: &mut BootstrapStorage) -> Result<(), UserProcessError>
     let hierarchy_flags = PageTableEntry::PRESENT | PageTableEntry::WRITABLE | PageTableEntry::USER;
     let pdpt = table_address(&storage.pdpt)?;
     let pd = table_address(&storage.pd)?;
-    let image_pt = table_address(&storage.image_pt)?;
     let stack_pt = table_address(&storage.stack_pt)?;
     let tls_pt = table_address(&storage.tls_pt)?;
     let surface_pt = table_address(&storage.surface_pt)?;
     map_leaf(&mut storage.pml4, USER_PML4_INDEX, pdpt, hierarchy_flags)?;
-    map_leaf(&mut storage.pdpt, 0, pd, hierarchy_flags)?;
-    map_leaf(&mut storage.pd, 0, image_pt, hierarchy_flags)?;
-    map_leaf(&mut storage.pd, 1, stack_pt, hierarchy_flags)?;
-    map_leaf(&mut storage.pd, 2, tls_pt, hierarchy_flags)?;
-    map_leaf(&mut storage.pd, 3, surface_pt, hierarchy_flags)?;
+    map_leaf(&mut storage.pdpt, USER_PDPT_INDEX, pd, hierarchy_flags)?;
+    for table_index in 0..USER_IMAGE_PAGE_TABLE_COUNT {
+        let image_pt = table_address(image_page_table(storage, table_index)?)?;
+        map_leaf(
+            &mut storage.pd,
+            USER_IMAGE_FIRST_PD_INDEX + table_index,
+            image_pt,
+            hierarchy_flags,
+        )?;
+    }
+    map_leaf(
+        &mut storage.pd,
+        user_pd_index(USER_STACK_BASE),
+        stack_pt,
+        hierarchy_flags,
+    )?;
+    map_leaf(
+        &mut storage.pd,
+        user_pd_index(USER_TLS_BASE),
+        tls_pt,
+        hierarchy_flags,
+    )?;
+    map_leaf(
+        &mut storage.pd,
+        user_pd_index(USER_SURFACE_BASE),
+        surface_pt,
+        hierarchy_flags,
+    )?;
     for table_index in 0..USER_MMAP_PAGE_TABLES {
         let mmap_pt = table_address(&storage.mmap_pts[table_index])?;
-        map_leaf(&mut storage.pd, 4 + table_index, mmap_pt, hierarchy_flags)?;
+        map_leaf(
+            &mut storage.pd,
+            user_pd_index(USER_MMAP_BASE) + table_index,
+            mmap_pt,
+            hierarchy_flags,
+        )?;
     }
     Ok(())
 }
 
-fn map_segment(
+fn user_pd_index(address: u64) -> usize {
+    ((address >> 21) & 0x1ff) as usize
+}
+
+fn image_page_table(
+    storage: &BootstrapStorage,
+    table_index: usize,
+) -> Result<&PageTable, UserProcessError> {
+    if table_index == 0 {
+        Ok(&storage.image_pt)
+    } else {
+        storage
+            .image_extra_pts
+            .get(table_index - 1)
+            .ok_or(UserProcessError::InvalidLoadPlan)
+    }
+}
+
+fn image_page_table_mut(
+    storage: &mut BootstrapStorage,
+    table_index: usize,
+) -> Result<&mut PageTable, UserProcessError> {
+    if table_index == 0 {
+        Ok(&mut storage.image_pt)
+    } else {
+        storage
+            .image_extra_pts
+            .get_mut(table_index - 1)
+            .ok_or(UserProcessError::InvalidLoadPlan)
+    }
+}
+
+fn map_image_leaf(
+    storage: &mut BootstrapStorage,
+    image_page: usize,
+    physical_address: u64,
+    flags: u64,
+) -> Result<(), UserProcessError> {
+    let table_index = image_page / PAGE_TABLE_ENTRIES;
+    let entry_index = image_page % PAGE_TABLE_ENTRIES;
+    map_leaf(
+        image_page_table_mut(storage, table_index)?,
+        entry_index,
+        physical_address,
+        flags,
+    )
+}
+
+fn map_segment_from_image(
     segment: &crate::user_elf::UserLoadSegment,
     image: &[u8],
+    image_physical_base: u64,
     storage: &mut BootstrapStorage,
+    allocator: &mut PageAllocator,
+    active_cr3: u64,
 ) -> Result<(), UserProcessError> {
     let first_page = ((segment.virtual_address - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
     let page_count = segment.memory_size.div_ceil(PAGE_SIZE) as usize;
@@ -915,24 +1099,103 @@ fn map_segment(
     if segment.flags & PF_X == 0 {
         leaf_flags |= PageTableEntry::NO_EXECUTE;
     }
+    for relative_page in 0..page_count {
+        let segment_offset = relative_page as u64 * PAGE_SIZE;
+        let memory_bytes = (segment.memory_size - segment_offset).min(PAGE_SIZE);
+        let file_bytes = segment
+            .file_size
+            .saturating_sub(segment_offset)
+            .min(PAGE_SIZE);
+        let physical = if memory_bytes == PAGE_SIZE && file_bytes == PAGE_SIZE {
+            image_physical_base
+                .checked_add(segment.file_offset)
+                .and_then(|address| address.checked_add(segment_offset))
+                .ok_or(UserProcessError::ImageOutOfBounds)?
+        } else {
+            let page = allocate_zeroed_page(allocator, active_cr3)?;
+            if file_bytes != 0 {
+                let source_start = usize::try_from(
+                    segment
+                        .file_offset
+                        .checked_add(segment_offset)
+                        .ok_or(UserProcessError::ImageOutOfBounds)?,
+                )
+                .map_err(|_| UserProcessError::ImageOutOfBounds)?;
+                let source_end = source_start
+                    .checked_add(file_bytes as usize)
+                    .ok_or(UserProcessError::ImageOutOfBounds)?;
+                let destination =
+                    unsafe { slice::from_raw_parts_mut(page as *mut u8, PAGE_SIZE as usize) };
+                destination[..file_bytes as usize].copy_from_slice(
+                    image
+                        .get(source_start..source_end)
+                        .ok_or(UserProcessError::ImageOutOfBounds)?,
+                );
+            }
+            page
+        };
+        map_image_leaf(storage, first_page + relative_page, physical, leaf_flags)?;
+    }
+    Ok(())
+}
+
+fn allocate_zeroed_page(
+    allocator: &mut PageAllocator,
+    active_cr3: u64,
+) -> Result<u64, UserProcessError> {
+    let page = allocator
+        .allocate_page_below(MAX_IDENTITY_MAPPED_ADDRESS)
+        .ok_or(UserProcessError::PhysicalMemoryExhausted)?;
+    if !unsafe { identity_mapped(active_cr3, page, PAGE_SIZE) } {
+        let _ = allocator.free_page(page);
+        return Err(UserProcessError::ImageNotMapped);
+    }
+    unsafe { ptr::write_bytes(page as *mut u8, 0, PAGE_SIZE as usize) };
+    Ok(page)
+}
+
+#[cfg(test)]
+fn map_segment_for_test(
+    segment: &crate::user_elf::UserLoadSegment,
+    image: &[u8],
+    storage: &mut BootstrapStorage,
+) -> Result<(), UserProcessError> {
+    let first_page = ((segment.virtual_address - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
+    let page_count = segment.memory_size.div_ceil(PAGE_SIZE) as usize;
+    if first_page + page_count > MAX_TEST_IMAGE_PAGES {
+        return Err(UserProcessError::ImageTooLarge);
+    }
+    let mut leaf_flags = PageTableEntry::PRESENT | PageTableEntry::USER;
+    if segment.flags & PF_W != 0 {
+        leaf_flags |= PageTableEntry::WRITABLE;
+    }
+    if segment.flags & PF_X == 0 {
+        leaf_flags |= PageTableEntry::NO_EXECUTE;
+    }
     for page_index in first_page..first_page + page_count {
         let physical = page_address(&storage.image_pages[page_index])?;
-        map_leaf(&mut storage.image_pt, page_index, physical, leaf_flags)?;
+        map_image_leaf(storage, page_index, physical, leaf_flags)?;
     }
 
     let destination_offset = (segment.virtual_address - USER_IMAGE_BASE) as usize;
-    let source_start = segment.file_offset as usize;
-    let source_end = source_start + segment.file_size as usize;
+    let source_start =
+        usize::try_from(segment.file_offset).map_err(|_| UserProcessError::ImageOutOfBounds)?;
+    let source_end = source_start
+        .checked_add(segment.file_size as usize)
+        .ok_or(UserProcessError::ImageOutOfBounds)?;
     let destination = image_storage_bytes(storage);
-    let destination_end = destination_offset + segment.file_size as usize;
+    let destination_end = destination_offset
+        .checked_add(segment.file_size as usize)
+        .ok_or(UserProcessError::ImageOutOfBounds)?;
     destination[destination_offset..destination_end]
         .copy_from_slice(&image[source_start..source_end]);
     Ok(())
 }
 
+#[cfg(test)]
 fn image_storage_bytes(storage: &mut BootstrapStorage) -> &mut [u8] {
     let pointer = storage.image_pages.as_mut_ptr().cast::<u8>();
-    unsafe { slice::from_raw_parts_mut(pointer, MAX_IMAGE_PAGES * PAGE_SIZE as usize) }
+    unsafe { slice::from_raw_parts_mut(pointer, MAX_TEST_IMAGE_PAGES * PAGE_SIZE as usize) }
 }
 
 fn map_leaf(
@@ -1102,6 +1365,7 @@ mod tests {
     use crate::memory::{PageTable, PageTableEntry, PAGE_SIZE};
     use crate::user_elf::{
         UserLoadPlan, UserLoadSegment, UserTlsSegment, MAX_LOAD_SEGMENTS, USER_IMAGE_BASE,
+        USER_IMAGE_LIMIT,
     };
 
     use super::{
@@ -1295,13 +1559,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_image_requiring_two_hundred_fifty_seven_pages() {
+    fn rejects_an_image_larger_than_the_m17_image_window() {
         let kernel_pml4 = PageTable::empty();
         let mut storage = boxed_storage();
         let image = [0_u8; 16];
 
         assert_eq!(
-            build_address_space(&plan(PAGE_SIZE * 257), &image, &kernel_pml4, &mut storage,),
+            build_address_space(
+                &plan(USER_IMAGE_LIMIT - USER_IMAGE_BASE + PAGE_SIZE),
+                &image,
+                &kernel_pml4,
+                &mut storage,
+            ),
             Err(UserProcessError::ImageTooLarge)
         );
     }

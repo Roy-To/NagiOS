@@ -16,10 +16,11 @@ use uefi::table::cfg::ConfigTableEntry;
 
 const PAGE_SIZE: u64 = 4096;
 const MAX_KERNEL_IMAGE_SIZE: usize = 4 * 1024 * 1024;
-const MAX_INIT_IMAGE_SIZE: usize = 4 * 1024 * 1024;
+const MAX_INIT_IMAGE_SIZE: usize = 128 * 1024 * 1024;
+const INIT_READ_CHUNK_SIZE: usize = 1024 * 1024;
+const INIT_IMAGE_MAX_ADDRESS: u64 = 0xFFFF_FFFF;
 
 static mut KERNEL_IMAGE: [u8; MAX_KERNEL_IMAGE_SIZE] = [0; MAX_KERNEL_IMAGE_SIZE];
-static mut INIT_IMAGE: [u8; MAX_INIT_IMAGE_SIZE] = [0; MAX_INIT_IMAGE_SIZE];
 static mut BOOT_INFO: BootInfo = BootInfo::new();
 
 #[entry]
@@ -143,31 +144,53 @@ fn read_init(image_handle: Handle) -> Result<InitImageInfo, &'static str> {
         FileType::Regular(file) => file,
         FileType::Dir(_) => return Err(error_message("Nagi Loader: INIT.ELF is a directory")),
     };
-    let buffer = unsafe {
-        core::slice::from_raw_parts_mut(
-            ptr::addr_of_mut!(INIT_IMAGE).cast::<u8>(),
-            MAX_INIT_IMAGE_SIZE,
-        )
-    };
-    let size = read_bounded_regular_file(
-        &mut file,
-        buffer,
-        "Nagi Loader: init size failed",
-        "Nagi Loader: init size is unsupported",
-        "Nagi Loader: init rewind failed",
-        "Nagi Loader: init read failed",
-        "Nagi Loader: short init read",
-    )?;
+    file.set_position(RegularFile::END_OF_FILE)
+        .map_err(|_| error_message("Nagi Loader: init size failed"))?;
+    let size = usize::try_from(
+        file.get_position()
+            .map_err(|_| error_message("Nagi Loader: init size failed"))?,
+    )
+    .map_err(|_| error_message("Nagi Loader: init size is unsupported"))?;
+    if size == 0 || size > MAX_INIT_IMAGE_SIZE {
+        return Err(error_message("Nagi Loader: init size is unsupported"));
+    }
     let pages = init_image_page_count(size)
         .ok_or(error_message("Nagi Loader: init page count overflow"))?;
-    let allocation = boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, pages)
-        .map_err(|_| error_message("Nagi Loader: init allocation failed"))?;
+    let allocation = boot::allocate_pages(
+        AllocateType::MaxAddress(INIT_IMAGE_MAX_ADDRESS),
+        MemoryType::LOADER_DATA,
+        pages,
+    )
+    .map_err(|_| error_message("Nagi Loader: init allocation below 4 GiB failed"))?;
+    let allocation_start = allocation.as_ptr() as u64;
+    let allocation_bytes = (pages as u64)
+        .checked_mul(PAGE_SIZE)
+        .ok_or(error_message("Nagi Loader: init allocation size overflow"))?;
+    let allocation_end = allocation_start
+        .checked_add(allocation_bytes)
+        .ok_or(error_message("Nagi Loader: init allocation address overflow"))?;
+    if allocation_end > INIT_IMAGE_MAX_ADDRESS + 1 {
+        return Err(error_message("Nagi Loader: init allocation exceeds 4 GiB"));
+    }
     unsafe {
-        ptr::write_bytes(allocation.as_ptr(), 0, pages * PAGE_SIZE as usize);
-        ptr::copy_nonoverlapping(buffer.as_ptr(), allocation.as_ptr(), size);
+        ptr::write_bytes(allocation.as_ptr(), 0, allocation_bytes as usize);
+    }
+    file.set_position(0)
+        .map_err(|_| error_message("Nagi Loader: init rewind failed"))?;
+    let buffer = unsafe { core::slice::from_raw_parts_mut(allocation.as_ptr(), size) };
+    let mut offset = 0;
+    while offset < size {
+        let chunk_end = (offset + INIT_READ_CHUNK_SIZE).min(size);
+        let count = file
+            .read(&mut buffer[offset..chunk_end])
+            .map_err(|_| error_message("Nagi Loader: init read failed"))?;
+        if count == 0 {
+            return Err(error_message("Nagi Loader: short init read"));
+        }
+        offset += count;
     }
     Ok(InitImageInfo {
-        address: allocation.as_ptr() as u64,
+        address: allocation_start,
         size: size as u64,
     })
 }

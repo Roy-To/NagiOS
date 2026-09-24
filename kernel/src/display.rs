@@ -7,7 +7,7 @@ use nagi_bootinfo::FramebufferInfo;
 use crate::memory::PAGE_SIZE;
 
 pub const SURFACE_PAGE_COUNT: usize = SURFACE_BYTES.div_ceil(PAGE_SIZE as usize);
-pub const USER_SURFACE_BASE: u64 = crate::user_elf::USER_IMAGE_BASE + 0x0060_0000;
+pub const USER_SURFACE_BASE: u64 = crate::user_elf::USER_IMAGE_LIMIT + 0x0060_0000;
 const PIXEL_BYTES: usize = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

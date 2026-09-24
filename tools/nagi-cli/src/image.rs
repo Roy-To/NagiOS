@@ -8,7 +8,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub const IMAGE_SIZE: usize = 1_474_560;
-pub const M17_IMAGE_SIZE: usize = 8 * 1024 * 1024;
+// One sector of boot data, 12 sectors in each FAT, 14 root-directory sectors,
+// and exactly 4,084 32 KiB data clusters. This is the largest valid FAT12
+// volume geometry and leaves room for the current Servo init ELF plus kernel.
+pub const M17_IMAGE_SIZE: usize = 261_415 * SECTOR_SIZE;
 pub const PERSISTENT_DISK_SIZE: u64 = 16 * 1024 * 1024;
 pub const NAGI_WRITE_MARKER: &str = "Nagi M7 persistent write PASS";
 pub const GUEST_ACCEPTANCE_MARKER: &str = "Nagi M7 acceptance PASS";
@@ -22,7 +25,7 @@ const RESERVED_SECTORS: usize = 1;
 const FAT_COUNT: usize = 2;
 const SECTORS_PER_FAT: usize = 9;
 const ROOT_ENTRY_COUNT: usize = 224;
-const M17_SECTORS_PER_CLUSTER: usize = 8;
+const M17_SECTORS_PER_CLUSTER: usize = 64;
 #[cfg(test)]
 const ROOT_DIRECTORY_SECTORS: usize = ROOT_ENTRY_COUNT * 32 / SECTOR_SIZE;
 #[cfg(test)]
@@ -1199,14 +1202,19 @@ mod tests {
 
         assert_eq!(image.len(), M17_IMAGE_SIZE);
         assert_eq!(u16::from_le_bytes([image[11], image[12]]), 512);
-        assert_eq!(image[13], 8);
+        assert_eq!(image[13], 64);
         assert_eq!(u16::from_le_bytes([image[17], image[18]]), 224);
-        assert_eq!(u16::from_le_bytes([image[19], image[20]]), 16_384);
-        assert_eq!(u16::from_le_bytes([image[22], image[23]]), 6);
+        assert_eq!(u16::from_le_bytes([image[19], image[20]]), 0);
+        assert_eq!(
+            u32::from_le_bytes(image[32..36].try_into().unwrap()),
+            261_415
+        );
+        assert_eq!(u16::from_le_bytes([image[22], image[23]]), 12);
         assert_eq!(&image[54..62], b"FAT12   ");
 
-        let root_offset = (1 + 2 * 6) * 512;
-        let data_offset = (1 + 2 * 6 + 14) * 512;
+        let root_offset = (1 + 2 * 12) * 512;
+        let data_offset = (1 + 2 * 12 + 14) * 512;
+        let cluster_size = usize::from(image[13]) * 512;
         assert_eq!(&image[root_offset..root_offset + 3], b"EFI");
         let efi_directory = data_offset;
         let nagi_cluster = u16::from_le_bytes([
@@ -1214,7 +1222,7 @@ mod tests {
             image[efi_directory + 3 * 32 + 27],
         ]);
         assert_eq!(nagi_cluster, 4);
-        let nagi_directory = data_offset + (nagi_cluster as usize - 2) * 4096;
+        let nagi_directory = data_offset + (nagi_cluster as usize - 2) * cluster_size;
         let init_entry = nagi_directory + 3 * 32;
         assert_eq!(&image[init_entry..init_entry + 11], b"INIT    ELF");
         assert_eq!(
@@ -1222,11 +1230,11 @@ mod tests {
             init.len() as u32
         );
         let init_cluster = u16::from_le_bytes([image[init_entry + 26], image[init_entry + 27]]);
-        let init_offset = data_offset + (init_cluster as usize - 2) * 4096;
+        let init_offset = data_offset + (init_cluster as usize - 2) * cluster_size;
         assert_eq!(image[init_offset], 0xa5);
         assert_eq!(image[init_offset + init.len() - 1], 0xa5);
 
-        let init_clusters = init.len().div_ceil(4096);
+        let init_clusters = init.len().div_ceil(cluster_size);
         let last_cluster = init_cluster + init_clusters as u16 - 1;
         let fat_entry_offset = 512 + last_cluster as usize + last_cluster as usize / 2;
         let packed_fat_entry =

@@ -211,7 +211,7 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
         serial_write(b"Nagi M5 init image FAIL\r\n");
         halt_forever();
     }
-    let context = match nagi_kernel::user_process::prepare(boot_info) {
+    let context = match nagi_kernel::user_process::prepare(boot_info, &mut allocator) {
         Ok(context) => context,
         Err(error) => {
             serial_write(b"Nagi M5 user address space FAIL\r\n");
@@ -239,6 +239,9 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
                 }
                 nagi_kernel::user_process::UserProcessError::InvalidPhysicalAddress => {
                     b"reason: physical-address\r\n"
+                }
+                nagi_kernel::user_process::UserProcessError::PhysicalMemoryExhausted => {
+                    b"reason: physical-memory-exhausted\r\n"
                 }
             });
             halt_forever();

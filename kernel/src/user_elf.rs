@@ -1,5 +1,5 @@
 pub const USER_IMAGE_BASE: u64 = 0x0000_4000_0000_0000;
-pub const USER_IMAGE_LIMIT: u64 = USER_IMAGE_BASE + 256 * 4096;
+pub const USER_IMAGE_LIMIT: u64 = USER_IMAGE_BASE + 512 * 1024 * 1024;
 pub const MAX_LOAD_SEGMENTS: usize = 16;
 
 const ELF_HEADER_SIZE: usize = 64;

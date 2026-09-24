@@ -19,25 +19,26 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #169 passed the Ubuntu and Windows host gates, the real target
-user-init link, and UEFI loader build. The first-web-pixel invocation then
-reported that it could not find libc++ headers because the acceptance step
-omitted `NAGI_CXX_HEADERS`, which is set for the separate user-init build step.
-The workflow now passes the same pinned target compiler and libc++ header path
-to the acceptance step. The acceptance wrapper prints captured diagnostics
-while preserving failure status. M17 remains blocked until real guest-rendered
-Servo pixels pass; M18 remains forbidden until M17 is formally PASS.
+milestone. CI #175 passed the target link and UEFI loader build, then reported
+that the 127,747,368-byte Servo init ELF exceeded the 8 MiB FAT12 image's
+8,372,224-byte per-file capacity. No QEMU or guest-pixel evidence was produced.
+The current repair expands only M17's FAT12 ESP, reads init directly into
+below-4-GiB UEFI pages, maps the real ELF through a bounded 512 MiB user image
+window, and allocates zero-fill pages from Nagi conventional memory. M17 remains
+blocked until the guest renders and presents a nonzero Servo pixel checksum;
+M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36023620387` (#169, head
-`5b920506a0863fff90805446542a32afd350bf38`) passed both host jobs and target
-setup through the user-init link and UEFI loader. `./nagi m17` then returned
-exit 4 because the acceptance step lacked `NAGI_CXX_HEADERS`; no QEMU or guest
-serial evidence was produced. The Windows CRLF-sensitive test fix passed on
-Windows. The local workflow change now supplies `NAGI_TARGET_CLANG=clang-19`
-and `NAGI_CXX_HEADERS=/usr/include/c++/v1` to the acceptance invocation, just
-as the real user-init build does. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+**Last known repair checkpoint:** public CI run `36049471002` (#175, head
+`01f6d3f42768ba2ba8d9fa6734474a54026c3055`) passed the Ubuntu host gate,
+target dependency validation, Mesa Softpipe archive, real user-init target
+link, and UEFI loader build. The M17 command stopped while writing the FAT12
+image because the init ELF measured 127,747,368 bytes and per-file capacity
+was 8,372,224 bytes. QEMU, guest surface present, and pixel checksum were not
+reached. The Windows job independently stopped during pinned Mesa fetch after
+GitLab reset the connection. See ADR 0022 for the bounded loader and user ELF
+mapping decision. Local release builds of the kernel, UEFI loader, and host
+CLI pass; authoritative target/QEMU verification is pending.
 
 ### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 
@@ -358,6 +359,30 @@ checks BPB geometry, the nested EFI/NAGI entries, a 2 MiB init file's data, and
 its FAT12 cluster chain. All `nagi-cli` tests pass locally (50 unit tests and
 18 CLI integration tests). The next authoritative CI run must reach OVMF/QEMU
 and confirm the nonzero checksum and successful Nagi Surface present.
+
+### Current M17 continuation after CI run #175 (2026-09-25)
+
+Public CI run `36049471002` (#175, head
+`01f6d3f42768ba2ba8d9fa6734474a54026c3055`) passed the Ubuntu host gate,
+pinned Servo/dependency setup, Mesa Softpipe archive, actual Nagi user-init
+link, and UEFI loader build. The first-web-pixel command stopped before QEMU:
+the linked init ELF was 127,747,368 bytes while the 8 MiB FAT12 image could
+store only 8,372,224 bytes per file. No UEFI read, kernel ELF mapping, QEMU,
+surface-present, or guest-pixel evidence was produced. The Windows launcher job
+stopped while fetching pinned Mesa because GitLab reset the connection.
+
+ADR 0022 records the M17 capacity update. Its implementation uses a separate
+maximum-capacity FAT12 ESP with 32 KiB clusters; UEFI reads the init file
+directly into `LOADER_DATA` pages below 4 GiB in bounded 1 MiB reads. The kernel
+checks the entire allocation is identity-mapped, maps fully file-backed ELF
+pages from that allocation, and zeroes allocator-backed partial/BSS pages. The
+bounded image region is 512 MiB across 256 page tables; stack, static TLS,
+Surface, and mmap reservations follow it. W^X and segment permissions remain
+enforced, including rejecting overlapping file-backed pages with different
+write/execute flags.
+Local kernel, loader, and host CLI release builds pass. M17 remains `BLOCKED`
+pending the next public run and real QEMU first-web-pixel evidence; M18 remains
+`NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -716,7 +741,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #173 (`36039057472`) had both host jobs fail because the source-inspection test still expected the old Mesa target regexes. The updated selector assertions pass locally. In the target job, the top-level Mesa Softpipe archive passed and the real user-init link was still running at this checkpoint; first-pixel acceptance remains pending. M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
+| M17 | Servo Bootstrap | BLOCKED | CI #175 (`36049471002`) passed the real target link and UEFI loader, then found the 127,747,368-byte init ELF exceeded the 8 MiB M17 FAT12 image. The next repair uses a 32 KiB-cluster FAT12 ESP, direct UEFI page loading below 4 GiB, and a bounded 512 MiB user image window with zeroed allocator-backed tail/BSS pages. QEMU pixel acceptance remains pending. M18 remains forbidden until formal PASS. See ADRs 0019–0022. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
