@@ -40,6 +40,21 @@ static mut PTHREAD_START_RECORD: PthreadStartRecord = PthreadStartRecord {
 static mut PTHREAD_STACK: *mut u8 = ptr::null_mut();
 static mut PTHREAD_DETACHED: bool = false;
 
+// The kernel gives the initial Nagi process a fixed, mapped user stack. The
+// POSIX attribute bridge reports that guest range to Rust std instead of
+// querying a host thread implementation. Child pthreads use the real stack
+// allocation recorded by pthread_create below.
+const NAGI_MAIN_STACK_BASE: usize = 0x0000_4000_0020_0000;
+const NAGI_MAIN_STACK_SIZE: usize = 8 * 4096;
+const NAGI_PTHREAD_STACK_SIZE: usize = 4 * 4096;
+
+#[repr(C)]
+struct NagiPthreadAttr {
+    stack: *mut c_void,
+    stack_size: usize,
+    reserved: [usize; 2],
+}
+
 #[inline]
 fn current_thread_slot() -> usize {
     (libnagi::thread_self() as usize).min(THREAD_SLOTS - 1)
@@ -1504,10 +1519,16 @@ pub unsafe extern "C" fn pthread_attr_init(attributes: *mut c_void) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_attr_setstacksize(
     attributes: *mut c_void,
-    _stack_size: usize,
+    stack_size: usize,
 ) -> c_int {
     if attributes.is_null() {
         return EINVAL;
+    }
+    // Preserve the requested value in the target-owned opaque object for
+    // pthread_attr_getstacksize callers. pthread_create remains bounded to
+    // the native 16 KiB child-stack bridge by design.
+    unsafe {
+        (*attributes.cast::<NagiPthreadAttr>()).stack_size = stack_size;
     }
     0
 }
@@ -1516,6 +1537,49 @@ pub unsafe extern "C" fn pthread_attr_setstacksize(
 pub unsafe extern "C" fn pthread_attr_destroy(attributes: *mut c_void) -> c_int {
     if attributes.is_null() {
         return EINVAL;
+    }
+    0
+}
+
+/// Describe the current guest thread's actual stack mapping. This is the
+/// POSIX/GNU entry point used by Rust std's thread implementation; it must
+/// remain a Nagi-owned guest operation rather than a host pthread fallback.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_getattr_np(thread: usize, attributes: *mut c_void) -> c_int {
+    if attributes.is_null() || thread != pthread_self() {
+        return EINVAL;
+    }
+
+    let (stack, stack_size) = if thread == 0 {
+        (NAGI_MAIN_STACK_BASE as *mut c_void, NAGI_MAIN_STACK_SIZE)
+    } else if thread == 1 && !PTHREAD_STACK.is_null() {
+        (PTHREAD_STACK.cast(), NAGI_PTHREAD_STACK_SIZE)
+    } else {
+        return EINVAL;
+    };
+
+    unsafe {
+        ptr::write_bytes(attributes.cast::<u8>(), 0, 32);
+        let attributes = &mut *attributes.cast::<NagiPthreadAttr>();
+        attributes.stack = stack;
+        attributes.stack_size = stack_size;
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_getstack(
+    attributes: *const c_void,
+    stack: *mut *mut c_void,
+    stack_size: *mut usize,
+) -> c_int {
+    if attributes.is_null() || stack.is_null() || stack_size.is_null() {
+        return EINVAL;
+    }
+    unsafe {
+        let attributes = &*attributes.cast::<NagiPthreadAttr>();
+        stack.write(attributes.stack);
+        stack_size.write(attributes.stack_size);
     }
     0
 }
@@ -1553,7 +1617,7 @@ pub unsafe extern "C" fn pthread_create(
     if !PTHREAD_STACK.is_null() && !PTHREAD_DETACHED {
         return EAGAIN;
     }
-    let stack = crate::nagi_posix_mmap(4 * 4096, 3);
+    let stack = crate::nagi_posix_mmap(NAGI_PTHREAD_STACK_SIZE, 3);
     if stack.is_null() {
         return EAGAIN;
     }
@@ -1564,7 +1628,7 @@ pub unsafe extern "C" fn pthread_create(
         stack,
         4 * 4096,
     ) else {
-        let _ = crate::nagi_posix_munmap(stack, 4 * 4096);
+        let _ = crate::nagi_posix_munmap(stack, NAGI_PTHREAD_STACK_SIZE);
         PTHREAD_START_RECORD = PthreadStartRecord {
             start: None,
             argument: ptr::null_mut(),
@@ -1580,7 +1644,7 @@ pub unsafe extern "C" fn pthread_create(
     PTHREAD_STACK = stack;
     PTHREAD_DETACHED = false;
     if !previous_detached_stack.is_null() {
-        let _ = crate::nagi_posix_munmap(previous_detached_stack, 4 * 4096);
+        let _ = crate::nagi_posix_munmap(previous_detached_stack, NAGI_PTHREAD_STACK_SIZE);
     }
     thread.write(thread_id as usize);
     0
@@ -1604,7 +1668,7 @@ pub unsafe extern "C" fn pthread_join(thread: usize, result: *mut *mut c_void) -
         let stack = PTHREAD_STACK;
         PTHREAD_STACK = ptr::null_mut();
         PTHREAD_DETACHED = false;
-        let _ = crate::nagi_posix_munmap(stack, 4 * 4096);
+        let _ = crate::nagi_posix_munmap(stack, NAGI_PTHREAD_STACK_SIZE);
     }
     0
 }

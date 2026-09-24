@@ -90,11 +90,18 @@ fn main() {
             "pthread_cond_broadcast",
             "pthread_cond_wait",
             "pthread_cond_destroy",
+            // Rust std queries the real current guest stack through the
+            // Nagi-owned POSIX attribute bridge. Seed these providers before
+            // the static archive scan, just like the other target pthread
+            // entry points above.
+            "pthread_getattr_np",
+            "pthread_attr_getstack",
             // This ctype provider lives in the Nagi relibc backend. Seed it
             // before the static archive scan because Mesa's C++ archive can
             // introduce the use after relibc's normal extraction point.
             "islower",
             "nearbyint",
+            "nearbyintf",
         ] {
             println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }

@@ -682,6 +682,8 @@ mod tests {
             "pthread_cond_broadcast",
             "pthread_cond_wait",
             "pthread_cond_destroy",
+            "pthread_getattr_np",
+            "pthread_attr_getstack",
         ] {
             assert!(build_script.contains(symbol));
         }
@@ -715,6 +717,8 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn setlocale("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn islower("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn nearbyint("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn nearbyintf("));
+        assert!(build_script.contains("\"nearbyintf\""));
         assert!(relibc.contains("pub static mut tzname"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
@@ -986,6 +990,8 @@ mod tests {
             "pub unsafe extern \"C\" fn nagi_posix_fdopendir(",
             "pub unsafe extern \"C\" fn nagi_posix_dirfd(",
             "pub unsafe extern \"C\" fn pthread_detach(",
+            "pub unsafe extern \"C\" fn pthread_getattr_np(",
+            "pub unsafe extern \"C\" fn pthread_attr_getstack(",
             "pub unsafe extern \"C\" fn gettimeofday(",
         ] {
             assert!(

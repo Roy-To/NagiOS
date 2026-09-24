@@ -25,17 +25,33 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35947092812` (#153) at
-`0a390c5` passed Servo bootstrap, target dependency validation, Mesa Softpipe
-archive construction, package, and kernel compilation. The target user-init
-link passed the `std::bad_alloc` and `islower` repair, then exposed
-`std::__1::__next_prime(unsigned long)`,
-`std::__1::locale::use_facet(std::__1::locale::id&) const`, and `nearbyint`.
-UEFI and real QEMU first-web-pixel acceptance were not reached. The next
-repair adds the exact libc++ hash-prime ABI, a fail-closed locale facet ABI
-boundary, and target-owned IEEE `nearbyint` plus its selective archive seed.
-It does not import host C++/libc/locale, create synthetic rendering, or weaken
-M17 acceptance. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** public CI run `35949658392` (#154) at
+`e78baac` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+archive construction, package, and kernel compilation. The real target
+user-init link passed the #153 `__next_prime`, locale-facet, and `nearbyint`
+repairs, then exposed `pthread_getattr_np`, `pthread_attr_getstack`, and
+`nearbyintf` after approximately twenty minutes. UEFI and real QEMU
+first-web-pixel acceptance were not reached. The next repair adds a
+Nagi-owned guest-stack attribute bridge backed by the existing fixed process
+stack and native pthread stack allocation, plus target-owned IEEE
+round-to-even `nearbyintf` and selective archive seeds. It does not import
+host pthread/libm, create synthetic rendering, or weaken M17 acceptance.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #154 (2026-09-24)
+
+Public CI run `35949658392` (#154, head `e78baac`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. `Build Nagi user init` completed the real target link
+after approximately twenty minutes and failed with
+`pthread_getattr_np`, `pthread_attr_getstack`, and `nearbyintf`; UEFI and
+real QEMU first-web-pixel acceptance were skipped. The next bounded repair
+adds `pthread_getattr_np` and `pthread_attr_getstack` to the Nagi-owned POSIX
+bridge, reporting the fixed initial guest stack or the actual bounded native
+pthread stack, and adds target-owned IEEE `nearbyintf` to relibc with
+selective archive seeds. Local Windows `cargo check -p nagi-posix` remains
+host-toolchain-limited by missing MSVC `link.exe`; formatting and diff checks
+pass. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #153 (2026-09-24)
 

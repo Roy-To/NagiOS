@@ -2209,3 +2209,19 @@ the Nagi abort boundary instead of returning a fabricated facet, and adds
 target-owned IEEE `nearbyint` with a selective archive seed. No host
 C++/libc/locale implementation or synthetic rendering is used. M17 remains
 `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #154 (2026-09-24)
+
+Public CI run `35949658392` (#154, head `e78baac`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The real target user-init link passed the #153
+`__next_prime`, locale-facet, and `nearbyint` repairs, then exposed
+`pthread_getattr_np`, `pthread_attr_getstack`, and `nearbyintf` after
+approximately twenty minutes. UEFI and real QEMU first-web-pixel acceptance
+were not reached. The next bounded repair adds the Nagi-owned guest-stack
+attribute bridge, backed by the fixed initial process stack and the actual
+bounded native pthread stack, plus target-owned IEEE `nearbyintf` and
+selective archive seeds. Local Windows `cargo check -p nagi-posix` remains
+blocked by missing MSVC `link.exe`; formatting and diff checks pass. No host
+pthread/libm implementation or synthetic rendering is used. M17 remains
+`BLOCKED` and M18 remains `NOT STARTED`.
