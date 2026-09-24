@@ -23,6 +23,18 @@ void sleep_for(const chrono::nanoseconds &duration) {
 template basic_string<char> &
 basic_string<char>::append(basic_string<char>::size_type, char);
 
+// OTS uses these libc++ string ABI-v1 entrypoints. Instantiate the pinned
+// target header implementations directly; do not link a host libc++ archive.
+template basic_string<char> &basic_string<char>::assign(const char *);
+template basic_string<char> &basic_string<char>::assign(const char *,
+                                                        basic_string<char>::size_type);
+template void basic_string<char>::resize(basic_string<char>::size_type, char);
+template basic_string<char> &basic_string<char>::append(
+    const char *, basic_string<char>::size_type);
+template basic_string<char> &basic_string<char>::replace(
+    basic_string<char>::size_type, basic_string<char>::size_type, const char *,
+    basic_string<char>::size_type);
+
 // Servo and MozJS reference libc++'s ABI-v1 growth helper from an
 // extern-template instantiation. Provide the real header implementation in
 // this target-owned object because Nagi intentionally has no libc++.a.

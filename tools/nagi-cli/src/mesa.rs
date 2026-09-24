@@ -615,6 +615,8 @@ mod tests {
             .expect("target libc++ ABI providers");
         let cxx_sort = fs::read_to_string(root.join("tools/mesa/nagi-libcpp-sort.cpp"))
             .expect("target libc++ sort providers");
+        let relibc_nagi = fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
+            .expect("Nagi relibc backend");
         let target_cc = fs::read_to_string(root.join("tools/nagi-target-cc.sh"))
             .expect("target C compiler wrapper");
         let relibc_backend = fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
@@ -633,6 +635,23 @@ mod tests {
         assert!(cxx_abi.contains("this_thread") && cxx_abi.contains("sleep_for"));
         assert!(cxx_abi.contains("basic_string<char>::append"));
         assert!(cxx_abi.contains("basic_string<char>::__grow_by"));
+        for method in ["assign", "resize", "append", "replace"] {
+            assert!(
+                cxx_abi.contains(&format!("basic_string<char>::{method}")),
+                "missing target libc++ string provider {method}"
+            );
+        }
+        for symbol in ["ntohs", "ntohl", "htons", "htonl"] {
+            assert!(
+                relibc_nagi.contains(&format!("fn {symbol}(")),
+                "missing Nagi relibc provider {symbol}"
+            );
+            assert!(
+                build_script.contains(&format!("\"{symbol}\"")),
+                "missing Nagi relibc link root {symbol}"
+            );
+        }
+        assert!(relibc_nagi.contains("fn strpbrk("));
         for type_name in [
             "signed char",
             "int",

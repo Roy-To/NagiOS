@@ -281,6 +281,7 @@ mod tests {
             "*.cc|*.cpp|*.cxx|*.c++|*.C|*.mm) target_is_cxx=true",
             "-D_LIBCPP_HAS_THREAD_API_PTHREAD=1",
             "-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1",
+            r#""$@" -fno-exceptions -fno-rtti"#,
         ] {
             assert!(
                 wrapper.contains(setting),

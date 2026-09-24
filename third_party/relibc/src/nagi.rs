@@ -204,6 +204,30 @@ struct NagiAddrInfo {
     next: *mut NagiAddrInfo,
 }
 
+/// Convert a 32-bit host-order value to network byte order for the Nagi C ABI.
+#[unsafe(no_mangle)]
+pub extern "C" fn htonl(hostlong: u32) -> u32 {
+    hostlong.to_be()
+}
+
+/// Convert a 16-bit host-order value to network byte order for the Nagi C ABI.
+#[unsafe(no_mangle)]
+pub extern "C" fn htons(hostshort: u16) -> u16 {
+    hostshort.to_be()
+}
+
+/// Convert a 32-bit network-order value to host byte order for the Nagi C ABI.
+#[unsafe(no_mangle)]
+pub extern "C" fn ntohl(netlong: u32) -> u32 {
+    u32::from_be(netlong)
+}
+
+/// Convert a 16-bit network-order value to host byte order for the Nagi C ABI.
+#[unsafe(no_mangle)]
+pub extern "C" fn ntohs(netshort: u16) -> u16 {
+    u16::from_be(netshort)
+}
+
 unsafe fn c_string_len(pointer: *const c_char, limit: usize) -> Option<usize> {
     if pointer.is_null() {
         return None;
@@ -2131,6 +2155,23 @@ pub unsafe extern "C" fn strspn(input: *const c_char, accept: *const c_char) -> 
             return length;
         }
         length += 1;
+    }
+}
+
+/// Return the first byte in `input` that occurs in `accept`, using only guest
+/// memory and the Nagi-owned `strcspn` implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strpbrk(input: *const c_char, accept: *const c_char) -> *mut c_char {
+    if input.is_null() || accept.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    let offset = unsafe { strcspn(input, accept) };
+    let candidate = unsafe { input.add(offset) };
+    if unsafe { candidate.read() } == 0 {
+        ptr::null_mut()
+    } else {
+        candidate.cast_mut()
     }
 }
 

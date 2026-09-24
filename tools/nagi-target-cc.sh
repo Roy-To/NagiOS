@@ -92,5 +92,10 @@ if [[ "$target_is_cxx" == true ]]; then
         -D_LIBCPP_HAS_THREAD_API_PTHREAD=1
         -D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1
     )
+    # The Nagi user ABI has no exception-unwinder or RTTI runtime. Keep C++
+    # dependencies on the same freestanding contract as Mesa and MozJS, even
+    # when a cc-rs build script does not pass these target flags itself. Put
+    # these last so a dependency cannot silently opt into an unavailable ABI.
+    exec "$compiler" "${compiler_args[@]}" "$@" -fno-exceptions -fno-rtti
 fi
 exec "$compiler" "${compiler_args[@]}" "$@"
