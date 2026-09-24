@@ -19,26 +19,31 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #175 passed the target link and UEFI loader build, then reported
-that the 127,747,368-byte Servo init ELF exceeded the 8 MiB FAT12 image's
-8,372,224-byte per-file capacity. No QEMU or guest-pixel evidence was produced.
-The current repair expands only M17's FAT12 ESP, reads init directly into
-below-4-GiB UEFI pages, maps the real ELF through a bounded 512 MiB user image
-window, and allocates zero-fill pages from Nagi conventional memory. M17 remains
-blocked until the guest renders and presents a nonzero Servo pixel checksum;
-M18 remains forbidden until M17 is formally PASS.
+milestone. CI #175 exposed the original 8 MiB FAT12 per-file limit, and CI #176
+is still building the repaired target while its Ubuntu host gate failed on a
+loader rustfmt difference. The loader formatting fix is committed locally but
+has not yet had a public CI run. Windows launcher checks passed in #176. No
+QEMU or guest-pixel evidence has been produced. The current implementation
+expands only M17's FAT12 ESP, reads init directly into below-4-GiB UEFI pages,
+maps the real ELF through a bounded 512 MiB user image window, and allocates
+zero-fill pages from Nagi conventional memory. M17 remains blocked until the
+guest renders and presents a nonzero Servo pixel checksum; M18 remains
+forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36049471002` (#175, head
-`01f6d3f42768ba2ba8d9fa6734474a54026c3055`) passed the Ubuntu host gate,
-target dependency validation, Mesa Softpipe archive, real user-init target
-link, and UEFI loader build. The M17 command stopped while writing the FAT12
-image because the init ELF measured 127,747,368 bytes and per-file capacity
-was 8,372,224 bytes. QEMU, guest surface present, and pixel checksum were not
-reached. The Windows job independently stopped during pinned Mesa fetch after
-GitLab reset the connection. See ADR 0022 for the bounded loader and user ELF
-mapping decision. Local release builds of the kernel, UEFI loader, and host
-CLI pass; authoritative target/QEMU verification is pending.
+**Last known repair checkpoint:** public CI run `36060044054` (#176, head
+`a2400699ce736f843ca122e1da533211c585ca02`) is still in progress at
+`Build Nagi user init`. Its Windows launcher job passed; Ubuntu host failed at
+`Format` because `loader/` is a separate Cargo workspace and its pinned
+rustfmt check found one wrapping difference. A local commit fixes that
+formatting; the exact pinned format checks pass, but this fix is not yet on the
+public branch. The target job passed through the kernel build; its
+user-init link, UEFI loader, and QEMU pixel acceptance have not completed.
+Earlier CI #175 reported the 127,747,368-byte init ELF exceeding the previous
+8 MiB FAT12 image's 8,372,224-byte per-file capacity. See ADR 0022 for the
+bounded loader and user ELF mapping decision. Local release builds of the
+kernel, UEFI loader, and host CLI pass; authoritative target/QEMU verification
+is pending.
 
 ### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 
@@ -359,6 +364,24 @@ checks BPB geometry, the nested EFI/NAGI entries, a 2 MiB init file's data, and
 its FAT12 cluster chain. All `nagi-cli` tests pass locally (50 unit tests and
 18 CLI integration tests). The next authoritative CI run must reach OVMF/QEMU
 and confirm the nonzero checksum and successful Nagi Surface present.
+
+### Current M17 continuation after CI run #176 (2026-09-25; target still running)
+
+Public CI run `36060044054` was triggered from head
+`a2400699ce736f843ca122e1da533211c585ca02`. The Windows launcher job passed.
+The Ubuntu host job failed at its `Format` step before later host checks ran:
+the root workspace formatting passed, but `loader/` is a separate Cargo
+workspace and its pinned rustfmt check found a line-wrapping difference in
+`loader/src/main.rs`. A local commit fixes that exact formatting issue; the
+same pinned rustfmt command now passes for root, package-tool, and loader
+workspaces.
+
+At the last status check, `nagi-target` had passed target setup, Servo
+bootstrap, feature-boundary validation, Mesa Softpipe archive, package and
+UEFI dependency fetch, M16 package build, and kernel build. `Build Nagi user
+init` remained in progress; UEFI loader and M17 first-web-pixel acceptance had
+not started. No QEMU or guest-pixel result is claimed. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #175 (2026-09-25)
 

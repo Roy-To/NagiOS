@@ -168,7 +168,9 @@ fn read_init(image_handle: Handle) -> Result<InitImageInfo, &'static str> {
         .ok_or(error_message("Nagi Loader: init allocation size overflow"))?;
     let allocation_end = allocation_start
         .checked_add(allocation_bytes)
-        .ok_or(error_message("Nagi Loader: init allocation address overflow"))?;
+        .ok_or(error_message(
+            "Nagi Loader: init allocation address overflow",
+        ))?;
     if allocation_end > INIT_IMAGE_MAX_ADDRESS + 1 {
         return Err(error_message("Nagi Loader: init allocation exceeds 4 GiB"));
     }
