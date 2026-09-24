@@ -25,15 +25,15 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35939582983` (#150) at
-`fb6cdf0` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+**Last known repair checkpoint:** public CI run `35942115871` (#151) at
+`d56c79f` passed Servo bootstrap, target dependency validation, Mesa Softpipe
 archive construction, package, and kernel compilation, but the target
-user-init link still reported `localtime_r`, `tzname`, and `setlocale`.
-UEFI and real QEMU first-web-pixel acceptance were not reached. The next
-repair is target-owned: add guest-clock UTC time conversion and the Nagi
-C/POSIX locale boundary. It does not import host time/locale state, create
-synthetic rendering, or weaken M17 acceptance. M17 remains `BLOCKED`; M18
-remains `NOT STARTED`.
+user-init link still reported `_Unwind_GetCFA`,
+`_Unwind_FindEnclosingFunction`, and `strncat`. UEFI and real QEMU
+first-web-pixel acceptance were not reached. The next repair keeps Nagi's
+no-unwinder boundary fail-closed and adds the target-owned string operation.
+It does not import host libunwind/libc, create synthetic rendering, or weaken
+M17 acceptance. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #145 (2026-09-24)
 
@@ -106,6 +106,17 @@ first-web-pixel acceptance were skipped. The next bounded repair adds a
 guest-clock UTC `struct tm` conversion, C/POSIX locale handling, and guest
 UTC timezone globals in Nagi relibc; no host time or locale is imported. M17
 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #151 (2026-09-24)
+
+Public CI run `35942115871` (#151, head `d56c79f`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init link passed the target time/locale
+repair, then exposed `_Unwind_GetCFA`, `_Unwind_FindEnclosingFunction`, and
+`strncat`. UEFI and real QEMU first-web-pixel acceptance were skipped. The
+next bounded repair keeps the no-unwinder boundary fail-closed and adds a
+guest-memory `strncat` implementation; it does not import host libunwind or
+host libc. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #140 (2026-09-24)
 

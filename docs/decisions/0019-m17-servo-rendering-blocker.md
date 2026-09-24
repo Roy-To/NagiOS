@@ -2169,3 +2169,14 @@ acceptance were not reached. The next bounded repair adds a guest-clock UTC
 `struct tm` conversion, C/POSIX locale handling, and guest UTC timezone
 globals in Nagi relibc. It does not consult host time/locale state or change
 M17 acceptance. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #151 (2026-09-24)
+
+Public CI run `35942115871` (#151, head `d56c79f`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init link passed the target time/locale
+repair, then exposed `_Unwind_GetCFA`, `_Unwind_FindEnclosingFunction`, and
+`strncat`. UEFI and real QEMU first-web-pixel acceptance were not reached.
+The next bounded repair keeps the no-unwinder boundary fail-closed and adds a
+guest-memory `strncat` implementation; it does not import host libunwind or
+host libc. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.

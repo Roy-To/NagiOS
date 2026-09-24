@@ -736,6 +736,8 @@ mod tests {
             "_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE14_M_replace_auxEmmmc"
         ));
         assert!(runtime.contains("_Unwind_Resume"));
+        assert!(runtime.contains("_Unwind_GetCFA"));
+        assert!(runtime.contains("_Unwind_FindEnclosingFunction"));
         assert!(runtime.contains("nagi_gnu_basic_string_layout"));
         assert!(runtime.contains("class __class_type_info"));
         assert!(runtime.contains("class __si_class_type_info"));
@@ -934,6 +936,7 @@ mod tests {
             "pub unsafe extern \"C\" fn execvp(",
             "pub unsafe extern \"C\" fn fork(",
             "pub unsafe extern \"C\" fn strcat(",
+            "pub unsafe extern \"C\" fn strncat(",
             "pub unsafe extern \"C\" fn bsearch(",
             "pub unsafe extern \"C\" fn pthread_rwlock_init(",
             "pub unsafe extern \"C\" fn pthread_rwlock_rdlock(",

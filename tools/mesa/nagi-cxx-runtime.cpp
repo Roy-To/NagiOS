@@ -1376,6 +1376,23 @@ extern "C" int nagi_gxx_personality(int, int, nagi_uintptr_t, void *, void *) {
     abort();
 }
 
+// The M17 image has no exception unwinder. These ABI queries are retained so
+// target objects cannot pull in a host libunwind; reaching either path is an
+// unsupported exception operation and fails closed through Nagi abort.
+extern "C" [[noreturn]] nagi_uintptr_t nagi_unwind_get_cfa(void *)
+    __asm__("_Unwind_GetCFA");
+
+extern "C" [[noreturn]] nagi_uintptr_t nagi_unwind_get_cfa(void *) {
+    abort();
+}
+
+extern "C" [[noreturn]] void *nagi_unwind_find_enclosing_function(void *)
+    __asm__("_Unwind_FindEnclosingFunction");
+
+extern "C" [[noreturn]] void *nagi_unwind_find_enclosing_function(void *) {
+    abort();
+}
+
 static void *nagi_allocate(nagi_size_t size) {
     void *pointer = nagi_posix_malloc(size == 0 ? 1 : size);
     if (pointer == nullptr) {

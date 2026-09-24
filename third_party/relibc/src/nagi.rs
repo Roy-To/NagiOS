@@ -2047,6 +2047,43 @@ pub unsafe extern "C" fn strcat(destination: *mut c_char, source: *const c_char)
     destination
 }
 
+/// Target-owned bounded string append. Both strings remain in guest memory;
+/// no host libc string routine is consulted.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn strncat(
+    destination: *mut c_char,
+    source: *const c_char,
+    maximum: usize,
+) -> *mut c_char {
+    if destination.is_null() || source.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return destination;
+    }
+    let mut destination_length = 0;
+    while unsafe { destination.add(destination_length).read() } != 0 {
+        destination_length += 1;
+    }
+    let mut source_index = 0;
+    while source_index < maximum {
+        let byte = unsafe { source.add(source_index).read() };
+        unsafe {
+            destination
+                .add(destination_length + source_index)
+                .write(byte);
+        }
+        source_index += 1;
+        if byte == 0 {
+            return destination;
+        }
+    }
+    unsafe {
+        destination
+            .add(destination_length + source_index)
+            .write(0);
+    }
+    destination
+}
+
 type BsearchComparator = unsafe extern "C" fn(*const c_void, *const c_void) -> c_int;
 
 #[unsafe(no_mangle)]
