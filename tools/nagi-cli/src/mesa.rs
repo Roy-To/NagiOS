@@ -706,6 +706,9 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn scalbnf("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn lrint("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn llrint("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn localtime_r("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn setlocale("));
+        assert!(relibc.contains("pub static mut tzname"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_"));

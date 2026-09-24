@@ -25,15 +25,15 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35937071116` (#149) at
-`f5aebed` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+**Last known repair checkpoint:** public CI run `35939582983` (#150) at
+`fb6cdf0` passed Servo bootstrap, target dependency validation, Mesa Softpipe
 archive construction, package, and kernel compilation, but the target
-user-init link still reported `lrint`, `llrint`, and libc++ `__call_once`.
+user-init link still reported `localtime_r`, `tzname`, and `setlocale`.
 UEFI and real QEMU first-web-pixel acceptance were not reached. The next
-repair is target-owned: add relibc math exports and a guest pthread-backed
-libc++ once bridge. It does not link host C++ or libm, create synthetic
-rendering, or weaken M17 acceptance. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+repair is target-owned: add guest-clock UTC time conversion and the Nagi
+C/POSIX locale boundary. It does not import host time/locale state, create
+synthetic rendering, or weaken M17 acceptance. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #145 (2026-09-24)
 
@@ -94,6 +94,18 @@ repair adds Nagi relibc `lrint/llrint` exports and a libc++ ABI `__call_once`
 bridge backed by guest pthread mutex/condition-variable primitives; it does
 not import host libm/C++ runtime or weaken M17 acceptance. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #150 (2026-09-24)
+
+Public CI run `35939582983` (#150, head `fb6cdf0`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init link passed the `lrint`, `llrint`,
+and libc++ `__call_once` repairs, then exposed missing target time/locale
+providers: `localtime_r`, `tzname`, and `setlocale`. UEFI and real QEMU
+first-web-pixel acceptance were skipped. The next bounded repair adds a
+guest-clock UTC `struct tm` conversion, C/POSIX locale handling, and guest
+UTC timezone globals in Nagi relibc; no host time or locale is imported. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #140 (2026-09-24)
 

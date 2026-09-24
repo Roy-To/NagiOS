@@ -2157,3 +2157,15 @@ bounded repair adds target-owned relibc `lrint/llrint` exports and the exact
 libc++ `__call_once` ABI entrypoint, implemented with guest pthread
 mutex/condition-variable synchronization. M17 remains `BLOCKED` and M18
 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #150 (2026-09-24)
+
+Public CI run `35939582983` (#150, head `fb6cdf0`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init link passed the `lrint`, `llrint`,
+and libc++ `__call_once` repairs, then exposed missing target providers
+`localtime_r`, `tzname`, and `setlocale`. UEFI and real QEMU first-web-pixel
+acceptance were not reached. The next bounded repair adds a guest-clock UTC
+`struct tm` conversion, C/POSIX locale handling, and guest UTC timezone
+globals in Nagi relibc. It does not consult host time/locale state or change
+M17 acceptance. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.

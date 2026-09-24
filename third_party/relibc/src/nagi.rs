@@ -1384,6 +1384,133 @@ pub unsafe extern "C" fn time(tloc: *mut c_longlong) -> c_longlong {
     timespec.tv_sec
 }
 
+#[repr(C)]
+struct NagiTm {
+    tm_sec: c_int,
+    tm_min: c_int,
+    tm_hour: c_int,
+    tm_mday: c_int,
+    tm_mon: c_int,
+    tm_year: c_int,
+    tm_wday: c_int,
+    tm_yday: c_int,
+    tm_isdst: c_int,
+    tm_gmtoff: c_long,
+    tm_zone: *const c_char,
+}
+
+static NAGI_C_LOCALE: &[u8] = b"C\0";
+static NAGI_UTC_ZONE: &[u8] = b"UTC\0";
+
+// Nagi 0.1 exposes UTC only. Keep the POSIX timezone globals in guest memory
+// so time consumers never resolve them through a host libc or timezone DB.
+#[unsafe(no_mangle)]
+pub static mut tzname: [*mut c_char; 2] = [
+    NAGI_UTC_ZONE.as_ptr() as *mut c_char,
+    NAGI_UTC_ZONE.as_ptr() as *mut c_char,
+];
+
+#[unsafe(no_mangle)]
+pub static mut daylight: c_int = 0;
+
+#[inline]
+fn nagi_is_leap_year(year: i64) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+/// Convert a Unix timestamp to a proleptic Gregorian UTC date without a host
+/// time library. The layout matches relibc's x86-64 `struct tm` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn localtime_r(
+    timer: *const c_longlong,
+    result: *mut NagiTm,
+) -> *mut NagiTm {
+    if timer.is_null() || result.is_null() {
+        return ptr::null_mut();
+    }
+
+    let timestamp = unsafe { *timer };
+    const SECONDS_PER_DAY: i64 = 86_400;
+    let days = timestamp.div_euclid(SECONDS_PER_DAY);
+    let seconds = timestamp.rem_euclid(SECONDS_PER_DAY);
+
+    // Howard Hinnant's civil_from_days algorithm, with 1970-01-01 as day 0.
+    let adjusted_days = days + 719_468;
+    let era = if adjusted_days >= 0 {
+        adjusted_days
+    } else {
+        adjusted_days - 146_096
+    } / 146_097;
+    let day_of_era = adjusted_days - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524
+        - day_of_era / 146_096)
+        / 365;
+    let year_base = year_of_era + era * 400;
+    let day_of_year_from_march = day_of_era
+        - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_from_march = (5 * day_of_year_from_march + 2) / 153;
+    let day = day_of_year_from_march - (153 * month_from_march + 2) / 5 + 1;
+    let month = month_from_march + if month_from_march < 10 { 3 } else { -9 };
+    let year = year_base + i64::from(month <= 2);
+
+    let month_lengths = [31_i64, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut yday = day - 1;
+    for month_index in 0..(month - 1) {
+        yday += month_lengths[month_index as usize];
+    }
+    if month > 2 && nagi_is_leap_year(year) {
+        yday += 1;
+    }
+
+    unsafe {
+        result.write(NagiTm {
+            tm_sec: (seconds % 60) as c_int,
+            tm_min: ((seconds / 60) % 60) as c_int,
+            tm_hour: (seconds / 3_600) as c_int,
+            tm_mday: day as c_int,
+            tm_mon: (month - 1) as c_int,
+            tm_year: (year - 1_900) as c_int,
+            tm_wday: (days + 4).rem_euclid(7) as c_int,
+            tm_yday: yday as c_int,
+            tm_isdst: 0,
+            tm_gmtoff: 0,
+            tm_zone: NAGI_UTC_ZONE.as_ptr().cast(),
+        });
+    }
+    result
+}
+
+/// Nagi's M17 target exposes only the C/POSIX locale and does not consult a
+/// host locale database. The empty locale name selects that same default.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn setlocale(_category: c_int, locale: *const c_char) -> *mut c_char {
+    if locale.is_null() {
+        return NAGI_C_LOCALE.as_ptr().cast_mut().cast();
+    }
+
+    let mut index = 0;
+    let mut matches_c = true;
+    let mut matches_posix = true;
+    loop {
+        let byte = unsafe { locale.cast::<u8>().add(index).read() };
+        if byte == 0 {
+            break;
+        }
+        if byte != *b"C\0".get(index).unwrap_or(&0) {
+            matches_c = false;
+        }
+        if byte != *b"POSIX\0".get(index).unwrap_or(&0) {
+            matches_posix = false;
+        }
+        index += 1;
+    }
+    if index == 0 || (matches_c && index == 1) || (matches_posix && index == 5) {
+        NAGI_C_LOCALE.as_ptr().cast_mut().cast()
+    } else {
+        ptr::null_mut()
+    }
+}
+
 static NAGI_STRERROR_UNKNOWN: &[u8] = b"Unknown error\0";
 static NAGI_STRERROR_BAD_FD: &[u8] = b"Bad file descriptor\0";
 static NAGI_STRERROR_TRY_AGAIN: &[u8] = b"Resource temporarily unavailable\0";
