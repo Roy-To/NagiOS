@@ -127,6 +127,8 @@ fn main() {
             "mktime",
             "gmtime_r",
             "readlink",
+            // Mesa's real printf formatter reaches this POSIX search helper.
+            "strpbrk",
             // These are real relibc/POSIX providers for the complete #157
             // target link inventory. They can be introduced by later Mesa,
             // MozJS, and SQLite archive members, so seed their exact C ABI

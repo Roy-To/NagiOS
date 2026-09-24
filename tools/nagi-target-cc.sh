@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# cc-rs invokes target C build scripts with a host compiler unless the target
-# compiler is supplied explicitly.  Nagi's user ABI is freestanding ELF, so
-# compiling those objects against the host libc would silently give them the
-# wrong pthread/layout and runtime contract.
+# cc-rs invokes C and C++ build scripts with a host compiler unless the target
+# compiler is supplied explicitly. Nagi's user ABI is freestanding ELF, so
+# compiling those objects against host headers/runtime would give them the
+# wrong pthread/layout and ABI contract.
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 target=${NAGI_TARGET:-x86_64-unknown-nagi-user}
 compiler=${NAGI_TARGET_CLANG:-clang}

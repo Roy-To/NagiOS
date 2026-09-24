@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command as ProcessCommand};
+use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -1643,6 +1643,11 @@ fn execute_m16(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let cxx_headers = match resolve_m17_cxx_headers() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m17: C++ headers: {error}")),
+    };
+
     let fetch = execute_fetch(root);
     if fetch.exit_code != EXIT_SUCCESS {
         return fetch;
@@ -1681,7 +1686,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 
     let package_path = root.join("out").join("artifacts").join("hello-nagi.xapp");
     let mesa_build_path = root.join("out").join("m17-mesa").join("mesa-build");
-    let target_c_compiler = root.join("tools").join("nagi-target-cc.sh");
+    let target_compiler_wrapper = root.join("tools").join("nagi-target-cc.sh");
     let init_args = [
         "build",
         "-p",
@@ -1703,7 +1708,15 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         &[
             ("NAGI_M16_PACKAGE", package_path.as_path()),
             ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
-            ("CC_x86_64_unknown_nagi_user", target_c_compiler.as_path()),
+            ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+            (
+                "CC_x86_64_unknown_nagi_user",
+                target_compiler_wrapper.as_path(),
+            ),
+            (
+                "CXX_x86_64_unknown_nagi_user",
+                target_compiler_wrapper.as_path(),
+            ),
         ],
     );
     if image_result.exit_code != EXIT_SUCCESS {
@@ -1772,6 +1785,41 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             log_path.display()
         )],
     }
+}
+
+fn resolve_m17_cxx_headers() -> Result<PathBuf, String> {
+    if let Some(configured) = std::env::var_os("NAGI_CXX_HEADERS") {
+        let path = PathBuf::from(configured);
+        if path.join("cstddef").is_file() {
+            return Ok(path);
+        }
+        return Err(format!(
+            "NAGI_CXX_HEADERS does not contain libc++ cstddef: {}",
+            path.display()
+        ));
+    }
+
+    let configured_clang = std::env::var_os("NAGI_TARGET_CLANG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("clang"));
+    for compiler in [configured_clang, PathBuf::from("clang++")] {
+        let output = match ProcessCommand::new(&compiler)
+            .args(["-E", "-x", "c++", "-", "-v"])
+            .stdin(Stdio::null())
+            .output()
+        {
+            Ok(output) if output.status.success() => output,
+            _ => continue,
+        };
+        for line in String::from_utf8_lossy(&output.stderr).lines() {
+            let candidate = Path::new(line.trim());
+            if candidate.ends_with("c++/v1") && candidate.join("cstddef").is_file() {
+                return Ok(candidate.to_path_buf());
+            }
+        }
+    }
+
+    Err("could not find libc++ headers through clang++; set NAGI_CXX_HEADERS to a libc++ include directory containing cstddef".to_owned())
 }
 
 fn execute_m16_sample_build(root: &Path) -> CommandResult {

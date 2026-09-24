@@ -593,6 +593,7 @@ mod tests {
             "glcpp_preprocess",
             "spirv_to_nir",
             "spirv_verify_gl_specialization_constants",
+            "strpbrk",
             "pthread_barrier_init",
             "pthread_barrier_destroy",
             "pthread_barrier_wait",

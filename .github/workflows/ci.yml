@@ -172,6 +172,7 @@ jobs:
           NAGI_M16_PACKAGE: ${{ github.workspace }}/out/artifacts/hello-nagi.xapp
           NAGI_MESA_BUILD: ${{ github.workspace }}/out/m17-mesa/mesa-build
           CC_x86_64_unknown_nagi_user: ${{ github.workspace }}/tools/nagi-target-cc.sh
+          CXX_x86_64_unknown_nagi_user: ${{ github.workspace }}/tools/nagi-target-cc.sh
           __CARGO_TESTS_ONLY_SRC_ROOT: ${{ github.workspace }}/out/rust-src/library
         run: |
           set -o pipefail

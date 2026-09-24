@@ -255,6 +255,34 @@ mod tests {
     }
 
     #[test]
+    fn m17_cpp_build_scripts_use_the_nagi_target_wrapper() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let commands = std::fs::read_to_string(root.join("tools/nagi-cli/src/commands.rs"))
+            .expect("Nagi CLI build command");
+        for variable in [
+            "CC_x86_64_unknown_nagi_user",
+            "CXX_x86_64_unknown_nagi_user",
+        ] {
+            assert!(
+                commands.contains(variable),
+                "M17 CLI must route {variable} through the Nagi target wrapper"
+            );
+        }
+        assert!(commands.contains("(\"NAGI_CXX_HEADERS\", cxx_headers.as_path())"));
+
+        let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml"))
+            .expect("Nagi CI workflow");
+        let cxx_setting = workflow
+            .lines()
+            .find(|line| line.contains("CXX_x86_64_unknown_nagi_user:"))
+            .expect("CI target C++ compiler setting");
+        assert!(cxx_setting.contains("tools/nagi-target-cc.sh"));
+    }
+
+    #[test]
     fn mozjs_nagi_target_suppresses_all_host_cxx_runtime_links() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

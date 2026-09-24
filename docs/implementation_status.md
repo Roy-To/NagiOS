@@ -19,27 +19,28 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #159 passed the Ubuntu and Windows host jobs and reached the
-authoritative Ubuntu `nagi-target` link, which exposed eight unresolved
-symbols. The current repairs add the missing libc++ instantiation, explicitly
-build Mesa's glcpp and SPIR-V archives, and link the real MozJS archives from
-the final M17 binary. Verify these changes in a new public CI run, then
-continue through UEFI and real QEMU first-web-pixel acceptance. Do not
-substitute another browser engine or host rendering. M18 remains forbidden
-until M17 is formally PASS.
+milestone. CI #160 passed both host jobs and the target Mesa, package, and
+kernel stages. Its authoritative link reduced the unresolved set from eight
+to five: all three Mesa shader symbols and libc++ `__grow_by` are now
+resolved; four MozJS symbols and `strpbrk` remain. The current repair routes
+cc-rs C++ builds through the Nagi compiler wrapper, supplies libc++ headers
+to the CLI path, and seeds relibc's existing `strpbrk` provider. Run the next
+Ubuntu target CI, then continue through UEFI and real QEMU first-web-pixel
+acceptance. Do not substitute another browser engine or host rendering. M18
+remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35976743137` (#159) at
-`d68f698` passed both host jobs and passed target dependency validation, Mesa
-Softpipe archive construction, package, and kernel build. The real target link
-failed with eight unresolved symbols, listed below; a scan of 1,628 target
-archives and objects found no exact provider definitions. The CI #158 M0
-launcher regression is fixed: the M17 libc++ shims are gated on
-`m17-servo`, and Ubuntu/Windows launcher acceptance now passes. UEFI and real
-QEMU first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18
-remains `NOT STARTED`.
+**Last known repair checkpoint:** public CI run `35984563470` (#160) at
+`81209f4` passed Ubuntu and Windows host acceptance, target dependency
+validation, Mesa Softpipe archive construction, package, and kernel build. Its
+real target link reduced the unresolved set from eight to five: the explicit
+Mesa `libglcpp.a`/`libvtn.a` builds resolved all three shader symbols, and
+the target libc++ `__grow_by` instantiation resolved its ABI symbol. Four
+MozJS symbols and `strpbrk` remain; see the detailed checkpoint below. UEFI
+and real QEMU first-web-pixel evidence remain pending. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
-### Current M17 continuation after CI runs #158–#159 (2026-09-24)
+### Current M17 continuation after CI runs #158–#160 (2026-09-24)
 
 Public CI run `35975608809` (#158, head `4ab666897712ff35120fc819cff845f45f5598c6`)
 passed target dependency validation, Mesa Softpipe archive construction,
@@ -71,7 +72,22 @@ The Mesa build now explicitly materializes its `build_by_default=false`
 `libglcpp.a` and `libvtn.a` providers, and the target-owned libc++ ABI object
 provides the real `__grow_by` implementation.
 
-Local verification after these edits passed: `./nagi fetch`,
+Public CI run `35984563470` (#160, head `81209f434ad5d60e294139f301740ed51d16a538`)
+passed Ubuntu and Windows host acceptance, target dependency validation, Mesa,
+package, and kernel builds. The final target link resolved the three Mesa
+shader functions and libc++ `__grow_by`, leaving four MozJS entries—
+`JS::NewArrayBufferWithContents`, `JS::RestoreMicroTaskQueue`,
+`JS::InitAsyncTaskCallbacks`, and `JS::Dispatchable::Run`—plus `strpbrk`.
+The UEFI and first-web-pixel jobs were skipped. The compile log showed host
+`cc1plus` activity while the workflow set only the target `CC` variable, so
+the current repair explicitly routes both target `CC` and `CXX` through the
+Nagi wrapper. The CLI now discovers the matching libc++ header root from the
+configured Clang C++ include search when `NAGI_CXX_HEADERS` is unset; this
+keeps the same C++ build path usable outside CI. `strpbrk` already has a real
+relibc implementation, and the final link now seeds that exact provider for
+archive extraction. These changes are pending authoritative CI verification.
+
+Local verification at the #159 checkpoint passed: `./nagi fetch`,
 `./nagi doctor` (12/12), `cargo test -p nagi-cli --locked` (48 unit tests
 and 18 CLI tests), `./tests/acceptance/m0_launcher.sh`, targeted rustfmt
 checks, `bash -n tools/mesa/build.sh`, and a host `clang++` syntax/object
@@ -81,9 +97,16 @@ symbol. The build script also compiles standalone. On this Apple-silicon host,
 cannot validate the x86-64 guest: it fails on x86-64 inline-assembly registers
 in `libnagi` under the host AArch64 target. Workspace-wide rustfmt likewise
 reports formatting changes across pinned Servo sources with the local
-formatter; the edited Rust files pass targeted checks. The next Ubuntu target
-CI must verify the real final link. UEFI and real QEMU first-web-pixel evidence
-remain pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+formatter; the edited Rust files pass targeted checks.
+
+Local verification of the current repair passed: `cargo test -p nagi-cli
+--locked` (49 unit tests and 18 CLI tests), M0 launcher acceptance, targeted
+Rust formatting, shell syntax, and `git diff --check`. The Nagi C++ wrapper
+also compiled `nagi-libcpp-abi.cpp` with its actual libc++ thread/rune-table
+flags for `x86_64-unknown-elf`; `llvm-nm` confirmed the expected ABI entry
+point. The next Ubuntu target CI must verify the real final link. UEFI and
+real QEMU first-web-pixel evidence remain pending. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -442,7 +465,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #159 (`35976743137`) passed Ubuntu/Windows host acceptance and reached the real target link, which failed on eight unresolved libc++, MozJS, and Mesa symbols. The current repair explicitly supplies libc++ `__grow_by`, builds Mesa `libglcpp.a` and `libvtn.a`, and links MozJS `js_static`, `jsapi`, and `jsglue` as a selective final-link group. Run the next authoritative target CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #160 (`35984563470`) passed Ubuntu/Windows host acceptance and target setup through kernel build, then failed the real target link with four MozJS symbols and `strpbrk`. Mesa shader providers and libc++ `__grow_by` now resolve. Current repair routes both target C and C++ build scripts through the Nagi compiler wrapper, supplies libc++ headers in the CLI path, and roots relibc `strpbrk`; next verify in authoritative CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
