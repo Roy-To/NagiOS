@@ -719,6 +719,9 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn nearbyint("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn nearbyintf("));
         assert!(build_script.contains("\"nearbyintf\""));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn mktime("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn gmtime_r("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn readlink("));
         assert!(relibc.contains("pub static mut tzname"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
@@ -950,6 +953,9 @@ mod tests {
             "pub unsafe extern \"C\" fn strncat(",
             "pub unsafe extern \"C\" fn islower(",
             "pub unsafe extern \"C\" fn nearbyint(",
+            "pub unsafe extern \"C\" fn mktime(",
+            "pub unsafe extern \"C\" fn gmtime_r(",
+            "pub unsafe extern \"C\" fn readlink(",
             "pub unsafe extern \"C\" fn bsearch(",
             "pub unsafe extern \"C\" fn pthread_rwlock_init(",
             "pub unsafe extern \"C\" fn pthread_rwlock_rdlock(",

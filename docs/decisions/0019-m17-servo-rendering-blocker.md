@@ -2225,3 +2225,17 @@ selective archive seeds. Local Windows `cargo check -p nagi-posix` remains
 blocked by missing MSVC `link.exe`; formatting and diff checks pass. No host
 pthread/libm implementation or synthetic rendering is used. M17 remains
 `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #155 (2026-09-24)
+
+Public CI run `35952148203` (#155, head `c87f349`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The real target user-init link passed the #154
+pthread-stack and `nearbyintf` repairs, then exposed `mktime`, `gmtime_r`,
+and `readlink` after approximately twenty-one minutes. UEFI and real QEMU
+first-web-pixel acceptance were not reached. The next bounded repair adds
+target-owned UTC `mktime`/`gmtime_r` conversion and a fail-closed Nagi
+`readlink` ABI for the currently unsupported Tier-B symlink operation, with
+selective archive seeds. It does not import host time/filesystem/path state
+or create synthetic rendering. M17 remains `BLOCKED` and M18 remains
+`NOT STARTED`.

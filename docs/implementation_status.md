@@ -25,17 +25,29 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35949658392` (#154) at
-`e78baac` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+**Last known repair checkpoint:** public CI run `35952148203` (#155) at
+`c87f349` passed Servo bootstrap, target dependency validation, Mesa Softpipe
 archive construction, package, and kernel compilation. The real target
-user-init link passed the #153 `__next_prime`, locale-facet, and `nearbyint`
-repairs, then exposed `pthread_getattr_np`, `pthread_attr_getstack`, and
-`nearbyintf` after approximately twenty minutes. UEFI and real QEMU
-first-web-pixel acceptance were not reached. The next repair adds a
-Nagi-owned guest-stack attribute bridge backed by the existing fixed process
-stack and native pthread stack allocation, plus target-owned IEEE
-round-to-even `nearbyintf` and selective archive seeds. It does not import
-host pthread/libm, create synthetic rendering, or weaken M17 acceptance.
+user-init link passed the #154 pthread-stack and `nearbyintf` repairs, then
+exposed `mktime`, `gmtime_r`, and `readlink` after approximately twenty-one
+minutes. UEFI and real QEMU first-web-pixel acceptance were not reached. The
+next repair adds target-owned UTC `mktime`/`gmtime_r` conversion and a
+fail-closed Nagi `readlink` ABI for the currently unsupported Tier-B symlink
+operation, with selective archive seeds. It does not import host time,
+filesystem, or path state, create synthetic rendering, or weaken M17
+acceptance. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #155 (2026-09-24)
+
+Public CI run `35952148203` (#155, head `c87f349`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. `Build Nagi user init` completed the real target link
+after approximately twenty-one minutes and failed with `mktime`, `gmtime_r`,
+and `readlink`; UEFI and real QEMU first-web-pixel acceptance were skipped.
+The next bounded repair adds UTC-only `mktime`/`gmtime_r` inverse/forward
+conversion to the Nagi relibc clock backend and exposes `readlink` as a
+real target ABI that returns `ENOSYS` because symlinks are outside the M17
+filesystem slice; it never reads a host path or fabricates a target link.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #154 (2026-09-24)

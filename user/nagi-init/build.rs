@@ -102,6 +102,9 @@ fn main() {
             "islower",
             "nearbyint",
             "nearbyintf",
+            "mktime",
+            "gmtime_r",
+            "readlink",
         ] {
             println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }

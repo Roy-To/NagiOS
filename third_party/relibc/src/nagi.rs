@@ -1480,6 +1480,68 @@ pub unsafe extern "C" fn localtime_r(
     result
 }
 
+/// Nagi exposes UTC only, so `gmtime_r` is the same guest conversion as
+/// `localtime_r`. Keep the implementation in this target-owned backend
+/// rather than delegating to a host timezone database.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gmtime_r(
+    timer: *const c_longlong,
+    result: *mut NagiTm,
+) -> *mut NagiTm {
+    unsafe { localtime_r(timer, result) }
+}
+
+#[inline]
+fn nagi_days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    // Howard Hinnant's civil date conversion, inverse of the calculation in
+    // localtime_r. The caller normalizes month and time-of-day first, while
+    // the day argument intentionally accepts values outside the nominal
+    // month range so mktime can honor POSIX normalization semantics.
+    let adjusted_year = year - i64::from(month <= 2);
+    let era = adjusted_year.div_euclid(400);
+    let year_of_era = adjusted_year - era * 400;
+    let month_from_march = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * month_from_march + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365
+        + year_of_era / 4
+        - year_of_era / 100
+        + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
+/// Convert a guest UTC `struct tm` to Unix seconds. Nagi has no timezone or
+/// DST database, so `tm_isdst` is deliberately ignored and the conversion is
+/// always UTC. The result is normalized back through `localtime_r` so callers
+/// observe the same canonical fields as the forward conversion.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mktime(value: *mut NagiTm) -> c_longlong {
+    if value.is_null() {
+        return -1;
+    }
+
+    let tm = unsafe { &*value };
+    let month_index = i64::from(tm.tm_mon);
+    let year = 1_900_i64 + i64::from(tm.tm_year) + month_index.div_euclid(12);
+    let month = month_index.rem_euclid(12) + 1;
+    let seconds = i64::from(tm.tm_sec)
+        .saturating_add(i64::from(tm.tm_min).saturating_mul(60))
+        .saturating_add(i64::from(tm.tm_hour).saturating_mul(3_600));
+    let day_offset = seconds.div_euclid(86_400);
+    let seconds_in_day = seconds.rem_euclid(86_400);
+    let days = nagi_days_from_civil(year, month, i64::from(tm.tm_mday) + day_offset);
+    let Some(timestamp) = days
+        .checked_mul(86_400)
+        .and_then(|days| days.checked_add(seconds_in_day))
+    else {
+        return -1;
+    };
+
+    unsafe {
+        let _ = localtime_r(&timestamp, value);
+    }
+    timestamp
+}
+
 /// Nagi's M17 target exposes only the C/POSIX locale and does not consult a
 /// host locale database. The empty locale name selects that same default.
 #[unsafe(no_mangle)]
@@ -3252,6 +3314,19 @@ pub unsafe extern "C" fn openat(fd: c_int, path: *const c_char, flags: c_int, _a
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unlink(path: *const c_char) -> c_int {
     unsafe { nagi_posix_unlink(path) }
+}
+
+/// Symlinks are a documented Tier-B Nagi POSIX capability and are not part
+/// of the current M17 filesystem slice. Expose the real target ABI and fail
+/// closed with ENOSYS; never read a host path or manufacture a link target.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn readlink(
+    _path: *const c_char,
+    _buffer: *mut c_char,
+    _count: usize,
+) -> isize {
+    unsafe { set_errno(ENOSYS) };
+    -1
 }
 
 #[unsafe(no_mangle)]
