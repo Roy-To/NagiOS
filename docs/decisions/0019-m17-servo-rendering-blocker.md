@@ -2296,3 +2296,24 @@ suite passed (49 unit and 18 CLI tests). Because #164 failed before linking,
 the 24-symbol repair from #163 is still unverified by authoritative target
 CI. UEFI and real QEMU first-web-pixel acceptance remain pending, so M17
 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Validation continuation (2026-09-24, libc++ string growth instantiation)
+
+Public CI run `36002926592` (#165, head `4432a01`) passed both host jobs,
+target setup, Mesa Softpipe, package, and kernel build. The target compiled
+MozJS ICU and reached the real target link after the explicit RTTI precedence
+repair. rust-lld reported one undefined symbol:
+`std::__1::basic_string<char, std::__1::char_traits<char>,
+std::__1::allocator<char>>::__grow_by_and_replace(unsigned long, unsigned
+long, unsigned long, unsigned long, unsigned long, unsigned long, char const*)`.
+The missing provider is referenced by `nagi-libcpp-abi.cpp`'s real string
+assign/append/replace implementations, and no exact definition appeared in
+the 1,637 scanned target inputs.
+
+The target-owned libc++ shim now explicitly instantiates the pinned header's
+`basic_string<char>::__grow_by_and_replace` implementation, preserving its
+allocation, copy, and null-termination behavior without linking host libc++.
+A target-Clang compile emits the exact Itanium symbol, and the full local
+`nagi-cli` test suite passes (49 unit and 18 CLI tests). This final-link repair
+awaits authoritative Ubuntu CI. UEFI and real QEMU first-web-pixel acceptance
+remain pending; M17 remains `BLOCKED` and M18 remains `NOT STARTED`.

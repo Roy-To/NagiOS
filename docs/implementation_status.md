@@ -19,32 +19,33 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #164 passed host acceptance and target setup through Mesa,
-package, and kernel build, then failed compiling MozJS ICU because the common
-C++ wrapper overrode explicit `-frtti` with `-fno-rtti`. The wrapper now keeps
-exceptions disabled, defaults to no RTTI when unspecified, and preserves an
-explicit final RTTI setting required by ICU and supported by Nagi's bounded
-Itanium RTTI runtime. CI #164 did not reach the final target link, so the
-24-symbol repair from #163 still needs authoritative CI verification. Then
-continue to UEFI and real QEMU first-web-pixel acceptance. M18 remains
-forbidden until M17 is formally PASS.
+milestone. CI #165 passed host acceptance, target setup, Mesa, package, kernel,
+and MozJS ICU compilation, then reached final target linking with only one
+undefined symbol: libc++ `basic_string::__grow_by_and_replace`. The target
+libc++ shim now explicitly instantiates the real pinned-header implementation;
+local target-Clang output defines the exact symbol, and the full `nagi-cli`
+suite passes. Run authoritative Ubuntu target CI, then continue to UEFI and
+real QEMU first-web-pixel acceptance. M18 remains forbidden until M17 is
+formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35999917185` (#164) at
-`f5b429c` passed Ubuntu and Windows host acceptance, target dependency
-validation, Mesa Softpipe archive construction, package, and kernel build.
-MozJS ICU compilation then failed because the shared target C++ wrapper
-appended `-fno-rtti` after explicit `-frtti` flags; `basictz.cpp`,
-`schriter.cpp`, and `serv.cpp` consequently rejected `dynamic_cast`/`typeid`.
-The current wrapper repair preserves the dependency's final RTTI flag while
-still disabling exceptions and defaulting unspecified C++ builds to no RTTI.
-It passed a target-Clang flag-order smoke check and the full `nagi-cli` suite
-(49 unit tests and 18 CLI tests). The #163 repair for 24 final-link symbols
-has not yet been rechecked because #164 stopped before final linking. UEFI and
-real QEMU first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18
-remains `NOT STARTED`.
+**Last known repair checkpoint:** public CI run `36002926592` (#165) at
+`4432a01` passed Ubuntu and Windows host acceptance, target dependency
+validation, Mesa Softpipe archive construction, package, kernel build, and
+MozJS ICU compilation. The RTTI flag-precedence repair cleared the previous
+ICU `dynamic_cast`/`typeid` compiler errors. Final linking then reported one
+undefined symbol, libc++
+`basic_string::__grow_by_and_replace(unsigned long, unsigned long, unsigned
+long, unsigned long, unsigned long, unsigned long, char const*)`, referenced
+by the Nagi-owned string shim's append/replace/assign implementations. The
+current repair explicitly instantiates that real libc++ header method; local
+target-Clang `llvm-nm` confirms the object defines it, and
+`cargo test -p nagi-cli --locked` passes (49 unit tests and 18 CLI tests).
+Authoritative CI must verify this final-link repair. UEFI and real QEMU
+first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
-### Current M17 continuation after CI runs #158–#164 (2026-09-24)
+### Current M17 continuation after CI runs #158–#165 (2026-09-24)
 
 Public CI run `35975608809` (#158, head `4ab666897712ff35120fc819cff845f45f5598c6`)
 passed target dependency validation, Mesa Softpipe archive construction,
@@ -190,6 +191,29 @@ unit remains rejected. `cargo test -p nagi-cli --locked` passed (49 unit and
 not yet run in authoritative Ubuntu CI. The #163 final-link inventory repair
 therefore remains unverified; UEFI and real QEMU first-web-pixel acceptance
 were not reached. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+Public CI run `36002926592` (#165, head
+`4432a0110df1ba6cf86583205e0b77931e1bc227`) passed Ubuntu and Windows host
+acceptance, target dependency validation, Mesa Softpipe archive construction,
+package, and kernel build. The target compiled MozJS ICU and proceeded through
+Servo/MozJS compilation to the real `nagi-init` link, confirming the RTTI
+flag-precedence repair. rust-lld then reported exactly one undefined symbol:
+`std::__1::basic_string<char, std::__1::char_traits<char>,
+std::__1::allocator<char>>::__grow_by_and_replace(unsigned long, unsigned
+long, unsigned long, unsigned long, unsigned long, unsigned long, char const*)`.
+The reference inventory identifies the three callers in
+`nagi-libcpp-abi.cpp` (`__assign_external`, `append`, and `replace`); scanning
+1,637 target archives/objects found no provider.
+
+The current repair explicitly instantiates libc++'s real
+`basic_string<char>::__grow_by_and_replace` implementation from the target
+headers. A target-Clang compile of the shim succeeds and `llvm-nm` confirms the
+exact weak symbol is defined. `cargo test -p nagi-cli --locked` passes (49
+unit and 18 CLI tests), along with `cargo clippy -p nagi-cli --all-targets
+--locked -- -D warnings`, shell syntax, and `git diff --check`. The new
+provider still needs authoritative Ubuntu target CI verification. UEFI and
+real QEMU first-web-pixel acceptance were not reached. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -548,7 +572,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #164 (`35999917185`) passed host acceptance and target setup through kernel build but failed compiling MozJS ICU because the wrapper overrode explicit `-frtti`; this is now repaired locally by preserving the dependency's final RTTI option while keeping exceptions disabled. #163 had reported 24 POSIX, libc++, and exception/RTTI final-link symbols; the Nagi-owned relibc and libc++ providers are implemented but not yet reverified because #164 stopped at compilation. Run authoritative target CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #165 (`36002926592`) passed host acceptance and target setup through MozJS ICU compilation, then final linking reported one missing libc++ `basic_string::__grow_by_and_replace` provider. The RTTI flag-precedence fix is verified through compilation; a real pinned-header instantiation for the remaining string method is implemented locally and awaits target CI. Run authoritative target CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

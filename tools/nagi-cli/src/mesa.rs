@@ -640,6 +640,7 @@ mod tests {
         assert!(cxx_abi.contains("this_thread") && cxx_abi.contains("sleep_for"));
         assert!(cxx_abi.contains("basic_string<char>::append"));
         assert!(cxx_abi.contains("basic_string<char>::__grow_by"));
+        assert!(cxx_abi.contains("basic_string<char>::__grow_by_and_replace"));
         for method in ["assign", "resize", "append", "replace"] {
             assert!(
                 cxx_abi.contains(&format!("basic_string<char>::{method}")),

@@ -45,6 +45,14 @@ template void basic_string<char>::__grow_by(
     basic_string<char>::size_type,
     basic_string<char>::size_type,
     basic_string<char>::size_type);
+template void basic_string<char>::__grow_by_and_replace(
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    const char *);
 
 } // namespace __1
 } // namespace std
