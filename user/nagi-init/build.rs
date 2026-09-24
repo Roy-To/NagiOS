@@ -90,6 +90,10 @@ fn main() {
             "pthread_cond_broadcast",
             "pthread_cond_wait",
             "pthread_cond_destroy",
+            // This ctype provider lives in the Nagi relibc backend. Seed it
+            // before the static archive scan because Mesa's C++ archive can
+            // introduce the use after relibc's normal extraction point.
+            "islower",
         ] {
             println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }

@@ -651,6 +651,9 @@ mod tests {
         assert!(runtime.contains("__cxa_rethrow"));
         assert!(runtime.contains("__cxa_pure_virtual"));
         assert!(runtime.contains("_ZSt17__throw_bad_allocv"));
+        assert!(runtime.contains("_ZNSt9bad_allocC1Ev"));
+        assert!(runtime.contains("_ZNSt9bad_allocC2Ev"));
+        assert!(runtime.contains("_ZNKSt9bad_alloc4whatEv"));
         assert!(runtime.contains("__cxa_bad_typeid"));
         assert!(runtime.contains("_ZNSt3__15mutex4lockEv"));
         assert!(runtime.contains("_ZNSt3__15mutex8try_lockEv"));
@@ -708,6 +711,7 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn llrint("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn localtime_r("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn setlocale("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn islower("));
         assert!(relibc.contains("pub static mut tzname"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
@@ -937,6 +941,7 @@ mod tests {
             "pub unsafe extern \"C\" fn fork(",
             "pub unsafe extern \"C\" fn strcat(",
             "pub unsafe extern \"C\" fn strncat(",
+            "pub unsafe extern \"C\" fn islower(",
             "pub unsafe extern \"C\" fn bsearch(",
             "pub unsafe extern \"C\" fn pthread_rwlock_init(",
             "pub unsafe extern \"C\" fn pthread_rwlock_rdlock(",

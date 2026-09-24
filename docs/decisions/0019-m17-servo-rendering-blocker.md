@@ -2180,3 +2180,16 @@ repair, then exposed `_Unwind_GetCFA`, `_Unwind_FindEnclosingFunction`, and
 The next bounded repair keeps the no-unwinder boundary fail-closed and adds a
 guest-memory `strncat` implementation; it does not import host libunwind or
 host libc. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #152 (2026-09-24)
+
+Public CI run `35944501706` (#152, head `12b0e40`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The real target user-init link then exposed
+`std::bad_alloc::bad_alloc()`, `std::bad_alloc::what() const`, and `islower`
+after approximately twenty-two minutes. UEFI and real QEMU first-web-pixel
+acceptance were not reached. The next bounded repair supplies the matching
+unversioned libc++ `std::exception`/`std::bad_alloc` Itanium ABI in the
+Nagi-owned freestanding runtime and a target-owned C-locale `islower` with a
+selective archive seed. No host C++/libc/locale implementation or synthetic
+rendering path is used. M17 remains `BLOCKED` and M18 remains `NOT STARTED`.

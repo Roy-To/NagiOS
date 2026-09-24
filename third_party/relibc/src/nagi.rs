@@ -1673,6 +1673,14 @@ pub unsafe extern "C" fn isalnum(value: c_int) -> c_int {
     }
 }
 
+/// Target-owned ASCII lower-case classification. The upstream relibc ctype
+/// module is not selected for `target_os = "nagi"`; keep the C locale rule in
+/// the guest backend instead of importing a host locale table.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn islower(value: c_int) -> c_int {
+    c_int::from((b'a' as c_int..=b'z' as c_int).contains(&value))
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn isspace(value: c_int) -> c_int {
     if matches!(value, 0x09 | 0x0a | 0x0b | 0x0c | 0x0d | 0x20) {

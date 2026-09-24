@@ -25,15 +25,31 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35942115871` (#151) at
-`d56c79f` passed Servo bootstrap, target dependency validation, Mesa Softpipe
-archive construction, package, and kernel compilation, but the target
-user-init link still reported `_Unwind_GetCFA`,
-`_Unwind_FindEnclosingFunction`, and `strncat`. UEFI and real QEMU
-first-web-pixel acceptance were not reached. The next repair keeps Nagi's
-no-unwinder boundary fail-closed and adds the target-owned string operation.
-It does not import host libunwind/libc, create synthetic rendering, or weaken
-M17 acceptance. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** public CI run `35944501706` (#152) at
+`12b0e40` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+archive construction, package, and kernel compilation. The target user-init
+link then exposed `std::bad_alloc::bad_alloc()`,
+`std::bad_alloc::what() const`, and `islower`. UEFI and real QEMU first-web-
+pixel acceptance were not reached. The next repair adds the matching
+freestanding libc++ exception hierarchy/vtable ABI, a target-owned C-locale
+`islower`, and its selective archive seed. It does not import host C++/libc,
+create synthetic rendering, or weaken M17 acceptance. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #152 (2026-09-24)
+
+Public CI run `35944501706` (#152, head `12b0e40`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. `Build Nagi user init` ran for roughly twenty-two minutes
+and then failed at the real target link with
+`std::bad_alloc::bad_alloc()`, `std::bad_alloc::what() const`, and `islower`.
+The UEFI loader and real QEMU first-web-pixel steps were skipped. The bounded
+repair now defines the unversioned libc++ `std::exception`/`std::bad_alloc`
+Itanium ABI in the Nagi-owned freestanding C++ runtime and adds guest-memory
+independent ASCII/C-locale `islower` to Nagi relibc, with an explicit static
+archive seed. This is target-runtime work; no host C++ runtime, host locale,
+or synthetic rendering is introduced. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Current M17 continuation after CI run #145 (2026-09-24)
 

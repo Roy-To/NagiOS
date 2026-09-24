@@ -23,6 +23,38 @@ extern "C" void (*nagi_mesa_glthread_finish_link_anchor)(void *) =
 namespace std {
 struct nothrow_t {};
 enum class align_val_t : nagi_size_t;
+
+// libc++'s freestanding exception fallback declares these out-of-line
+// methods even when language exceptions are disabled. Define the matching
+// unversioned std::exception hierarchy here so the target gets the real
+// Itanium constructor/vtable ABI without importing a host C++ runtime. The
+// generated symbols include _ZNSt9bad_allocC1Ev, _ZNSt9bad_allocC2Ev, and
+// _ZNKSt9bad_alloc4whatEv.
+class exception {
+  public:
+    exception() noexcept = default;
+    exception(const exception &) noexcept = default;
+    exception &operator=(const exception &) noexcept = default;
+    virtual ~exception() noexcept;
+    virtual const char *what() const noexcept;
+};
+
+inline exception::~exception() noexcept {}
+
+inline const char *exception::what() const noexcept { return "std::exception"; }
+
+class bad_alloc : public exception {
+  public:
+    bad_alloc() noexcept;
+    bad_alloc(const bad_alloc &) noexcept = default;
+    bad_alloc &operator=(const bad_alloc &) noexcept = default;
+    ~bad_alloc() noexcept override;
+    const char *what() const noexcept override;
+};
+
+bad_alloc::bad_alloc() noexcept = default;
+bad_alloc::~bad_alloc() noexcept = default;
+const char *bad_alloc::what() const noexcept { return "std::bad_alloc"; }
 } // namespace std
 
 extern "C" nagi_uintptr_t __stack_chk_guard = 0xd048c37519fcadfeULL;
