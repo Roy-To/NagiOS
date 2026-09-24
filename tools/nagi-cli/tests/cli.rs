@@ -124,6 +124,34 @@ fn parses_the_complete_m0_command_surface() {
 }
 
 #[test]
+fn acceptance_runner_is_nested_under_the_existing_test_command() {
+    assert_eq!(
+        parse_command(&["test".into(), "--acceptance".into()]).unwrap(),
+        Command::Acceptance
+    );
+    assert_eq!(parse_command(&["test".into()]).unwrap(), Command::Test);
+    assert!(parse_command(&["test".into(), "--unknown".into()]).is_err());
+}
+
+#[test]
+fn acceptance_list_uses_the_registry_and_rejects_unregistered_milestones() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let args = ["test", "--acceptance", "--list", "--milestone", "M17"].map(str::to_owned);
+    let result = nagi_cli::commands::execute(&args, root, &SystemProbe::default());
+    assert_eq!(result.exit_code, EXIT_SUCCESS);
+    assert_eq!(result.lines.len(), 1);
+    assert!(result.lines[0].starts_with("M17-FIRST-WEB-PIXEL\tM17\tservo\ttarget\t"));
+
+    let args = ["test", "--acceptance", "--list", "--milestone", "M18"].map(str::to_owned);
+    let result = nagi_cli::commands::execute(&args, root, &SystemProbe::default());
+    assert_eq!(result.exit_code, EXIT_USAGE);
+    assert!(result.lines[0].contains("no registered cases match"));
+}
+
+#[test]
 fn rejects_unknown_commands_with_usage_exit_code() {
     let error = parse_command(&["unknown".to_owned()]).unwrap_err();
 

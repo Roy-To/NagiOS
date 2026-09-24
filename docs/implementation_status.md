@@ -39,6 +39,28 @@ target archives/objects with `llvm-nm` for possible definitions. Runtime
 repairs follow only after the complete inventory is reviewed. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
 
+### Acceptance / CI diagnostics infrastructure checkpoint
+
+The independent `codex/parallel-acceptance-ci` work adds the centralized
+`tests/acceptance/registry.tsv` mapping, the `./nagi test --acceptance` runner,
+versioned JSON results and previous-PASS regression comparison, retained
+per-case logs, failure-stage summaries, and CI uploads. This is QA tooling
+work only; no milestone result changed. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+Verification on the local Apple Silicon development host: `./nagi fetch`,
+`./nagi doctor` (12/12), host Acceptance (2/2), Acceptance unit tests (7/7),
+CLI integration tests (20/20), bootstrap Acceptance unit tests (7/7),
+bootstrap `cargo check`, focused Clippy, Python diagnostic regression (1/1),
+shell syntax, Rust formatting, and CI YAML parsing passed. The full
+`./nagi test` workspace command cannot compile the x86-64 `libnagi` syscall
+register assembly when the host target is aarch64 (`rax`/`rdi` and other x86
+registers are rejected). The wider `nagi-cli` unit suite ran 53/54 tests; its
+existing M17 source-contract assertion fails because
+`tools/nagi-cli/src/mesa.rs:1052` expects `pub fn peer_name(` in the pinned
+smoltcp source. Both are recorded as diagnostics only and remain outside this
+QA task's implementation scope.
+
 ### Current M17 continuation after CI run #156 (2026-09-24)
 
 Public CI run `35954492666` (#156, head `fcdd0baf5fa4b37a934736464de4f84c872a6dea`)

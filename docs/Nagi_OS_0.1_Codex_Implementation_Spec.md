@@ -2611,6 +2611,11 @@ not turn a provider example into a mandatory dependency.
 
 # 75. CI tiers
 
+The runnable wrapper mapping for milestone acceptance is maintained once in
+`tests/acceptance/registry.tsv`. It maps Acceptance IDs to milestones,
+subsystems, host/target scope, wrapper scripts, and timeouts; the success
+criteria below remain authoritative.
+
 ## Pull Request
 
 Run:
@@ -2618,8 +2623,12 @@ Run:
 - formatting;
 - lint;
 - host unit tests;
-- minimal build;
-- QEMU smoke boot.
+- diagnostic-parser regression tests;
+- focused M0 host acceptance;
+- target build and the real M17 first-web-pixel acceptance.
+
+Record filtered cases as `NOT RUN` and environmental prerequisites as
+`BLOCKED`. A host acceptance result cannot satisfy a target milestone.
 
 ## Main branch
 
