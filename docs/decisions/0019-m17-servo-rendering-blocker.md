@@ -2445,7 +2445,25 @@ Windows because the source-inspection assertion still expected escaped-regex
 target strings. The test now checks the cached full target graph, exact
 archive-suffix matching, and absence of the old early-exit pipeline. The
 focused test passes locally. CI #173's independent target job passed the
-top-level Mesa Softpipe archive build and continued into the real user-init
-link; the job was still running at this checkpoint. The real QEMU acceptance
-criteria remain unchanged, M17 remains `BLOCKED`, and M18 remains
-`NOT STARTED`.
+top-level Mesa Softpipe archive build and entered the real user-init link,
+then GitHub canceled it when #174 replaced the run. No link or UEFI result was
+produced by #173. M17 remains `BLOCKED`, and M18 remains `NOT STARTED`.
+
+## M17 FAT12 ESP capacity after CI run #174 (2026-09-25)
+
+Public CI run `36041019363` (#174, head
+`6fefe6ccc50ed6f689c82115e5d1aac179264033`) passed both host jobs, the pinned
+Mesa Softpipe archive build, the real Nagi user-init target link, and the UEFI
+loader build. Its first-web-pixel acceptance command then stopped before QEMU
+because the linked user-init ELF exceeded the legacy 1.44 MiB FAT12 image's
+per-file capacity (`guest file is too large for the FAT12 image`).
+
+Keep that 1.44 MiB image unchanged for existing milestones and give M17 a
+dedicated 8 MiB FAT12 ESP with 4 KiB clusters. This preserves UEFI's real FAT
+file path and the loader/kernel's existing 4 MiB init-image bound while
+providing enough contiguous FAT12 space for an init ELF within that bound. No
+host file, alternate filesystem, or synthetic guest payload is introduced.
+The M17-specific writer and its 2 MiB ELF FAT12 regression test are now in
+place; all 50 `nagi-cli` unit tests and 18 CLI integration tests pass locally.
+The next target CI run must verify the image is readable by OVMF and reach the
+existing QEMU checksum/present acceptance before M17 can pass.

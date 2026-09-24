@@ -9,7 +9,8 @@ use crate::config::{load_toolchain_requirements, validate_project};
 use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
 use crate::image::{
     ensure_persistent_disk, run_qemu, run_qemu_gui, run_qemu_gui_with_events, run_qemu_interactive,
-    write_fat12_image, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    write_fat12_image, write_m17_fat12_image, ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER,
+    NAGI_WRITE_MARKER,
 };
 use crate::mesa::ensure_mesa_checkout;
 use crate::mozjs_sys_nagi::ensure_mozjs_sys_nagi_checkout;
@@ -23,6 +24,8 @@ pub const EXIT_USAGE: i32 = 2;
 pub const EXIT_NOT_IMPLEMENTED: i32 = 3;
 pub const EXIT_CONFIG_ERROR: i32 = 4;
 pub const EXIT_DOCTOR_FAILURE: i32 = 10;
+
+type ImageWriter = fn(&Path, &[u8], &[u8], &[u8]) -> Result<ImageLayout, String>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -431,6 +434,24 @@ fn execute_image_with_init_build_env(
     image_name: &str,
     cargo_env: &[(&str, &Path)],
 ) -> CommandResult {
+    execute_image_with_init_build_env_using_writer(
+        root,
+        init_args,
+        rust_std_source,
+        image_name,
+        cargo_env,
+        write_fat12_image,
+    )
+}
+
+fn execute_image_with_init_build_env_using_writer(
+    root: &Path,
+    init_args: &[&str],
+    rust_std_source: Option<&Path>,
+    image_name: &str,
+    cargo_env: &[(&str, &Path)],
+    image_writer: ImageWriter,
+) -> CommandResult {
     let init_build = match rust_std_source {
         Some(source) => {
             run_cargo_with_rust_std_source(root, "user init", init_args, source, cargo_env)
@@ -521,7 +542,7 @@ fn execute_image_with_init_build_env(
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
     };
     let image_path = artifacts.join(image_name);
-    let layout = match write_fat12_image(&image_path, &loader, &kernel, &init) {
+    let layout = match image_writer(&image_path, &loader, &kernel, &init) {
         Ok(layout) => layout,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
     };
@@ -1700,7 +1721,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "--locked",
         "--offline",
     ];
-    let image_result = execute_image_with_init_build_env(
+    let image_result = execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
         Some(&rust_std_source),
@@ -1718,6 +1739,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 target_compiler_wrapper.as_path(),
             ),
         ],
+        write_m17_fat12_image,
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;

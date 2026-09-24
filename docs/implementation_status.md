@@ -335,9 +335,29 @@ still expected the previous escaped-regex strings from `tools/mesa/build.sh`.
 The assertion now checks that the full Ninja graph is captured, scans to
 completion, selects exact archive suffixes, and does not use the old
 early-exit pipeline. The focused test passes locally. In the target job, the
-top-level Mesa Softpipe archive build passed and the real user-init link was
-still running when this checkpoint was recorded; QEMU acceptance remains
-pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+top-level Mesa Softpipe archive build passed and the real user-init link had
+started. GitHub canceled that job when #174 replaced the run, before link or
+UEFI results were produced. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #174 (2026-09-25)
+
+Public CI run `36041019363` (#174, head
+`6fefe6ccc50ed6f689c82115e5d1aac179264033`) passed both host jobs, the pinned
+Mesa Softpipe archive build, the real `nagi-init` target link, and the UEFI
+loader build. The first-web-pixel acceptance step then failed before starting
+QEMU: `./nagi m17` returned exit 4 because the linked init ELF exceeded the
+legacy 1.44 MiB FAT12 image's per-file capacity. No guest checksum, surface
+present, or QEMU pixel evidence was produced; M17 remains `BLOCKED` and M18
+remains `NOT STARTED`.
+
+The host image writer now preserves the legacy 1.44 MiB FAT12 format for
+existing milestones and builds a dedicated 8 MiB FAT12 ESP for M17 with 4 KiB
+clusters. This provides more than the loader/kernel's existing 4 MiB init
+image limit without changing the UEFI file-loading path. The new image test
+checks BPB geometry, the nested EFI/NAGI entries, a 2 MiB init file's data, and
+its FAT12 cluster chain. All `nagi-cli` tests pass locally (50 unit tests and
+18 CLI integration tests). The next authoritative CI run must reach OVMF/QEMU
+and confirm the nonzero checksum and successful Nagi Surface present.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 

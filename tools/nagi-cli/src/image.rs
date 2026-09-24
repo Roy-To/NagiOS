@@ -8,6 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub const IMAGE_SIZE: usize = 1_474_560;
+pub const M17_IMAGE_SIZE: usize = 8 * 1024 * 1024;
 pub const PERSISTENT_DISK_SIZE: u64 = 16 * 1024 * 1024;
 pub const NAGI_WRITE_MARKER: &str = "Nagi M7 persistent write PASS";
 pub const GUEST_ACCEPTANCE_MARKER: &str = "Nagi M7 acceptance PASS";
@@ -17,19 +18,127 @@ const M9_GUI_EVENTS: [&str; 2] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}}]}}"#,
 ];
 const SECTOR_SIZE: usize = 512;
-const TOTAL_SECTORS: usize = IMAGE_SIZE / SECTOR_SIZE;
 const RESERVED_SECTORS: usize = 1;
 const FAT_COUNT: usize = 2;
 const SECTORS_PER_FAT: usize = 9;
 const ROOT_ENTRY_COUNT: usize = 224;
+const M17_SECTORS_PER_CLUSTER: usize = 8;
+#[cfg(test)]
 const ROOT_DIRECTORY_SECTORS: usize = ROOT_ENTRY_COUNT * 32 / SECTOR_SIZE;
-const FAT_OFFSET: usize = RESERVED_SECTORS * SECTOR_SIZE;
+#[cfg(test)]
 const ROOT_OFFSET: usize = (RESERVED_SECTORS + FAT_COUNT * SECTORS_PER_FAT) * SECTOR_SIZE;
+#[cfg(test)]
 const DATA_OFFSET: usize =
     (RESERVED_SECTORS + FAT_COUNT * SECTORS_PER_FAT + ROOT_DIRECTORY_SECTORS) * SECTOR_SIZE;
-const DATA_SECTORS: usize = TOTAL_SECTORS - DATA_OFFSET / SECTOR_SIZE;
-const MAX_FILE_SIZE: usize = DATA_SECTORS * SECTOR_SIZE;
 const END_OF_CHAIN: u16 = 0x0fff;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Fat12Geometry {
+    image_size: usize,
+    sectors_per_cluster: usize,
+    sectors_per_fat: usize,
+    root_entry_count: usize,
+}
+
+impl Fat12Geometry {
+    fn legacy() -> Self {
+        Self {
+            image_size: IMAGE_SIZE,
+            sectors_per_cluster: 1,
+            sectors_per_fat: SECTORS_PER_FAT,
+            root_entry_count: ROOT_ENTRY_COUNT,
+        }
+    }
+
+    fn new(
+        image_size: usize,
+        sectors_per_cluster: usize,
+        root_entry_count: usize,
+    ) -> Result<Self, String> {
+        if image_size == 0 || !image_size.is_multiple_of(SECTOR_SIZE) {
+            return Err("FAT12 image size must be a nonzero whole number of sectors".to_owned());
+        }
+        if sectors_per_cluster == 0
+            || !sectors_per_cluster.is_power_of_two()
+            || sectors_per_cluster > 64
+        {
+            return Err("FAT12 cluster size must be a power of two up to 32 KiB".to_owned());
+        }
+        if root_entry_count == 0 || root_entry_count > u16::MAX as usize {
+            return Err("FAT12 root directory entry count is unsupported".to_owned());
+        }
+
+        let total_sectors = image_size / SECTOR_SIZE;
+        if total_sectors > u32::MAX as usize {
+            return Err("FAT12 image sector count exceeds the BPB limit".to_owned());
+        }
+        let root_directory_sectors = (root_entry_count * 32).div_ceil(SECTOR_SIZE);
+        let mut sectors_per_fat = 1;
+        for _ in 0..8 {
+            let overhead = RESERVED_SECTORS
+                .checked_add(FAT_COUNT * sectors_per_fat)
+                .and_then(|sectors| sectors.checked_add(root_directory_sectors))
+                .ok_or_else(|| "FAT12 metadata size overflow".to_owned())?;
+            let data_sectors = total_sectors
+                .checked_sub(overhead)
+                .ok_or_else(|| "FAT12 image is too small for its metadata".to_owned())?;
+            let cluster_count = data_sectors / sectors_per_cluster;
+            if cluster_count == 0 || cluster_count > 4_084 {
+                return Err(format!(
+                    "FAT12 image geometry requires {cluster_count} data clusters; expected 1..=4084"
+                ));
+            }
+            let fat_bytes = ((cluster_count + 2) * 3).div_ceil(2);
+            let required_sectors_per_fat = fat_bytes.div_ceil(SECTOR_SIZE);
+            if required_sectors_per_fat == sectors_per_fat {
+                return Ok(Self {
+                    image_size,
+                    sectors_per_cluster,
+                    sectors_per_fat,
+                    root_entry_count,
+                });
+            }
+            sectors_per_fat = required_sectors_per_fat;
+        }
+        Err("could not resolve FAT12 allocation-table geometry".to_owned())
+    }
+
+    fn total_sectors(self) -> usize {
+        self.image_size / SECTOR_SIZE
+    }
+
+    fn root_directory_sectors(self) -> usize {
+        (self.root_entry_count * 32).div_ceil(SECTOR_SIZE)
+    }
+
+    fn root_offset(self) -> usize {
+        (RESERVED_SECTORS + FAT_COUNT * self.sectors_per_fat) * SECTOR_SIZE
+    }
+
+    fn data_offset(self) -> usize {
+        self.root_offset() + self.root_directory_sectors() * SECTOR_SIZE
+    }
+
+    fn data_sectors(self) -> usize {
+        self.total_sectors() - self.data_offset() / SECTOR_SIZE
+    }
+
+    fn data_clusters(self) -> usize {
+        self.data_sectors() / self.sectors_per_cluster
+    }
+
+    fn cluster_size(self) -> usize {
+        self.sectors_per_cluster * SECTOR_SIZE
+    }
+
+    fn max_file_size(self) -> usize {
+        self.data_clusters() * self.cluster_size()
+    }
+
+    fn fat_offset(self, fat_index: usize) -> usize {
+        (RESERVED_SECTORS + fat_index * self.sectors_per_fat) * SECTOR_SIZE
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageLayout {
@@ -42,6 +151,24 @@ pub struct ImageLayout {
 }
 
 pub fn build_fat12_image(bootloader: &[u8], kernel: &[u8], init: &[u8]) -> Result<Vec<u8>, String> {
+    build_fat12_image_with_geometry(bootloader, kernel, init, Fat12Geometry::legacy())
+}
+
+pub fn build_m17_fat12_image(
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+) -> Result<Vec<u8>, String> {
+    let geometry = Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)?;
+    build_fat12_image_with_geometry(bootloader, kernel, init, geometry)
+}
+
+fn build_fat12_image_with_geometry(
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+    geometry: Fat12Geometry,
+) -> Result<Vec<u8>, String> {
     if bootloader.is_empty() {
         return Err("UEFI bootloader is empty".to_owned());
     }
@@ -51,19 +178,29 @@ pub fn build_fat12_image(bootloader: &[u8], kernel: &[u8], init: &[u8]) -> Resul
     if init.is_empty() {
         return Err("nagi-init user ELF is empty".to_owned());
     }
-    if bootloader.len() > MAX_FILE_SIZE
-        || kernel.len() > MAX_FILE_SIZE
-        || init.len() > MAX_FILE_SIZE
-    {
-        return Err("guest file is too large for the FAT12 image".to_owned());
+    let max_file_size = geometry.max_file_size();
+    for (name, contents) in [
+        ("UEFI bootloader", bootloader),
+        ("Nagi kernel", kernel),
+        ("nagi-init user ELF", init),
+    ] {
+        if contents.len() > max_file_size {
+            return Err(format!(
+                "{name} is {} bytes; FAT12 image capacity is {max_file_size} bytes per file",
+                contents.len()
+            ));
+        }
     }
 
-    let bootloader_clusters = clusters_for(bootloader.len());
-    let kernel_clusters = clusters_for(kernel.len());
-    let init_clusters = clusters_for(init.len());
+    let bootloader_clusters = clusters_for(bootloader.len(), geometry.cluster_size());
+    let kernel_clusters = clusters_for(kernel.len(), geometry.cluster_size());
+    let init_clusters = clusters_for(init.len(), geometry.cluster_size());
     let required_clusters = 3 + bootloader_clusters + kernel_clusters + init_clusters;
-    if required_clusters > DATA_SECTORS {
-        return Err("guest files do not fit in the FAT12 image".to_owned());
+    if required_clusters > geometry.data_clusters() {
+        return Err(format!(
+            "guest files require {required_clusters} FAT12 clusters; image has {} data clusters",
+            geometry.data_clusters()
+        ));
     }
     let layout = ImageLayout {
         bootloader_start_cluster: 5,
@@ -74,29 +211,37 @@ pub fn build_fat12_image(bootloader: &[u8], kernel: &[u8], init: &[u8]) -> Resul
         init_clusters,
     };
 
-    let mut image = vec![0; IMAGE_SIZE];
-    write_boot_sector(&mut image);
-    initialize_fats(&mut image);
-    write_chain(&mut image, 2, 1);
-    write_chain(&mut image, 3, 1);
-    write_chain(&mut image, 4, 1);
+    let mut image = vec![0; geometry.image_size];
+    write_boot_sector(&mut image, geometry);
+    initialize_fats(&mut image, geometry);
+    write_chain(&mut image, geometry, 2, 1);
+    write_chain(&mut image, geometry, 3, 1);
+    write_chain(&mut image, geometry, 4, 1);
     write_chain(
         &mut image,
+        geometry,
         layout.bootloader_start_cluster,
         layout.bootloader_clusters,
     );
     write_chain(
         &mut image,
+        geometry,
         layout.kernel_start_cluster,
         layout.kernel_clusters,
     );
-    write_chain(&mut image, layout.init_start_cluster, layout.init_clusters);
+    write_chain(
+        &mut image,
+        geometry,
+        layout.init_start_cluster,
+        layout.init_clusters,
+    );
 
     let efi_cluster = 2;
     let boot_cluster = 3;
     let nagi_cluster = 4;
     write_directory(
         &mut image,
+        geometry,
         efi_cluster,
         0,
         &[
@@ -106,6 +251,7 @@ pub fn build_fat12_image(bootloader: &[u8], kernel: &[u8], init: &[u8]) -> Resul
     );
     write_directory(
         &mut image,
+        geometry,
         boot_cluster,
         efi_cluster,
         &[(
@@ -117,6 +263,7 @@ pub fn build_fat12_image(bootloader: &[u8], kernel: &[u8], init: &[u8]) -> Resul
     );
     write_directory(
         &mut image,
+        geometry,
         nagi_cluster,
         efi_cluster,
         &[
@@ -134,10 +281,19 @@ pub fn build_fat12_image(bootloader: &[u8], kernel: &[u8], init: &[u8]) -> Resul
             ),
         ],
     );
-    write_root_directory(&mut image, &[(short_name("EFI", ""), 0x10, efi_cluster, 0)]);
-    write_file(&mut image, layout.bootloader_start_cluster, bootloader);
-    write_file(&mut image, layout.kernel_start_cluster, kernel);
-    write_file(&mut image, layout.init_start_cluster, init);
+    write_root_directory(
+        &mut image,
+        geometry,
+        &[(short_name("EFI", ""), 0x10, efi_cluster, 0)],
+    );
+    write_file(
+        &mut image,
+        geometry,
+        layout.bootloader_start_cluster,
+        bootloader,
+    );
+    write_file(&mut image, geometry, layout.kernel_start_cluster, kernel);
+    write_file(&mut image, geometry, layout.init_start_cluster, init);
     Ok(image)
 }
 
@@ -147,17 +303,37 @@ pub fn write_fat12_image(
     kernel: &[u8],
     init: &[u8],
 ) -> Result<ImageLayout, String> {
-    let image = build_fat12_image(bootloader, kernel, init)?;
+    write_fat12_image_with_geometry(path, bootloader, kernel, init, Fat12Geometry::legacy())
+}
+
+pub fn write_m17_fat12_image(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+) -> Result<ImageLayout, String> {
+    let geometry = Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)?;
+    write_fat12_image_with_geometry(path, bootloader, kernel, init, geometry)
+}
+
+fn write_fat12_image_with_geometry(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+    geometry: Fat12Geometry,
+) -> Result<ImageLayout, String> {
+    let image = build_fat12_image_with_geometry(bootloader, kernel, init, geometry)?;
     fs::write(path, image).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
-    let bootloader_clusters = clusters_for(bootloader.len());
-    let kernel_clusters = clusters_for(kernel.len());
+    let bootloader_clusters = clusters_for(bootloader.len(), geometry.cluster_size());
+    let kernel_clusters = clusters_for(kernel.len(), geometry.cluster_size());
     Ok(ImageLayout {
         bootloader_start_cluster: 5,
         bootloader_clusters,
         kernel_start_cluster: 5 + bootloader_clusters as u16,
         kernel_clusters,
         init_start_cluster: 5 + bootloader_clusters as u16 + kernel_clusters as u16,
-        init_clusters: clusters_for(init.len()),
+        init_clusters: clusters_for(init.len(), geometry.cluster_size()),
     })
 }
 
@@ -217,22 +393,32 @@ pub struct QemuConfig<'a> {
 
 pub type InteractiveQemuConfig<'a> = QemuConfig<'a>;
 
-fn write_boot_sector(image: &mut [u8]) {
+fn write_boot_sector(image: &mut [u8], geometry: Fat12Geometry) {
     let boot = &mut image[..SECTOR_SIZE];
     boot[0..3].copy_from_slice(&[0xeb, 0x3c, 0x90]);
     boot[3..11].copy_from_slice(b"NAGI OS ");
     write_u16(boot, 11, SECTOR_SIZE as u16);
-    boot[13] = 1;
+    boot[13] = geometry.sectors_per_cluster as u8;
     write_u16(boot, 14, RESERVED_SECTORS as u16);
     boot[16] = FAT_COUNT as u8;
-    write_u16(boot, 17, ROOT_ENTRY_COUNT as u16);
-    write_u16(boot, 19, TOTAL_SECTORS as u16);
+    write_u16(boot, 17, geometry.root_entry_count as u16);
+    let total_sectors = geometry.total_sectors();
+    let total_sectors_16 = u16::try_from(total_sectors).unwrap_or_default();
+    write_u16(boot, 19, total_sectors_16);
     boot[21] = 0xf0;
-    write_u16(boot, 22, SECTORS_PER_FAT as u16);
+    write_u16(boot, 22, geometry.sectors_per_fat as u16);
     write_u16(boot, 24, 18);
     write_u16(boot, 26, 2);
     write_u32(boot, 28, 0);
-    write_u32(boot, 32, 0);
+    write_u32(
+        boot,
+        32,
+        if total_sectors_16 == 0 {
+            total_sectors as u32
+        } else {
+            0
+        },
+    );
     boot[36] = 0;
     boot[38] = 0x29;
     write_u32(boot, 39, 0x4e41_4749);
@@ -241,14 +427,19 @@ fn write_boot_sector(image: &mut [u8]) {
     boot[510..512].copy_from_slice(&[0x55, 0xaa]);
 }
 
-fn initialize_fats(image: &mut [u8]) {
+fn initialize_fats(image: &mut [u8], geometry: Fat12Geometry) {
     for fat_index in 0..FAT_COUNT {
-        let offset = FAT_OFFSET + fat_index * SECTORS_PER_FAT * SECTOR_SIZE;
+        let offset = geometry.fat_offset(fat_index);
         image[offset..offset + 3].copy_from_slice(&[0xf0, 0xff, 0xff]);
     }
 }
 
-fn write_chain(image: &mut [u8], first_cluster: u16, cluster_count: usize) {
+fn write_chain(
+    image: &mut [u8],
+    geometry: Fat12Geometry,
+    first_cluster: u16,
+    cluster_count: usize,
+) {
     for index in 0..cluster_count {
         let cluster = first_cluster + index as u16;
         let next = if index + 1 == cluster_count {
@@ -257,7 +448,7 @@ fn write_chain(image: &mut [u8], first_cluster: u16, cluster_count: usize) {
             cluster + 1
         };
         for fat_index in 0..FAT_COUNT {
-            let fat = FAT_OFFSET + fat_index * SECTORS_PER_FAT * SECTOR_SIZE;
+            let fat = geometry.fat_offset(fat_index);
             set_fat12_entry(image, fat, cluster, next);
         }
     }
@@ -274,20 +465,25 @@ fn set_fat12_entry(image: &mut [u8], fat_offset: usize, cluster: u16, value: u16
     }
 }
 
-fn write_root_directory(image: &mut [u8], entries: &[([u8; 11], u8, u16, u32)]) {
+fn write_root_directory(
+    image: &mut [u8],
+    geometry: Fat12Geometry,
+    entries: &[([u8; 11], u8, u16, u32)],
+) {
     for (index, entry) in entries.iter().enumerate() {
-        write_directory_entry(&mut image[ROOT_OFFSET..], index, entry);
+        write_directory_entry(&mut image[geometry.root_offset()..], index, entry);
     }
 }
 
 fn write_directory(
     image: &mut [u8],
+    geometry: Fat12Geometry,
     cluster: u16,
     parent_cluster: u16,
     entries: &[([u8; 11], u8, u16, u32)],
 ) {
-    let offset = cluster_offset(cluster);
-    let directory = &mut image[offset..offset + SECTOR_SIZE];
+    let offset = cluster_offset(cluster, geometry);
+    let directory = &mut image[offset..offset + geometry.cluster_size()];
     write_directory_entry(directory, 0, &(short_name(".", ""), 0x10, cluster, 0));
     write_directory_entry(
         directory,
@@ -307,17 +503,17 @@ fn write_directory_entry(directory: &mut [u8], index: usize, entry: &([u8; 11], 
     write_u32(directory, offset + 28, entry.3);
 }
 
-fn write_file(image: &mut [u8], first_cluster: u16, contents: &[u8]) {
-    let offset = cluster_offset(first_cluster);
+fn write_file(image: &mut [u8], geometry: Fat12Geometry, first_cluster: u16, contents: &[u8]) {
+    let offset = cluster_offset(first_cluster, geometry);
     image[offset..offset + contents.len()].copy_from_slice(contents);
 }
 
-fn cluster_offset(cluster: u16) -> usize {
-    DATA_OFFSET + (cluster as usize - 2) * SECTOR_SIZE
+fn cluster_offset(cluster: u16, geometry: Fat12Geometry) -> usize {
+    geometry.data_offset() + (cluster as usize - 2) * geometry.cluster_size()
 }
 
-fn clusters_for(size: usize) -> usize {
-    size.div_ceil(SECTOR_SIZE)
+fn clusters_for(size: usize, cluster_size: usize) -> usize {
+    size.div_ceil(cluster_size)
 }
 
 fn short_name(stem: &str, extension: &str) -> [u8; 11] {
@@ -891,8 +1087,9 @@ fn guest_reached_acceptance(serial: &str, acceptance_marker: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_fat12_image, ensure_persistent_disk, guest_reached_acceptance, DATA_OFFSET,
-        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, PERSISTENT_DISK_SIZE, ROOT_OFFSET,
+        build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
+        DATA_OFFSET, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, PERSISTENT_DISK_SIZE,
+        ROOT_OFFSET,
     };
 
     #[test]
@@ -991,6 +1188,55 @@ mod tests {
             init
         );
         assert_eq!(&first[DATA_OFFSET..DATA_OFFSET + 3], b".  ");
+    }
+
+    #[test]
+    fn m17_fat12_image_fits_servo_init_above_legacy_floppy_limit() {
+        let bootloader = b"bootloader";
+        let kernel = b"kernel payload";
+        let init = vec![0xa5; 2 * 1024 * 1024 + 123];
+        let image = build_m17_fat12_image(bootloader, kernel, &init).expect("M17 FAT12 image");
+
+        assert_eq!(image.len(), M17_IMAGE_SIZE);
+        assert_eq!(u16::from_le_bytes([image[11], image[12]]), 512);
+        assert_eq!(image[13], 8);
+        assert_eq!(u16::from_le_bytes([image[17], image[18]]), 224);
+        assert_eq!(u16::from_le_bytes([image[19], image[20]]), 16_384);
+        assert_eq!(u16::from_le_bytes([image[22], image[23]]), 6);
+        assert_eq!(&image[54..62], b"FAT12   ");
+
+        let root_offset = (1 + 2 * 6) * 512;
+        let data_offset = (1 + 2 * 6 + 14) * 512;
+        assert_eq!(&image[root_offset..root_offset + 3], b"EFI");
+        let efi_directory = data_offset;
+        let nagi_cluster = u16::from_le_bytes([
+            image[efi_directory + 3 * 32 + 26],
+            image[efi_directory + 3 * 32 + 27],
+        ]);
+        assert_eq!(nagi_cluster, 4);
+        let nagi_directory = data_offset + (nagi_cluster as usize - 2) * 4096;
+        let init_entry = nagi_directory + 3 * 32;
+        assert_eq!(&image[init_entry..init_entry + 11], b"INIT    ELF");
+        assert_eq!(
+            u32::from_le_bytes(image[init_entry + 28..init_entry + 32].try_into().unwrap()),
+            init.len() as u32
+        );
+        let init_cluster = u16::from_le_bytes([image[init_entry + 26], image[init_entry + 27]]);
+        let init_offset = data_offset + (init_cluster as usize - 2) * 4096;
+        assert_eq!(image[init_offset], 0xa5);
+        assert_eq!(image[init_offset + init.len() - 1], 0xa5);
+
+        let init_clusters = init.len().div_ceil(4096);
+        let last_cluster = init_cluster + init_clusters as u16 - 1;
+        let fat_entry_offset = 512 + last_cluster as usize + last_cluster as usize / 2;
+        let packed_fat_entry =
+            u16::from_le_bytes([image[fat_entry_offset], image[fat_entry_offset + 1]]);
+        let fat_entry = if last_cluster & 1 == 0 {
+            packed_fat_entry & 0x0fff
+        } else {
+            packed_fat_entry >> 4
+        };
+        assert_eq!(fat_entry, 0x0fff);
     }
 
     #[test]
