@@ -19,31 +19,32 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #163 passed host acceptance and target setup through Mesa,
-package, and kernel build, then exposed 24 undefined symbols at the real
-target link. The duplicate `JS::NewArrayBufferWithContents` is gone. The
-current repair adds the missing POSIX byte-order/string-search providers,
-compiles target C++ without exceptions/RTTI, and instantiates the missing
-libc++ string entrypoints from target headers. Continue with authoritative
-Ubuntu target CI, then UEFI and real QEMU first-web-pixel acceptance. Do not
-substitute another browser engine or host rendering. M18 remains forbidden
-until M17 is formally PASS.
+milestone. CI #164 passed host acceptance and target setup through Mesa,
+package, and kernel build, then failed compiling MozJS ICU because the common
+C++ wrapper overrode explicit `-frtti` with `-fno-rtti`. The wrapper now keeps
+exceptions disabled, defaults to no RTTI when unspecified, and preserves an
+explicit final RTTI setting required by ICU and supported by Nagi's bounded
+Itanium RTTI runtime. CI #164 did not reach the final target link, so the
+24-symbol repair from #163 still needs authoritative CI verification. Then
+continue to UEFI and real QEMU first-web-pixel acceptance. M18 remains
+forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35995521107` (#163) at
-`7437d9a` passed Ubuntu and Windows host acceptance, target dependency
+**Last known repair checkpoint:** public CI run `35999917185` (#164) at
+`f5b429c` passed Ubuntu and Windows host acceptance, target dependency
 validation, Mesa Softpipe archive construction, package, and kernel build.
-The target link confirmed the duplicate ArrayBuffer provider is gone, then
-reported 24 undefined symbols from OTS/fontsan, MozJS, and Mesa. The inventory
-found no matching definitions in 1,637 scanned target archives and objects.
-The current repair implements the four POSIX byte-order functions and
-`strpbrk` in Nagi's relibc backend, roots those archive providers, disables
-unavailable C++ exceptions/RTTI for target C++ dependencies, and provides the
-five required libc++ string methods from target headers. UEFI and real QEMU
-first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+MozJS ICU compilation then failed because the shared target C++ wrapper
+appended `-fno-rtti` after explicit `-frtti` flags; `basictz.cpp`,
+`schriter.cpp`, and `serv.cpp` consequently rejected `dynamic_cast`/`typeid`.
+The current wrapper repair preserves the dependency's final RTTI flag while
+still disabling exceptions and defaulting unspecified C++ builds to no RTTI.
+It passed a target-Clang flag-order smoke check and the full `nagi-cli` suite
+(49 unit tests and 18 CLI tests). The #163 repair for 24 final-link symbols
+has not yet been rechecked because #164 stopped before final linking. UEFI and
+real QEMU first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
 
-### Current M17 continuation after CI runs #158–#163 (2026-09-24)
+### Current M17 continuation after CI runs #158–#164 (2026-09-24)
 
 Public CI run `35975608809` (#158, head `4ab666897712ff35120fc819cff845f45f5598c6`)
 passed target dependency validation, Mesa Softpipe archive construction,
@@ -169,6 +170,26 @@ focused Nagi relibc target build also passed, and `llvm-nm` found `htonl`,
 emitted three unrelated existing `private_interfaces` warnings for `NagiTm`
 time functions. UEFI and real QEMU first-web-pixel evidence remain pending.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+Public CI run `35999917185` (#164, head
+`f5b429c95b2f231d272689fdde57d711665db821`) passed Ubuntu and Windows host
+acceptance, target dependency validation, Mesa Softpipe archive construction,
+package, and kernel build. `Build Nagi user init` stopped while compiling
+MozJS ICU, before final target linking. The compile commands contained both
+Mozilla's explicit `-frtti` and an earlier `-fno-rtti`; the common wrapper
+appended another `-fno-rtti`, so ICU's `dynamic_cast` in `basictz.cpp` and
+`serv.cpp`, and `typeid` in `schriter.cpp`, failed to compile.
+
+The wrapper now tracks the last explicit RTTI option. It retains explicit
+`-frtti` for target code supported by Nagi's bounded Itanium RTTI runtime,
+continues to disable exceptions, and defaults to `-fno-rtti` if a build script
+does not select RTTI. A target-Clang smoke check confirmed the explicit-RTTI
+translation unit emits `__dynamic_cast` while an unspecified-RTTI translation
+unit remains rejected. `cargo test -p nagi-cli --locked` passed (49 unit and
+18 CLI tests), and `bash -n` plus `git diff --check` passed. This repair has
+not yet run in authoritative Ubuntu CI. The #163 final-link inventory repair
+therefore remains unverified; UEFI and real QEMU first-web-pixel acceptance
+were not reached. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -527,7 +548,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #163 (`35995521107`) passed Ubuntu/Windows host acceptance and target setup through kernel build. The duplicate ArrayBuffer provider is resolved; the real target link now reports 24 undefined POSIX, libc++, and exception/RTTI symbols. The current repair adds Nagi relibc byte-order/string providers, roots them for archive extraction, compiles target C++ without unavailable exception/RTTI runtimes, and instantiates required libc++ string methods from target headers. Verify in authoritative CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #164 (`35999917185`) passed host acceptance and target setup through kernel build but failed compiling MozJS ICU because the wrapper overrode explicit `-frtti`; this is now repaired locally by preserving the dependency's final RTTI option while keeping exceptions disabled. #163 had reported 24 POSIX, libc++, and exception/RTTI final-link symbols; the Nagi-owned relibc and libc++ providers are implemented but not yet reverified because #164 stopped at compilation. Run authoritative target CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

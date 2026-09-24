@@ -33,6 +33,7 @@ fi
 resource_dir=$("$compiler" --target=x86_64-unknown-elf -print-resource-dir)
 target_compile_definition=""
 target_is_cxx=false
+target_rtti_enabled=false
 expecting_language=false
 for argument in "$@"; do
     if [[ "$expecting_language" == true ]]; then
@@ -48,6 +49,10 @@ for argument in "$@"; do
     fi
     case "$argument" in
         *.cc|*.cpp|*.cxx|*.c++|*.C|*.mm) target_is_cxx=true ;;
+    esac
+    case "$argument" in
+        -frtti) target_rtti_enabled=true ;;
+        -fno-rtti) target_rtti_enabled=false ;;
     esac
 
     # Servo's bundled SQLite explicitly enables its dynamic extension loader,
@@ -92,10 +97,15 @@ if [[ "$target_is_cxx" == true ]]; then
         -D_LIBCPP_HAS_THREAD_API_PTHREAD=1
         -D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1
     )
-    # The Nagi user ABI has no exception-unwinder or RTTI runtime. Keep C++
-    # dependencies on the same freestanding contract as Mesa and MozJS, even
-    # when a cc-rs build script does not pass these target flags itself. Put
-    # these last so a dependency cannot silently opt into an unavailable ABI.
-    exec "$compiler" "${compiler_args[@]}" "$@" -fno-exceptions -fno-rtti
+    # Nagi has no exception unwinder, so disable exceptions even if a
+    # dependency requests them. Default to no RTTI when a build script leaves
+    # it unspecified, but preserve an explicit final -frtti: Mozilla ICU uses
+    # dynamic_cast/typeid, and the Nagi runtime provides its bounded
+    # single-inheritance Itanium RTTI support for that target code.
+    cxx_runtime_flags=(-fno-exceptions)
+    if [[ "$target_rtti_enabled" != true ]]; then
+        cxx_runtime_flags+=(-fno-rtti)
+    fi
+    exec "$compiler" "${compiler_args[@]}" "$@" "${cxx_runtime_flags[@]}"
 fi
 exec "$compiler" "${compiler_args[@]}" "$@"

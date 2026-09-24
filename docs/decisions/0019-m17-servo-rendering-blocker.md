@@ -2275,3 +2275,24 @@ definitions. A definition match is evidence to inspect archive ordering or
 extraction, not proof that the provider is linkable. No host runtime, fake ABI
 entrypoint, acceptance change, or rendering shortcut is introduced. M17
 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Validation continuation (2026-09-24, explicit RTTI flag precedence)
+
+Public CI run `35999917185` (#164, head `f5b429c`) passed host acceptance,
+target dependency validation, Mesa Softpipe, package, and kernel build, then
+failed while compiling MozJS ICU, before the final target link. The common
+Nagi C++ wrapper appended `-fno-rtti` after Mozilla's explicit `-frtti` for
+ICU translation units. Clang therefore rejected `dynamic_cast` in
+`basictz.cpp` and `serv.cpp`, and `typeid` in `schriter.cpp`.
+
+The wrapper now preserves the last explicit RTTI option, always keeps C++
+exceptions disabled, and defaults to `-fno-rtti` when a dependency does not
+select RTTI. This uses the bounded Itanium RTTI support already provided by
+the Nagi-owned C++ runtime; it does not import host libc++abi or add a
+general-purpose RTTI service. Target-Clang smoke checks confirmed that an
+explicit `-frtti` compiles and emits `__dynamic_cast`, while a translation
+unit with no RTTI request remains built without RTTI. The local `nagi-cli`
+suite passed (49 unit and 18 CLI tests). Because #164 failed before linking,
+the 24-symbol repair from #163 is still unverified by authoritative target
+CI. UEFI and real QEMU first-web-pixel acceptance remain pending, so M17
+remains `BLOCKED` and M18 remains `NOT STARTED`.

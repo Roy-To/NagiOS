@@ -619,6 +619,11 @@ mod tests {
             .expect("Nagi relibc backend");
         let target_cc = fs::read_to_string(root.join("tools/nagi-target-cc.sh"))
             .expect("target C compiler wrapper");
+        assert!(target_cc.contains("target_rtti_enabled=false"));
+        assert!(target_cc.contains("-frtti) target_rtti_enabled=true"));
+        assert!(target_cc.contains("-fno-rtti) target_rtti_enabled=false"));
+        assert!(target_cc.contains("if [[ \"$target_rtti_enabled\" != true ]]"));
+        assert!(target_cc.contains("cxx_runtime_flags=(-fno-exceptions)"));
         let relibc_backend = fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
             .expect("Nagi relibc backend");
         let mesa_build =
