@@ -13,7 +13,11 @@ The M5-only bootstrap address range is:
 - image base: `0x0000_4000_0000_0000`;
 - image limit: image base plus `8 * 4096` bytes;
 - stack page: image base plus `0x0020_0000`, with the initial stack pointer eight bytes below its upper edge so the SysV user entry convention presents `RSP % 16 == 8`;
-- TLS page: image base plus `0x0040_0000`, installed as the user FS base.
+- Static TLS data page: image base plus `0x0040_0000`, followed by an FS-base
+  control page. FS points to the second page so x86-64 variant-II TLS data is
+  addressed backward from the thread pointer. The fixed image supports one
+  bounded `PT_TLS` template; M17 reserves a second isolated page pair for the
+  one native child thread. See [ADR 0021](0021-nagi-static-elf-tls.md).
 
 The kernel creates a new PML4, retains the current kernel mappings, and adds user mappings at PML4 index 128. Image, stack, and TLS backing pages are kernel-owned aligned bootstrap storage. M6 may replace this bounded storage with a general process/address-space allocator; M5 does not claim to implement that allocator.
 

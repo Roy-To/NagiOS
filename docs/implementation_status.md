@@ -19,33 +19,30 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #165 passed host acceptance, target setup, Mesa, package, kernel,
-and MozJS ICU compilation, then reached final target linking with only one
-undefined symbol: libc++ `basic_string::__grow_by_and_replace`. The target
-libc++ shim now explicitly instantiates the real pinned-header implementation;
-local target-Clang output defines the exact symbol, and the full `nagi-cli`
-suite passes. Run authoritative Ubuntu target CI, then continue to UEFI and
-real QEMU first-web-pixel acceptance. M18 remains forbidden until M17 is
-formally PASS.
+milestone. CI #167 passed host acceptance and target setup through the real
+user-init link, which reported zero undefined symbols but failed because
+target TLS objects require a `PT_TLS` program header. ADR 0021 records bounded
+static TLS support; the linker, ELF loader, and process address space now
+validate and initialize that template for the initial thread and its one
+native child. Parser tests, a target kernel build, and linker micro-probes pass;
+the full kernel test crate cannot run on this Apple Silicon host because its
+x86 port-I/O assembly is invalid for the host target. Run authoritative Ubuntu
+target CI, then continue to UEFI and real QEMU first-web-pixel acceptance. M18 remains
+forbidden until M17 is formally PASS.
 
-**Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `36002926592` (#165) at
-`4432a01` passed Ubuntu and Windows host acceptance, target dependency
-validation, Mesa Softpipe archive construction, package, kernel build, and
-MozJS ICU compilation. The RTTI flag-precedence repair cleared the previous
-ICU `dynamic_cast`/`typeid` compiler errors. Final linking then reported one
-undefined symbol, libc++
-`basic_string::__grow_by_and_replace(unsigned long, unsigned long, unsigned
-long, unsigned long, unsigned long, unsigned long, char const*)`, referenced
-by the Nagi-owned string shim's append/replace/assign implementations. The
-current repair explicitly instantiates that real libc++ header method; local
-target-Clang `llvm-nm` confirms the object defines it, and
-`cargo test -p nagi-cli --locked` passes (49 unit tests and 18 CLI tests).
-Authoritative CI must verify this final-link repair. UEFI and real QEMU
+**Last updated:** 2026-09-25
+**Last known repair checkpoint:** public CI run `36006860116` (#167) at
+`daf55d081b96ee5e82045acf9c8f38e32cad3f6d` passed Ubuntu and Windows host
+acceptance, target dependency validation, Mesa Softpipe archive construction,
+package, and kernel build. The real target link emitted zero undefined
+symbols, then rust-lld rejected TLS-bearing Mesa and relibc objects because
+the executable had no `PT_TLS`. The current repair adds bounded static TLS
+template parsing and initialization plus linker `PT_TLS` output. Focused
+verification and authoritative CI are pending. UEFI and real QEMU
 first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
 
-### Current M17 continuation after CI runs #158–#165 (2026-09-24)
+### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 
 Public CI run `35975608809` (#158, head `4ab666897712ff35120fc819cff845f45f5598c6`)
 passed target dependency validation, Mesa Softpipe archive construction,
@@ -57,7 +54,7 @@ libc++ ABI/sort shims invoking `nagi-target-cc.sh` when the M0 build has not
 generated relibc's pthread headers. The shims only serve Servo/MozJS, so
 `user/nagi-init/build.rs` now compiles them only when `m17-servo` is enabled.
 
-Public CI run `35976743137` (#159, head `d68f698a4265afabcf07edb60eb00575bb916112`)
+Public CI run `35976743137` (#160, head `d68f698a4265afabcf07edb60eb00575bb916112`)
 passed `ubuntu-host` and `windows-launcher`, including their M0 launcher
 acceptance, and passed target dependency validation, Mesa, package, and kernel
 builds. The real `Build Nagi user init` target link found these eight
@@ -77,7 +74,7 @@ The Mesa build now explicitly materializes its `build_by_default=false`
 `libglcpp.a` and `libvtn.a` providers, and the target-owned libc++ ABI object
 provides the real `__grow_by` implementation.
 
-Public CI run `35984563470` (#160, head `81209f434ad5d60e294139f301740ed51d16a538`)
+Public CI run `35984563470` (#161, head `81209f434ad5d60e294139f301740ed51d16a538`)
 passed Ubuntu and Windows host acceptance, target dependency validation, Mesa,
 package, and kernel builds. The final target link resolved the three Mesa
 shader functions and libc++ `__grow_by`, leaving four MozJS entries—
@@ -92,7 +89,7 @@ keeps the same C++ build path usable outside CI. `strpbrk` already has a real
 relibc implementation, and the final link now seeds that exact provider for
 archive extraction. These changes are pending authoritative CI verification.
 
-Public CI run `35989665498` (#161, head `053e5b72ea3df13e100f5206a37a0beb83ba9e72`)
+Public CI run `35989665498` (#162, head `053e5b72ea3df13e100f5206a37a0beb83ba9e72`)
 passed Ubuntu and Windows host acceptance, target dependency validation, Mesa,
 package, and kernel stages, then failed while compiling
 `harfbuzz-sys@0.8.0`. The logged command used `tools/nagi-target-cc.sh` for
@@ -100,10 +97,10 @@ package, and kernel stages, then failed while compiling
 Nagi provides the pthread thread API or the default rune table. These settings
 already appear on the M17 libc++ ABI shim, so the wrapper now detects C++
 translation units and supplies both definitions. The UEFI loader and
-first-web-pixel steps were not reached; the #160 final-link inventory remains
+first-web-pixel steps were not reached; the #161 final-link inventory remains
 unverified by this run.
 
-Public CI run `35991563209` (#162, head `43df00cc1f60711724925bd7e9931fa70002b252`)
+Public CI run `35991563209` (#163, head `43df00cc1f60711724925bd7e9931fa70002b252`)
 passed Ubuntu and Windows host acceptance, target dependency validation, Mesa,
 package, and kernel stages. It compiled HarfBuzz and completed the real target
 link with **zero undefined symbols**, then failed on one duplicate
@@ -115,7 +112,7 @@ being compiled with the correct ABI; that condition is now fixed, so the
 duplicate patch is removed and the upstream ownership-transfer implementation
 is retained. UEFI and first-web-pixel acceptance were not reached.
 
-Public CI run `35995521107` (#163, head `7437d9a2a33aa142ac298ed38caf0e7e85350c23`)
+Public CI run `35995521107` (#164, head `7437d9a2a33aa142ac298ed38caf0e7e85350c23`)
 passed Ubuntu and Windows host acceptance, target dependency validation, Mesa,
 package, and kernel stages. The target link has no duplicate ArrayBuffer
 definition, but rust-lld reported 24 undefined symbols: `ntohs`, `ntohl`,
@@ -157,7 +154,7 @@ confirmed the expected ABI entry point. The next Ubuntu target CI must verify
 the duplicate is gone in the final link. UEFI and real QEMU first-web-pixel
 evidence remain pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
-Local verification after the #163 repair passed: focused M17 tests (11), the
+Local verification after the #164 repair passed: focused M17 tests (11), the
 full `nagi-cli` suite (49 unit and 18 CLI tests), focused Clippy,
 `bash -n tools/nagi-target-cc.sh`, and `git diff --check`. The Nagi wrapper
 compiled `nagi-libcpp-abi.cpp` plus the real fontsan OTS `ots.cc` and `cff.cc`
@@ -172,7 +169,7 @@ emitted three unrelated existing `private_interfaces` warnings for `NagiTm`
 time functions. UEFI and real QEMU first-web-pixel evidence remain pending.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
-Public CI run `35999917185` (#164, head
+Public CI run `35999917185` (#165, head
 `f5b429c95b2f231d272689fdde57d711665db821`) passed Ubuntu and Windows host
 acceptance, target dependency validation, Mesa Softpipe archive construction,
 package, and kernel build. `Build Nagi user init` stopped while compiling
@@ -188,11 +185,11 @@ does not select RTTI. A target-Clang smoke check confirmed the explicit-RTTI
 translation unit emits `__dynamic_cast` while an unspecified-RTTI translation
 unit remains rejected. `cargo test -p nagi-cli --locked` passed (49 unit and
 18 CLI tests), and `bash -n` plus `git diff --check` passed. This repair has
-not yet run in authoritative Ubuntu CI. The #163 final-link inventory repair
+not yet run in authoritative Ubuntu CI. The #164 final-link inventory repair
 therefore remains unverified; UEFI and real QEMU first-web-pixel acceptance
 were not reached. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
-Public CI run `36002926592` (#165, head
+Public CI run `36002926592` (#166, head
 `4432a0110df1ba6cf86583205e0b77931e1bc227`) passed Ubuntu and Windows host
 acceptance, target dependency validation, Mesa Softpipe archive construction,
 package, and kernel build. The target compiled MozJS ICU and proceeded through
@@ -214,6 +211,28 @@ unit and 18 CLI tests), along with `cargo clippy -p nagi-cli --all-targets
 provider still needs authoritative Ubuntu target CI verification. UEFI and
 real QEMU first-web-pixel acceptance were not reached. M17 remains `BLOCKED`;
 M18 remains `NOT STARTED`.
+
+Public CI run `36006860116` (#167, head
+`daf55d081b96ee5e82045acf9c8f38e32cad3f6d`) passed Ubuntu and Windows host
+acceptance, target dependency validation, Mesa Softpipe archive construction,
+package, and kernel build. The real target user-init link produced zero
+undefined symbols but failed because TLS-bearing objects from Mesa and relibc
+were present without a `PT_TLS` program header. UEFI and real QEMU first-web-
+pixel acceptance were skipped. ADR 0021 records bounded x86-64 static TLS:
+one template no larger than 4 KiB is copied into isolated initial-thread and
+child-thread slots, each with a data page and FS-base/control page. Dynamic TLS
+modules remain unsupported. The linker emits `PT_TLS`; the parser validates
+header uniqueness, alignment, bounds, and load coverage; process setup copies
+the initial template, restores the child slot before reuse, initializes each
+thread pointer at `FS:0`, and saves/restores FS base during context switches.
+The isolated ELF parser suite passed (14 tests), `cargo test -p nagi-cli
+--locked` passed (49 unit and 18 CLI tests), the x86-64 Nagi kernel release
+build passed, and linker-script ELF probes for initialized TLS, high alignment,
+and BSS-only TLS all emitted `PT_TLS` and passed the real ELF parser. The full kernel test crate could
+not run on macOS arm64 because existing x86 port-I/O assembly uses unavailable
+host registers. These changes still need authoritative Ubuntu target CI, UEFI,
+and real QEMU first-web-pixel evidence. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -572,7 +591,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #165 (`36002926592`) passed host acceptance and target setup through MozJS ICU compilation, then final linking reported one missing libc++ `basic_string::__grow_by_and_replace` provider. The RTTI flag-precedence fix is verified through compilation; a real pinned-header instantiation for the remaining string method is implemented locally and awaits target CI. Run authoritative target CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #167 (`36006860116`) passed host acceptance and target setup to the real user-init link, which had zero undefined symbols but rejected TLS-bearing objects because the ELF omitted `PT_TLS`. Bounded static TLS is implemented for the initial thread and one isolated child slot, with per-thread FS-base restoration and child-template reset. ELF parser tests (14), `nagi-cli` tests (49 unit and 18 CLI), the x86-64 Nagi kernel release build, and linker-script ELF probes pass. The full kernel test crate cannot run on macOS arm64 because of existing x86 port-I/O assembly. The repair awaits authoritative target CI, then UEFI and real QEMU first-web-pixel acceptance before M17 PASS. See ADR 0019, ADR 0020, and ADR 0021. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

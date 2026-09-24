@@ -24,6 +24,13 @@ pub const USER_STACK_BASE: u64 = USER_IMAGE_BASE + 0x0020_0000;
 pub const USER_STACK_PAGES: usize = 8;
 pub const USER_STACK_LIMIT: u64 = USER_STACK_BASE + USER_STACK_PAGES as u64 * PAGE_SIZE;
 pub const USER_TLS_BASE: u64 = USER_IMAGE_BASE + 0x0040_0000;
+pub const USER_TLS_THREAD_SLOT_COUNT: usize = 2;
+pub const USER_TLS_PAGES_PER_THREAD: usize = 2;
+pub const USER_TLS_PAGE_COUNT: usize = USER_TLS_THREAD_SLOT_COUNT * USER_TLS_PAGES_PER_THREAD;
+pub const USER_TLS_CONTROL_BASE: u64 = USER_TLS_BASE + PAGE_SIZE;
+pub const USER_TLS_CHILD_BASE: u64 = USER_TLS_BASE + USER_TLS_PAGES_PER_THREAD as u64 * PAGE_SIZE;
+pub const USER_TLS_CHILD_CONTROL_BASE: u64 = USER_TLS_CHILD_BASE + PAGE_SIZE;
+pub const USER_TLS_LIMIT: u64 = USER_TLS_BASE + USER_TLS_PAGE_COUNT as u64 * PAGE_SIZE;
 pub const USER_MMAP_BASE: u64 = USER_IMAGE_BASE + 0x0080_0000;
 const USER_MMAP_PAGE_TABLES: usize = 8;
 pub const USER_MMAP_PAGES: usize = PAGE_TABLE_ENTRIES * USER_MMAP_PAGE_TABLES;
@@ -96,7 +103,8 @@ pub(crate) struct BootstrapStorage {
     surface_pt: PageTable,
     image_pages: [PageBytes; MAX_IMAGE_PAGES],
     stack_pages: [PageBytes; USER_STACK_PAGES],
-    tls_page: PageBytes,
+    tls_pages: [PageBytes; USER_TLS_PAGE_COUNT],
+    tls_initial_page: PageBytes,
     mmap_pages: [PageBytes; USER_MMAP_PAGES],
     mmap_regions: [Option<MmapRegion>; MAX_MMAP_REGIONS],
 }
@@ -114,7 +122,8 @@ impl BootstrapStorage {
             surface_pt: PageTable::empty(),
             image_pages: [const { PageBytes::zeroed() }; MAX_IMAGE_PAGES],
             stack_pages: [const { PageBytes::zeroed() }; USER_STACK_PAGES],
-            tls_page: PageBytes::zeroed(),
+            tls_pages: [const { PageBytes::zeroed() }; USER_TLS_PAGE_COUNT],
+            tls_initial_page: PageBytes::zeroed(),
             mmap_pages: [const { PageBytes::zeroed() }; USER_MMAP_PAGES],
             mmap_regions: [None; MAX_MMAP_REGIONS],
         }
@@ -137,7 +146,10 @@ impl BootstrapStorage {
         for page in &mut self.stack_pages {
             page.0.fill(0);
         }
-        self.tls_page.0.fill(0);
+        for page in &mut self.tls_pages {
+            page.0.fill(0);
+        }
+        self.tls_initial_page.0.fill(0);
         for page in &mut self.mmap_pages {
             page.0.fill(0);
         }
@@ -284,6 +296,14 @@ pub fn munmap_user(address: u64, length: u64) -> bool {
     }
     storage.mmap_regions[slot] = None;
     true
+}
+
+/// Restore the one native child slot's static TLS from the initial ELF image.
+/// The slot is reused after `thread_exit`, so it must not inherit the previous
+/// child's modified thread-local data or control-page state.
+pub fn reset_child_tls() {
+    let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
+    reset_child_tls_pages(storage);
 }
 
 pub fn mprotect_user(address: u64, length: u64, protection: u64) -> bool {
@@ -434,7 +454,7 @@ pub fn is_user_readable_range_mapped(address: u64, length: usize) -> bool {
     ) || mapped_range(
         &storage.tls_pt,
         USER_TLS_BASE,
-        USER_TLS_BASE + PAGE_SIZE,
+        USER_TLS_LIMIT,
         address,
         length,
         PageTableEntry::PRESENT | PageTableEntry::USER,
@@ -619,6 +639,7 @@ pub(crate) fn build_address_space(
     for segment in &plan.segments[..plan.segment_count] {
         map_segment(segment, image, storage)?;
     }
+    initialize_tls(plan, image, storage)?;
     for index in 0..USER_STACK_PAGES {
         map_leaf(
             &mut storage.stack_pt,
@@ -630,15 +651,17 @@ pub(crate) fn build_address_space(
                 | PageTableEntry::NO_EXECUTE,
         )?;
     }
-    map_leaf(
-        &mut storage.tls_pt,
-        0,
-        page_address(&storage.tls_page)?,
-        PageTableEntry::PRESENT
-            | PageTableEntry::WRITABLE
-            | PageTableEntry::USER
-            | PageTableEntry::NO_EXECUTE,
-    )?;
+    for index in 0..USER_TLS_PAGE_COUNT {
+        map_leaf(
+            &mut storage.tls_pt,
+            index,
+            page_address(&storage.tls_pages[index])?,
+            PageTableEntry::PRESENT
+                | PageTableEntry::WRITABLE
+                | PageTableEntry::USER
+                | PageTableEntry::NO_EXECUTE,
+        )?;
+    }
     for index in 0..SURFACE_PAGE_COUNT {
         map_leaf(
             &mut storage.surface_pt,
@@ -657,7 +680,7 @@ pub(crate) fn build_address_space(
         // RSP is 8 mod 16 on entry, so its prologue can align local FXSAVE
         // storage before executing SIMD instructions.
         user_stack_top: USER_STACK_LIMIT - 8,
-        user_tls_base: USER_TLS_BASE,
+        user_tls_base: USER_TLS_CONTROL_BASE,
         cr3: table_address(&storage.pml4)?,
         block_capability: crate::virtio::user_capability(),
         display_capability: display::user_capability(),
@@ -721,7 +744,127 @@ fn validate_plan(plan: &UserLoadPlan, image: &[u8]) -> Result<(), UserProcessErr
     if !entry_is_executable {
         return Err(UserProcessError::InvalidLoadPlan);
     }
+    validate_tls_plan(plan, image)?;
     Ok(())
+}
+
+fn validate_tls_plan(plan: &UserLoadPlan, image: &[u8]) -> Result<(), UserProcessError> {
+    let Some(tls) = plan.tls else {
+        return Ok(());
+    };
+    let alignment = tls.alignment.max(1);
+    if tls.memory_size == 0
+        || tls.file_size > tls.memory_size
+        || alignment > PAGE_SIZE
+        || !alignment.is_power_of_two()
+        || tls.virtual_address % alignment != tls.file_offset % alignment
+    {
+        return Err(UserProcessError::InvalidLoadPlan);
+    }
+    let aligned_size = tls
+        .memory_size
+        .checked_add(alignment - 1)
+        .ok_or(UserProcessError::InvalidLoadPlan)?
+        & !(alignment - 1);
+    if aligned_size > PAGE_SIZE {
+        return Err(UserProcessError::InvalidLoadPlan);
+    }
+    let memory_end = tls
+        .virtual_address
+        .checked_add(tls.memory_size)
+        .ok_or(UserProcessError::InvalidLoadPlan)?;
+    if tls.virtual_address < USER_IMAGE_BASE || memory_end > USER_IMAGE_LIMIT {
+        return Err(UserProcessError::InvalidLoadPlan);
+    }
+    let file_end = tls
+        .file_offset
+        .checked_add(tls.file_size)
+        .ok_or(UserProcessError::ImageOutOfBounds)?;
+    if file_end > image.len() as u64 {
+        return Err(UserProcessError::ImageOutOfBounds);
+    }
+    let segments = &plan.segments[..plan.segment_count];
+    let covered = segments.iter().any(|load| {
+        let Some(load_memory_end) = load.virtual_address.checked_add(load.memory_size) else {
+            return false;
+        };
+        if tls.virtual_address < load.virtual_address || memory_end > load_memory_end {
+            return false;
+        }
+        if tls.file_size == 0 {
+            return true;
+        }
+        let Some(load_file_end) = load.file_offset.checked_add(load.file_size) else {
+            return false;
+        };
+        tls.file_offset >= load.file_offset
+            && file_end <= load_file_end
+            && tls.virtual_address - load.virtual_address == tls.file_offset - load.file_offset
+    });
+    if !covered {
+        return Err(UserProcessError::InvalidLoadPlan);
+    }
+    Ok(())
+}
+
+fn initialize_tls(
+    plan: &UserLoadPlan,
+    image: &[u8],
+    storage: &mut BootstrapStorage,
+) -> Result<(), UserProcessError> {
+    // Nagi's x86-64 static TLS code loads the thread pointer from FS:0 before
+    // applying the link-time negative TPOFF. Each fixed native thread slot
+    // gets its own control page and initialized ABI thread-pointer word.
+    storage.tls_pages[1].0[..core::mem::size_of::<u64>()]
+        .copy_from_slice(&USER_TLS_CONTROL_BASE.to_le_bytes());
+    storage.tls_pages[3].0[..core::mem::size_of::<u64>()]
+        .copy_from_slice(&USER_TLS_CHILD_CONTROL_BASE.to_le_bytes());
+    let Some(tls) = plan.tls else {
+        return Ok(());
+    };
+    let alignment = tls.alignment.max(1);
+    let aligned_size = tls
+        .memory_size
+        .checked_add(alignment - 1)
+        .ok_or(UserProcessError::InvalidLoadPlan)?
+        & !(alignment - 1);
+    let start =
+        usize::try_from(PAGE_SIZE - aligned_size).map_err(|_| UserProcessError::InvalidLoadPlan)?;
+    let file_start =
+        usize::try_from(tls.file_offset).map_err(|_| UserProcessError::ImageOutOfBounds)?;
+    let file_end = usize::try_from(
+        tls.file_offset
+            .checked_add(tls.file_size)
+            .ok_or(UserProcessError::ImageOutOfBounds)?,
+    )
+    .map_err(|_| UserProcessError::ImageOutOfBounds)?;
+    let data_size =
+        usize::try_from(tls.file_size).map_err(|_| UserProcessError::ImageOutOfBounds)?;
+    let initialized_end = start
+        .checked_add(data_size)
+        .ok_or(UserProcessError::InvalidLoadPlan)?;
+    if initialized_end > PAGE_SIZE as usize || file_end > image.len() {
+        return Err(UserProcessError::ImageOutOfBounds);
+    }
+    // x86-64 TLS grows backward from FS base. The fixed page ends exactly at
+    // the control page, so p_memsz bytes occupy its high end and p_filesz
+    // supplies the initialized prefix; clear() already zeroed the remainder.
+    storage.tls_initial_page.0[start..initialized_end]
+        .copy_from_slice(&image[file_start..file_end]);
+    storage.tls_pages[0]
+        .0
+        .copy_from_slice(&storage.tls_initial_page.0);
+    reset_child_tls_pages(storage);
+    Ok(())
+}
+
+fn reset_child_tls_pages(storage: &mut BootstrapStorage) {
+    storage.tls_pages[2]
+        .0
+        .copy_from_slice(&storage.tls_initial_page.0);
+    storage.tls_pages[3].0.fill(0);
+    storage.tls_pages[3].0[..core::mem::size_of::<u64>()]
+        .copy_from_slice(&USER_TLS_CHILD_CONTROL_BASE.to_le_bytes());
 }
 
 fn image_pages(plan: &UserLoadPlan) -> usize {
@@ -957,12 +1100,15 @@ mod tests {
     use std::boxed::Box;
 
     use crate::memory::{PageTable, PageTableEntry, PAGE_SIZE};
-    use crate::user_elf::{UserLoadPlan, UserLoadSegment, MAX_LOAD_SEGMENTS, USER_IMAGE_BASE};
+    use crate::user_elf::{
+        UserLoadPlan, UserLoadSegment, UserTlsSegment, MAX_LOAD_SEGMENTS, USER_IMAGE_BASE,
+    };
 
     use super::{
-        build_address_space, efer_with_nxe, image_range_is_mapped, mapped_range, mmap_page_flags,
-        validate_mmap_request, BootstrapStorage, UserProcessError, USER_MMAP_PAGES,
-        USER_STACK_BASE, USER_STACK_LIMIT, USER_TLS_BASE,
+        build_address_space, efer_with_nxe, image_range_is_mapped, is_user_readable_range_mapped,
+        mapped_range, mmap_page_flags, reset_child_tls_pages, validate_mmap_request,
+        BootstrapStorage, UserProcessError, USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT,
+        USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT,
     };
 
     fn boxed_storage() -> Box<BootstrapStorage> {
@@ -989,6 +1135,7 @@ mod tests {
             entry: USER_IMAGE_BASE,
             segments,
             segment_count: 1,
+            tls: None,
         }
     }
 
@@ -1015,7 +1162,15 @@ mod tests {
 
         assert_eq!(context.entry, USER_IMAGE_BASE);
         assert_eq!(context.user_stack_top, USER_STACK_LIMIT - 8);
-        assert_eq!(context.user_tls_base, USER_TLS_BASE);
+        assert_eq!(context.user_tls_base, USER_TLS_CONTROL_BASE);
+        assert_eq!(
+            &storage.tls_pages[1].0[..core::mem::size_of::<u64>()],
+            &USER_TLS_CONTROL_BASE.to_le_bytes()
+        );
+        assert_eq!(
+            &storage.tls_pages[3].0[..core::mem::size_of::<u64>()],
+            &USER_TLS_CHILD_CONTROL_BASE.to_le_bytes()
+        );
         assert_eq!(storage.pml4.raw_entry(0), Some(kernel_entry.raw()));
         assert_eq!(
             storage.pml4.raw_entry(1),
@@ -1038,6 +1193,105 @@ mod tests {
         assert_ne!(tls & PageTableEntry::USER, 0);
         assert_ne!(tls & PageTableEntry::WRITABLE, 0);
         assert_ne!(tls & PageTableEntry::NO_EXECUTE, 0);
+        assert!(storage.tls_pt.raw_entry(1).is_some());
+        assert!(storage.tls_pt.raw_entry(2).is_some());
+        assert!(storage.tls_pt.raw_entry(3).is_some());
+        assert!(is_user_readable_range_mapped(
+            USER_TLS_BASE,
+            (USER_TLS_LIMIT - USER_TLS_BASE) as usize
+        ));
+    }
+
+    #[test]
+    fn initializes_static_tls_at_the_end_of_its_page() {
+        let kernel_pml4 = PageTable::empty();
+        let mut storage = boxed_storage();
+        let mut image = [0x90_u8; 16];
+        image[4..8].copy_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+        let mut plan = plan(PAGE_SIZE);
+        plan.tls = Some(UserTlsSegment {
+            file_offset: 4,
+            virtual_address: USER_IMAGE_BASE + 4,
+            file_size: 4,
+            memory_size: 16,
+            alignment: 16,
+        });
+
+        let context = build_address_space(&plan, &image, &kernel_pml4, &mut storage)
+            .expect("static TLS address space");
+
+        let tls_start = PAGE_SIZE as usize - 16;
+        assert_eq!(context.user_tls_base, USER_TLS_CONTROL_BASE);
+        assert_eq!(
+            &storage.tls_pages[0].0[tls_start..tls_start + 4],
+            &[0x11, 0x22, 0x33, 0x44]
+        );
+        assert!(storage.tls_pages[0].0[tls_start + 4..]
+            .iter()
+            .all(|byte| *byte == 0));
+        assert_eq!(
+            &storage.tls_pages[2].0[tls_start..tls_start + 4],
+            &[0x11, 0x22, 0x33, 0x44]
+        );
+        assert!(storage.tls_pages[2].0[tls_start + 4..]
+            .iter()
+            .all(|byte| *byte == 0));
+        assert_eq!(
+            &storage.tls_pages[1].0[..core::mem::size_of::<u64>()],
+            &USER_TLS_CONTROL_BASE.to_le_bytes()
+        );
+        assert_eq!(
+            &storage.tls_pages[3].0[..core::mem::size_of::<u64>()],
+            &USER_TLS_CHILD_CONTROL_BASE.to_le_bytes()
+        );
+        assert!(storage.tls_pages[1].0[core::mem::size_of::<u64>()..]
+            .iter()
+            .all(|byte| *byte == 0));
+        assert!(storage.tls_pages[3].0[core::mem::size_of::<u64>()..]
+            .iter()
+            .all(|byte| *byte == 0));
+        assert!(storage.tls_pt.raw_entry(0).is_some());
+        assert!(storage.tls_pt.raw_entry(1).is_some());
+        assert!(storage.tls_pt.raw_entry(2).is_some());
+        assert!(storage.tls_pt.raw_entry(3).is_some());
+    }
+
+    #[test]
+    fn resets_reused_child_tls_from_the_original_template() {
+        let kernel_pml4 = PageTable::empty();
+        let mut storage = boxed_storage();
+        let mut image = [0x90_u8; 16];
+        image[4..8].copy_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+        let mut plan = plan(PAGE_SIZE);
+        plan.tls = Some(UserTlsSegment {
+            file_offset: 4,
+            virtual_address: USER_IMAGE_BASE + 4,
+            file_size: 4,
+            memory_size: 16,
+            alignment: 16,
+        });
+        build_address_space(&plan, &image, &kernel_pml4, &mut storage)
+            .expect("static TLS address space");
+
+        let tls_start = PAGE_SIZE as usize - 16;
+        storage.tls_pages[2].0[tls_start..tls_start + 4].fill(0xff);
+        storage.tls_pages[3].0.fill(0xff);
+        reset_child_tls_pages(&mut storage);
+
+        assert_eq!(
+            &storage.tls_pages[2].0[tls_start..tls_start + 4],
+            &[0x11, 0x22, 0x33, 0x44]
+        );
+        assert!(storage.tls_pages[2].0[tls_start + 4..]
+            .iter()
+            .all(|byte| *byte == 0));
+        assert_eq!(
+            &storage.tls_pages[3].0[..core::mem::size_of::<u64>()],
+            &USER_TLS_CHILD_CONTROL_BASE.to_le_bytes()
+        );
+        assert!(storage.tls_pages[3].0[core::mem::size_of::<u64>()..]
+            .iter()
+            .all(|byte| *byte == 0));
     }
 
     #[test]

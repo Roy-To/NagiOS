@@ -6,6 +6,7 @@ const ELF_HEADER_SIZE: usize = 64;
 const PROGRAM_HEADER_SIZE: usize = 56;
 const PAGE_SIZE: u64 = 4096;
 const PT_LOAD: u32 = 1;
+const PT_TLS: u32 = 7;
 pub const PF_X: u32 = 1;
 pub const PF_W: u32 = 2;
 
@@ -19,10 +20,20 @@ pub struct UserLoadSegment {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UserTlsSegment {
+    pub file_offset: u64,
+    pub virtual_address: u64,
+    pub file_size: u64,
+    pub memory_size: u64,
+    pub alignment: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UserLoadPlan {
     pub entry: u64,
     pub segments: [UserLoadSegment; MAX_LOAD_SEGMENTS],
     pub segment_count: usize,
+    pub tls: Option<UserTlsSegment>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,8 +48,12 @@ pub enum UserElfError {
     InvalidProgramHeaders,
     NoLoadSegments,
     TooManyLoadSegments,
+    DuplicateTlsSegment,
     InvalidSegment,
     SegmentOutOfRange,
+    InvalidTlsSegment,
+    TlsSegmentOutOfRange,
+    TlsSegmentTooLarge,
     WritableExecutable,
     OverlappingSegments,
     EntryNotExecutable,
@@ -87,13 +102,23 @@ pub fn parse(bytes: &[u8]) -> Result<UserLoadPlan, UserElfError> {
     }
 
     let mut load_count = 0_usize;
+    let mut tls_count = 0_usize;
     for index in 0..ph_count {
         let offset = ph_offset + index * PROGRAM_HEADER_SIZE;
-        if read_u32(bytes, offset)? == PT_LOAD {
-            load_count += 1;
-            if load_count > MAX_LOAD_SEGMENTS {
-                return Err(UserElfError::TooManyLoadSegments);
+        match read_u32(bytes, offset)? {
+            PT_LOAD => {
+                load_count += 1;
+                if load_count > MAX_LOAD_SEGMENTS {
+                    return Err(UserElfError::TooManyLoadSegments);
+                }
             }
+            PT_TLS => {
+                tls_count += 1;
+                if tls_count > 1 {
+                    return Err(UserElfError::DuplicateTlsSegment);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -101,22 +126,36 @@ pub fn parse(bytes: &[u8]) -> Result<UserLoadPlan, UserElfError> {
         entry,
         segments: [UserLoadSegment::default(); MAX_LOAD_SEGMENTS],
         segment_count: 0,
+        tls: None,
     };
     for index in 0..ph_count {
         let offset = ph_offset + index * PROGRAM_HEADER_SIZE;
-        if read_u32(bytes, offset)? != PT_LOAD {
-            continue;
+        match read_u32(bytes, offset)? {
+            PT_LOAD => {
+                let segment = UserLoadSegment {
+                    flags: read_u32(bytes, offset + 4)?,
+                    file_offset: read_u64(bytes, offset + 8)?,
+                    virtual_address: read_u64(bytes, offset + 16)?,
+                    file_size: read_u64(bytes, offset + 32)?,
+                    memory_size: read_u64(bytes, offset + 40)?,
+                };
+                validate_segment(bytes, &plan, segment)?;
+                plan.segments[plan.segment_count] = segment;
+                plan.segment_count += 1;
+            }
+            PT_TLS => {
+                let tls = UserTlsSegment {
+                    file_offset: read_u64(bytes, offset + 8)?,
+                    virtual_address: read_u64(bytes, offset + 16)?,
+                    file_size: read_u64(bytes, offset + 32)?,
+                    memory_size: read_u64(bytes, offset + 40)?,
+                    alignment: read_u64(bytes, offset + 48)?,
+                };
+                validate_tls_segment(bytes, tls)?;
+                plan.tls = Some(tls);
+            }
+            _ => {}
         }
-        let segment = UserLoadSegment {
-            flags: read_u32(bytes, offset + 4)?,
-            file_offset: read_u64(bytes, offset + 8)?,
-            virtual_address: read_u64(bytes, offset + 16)?,
-            file_size: read_u64(bytes, offset + 32)?,
-            memory_size: read_u64(bytes, offset + 40)?,
-        };
-        validate_segment(bytes, &plan, segment)?;
-        plan.segments[plan.segment_count] = segment;
-        plan.segment_count += 1;
     }
     if plan.segment_count == 0 {
         return Err(UserElfError::NoLoadSegments);
@@ -130,7 +169,81 @@ pub fn parse(bytes: &[u8]) -> Result<UserLoadPlan, UserElfError> {
     if !entry_is_executable {
         return Err(UserElfError::EntryNotExecutable);
     }
+    if let Some(tls) = plan.tls {
+        validate_tls_load_coverage(&plan, tls)?;
+    }
     Ok(plan)
+}
+
+fn validate_tls_segment(bytes: &[u8], tls: UserTlsSegment) -> Result<(), UserElfError> {
+    let alignment = tls.alignment.max(1);
+    if tls.memory_size == 0
+        || tls.file_size > tls.memory_size
+        || tls.alignment > PAGE_SIZE
+        || !alignment.is_power_of_two()
+        || tls.virtual_address % alignment != tls.file_offset % alignment
+    {
+        return Err(UserElfError::InvalidTlsSegment);
+    }
+    let memory_end = tls
+        .virtual_address
+        .checked_add(tls.memory_size)
+        .ok_or(UserElfError::TlsSegmentOutOfRange)?;
+    if tls.virtual_address < USER_IMAGE_BASE || memory_end > USER_IMAGE_LIMIT {
+        return Err(UserElfError::TlsSegmentOutOfRange);
+    }
+    let file_end = tls
+        .file_offset
+        .checked_add(tls.file_size)
+        .ok_or(UserElfError::TlsSegmentOutOfRange)?;
+    if file_end > bytes.len() as u64 {
+        return Err(UserElfError::TlsSegmentOutOfRange);
+    }
+    let aligned_size = tls
+        .memory_size
+        .checked_add(alignment - 1)
+        .ok_or(UserElfError::TlsSegmentTooLarge)?
+        & !(alignment - 1);
+    if aligned_size > PAGE_SIZE {
+        return Err(UserElfError::TlsSegmentTooLarge);
+    }
+    Ok(())
+}
+
+fn validate_tls_load_coverage(
+    plan: &UserLoadPlan,
+    tls: UserTlsSegment,
+) -> Result<(), UserElfError> {
+    let tls_memory_end = tls
+        .virtual_address
+        .checked_add(tls.memory_size)
+        .ok_or(UserElfError::TlsSegmentOutOfRange)?;
+    let tls_file_end = tls
+        .file_offset
+        .checked_add(tls.file_size)
+        .ok_or(UserElfError::TlsSegmentOutOfRange)?;
+    let covered = plan.segments[..plan.segment_count].iter().any(|load| {
+        let Some(load_memory_end) = load.virtual_address.checked_add(load.memory_size) else {
+            return false;
+        };
+        if tls.virtual_address < load.virtual_address || tls_memory_end > load_memory_end {
+            return false;
+        }
+        if tls.file_size == 0 {
+            return true;
+        }
+        let Some(load_file_end) = load.file_offset.checked_add(load.file_size) else {
+            return false;
+        };
+        tls.file_offset >= load.file_offset
+            && tls_file_end <= load_file_end
+            && tls.virtual_address - load.virtual_address == tls.file_offset - load.file_offset
+    });
+    if covered {
+        Ok(())
+    } else {
+        Err(UserElfError::TlsSegmentOutOfRange)
+    }
 }
 
 fn validate_segment(
@@ -205,7 +318,7 @@ mod tests {
     use std::vec;
     use std::vec::Vec;
 
-    use super::{parse, UserElfError, USER_IMAGE_BASE, USER_IMAGE_LIMIT};
+    use super::{parse, UserElfError, UserTlsSegment, USER_IMAGE_BASE, USER_IMAGE_LIMIT};
 
     const ELF_HEADER_SIZE: usize = 64;
     const PROGRAM_HEADER_SIZE: usize = 56;
@@ -252,6 +365,22 @@ mod tests {
         bytes
     }
 
+    fn elf_with_tls() -> Vec<u8> {
+        let mut bytes = elf_with_segment(USER_IMAGE_BASE, 4096, 5);
+        write_u16(&mut bytes, 56, 2);
+        let ph = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+        write_u32(&mut bytes, ph, 7);
+        write_u32(&mut bytes, ph + 4, 4);
+        write_u64(&mut bytes, ph + 8, (SEGMENT_OFFSET + 4) as u64);
+        write_u64(&mut bytes, ph + 16, USER_IMAGE_BASE + 4);
+        write_u64(&mut bytes, ph + 24, USER_IMAGE_BASE + 4);
+        write_u64(&mut bytes, ph + 32, 4);
+        write_u64(&mut bytes, ph + 40, 16);
+        write_u64(&mut bytes, ph + 48, 16);
+        bytes[SEGMENT_OFFSET + 4..SEGMENT_OFFSET + 8].copy_from_slice(&[1, 2, 3, 4]);
+        bytes
+    }
+
     #[test]
     fn parses_a_bounded_executable_user_segment() {
         let bytes = elf_with_segment(USER_IMAGE_BASE, 4096, 5);
@@ -262,6 +391,87 @@ mod tests {
         assert_eq!(plan.segment_count, 1);
         assert_eq!(plan.segments[0].virtual_address, USER_IMAGE_BASE);
         assert_eq!(plan.segments[0].file_offset, SEGMENT_OFFSET as u64);
+    }
+
+    #[test]
+    fn parses_a_static_tls_template_covered_by_the_data_load_segment() {
+        let plan = parse(&elf_with_tls()).expect("valid user ELF with TLS");
+
+        assert_eq!(
+            plan.tls,
+            Some(UserTlsSegment {
+                file_offset: (SEGMENT_OFFSET + 4) as u64,
+                virtual_address: USER_IMAGE_BASE + 4,
+                file_size: 4,
+                memory_size: 16,
+                alignment: 16,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_a_zero_initialized_tls_template_without_file_bytes() {
+        let mut bytes = elf_with_tls();
+        let ph = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+        write_u64(&mut bytes, ph + 8, (SEGMENT_OFFSET + 16) as u64);
+        write_u64(&mut bytes, ph + 16, USER_IMAGE_BASE + 16);
+        write_u64(&mut bytes, ph + 32, 0);
+        write_u64(&mut bytes, ph + 40, 16);
+
+        let plan = parse(&bytes).expect("valid zero-initialized TLS template");
+
+        assert_eq!(plan.tls.expect("TLS template").file_size, 0);
+        assert_eq!(plan.tls.expect("TLS template").memory_size, 16);
+    }
+
+    #[test]
+    fn rejects_duplicate_tls_program_headers() {
+        let mut bytes = elf_with_tls();
+        write_u16(&mut bytes, 56, 3);
+        let tls_header = bytes
+            [ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE..ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE * 2]
+            .to_vec();
+        let duplicate = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE * 2;
+        bytes[duplicate..duplicate + PROGRAM_HEADER_SIZE].copy_from_slice(&tls_header);
+
+        assert_eq!(parse(&bytes), Err(UserElfError::DuplicateTlsSegment));
+    }
+
+    #[test]
+    fn rejects_tls_templates_larger_than_the_fixed_static_tls_page() {
+        let mut bytes = elf_with_tls();
+        let ph = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+        write_u64(&mut bytes, ph + 40, 4097);
+
+        assert_eq!(parse(&bytes), Err(UserElfError::TlsSegmentTooLarge));
+    }
+
+    #[test]
+    fn rejects_tls_headers_with_incongruent_file_and_memory_alignment() {
+        let mut bytes = elf_with_tls();
+        let ph = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+        write_u64(&mut bytes, ph + 16, USER_IMAGE_BASE + 5);
+
+        assert_eq!(parse(&bytes), Err(UserElfError::InvalidTlsSegment));
+    }
+
+    #[test]
+    fn rejects_tls_templates_not_backed_by_a_loadable_segment() {
+        let mut bytes = elf_with_tls();
+        let ph = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+        write_u64(&mut bytes, ph + 8, (SEGMENT_OFFSET + 4088) as u64);
+        write_u64(&mut bytes, ph + 16, USER_IMAGE_BASE + 4088);
+
+        assert_eq!(parse(&bytes), Err(UserElfError::TlsSegmentOutOfRange));
+    }
+
+    #[test]
+    fn rejects_tls_data_outside_the_init_image() {
+        let mut bytes = elf_with_tls();
+        let ph = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+        write_u64(&mut bytes, ph + 8, 0x2004);
+
+        assert_eq!(parse(&bytes), Err(UserElfError::TlsSegmentOutOfRange));
     }
 
     #[test]

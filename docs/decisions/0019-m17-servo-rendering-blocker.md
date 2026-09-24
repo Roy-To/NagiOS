@@ -2278,7 +2278,7 @@ remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ## Validation continuation (2026-09-24, explicit RTTI flag precedence)
 
-Public CI run `35999917185` (#164, head `f5b429c`) passed host acceptance,
+Public CI run `35999917185` (#165, head `f5b429c`) passed host acceptance,
 target dependency validation, Mesa Softpipe, package, and kernel build, then
 failed while compiling MozJS ICU, before the final target link. The common
 Nagi C++ wrapper appended `-fno-rtti` after Mozilla's explicit `-frtti` for
@@ -2292,14 +2292,14 @@ the Nagi-owned C++ runtime; it does not import host libc++abi or add a
 general-purpose RTTI service. Target-Clang smoke checks confirmed that an
 explicit `-frtti` compiles and emits `__dynamic_cast`, while a translation
 unit with no RTTI request remains built without RTTI. The local `nagi-cli`
-suite passed (49 unit and 18 CLI tests). Because #164 failed before linking,
-the 24-symbol repair from #163 is still unverified by authoritative target
+suite passed (49 unit and 18 CLI tests). Because #165 failed before linking,
+the 24-symbol repair from #164 is still unverified by authoritative target
 CI. UEFI and real QEMU first-web-pixel acceptance remain pending, so M17
 remains `BLOCKED` and M18 remains `NOT STARTED`.
 
 ## Validation continuation (2026-09-24, libc++ string growth instantiation)
 
-Public CI run `36002926592` (#165, head `4432a01`) passed both host jobs,
+Public CI run `36002926592` (#166, head `4432a01`) passed both host jobs,
 target setup, Mesa Softpipe, package, and kernel build. The target compiled
 MozJS ICU and reached the real target link after the explicit RTTI precedence
 repair. rust-lld reported one undefined symbol:
@@ -2317,3 +2317,26 @@ A target-Clang compile emits the exact Itanium symbol, and the full local
 `nagi-cli` test suite passes (49 unit and 18 CLI tests). This final-link repair
 awaits authoritative Ubuntu CI. UEFI and real QEMU first-web-pixel acceptance
 remain pending; M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #167 (2026-09-24)
+
+Public CI run `36006860116` (#167, head `daf55d0`) passed the host jobs,
+Servo bootstrap, Mesa Softpipe archive construction, package, and kernel
+build. The real `nagi-init` target link reported zero undefined symbols but
+rust-lld rejected TLS-bearing Mesa and relibc objects because the executable
+did not contain a `PT_TLS` program header. UEFI and real QEMU first-web-pixel
+acceptance were skipped.
+
+ADR 0021 records the bounded architecture repair: support one static `PT_TLS`
+template no larger than one page, copy it into separate initial and child
+thread slots, and keep dynamic TLS modules unsupported. The target linker now
+emits the template header. The kernel ELF parser checks header uniqueness,
+size, alignment, bounds, and load-segment coverage. Process setup copies the
+initial template, initializes each ABI thread-pointer word at `FS:0`, resets
+the child slot before reuse, and saves/restores FS base on context switches.
+The isolated ELF parser suite passed (14 tests), and the x86-64 Nagi kernel
+release build passed. The full kernel test crate cannot run on this Apple
+Silicon host because existing x86 port-I/O assembly uses x86 registers
+unavailable to the arm64 host. Authoritative target CI remains pending. M17 stays
+`BLOCKED`; M18 stays `NOT STARTED` until the full guest-rendered first pixel
+acceptance passes.

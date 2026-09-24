@@ -578,6 +578,12 @@ mod tests {
             .expect("workspace root");
         let build_script = fs::read_to_string(root.join("user/nagi-init/build.rs"))
             .expect("Nagi init build script");
+        let linker_script = fs::read_to_string(root.join("user/nagi-init/linker.ld"))
+            .expect("Nagi init linker script");
+        let process_source = fs::read_to_string(root.join("kernel/src/user_process.rs"))
+            .expect("Nagi user process loader");
+        let syscall_source = fs::read_to_string(root.join("kernel/src/syscall.rs"))
+            .expect("Nagi syscall thread context");
         assert!(build_script.contains("static=nagi_mesa"));
         assert!(build_script.contains("static=nagi_mesa_roots"));
         assert!(!build_script.contains("static:+whole-archive=nagi_mesa"));
@@ -589,6 +595,18 @@ mod tests {
         assert!(build_script.contains(
             "--undefined=_ZN2JS26NewArrayBufferWithContentsEP9JSContextmSt10unique_ptrIvNS_10FreePolicyEE"
         ));
+        assert!(linker_script.contains("tls    PT_TLS FLAGS(4)"));
+        assert!(linker_script.contains("} :data :tls"));
+        assert!(linker_script.contains("*(.tdata .tdata.* .gnu.linkonce.td.*)"));
+        assert!(linker_script.contains("*(.tbss .tbss.* .gnu.linkonce.tb.*)"));
+        assert!(linker_script.contains(". = ALIGN(SIZEOF(.tdata) == 0 ? 4096 : 1);"));
+        assert!(process_source.contains("reset_child_tls_pages(storage)"));
+        assert!(process_source.contains("tls_initial_page"));
+        assert!(syscall_source.contains("context.user_fs_base = USER_TLS_CHILD_CONTROL_BASE"));
+        assert!(syscall_source.contains(
+            "fs_base_offset = const core::mem::offset_of!(UserThreadContext, user_fs_base)"
+        ));
+        assert!(syscall_source.contains("wrmsr\n    fxrstor64 [rsp + 144]"));
         for symbol in [
             "glcpp_preprocess",
             "spirv_to_nir",

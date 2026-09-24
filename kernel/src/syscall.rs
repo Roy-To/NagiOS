@@ -1,12 +1,13 @@
 #[cfg(test)]
 use crate::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
 #[cfg(test)]
-use crate::user_process::{USER_STACK_BASE, USER_STACK_LIMIT, USER_TLS_BASE};
+use crate::user_process::{USER_STACK_BASE, USER_STACK_LIMIT, USER_TLS_BASE, USER_TLS_LIMIT};
 #[cfg(not(test))]
 use nagi_kernel::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
 #[cfg(not(test))]
 use nagi_kernel::user_process::{
     USER_MMAP_BASE, USER_MMAP_LIMIT, USER_STACK_BASE, USER_STACK_LIMIT, USER_TLS_BASE,
+    USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT,
 };
 
 #[cfg(not(test))]
@@ -108,6 +109,7 @@ struct UserThreadContext {
     user_rflags: u64,
     user_rsp: u64,
     fpu: [u8; 512],
+    user_fs_base: u64,
 }
 
 #[cfg(not(test))]
@@ -138,6 +140,7 @@ impl UserThreadContext {
             user_rflags: 1 << 1,
             user_rsp: 0,
             fpu,
+            user_fs_base: 0,
         }
     }
 }
@@ -227,6 +230,11 @@ nagi_syscall_entry:
     jz 2f
     mov qword ptr [rip + NAGI_SYSCALL_NEXT_CONTEXT], 0
     mov rsp, rdx
+    mov rax, qword ptr [rsp + {fs_base_offset}]
+    mov rdx, rax
+    shr rdx, 32
+    mov ecx, 0xC0000100
+    wrmsr
     fxrstor64 [rsp + 144]
     mov rax, qword ptr [rsp + 0]
     mov rbx, qword ptr [rsp + 8]
@@ -270,6 +278,7 @@ nagi_syscall_entry:
     sysretq
 "#,
     dispatch = sym dispatch,
+    fs_base_offset = const core::mem::offset_of!(UserThreadContext, user_fs_base),
 );
 
 #[cfg(not(test))]
@@ -296,7 +305,7 @@ pub fn is_valid_user_console_read(address: u64, length: usize) -> bool {
     };
     (address >= USER_IMAGE_BASE && end <= USER_IMAGE_LIMIT)
         || (address >= USER_STACK_BASE && end <= USER_STACK_LIMIT)
-        || (address >= USER_TLS_BASE && end <= USER_TLS_BASE + 4096)
+        || (address >= USER_TLS_BASE && end <= USER_TLS_LIMIT)
 }
 
 const fn star_value() -> u64 {
@@ -483,7 +492,7 @@ fn memory_info(address: u64, length: u64) -> u64 {
     let snapshot = MemoryInfo {
         image_pages: nagi_kernel::user_process::current_image_pages() as u64,
         stack_pages: nagi_kernel::user_process::USER_STACK_PAGES as u64,
-        tls_pages: 1,
+        tls_pages: nagi_kernel::user_process::USER_TLS_PAGE_COUNT as u64,
         image_base: USER_IMAGE_BASE,
         image_limit: USER_IMAGE_LIMIT,
         stack_base: nagi_kernel::user_process::USER_STACK_BASE,
@@ -711,11 +720,13 @@ fn thread_create(frame: &SyscallFrame) -> u64 {
         NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
         return u64::MAX;
     }
+    nagi_kernel::user_process::reset_child_tls();
     let context = unsafe { &mut NAGI_THREAD_CONTEXTS[1] };
     *context = UserThreadContext::empty();
     context.rdi = frame.arg2;
     context.user_rip = frame.arg1;
     context.user_rsp = stack_end - 8;
+    context.user_fs_base = USER_TLS_CHILD_CONTROL_BASE;
     1
 }
 
@@ -723,6 +734,7 @@ fn thread_create(frame: &SyscallFrame) -> u64 {
 fn save_current_thread_context(frame: &SyscallFrame) {
     let context = unsafe { &mut NAGI_THREAD_CONTEXTS[0] };
     context.rax = 0;
+    context.user_fs_base = USER_TLS_CONTROL_BASE;
     context.rbx = frame.rbx;
     context.rcx = frame.user_rip;
     context.rdx = frame.arg3;
@@ -1075,6 +1087,14 @@ mod tests {
         ));
         assert!(is_valid_user_console_read(
             crate::user_process::USER_TLS_BASE,
+            1
+        ));
+        assert!(is_valid_user_console_read(
+            crate::user_process::USER_TLS_CONTROL_BASE,
+            1
+        ));
+        assert!(is_valid_user_console_read(
+            crate::user_process::USER_TLS_CHILD_CONTROL_BASE,
             1
         ));
         assert!(!is_valid_user_console_read(
