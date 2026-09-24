@@ -2143,3 +2143,17 @@ compiler error. UEFI and real QEMU first-web-pixel acceptance were not
 reached. The next bounded repair adds the missing declaration; it does not
 change the runtime implementation or M17 acceptance. M17 remains `BLOCKED`
 and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #149 (2026-09-24)
+
+Public CI run `35937071116` (#149, head `f5aebed`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init compile passed the missing
+`pthread_mutex_destroy` declaration repair, then the real link exposed
+`lrint`, `llrint`, and
+`std::__1::__call_once(unsigned long volatile&, void*, void (*)(void*))`.
+UEFI and real QEMU first-web-pixel acceptance were not reached. The next
+bounded repair adds target-owned relibc `lrint/llrint` exports and the exact
+libc++ `__call_once` ABI entrypoint, implemented with guest pthread
+mutex/condition-variable synchronization. M17 remains `BLOCKED` and M18
+remains `NOT STARTED`.

@@ -2749,6 +2749,57 @@ pub unsafe extern "C" fn lrintf(value: c_float) -> c_long {
     }
 }
 
+/// Target-owned nearest-integer conversion for double-precision callers.
+/// Keep this in the Nagi relibc ABI so Mesa and Servo do not import a host
+/// libm provider for `lrint`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn lrint(value: c_double) -> c_long {
+    if value.is_nan() || value.is_infinite() {
+        return 0;
+    }
+
+    let truncated = value as c_long;
+    let fraction = value - truncated as c_double;
+    if fraction > 0.5 {
+        truncated.saturating_add(1)
+    } else if fraction < -0.5 {
+        truncated.saturating_sub(1)
+    } else if (fraction == 0.5 || fraction == -0.5) && (truncated & 1) != 0 {
+        if value.is_sign_negative() {
+            truncated.saturating_sub(1)
+        } else {
+            truncated.saturating_add(1)
+        }
+    } else {
+        truncated
+    }
+}
+
+/// Target-owned long-long variant of `lrint`; it follows the same default
+/// round-to-nearest, ties-to-even mode as the target's `lrint` entry point.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn llrint(value: c_double) -> c_longlong {
+    if value.is_nan() || value.is_infinite() {
+        return 0;
+    }
+
+    let truncated = value as c_longlong;
+    let fraction = value - truncated as c_double;
+    if fraction > 0.5 {
+        truncated.saturating_add(1)
+    } else if fraction < -0.5 {
+        truncated.saturating_sub(1)
+    } else if (fraction == 0.5 || fraction == -0.5) && (truncated & 1) != 0 {
+        if value.is_sign_negative() {
+            truncated.saturating_sub(1)
+        } else {
+            truncated.saturating_add(1)
+        }
+    } else {
+        truncated
+    }
+}
+
 /// Target-owned floating-point predicates used by Mesa's freestanding math
 /// and format code. Keep both the POSIX spelling and openlibm's float helper
 /// in the Nagi ABI; neither is delegated to a host libm.

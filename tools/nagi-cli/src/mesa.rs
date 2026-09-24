@@ -657,6 +657,7 @@ mod tests {
         assert!(runtime.contains("_ZNSt3__15mutex6unlockEv"));
         assert!(runtime.contains("_ZNSt3__15mutexD1Ev"));
         assert!(runtime.contains("_ZNSt3__15mutexD0Ev"));
+        assert!(runtime.contains("_ZNSt3__111__call_onceERVmPvPFvS2_E"));
         assert!(runtime.contains("_ZNSt3__118condition_variable10notify_oneEv"));
         assert!(runtime.contains("_ZNSt3__118condition_variable10notify_allEv"));
         assert!(
@@ -679,6 +680,7 @@ mod tests {
         ] {
             assert!(build_script.contains(symbol));
         }
+        assert!(build_script.contains("_ZNSt3__111__call_onceERVmPvPFvS2_E"));
         assert!(runtime.contains("__cxa_end_catch"));
         assert!(runtime.contains("nagi_mesa_glthread_finish_link_anchor"));
         assert!(runtime.contains("__dynamic_cast"));
@@ -702,6 +704,8 @@ mod tests {
         assert!(relibc.contains("pub unsafe extern \"C\" fn frexp("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn scalbn("));
         assert!(relibc.contains("pub unsafe extern \"C\" fn scalbnf("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn lrint("));
+        assert!(relibc.contains("pub unsafe extern \"C\" fn llrint("));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt18_Rb_tree_decrementPKSt18_Rb_tree_node_base"));
         assert!(runtime.contains("_ZSt28_Rb_tree_rebalance_for_erasePSt18_Rb_tree_node_baseRS_"));

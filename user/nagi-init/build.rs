@@ -93,6 +93,9 @@ fn main() {
         ] {
             println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }
+        println!(
+            "cargo:rustc-link-arg-bin=nagi-init=--undefined=_ZNSt3__111__call_onceERVmPvPFvS2_E"
+        );
         println!("cargo:rustc-link-lib=static=nagi_mesa_roots");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
     }

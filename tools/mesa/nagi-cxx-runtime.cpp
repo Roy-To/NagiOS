@@ -877,6 +877,57 @@ extern "C" int pthread_cond_broadcast(void *condition);
 extern "C" int pthread_cond_wait(void *condition, void *mutex);
 extern "C" int pthread_cond_destroy(void *condition);
 
+// libc++'s call_once implementation uses one process-wide mutex and
+// condition variable to guard the unsigned-long once flag. These zero-filled
+// guest objects are consumed by the real Nagi POSIX pthread implementation;
+// they are not host synchronization objects or a success-only fallback.
+alignas(8) static unsigned char nagi_libcpp_once_mutex[8]{};
+alignas(8) static unsigned char nagi_libcpp_once_condition[8]{};
+
+extern "C" void nagi_libcpp_call_once(volatile unsigned long *flag,
+                                       void *argument,
+                                       void (*function)(void *))
+    __asm__("_ZNSt3__111__call_onceERVmPvPFvS2_E");
+
+extern "C" void nagi_libcpp_call_once(volatile unsigned long *flag,
+                                       void *argument,
+                                       void (*function)(void *)) {
+    if (flag == nullptr || function == nullptr) {
+        abort();
+    }
+    if (pthread_mutex_lock(nagi_libcpp_once_mutex) != 0) {
+        abort();
+    }
+
+    constexpr unsigned long unset = 0;
+    constexpr unsigned long pending = 1;
+    constexpr unsigned long complete = ~0UL;
+    while (__atomic_load_n(flag, __ATOMIC_ACQUIRE) == pending) {
+        if (pthread_cond_wait(nagi_libcpp_once_condition,
+                              nagi_libcpp_once_mutex) != 0) {
+            abort();
+        }
+    }
+
+    if (__atomic_load_n(flag, __ATOMIC_RELAXED) == unset) {
+        __atomic_store_n(flag, pending, __ATOMIC_RELAXED);
+        if (pthread_mutex_unlock(nagi_libcpp_once_mutex) != 0) {
+            abort();
+        }
+        function(argument);
+        if (pthread_mutex_lock(nagi_libcpp_once_mutex) != 0) {
+            abort();
+        }
+        __atomic_store_n(flag, complete, __ATOMIC_RELEASE);
+        if (pthread_mutex_unlock(nagi_libcpp_once_mutex) != 0 ||
+            pthread_cond_broadcast(nagi_libcpp_once_condition) != 0) {
+            abort();
+        }
+    } else if (pthread_mutex_unlock(nagi_libcpp_once_mutex) != 0) {
+        abort();
+    }
+}
+
 extern "C" void nagi_libcpp_condition_variable_notify_one(void *condition)
     __asm__("_ZNSt3__118condition_variable10notify_oneEv");
 

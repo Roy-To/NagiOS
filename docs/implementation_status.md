@@ -25,15 +25,13 @@ real QEMU first-web-pixel gate. Do not substitute another browser engine or
 host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35927852465` (#145) at
-`157958d` passed Servo bootstrap, target dependency validation, Mesa Softpipe
-archive construction, package, and kernel compilation, but
-`Build Nagi user init` still failed after the target link stage. UEFI and real
-QEMU first-web-pixel acceptance were not reached. The same run's Ubuntu format
-step passed after the prior formatting repair; its host lint step failed with
-exit code 101, separately from the target failure. The current repair adds
-selective link seeds for the real relibc pthread providers referenced by the
-Nagi-owned libc++ runtime. It does not link host C++ or libm, create synthetic
+**Last known repair checkpoint:** public CI run `35937071116` (#149) at
+`f5aebed` passed Servo bootstrap, target dependency validation, Mesa Softpipe
+archive construction, package, and kernel compilation, but the target
+user-init link still reported `lrint`, `llrint`, and libc++ `__call_once`.
+UEFI and real QEMU first-web-pixel acceptance were not reached. The next
+repair is target-owned: add relibc math exports and a guest pthread-backed
+libc++ once bridge. It does not link host C++ or libm, create synthetic
 rendering, or weaken M17 acceptance. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
 
@@ -81,6 +79,20 @@ destructor bridge called `pthread_mutex_destroy` without a forward
 declaration. The public annotation exposed the exact compiler error after the
 diagnostic-parser repair; UEFI and real QEMU first-web-pixel acceptance were
 skipped. The next bounded repair adds that declaration only. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #149 (2026-09-24)
+
+Public CI run `35937071116` (#149, head `f5aebed`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init compile passed the prior missing
+`pthread_mutex_destroy` declaration, then the real link exposed target-owned
+providers still required by the pinned graph: `lrint`, `llrint`, and
+`std::__1::__call_once(unsigned long volatile&, void*, void (*)(void*))`.
+UEFI and real QEMU first-web-pixel acceptance were skipped. The next bounded
+repair adds Nagi relibc `lrint/llrint` exports and a libc++ ABI `__call_once`
+bridge backed by guest pthread mutex/condition-variable primitives; it does
+not import host libm/C++ runtime or weaken M17 acceptance. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #140 (2026-09-24)
