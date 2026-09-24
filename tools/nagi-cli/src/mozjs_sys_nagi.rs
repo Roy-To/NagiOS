@@ -166,15 +166,6 @@ mod tests {
         assert!(arraybuffer_patch.contains("NewArrayBufferOutOfMemory::CallerMustFreeMemory"));
         assert!(arraybuffer_patch.contains("contents.release()"));
 
-        let archive_order_patch =
-            std::fs::read_to_string(root.join(
-                "third_party/mozjs-sys-nagi-patches/0015-nagi-mozjs-static-archive-order.patch",
-            ))
-            .expect("mozjs Nagi static archive order patch");
-        assert!(archive_order_patch.contains("rustc-link-arg=--whole-archive"));
-        assert!(archive_order_patch.contains("rustc-link-arg=--no-whole-archive"));
-        assert!(archive_order_patch.contains("static=js_static"));
-
         let stdlib_cbindgen = std::fs::read_to_string(
             root.join("third_party/relibc/src/header/stdlib/cbindgen.toml"),
         )
@@ -228,6 +219,39 @@ mod tests {
             .expect("Nagi Mesa mmap header overlay");
         assert!(mman_header.contains("#define PROT_NONE 0x0000"));
         assert!(mman_header.contains("#define MAP_FIXED 0x0010"));
+    }
+
+    #[test]
+    fn nagi_init_rescans_real_mozjs_archives_in_m17_link() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let build_script = std::fs::read_to_string(root.join("user/nagi-init/build.rs"))
+            .expect("nagi-init build script");
+        let m17_guard = build_script
+            .find("if env::var_os(\"CARGO_FEATURE_M17_SERVO\").is_some()")
+            .expect("M17-only target link block");
+        let required = [
+            "cargo:rustc-link-arg-bin=nagi-init=-Bstatic",
+            "cargo:rustc-link-arg-bin=nagi-init=--start-group",
+            "cargo:rustc-link-arg-bin=nagi-init=-ljs_static",
+            "cargo:rustc-link-arg-bin=nagi-init=-ljsapi",
+            "cargo:rustc-link-arg-bin=nagi-init=-ljsglue",
+            "cargo:rustc-link-arg-bin=nagi-init=--end-group",
+            "cargo:rustc-link-arg-bin=nagi-init=-Bdynamic",
+        ];
+        let mut previous = m17_guard;
+        for directive in required {
+            let position = build_script
+                .find(directive)
+                .unwrap_or_else(|| panic!("missing final MozJS link directive: {directive}"));
+            assert!(
+                position > previous,
+                "MozJS archive group directive is out of order: {directive}"
+            );
+            previous = position;
+        }
     }
 
     #[test]

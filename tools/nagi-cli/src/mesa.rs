@@ -631,6 +631,7 @@ mod tests {
         assert!(cxx_abi.contains("nagi_posix_sleep_ns"));
         assert!(cxx_abi.contains("this_thread") && cxx_abi.contains("sleep_for"));
         assert!(cxx_abi.contains("basic_string<char>::append"));
+        assert!(cxx_abi.contains("basic_string<char>::__grow_by"));
         for type_name in [
             "signed char",
             "int",
@@ -655,6 +656,10 @@ mod tests {
             );
         }
         assert!(mesa_build.contains("relibc_header_patch"));
+        assert!(mesa_build.contains("mesa_glcpp_target"));
+        assert!(mesa_build.contains("libglcpp\\.a"));
+        assert!(mesa_build.contains("mesa_vtn_target"));
+        assert!(mesa_build.contains("libvtn\\.a"));
         assert!(relibc_portability_patch.contains("-exec basename {}"));
         assert!(relibc_portability_patch.contains("-printf"));
         assert!(mesa_build.contains("_mesa_glthread_finish"));

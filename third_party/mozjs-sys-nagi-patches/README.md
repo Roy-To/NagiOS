@@ -78,11 +78,13 @@ API and releases the guest allocation only after successful ArrayBuffer
 creation; failed creation retains the UniquePtr deleter. It is target-only
 and does not return a synthetic object or leak contents.
 
-Patch `0015` brackets the target-only `jsglue` archive with the raw lld
-`--whole-archive` state and rescans the real `js_static` archive after it. This
-preserves the pinned MozJS static archive dependency graph for wrapper calls
-such as microtask restoration and does not use an unsupported Rust `-l` modifier,
-force a host library, or replace a provider with a link-only symbol.
+The final Nagi MozJS link is assembled by user/nagi-init/build.rs. The
+transitive mozjs_sys build-script search paths are retained, but its native
+archive link arguments are not present on the final nagi-init link. M17
+therefore places the real js_static, jsapi, and jsglue archives in a selective
+ELF linker group at the final binary boundary. The group rescans archive
+members to resolve real SpiderMonkey providers without forcing every object
+into the image or importing a host runtime.
 
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the

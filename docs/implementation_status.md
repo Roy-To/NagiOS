@@ -19,39 +19,71 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. The grouped repairs are on `main` at `4ab6668`. CI #158 is running
-the authoritative Ubuntu `nagi-target` build; its host jobs exposed an M0
-image-build regression because M17-only libc++ shims were compiled for every
-Nagi target. The shims are now gated on `m17-servo`, and the M0 launcher
-acceptance passes locally. Push this narrow correction and continue the
-Servo/Surfman/Mesa/relibc/std vertical slice through real QEMU first-web-pixel
-acceptance. Do not substitute another browser engine or host rendering. M18
-remains forbidden until M17 is formally PASS.
+milestone. CI #159 passed the Ubuntu and Windows host jobs and reached the
+authoritative Ubuntu `nagi-target` link, which exposed eight unresolved
+symbols. The current repairs add the missing libc++ instantiation, explicitly
+build Mesa's glcpp and SPIR-V archives, and link the real MozJS archives from
+the final M17 binary. Verify these changes in a new public CI run, then
+continue through UEFI and real QEMU first-web-pixel acceptance. Do not
+substitute another browser engine or host rendering. M18 remains forbidden
+until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35975608809` (#158) is
-building the target user init at commit `4ab6668` after the complete #157
-inventory was repaired in grouped changes across relibc/POSIX, libc++ ABI,
-MozJS link roots, and Mesa link roots. The Ubuntu and Windows host jobs failed
-at M0 launcher image acceptance because the new M17 libc++ shims ran in an M0
-build without generated relibc headers. Gating those shims on `m17-servo`
-fixes the regression; the local M0 launcher acceptance passes. CI #158 target,
-UEFI, and real QEMU first-web-pixel results are pending. M17 remains `BLOCKED`;
-M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** public CI run `35976743137` (#159) at
+`d68f698` passed both host jobs and passed target dependency validation, Mesa
+Softpipe archive construction, package, and kernel build. The real target link
+failed with eight unresolved symbols, listed below; a scan of 1,628 target
+archives and objects found no exact provider definitions. The CI #158 M0
+launcher regression is fixed: the M17 libc++ shims are gated on
+`m17-servo`, and Ubuntu/Windows launcher acceptance now passes. UEFI and real
+QEMU first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
 
-### Current M17 continuation during CI run #158 (2026-09-24)
+### Current M17 continuation after CI runs #158–#159 (2026-09-24)
 
 Public CI run `35975608809` (#158, head `4ab666897712ff35120fc819cff845f45f5598c6`)
 passed target dependency validation, Mesa Softpipe archive construction,
-package, and kernel build, and is currently building Nagi user init. Both
-host jobs failed their M0 image acceptance: Ubuntu logs identify the cause as
-the M17 libc++ ABI/sort shims invoking `nagi-target-cc.sh` when the M0 build has
-not generated relibc's pthread headers. The shims only serve Servo/MozJS, so
+package, and kernel build, then was canceled during `Build Nagi user init`
+while Cargo was compiling pinned Servo dependencies. It did not reach target
+linking, so it provides no result for the 46-symbol repair. Both host jobs
+failed their M0 image acceptance: Ubuntu logs identify the cause as the M17
+libc++ ABI/sort shims invoking `nagi-target-cc.sh` when the M0 build has not
+generated relibc's pthread headers. The shims only serve Servo/MozJS, so
 `user/nagi-init/build.rs` now compiles them only when `m17-servo` is enabled.
-`./tests/acceptance/m0_launcher.sh` passes on this Mac after the fix.
-Wait for #158's target-link result, push the M0 gate correction, and run the
-next public CI. UEFI and real QEMU first-web-pixel evidence remain pending.
-M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+Public CI run `35976743137` (#159, head `d68f698a4265afabcf07edb60eb00575bb916112`)
+passed `ubuntu-host` and `windows-launcher`, including their M0 launcher
+acceptance, and passed target dependency validation, Mesa, package, and kernel
+builds. The real `Build Nagi user init` target link found these eight
+unresolved symbols:
+
+- libc++: `std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>::__grow_by(unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long)`.
+- MozJS: `JS::RestoreMicroTaskQueue`, `JS::InitAsyncTaskCallbacks`,
+  `JS::Dispatchable::Run`, and `JS::NewArrayBufferWithContents`.
+- Mesa: `glcpp_preprocess`, `spirv_to_nir`, and
+  `spirv_verify_gl_specialization_constants`.
+
+The target link line carried the MozJS build directories but did not name
+`js_static`, `jsapi`, or `jsglue`; link arguments emitted by that
+dependency's build script did not reach the final binary. The current working
+tree fixes this at the M17 binary link with a selective static archive group.
+The Mesa build now explicitly materializes its `build_by_default=false`
+`libglcpp.a` and `libvtn.a` providers, and the target-owned libc++ ABI object
+provides the real `__grow_by` implementation.
+
+Local verification after these edits passed: `./nagi fetch`,
+`./nagi doctor` (12/12), `cargo test -p nagi-cli --locked` (48 unit tests
+and 18 CLI tests), `./tests/acceptance/m0_launcher.sh`, targeted rustfmt
+checks, `bash -n tools/mesa/build.sh`, and a host `clang++` syntax/object
+check of the libc++ ABI shim; its object defines the expected `__grow_by`
+symbol. The build script also compiles standalone. On this Apple-silicon host,
+`cargo check -p nagi-init --locked`
+cannot validate the x86-64 guest: it fails on x86-64 inline-assembly registers
+in `libnagi` under the host AArch64 target. Workspace-wide rustfmt likewise
+reports formatting changes across pinned Servo sources with the local
+formatter; the edited Rust files pass targeted checks. The next Ubuntu target
+CI must verify the real final link. UEFI and real QEMU first-web-pixel evidence
+remain pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -410,7 +442,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI run `35975608809` (#158) is building the target user init after the grouped repairs to the complete #157 linker inventory. The Ubuntu and Windows M0 launcher acceptances exposed a build.rs regression: M17 libc++ shims ran for non-M17 target images. Gate those shims on `m17-servo` (locally verified by `tests/acceptance/m0_launcher.sh`) and continue with the authoritative target link. UEFI, real QEMU, and first-web-pixel acceptance remain required before M17 PASS. See ADR 0019 and ADR 0020. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #159 (`35976743137`) passed Ubuntu/Windows host acceptance and reached the real target link, which failed on eight unresolved libc++, MozJS, and Mesa symbols. The current repair explicitly supplies libc++ `__grow_by`, builds Mesa `libglcpp.a` and `libvtn.a`, and links MozJS `js_static`, `jsapi`, and `jsglue` as a selective final-link group. Run the next authoritative target CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

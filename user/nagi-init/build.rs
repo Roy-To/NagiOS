@@ -88,9 +88,9 @@ fn main() {
         println!(
             "cargo:rustc-link-arg-bin=nagi-init=--undefined=_ZN2JS26NewArrayBufferWithContentsEP9JSContextmSt10unique_ptrIvNS_10FreePolicyEE"
         );
-        // These exact SpiderMonkey providers live in the later js_static
-        // archive members; seed their Itanium ABI names so the documented
-        // MozJS archive rescan can extract the real implementations.
+        // These exact SpiderMonkey providers live in the real MozJS archives.
+        // Seed their Itanium ABI names before the final native archive group
+        // below so the group extracts their implementations selectively.
         for symbol in [
             "_ZN2JS21RestoreMicroTaskQueueEP9JSContextNSt3__110unique_ptrINS_19SavedMicroTaskQueueENS_12DeletePolicyIS4_EEEE",
             "_ZN2JS22InitAsyncTaskCallbacksEP9JSContextPFbPvONSt3__110unique_ptrINS_12DispatchableENS_12DeletePolicyIS5_EEEEEPFbS2_S9_jEPFvS2_PS5_ESG_S2_",
@@ -169,6 +169,18 @@ fn main() {
         println!(
             "cargo:rustc-link-arg-bin=nagi-init=--undefined=_ZNSt3__111__call_onceERVmPvPFvS2_E"
         );
+        // The dependency build script's rustc-link-search paths reach this
+        // final binary, but its native archive link arguments do not. The
+        // target link therefore needs to name MozJS's real archives here.
+        // Rescanning this small group resolves cycles between SpiderMonkey,
+        // JSAPI, and Nagi's glue while extracting only referenced objects.
+        println!("cargo:rustc-link-arg-bin=nagi-init=-Bstatic");
+        println!("cargo:rustc-link-arg-bin=nagi-init=--start-group");
+        println!("cargo:rustc-link-arg-bin=nagi-init=-ljs_static");
+        println!("cargo:rustc-link-arg-bin=nagi-init=-ljsapi");
+        println!("cargo:rustc-link-arg-bin=nagi-init=-ljsglue");
+        println!("cargo:rustc-link-arg-bin=nagi-init=--end-group");
+        println!("cargo:rustc-link-arg-bin=nagi-init=-Bdynamic");
         println!("cargo:rustc-link-lib=static=nagi_mesa_roots");
         println!("cargo:rustc-link-lib=static=nagi_mesa");
     }

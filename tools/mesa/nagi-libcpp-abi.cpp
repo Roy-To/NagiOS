@@ -23,5 +23,16 @@ void sleep_for(const chrono::nanoseconds &duration) {
 template basic_string<char> &
 basic_string<char>::append(basic_string<char>::size_type, char);
 
+// Servo and MozJS reference libc++'s ABI-v1 growth helper from an
+// extern-template instantiation. Provide the real header implementation in
+// this target-owned object because Nagi intentionally has no libc++.a.
+template void basic_string<char>::__grow_by(
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    basic_string<char>::size_type,
+    basic_string<char>::size_type);
+
 } // namespace __1
 } // namespace std

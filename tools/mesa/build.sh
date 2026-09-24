@@ -207,6 +207,56 @@ if ! ninja -C "$mesa_build" "$mesa_glsl_target" 2>&1 | tee "$mesa_glsl_log"; the
 fi
 rm -f "$mesa_glsl_log"
 
+# libglsl references Mesa's real preprocessor implementation, but libglcpp is
+# build_by_default=false and a static-library dependency is not folded into
+# libglsl.a. Build it explicitly so archive aggregation retains its provider.
+mesa_glcpp_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libglcpp\.a$/) { print target; exit } }')
+if [[ -z "$mesa_glcpp_target" ]]; then
+    echo "::error title=M17 Mesa glcpp target::Meson target graph has no libglcpp.a output target" >&2
+    exit 1
+fi
+echo "M17 Mesa build: GLSL preprocessor target: $mesa_glcpp_target"
+mesa_glcpp_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_glcpp_target" 2>&1 | tee "$mesa_glcpp_log"; then
+    mesa_glcpp_error=$(grep -E '(^| )(fatal )?error:' "$mesa_glcpp_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_glcpp_error" ]]; then
+        mesa_glcpp_error=$(tail -n 30 "$mesa_glcpp_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
+    echo "::error title=M17 Mesa glcpp target build::target=$mesa_glcpp_target; $mesa_glcpp_error" >&2
+    rm -f "$mesa_glcpp_log"
+    exit 1
+fi
+rm -f "$mesa_glcpp_log"
+
+# Mesa's GL SPIR-V entry points call into the real Vulkan-to-NIR translator.
+# libvtn is also build_by_default=false, so materialize it before aggregating
+# the target-owned archives.
+mesa_vtn_target=$(ninja -C "$mesa_build" -t targets all \
+    | awk '{ target = $1; sub(/:$/, "", target); if (target ~ /(^|\/)libvtn\.a$/) { print target; exit } }')
+if [[ -z "$mesa_vtn_target" ]]; then
+    echo "::error title=M17 Mesa SPIR-V target::Meson target graph has no libvtn.a output target" >&2
+    exit 1
+fi
+echo "M17 Mesa build: SPIR-V translator target: $mesa_vtn_target"
+mesa_vtn_log=$(mktemp)
+if ! ninja -C "$mesa_build" "$mesa_vtn_target" 2>&1 | tee "$mesa_vtn_log"; then
+    mesa_vtn_error=$(grep -E '(^| )(fatal )?error:' "$mesa_vtn_log" \
+        | tail -n 20 \
+        | tr '\n' ' ' \
+        | cut -c1-3000)
+    if [[ -z "$mesa_vtn_error" ]]; then
+        mesa_vtn_error=$(tail -n 30 "$mesa_vtn_log" | tr '\n' ' ' | cut -c1-3000)
+    fi
+    echo "::error title=M17 Mesa SPIR-V target build::target=$mesa_vtn_target; $mesa_vtn_error" >&2
+    rm -f "$mesa_vtn_log"
+    exit 1
+fi
+rm -f "$mesa_vtn_log"
+
 # The Nagi EGL target uses Mesa's static software loader path. These targets
 # are intentionally build_by_default=false upstream, so the aggregate archive
 # can otherwise contain the real Softpipe core while still omitting the
