@@ -294,6 +294,26 @@ handled by an explicitly authorized later task.
 
 ---
 
+## Parallel subsystem foundation: Wayback Activity Ledger (2026-09-24)
+
+**Subsystem status:** `PARTIAL` — Activity Ledger model, transaction grouping,
+revert boundary, snapshot references, authorized queries, in-memory store, and
+serialization are implemented in `user/nagi-activity` on
+`codex/parallel-wayback-ledger`. The focused fixture records a user request,
+AI delegation, three virtual file actions, transaction completion, queries,
+and revert events without filesystem I/O.
+
+Verification on this branch: 19 `nagi-activity`, 4 `nagi-history`, and 2
+`nagi-model` tests passed; focused Clippy and rustfmt checks passed; the Nagi
+doctor reported 12 pass / 0 warn / 0 fail; and `nagi-activity` passed a
+no-link `x86_64-unknown-uefi` check.
+
+This is a subsystem foundation, not a milestone completion. M15 remains PASS,
+M17 remains BLOCKED, and M22 remains NOT STARTED. Durable ledger storage,
+production ID allocation, filesystem and application integration, AI runtime
+integration, snapshot data capture, retention execution, and Wayback UI remain
+future work.
+
 # 2. Fixed architecture decisions
 
 These are already decided unless the user explicitly changes them.

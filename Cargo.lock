@@ -3400,6 +3400,15 @@ name = "nagi-abi"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-activity"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "nagi-albert"
 version = "0.1.0"
 dependencies = [
@@ -3465,6 +3474,9 @@ dependencies = [
 [[package]]
 name = "nagi-model"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "nagi-net"

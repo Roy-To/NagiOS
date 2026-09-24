@@ -13,6 +13,7 @@ members = [
     "user/nagi-posix",
     "user/nagi-audio",
     "user/nagi-history",
+    "user/nagi-activity",
     "user/nagi-package",
     "user/nagi-servo",
     "user/nagi-init",

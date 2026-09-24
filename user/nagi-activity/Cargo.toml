@@ -1,0 +1,13 @@
+[package]
+name = "nagi-activity"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-model = { path = "../../crates/nagi-model" }
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
+serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
