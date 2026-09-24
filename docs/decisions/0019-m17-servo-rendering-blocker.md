@@ -2130,3 +2130,16 @@ were not reached. The public annotation again exposed only the generic custom
 build error. The target build diagnostic parser is extended to include
 clang/runtime/linker/undefined-symbol details in the next annotation. M17
 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Target-link continuation after CI run #148 (2026-09-24)
+
+Public CI run `35934736445` (#148, head `8a98bf8`) passed Servo bootstrap,
+dependency validation, Mesa Softpipe archive construction, package, and
+kernel compilation. The target user-init compile then failed at
+`tools/mesa/nagi-cxx-runtime.cpp:851:29`: the real libc++ mutex destructor
+bridge referenced `pthread_mutex_destroy` without a declaration in the
+freestanding translation unit. The diagnostic parser exposed the exact
+compiler error. UEFI and real QEMU first-web-pixel acceptance were not
+reached. The next bounded repair adds the missing declaration; it does not
+change the runtime implementation or M17 acceptance. M17 remains `BLOCKED`
+and M18 remains `NOT STARTED`.

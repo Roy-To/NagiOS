@@ -818,6 +818,7 @@ extern "C" [[noreturn]] void __cxa_end_catch() {
 extern "C" int pthread_mutex_lock(void *mutex);
 extern "C" int pthread_mutex_trylock(void *mutex);
 extern "C" int pthread_mutex_unlock(void *mutex);
+extern "C" int pthread_mutex_destroy(void *mutex);
 
 extern "C" void nagi_libcpp_mutex_lock(void *mutex)
     __asm__("_ZNSt3__15mutex4lockEv");
