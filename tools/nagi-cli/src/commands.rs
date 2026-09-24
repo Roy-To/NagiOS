@@ -1760,7 +1760,47 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let image_path = artifacts.join("nagi-0.1-m17-servo.img");
     let persistent_disk = artifacts.join("nagi-0.1-m17-user-data.img");
     let vars_copy = artifacts.join("nagi-0.1-m17-vars.fd");
+    let first_log = logs.join("m17-first-boot.log");
     let log_path = logs.join("m17-servo.log");
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m17: {error}")),
+    };
+    let timeout = Duration::from_secs(120);
+    if !had_persistent_disk {
+        let first_config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &first_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        if let Err(error) = run_qemu(&first_config) {
+            return failure(EXIT_CONFIG_ERROR, format!("m17: first boot: {error}"));
+        }
+        let first_serial = match fs::read_to_string(&first_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m17: cannot read {}: {error}", first_log.display()),
+                )
+            }
+        };
+        if !first_serial.contains(NAGI_WRITE_MARKER) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m17: first boot did not print `{NAGI_WRITE_MARKER}` (log {})",
+                    first_log.display()
+                ),
+            );
+        }
+    }
     let config = QemuConfig {
         qemu: &host.qemu,
         ovmf_code: &host.ovmf_code,
@@ -1770,7 +1810,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         vars_copy: &vars_copy,
         serial_log: &log_path,
         acceptance_marker: "Nagi M17 first web pixel PASS",
-        timeout: Duration::from_secs(120),
+        timeout,
     };
     let status = match run_qemu(&config) {
         Ok(status) => status,

@@ -20,10 +20,11 @@ Repository instructions:
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
 milestone. CI #176 passed the real target user-init link and UEFI loader build,
-but QEMU rejected the Windows-only `dsound` audio backend on Ubuntu before the
-guest booted. The Ubuntu host gate also caught a loader rustfmt difference;
-both issues are fixed locally and await a public rerun. The Windows launcher
-checks passed. No guest boot or pixel evidence was produced. The current
+and CI #177 accepted the host-specific QEMU audio backend, but QEMU could not
+open M17's missing persistent user-data disk before guest boot. A local fix now
+creates the disk and performs the expected first-boot storage marker check;
+public verification is pending. Both host/format issues found in #176 are now
+cleared in CI. No guest boot or pixel evidence has been produced. The current
 implementation expands only M17's FAT12 ESP, reads init directly into
 below-4-GiB UEFI pages, maps the real ELF through a bounded 512 MiB user image
 window, and allocates zero-fill pages from Nagi conventional memory. M17 remains
@@ -31,20 +32,21 @@ blocked until the guest renders and presents a nonzero Servo pixel checksum;
 M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36060044054` (#176, head
-`a2400699ce736f843ca122e1da533211c585ca02`) completed with failure. The
-Windows launcher job passed. Ubuntu host failed at `Format` because the
-separate `loader/` workspace had one pinned-rustfmt wrapping difference; a
-local formatting commit fixes it and all exact pinned format checks pass. The
-target job built the 127,747,368-byte Servo init ELF and UEFI loader, then
-failed to start QEMU because `dsound` is unavailable on Linux. The guest did
-not print `Nagi Kernel started`; no pixel evidence exists. A local change now
-selects `dsound` on Windows, `coreaudio` on macOS, and QEMU's `none` backend on
-other hosts while retaining the VirtIO Sound device. Local `nagi-cli` tests
-(51 unit and 18 integration), Clippy, and pinned format checks pass. Both local
-fixes await a public CI rerun. Earlier CI #175 reported the init ELF exceeding
-the previous 8 MiB FAT12 per-file capacity. See ADR 0022 for the bounded loader
-and user ELF mapping decision.
+**Last known repair checkpoint:** public CI run `36065949056` (#177, head
+`fdc37631dd1242574be3d8558a52f823c1f3deeb`) completed with failure. Ubuntu
+host and Windows launcher jobs passed. The target job built the real Servo
+init ELF and UEFI loader; the host-specific QEMU audio selection also allowed
+QEMU to parse the command line. QEMU then failed because
+`out/artifacts/nagi-0.1-m17-user-data.img` did not exist. The guest did not
+print `Nagi Kernel started`; no guest-pixel evidence exists. CI #176 had
+previously exposed and the local formatting repair now fixes the loader
+workspace rustfmt difference. The current local change creates the M17
+persistent disk and, for a fresh disk, requires the established first-boot
+storage marker before running pixel acceptance. Local `nagi-cli` tests (51 unit
+and 18 integration), Clippy, and pinned format checks pass. This repair awaits
+public verification. Earlier CI #175 reported the init ELF exceeding the
+previous 8 MiB FAT12 per-file capacity. See ADR 0022 for the bounded loader and
+user ELF mapping decision.
 
 ### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 
@@ -365,6 +367,25 @@ checks BPB geometry, the nested EFI/NAGI entries, a 2 MiB init file's data, and
 its FAT12 cluster chain. All `nagi-cli` tests pass locally (50 unit tests and
 18 CLI integration tests). The next authoritative CI run must reach OVMF/QEMU
 and confirm the nonzero checksum and successful Nagi Surface present.
+
+### Current M17 continuation after CI run #177 (2026-09-25)
+
+Public CI run `36065949056` was triggered from head
+`fdc37631dd1242574be3d8558a52f823c1f3deeb`. Ubuntu host and Windows launcher
+jobs passed, including all formatting checks. The target job passed Mesa,
+kernel, user-init link, and UEFI loader. QEMU accepted the Linux `none` audio
+backend and retained the VirtIO Sound device, then failed to open
+`out/artifacts/nagi-0.1-m17-user-data.img`, which the M17 command had not
+created. It exited before `Nagi Kernel started`; no ELF guest boot, rendering,
+Surface present, or pixel checksum was reached.
+
+The local repair creates the M17 persistent disk using the shared disk helper.
+On a fresh disk, it follows the established M14/M16 first-boot path and checks
+`NAGI_WRITE_MARKER` before running the dedicated M17 Servo first-pixel boot.
+Local verification passes 51 `nagi-cli` unit tests, 18 integration tests,
+Clippy with warnings denied, all pinned CI formatting checks, and
+`git diff --check`. M17 remains `BLOCKED`; M18 remains `NOT STARTED` pending
+public QEMU and guest-pixel evidence.
 
 ### Current M17 continuation after CI run #176 (2026-09-25)
 
