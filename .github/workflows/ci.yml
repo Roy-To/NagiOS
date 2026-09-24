@@ -229,6 +229,9 @@ jobs:
       - name: Build UEFI loader
         run: cargo +nightly-2025-08-01 build --manifest-path loader/Cargo.toml --target x86_64-unknown-uefi --release --locked
       - name: M17 first web pixel acceptance
+        env:
+          NAGI_TARGET_CLANG: clang-19
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
         run: |
           source out/mesa-venv/bin/activate
           sh tests/acceptance/m17_servo_first_web_pixel.sh

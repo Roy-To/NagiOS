@@ -19,28 +19,25 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #168 passed the real target user-init link and UEFI loader build,
-then the M17 first-web-pixel command returned exit code 4 before reporting
-guest serial evidence. The acceptance shell captured the CLI output but
-`set -e` exited before printing it; the current repair prints captured output
-and preserves the command's exit status so the next authoritative run exposes
-the actual blocker. The same run's Windows host test failed because a source
-inspection assumed LF line endings; the local repair normalizes CRLF before
-checking. M17 remains blocked until real guest-rendered Servo pixels pass.
-M18 remains forbidden until M17 is formally PASS.
+milestone. CI #169 passed the Ubuntu and Windows host gates, the real target
+user-init link, and UEFI loader build. The first-web-pixel invocation then
+reported that it could not find libc++ headers because the acceptance step
+omitted `NAGI_CXX_HEADERS`, which is set for the separate user-init build step.
+The workflow now passes the same pinned target compiler and libc++ header path
+to the acceptance step. The acceptance wrapper prints captured diagnostics
+while preserving failure status. M17 remains blocked until real guest-rendered
+Servo pixels pass; M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36019101924` (#168, head
-`ef69ff4066658eabaed33d1871f432f73bc01d59`) passed Ubuntu host checks,
-target dependency validation, Mesa Softpipe archive construction, package,
-kernel, user-init link, and UEFI loader build. The target acceptance invocation
-`./nagi m17` returned exit code 4; its diagnostic was hidden by the acceptance
-script's errexit behavior, so guest boot/serial state is unknown. The Windows
-host test also failed at an LF-specific source assertion on a CRLF checkout.
-The local worktree now contains narrow fixes for both issues; focused unit,
-format, shell syntax, and diff checks pass. Push and rerun authoritative CI to
-expose the CLI diagnostic and resume the real QEMU acceptance. M17 remains
-`BLOCKED`; M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** public CI run `36023620387` (#169, head
+`5b920506a0863fff90805446542a32afd350bf38`) passed both host jobs and target
+setup through the user-init link and UEFI loader. `./nagi m17` then returned
+exit 4 because the acceptance step lacked `NAGI_CXX_HEADERS`; no QEMU or guest
+serial evidence was produced. The Windows CRLF-sensitive test fix passed on
+Windows. The local workflow change now supplies `NAGI_TARGET_CLANG=clang-19`
+and `NAGI_CXX_HEADERS=/usr/include/c++/v1` to the acceptance invocation, just
+as the real user-init build does. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 
@@ -254,9 +251,30 @@ Windows checkout had CRLF. The local source-inspection test now normalizes
 CRLF to LF, and the focused test passes on macOS. The acceptance script now
 captures and prints `./nagi m17` output even when the command exits nonzero,
 then returns that original status; the first-pixel checks are unchanged. The
-next CI run must reveal the actual CLI/QEMU failure, pass the Windows suite,
-and continue until real guest-rendered pixels reach Nagi Surface. M17 remains
-`BLOCKED`; M18 remains `NOT STARTED`.
+next CI run exposed a missing `NAGI_CXX_HEADERS` value on the acceptance step;
+the corresponding workflow change and evidence are recorded below. The
+Windows suite passed on #169. The real QEMU first-pixel test remains pending.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #169 (2026-09-24)
+
+Public CI run `36023620387` (#169, head
+`5b920506a0863fff90805446542a32afd350bf38`) passed `ubuntu-host` and
+`windows-launcher`, including the CRLF-normalized source test, then passed
+target dependency validation, Mesa Softpipe archive construction, package,
+kernel, the real `nagi-init` target link, and UEFI loader build. The target
+first-web-pixel acceptance returned exit code 4 before QEMU or guest serial
+evidence. With the diagnostic-output repair, the exact CLI error is:
+`m17: C++ headers: could not find libc++ headers through clang++; set
+NAGI_CXX_HEADERS to a libc++ include directory containing cstddef`.
+
+The successful `Build Nagi user init` step explicitly sets
+`NAGI_TARGET_CLANG=clang-19` and `NAGI_CXX_HEADERS=/usr/include/c++/v1`, but
+GitHub Actions does not carry step-level environment values into the following
+acceptance step. The workflow now supplies those same pinned settings to the
+acceptance invocation. This only repairs build configuration; the real QEMU
+and guest-pixel acceptance criteria remain unchanged. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -615,7 +633,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #168 (`36019101924`) passed the real target user-init link and UEFI loader, then `./nagi m17` returned exit 4 before serial/first-pixel evidence; the acceptance script now prints this diagnostic on failure. The same run exposed an LF-only source assertion on Windows CRLF checkout; its local normalization fix passes the focused test. CI rerun must expose the actual QEMU/CLI blocker and reach real guest-rendered pixels. M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #169 (`36023620387`) passed Ubuntu and Windows host gates, the real target user-init link, and UEFI loader. The CLI acceptance stopped before QEMU because its step omitted the `NAGI_CXX_HEADERS` value used by the user-init build; CI now passes the same `clang-19` and `/usr/include/c++/v1` settings. The CRLF-sensitive Windows test fix passed. Re-run the unchanged real guest-rendered First Web Pixel acceptance. M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

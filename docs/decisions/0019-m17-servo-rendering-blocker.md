@@ -2360,7 +2360,28 @@ captured output on both success and failure. It does not relax either the
 requirements. The same CI run's Windows job failed on a static test expecting
 LF in `kernel/src/syscall.rs`; Windows `text=auto` checkout provided CRLF.
 Normalizing CRLF in the test source fixes the cross-platform assertion, and
-the focused test passes locally. The next authoritative CI run must pass the
-Windows suite, surface the exact `./nagi m17` diagnostic, and continue through
-real guest-rendered pixels. No host-rendered or synthetic path is introduced.
-M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+the focused test passes locally. CI #169 passed the Windows suite and exposed
+the missing `NAGI_CXX_HEADERS` environment on the acceptance step; the
+workflow fix is recorded in the following section. The next run must continue
+through real guest-rendered pixels. No host-rendered or synthetic path is
+introduced. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Acceptance environment continuation after CI run #169 (2026-09-24)
+
+Public CI run `36023620387` (#169, head `5b920506a0863fff90805446542a32afd350bf38`)
+passed both host jobs, target dependency validation, Mesa Softpipe archive
+construction, package, kernel, the real `nagi-init` target link, and the UEFI
+loader build. The first-web-pixel command returned exit code 4 before QEMU
+launch. The repaired acceptance wrapper exposed the exact error:
+`./nagi m17` could not find libc++ headers because `NAGI_CXX_HEADERS` was
+unset.
+
+The successful `Build Nagi user init` step set
+`NAGI_TARGET_CLANG=clang-19` and `NAGI_CXX_HEADERS=/usr/include/c++/v1` at
+step scope. The later acceptance step starts a new process without inheriting
+those values, so the CLI's legitimate header discovery failed before it could
+build or boot the M17 image. The workflow now supplies the same settings to
+the acceptance step. CI #169 also passed the Windows host suite after the
+CRLF-normalized source inspection repair. No guest boot or serial evidence was
+produced by #169; the actual first-pixel criteria are unchanged. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
