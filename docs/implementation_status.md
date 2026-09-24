@@ -293,6 +293,21 @@ to Cargo's `OUT_DIR` and adds that directory to libpng's include path, keeping
 the pinned checkout immutable. No guest boot or rendered-pixel evidence was
 produced by #170. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #171 (2026-09-25)
+
+Public CI run `36032710471` (#171, head
+`798e99c369bd28b661c9417e3a854e6e55f2e056`) passed Ubuntu and Windows host
+jobs, Servo bootstrap, target dependency validation, Mesa Softpipe archive
+construction, package, and kernel build. `Build Nagi user init` failed while
+compiling pinned `freetype-sys`: `freetype2/src/sfnt/pngshim.c` includes
+`libpng/png.h`, but the FreeType C builder had not added Cargo's `OUT_DIR` to
+its include path and could not resolve `pnglibconf.h`.
+The initial patch added `OUT_DIR` only to the later libpng C build; the
+FreeType C build also compiles `pngshim.c`. The patch now adds that include
+directory to both C builders. No target link, UEFI build, QEMU boot, or pixel
+evidence was produced by #171. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
 Public CI run `35959281238` (#157, head
@@ -650,7 +665,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #170 (`36027813442`) passed host gates, the real target user-init link with zero undefined symbols, and UEFI loader. Acceptance stopped before QEMU because `freetype-sys`'s build script wrote generated `pnglibconf.h` into its pinned source checkout, invalidating the source marker. Nagi patch `0002` moves that generated file to Cargo `OUT_DIR`; re-run unchanged real guest-rendered First Web Pixel acceptance. M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #171 (`36032710471`) passed both host jobs and target bootstrap through kernel build, then failed compiling pinned `freetype-sys`: `pngshim.c` could not find generated `pnglibconf.h` because the new `OUT_DIR` include path was added only to the libpng C builder. Nagi patch `0002` now adds it to both FreeType and libpng C builders while preserving source immutability. Re-run unchanged real guest-rendered First Web Pixel acceptance; M18 remains forbidden until formal PASS. See ADR 0019, ADR 0020, and ADR 0021. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

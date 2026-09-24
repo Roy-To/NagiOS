@@ -6,4 +6,5 @@ The source is generated under `third_party/freetype-sys/`; do not edit that
 checkout directly. The patch keeps bundled FreeType/libpng target builds on
 the pinned `libz-sys` include metadata instead of a host zlib include path.
 It also writes libpng's generated `pnglibconf.h` to Cargo's `OUT_DIR`, keeping
-the pinned source checkout immutable across repeated fetch validation.
+the pinned source checkout immutable across repeated fetch validation, and
+adds `OUT_DIR` to both FreeType and libpng C include paths.

@@ -2402,3 +2402,18 @@ now places the generated header in Cargo's `OUT_DIR` and adds it to the libpng
 compiler include path. This preserves the real bundled FreeType/libpng build
 and the source immutability check. QEMU and first-pixel acceptance still need
 to run; M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## FreeType C include path after CI run #171 (2026-09-25)
+
+Public CI run `36032710471` (#171, head
+`798e99c369bd28b661c9417e3a854e6e55f2e056`) passed the host jobs and target
+bootstrap through kernel build. The target user-init build then failed in
+`freetype2/src/sfnt/pngshim.c`: `libpng/png.h` could not find `pnglibconf.h`.
+
+The #170 patch exposed Cargo's `OUT_DIR` to the second C builder, which builds
+libpng itself, but the first FreeType C builder also compiles `pngshim.c` and
+includes `libpng/png.h`. Patch `0002` now adds `OUT_DIR` to both builders.
+This keeps generated configuration out of the pinned source checkout while
+making the real FreeType/libpng bundled build see the same generated header.
+No target link, UEFI build, or QEMU acceptance was reached in #171; M17
+remains `BLOCKED` and M18 remains `NOT STARTED`.

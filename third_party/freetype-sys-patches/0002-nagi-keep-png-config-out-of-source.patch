@@ -14,6 +14,11 @@ diff --git a/build.rs b/build.rs
 +        out_dir.join("pnglibconf.h"),
      )
      .unwrap();
-@@ -98,1 +102,1 @@ fn main() {
+@@ -38,3 +42,4 @@ fn main() {
+         .include(".")
+         .include("freetype2/include")
++        .include(&out_dir)
+         .include("libpng")
+@@ -98,1 +103,1 @@ fn main() {
 -    build.include("libpng");
 +    build.include(&out_dir).include("libpng");
