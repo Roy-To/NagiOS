@@ -32,7 +32,24 @@ fi
 
 resource_dir=$("$compiler" --target=x86_64-unknown-elf -print-resource-dir)
 target_compile_definition=""
+target_is_cxx=false
+expecting_language=false
 for argument in "$@"; do
+    if [[ "$expecting_language" == true ]]; then
+        case "$argument" in
+            c++|c++-cpp-output|objective-c++|objective-c++-cpp-output)
+                target_is_cxx=true
+                ;;
+        esac
+        expecting_language=false
+    fi
+    if [[ "$argument" == "-x" ]]; then
+        expecting_language=true
+    fi
+    case "$argument" in
+        *.cc|*.cpp|*.cxx|*.c++|*.C|*.mm) target_is_cxx=true ;;
+    esac
+
     # Servo's bundled SQLite explicitly enables its dynamic extension loader,
     # but the guest is fully static and has no dynamic loader namespace. Keep
     # that compile-time feature omitted only for SQLite's amalgamation; other
@@ -67,5 +84,13 @@ fi
 compiler_args+=(-isystem "$resource_dir/include")
 if [[ -n "$target_compile_definition" ]]; then
     compiler_args+=("$target_compile_definition")
+fi
+if [[ "$target_is_cxx" == true ]]; then
+    # The custom target triple cannot select libc++'s POSIX threading backend
+    # or default rune table by itself. These match the target libc++ ABI shim.
+    compiler_args+=(
+        -D_LIBCPP_HAS_THREAD_API_PTHREAD=1
+        -D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1
+    )
 fi
 exec "$compiler" "${compiler_args[@]}" "$@"

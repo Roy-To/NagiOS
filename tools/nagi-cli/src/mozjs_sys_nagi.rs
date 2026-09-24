@@ -273,6 +273,19 @@ mod tests {
         }
         assert!(commands.contains("(\"NAGI_CXX_HEADERS\", cxx_headers.as_path())"));
 
+        let wrapper = std::fs::read_to_string(root.join("tools/nagi-target-cc.sh"))
+            .expect("Nagi target compiler wrapper");
+        for setting in [
+            "*.cc|*.cpp|*.cxx|*.c++|*.C|*.mm) target_is_cxx=true",
+            "-D_LIBCPP_HAS_THREAD_API_PTHREAD=1",
+            "-D_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE=1",
+        ] {
+            assert!(
+                wrapper.contains(setting),
+                "C++ target wrapper is missing libc++ setting: {setting}"
+            );
+        }
+
         let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml"))
             .expect("Nagi CI workflow");
         let cxx_setting = workflow
