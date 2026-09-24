@@ -19,27 +19,30 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #161 passed both host jobs and target setup through Mesa,
-package, and kernel build, then stopped during HarfBuzz C++ compilation
-because libc++'s Nagi threading API and rune-table definitions were missing.
-The current repair makes the Nagi compiler wrapper add those existing target
-ABI settings to C++ translation units. The five-symbol link inventory from
-#160 remains pending retest. Continue with authoritative Ubuntu target CI,
-then UEFI and real QEMU first-web-pixel acceptance. Do not substitute another
-browser engine or host rendering. M18 remains forbidden until M17 is formally
-PASS.
+milestone. CI #162 passed both host jobs and target setup through Mesa,
+package, and kernel build, then reached the real target link. The five
+undefined symbols from #160 are resolved; one duplicate
+`JS::NewArrayBufferWithContents` remains because Nagi patch 0014 duplicates
+SpiderMonkey's upstream implementation. The current repair removes that now
+redundant patch. Continue with authoritative Ubuntu target CI, then UEFI and
+real QEMU first-web-pixel acceptance. Do not substitute another browser
+engine or host rendering. M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-24
-**Last known repair checkpoint:** public CI run `35989665498` (#161) at
-`053e5b7` passed Ubuntu and Windows host acceptance, target dependency
-validation, Mesa Softpipe archive construction, package, and kernel build. The
-target C++ wrapper was used, but HarfBuzz compilation failed because libc++
-was not told to use Nagi's pthread API or default rune table. The five
-undefined symbols from #160 have not been retested. UEFI and real QEMU
+**Last known repair checkpoint:** public CI run `35991563209` (#162) at
+`43df00c` passed Ubuntu and Windows host acceptance, target dependency
+validation, Mesa Softpipe archive construction, package, and kernel build.
+The Nagi C++ wrapper compiled HarfBuzz and reached the target link, which
+reported zero undefined symbols and one duplicate definition of
+`JS::NewArrayBufferWithContents`. The second definition is the Nagi-only
+`jsglue.cpp` ownership wrapper from patch 0014; the upstream
+`ArrayBufferObject.cpp` implementation is now compiled with the correct target
+ABI. Patch 0014 has been removed and the generated checkout refreshed
+locally; the next CI must verify the final link. UEFI and real QEMU
 first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
 
-### Current M17 continuation after CI runs #158–#161 (2026-09-24)
+### Current M17 continuation after CI runs #158–#162 (2026-09-24)
 
 Public CI run `35975608809` (#158, head `4ab666897712ff35120fc819cff845f45f5598c6`)
 passed target dependency validation, Mesa Softpipe archive construction,
@@ -97,6 +100,18 @@ translation units and supplies both definitions. The UEFI loader and
 first-web-pixel steps were not reached; the #160 final-link inventory remains
 unverified by this run.
 
+Public CI run `35991563209` (#162, head `43df00cc1f60711724925bd7e9931fa70002b252`)
+passed Ubuntu and Windows host acceptance, target dependency validation, Mesa,
+package, and kernel stages. It compiled HarfBuzz and completed the real target
+link with **zero undefined symbols**, then failed on one duplicate
+`JS::NewArrayBufferWithContents` definition. rust-lld identifies the genuine
+upstream provider at `ArrayBufferObject.cpp:3749` and the duplicate Nagi
+wrapper in `jsglue.cpp:1292`, both inside the MozJS Rust archive. The
+Nagi-owned patch 0014 added that wrapper when the target C++ provider was not
+being compiled with the correct ABI; that condition is now fixed, so the
+duplicate patch is removed and the upstream ownership-transfer implementation
+is retained. UEFI and first-web-pixel acceptance were not reached.
+
 Local verification at the #159 checkpoint passed: `./nagi fetch`,
 `./nagi doctor` (12/12), `cargo test -p nagi-cli --locked` (48 unit tests
 and 18 CLI tests), `./tests/acceptance/m0_launcher.sh`, targeted rustfmt
@@ -109,17 +124,19 @@ in `libnagi` under the host AArch64 target. Workspace-wide rustfmt likewise
 reports formatting changes across pinned Servo sources with the local
 formatter; the edited Rust files pass targeted checks.
 
-Local verification of the current repair passed: `cargo test -p nagi-cli
---locked` (49 unit tests and 18 CLI tests), M0 launcher acceptance, targeted
-Rust formatting, shell syntax, and `git diff --check` passed. The focused
-`cargo clippy -p nagi-cli --all-targets --locked -- -D warnings` also passed.
-The Nagi C++ wrapper also
-compiled the real HarfBuzz `harfbuzz.cc` translation unit and
-`nagi-libcpp-abi.cpp` with its libc++ thread/rune-table flags for
-`x86_64-unknown-elf`; `llvm-nm` confirmed the expected ABI entry point. The
-next Ubuntu target CI must verify the real final link. UEFI and real QEMU
-first-web-pixel evidence remain pending. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+Local verification after the #162 repair passed: `./nagi fetch` regenerated
+the MozJS checkout without patch 0014; `cargo test -p nagi-cli --locked` (49
+unit tests and 18 CLI tests), targeted Rust formatting, shell syntax, and
+`git diff --check` passed. Focused
+`cargo clippy -p nagi-cli --all-targets --locked -- -D warnings` passed too.
+The regenerated checkout contains the
+upstream `ArrayBufferObject.cpp` implementation and no duplicate wrapper in
+`jsglue.cpp`. Before removing patch 0014, the Nagi C++ wrapper compiled the
+real HarfBuzz `harfbuzz.cc` translation unit and `nagi-libcpp-abi.cpp` with
+its libc++ thread/rune-table flags for `x86_64-unknown-elf`; `llvm-nm`
+confirmed the expected ABI entry point. The next Ubuntu target CI must verify
+the duplicate is gone in the final link. UEFI and real QEMU first-web-pixel
+evidence remain pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #157 (2026-09-24)
 
@@ -478,7 +495,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | Public CI #161 (`35989665498`) passed Ubuntu/Windows host acceptance and target setup through kernel build, then stopped compiling HarfBuzz because libc++ lacked Nagi's pthread API and default rune-table configuration. The target wrapper now supplies the existing libc++ settings. Retry authoritative CI; the five-symbol final-link inventory from #160 remains unverified, followed by UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
+| M17 | Servo Bootstrap | BLOCKED | Public CI #162 (`35991563209`) passed Ubuntu/Windows host acceptance, target setup through kernel build, and resolved all undefined symbols at the real target link. It failed on one duplicate `JS::NewArrayBufferWithContents` definition from upstream `ArrayBufferObject.cpp` and the Nagi-only `jsglue.cpp` wrapper added by patch 0014. Remove the now-redundant patch and verify in authoritative CI, then complete UEFI, real QEMU, and first-web-pixel acceptance before M17 PASS. See ADR 0019 and ADR 0020. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

@@ -159,12 +159,14 @@ mod tests {
                 && jsglue_malloc_patch.contains("malloc_usable_size")
         );
 
-        let arraybuffer_patch = std::fs::read_to_string(root.join(
-            "third_party/mozjs-sys-nagi-patches/0014-nagi-arraybuffer-unique-ptr-wrapper.patch",
-        ))
-        .expect("mozjs Nagi ArrayBuffer ownership patch");
-        assert!(arraybuffer_patch.contains("NewArrayBufferOutOfMemory::CallerMustFreeMemory"));
-        assert!(arraybuffer_patch.contains("contents.release()"));
+        assert!(
+            !root
+                .join(
+                    "third_party/mozjs-sys-nagi-patches/0014-nagi-arraybuffer-unique-ptr-wrapper.patch"
+                )
+                .exists(),
+            "use SpiderMonkey's upstream ArrayBuffer ownership wrapper"
+        );
 
         let stdlib_cbindgen = std::fs::read_to_string(
             root.join("third_party/relibc/src/header/stdlib/cbindgen.toml"),

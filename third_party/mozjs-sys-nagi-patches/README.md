@@ -71,12 +71,13 @@ conditional even though the real relibc `malloc.h` ABI already provides
 under `__NAGI__`; it does not call a host allocator or replace allocator
 accounting with a constant.
 
-Patch `0014` restores the real `JS::NewArrayBufferWithContents` ownership
-wrapper for the Nagi target when the pinned target archive omits the inline
-UniquePtr forwarding object. It delegates to SpiderMonkey's four-argument
-API and releases the guest allocation only after successful ArrayBuffer
-creation; failed creation retains the UniquePtr deleter. It is target-only
-and does not return a synthetic object or leak contents.
+SpiderMonkey's pinned `ArrayBufferObject.cpp` already defines the real
+`JS::NewArrayBufferWithContents` UniquePtr ownership transfer. A temporary
+Nagi `jsglue.cpp` implementation was removed after the target C++ compiler
+started compiling that upstream provider for the real libc++ ABI: keeping both
+definitions caused a linker duplicate. The upstream implementation retains
+ownership on failure and releases the buffer only after successful
+ArrayBuffer creation.
 
 The final Nagi MozJS link is assembled by user/nagi-init/build.rs. The
 transitive mozjs_sys build-script search paths are retained, but its native
