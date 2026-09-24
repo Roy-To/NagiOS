@@ -887,6 +887,10 @@ fn spawn_qemu_with_display(
         "if=none,id=nagi-data,format=raw,file={}",
         external_path(persistent_disk)
     );
+    let audio_device = format!(
+        "driver={},id=nagi-audio",
+        qemu_audio_driver_for_host(std::env::consts::OS)
+    );
     let mut command = ProcessCommand::new(qemu);
     command.args([
         "-machine",
@@ -907,7 +911,7 @@ fn spawn_qemu_with_display(
         "-device",
         "virtio-rng-pci,disable-modern=on",
         "-audiodev",
-        "driver=dsound,id=nagi-audio",
+        &audio_device,
         "-device",
         "virtio-sound-pci,audiodev=nagi-audio,disable-modern=on",
         "-netdev",
@@ -943,6 +947,17 @@ fn spawn_qemu_with_display(
         ])
         .spawn()
         .map_err(|error| format!("cannot start QEMU {}: {error}", qemu.display()))
+}
+
+fn qemu_audio_driver_for_host(host_os: &str) -> &'static str {
+    match host_os {
+        "windows" => "dsound",
+        "macos" => "coreaudio",
+        // CI runners and many developer hosts are headless. The dummy backend
+        // keeps VirtIO Sound available to the guest without requiring a host
+        // audio server.
+        _ => "none",
+    }
 }
 
 fn terminate_qemu(child: &mut Child, serial_log: &Path, serial: &[u8]) {
@@ -1091,9 +1106,17 @@ fn guest_reached_acceptance(serial: &str, acceptance_marker: &str) -> bool {
 mod tests {
     use super::{
         build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
-        DATA_OFFSET, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, PERSISTENT_DISK_SIZE,
-        ROOT_OFFSET,
+        qemu_audio_driver_for_host, DATA_OFFSET, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
+        M17_IMAGE_SIZE, PERSISTENT_DISK_SIZE, ROOT_OFFSET,
     };
+
+    #[test]
+    fn qemu_audio_backend_is_supported_by_the_host_platform() {
+        assert_eq!(qemu_audio_driver_for_host("windows"), "dsound");
+        assert_eq!(qemu_audio_driver_for_host("macos"), "coreaudio");
+        assert_eq!(qemu_audio_driver_for_host("linux"), "none");
+        assert_eq!(qemu_audio_driver_for_host("unknown"), "none");
+    }
 
     #[test]
     fn qemu_acceptance_requires_the_m7_guest_marker() {
