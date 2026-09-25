@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "development-foundation",
   "current_milestone": "DF-01",
-  "current_checkpoint": "implementation-and-diagnostic-infrastructure",
+  "current_checkpoint": "branch-push-and-ci-monitoring",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "56707103565192957507b177c35373422908588e",
-    "verified_at": "2026-09-25T08:08:00Z",
-    "normal_state": "The foundation worktree is isolated on codex/0.2-development-foundation at base 56707103565192957507b177c35373422908588e. The original main checkout advanced to 30b2494e556ce27a21e85975da75a3112c436510 and now has pre-existing uncommitted M17 changes; this workstream has not modified them. Latest public main CI #186 failed locked root Cargo.lock checks before Mesa or M17 acceptance.",
+    "commit_sha": "4f704cf0e6a1fd780e240f3e62058439e81e4368",
+    "verified_at": "2026-09-25T09:19:27Z",
+    "normal_state": "Foundation implementation and CI-policy checkpoint 4f704cf0e6a1fd780e240f3e62058439e81e4368 passed local Rust, schema, shell, workflow, and developer-state validation on codex/0.2-development-foundation. The branch remains based at 56707103565192957507b177c35373422908588e; origin/main is 5b2d23541cab881facb5e9ada9503fd28608644b, three commits ahead, and no rebase or merge was performed. The original main checkout is clean at 5b2d235. Public CI #187 has passed both host jobs and target prerequisites through kernel build; target user-init linking is in progress. M17 pixel acceptance remains unverified.",
     "commands": [
       "git status --short --branch",
       "git rev-parse HEAD",
@@ -20,7 +20,19 @@
       "gh run view 36114799741 --repo RT-NISH/NagiOS --job 108006242159 --log",
       "gh run view 36114799741 --repo RT-NISH/NagiOS --job 108006242271 --log",
       "git status --short --branch (original main checkout, read-only audit)",
-      "git ls-remote origin refs/heads/main"
+      "git ls-remote origin refs/heads/main",
+      "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path tools/nagi-cli/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo fmt --manifest-path tools/nagi-cli/Cargo.toml -- --check",
+      "sh -n nagi",
+      "sh -n tests/acceptance/m17_servo_first_web_pixel.sh",
+      "ruby -e require yaml; YAML.load_file(.github/workflows/ci.yml)",
+      "python jsonschema Draft202012Validator validates registry and state documents",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev diagnose --stage m17-first-web-pixel-acceptance --exit-code 4 --log /tmp/nagi-m17-ci184.log --artifact tools/nagi-cli/Cargo.toml",
+      "git status --short --branch (foundation and original main worktrees)"
     ],
     "tests": [
       {
@@ -28,7 +40,7 @@
         "command": "git status --short --branch",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "main at 56707103565192957507b177c35373422908588e; no tracked or untracked changes"
+        "evidence": "The original main worktree is clean at 5b2d23541cab881facb5e9ada9503fd28608644b; the foundation checkout is isolated at 4f704cf and other existing worktrees remain unchanged."
       },
       {
         "name": "origin main synchronization",
@@ -50,16 +62,108 @@
         "outcome": "FAIL",
         "exit_code": null,
         "evidence": "host jobs, Mesa, package, kernel, real Servo init link and UEFI passed; M17 QEMU acceptance stalled after GL context start and produced no pixel evidence"
+      },
+      {
+        "name": "initial CLI integration test fixture",
+        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "One new CLI integration assertion invoked dev without its required subcommand. The test was corrected to use dev status; the final committed run passes all 20 integration tests."
+      },
+      {
+        "name": "initial doctest toolchain alignment",
+        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Homebrew rustdoc 1.86 was mixed with pinned Rust 1.90 artifacts. The launcher now selects pinned Cargo, rustc, and rustdoc; final tests pass with the pinned toolchain."
+      },
+      {
+        "name": "initial RFC3339 validation Clippy attempt",
+        "command": "cargo clippy --manifest-path tools/nagi-cli/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Clippy rejected manual modulo leap-year checks. Replaced them with is_multiple_of and reran the same command successfully."
+      },
+      {
+        "name": "Nagi CLI unit and integration tests on implementation commit",
+        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "On 4f704cf0e6a1fd780e240f3e62058439e81e4368: 68 unit tests, 20 integration tests, and 0 doctests passed."
+      },
+      {
+        "name": "Nagi bootstrap entry-point tests on implementation commit",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "On 4f704cf0e6a1fd780e240f3e62058439e81e4368: 68 shared library unit tests passed; binary and doctest targets contained 0 tests."
+      },
+      {
+        "name": "Nagi CLI Clippy",
+        "command": "cargo clippy --manifest-path tools/nagi-cli/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Clippy passed with -D warnings; only the existing third_party/libc-servo unexpected target_os=nagi configuration warnings were emitted by the dependency."
+      },
+      {
+        "name": "format and shell syntax",
+        "command": "cargo fmt --manifest-path tools/nagi-cli/Cargo.toml -- --check; sh -n nagi; sh -n tests/acceptance/m17_servo_first_web_pixel.sh; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Rust formatting, both POSIX shell syntax checks, and whitespace validation passed."
+      },
+      {
+        "name": "workflow YAML syntax",
+        "command": "ruby -e require yaml; YAML.load_file(.github/workflows/ci.yml)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Ruby Psych parsed the updated workflow. actionlint and PowerShell are not installed locally; Windows launcher verification is part of CI."
+      },
+      {
+        "name": "Draft 2020-12 workstream JSON Schema validation",
+        "command": "python jsonschema Draft202012Validator.check_schema and FormatChecker for .dev/workstreams.json and active state",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both schemas passed schema checks and validated the registry and active state."
+      },
+      {
+        "name": "developer state command and clean checkout",
+        "command": "./nagi dev verify; ./nagi dev status; git status --short --branch",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "At checkpoint 4f704cf, 9 registry entries and the active state validated; status identified the workstream, branch, HEAD, and current dirty-state accurately."
+      },
+      {
+        "name": "M17 diagnostic smoke test",
+        "command": "./nagi dev diagnose --stage m17-first-web-pixel-acceptance --exit-code 4 --log /tmp/nagi-m17-ci184.log --artifact tools/nagi-cli/Cargo.toml --output /tmp/nagi-m17-ci184-final2.diagnostics.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Preserved process exit code 4, suggested GRAPHICS despite an earlier linker warning, inventoried 14 unique error lines and 1 undefined symbol, and recorded artifact length/SHA-256. This was a diagnostics smoke test, not M17 acceptance."
+      },
+      {
+        "name": "original main worktree preservation",
+        "command": "git status --short --branch (original main checkout)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Original checkout is clean at main commit 5b2d235; the foundation branch made no changes there or in other existing worktrees."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 36115897284,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36115897284",
+        "head_sha": "5b2d23541cab881facb5e9ada9503fd28608644b",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Ubuntu and Windows host jobs passed. Target Servo bootstrap, feature-boundary validation, Mesa, package, and kernel builds passed; Build Nagi user init is in progress. No M17 QEMU or pixel result yet."
+      },
       {
         "run_id": 36114799741,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36114799741",
         "head_sha": "30b2494e556ce27a21e85975da75a3112c436510",
         "status": "COMPLETED",
         "conclusion": "FAILURE",
-        "summary": "Pinned Servo bootstrap passed on Ubuntu and target. Ubuntu format passed. Windows host build, Ubuntu locked Clippy, and target feature-boundary verification failed because the root Cargo.lock lacked servo-paint-api -> libc; Mesa and M17 QEMU were skipped. The root lockfile fix is currently uncommitted in the original main worktree and has no CI result."
+        "summary": "Pinned Servo bootstrap passed on Ubuntu and target. Ubuntu format passed. Windows host build, Ubuntu locked Clippy, and target feature-boundary verification failed because the root Cargo.lock lacked servo-paint-api -> libc; Mesa and M17 QEMU were skipped. Main commit 5b2d235 adds the missing lock edge; public CI #187 is verifying that repair."
       },
       {
         "run_id": 36113604201,
@@ -89,7 +193,7 @@
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-25T09:01:43Z",
+    "last_checked_at": "2026-09-25T09:09:40Z",
     "activation_requirement": "Read the authoritative 0.1 status and require M30 PASS plus an explicit 0.2 integration checkpoint before any 0.2 runtime/product work starts."
   },
   "blocker": {
@@ -105,7 +209,7 @@
       "Do not change 0.1 runtime code, M17 acceptance assertions, or start M18-M30."
     ]
   },
-  "next_action": "Commit this implementation checkpoint, rerun focused checks on its exact HEAD, then push and inspect the resulting GitHub Actions run and M17 diagnostic artifacts.",
+  "next_action": "Commit the verified state/status checkpoint, push codex/0.2-development-foundation without merging, then inspect its CI by run ID and collect M17 diagnostics. Record exact branch and run SHAs before closing the workstream.",
   "acceptance_criteria": [
     "A clean clone can identify its current 0.2 workstream, current Git HEAD, last verified SHA, blocker, and exact next action from tracked state.",
     "The registry/state validator rejects missing fields, invalid status or failure classes, duplicate IDs/branches, unsafe state paths, and missing dependencies.",

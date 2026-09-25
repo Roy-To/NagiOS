@@ -19,18 +19,18 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. The latest public run, CI #186 (`36114799741`, head
-`30b2494e556ce27a21e85975da75a3112c436510`), passed Servo bootstrap on Ubuntu
-and target, then failed the Ubuntu locked Clippy and target dependency checks
-because the root `Cargo.lock` lacked the `servo-paint-api -> libc` edge. The
-Windows host build failed at the same lock check. Mesa and M17 QEMU were
-skipped. The active main worktree now contains an uncommitted
-root lockfile update for that edge; it has not yet been verified by CI and was
-left untouched by this foundation branch. Earlier CI #184 reached M17 QEMU and
-timed out after `Nagi M17 trace: GL context creation started`, without any
-pixel checksum or Surface-present marker. M17 remains blocked until the guest
-renders and presents a nonzero Servo pixel checksum; M18 remains `NOT STARTED`
-until M17 is formally PASS.
+milestone. Public CI #187 (`36115897284`, head
+`5b2d23541cab881facb5e9ada9503fd28608644b`) is in progress. Ubuntu and Windows
+host jobs passed; target bootstrap, dependency-boundary validation, Mesa,
+package, and kernel steps passed, and the target user-init build is still
+running. This run verifies the root `Cargo.lock` fix from #186; it has not yet
+reached M17 QEMU. The latest completed run, #186, failed the Ubuntu locked
+Clippy, Windows host build, and target dependency checks because the root
+`Cargo.lock` lacked the `servo-paint-api -> libc` edge. Earlier CI #184 reached
+M17 QEMU and timed out after `Nagi M17 trace: GL context creation started`,
+without any pixel checksum or Surface-present marker. M17 remains blocked until
+the guest renders and presents a nonzero Servo pixel checksum; M18 remains
+`NOT STARTED` until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
 **Last known repair checkpoint:** public CI run `36114799741` (#186, head
@@ -38,9 +38,10 @@ until M17 is formally PASS.
 failed the root locked dependency checks. Windows host build, Ubuntu Clippy,
 and target feature-boundary verification all reported `Cargo.lock needs to be
 updated but --locked was passed`; target Mesa, kernel, and M17 acceptance did
-not run. The local main worktree has a pending root lockfile update, but that
-change has no CI result yet. Public target CI remains authoritative for M17.
-M17 remains blocked; M18 remains not started.
+not run. Commit `5b2d23541cab881facb5e9ada9503fd28608644b` records the root
+lockfile edge. Public CI #187 is verifying it; target init linking is in
+progress, with no M17 result yet. Public target CI remains authoritative for
+M17. M17 remains blocked; M18 remains not started.
 
 ### Current M17 continuation after CI run #186 (2026-09-25)
 
@@ -50,9 +51,9 @@ Ubuntu and target, confirming the Servo manifest and its own lockfile patch
 were consistent. Ubuntu formatting passed. Ubuntu host Clippy and the target
 feature-boundary check failed, and the Windows host build failed, because the
 Nagi root `Cargo.lock` did not contain the `servo-paint-api -> libc` edge. The
-target did not proceed to Mesa or M17 QEMU. The active main worktree contains
-an uncommitted root-lock repair for that edge; preserve it and require a later
-locked CI result. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+target did not proceed to Mesa or M17 QEMU. Commit
+`5b2d23541cab881facb5e9ada9503fd28608644b` adds that root lock edge; public CI
+#187 is verifying the repair. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #185 (2026-09-25)
 
