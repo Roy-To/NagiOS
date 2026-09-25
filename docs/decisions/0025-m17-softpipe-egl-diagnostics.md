@@ -12,6 +12,12 @@ last existing serial marker was `Nagi M17 trace: GL context creation started`.
 This evidence locates the stall inside the Servo/Surfman/Mesa context path but
 does not identify the specific call.
 
+Follow-up CI run #184 (`36106455335`) passed the same persistence gate and
+repeated the timeout at the same application-level marker. None of the new
+EGL or Servo/Surfman stage messages appeared in the guest serial log. This
+does not prove whether the call path was missed or the stderr logging route
+failed to expose the messages.
+
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
 software adapter. Mesa EGL, however, normally derives software selection from
@@ -33,13 +39,19 @@ GL function loading, surface binding, make-current, and swap-chain creation.
 These logs are diagnostic and do not change rendering, surface ownership, or
 M17 acceptance criteria.
 
+After CI #184, Servo's trace helper writes directly to Nagi descriptor 2 through
+`libc::write` rather than Rust stdio. This keeps the next trace attempt on the
+same Nagi descriptor boundary used by the guest console and avoids stdio
+formatting and locking.
+
 ## Consequences
 
 - Nagi will not request a hardware or Zink renderer that its static Mesa build
   does not provide. Mesa can still probe software-compatible DRM devices before
   falling back to no-DRM swrast; the new trace points make that path visible.
 - Other Mesa targets keep their current renderer-selection behavior.
-- The next target CI run will distinguish EGL discovery, driver loading, GL
-  context creation, and later surface setup stalls through serial output.
+- The next target CI run will verify that the direct Servo checkpoints reach
+  serial output and locate the first Surfman stage after the application-level
+  GL-context marker.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

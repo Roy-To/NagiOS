@@ -1,10 +1,29 @@
+diff --git a/components/shared/paint/Cargo.toml b/components/shared/paint/Cargo.toml
+--- a/components/shared/paint/Cargo.toml
++++ b/components/shared/paint/Cargo.toml
+@@ -22,6 +22,7 @@
+ [dependencies]
++libc = { workspace = true }
+ bitflags = { workspace = true }
+ crossbeam-channel = { workspace = true }
+ dpi = { workspace = true }
+ embedder_traits = { workspace = true }
+ euclid = { workspace = true }
+diff --git a/components/shared/paint/rendering_context.rs b/components/shared/paint/rendering_context.rs
 --- a/components/shared/paint/rendering_context.rs
 +++ b/components/shared/paint/rendering_context.rs
-@@ -113,2 +113,11 @@
+@@ -113,2 +113,18 @@
  
 +#[cfg(target_os = "nagi")]
 +fn nagi_m17_trace(stage: &str) {
-+    eprintln!("Nagi M17 trace: {stage}");
++    const PREFIX: &[u8] = b"Nagi M17 trace: ";
++    const NEWLINE: &[u8] = b"\n";
++    #[expect(unsafe_code)]
++    unsafe {
++        let _ = libc::write(2, PREFIX.as_ptr().cast(), PREFIX.len());
++        let _ = libc::write(2, stage.as_ptr().cast(), stage.len());
++        let _ = libc::write(2, NEWLINE.as_ptr().cast(), NEWLINE.len());
++    }
 +}
 +
 +#[cfg(not(target_os = "nagi"))]
@@ -12,13 +31,13 @@
 +fn nagi_m17_trace(_: &str) {}
 +
  impl SurfmanRenderingContext {
-@@ -119,3 +128,5 @@
+@@ -119,3 +135,5 @@
      ) -> Result<Self, Error> {
 +        nagi_m17_trace("Surfman device creation started");
          let device = connection.create_device(adapter)?;
 +        nagi_m17_trace("Surfman device created");
  
-@@ -129,5 +140,8 @@
+@@ -129,5 +147,8 @@
          };
 +        nagi_m17_trace("GL context descriptor creation started");
          let context_descriptor =
@@ -28,18 +47,18 @@
 +
 +        nagi_m17_trace("GL context creation started");
          let context = device
-@@ -137,4 +151,6 @@
+@@ -137,4 +158,6 @@
              })?;
 +        nagi_m17_trace("GL context created");
  
 +        nagi_m17_trace("GL function loading started");
          #[expect(unsafe_code)]
          let gleam_gl = {
-@@ -157,2 +173,3 @@
+@@ -157,2 +180,3 @@
  
 +        nagi_m17_trace("GL function loading completed");
          Ok(SurfmanRenderingContext {
-@@ -303,13 +320,26 @@
+@@ -303,13 +327,26 @@
  
 +        nagi_m17_trace("Surfman connection started");
          let connection = Connection::new()?;

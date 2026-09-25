@@ -19,29 +19,50 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #183 passed both host jobs, Mesa Softpipe, package/kernel builds,
+milestone. CI #184 passed both host jobs, Mesa Softpipe, package/kernel builds,
 the real Servo user-init link with zero undefined symbols, and the UEFI loader.
-The two-boot M17 QEMU run now passes the persistent-read gate and reaches
-`Nagi M17 trace: GL context creation started`, then hangs for 120 seconds before
-Servo reports a context result. The next repair forces Mesa's software-only
-path on Nagi, clears the unsupported Zink override, and adds Nagi-only
-checkpoints through EGL and Servo/Surfman context setup. The exact stall is not
-yet proven. No Servo-pixel evidence has been produced. M17 remains blocked until
-the guest renders and presents a nonzero Servo pixel checksum; M18 remains
-forbidden until M17 is formally PASS.
+The two-boot M17 QEMU run passed persistent storage, then timed out 120 seconds
+after `Nagi M17 trace: GL context creation started`. The software-only EGL
+policy did not produce a pixel, and the new EGL/Servo stage diagnostics did not
+appear in the serial log. The exact stall remains unproven. The next repair
+routes Servo stage traces through a direct Nagi descriptor write, bypassing
+stdio formatting and locking. No Servo-pixel evidence has been produced. M17
+remains blocked until the guest renders and presents a nonzero Servo pixel
+checksum; M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36099071216` (#183, head
-`4995909db69ea2fa8234662a8d45977b28ecb4fc`) completed with failure. Ubuntu and
+**Last known repair checkpoint:** public CI run `36106455335` (#184, head
+`56707103565192957507b177c35373422908588e`) completed with failure. Ubuntu and
 Windows host jobs passed. Target Mesa Softpipe, package, kernel, real Servo
 user-init link (zero undefined symbols), and UEFI loader passed. In the final
 two-boot QEMU run, all M7 persistence checks passed, then the guest printed
-`Nagi M17 trace: GL context creation started` and timed out after 120 seconds
-inside Servo/Surfman/Mesa initialization. The read-only boot ESP repair is
-verified by the persistence gate. The local `./nagi m17` command could not
-rebuild from the existing generated Servo checkout because its fingerprint is
-mismatched; it refused to modify that checkout. Public target CI remains the
-authoritative M17 acceptance. M17 remains blocked; M18 remains not started.
+`Nagi M17 trace: GL context creation started` and timed out after 120 seconds.
+No new EGL or Surfman trace marker and no pixel checksum appeared. The local
+`./nagi m17` command cannot rebuild from the existing generated Servo checkout
+because its fingerprint is mismatched; it refuses to modify that checkout.
+Public target CI remains the authoritative M17 acceptance. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #184 (2026-09-25)
+
+Public CI run `36106455335` (#184, head
+`56707103565192957507b177c35373422908588e`) passed Ubuntu host and Windows
+launcher acceptance, Mesa Softpipe archive construction, package/kernel builds,
+the real target Servo user-init link with no undefined symbols, and UEFI loader
+build. The final two-boot M17 QEMU run again passed all M7 persistence checks,
+reached surface acquisition, and printed
+`Nagi M17 trace: GL context creation started`. QEMU then timed out after 120
+seconds. There is no first-web-pixel checksum or PASS marker, so M17 remains
+`BLOCKED` and M18 remains `NOT STARTED`.
+
+The Nagi-only EGL policy forced `ForceSoftware` and cleared Zink, but the guest
+serial log contained none of the new EGL or Servo/Surfman checkpoints. The
+existing checkpoints use Rust `eprintln!` and Mesa's `_eglLog` stderr path;
+their absence does not prove which context-creation call stalled. The next
+patch changes Servo's diagnostic helper to write directly to the Nagi
+descriptor-2 boundary with `libc::write`, avoiding stdio formatting and
+locking. The following target CI run will use those direct checkpoints to
+locate the first call reached after the application-level context marker.
 
 ### Current M17 continuation after CI run #183 (2026-09-25)
 

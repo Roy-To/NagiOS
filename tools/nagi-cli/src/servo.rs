@@ -763,7 +763,11 @@ mod tests {
         )
         .expect("M17 rendering-context trace patch");
         assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
-        assert!(patch.contains("eprintln!(\"Nagi M17 trace: {stage}\")"));
+        assert!(patch.contains("libc::write(2, PREFIX.as_ptr().cast(), PREFIX.len())"));
+        assert!(
+            !patch.contains("eprintln!(\"Nagi M17 trace: {stage}\")"),
+            "M17 stage traces must bypass stdio formatting and locking"
+        );
         for stage in [
             "Surfman connection started",
             "GL context creation started",
