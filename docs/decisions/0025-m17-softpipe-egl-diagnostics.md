@@ -48,6 +48,13 @@ does not establish that the method body executed. The next run adds an Albert
 callback self-test before the method call and a constructor-entry checkpoint
 before its size guard.
 
+CI run #189 (`36126812876`) printed the Albert callback self-test successfully,
+then timed out before the patched constructor-entry checkpoint. This proves
+that the callback route works and narrows the stop to the constructor call or
+its entry sequence. The guest bootstrap process has only 8 stack pages (32
+KiB), so a bounded stack increase is the next hypothesis; decision 0026 records
+the 2 MiB experiment. The serial evidence does not yet prove stack exhaustion.
+
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
 software adapter. Mesa EGL, however, normally derives software selection from
@@ -83,7 +90,8 @@ instruction in the constructor body; other targets retain a no-op helper.
   does not provide. Mesa can still probe software-compatible DRM devices before
   falling back to no-DRM swrast; the new trace points make that path visible.
 - Other Mesa targets keep their current renderer-selection behavior.
-- The next target CI run will show whether the Albert callback works before
-  Servo enters the constructor, then whether the constructor itself is reached.
+- CI #189 proved the Albert callback works before the constructor call; the
+  next target run tests a larger bounded bootstrap stack and will show whether
+  the patched constructor is reached.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

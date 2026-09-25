@@ -19,27 +19,52 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #187 passed Servo bootstrap, host checks, target dependency
-validation, Mesa Softpipe, the Nagi user-init link, and UEFI loader build. Its
-two-boot QEMU acceptance again stopped after
-`Nagi M17 trace: GL context creation started` and timed out after 120 seconds.
-CI #188 repeated that timeout with no trace from the Nagi Albert console
-callback. The current repair adds a callback self-test immediately before the
-context call and a Servo constructor-entry trace before its size guard. This
-will distinguish callback output from entering the patched constructor. No
+milestone. After CI #189 stopped before the patched Servo constructor-entry
+checkpoint, the bounded 2 MiB bootstrap-stack experiment from decision 0026
+has been implemented. It uses the existing single stack page table and remains
+below TLS. Local kernel tests pass (92/92), and the Nagi-target release kernel
+build, formatting, and diff checks pass. The full public QEMU acceptance is
+still pending. This is a diagnostic hypothesis, not a proven root cause. No
 Servo-pixel evidence has been produced. M17 remains blocked until the guest
 renders and presents a nonzero Servo pixel checksum; M18 remains forbidden
 until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36120900543` (#188, head
-`c41d313d98b3d9dfa3c7f8421453e8f2890149dc`) passed all target build stages
-through Nagi user-init linking and UEFI loader build, then timed out during the
-real two-boot M17 QEMU acceptance. The serial log reached GL context creation
-but no trace emitted by the Albert callback or patched Servo constructor. The
-generated local Servo checkout remains untouched because its fingerprint is
-mismatched. Public target CI remains authoritative for M17. M17 remains
+**Last known repair checkpoint:** public CI run `36126812876` (#189, head
+`2f62290d64833d0926e0cbfc153f802e154d2823`) passed host checks, target
+dependency validation, Mesa Softpipe, package, kernel, Nagi user-init link,
+and UEFI loader build, then timed out during the real two-boot M17 QEMU
+acceptance. The callback self-test printed; the constructor-entry and Surfman
+traces did not. Public target CI remains authoritative for M17. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Target evidence from CI run #189 (2026-09-25)
+
+Run `36126812876` (#189, head
+`2f62290d64833d0926e0cbfc153f802e154d2823`) passed Ubuntu host checks,
+Windows launcher checks, target Servo bootstrap/feature boundary, Mesa
+Softpipe, M16 package, kernel, Nagi user-init linking and UEFI loader build.
+The M17 QEMU acceptance timed out after 120 seconds, status 4. Its final guest
+markers were `GL context creation started` and
+`Albert console callback self-test`; the patched
+`SoftwareRenderingContext::new entered` marker did not appear. This verifies
+the Nagi console callback itself and narrows the stop to the constructor call
+or its entry sequence. At this run the bootstrap user stack was 8 pages (32
+KiB). Decision 0026 records the bounded 2 MiB stack experiment; stack
+exhaustion was not proven by this run. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+### Local continuation after CI run #189 (2026-09-25)
+
+Implemented the 2 MiB fixed bootstrap stack by mapping one full 512-entry stack
+page table, keeping the range below TLS and leaving TLS/mmap virtual addresses
+unchanged. Added a regression check for the stack size and boundary. Corrected
+the existing bounded-mapping test to inspect its locally constructed TLS page
+table instead of the unrelated global bootstrap storage. The focused test and
+the complete kernel library suite pass on the Mac host (92/92); formatting,
+diff checks, and the Nagi-target release kernel build pass. The authoritative
+public QEMU acceptance remains to be run. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Current M17 continuation after CI run #188 (2026-09-25)
 

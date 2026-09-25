@@ -20,10 +20,10 @@ use crate::user_elf::{
 mod syscall;
 
 pub const USER_STACK_BASE: u64 = USER_IMAGE_LIMIT;
-// M14's bounded audio service keeps a PCM capture buffer and mixer work area
-// in the init process. Keep the native user stack large enough for that real
-// service path without exposing an unbounded stack allocation mechanism.
-pub const USER_STACK_PAGES: usize = 8;
+// The M14 audio and M17 Servo/Softpipe bootstrap paths need deeper native
+// stacks than the early init path. Keep one bounded 2 MiB page-table span for
+// the bootstrap process; stack growth remains fixed and below the TLS region.
+pub const USER_STACK_PAGES: usize = PAGE_TABLE_ENTRIES;
 pub const USER_STACK_LIMIT: u64 = USER_STACK_BASE + USER_STACK_PAGES as u64 * PAGE_SIZE;
 pub const USER_TLS_BASE: u64 = USER_IMAGE_LIMIT + 0x0040_0000;
 pub const USER_TLS_THREAD_SLOT_COUNT: usize = 2;
@@ -1453,17 +1453,17 @@ mod tests {
     use nagi_abi::{PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE};
     use std::boxed::Box;
 
-    use crate::memory::{PageTable, PageTableEntry, PAGE_SIZE};
+    use crate::memory::{PageTable, PageTableEntry, PAGE_SIZE, PAGE_TABLE_ENTRIES};
     use crate::user_elf::{
         UserLoadPlan, UserLoadSegment, UserTlsSegment, MAX_LOAD_SEGMENTS, USER_IMAGE_BASE,
         USER_IMAGE_LIMIT,
     };
 
     use super::{
-        build_address_space, efer_with_nxe, image_range_is_mapped, is_user_readable_range_mapped,
-        mapped_range, mmap_page_flags, reset_child_tls_pages, validate_mmap_request,
-        BootstrapStorage, UserProcessError, USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT,
-        USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT,
+        build_address_space, efer_with_nxe, image_range_is_mapped, mapped_range, mmap_page_flags,
+        reset_child_tls_pages, validate_mmap_request, BootstrapStorage, UserProcessError,
+        USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES, USER_TLS_BASE,
+        USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT,
     };
 
     fn boxed_storage() -> Box<BootstrapStorage> {
@@ -1475,6 +1475,13 @@ mod tests {
                 .write_bytes(0, core::mem::size_of::<BootstrapStorage>());
             allocation.assume_init()
         }
+    }
+
+    #[test]
+    fn bootstrap_stack_is_two_mib_and_does_not_overlap_tls() {
+        assert_eq!(USER_STACK_PAGES, PAGE_TABLE_ENTRIES);
+        assert_eq!(USER_STACK_LIMIT - USER_STACK_BASE, 2 * 1024 * 1024);
+        assert!(USER_STACK_LIMIT <= USER_TLS_BASE);
     }
 
     fn plan(memory_size: u64) -> UserLoadPlan {
@@ -1551,9 +1558,13 @@ mod tests {
         assert!(storage.tls_pt.raw_entry(1).is_some());
         assert!(storage.tls_pt.raw_entry(2).is_some());
         assert!(storage.tls_pt.raw_entry(3).is_some());
-        assert!(is_user_readable_range_mapped(
+        assert!(mapped_range(
+            &storage.tls_pt,
             USER_TLS_BASE,
-            (USER_TLS_LIMIT - USER_TLS_BASE) as usize
+            USER_TLS_LIMIT,
+            USER_TLS_BASE,
+            (USER_TLS_LIMIT - USER_TLS_BASE) as usize,
+            PageTableEntry::PRESENT | PageTableEntry::USER,
         ));
     }
 
