@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "development-foundation",
   "current_milestone": "DF-01",
-  "current_checkpoint": "branch-push-and-ci-monitoring",
-  "status": "IN_PROGRESS",
+  "current_checkpoint": "DF-01-complete-m17-gate-preserved",
+  "status": "PASS",
   "last_verified": {
     "commit_sha": "4f704cf0e6a1fd780e240f3e62058439e81e4368",
     "verified_at": "2026-09-25T09:19:27Z",
-    "normal_state": "Foundation implementation and CI-policy checkpoint 4f704cf0e6a1fd780e240f3e62058439e81e4368 passed local Rust, schema, shell, workflow, and developer-state validation on codex/0.2-development-foundation. The branch remains based at 56707103565192957507b177c35373422908588e; origin/main is 5b2d23541cab881facb5e9ada9503fd28608644b, three commits ahead, and no rebase or merge was performed. The original main checkout is clean at 5b2d235. Public CI #187 has passed both host jobs and target prerequisites through kernel build; target user-init linking is in progress. M17 pixel acceptance remains unverified.",
+    "normal_state": "DF-01 development foundation acceptance passed on codex/0.2-development-foundation: focused CLI tests, schema/state verification, shell and workflow checks passed; Ubuntu and Windows host CI both passed, including the clean-checkout developer-state command. Target dependency checks, Mesa, package, kernel, user-init, and UEFI builds passed. Feature-branch CI #36117826259 then reached the unchanged 0.1 M17 gate and failed there after the 120-second QEMU timeout at GL context creation. Its diagnostic report classified GRAPHICS and retained seven logs, two image hashes, and a runner resource snapshot in GitHub artifact m17-diagnostics-36117826259 (artifact ID 10857594909). Mainline is now c41d313d98b3d9dfa3c7f8421453e8f2890149dc, four commits ahead of the foundation base, with CI #36120900543 in progress on the latest M17 trace-routing repair; host jobs passed and its M17 QEMU step is running. The original main checkout is clean at c41d313. No rebase or merge was performed. M17 remains BLOCKED; M18–M30 remain NOT STARTED.",
     "commands": [
       "git status --short --branch",
       "git rev-parse HEAD",
@@ -19,6 +19,8 @@
       "gh run view 36114799741 --repo RT-NISH/NagiOS --json databaseId,headSha,conclusion,jobs,url",
       "gh run view 36114799741 --repo RT-NISH/NagiOS --job 108006242159 --log",
       "gh run view 36114799741 --repo RT-NISH/NagiOS --job 108006242271 --log",
+      "gh run view 36115897284 --repo RT-NISH/NagiOS --log-failed",
+      "gh run view 36120900543 --repo RT-NISH/NagiOS --json status,conclusion,headSha,jobs,url",
       "git status --short --branch (original main checkout, read-only audit)",
       "git ls-remote origin refs/heads/main",
       "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
@@ -32,6 +34,8 @@
       "./nagi dev verify",
       "./nagi dev status",
       "./nagi dev diagnose --stage m17-first-web-pixel-acceptance --exit-code 4 --log /tmp/nagi-m17-ci184.log --artifact tools/nagi-cli/Cargo.toml",
+      "gh run download 36117826259 --repo RT-NISH/NagiOS --dir <diagnostic workspace>",
+      "Inspect m17-diagnostics-36117826259-attempt-1-32271.json and m17-runner-resources.log",
       "git status --short --branch (foundation and original main worktrees)"
     ],
     "tests": [
@@ -48,6 +52,34 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "remote refs/heads/main equals the original checkout HEAD"
+      },
+      {
+        "name": "Latest mainline M17 run 36120900543",
+        "command": "GitHub Actions run 36120900543, nagi-target / M17 first web pixel acceptance",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Mainline head c41d313d98b3d9dfa3c7f8421453e8f2890149dc adds guest-console Servo trace routing. Ubuntu and Windows host jobs passed; the target M17 acceptance step started at 2026-09-25T10:22:08Z and has no result yet."
+      },
+      {
+        "name": "Foundation branch CI run 36117826259",
+        "command": "GitHub Actions run 36117826259, all jobs",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Ubuntu and Windows host jobs passed, including developer-state verification. Target source, dependency boundary, Mesa, M16 package, kernel, user-init, and UEFI passed. Overall CI failed only at the unchanged M17 acceptance: QEMU timed out after 120 seconds at GL context creation, with no pixel checksum or pass marker."
+      },
+      {
+        "name": "M17 diagnostic artifact 36117826259",
+        "command": "gh run download 36117826259 --repo RT-NISH/NagiOS --dir <diagnostic workspace>; inspect diagnostic JSON and runner resource log",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Artifact ID 10857594909 (`m17-diagnostics-36117826259`, 26,788 bytes) downloaded successfully. JSON records source commit 18b364dc01c6a95bbda492f36c8dd0586f12ca8d, source_worktree_dirty=true, process exit 4, timeout termination, suggested class GRAPHICS, 14 unique error lines, 0 undefined symbols, seven hashed logs, and two hashed image artifacts. The artifact also contains runner memory, swap, disk, and kernel data."
+      },
+      {
+        "name": "Nagi 0.1 M17 target CI run 187",
+        "command": "GitHub Actions run 36115897284, nagi-target / M17 first web pixel acceptance",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "Ubuntu and Windows host checks and all target builds passed, including user-init and UEFI. M17 QEMU timed out after 120 seconds at `Nagi M17 trace: GL context creation started`; persistence and Surface acquisition passed, but no pixel checksum or guest PASS marker appeared. The current mainline workflow published no diagnostic artifact."
       },
       {
         "name": "Nagi 0.1 M17 target CI run 184",
@@ -150,12 +182,28 @@
     ],
     "ci_runs": [
       {
+        "run_id": 36120900543,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36120900543",
+        "head_sha": "c41d313d98b3d9dfa3c7f8421453e8f2890149dc",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Mainline c41d313 routes Servo trace checkpoints through the guest console. Ubuntu and Windows host jobs passed. Target M17 first-web-pixel acceptance started at 10:22:08 UTC; result pending."
+      },
+      {
+        "run_id": 36117826259,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36117826259",
+        "head_sha": "18b364dc01c6a95bbda492f36c8dd0586f12ca8d",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed, including developer-state validation. Target dependency boundary, Mesa, M16 package, kernel, user-init, and UEFI passed. M17 acceptance failed with exit 4 after the 120-second QEMU timeout at GL context creation; persistent read and Surface acquisition passed but no pixel was accepted. Diagnostic report suggested GRAPHICS (14 unique errors, 0 undefined symbols, 7 logs); uploaded artifact `m17-diagnostics-36117826259`, ID 10857594909, contains two image hashes and runner resources."
+      },
+      {
         "run_id": 36115897284,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36115897284",
         "head_sha": "5b2d23541cab881facb5e9ada9503fd28608644b",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Ubuntu and Windows host jobs passed. Target Servo bootstrap, feature-boundary validation, Mesa, package, and kernel builds passed; Build Nagi user init is in progress. No M17 QEMU or pixel result yet."
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu and Windows host jobs and all target build steps passed, including user-init and UEFI. M17 QEMU exited 4 after a 120-second timeout at GL context creation; persistent storage and Surface acquisition passed, but no pixel checksum or PASS marker appeared. Mainline CI did not publish diagnostic artifacts."
       },
       {
         "run_id": 36114799741,
@@ -193,7 +241,7 @@
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-25T09:09:40Z",
+    "last_checked_at": "2026-09-25T10:33:11Z",
     "activation_requirement": "Read the authoritative 0.1 status and require M30 PASS plus an explicit 0.2 integration checkpoint before any 0.2 runtime/product work starts."
   },
   "blocker": {
@@ -209,7 +257,7 @@
       "Do not change 0.1 runtime code, M17 acceptance assertions, or start M18-M30."
     ]
   },
-  "next_action": "Commit the verified state/status checkpoint, push codex/0.2-development-foundation without merging, then inspect its CI by run ID and collect M17 diagnostics. Record exact branch and run SHAs before closing the workstream.",
+  "next_action": "DF-01 is complete. Check mainline CI run 36120900543 and update the 0.1 status with its result. Keep Nagi 0.1 M18–M30 NOT STARTED until M17 passes; resume 0.2 runtime/product work only after M30 is PASS and an explicit 0.2 integration checkpoint establishes the release-line boundary.",
   "acceptance_criteria": [
     "A clean clone can identify its current 0.2 workstream, current Git HEAD, last verified SHA, blocker, and exact next action from tracked state.",
     "The registry/state validator rejects missing fields, invalid status or failure classes, duplicate IDs/branches, unsafe state paths, and missing dependencies.",

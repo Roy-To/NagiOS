@@ -19,29 +19,51 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI #187 (`36115897284`, head
-`5b2d23541cab881facb5e9ada9503fd28608644b`) is in progress. Ubuntu and Windows
-host jobs passed; target bootstrap, dependency-boundary validation, Mesa,
-package, and kernel steps passed, and the target user-init build is still
-running. This run verifies the root `Cargo.lock` fix from #186; it has not yet
-reached M17 QEMU. The latest completed run, #186, failed the Ubuntu locked
-Clippy, Windows host build, and target dependency checks because the root
-`Cargo.lock` lacked the `servo-paint-api -> libc` edge. Earlier CI #184 reached
-M17 QEMU and timed out after `Nagi M17 trace: GL context creation started`,
-without any pixel checksum or Surface-present marker. M17 remains blocked until
-the guest renders and presents a nonzero Servo pixel checksum; M18 remains
-`NOT STARTED` until M17 is formally PASS.
+milestone. Mainline CI #209 (`36120900543`, head
+`c41d313d98b3d9dfa3c7f8421453e8f2890149dc`) is testing the newest M17 trace
+routing change. Ubuntu and Windows host jobs passed; target M17 QEMU acceptance
+started at 10:22:08 UTC and is still running. The latest completed mainline run,
+#187 (`36115897284`, head `5b2d23541cab881facb5e9ada9503fd28608644b`), passed
+the root `Cargo.lock` fix and all target build stages but failed M17 after QEMU
+timed out at GL context creation, without a pixel checksum or pass marker. An
+isolated foundation run captured complete diagnostics for the same failure;
+details are recorded below. M17 remains blocked until the guest renders and
+presents a nonzero Servo pixel checksum; M18 remains `NOT STARTED` until M17 is
+formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36114799741` (#186, head
-`30b2494e556ce27a21e85975da75a3112c436510`) passed pinned Servo bootstrap, then
-failed the root locked dependency checks. Windows host build, Ubuntu Clippy,
-and target feature-boundary verification all reported `Cargo.lock needs to be
-updated but --locked was passed`; target Mesa, kernel, and M17 acceptance did
-not run. Commit `5b2d23541cab881facb5e9ada9503fd28608644b` records the root
-lockfile edge. Public CI #187 is verifying it; target init linking is in
-progress, with no M17 result yet. Public target CI remains authoritative for
-M17. M17 remains blocked; M18 remains not started.
+**Last known repair checkpoint:** public CI run `36115897284` (#187, head
+`5b2d23541cab881facb5e9ada9503fd28608644b`) verified the root lockfile edge
+added by that commit and reached M17 acceptance. Both host jobs and every target
+build prerequisite passed. The guest passed persistent storage and acquired a
+Surface, then QEMU timed out after 120 seconds at `GL context creation started`
+(exit code 4); no pixel checksum or pass marker was produced. The mainline
+workflow did not publish full diagnostic artifacts. Public target CI remains
+authoritative for M17. M17 remains blocked; M18 remains not started.
+Main commit `c41d313d98b3d9dfa3c7f8421453e8f2890149dc` now routes Servo trace
+checkpoints through the guest console; mainline CI #209 is testing that repair.
+
+### Current M17 continuation after CI run #187 (2026-09-25)
+
+Run `36115897284` (#187, head
+`5b2d23541cab881facb5e9ada9503fd28608644b`) passed Ubuntu and Windows host
+checks and all target build stages, including the Nagi user-init link and UEFI
+loader. M17 acceptance then exited 4: QEMU did not exit within 120 seconds. The
+serial tail confirms persistence and Surface acquisition, followed by
+`Nagi M17 trace: GL context creation started`; no first-web-pixel checksum or
+guest PASS marker appeared. This is a `GRAPHICS` blocker. The mainline workflow
+did not upload an artifact, so the failed step log is the available evidence.
+The isolated foundation run `36117826259` (head
+`18b364dc01c6a95bbda492f36c8dd0586f12ca8d`) repeated the same timeout with the
+diagnostic instrumentation enabled. Its report classified `GRAPHICS`, recorded
+exit code 4, timeout termination, 14 unique diagnostic lines, and 0 undefined
+symbols. The retained artifact `m17-diagnostics-36117826259` (26,788 bytes)
+contains seven logs, two image artifact hashes, and a runner resource snapshot;
+GitHub artifact ID is `10857594909`. The report says the source worktree was
+dirty after the build, so that status should be inspected if the target build
+is resumed. This is supplementary evidence from the isolated foundation
+branch; mainline run #187 remains the current 0.1 CI result. Do not weaken the
+acceptance or start M18 while M17 is blocked.
 
 ### Current M17 continuation after CI run #186 (2026-09-25)
 
@@ -53,7 +75,8 @@ feature-boundary check failed, and the Windows host build failed, because the
 Nagi root `Cargo.lock` did not contain the `servo-paint-api -> libc` edge. The
 target did not proceed to Mesa or M17 QEMU. Commit
 `5b2d23541cab881facb5e9ada9503fd28608644b` adds that root lock edge; public CI
-#187 is verifying the repair. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+#187 verified the repair and reached M17, where QEMU timed out before the first
+pixel. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #185 (2026-09-25)
 
