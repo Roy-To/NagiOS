@@ -1,0 +1,127 @@
+diff --git a/src/egl/main/eglcontext.c b/src/egl/main/eglcontext.c
+index 640a6a417c4..a7b2d4728d8 100644
+--- a/src/egl/main/eglcontext.c
++++ b/src/egl/main/eglcontext.c
+@@ -34,0 +35 @@
++#include "util/u_debug.h"
+@@ -40,0 +42,7 @@
++#ifdef __NAGI__
++#define EGL_CONTEXT_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: EGL context %s\n", message)
++#else
++#define EGL_CONTEXT_NAGI_TRACE(message) ((void) 0)
++#endif
++
+@@ -842 +850 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
+-   _EGLThreadInfo *t = _eglGetCurrentThread();
++   _EGLThreadInfo *t;
+@@ -844,0 +853,5 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++   EGL_CONTEXT_NAGI_TRACE("make-current check entered");
++   EGL_CONTEXT_NAGI_TRACE("check thread-info lookup started");
++   t = _eglGetCurrentThread();
++   EGL_CONTEXT_NAGI_TRACE("check thread-info lookup returned");
++
+@@ -847 +860,2 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
+-      if (draw || read)
++      if (draw || read) {
++         EGL_CONTEXT_NAGI_TRACE("binding rejected: surfaces supplied without context");
+@@ -848,0 +863 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++      }
+@@ -851,0 +867 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++   EGL_CONTEXT_NAGI_TRACE("make-current context validated");
+@@ -852,0 +869 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++   EGL_CONTEXT_NAGI_TRACE("make-current display resolved");
+@@ -854 +871,3 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
+-       (draw == NULL || read == NULL))
++       (draw == NULL || read == NULL)) {
++      EGL_CONTEXT_NAGI_TRACE(
++         "binding rejected: missing surface without surfaceless support");
+@@ -855,0 +875,2 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++   }
++   EGL_CONTEXT_NAGI_TRACE("make-current surface mode validated");
+@@ -869 +890,4 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
+-   if (ctx->Binding && ctx->Binding != t)
++   EGL_CONTEXT_NAGI_TRACE("binding ownership checks started");
++   if (ctx->Binding && ctx->Binding != t) {
++      EGL_CONTEXT_NAGI_TRACE(
++         "binding rejected: context owned by another thread");
+@@ -870,0 +895 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++   }
+@@ -872 +897,3 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
+-      if (draw->CurrentContext->Binding != t)
++      if (draw->CurrentContext->Binding != t) {
++         EGL_CONTEXT_NAGI_TRACE(
++            "binding rejected: draw surface owned by another thread");
+@@ -873,0 +901 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++      }
+@@ -876 +904,3 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
+-      if (read->CurrentContext->Binding != t)
++      if (read->CurrentContext->Binding != t) {
++         EGL_CONTEXT_NAGI_TRACE(
++            "binding rejected: read surface owned by another thread");
+@@ -877,0 +908 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++      }
+@@ -878,0 +910 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++   EGL_CONTEXT_NAGI_TRACE("binding ownership checks completed");
+@@ -881,0 +914 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++   EGL_CONTEXT_NAGI_TRACE("surface config checks started");
+@@ -884 +917,2 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
+-          (read && read->Config != ctx->Config))
++          (read && read->Config != ctx->Config)) {
++         EGL_CONTEXT_NAGI_TRACE("binding rejected: surface config mismatch");
+@@ -885,0 +920 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++      }
+@@ -890,0 +926 @@ _eglCheckMakeCurrent(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read)
++   EGL_CONTEXT_NAGI_TRACE("surface config checks completed");
+@@ -909 +945 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
+-   _EGLThreadInfo *t = _eglGetCurrentThread();
++   _EGLThreadInfo *t;
+@@ -913 +949,8 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
+-   if (!_eglCheckMakeCurrent(ctx, draw, read))
++   EGL_CONTEXT_NAGI_TRACE("binding helper entered");
++   EGL_CONTEXT_NAGI_TRACE("binding thread-info lookup started");
++   t = _eglGetCurrentThread();
++   EGL_CONTEXT_NAGI_TRACE("binding thread-info lookup returned");
++
++   EGL_CONTEXT_NAGI_TRACE("make-current checks started");
++   if (!_eglCheckMakeCurrent(ctx, draw, read)) {
++      EGL_CONTEXT_NAGI_TRACE("make-current checks failed");
+@@ -914,0 +958,2 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   }
++   EGL_CONTEXT_NAGI_TRACE("make-current checks completed");
+@@ -916,0 +962 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   EGL_CONTEXT_NAGI_TRACE("binding resource references started");
+@@ -919,0 +966 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   EGL_CONTEXT_NAGI_TRACE("binding resource references completed");
+@@ -921,0 +969 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   EGL_CONTEXT_NAGI_TRACE("thread context binding started");
+@@ -922,0 +971 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   EGL_CONTEXT_NAGI_TRACE("thread context binding completed");
+@@ -924,0 +974 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   EGL_CONTEXT_NAGI_TRACE("previous surface bindings cleanup started");
+@@ -938,0 +989 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   EGL_CONTEXT_NAGI_TRACE("previous surface bindings cleanup completed");
+@@ -949,0 +1001 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   EGL_CONTEXT_NAGI_TRACE("surface bindings established");
+@@ -955,0 +1008 @@ _eglBindContext(_EGLContext *ctx, _EGLSurface *draw, _EGLSurface *read,
++   EGL_CONTEXT_NAGI_TRACE("binding helper completed");
+diff --git a/src/egl/main/eglcurrent.c b/src/egl/main/eglcurrent.c
+index 6707897971e..ab6ef0cc839 100644
+--- a/src/egl/main/eglcurrent.c
++++ b/src/egl/main/eglcurrent.c
+@@ -35,0 +36 @@
++#include "util/u_debug.h"
+@@ -40,0 +42,7 @@
++#ifdef __NAGI__
++#define EGL_CURRENT_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: EGL current %s\n", message)
++#else
++#define EGL_CURRENT_NAGI_TRACE(message) ((void) 0)
++#endif
++
+@@ -179,0 +188 @@ _eglDebugReport(EGLenum error, const char *funcName, EGLint type,
++   EGL_CURRENT_NAGI_TRACE("debug report global mutex lock started");
+@@ -180,0 +190 @@ _eglDebugReport(EGLenum error, const char *funcName, EGLint type,
++   EGL_CURRENT_NAGI_TRACE("debug report global mutex acquired");
+@@ -184,0 +195 @@ _eglDebugReport(EGLenum error, const char *funcName, EGLint type,
++   EGL_CURRENT_NAGI_TRACE("debug report global mutex released");

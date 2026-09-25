@@ -1165,6 +1165,102 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_egl_context_binding_has_ordered_trace_checkpoints() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0026-nagi-egl-context-binding-traces.patch"),
+        )
+        .expect("Nagi EGL context binding trace patch");
+
+        for checkpoint in [
+            "binding helper entered",
+            "binding thread-info lookup started",
+            "binding thread-info lookup returned",
+            "make-current checks started",
+            "check thread-info lookup started",
+            "check thread-info lookup returned",
+            "binding ownership checks started",
+            "binding ownership checks completed",
+            "binding rejected: surfaces supplied without context",
+            "binding rejected: missing surface without surfaceless support",
+            "binding rejected: context owned by another thread",
+            "binding rejected: draw surface owned by another thread",
+            "binding rejected: read surface owned by another thread",
+            "binding rejected: surface config mismatch",
+            "surface config checks started",
+            "surface config checks completed",
+            "binding resource references started",
+            "binding resource references completed",
+            "thread context binding started",
+            "thread context binding completed",
+            "previous surface bindings cleanup started",
+            "previous surface bindings cleanup completed",
+            "surface bindings established",
+            "binding helper completed",
+            "debug report global mutex lock started",
+            "debug report global mutex acquired",
+            "debug report global mutex released",
+        ] {
+            assert!(
+                patch.contains(checkpoint),
+                "missing M17 EGL context binding checkpoint: {checkpoint}"
+            );
+        }
+
+        let helper_entered = patch
+            .find("binding helper entered")
+            .expect("binding helper entry checkpoint");
+        let thread_lookup_started = patch
+            .find("binding thread-info lookup started")
+            .expect("binding thread-info lookup start checkpoint");
+        let thread_lookup_returned = patch
+            .find("binding thread-info lookup returned")
+            .expect("binding thread-info lookup return checkpoint");
+        let checks_started = patch
+            .find("make-current checks started")
+            .expect("make-current checks start checkpoint");
+        let checks_completed = patch
+            .find("make-current checks completed")
+            .expect("make-current checks completion checkpoint");
+        let references_started = patch
+            .find("binding resource references started")
+            .expect("binding references start checkpoint");
+        let context_binding_started = patch
+            .find("thread context binding started")
+            .expect("thread context bind start checkpoint");
+        let helper_completed = patch
+            .find("binding helper completed")
+            .expect("binding helper completion checkpoint");
+
+        assert!(helper_entered < thread_lookup_started);
+        assert!(thread_lookup_started < thread_lookup_returned);
+        assert!(thread_lookup_returned < checks_started);
+        assert!(checks_started < checks_completed);
+        assert!(checks_completed < references_started);
+        assert!(references_started < context_binding_started);
+        assert!(context_binding_started < helper_completed);
+        assert!(patch.contains("#ifdef __NAGI__"));
+        assert!(patch.contains("_debug_printf(\"Nagi M17 trace: EGL context %s\\n\", message)"));
+        assert!(patch.contains("_debug_printf(\"Nagi M17 trace: EGL current %s\\n\", message)"));
+        assert!(!patch.contains("_eglLog"));
+
+        let lock_started = patch
+            .find("debug report global mutex lock started")
+            .expect("debug report global mutex lock checkpoint");
+        let lock_acquired = patch
+            .find("debug report global mutex acquired")
+            .expect("debug report global mutex acquired checkpoint");
+        let lock_released = patch
+            .find("debug report global mutex released")
+            .expect("debug report global mutex released checkpoint");
+        assert!(lock_started < lock_acquired);
+        assert!(lock_acquired < lock_released);
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

@@ -159,6 +159,14 @@ acquisition, driver dispatch and lock reacquisition, DRI binding, framebuffer
 validation, and first pbuffer resource creation. They do not change rendering
 or framebuffer ownership.
 
+`0026-nagi-egl-context-binding-traces.patch` adds checkpoints inside EGL's
+thread and surface binding helper. They distinguish thread-info lookup,
+make-current ownership/config validation, resource refcount updates, and
+current-context/surface binding. It also brackets the EGL debug-report global
+mutex and marks each binding rejection path, so a target trace can identify a
+stalled validation error path. The Nagi-only traces preserve EGL binding
+semantics and do not alter context ownership.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

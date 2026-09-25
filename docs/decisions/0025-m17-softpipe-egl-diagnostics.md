@@ -155,6 +155,19 @@ display locking, handle validation, DRI2 binding, state-tracker framebuffer
 validation, and the surfaceless pbuffer's backing-resource callback. The
 checkpoints are diagnostic only and keep the same pbuffer and GL behavior.
 
+CI #198 confirmed that the call entered Mesa's public `eglMakeCurrent`,
+acquired the display lock, resolved handles, completed API validation, and
+entered DRI2 `dri2_make_current`. Its last marker was
+`DRI2 EGL binding started`, immediately before `_eglBindContext`; the helper
+did not return before the 120-second timeout. The trace therefore narrows the
+stall to `_eglBindContext` or one of its helpers, without yet proving whether
+thread-info lookup, ownership/config validation, reference updates, or binding
+is responsible. Mesa patch `0026` adds Nagi-only checkpoints across those
+internal stages, marks each validation rejection, and brackets the separate
+EGL debug-report global mutex. These checkpoints distinguish TLS access,
+validation, error-report locking, and binding work without changing EGL
+binding behavior or acceptance requirements.
+
 After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
 `libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
 that route did not provide reliable evidence. CI #188 also produced no trace
@@ -176,11 +189,11 @@ instruction in the constructor body; other targets retain a no-op helper.
 - CI #192 established that context creation returns `EGL_BAD_ALLOC`. Source
   inspection found Softpipe's 192 MiB eager cache matrix exceeds Nagi's 8 MiB
   heap; patch `0022` allocates only caches for bound sampler views on Nagi. CI
-  #196 traced through EGL context linking; #197 then confirmed dummy-pbuffer
-  creation but timed out during the initial pbuffer `eglMakeCurrent`. Mesa
-  patches `0024` and `0025`, plus Surfman patch `0002`, add Nagi-only trace
-  checkpoints through context linking, EGL/DRI binding, framebuffer
-  validation, and first pbuffer backing allocation. They do not relax the
-  M17 acceptance criteria or change the rendering path.
+  #196 traced through EGL context linking; #197 confirmed dummy-pbuffer
+  creation; #198 entered EGL/DRI binding but timed out inside
+  `_eglBindContext`. Mesa patches `0024`–`0026`, plus Surfman patch `0002`,
+  add Nagi-only trace checkpoints through context linking and EGL thread,
+  context, and surface binding. They do not relax the M17 acceptance criteria
+  or change the rendering path.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.
