@@ -19,27 +19,46 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #180 passed both host jobs, the real Servo init link, and UEFI
-loader build. QEMU reached the kernel and passed M2–M4, SMP, storage/network/
-sound, and display/input setup, then timed out 120 seconds after
-`Nagi M5 user process START`; it printed no prepare error or later user marker.
-The failure therefore remains localized to user-process preparation or entry,
-with the exact stage unknown. The next CI adds stage and PT_LOAD mapping
-progress, then traces Surface, GL context, Servo, and WebView construction. It
-also aligns M17's startup with the existing two-boot persistence gate: M17 init
-will perform the M7 persistent write/read path before launching Servo. No
-Servo-pixel evidence has been produced. M17 remains blocked until the guest
-renders and presents a nonzero Servo pixel checksum; M18 remains forbidden
-until M17 is formally PASS.
+milestone. CI #181 passed both host jobs, Mesa/package/kernel builds, the real
+Servo user-init link, and UEFI loader build. The M17 QEMU gate reached the UEFI
+loader, which opened `INIT.ELF` and read its size but failed during the file
+data read before `Nagi Kernel started`. The loader currently discards the EFI
+status and byte offset. The next change reports that status, failing offset,
+requested bytes, and file size, and adds a host-only regression that checks all
+links in a 3,899-cluster FAT12 chain matching the previously measured pinned
+Servo init ELF size. No Servo-pixel evidence has been produced. M17 remains
+blocked until the guest renders and presents a nonzero Servo pixel checksum;
+M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36082853692` (#180, head
-`18547213daa966fa37ce5ecde8047ef742091991`) completed with failure. Both host
-jobs and all target builds passed. The first M17 boot timed out at M5 before
-the persistent-write marker; serial ended after user-process preparation began.
-The current changes add stage-level kernel/userspace traces and ensure M17
-init performs the M7 persistent storage check that the CLI's first-boot gate
-expects before it starts Servo. See ADRs 0022 and 0023.
+**Last known repair checkpoint:** public CI run `36088261144` (#181, head
+`25b8a6b4a69e1253977f94415d6937bb34b0d4a1`) completed with failure. Both host
+jobs and all target builds passed. The final QEMU boot reached
+`Nagi Loader: init read failed` after opening the init ELF and allocating its
+buffer; the serial tail contains no kernel-start or pixel marker. The CLI had
+advanced beyond the first persistent-write gate. The current diagnostic adds
+the EFI status and failing read range, and a host-only test covers the full
+long-file FAT12 chain. M17 remains blocked; M18 remains not started.
+
+### Current M17 continuation after CI run #181 (2026-09-25)
+
+CI run `36088261144` (#181, head
+`25b8a6b4a69e1253977f94415d6937bb34b0d4a1`) passed Ubuntu host and Windows
+launcher acceptance, Mesa Softpipe construction, package/kernel builds, the
+real Servo user-init link, and UEFI loader build. The M17 acceptance command
+ran for 18 minutes and then failed in its final QEMU boot. UEFI reported
+`Nagi Loader: init read failed`; the path lookup, ELF size query, page
+allocation, and rewind had succeeded, but `RegularFile::read` returned an EFI
+error. The loader did not preserve the status or read offset, so the exact
+firmware failure is unknown. The log contains no `Nagi Kernel started` marker
+or Servo pixel checksum. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+The next repair adds the EFI status, file offset, requested read size, and total
+file size to that loader diagnostic. A host-only FAT regression checks every
+link in a 3,899-cluster chain matching the 127,747,368-byte init ELF measured in
+CI #175, without allocating the complete 128 MiB image. Use the resulting
+status and offset to choose a targeted UEFI file-read or image-chain repair;
+the current evidence does not justify changing the boot image format.
 
 ### Current M17 continuation after CI run #180 (2026-09-25)
 

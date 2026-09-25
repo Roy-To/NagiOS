@@ -1106,8 +1106,9 @@ fn guest_reached_acceptance(serial: &str, acceptance_marker: &str) -> bool {
 mod tests {
     use super::{
         build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
-        qemu_audio_driver_for_host, DATA_OFFSET, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
-        M17_IMAGE_SIZE, PERSISTENT_DISK_SIZE, ROOT_OFFSET,
+        initialize_fats, qemu_audio_driver_for_host, write_chain, Fat12Geometry, DATA_OFFSET,
+        FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER,
+        PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
     };
 
     #[test]
@@ -1268,6 +1269,48 @@ mod tests {
             packed_fat_entry >> 4
         };
         assert_eq!(fat_entry, 0x0fff);
+    }
+
+    #[test]
+    fn m17_fat12_long_init_chain_preserves_every_cluster_link() {
+        // CI #175 measured this pinned Servo init ELF before the image was
+        // expanded. Exercise its complete FAT chain without allocating the
+        // 128 MiB payload or full disk image.
+        let geometry =
+            Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)
+                .expect("M17 FAT12 geometry");
+        let init_size = 127_747_368_usize;
+        let init_clusters = init_size.div_ceil(geometry.cluster_size());
+        let first_cluster = 100_u16;
+        let last_cluster = first_cluster + init_clusters as u16 - 1;
+        assert_eq!(init_clusters, 3_899);
+        assert!(usize::from(last_cluster) <= geometry.data_clusters() + 1);
+
+        let mut fat =
+            vec![0; geometry.fat_offset(FAT_COUNT - 1) + geometry.sectors_per_fat * SECTOR_SIZE];
+        initialize_fats(&mut fat, geometry);
+        write_chain(&mut fat, geometry, first_cluster, init_clusters);
+
+        for fat_index in 0..FAT_COUNT {
+            for index in 0..init_clusters {
+                let cluster = first_cluster + index as u16;
+                let offset = geometry.fat_offset(fat_index)
+                    + usize::from(cluster)
+                    + usize::from(cluster) / 2;
+                let packed = u16::from_le_bytes([fat[offset], fat[offset + 1]]);
+                let actual = if cluster & 1 == 0 {
+                    packed & 0x0fff
+                } else {
+                    packed >> 4
+                };
+                let expected = if index + 1 == init_clusters {
+                    0x0fff
+                } else {
+                    cluster + 1
+                };
+                assert_eq!(actual, expected, "FAT {fat_index}, cluster {cluster}");
+            }
+        }
     }
 
     #[test]

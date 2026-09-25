@@ -185,7 +185,16 @@ fn read_init(image_handle: Handle) -> Result<InitImageInfo, &'static str> {
         let chunk_end = (offset + INIT_READ_CHUNK_SIZE).min(size);
         let count = file
             .read(&mut buffer[offset..chunk_end])
-            .map_err(|_| error_message("Nagi Loader: init read failed"))?;
+            .map_err(|error| {
+                uefi::println!(
+                    "Nagi Loader: init read failed status={:?} offset={:#x} request={:#x} file={:#x}",
+                    error,
+                    offset,
+                    chunk_end - offset,
+                    size,
+                );
+                error_message("Nagi Loader: init read failed")
+            })?;
         if count == 0 {
             return Err(error_message("Nagi Loader: short init read"));
         }
