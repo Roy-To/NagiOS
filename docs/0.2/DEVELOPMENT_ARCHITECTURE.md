@@ -151,10 +151,11 @@ retain at most the newest pending run. Cheap host jobs may cancel stale work.
 Release acceptance uses an immutable commit and a non-canceling concurrency
 group. Every result is attached to its exact head SHA.
 
-A push or pull request that changes only a workstream `state.json` does not
-dispatch the full build workflow; owners run `./nagi dev verify` before such a
-checkpoint. Mixed state and source changes still run CI. The host jobs also
-execute the verifier, so registry/schema/tooling changes remain covered.
+A push or pull request that changes only a workstream `state.json` or the
+authoritative 0.1 status handoff does not dispatch the full build workflow;
+owners run `./nagi dev verify` before state-only checkpoints. Mixed status and
+source changes still run CI. The host jobs also execute the verifier, so
+registry/schema/tooling changes remain covered.
 
 The current target job still performs dependency/bootstrap/build and M17
 acceptance in one job. Splitting it is a later optimization gated on a measured

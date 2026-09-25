@@ -4,9 +4,11 @@ on:
   push:
     paths-ignore:
       - '.dev/workstreams/**/state.json'
+      - 'docs/implementation_status.md'
   pull_request:
     paths-ignore:
       - '.dev/workstreams/**/state.json'
+      - 'docs/implementation_status.md'
 
 permissions:
   contents: read
