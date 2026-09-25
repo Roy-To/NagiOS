@@ -1,0 +1,76 @@
+diff --git a/src/gallium/drivers/softpipe/sp_context.c b/src/gallium/drivers/softpipe/sp_context.c
+index 36662dc6fc5..ea375c0942c 100644
+--- a/src/gallium/drivers/softpipe/sp_context.c
++++ b/src/gallium/drivers/softpipe/sp_context.c
+@@ -243,0 +244 @@ softpipe_create_context(struct pipe_screen *screen,
++#ifndef __NAGI__
+@@ -250,0 +252 @@ softpipe_create_context(struct pipe_screen *screen,
++#endif
+diff --git a/src/gallium/drivers/softpipe/sp_state_sampler.c b/src/gallium/drivers/softpipe/sp_state_sampler.c
+index c20de39a881..54425fff3a4 100644
+--- a/src/gallium/drivers/softpipe/sp_state_sampler.c
++++ b/src/gallium/drivers/softpipe/sp_state_sampler.c
+@@ -34,0 +35,4 @@
++#ifdef __NAGI__
++#include "util/os_misc.h"
++#include "util/u_debug.h"
++#endif
+@@ -97,0 +102,38 @@ softpipe_sampler_view_destroy(struct pipe_context *pipe,
++#ifdef __NAGI__
++static void
++softpipe_update_tex_cache(struct softpipe_context *softpipe,
++                          enum pipe_shader_type shader,
++                          unsigned slot,
++                          struct pipe_sampler_view *view)
++{
++   struct softpipe_tex_tile_cache **cache = &softpipe->tex_cache[shader][slot];
++
++   if (view && !*cache) {
++      *cache = sp_create_tex_tile_cache(&softpipe->pipe);
++      if (!*cache) {
++         debug_printf("Nagi Softpipe: out of memory creating a bound texture cache\n");
++         os_abort();
++      }
++   }
++
++   if (!*cache)
++      return;
++
++   sp_tex_tile_cache_set_sampler_view(*cache, view);
++   if (!view) {
++      sp_destroy_tex_tile_cache(*cache);
++      *cache = NULL;
++   }
++}
++#else
++static void
++softpipe_update_tex_cache(struct softpipe_context *softpipe,
++                          enum pipe_shader_type shader,
++                          unsigned slot,
++                          struct pipe_sampler_view *view)
++{
++   sp_tex_tile_cache_set_sampler_view(softpipe->tex_cache[shader][slot], view);
++}
++#endif
++
++
+@@ -128,2 +170 @@ softpipe_set_sampler_views(struct pipe_context *pipe,
+-      sp_tex_tile_cache_set_sampler_view(softpipe->tex_cache[shader][start + i],
+-                                         views[i]);
++      softpipe_update_tex_cache(softpipe, shader, start + i, views[i]);
+@@ -148,2 +189 @@ softpipe_set_sampler_views(struct pipe_context *pipe,
+-      sp_tex_tile_cache_set_sampler_view(softpipe->tex_cache[shader][start + i],
+-                                         NULL);
++      softpipe_update_tex_cache(softpipe, shader, start + i, NULL);
+@@ -359 +398,0 @@ softpipe_init_sampler_funcs(struct pipe_context *pipe)
+-
+diff --git a/src/gallium/drivers/softpipe/sp_tex_tile_cache.c b/src/gallium/drivers/softpipe/sp_tex_tile_cache.c
+index 4bc8e3e4a0c..97a4cdff044 100644
+--- a/src/gallium/drivers/softpipe/sp_tex_tile_cache.c
++++ b/src/gallium/drivers/softpipe/sp_tex_tile_cache.c
+@@ -82,0 +83 @@ sp_destroy_tex_tile_cache(struct softpipe_tex_tile_cache *tc)
++      pipe_resource_reference(&tc->texture, NULL);
+@@ -169,0 +171,3 @@ sp_flush_tex_tile_cache(struct softpipe_tex_tile_cache *tc)
++   if (!tc)
++      return;
++

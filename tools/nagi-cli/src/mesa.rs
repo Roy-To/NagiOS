@@ -981,6 +981,24 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_softpipe_allocates_texture_caches_only_for_bound_views() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0022-nagi-lazy-softpipe-texture-caches.patch"),
+        )
+        .expect("Nagi Softpipe texture-cache patch");
+        assert!(patch.contains("#ifndef __NAGI__"));
+        assert!(patch.contains("softpipe_update_tex_cache"));
+        assert!(patch.contains("sp_create_tex_tile_cache(&softpipe->pipe)"));
+        assert!(patch.contains("sp_destroy_tex_tile_cache(*cache)"));
+        assert!(patch.contains("out of memory creating a bound texture cache"));
+        assert!(patch.contains("if (!tc)"));
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

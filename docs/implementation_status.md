@@ -19,26 +19,44 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #191 passed target builds and reached Surfman's
-device.create_context, which returned an error, but its detailed trace was
-empty. The formatted error is dynamically allocated in the Nagi POSIX heap;
-the console syscall's preliminary range policy excluded the mmap-backed heap
-even though its later check already validates mapped user-readable pages. The
-current repair allows bounded mmap ranges through that preliminary check and
-makes the Albert callback report console-write failures. No Servo-pixel
-evidence has been produced. M17 remains blocked until the guest renders and
-presents a nonzero Servo pixel checksum; M18 remains forbidden until M17 is
-formally PASS.
+milestone. CI #192 reported `ContextCreationFailed(BadAlloc)` from
+`eglCreateContext`. Source inspection found that Softpipe eagerly creates 768
+texture caches requiring more than 192 MiB, while Nagi's POSIX heap is fixed
+at 8 MiB. Mesa patch `0022` now creates a cache only for each actually bound
+sampler view and releases it on unbind. The cache-size mismatch is confirmed
+in source; whether it caused the CI failure remains to be checked on target.
+No Servo-pixel evidence has been produced. M17 remains BLOCKED until the guest
+renders and presents a nonzero Servo pixel checksum; M18 remains NOT STARTED
+until M17 is formally PASS.
 
-**Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36139834714` (#191, head
-`8e12ce4e98616c6146e57707114b04929421889b`) passed Ubuntu and Windows host
+**Last updated:** 2026-09-26
+**Last known repair checkpoint:** public CI run `36145246098` (#192, head
+`8f97294433285dd0e284bbbe5dbf0b93e0809809`) passed Ubuntu and Windows host
 checks, target dependency validation, Mesa Softpipe, package, kernel, Nagi
-user-init link, and UEFI loader build. QEMU reached Surfman's GL context
-creation and reported FAIL GL context; the error callback emitted an empty
-trace because the formatted message resides in mmap-backed heap memory. Public
-target CI remains authoritative for M17. M17 remains BLOCKED; M18 remains
-NOT STARTED.
+user-init link, and UEFI loader build. QEMU passed the two-boot storage gate,
+initialized the static Softpipe DRI screen, then reported
+`ContextCreationFailed(BadAlloc)` from Surfman's EGL context creation. Source
+inspection found that the eagerly allocated Softpipe texture-cache matrix
+requires over 192 MiB against the fixed 8 MiB Nagi POSIX heap. Patch `0022`
+changes Nagi to allocate cache storage only for bound sampler views. This is a
+targeted repair whose runtime effect remains unverified. Public target CI
+remains authoritative for M17; M18 remains NOT STARTED.
+
+### Local continuation after CI run #192 (2026-09-26)
+
+CI #192's `ContextCreationFailed(BadAlloc)` is returned after `eglCreateContext`
+yields `EGL_NO_CONTEXT`, before pbuffer creation, `eglMakeCurrent`, or surface
+setup. Source inspection confirmed that the eager Softpipe texture-cache
+matrix needs over 192 MiB, while the Nagi POSIX heap is 8 MiB. Replaced the
+initial alignment hypothesis with tracked Mesa patch `0022`, which lazily
+allocates caches for bound views and releases them on unbind. It aborts with a
+diagnostic if a required cache still cannot be allocated. A clean worktree at
+the pinned Mesa revision accepted all 22 numbered patches in order. The 59
+`nagi-cli` library tests, clippy, and formatting check pass. The local Mesa
+build reached Meson but could not pass its ELF linker probe: Homebrew Clang
+selected Mach-O `ld64.lld`, which rejected the ELF-only link arguments, before
+Mesa C sources compiled. Target compilation and the runtime effect remain to
+be verified by public CI; M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #191 (2026-09-25)
 

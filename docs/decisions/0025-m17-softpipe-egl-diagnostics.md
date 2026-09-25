@@ -74,6 +74,28 @@ allows bounded mmap ranges through the preliminary check and keeps the mapped
 page validation and kernel-side copy in place. The callback also checks and
 reports failed writes.
 
+CI run #192 (`36145246098`) displayed the error and its enum value:
+`ContextCreationFailed(BadAlloc)`. Surfman's source shows this variant is
+returned only when `eglCreateContext` returns `EGL_NO_CONTEXT` and
+`eglGetError()` returns `EGL_BAD_ALLOC`; this is before dummy-pbuffer creation
+and `eglMakeCurrent`. Mesa can map either its EGL context-wrapper allocation
+failure or a DRI/Softpipe context-setup failure to that code.
+
+The pinned Softpipe source eagerly allocates one texture tile cache for each
+of its 6 shader stages and 128 sampler-view slots during context creation. A
+cache embeds sixteen 32×32 RGBA-float tiles, so its tile storage alone is 256
+KiB; the full 768-cache matrix exceeds 192 MiB. Nagi's current POSIX heap is
+fixed at 8 MiB. The context creation loop returns failure when any cache
+allocation fails, which can surface as `EGL_BAD_ALLOC`. This is a
+source-confirmed memory-budget mismatch and a plausible cause of CI #192, but
+the CI result alone does not prove this was the allocation that failed.
+
+Patch `0022` avoids eager cache allocation on Nagi. It allocates a cache when
+a non-null sampler view is bound, releases it on unbind, and fails explicitly
+if a live binding cannot obtain its cache. Other platforms keep the upstream
+eager path. This retains the existing sampler-view limit and sampling logic;
+the target QEMU run must verify whether context creation now advances.
+
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
 software adapter. Mesa EGL, however, normally derives software selection from
@@ -113,5 +135,11 @@ instruction in the constructor body; other targets retain a no-op helper.
   address policy. The next target run will report the actual Surfman error, or
   a console-write failure marker if the bounded mapped-range check still
   rejects the buffer.
+- CI #192 established that context creation returns `EGL_BAD_ALLOC`. Source
+  inspection found Softpipe's 192 MiB eager cache matrix exceeds Nagi's 8 MiB
+  heap; patch `0022` allocates only caches for bound sampler views on Nagi. A
+  new target run must show whether the context advances. If it still fails,
+  instrument the DRI context result and raw EGL error before choosing another
+  memory change.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

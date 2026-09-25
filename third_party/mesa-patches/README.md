@@ -129,6 +129,16 @@ Nagi-only warning-level trace points bracket device discovery, driver
 initialization, surfaceless software probing, the no-DRM swrast path, and DRI
 screen creation so target serial output identifies a stalled stage.
 
+`0022-nagi-lazy-softpipe-texture-caches.patch` avoids allocating Softpipe's
+entire texture-cache matrix when a Nagi EGL context is created. The pinned
+Softpipe cache embeds sixteen 32×32 RGBA-float tiles (at least 256 KiB) per
+shader sampler-view slot; eagerly creating all 6×128 slots requires more than
+192 MiB, while the current Nagi POSIX heap is 8 MiB. Nagi now creates a cache
+only when a non-null sampler view is bound and destroys it when that slot is
+unbound. If a bound cache still cannot be allocated, Mesa reports the failure
+and aborts instead of sampling through a null cache or producing misleading
+render output. Other targets keep Mesa's eager cache initialization.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache
