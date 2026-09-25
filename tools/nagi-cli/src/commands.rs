@@ -1780,7 +1780,13 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             timeout,
         };
         if let Err(error) = run_qemu(&first_config) {
-            return failure(EXIT_CONFIG_ERROR, format!("m17: first boot: {error}"));
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m17: first boot: {error}\nserial log tail:\n{}",
+                    serial_log_tail(&first_log, 64)
+                ),
+            );
         }
         let first_serial = match fs::read_to_string(&first_log) {
             Ok(serial) => serial,
@@ -1814,7 +1820,15 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     };
     let status = match run_qemu(&config) {
         Ok(status) => status,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m17: QEMU: {error}")),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m17: QEMU: {error}\nserial log tail:\n{}",
+                    serial_log_tail(&log_path, 64)
+                ),
+            )
+        }
     };
     let serial = match fs::read_to_string(&log_path) {
         Ok(serial) => serial,
@@ -1847,6 +1861,20 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             log_path.display()
         )],
     }
+}
+
+fn serial_log_tail(path: &Path, max_lines: usize) -> String {
+    let serial = match fs::read_to_string(path) {
+        Ok(serial) => serial,
+        Err(error) => return format!("(could not read {}: {error})", path.display()),
+    };
+    last_serial_lines(&serial, max_lines)
+}
+
+fn last_serial_lines(serial: &str, max_lines: usize) -> String {
+    let mut lines = serial.lines().rev().take(max_lines).collect::<Vec<_>>();
+    lines.reverse();
+    lines.join("\n")
 }
 
 fn resolve_m17_cxx_headers() -> Result<PathBuf, String> {
@@ -2725,5 +2753,18 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
     CommandResult {
         exit_code,
         lines: vec![format!("FAIL {}", message.into())],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::last_serial_lines;
+
+    #[test]
+    fn serial_log_excerpt_keeps_the_last_lines_in_order() {
+        assert_eq!(
+            last_serial_lines("first\r\nsecond\r\nthird\r\n", 2),
+            "second\nthird"
+        );
     }
 }

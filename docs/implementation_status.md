@@ -20,11 +20,11 @@ Repository instructions:
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
 milestone. CI #176 passed the real target user-init link and UEFI loader build,
-and CI #177 accepted the host-specific QEMU audio backend, but QEMU could not
-open M17's missing persistent user-data disk before guest boot. A local fix now
-creates the disk and performs the expected first-boot storage marker check;
-public verification is pending. Both host/format issues found in #176 are now
-cleared in CI. No guest boot or pixel evidence has been produced. The current
+CI #177 accepted the host-specific QEMU audio backend, and CI #178 passed the
+M17 disk to QEMU, but its first-boot marker was not observed within 120 seconds.
+The local repair now includes the serial-log tail on M17 boot failures so the
+next public run can identify where boot stopped. The host format/audio issues
+are cleared. No guest-pixel evidence has been produced. The current
 implementation expands only M17's FAT12 ESP, reads init directly into
 below-4-GiB UEFI pages, maps the real ELF through a bounded 512 MiB user image
 window, and allocates zero-fill pages from Nagi conventional memory. M17 remains
@@ -32,21 +32,19 @@ blocked until the guest renders and presents a nonzero Servo pixel checksum;
 M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36065949056` (#177, head
-`fdc37631dd1242574be3d8558a52f823c1f3deeb`) completed with failure. Ubuntu
-host and Windows launcher jobs passed. The target job built the real Servo
-init ELF and UEFI loader; the host-specific QEMU audio selection also allowed
-QEMU to parse the command line. QEMU then failed because
-`out/artifacts/nagi-0.1-m17-user-data.img` did not exist. The guest did not
-print `Nagi Kernel started`; no guest-pixel evidence exists. CI #176 had
-previously exposed and the local formatting repair now fixes the loader
-workspace rustfmt difference. The current local change creates the M17
-persistent disk and, for a fresh disk, requires the established first-boot
-storage marker before running pixel acceptance. Local `nagi-cli` tests (51 unit
-and 18 integration), Clippy, and pinned format checks pass. This repair awaits
-public verification. Earlier CI #175 reported the init ELF exceeding the
-previous 8 MiB FAT12 per-file capacity. See ADR 0022 for the bounded loader and
-user ELF mapping decision.
+**Last known repair checkpoint:** public CI run `36071410328` (#178, head
+`b15cbaa4ef9983529c4fe2065e8f1eeb13d7597f`) completed with failure. Ubuntu
+host and Windows launcher jobs passed; target init link and UEFI loader passed.
+QEMU accepted the Linux audio backend and the newly created persistent disk.
+The first boot then timed out after 120 seconds before the
+`Nagi M7 persistent write PASS` marker was detected. It did not reach the
+dedicated Servo pixel boot. The run has no uploaded serial-log artifact. The
+current local change prints the last 64 serial-log lines when either M17 QEMU
+boot times out. Local `nagi-cli` tests (52 unit and 18 integration), Clippy,
+and pinned format checks pass. The next public run is needed to locate the boot
+stall. Earlier CI #175 reported the init ELF exceeding the previous 8 MiB
+FAT12 per-file capacity. See ADR 0022 for the bounded loader and user ELF
+mapping decision.
 
 ### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 
@@ -386,6 +384,24 @@ Local verification passes 51 `nagi-cli` unit tests, 18 integration tests,
 Clippy with warnings denied, all pinned CI formatting checks, and
 `git diff --check`. M17 remains `BLOCKED`; M18 remains `NOT STARTED` pending
 public QEMU and guest-pixel evidence.
+
+### Current M17 continuation after CI run #178 (2026-09-25)
+
+Public CI run `36071410328` was triggered from head
+`b15cbaa4ef9983529c4fe2065e8f1eeb13d7597f`. Ubuntu host and Windows launcher
+passed. The target passed Mesa, kernel, Servo user-init, and UEFI loader builds.
+QEMU accepted the Linux `none` audio backend and opened the newly created M17
+persistent disk. Its first boot did not exit or emit the expected
+`Nagi M7 persistent write PASS` marker within 120 seconds, so the CLI stopped
+before the dedicated pixel boot. No guest-pixel acceptance was produced.
+
+The run did not upload `out/logs/m17-first-boot.log`, leaving the exact boot
+stage unknown. The local repair appends the last 64 lines of the M17 serial log
+when the first or final QEMU boot fails. The target's marker and pixel
+acceptance conditions remain unchanged. Local verification passes 52
+`nagi-cli` unit tests, 18 integration tests, Clippy with warnings denied, all
+pinned CI formatting checks, and `git diff --check`. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED` pending real guest-boot and pixel evidence.
 
 ### Current M17 continuation after CI run #176 (2026-09-25)
 
