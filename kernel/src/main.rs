@@ -211,7 +211,11 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
         serial_write(b"Nagi M5 init image FAIL\r\n");
         halt_forever();
     }
-    let context = match nagi_kernel::user_process::prepare(boot_info, &mut allocator) {
+    let context = match nagi_kernel::user_process::prepare_with_progress(
+        boot_info,
+        &mut allocator,
+        report_user_process_stage,
+    ) {
         Ok(context) => context,
         Err(error) => {
             serial_write(b"Nagi M5 user address space FAIL\r\n");
@@ -247,11 +251,113 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
             halt_forever();
         }
     };
+    serial_write(b"Nagi M5 trace: syscall setup started\r\n");
     if syscall::initialize().is_err() {
         serial_write(b"Nagi M5 syscall initialization FAIL\r\n");
         halt_forever();
     }
+    serial_write(b"Nagi M5 trace: syscall setup complete\r\n");
+    serial_write(b"Nagi M5 trace: entering user mode\r\n");
     unsafe { nagi_kernel::user_process::enter(context) }
+}
+
+fn report_user_process_stage(stage: nagi_kernel::user_process::PrepareStage) {
+    use nagi_kernel::user_process::PrepareStage;
+
+    match stage {
+        PrepareStage::BootInfoValidated => {
+            serial_write(b"Nagi M5 trace: BootInfo validated\r\n");
+        }
+        PrepareStage::InitImageDetails { bytes } => {
+            serial_write(b"Nagi M5 trace: init image bytes=");
+            serial_write_decimal(bytes);
+            serial_write(b"\r\n");
+        }
+        PrepareStage::InitImageMappingCheckStarted => {
+            serial_write(b"Nagi M5 trace: init image identity check started\r\n");
+        }
+        PrepareStage::InitImageIdentityMapped => {
+            serial_write(b"Nagi M5 trace: init image identity mapped\r\n");
+        }
+        PrepareStage::InitElfParsed => serial_write(b"Nagi M5 trace: init ELF parsed\r\n"),
+        PrepareStage::BootstrapSlotAcquired => {
+            serial_write(b"Nagi M5 trace: bootstrap slot acquired\r\n");
+        }
+        PrepareStage::LoadPlanValidated => {
+            serial_write(b"Nagi M5 trace: ELF load plan validated\r\n");
+        }
+        PrepareStage::BootstrapStorageResetStarted => {
+            serial_write(b"Nagi M5 trace: bootstrap storage reset started\r\n");
+        }
+        PrepareStage::BootstrapStorageReset => {
+            serial_write(b"Nagi M5 trace: bootstrap storage reset complete\r\n");
+        }
+        PrepareStage::PageTableHierarchyBuilt => {
+            serial_write(b"Nagi M5 trace: page table hierarchy built\r\n");
+        }
+        PrepareStage::TlsInitialized => {
+            serial_write(b"Nagi M5 trace: TLS initialized\r\n");
+        }
+        PrepareStage::StackMapped => serial_write(b"Nagi M5 trace: stack mapped\r\n"),
+        PrepareStage::TlsMapped => serial_write(b"Nagi M5 trace: TLS mapped\r\n"),
+        PrepareStage::SurfaceMapped => serial_write(b"Nagi M5 trace: Surface mapped\r\n"),
+        PrepareStage::LoadSegmentMapping {
+            segment_index,
+            page_count,
+            file_bytes,
+            memory_bytes,
+        } => {
+            serial_write(b"Nagi M5 trace: PT_LOAD segment ");
+            serial_write_decimal(segment_index);
+            serial_write(b" mapping started pages=");
+            serial_write_decimal(page_count);
+            serial_write(b" file_bytes=");
+            serial_write_decimal(file_bytes);
+            serial_write(b" memory_bytes=");
+            serial_write_decimal(memory_bytes);
+            serial_write(b"\r\n");
+        }
+        PrepareStage::LoadSegmentProgress {
+            segment_index,
+            mapped_pages,
+            total_pages,
+        } => {
+            serial_write(b"Nagi M5 trace: PT_LOAD segment ");
+            serial_write_decimal(segment_index);
+            serial_write(b" mapped pages=");
+            serial_write_decimal(mapped_pages);
+            serial_write(b"/");
+            serial_write_decimal(total_pages);
+            serial_write(b"\r\n");
+        }
+        PrepareStage::LoadSegmentMapped {
+            segment_index,
+            page_count,
+        } => {
+            serial_write(b"Nagi M5 trace: PT_LOAD segment ");
+            serial_write_decimal(segment_index);
+            serial_write(b" mapping complete pages=");
+            serial_write_decimal(page_count);
+            serial_write(b"\r\n");
+        }
+        PrepareStage::UserContextReady => {
+            serial_write(b"Nagi M5 trace: user context ready\r\n");
+        }
+    }
+}
+
+fn serial_write_decimal(mut value: usize) {
+    let mut digits = [0_u8; 20];
+    let mut start = digits.len();
+    loop {
+        start -= 1;
+        digits[start] = b'0' + (value % 10) as u8;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    serial_write(&digits[start..]);
 }
 
 #[panic_handler]

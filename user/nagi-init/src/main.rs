@@ -494,7 +494,22 @@ pub extern "C" fn _start(
     return m13_std::run(block_capability, net_capability);
 
     #[cfg(feature = "m17-servo")]
-    return run_first_web_pixel(display_capability);
+    {
+        libnagi::console_write(b"Nagi M17 trace: user entry reached\r\n");
+        let Some((exit_code, volume)) = run_m7_storage_acceptance(block_capability) else {
+            libnagi::console_write(static_message!(
+                NAGI_INIT_M7_STORAGE_FAIL,
+                M7_STORAGE_FAIL_LEN
+            ));
+            libnagi::exit(1);
+        };
+        if exit_code != 0 {
+            libnagi::exit(exit_code);
+        }
+        drop(volume);
+        libnagi::console_write(b"Nagi M17 trace: persistent storage accepted\r\n");
+        return run_first_web_pixel(display_capability);
+    }
 
     #[cfg(not(any(
         feature = "m9-window",

@@ -2767,4 +2767,39 @@ mod tests {
             "second\nthird"
         );
     }
+
+    #[test]
+    fn m17_init_storage_bootstrap_matches_the_two_boot_acceptance_gate() {
+        let init = include_str!("../../../user/nagi-init/src/main.rs");
+        let runner = include_str!("image.rs");
+        let start = init
+            .find("pub extern \"C\" fn _start")
+            .expect("nagi-init entry point");
+        let init_entry = &init[start..];
+        let m17_start = init_entry
+            .find("#[cfg(feature = \"m17-servo\")]")
+            .expect("M17 init branch");
+        let m17_branch = &init_entry[m17_start..];
+        let m17_end = m17_branch
+            .find("#[cfg(not(any(")
+            .expect("generic init branch after M17");
+        let m17_branch = &m17_branch[..m17_end];
+        let storage = m17_branch
+            .find("run_m7_storage_acceptance(block_capability)")
+            .expect("M17 first boot storage acceptance");
+        let pixel = m17_branch
+            .find("run_first_web_pixel(display_capability)")
+            .expect("M17 first web pixel path");
+        assert!(
+            storage < pixel,
+            "M17 must verify persistent storage before Servo"
+        );
+        assert!(
+            m17_branch[storage..pixel].contains("libnagi::exit(exit_code)"),
+            "the first persistent-write boot must stop before the pixel boot"
+        );
+        assert!(runner
+            .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\""));
+        assert!(init.contains("Nagi M7 persistent write PASS"));
+    }
 }

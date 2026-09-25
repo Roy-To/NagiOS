@@ -91,6 +91,42 @@ pub enum UserProcessError {
     PhysicalMemoryExhausted,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrepareStage {
+    BootInfoValidated,
+    InitImageDetails {
+        bytes: usize,
+    },
+    InitImageMappingCheckStarted,
+    InitImageIdentityMapped,
+    InitElfParsed,
+    BootstrapSlotAcquired,
+    LoadPlanValidated,
+    BootstrapStorageResetStarted,
+    BootstrapStorageReset,
+    PageTableHierarchyBuilt,
+    TlsInitialized,
+    StackMapped,
+    TlsMapped,
+    SurfaceMapped,
+    LoadSegmentMapping {
+        segment_index: usize,
+        page_count: usize,
+        file_bytes: usize,
+        memory_bytes: usize,
+    },
+    LoadSegmentProgress {
+        segment_index: usize,
+        mapped_pages: usize,
+        total_pages: usize,
+    },
+    LoadSegmentMapped {
+        segment_index: usize,
+        page_count: usize,
+    },
+    UserContextReady,
+}
+
 #[repr(C, align(4096))]
 struct PageBytes([u8; PAGE_SIZE as usize]);
 
@@ -192,14 +228,27 @@ pub fn prepare(
     boot_info: &BootInfo,
     allocator: &mut PageAllocator,
 ) -> Result<UserContext, UserProcessError> {
+    prepare_with_progress(boot_info, allocator, |_| {})
+}
+
+/// Validate and prepare the one-shot M17 bootstrap process image while
+/// reporting coarse progress to the caller. The progress hook is diagnostic
+/// only; it does not affect allocation, mapping, or entry decisions.
+pub fn prepare_with_progress(
+    boot_info: &BootInfo,
+    allocator: &mut PageAllocator,
+    mut progress: impl FnMut(PrepareStage),
+) -> Result<UserContext, UserProcessError> {
     boot_info
         .validate_for_user_bootstrap()
         .map_err(UserProcessError::InvalidBootInfo)?;
+    progress(PrepareStage::BootInfoValidated);
     let image_size =
         usize::try_from(boot_info.init_image.size).map_err(|_| UserProcessError::ImageTooLarge)?;
     if image_size > MAX_INIT_IMAGE_SIZE {
         return Err(UserProcessError::ImageTooLarge);
     }
+    progress(PrepareStage::InitImageDetails { bytes: image_size });
     boot_info
         .init_image
         .address
@@ -207,18 +256,22 @@ pub fn prepare(
         .ok_or(UserProcessError::ImageOutOfBounds)?;
 
     let active_cr3 = current_cr3();
-    if !unsafe {
+    progress(PrepareStage::InitImageMappingCheckStarted);
+    let image_is_mapped = unsafe {
         identity_mapped(
             active_cr3,
             boot_info.init_image.address,
             boot_info.init_image.size,
         )
-    } {
+    };
+    if !image_is_mapped {
         return Err(UserProcessError::ImageNotMapped);
     }
+    progress(PrepareStage::InitImageIdentityMapped);
     let image =
         unsafe { slice::from_raw_parts(boot_info.init_image.address as *const u8, image_size) };
     let plan = user_elf::parse(image).map_err(UserProcessError::InvalidElf)?;
+    progress(PrepareStage::InitElfParsed);
 
     if BOOTSTRAP_IN_USE
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -226,6 +279,7 @@ pub fn prepare(
     {
         return Err(UserProcessError::KernelUserSlotOccupied);
     }
+    progress(PrepareStage::BootstrapSlotAcquired);
     let kernel_pml4 = unsafe { &*(active_cr3 as *const PageTable) };
     let result = unsafe {
         build_address_space_with_allocator(
@@ -236,6 +290,7 @@ pub fn prepare(
             &mut *BOOTSTRAP_STORAGE.0.get(),
             allocator,
             active_cr3,
+            &mut progress,
         )
     };
     if result.is_ok() {
@@ -676,7 +731,8 @@ pub(crate) fn build_address_space(
     storage: &mut BootstrapStorage,
 ) -> Result<UserContext, UserProcessError> {
     validate_plan(plan, image)?;
-    prepare_address_space_storage(plan, image, kernel_pml4, storage)?;
+    let mut ignore_progress = |_| {};
+    prepare_address_space_storage(plan, image, kernel_pml4, storage, &mut ignore_progress)?;
     for segment in &plan.segments[..plan.segment_count] {
         map_segment_for_test(segment, image, storage)?;
     }
@@ -691,20 +747,26 @@ fn build_address_space_with_allocator(
     storage: &mut BootstrapStorage,
     allocator: &mut PageAllocator,
     active_cr3: u64,
+    progress: &mut impl FnMut(PrepareStage),
 ) -> Result<UserContext, UserProcessError> {
     validate_plan(plan, image)?;
-    prepare_address_space_storage(plan, image, kernel_pml4, storage)?;
-    for segment in &plan.segments[..plan.segment_count] {
+    progress(PrepareStage::LoadPlanValidated);
+    prepare_address_space_storage(plan, image, kernel_pml4, storage, progress)?;
+    for (segment_index, segment) in plan.segments[..plan.segment_count].iter().enumerate() {
         map_segment_from_image(
+            segment_index,
             segment,
             image,
             image_physical_base,
             storage,
             allocator,
             active_cr3,
+            progress,
         )?;
     }
-    build_user_context(plan, storage)
+    let context = build_user_context(plan, storage)?;
+    progress(PrepareStage::UserContextReady);
+    Ok(context)
 }
 
 fn prepare_address_space_storage(
@@ -712,11 +774,14 @@ fn prepare_address_space_storage(
     image: &[u8],
     kernel_pml4: &PageTable,
     storage: &mut BootstrapStorage,
+    progress: &mut impl FnMut(PrepareStage),
 ) -> Result<(), UserProcessError> {
     if kernel_pml4.raw_entry(USER_PML4_INDEX).is_some() {
         return Err(UserProcessError::KernelUserSlotOccupied);
     }
+    progress(PrepareStage::BootstrapStorageResetStarted);
     storage.clear();
+    progress(PrepareStage::BootstrapStorageReset);
     display::clear_surface();
     for index in 0..512 {
         if index == USER_PML4_INDEX {
@@ -731,7 +796,9 @@ fn prepare_address_space_storage(
     }
 
     map_hierarchy(storage)?;
+    progress(PrepareStage::PageTableHierarchyBuilt);
     initialize_tls(plan, image, storage)?;
+    progress(PrepareStage::TlsInitialized);
     for index in 0..USER_STACK_PAGES {
         map_leaf(
             &mut storage.stack_pt,
@@ -743,6 +810,7 @@ fn prepare_address_space_storage(
                 | PageTableEntry::NO_EXECUTE,
         )?;
     }
+    progress(PrepareStage::StackMapped);
     for index in 0..USER_TLS_PAGE_COUNT {
         map_leaf(
             &mut storage.tls_pt,
@@ -754,6 +822,7 @@ fn prepare_address_space_storage(
                 | PageTableEntry::NO_EXECUTE,
         )?;
     }
+    progress(PrepareStage::TlsMapped);
     for index in 0..SURFACE_PAGE_COUNT {
         map_leaf(
             &mut storage.surface_pt,
@@ -765,6 +834,7 @@ fn prepare_address_space_storage(
                 | PageTableEntry::NO_EXECUTE,
         )?;
     }
+    progress(PrepareStage::SurfaceMapped);
     Ok(())
 }
 
@@ -1083,15 +1153,25 @@ fn map_image_leaf(
 }
 
 fn map_segment_from_image(
+    segment_index: usize,
     segment: &crate::user_elf::UserLoadSegment,
     image: &[u8],
     image_physical_base: u64,
     storage: &mut BootstrapStorage,
     allocator: &mut PageAllocator,
     active_cr3: u64,
+    progress: &mut impl FnMut(PrepareStage),
 ) -> Result<(), UserProcessError> {
     let first_page = ((segment.virtual_address - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
     let page_count = segment.memory_size.div_ceil(PAGE_SIZE) as usize;
+    progress(PrepareStage::LoadSegmentMapping {
+        segment_index,
+        page_count,
+        file_bytes: usize::try_from(segment.file_size)
+            .map_err(|_| UserProcessError::ImageTooLarge)?,
+        memory_bytes: usize::try_from(segment.memory_size)
+            .map_err(|_| UserProcessError::ImageTooLarge)?,
+    });
     let mut leaf_flags = PageTableEntry::PRESENT | PageTableEntry::USER;
     if segment.flags & PF_W != 0 {
         leaf_flags |= PageTableEntry::WRITABLE;
@@ -1135,7 +1215,18 @@ fn map_segment_from_image(
             page
         };
         map_image_leaf(storage, first_page + relative_page, physical, leaf_flags)?;
+        if (relative_page + 1).is_multiple_of(1024) {
+            progress(PrepareStage::LoadSegmentProgress {
+                segment_index,
+                mapped_pages: relative_page + 1,
+                total_pages: page_count,
+            });
+        }
     }
+    progress(PrepareStage::LoadSegmentMapped {
+        segment_index,
+        page_count,
+    });
     Ok(())
 }
 

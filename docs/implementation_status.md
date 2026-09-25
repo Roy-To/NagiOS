@@ -19,27 +19,48 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #179 passed both host jobs, the real Servo init link, and UEFI
-loader build, but QEMU stopped in the loader while reserving kernel PT_LOAD
-segment 2 at `0x219000`. Local QEMU/OVMF reproduced the failure and its memory
-map showed that the 18.9 MiB segment crossed ACPI and Boot Services reservations.
-ADR 0023 moves the fixed kernel link base to 64 MiB; a local QEMU boot now reaches
-the kernel and passes the M2–M4 markers. The local default non-Servo init then
-fails M5 ELF validation because it carries an empty PT_TLS header, so the next
-authoritative check is CI with the real M17 init image. No Servo-pixel evidence
-has been produced. M17 remains blocked until the guest renders and presents a
-nonzero Servo pixel checksum; M18 remains forbidden until M17 is formally PASS.
+milestone. CI #180 passed both host jobs, the real Servo init link, and UEFI
+loader build. QEMU reached the kernel and passed M2–M4, SMP, storage/network/
+sound, and display/input setup, then timed out 120 seconds after
+`Nagi M5 user process START`; it printed no prepare error or later user marker.
+The failure therefore remains localized to user-process preparation or entry,
+with the exact stage unknown. The next CI adds stage and PT_LOAD mapping
+progress, then traces Surface, GL context, Servo, and WebView construction. It
+also aligns M17's startup with the existing two-boot persistence gate: M17 init
+will perform the M7 persistent write/read path before launching Servo. No
+Servo-pixel evidence has been produced. M17 remains blocked until the guest
+renders and presents a nonzero Servo pixel checksum; M18 remains forbidden
+until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36076724861` (#179, head
-`2821d0156841c9afe7fa11b3755dbfd0f09b9e13`) completed with failure. Ubuntu host
-and Windows launcher passed; the target passed Mesa, kernel, Servo user-init,
-and UEFI loader builds. The M17 QEMU boot failed before kernel entry because
-the fixed kernel BSS PT_LOAD crossed firmware-reserved ranges. The current
-uncommitted repair moves the kernel to 64 MiB and reports overlapping UEFI
-memory descriptors if a fixed segment allocation fails. Local QEMU reaches the
-kernel with this address, but M17 acceptance with the real Servo image remains
-pending. See ADRs 0022 and 0023.
+**Last known repair checkpoint:** public CI run `36082853692` (#180, head
+`18547213daa966fa37ce5ecde8047ef742091991`) completed with failure. Both host
+jobs and all target builds passed. The first M17 boot timed out at M5 before
+the persistent-write marker; serial ended after user-process preparation began.
+The current changes add stage-level kernel/userspace traces and ensure M17
+init performs the M7 persistent storage check that the CLI's first-boot gate
+expects before it starts Servo. See ADRs 0022 and 0023.
+
+### Current M17 continuation after CI run #180 (2026-09-25)
+
+CI run `36082853692` (#180, head
+`18547213daa966fa37ce5ecde8047ef742091991`) passed Ubuntu host, Windows
+launcher, Mesa Softpipe, package, kernel, real Servo user-init link, and UEFI
+loader steps. The QEMU first boot printed `Nagi Kernel started`, M2–M4 PASS,
+SMP workloads PASS, VirtIO Block/Net/Sound PASS, and M9 display/input setup
+PASS, then stopped after `Nagi M5 user process START` until the 120-second
+timeout. It did not print a user-address-space error, syscall error, or user
+process output. This does not establish whether preparation, ring-3 entry, or
+early userspace stalled.
+
+The diagnosis also found that the M17 `_start` branch returned directly to the
+Servo pixel path, while `execute_m17` first waits for
+`Nagi M7 persistent write PASS` and then boots again to verify persistent
+storage. The M17 branch now runs that real M7 write/read check first, exits
+after the initial write, and continues to Servo on the verifying boot. New
+serial progress reports will identify the stalled kernel preparation phase,
+PT_LOAD page counts and BSS sizes, and Servo initialization phase. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 

@@ -95,10 +95,13 @@ mod guest {
     }
 
     pub fn run_first_web_pixel(display_capability: u64) -> ! {
+        libnagi::console_write(b"Nagi M17 trace: Surface acquisition started\r\n");
         let Some(surface) = NagiSurface::acquire(display_capability) else {
             libnagi::console_write(b"Nagi M17 first web pixel FAIL surface\r\n");
             libnagi::exit(1);
         };
+        libnagi::console_write(b"Nagi M17 trace: Surface acquired\r\n");
+        libnagi::console_write(b"Nagi M17 trace: GL context creation started\r\n");
         let context = match SoftwareRenderingContext::new(PhysicalSize::new(WIDTH, HEIGHT)) {
             Ok(context) => Rc::new(context),
             Err(_) => {
@@ -106,20 +109,26 @@ mod guest {
                 libnagi::exit(1);
             }
         };
+        libnagi::console_write(b"Nagi M17 trace: GL context created\r\n");
         let signal = Arc::new(EventLoopSignal::new());
+        libnagi::console_write(b"Nagi M17 trace: Servo construction started\r\n");
         let servo = ServoBuilder::default()
             .event_loop_waker(Box::new(NagiWaker(signal.clone())))
             .build();
         servo.setup_logging();
+        libnagi::console_write(b"Nagi M17 trace: Servo constructed\r\n");
         let delegate = Rc::new(FirstPixelDelegate {
             context: context.clone(),
             surface: RefCell::new(surface),
         });
         let url = Url::parse(FIRST_WEB_PAGE).expect("the bundled M17 data URL is valid");
+        libnagi::console_write(b"Nagi M17 trace: WebView construction started\r\n");
         let _webview = WebViewBuilder::new(&servo, context)
             .url(url)
             .delegate(delegate)
             .build();
+        libnagi::console_write(b"Nagi M17 trace: WebView constructed\r\n");
+        libnagi::console_write(b"Nagi M17 trace: Servo event loop started\r\n");
         loop {
             // The pinned Servo embedder owns shutdown handling and exposes
             // `spin_event_loop` as a unit-returning heartbeat.
