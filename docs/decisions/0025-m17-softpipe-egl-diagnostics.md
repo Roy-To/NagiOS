@@ -18,6 +18,12 @@ EGL or Servo/Surfman stage messages appeared in the guest serial log. This
 does not prove whether the call path was missed or the stderr logging route
 failed to expose the messages.
 
+CI run #185 (`36113604201`) did not reach M17 acceptance. The Ubuntu host,
+Windows, and target jobs all stopped during `nagi-bootstrap fetch` because the
+direct `libc` dependency added to `servo-paint-api` was not yet present in
+Servo's lockfile. The `--locked` check correctly rejected that incomplete
+source patch set. Patch `0009` now records the corresponding lockfile entry.
+
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
 software adapter. Mesa EGL, however, normally derives software selection from

@@ -1,0 +1,17 @@
+diff --git a/Cargo.lock b/Cargo.lock
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -9224,12 +9224,13 @@
+ name = "servo-paint-api"
+ version = "0.6.0"
+ dependencies = [
+  "bitflags 2.13.2",
+  "crossbeam-channel",
+  "dpi",
+  "euclid",
+  "gleam",
+  "glow",
+  "image",
++ "libc",
+  "log",
+  "malloc_size_of_derive",

@@ -762,12 +762,19 @@ mod tests {
             root.join("third_party/servo-patches/0008-nagi-m17-rendering-context-traces.patch"),
         )
         .expect("M17 rendering-context trace patch");
+        let lock_patch =
+            fs::read_to_string(root.join(
+                "third_party/servo-patches/0009-nagi-m17-rendering-context-traces-lock.patch",
+            ))
+            .expect("M17 rendering-context trace Cargo.lock patch");
         assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
         assert!(patch.contains("libc::write(2, PREFIX.as_ptr().cast(), PREFIX.len())"));
         assert!(
             !patch.contains("eprintln!(\"Nagi M17 trace: {stage}\")"),
             "M17 stage traces must bypass stdio formatting and locking"
         );
+        assert!(lock_patch.contains("name = \"servo-paint-api\""));
+        assert!(lock_patch.contains("+ \"libc\","));
         for stage in [
             "Surfman connection started",
             "GL context creation started",
