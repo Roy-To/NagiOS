@@ -19,24 +19,48 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #196 passed the two-boot persistence gate, target Mesa Softpipe
-archive, package, kernel, user-init link, UEFI loader, and Mesa/DRI/EGL context
-creation through `EGL context linking completed`. QEMU still timed out after
-120 seconds before Surfman's `GL context created` marker. The stop is now
-narrowed to Surfman's post-`eglCreateContext` work before its
-`device.create_context` returns. Patch `0002` traces dummy-pbuffer creation,
-make-current, and GL function loading inside pinned Surfman. No Servo-pixel
-evidence has been produced. M17 remains BLOCKED; M18 remains NOT STARTED.
+milestone. CI #197 passed the two-boot persistence gate, target Mesa Softpipe
+archive, package, kernel, user-init link, and UEFI loader. It created the
+dummy pbuffer, then QEMU timed out after 120 seconds during Surfman's first
+`eglMakeCurrent` call. Mesa patch `0025` adds Nagi-only traces from the EGL
+entrypoint through DRI2, Gallium DRI, state-tracker framebuffer validation,
+and pbuffer backing allocation. No Servo-pixel evidence has been produced.
+M17 remains BLOCKED; M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36174195146` (#196, head
-`712b343a817bb4aa177f16dbdbbeb27ceee950c8`) passed Ubuntu and Windows host
+**Last known repair checkpoint:** public CI run `36179321453` (#197, head
+`cb8ab251ec3e085950cdb51369d12a1a1fb32c5b`) passed Ubuntu and Windows host
 checks and all target builds through UEFI loader. The real QEMU acceptance
-passed the two-boot storage gate and traced context creation through Mesa
-state-tracker, DRI, EGL context linking, then timed out after 120 seconds
-inside Surfman's `device.create_context`. Patch `0002` adds traces around
-Surfman's dummy pbuffer, make-current, and GL loader. Public target CI remains
-authoritative for M17; M18 remains NOT STARTED.
+passed the two-boot storage gate, built the EGL context, and created Surfman's
+dummy pbuffer. Its final serial marker was `Surfman make-current started`;
+QEMU timed out after 120 seconds with no return marker. Public target CI
+remains authoritative for M17; M18 remains NOT STARTED.
+
+### Target evidence from CI run #197 (2026-09-26)
+
+Run `36179321453` (#197, head
+`cb8ab251ec3e085950cdb51369d12a1a1fb32c5b`) passed both host jobs and every
+target build step through the UEFI loader. The real two-boot QEMU acceptance
+passed storage persistence and completed Mesa Softpipe, GL state-tracker, DRI
+context construction, EGL context creation/linking, and dummy-pbuffer setup.
+The final marker was `Surfman make-current started`; `eglMakeCurrent` did not
+return before QEMU's 120-second timeout. The log does not establish whether
+the call reached Mesa's public EGL entrypoint. No real Servo frame, pixel
+checksum, or PASS marker was produced. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+### Local continuation after CI run #197 (2026-09-26)
+
+Added Mesa patch `0025` with Nagi-only checkpoints from the public EGL
+`eglMakeCurrent` entry through display locking, DRI2 binding, Gallium DRI,
+state-tracker framebuffer validation, and first pbuffer backing allocation.
+The patch is diagnostic-only. A clean worktree at pinned Mesa revision
+`f1f246cfda65eff82fba3be1caf2d23bdeda60cc` accepted patches `0001`–`0025` in
+numeric order with each prechecked, and `git diff --check` passed. All 63
+`nagi-cli` library tests, clippy with `-D warnings`, and
+`cargo fmt --all -- --check` passed. Target compilation and QEMU verification
+of patch `0025` remain pending public CI. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Target evidence from CI run #196 (2026-09-26)
 

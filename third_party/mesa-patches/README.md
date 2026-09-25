@@ -151,6 +151,14 @@ and EGL context linking. The Nagi-only checkpoints identify the next call that
 does not return after `softpipe_create_context`; they do not change rendering
 behavior or surface ownership.
 
+`0025-nagi-make-current-traces.patch` follows Surfman's first EGL
+`MakeCurrent` call from the public EGL entrypoint through DRI2, Gallium DRI,
+state-tracker framebuffer validation, and the surfaceless pbuffer backing
+allocation callbacks. The Nagi-only checkpoints distinguish display-lock
+acquisition, driver dispatch and lock reacquisition, DRI binding, framebuffer
+validation, and first pbuffer resource creation. They do not change rendering
+or framebuffer ownership.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

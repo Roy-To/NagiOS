@@ -1,0 +1,288 @@
+diff --git a/src/egl/drivers/dri2/egl_dri2.c b/src/egl/drivers/dri2/egl_dri2.c
+index 9eab624b53e..c7305201034 100644
+--- a/src/egl/drivers/dri2/egl_dri2.c
++++ b/src/egl/drivers/dri2/egl_dri2.c
+@@ -1405,0 +1406,3 @@ dri2_create_drawable(struct dri2_egl_display *dri2_dpy,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 drawable creation started");
++#endif
+@@ -1406,0 +1410,5 @@ dri2_create_drawable(struct dri2_egl_display *dri2_dpy,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, dri2_surf->dri_drawable ?
++           "Nagi M17 trace: DRI2 drawable creation returned" :
++           "Nagi M17 trace: DRI2 drawable creation failed");
++#endif
+@@ -1431 +1439,7 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
+-   if (!dri2_dpy)
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 make-current entered");
++#endif
++   if (!dri2_dpy) {
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 make-current has no display");
++#endif
+@@ -1432,0 +1447 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++   }
+@@ -1435 +1450,7 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
+-   if (!_eglBindContext(ctx, dsurf, rsurf, &old_ctx, &old_dsurf, &old_rsurf))
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 EGL binding started");
++#endif
++   if (!_eglBindContext(ctx, dsurf, rsurf, &old_ctx, &old_dsurf, &old_rsurf)) {
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 EGL binding failed");
++#endif
+@@ -1436,0 +1458,4 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++   }
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 EGL binding completed");
++#endif
+@@ -1438,0 +1464,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 binding already current");
++#endif
+@@ -1455,0 +1484,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 old context unbind started");
++#endif
+@@ -1456,0 +1488,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 old context unbind completed");
++#endif
+@@ -1461,0 +1496,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 drawable lookup started");
++#endif
+@@ -1464,0 +1502,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 drawable lookup completed");
++#endif
+@@ -1466,0 +1507,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI bind-context started");
++#endif
+@@ -1467,0 +1511,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++         _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI bind-context failed");
++#endif
+@@ -1520,0 +1567,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++         _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI bind-context completed");
++#endif
+@@ -1538 +1587,4 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
+-   if (egl_error != EGL_SUCCESS)
++   if (egl_error != EGL_SUCCESS) {
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 make-current failed");
++#endif
+@@ -1539,0 +1592 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++   }
+@@ -1552,0 +1606,3 @@ dri2_make_current(_EGLDisplay *disp, _EGLSurface *dsurf, _EGLSurface *rsurf,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 make-current completed");
++#endif
+diff --git a/src/egl/drivers/dri2/platform_surfaceless.c b/src/egl/drivers/dri2/platform_surfaceless.c
+index 941f878d7b4..66910fb388e 100644
+--- a/src/egl/drivers/dri2/platform_surfaceless.c
++++ b/src/egl/drivers/dri2/platform_surfaceless.c
+@@ -94,0 +95,3 @@ surfaceless_image_get_buffers(struct dri_drawable *driDrawable, unsigned int for
++#ifdef __NAGI__
++         _eglLog(_EGL_WARNING, "Nagi M17 trace: surfaceless pbuffer image creation started");
++#endif
+@@ -95,0 +99,5 @@ surfaceless_image_get_buffers(struct dri_drawable *driDrawable, unsigned int for
++#ifdef __NAGI__
++         _eglLog(_EGL_WARNING, dri2_surf->front ?
++                 "Nagi M17 trace: surfaceless pbuffer image creation returned" :
++                 "Nagi M17 trace: surfaceless pbuffer image creation failed");
++#endif
+diff --git a/src/egl/main/eglapi.c b/src/egl/main/eglapi.c
+index a9bc741b58d..34552a43d6d 100644
+--- a/src/egl/main/eglapi.c
++++ b/src/egl/main/eglapi.c
+@@ -978,4 +978,4 @@ eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx)
+-   _EGLDisplay *disp = _eglLockDisplay(dpy);
+-   _EGLContext *context = _eglLookupContext(ctx, disp);
+-   _EGLSurface *draw_surf = _eglLookupSurface(draw, disp);
+-   _EGLSurface *read_surf = _eglLookupSurface(read, disp);
++   _EGLDisplay *disp;
++   _EGLContext *context;
++   _EGLSurface *draw_surf;
++   _EGLSurface *read_surf;
+@@ -983,0 +984,10 @@ eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx)
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL MakeCurrent entry");
++#endif
++   disp = _eglLockDisplay(dpy);
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL MakeCurrent display lock acquired");
++#endif
++   context = _eglLookupContext(ctx, disp);
++   draw_surf = _eglLookupSurface(draw, disp);
++   read_surf = _eglLookupSurface(read, disp);
+@@ -984,0 +995,3 @@ eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx)
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL MakeCurrent handles resolved");
++#endif
+@@ -1031,0 +1045,4 @@ eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx)
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL MakeCurrent validation completed");
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL MakeCurrent driver dispatch started");
++#endif
+@@ -1036,0 +1054,3 @@ eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx)
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL MakeCurrent driver returned");
++#endif
+@@ -1037,0 +1058,3 @@ eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx)
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL MakeCurrent driver dispatch completed");
++#endif
+diff --git a/src/gallium/frontends/dri/dri_context.c b/src/gallium/frontends/dri/dri_context.c
+index 9b970ad01fe..d7ee2db0536 100644
+--- a/src/gallium/frontends/dri/dri_context.c
++++ b/src/gallium/frontends/dri/dri_context.c
+@@ -336,0 +337,3 @@ dri_make_current(struct dri_context *ctx,
++   bool current_result;
++
++   DRI_CONTEXT_NAGI_TRACE("make-current entered");
+@@ -348,0 +352 @@ dri_make_current(struct dri_context *ctx,
++   DRI_CONTEXT_NAGI_TRACE("GL thread finish started");
+@@ -349,0 +354 @@ dri_make_current(struct dri_context *ctx,
++   DRI_CONTEXT_NAGI_TRACE("GL thread finish completed");
+@@ -354,2 +359,8 @@ dri_make_current(struct dri_context *ctx,
+-   if (!draw && !read)
+-      return st_api_make_current(ctx->st, NULL, NULL);
++   if (!draw && !read) {
++      DRI_CONTEXT_NAGI_TRACE("surfaceless state tracker binding started");
++      current_result = st_api_make_current(ctx->st, NULL, NULL);
++      DRI_CONTEXT_NAGI_TRACE(current_result ?
++                             "surfaceless state tracker binding returned" :
++                             "surfaceless state tracker binding failed");
++      return current_result;
++   }
+@@ -360,0 +372 @@ dri_make_current(struct dri_context *ctx,
++   DRI_CONTEXT_NAGI_TRACE("draw drawable acquisition started");
+@@ -361,0 +374 @@ dri_make_current(struct dri_context *ctx,
++   DRI_CONTEXT_NAGI_TRACE("draw drawable acquisition completed");
+@@ -364,0 +378 @@ dri_make_current(struct dri_context *ctx,
++      DRI_CONTEXT_NAGI_TRACE("read drawable acquisition started");
+@@ -365,0 +380 @@ dri_make_current(struct dri_context *ctx,
++      DRI_CONTEXT_NAGI_TRACE("read drawable acquisition completed");
+@@ -368,0 +384 @@ dri_make_current(struct dri_context *ctx,
++   DRI_CONTEXT_NAGI_TRACE("drawable state tracker binding started");
+@@ -369,0 +386 @@ dri_make_current(struct dri_context *ctx,
++   DRI_CONTEXT_NAGI_TRACE("drawable state tracker binding returned");
+@@ -375,0 +393 @@ dri_make_current(struct dri_context *ctx,
++   DRI_CONTEXT_NAGI_TRACE("make-current completed");
+diff --git a/src/gallium/frontends/dri/dri_drawable.c b/src/gallium/frontends/dri/dri_drawable.c
+index c9099671fbd..3ce9df4dfb3 100644
+--- a/src/gallium/frontends/dri/dri_drawable.c
++++ b/src/gallium/frontends/dri/dri_drawable.c
+@@ -39,0 +40,8 @@
++#include "util/u_debug.h"
++
++#ifdef __NAGI__
++#define DRI_DRAWABLE_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: DRI drawable %s\n", message)
++#else
++#define DRI_DRAWABLE_NAGI_TRACE(message) ((void) 0)
++#endif
+@@ -78,0 +87 @@ dri_st_framebuffer_validate(struct st_context *st,
++         DRI_DRAWABLE_NAGI_TRACE("texture allocation callback started");
+@@ -79,0 +89 @@ dri_st_framebuffer_validate(struct st_context *st,
++         DRI_DRAWABLE_NAGI_TRACE("texture allocation callback returned");
+diff --git a/src/gallium/frontends/dri/drisw.c b/src/gallium/frontends/dri/drisw.c
+index 4590b57e626..282649df78d 100644
+--- a/src/gallium/frontends/dri/drisw.c
++++ b/src/gallium/frontends/dri/drisw.c
+@@ -46,0 +47,8 @@
++#include "util/u_debug.h"
++
++#ifdef __NAGI__
++#define DRISW_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: DRI swrast %s\n", message)
++#else
++#define DRISW_NAGI_TRACE(message) ((void) 0)
++#endif
+@@ -416,0 +425 @@ drisw_allocate_textures(struct dri_context *stctx,
++   DRISW_NAGI_TRACE("texture allocation entered");
+@@ -419,0 +429 @@ drisw_allocate_textures(struct dri_context *stctx,
++   DRISW_NAGI_TRACE("texture allocation GL thread finish started");
+@@ -420,0 +431 @@ drisw_allocate_textures(struct dri_context *stctx,
++   DRISW_NAGI_TRACE("texture allocation GL thread finish completed");
+@@ -423,0 +435 @@ drisw_allocate_textures(struct dri_context *stctx,
++      DRISW_NAGI_TRACE("loader buffer query started");
+@@ -426,0 +439 @@ drisw_allocate_textures(struct dri_context *stctx,
++      DRISW_NAGI_TRACE("loader buffer query returned");
+@@ -519,0 +533 @@ drisw_allocate_textures(struct dri_context *stctx,
++            DRISW_NAGI_TRACE("front resource creation started");
+@@ -522 +536,5 @@ drisw_allocate_textures(struct dri_context *stctx,
+-         } else
++            DRISW_NAGI_TRACE(drawable->textures[statts[i]] ?
++                             "front resource creation returned" :
++                             "front resource creation failed");
++         } else {
++            DRISW_NAGI_TRACE("resource creation started");
+@@ -524,0 +543,4 @@ drisw_allocate_textures(struct dri_context *stctx,
++            DRISW_NAGI_TRACE(drawable->textures[statts[i]] ?
++                             "resource creation returned" :
++                             "resource creation failed");
++         }
+@@ -542,0 +565 @@ drisw_allocate_textures(struct dri_context *stctx,
++   DRISW_NAGI_TRACE("texture allocation completed");
+diff --git a/src/mesa/state_tracker/st_manager.c b/src/mesa/state_tracker/st_manager.c
+index 88bed8c7643..ee6eac84f7f 100644
+--- a/src/mesa/state_tracker/st_manager.c
++++ b/src/mesa/state_tracker/st_manager.c
+@@ -1141,0 +1142 @@ st_api_make_current(struct st_context *st,
++   ST_MANAGER_NAGI_TRACE("make-current entered");
+@@ -1143,0 +1145 @@ st_api_make_current(struct st_context *st,
++      ST_MANAGER_NAGI_TRACE("draw framebuffer reuse-or-create started");
+@@ -1144,0 +1147 @@ st_api_make_current(struct st_context *st,
++      ST_MANAGER_NAGI_TRACE("draw framebuffer reuse-or-create completed");
+@@ -1146,0 +1150 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("read framebuffer reuse-or-create started");
+@@ -1147,0 +1152 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("read framebuffer reuse-or-create completed");
+@@ -1157 +1162,2 @@ st_api_make_current(struct st_context *st,
+-      if ((stdrawi && !stdraw) || (streadi && !stread))
++      if ((stdrawi && !stdraw) || (streadi && !stread)) {
++         ST_MANAGER_NAGI_TRACE("framebuffer allocation failed");
+@@ -1158,0 +1165 @@ st_api_make_current(struct st_context *st,
++      }
+@@ -1160,0 +1168 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("framebuffer validation started");
+@@ -1163,0 +1172 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("framebuffer validation completed");
+@@ -1164,0 +1174 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("Mesa make-current started");
+@@ -1165,0 +1176 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("Mesa make-current returned");
+@@ -1168,0 +1180 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("context validation started");
+@@ -1169,0 +1182 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("context validation completed");
+@@ -1172,0 +1186 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("surfaceless Mesa make-current started");
+@@ -1173,0 +1188 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("surfaceless Mesa make-current returned");
+@@ -1175,0 +1191 @@ st_api_make_current(struct st_context *st,
++      ST_MANAGER_NAGI_TRACE("framebuffer references release started");
+@@ -1177,0 +1194 @@ st_api_make_current(struct st_context *st,
++      ST_MANAGER_NAGI_TRACE("framebuffer references release completed");
+@@ -1181,0 +1199 @@ st_api_make_current(struct st_context *st,
++      ST_MANAGER_NAGI_TRACE("framebuffer purge started");
+@@ -1182,0 +1201 @@ st_api_make_current(struct st_context *st,
++      ST_MANAGER_NAGI_TRACE("framebuffer purge completed");
+@@ -1192,0 +1212 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("release Mesa make-current started");
+@@ -1193,0 +1214,2 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("release Mesa make-current returned");
++         ST_MANAGER_NAGI_TRACE("release framebuffer purge started");
+@@ -1194,0 +1217 @@ st_api_make_current(struct st_context *st,
++         ST_MANAGER_NAGI_TRACE("release framebuffer purge completed");
+@@ -1196,0 +1220 @@ st_api_make_current(struct st_context *st,
++      ST_MANAGER_NAGI_TRACE("clear Mesa current context started");
+@@ -1197,0 +1222 @@ st_api_make_current(struct st_context *st,
++      ST_MANAGER_NAGI_TRACE("clear Mesa current context returned");
+@@ -1199,0 +1225 @@ st_api_make_current(struct st_context *st,
++   ST_MANAGER_NAGI_TRACE("make-current completed");

@@ -1090,6 +1090,81 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_make_current_path_has_ordered_trace_checkpoints() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0025-nagi-make-current-traces.patch"),
+        )
+        .expect("Nagi make-current trace patch");
+
+        for checkpoint in [
+            "EGL MakeCurrent entry",
+            "EGL MakeCurrent display lock acquired",
+            "EGL MakeCurrent validation completed",
+            "EGL MakeCurrent driver dispatch started",
+            "EGL MakeCurrent driver returned",
+            "EGL MakeCurrent driver dispatch completed",
+            "DRI2 drawable creation started",
+            "DRI2 EGL binding completed",
+            "DRI2 drawable lookup completed",
+            "DRI bind-context started",
+            "DRI bind-context completed",
+            "GL thread finish started",
+            "draw drawable acquisition completed",
+            "drawable state tracker binding returned",
+            "framebuffer validation started",
+            "framebuffer validation completed",
+            "Mesa make-current started",
+            "Mesa make-current returned",
+            "texture allocation callback started",
+            "loader buffer query started",
+            "surfaceless pbuffer image creation started",
+            "resource creation started",
+        ] {
+            assert!(
+                patch.contains(checkpoint),
+                "missing M17 make-current checkpoint: {checkpoint}"
+            );
+        }
+
+        let egl_entry = patch
+            .find("EGL MakeCurrent entry")
+            .expect("EGL entry checkpoint");
+        let egl_lock = patch
+            .find("EGL MakeCurrent display lock acquired")
+            .expect("EGL display-lock checkpoint");
+        let egl_driver_start = patch
+            .find("EGL MakeCurrent driver dispatch started")
+            .expect("EGL driver-dispatch start checkpoint");
+        let egl_driver_return = patch
+            .find("EGL MakeCurrent driver returned")
+            .expect("EGL driver return checkpoint");
+        let egl_dispatch_done = patch
+            .find("EGL MakeCurrent driver dispatch completed")
+            .expect("EGL dispatch completion checkpoint");
+        assert!(egl_entry < egl_lock);
+        assert!(egl_lock < egl_driver_start);
+        assert!(egl_driver_start < egl_driver_return);
+        assert!(egl_driver_return < egl_dispatch_done);
+
+        let framebuffer_validation = patch
+            .find("framebuffer validation started")
+            .expect("framebuffer validation start checkpoint");
+        let mesa_make_current = patch
+            .find("Mesa make-current started")
+            .expect("Mesa make-current start checkpoint");
+        let purge = patch
+            .find("framebuffer purge started")
+            .expect("framebuffer purge start checkpoint");
+        assert!(framebuffer_validation < mesa_make_current);
+        assert!(mesa_make_current < purge);
+        assert!(patch.contains("#ifdef __NAGI__"));
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

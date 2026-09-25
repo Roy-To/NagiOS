@@ -144,6 +144,17 @@ not return. Surfman patch `0002` adds Nagi-only checkpoints around the EGL
 context wrapper, dummy pbuffer setup, make-current, and GL function loading.
 These checkpoints do not change the rendering path.
 
+CI #197 completed the dummy-pbuffer setup and stopped immediately after
+`Surfman make-current started`; no `eglMakeCurrent` return marker appeared.
+That marker is in Surfman's initial context-creation path, where `Framebuffer::None`
+uses the newly created dummy pbuffer for both EGL draw and read surfaces. It is
+not the later surfaceless rebind used after a generic texture surface is
+bound. The current log does not prove whether execution entered Mesa's public
+EGL function. Mesa patch `0025` adds Nagi-only checkpoints before and after
+display locking, handle validation, DRI2 binding, state-tracker framebuffer
+validation, and the surfaceless pbuffer's backing-resource callback. The
+checkpoints are diagnostic only and keep the same pbuffer and GL behavior.
+
 After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
 `libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
 that route did not provide reliable evidence. CI #188 also produced no trace
@@ -165,10 +176,11 @@ instruction in the constructor body; other targets retain a no-op helper.
 - CI #192 established that context creation returns `EGL_BAD_ALLOC`. Source
   inspection found Softpipe's 192 MiB eager cache matrix exceeds Nagi's 8 MiB
   heap; patch `0022` allocates only caches for bound sampler views on Nagi. CI
-  #196 advanced through EGL context linking but timed out before Surfman's
-  `device.create_context` returned. Mesa patch `0024` rules out the Mesa
-  state-tracker/DRI/EGL path; Surfman patch `0002` traces its pbuffer,
-  make-current, and GL function-loader operations so the next target run can
-  locate the remaining call before another behavior or memory change is chosen.
+  #196 traced through EGL context linking; #197 then confirmed dummy-pbuffer
+  creation but timed out during the initial pbuffer `eglMakeCurrent`. Mesa
+  patches `0024` and `0025`, plus Surfman patch `0002`, add Nagi-only trace
+  checkpoints through context linking, EGL/DRI binding, framebuffer
+  validation, and first pbuffer backing allocation. They do not relax the
+  M17 acceptance criteria or change the rendering path.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.
