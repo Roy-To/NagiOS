@@ -963,6 +963,24 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_egl_forces_static_softpipe_and_traces_initialization() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0021-nagi-static-softpipe-egl-diagnostics.patch"),
+        )
+        .expect("Nagi EGL patch");
+        assert!(patch.contains("disp->Options.ForceSoftware = EGL_TRUE;"));
+        assert!(patch.contains("disp->Options.Zink = EGL_FALSE;"));
+        assert!(patch.contains("LIBGL_ALWAYS_SOFTWARE"));
+        assert!(patch.contains("EGL device discovery started"));
+        assert!(patch.contains("surfaceless software probe started"));
+        assert!(patch.contains("DRI screen creation started"));
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

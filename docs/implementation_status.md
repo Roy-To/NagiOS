@@ -19,31 +19,55 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #182 passed target builds through the real Servo user-init link
-and UEFI loader, then the final QEMU boot failed while reading `INIT.ELF` at
-10 MiB with EFI `VOLUME_CORRUPTED`. The first M7 persistence boot writes an
-ext2 test volume through the kernel's writable block capability. The kernel
-previously selected the largest VirtIO disk, which is the 128 MiB M17 boot ESP
-rather than the 16 MiB user-data disk. The ext2 superblock write overlaps the
-FAT12 allocation table and corrupts the long INIT chain at the observed read
-offset. The repair makes the M17 boot disk read-only and excludes read-only
-VirtIO disks from writable user-storage selection. No Servo-pixel evidence has
-been produced. M17 remains blocked until the guest renders and presents a
-nonzero Servo pixel checksum; M18 remains forbidden until M17 is formally PASS.
+milestone. CI #183 passed both host jobs, Mesa Softpipe, package/kernel builds,
+the real Servo user-init link with zero undefined symbols, and the UEFI loader.
+The two-boot M17 QEMU run now passes the persistent-read gate and reaches
+`Nagi M17 trace: GL context creation started`, then hangs for 120 seconds before
+Servo reports a context result. The next repair forces Mesa's software-only
+path on Nagi, clears the unsupported Zink override, and adds Nagi-only
+checkpoints through EGL and Servo/Surfman context setup. The exact stall is not
+yet proven. No Servo-pixel evidence has been produced. M17 remains blocked until
+the guest renders and presents a nonzero Servo pixel checksum; M18 remains
+forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36092134517` (#182, head
-`846cb5dc80adcbad01eb5dbd94d127419814639d`) completed with failure. Windows
-launcher passed; Ubuntu host stopped at loader formatting; Mesa/package/kernel,
-real Servo user-init link, and UEFI loader passed. The final M17 QEMU boot
-failed at file offset `0xa00000`, request `0x100000`, file size `0x79d6fe8`,
-with EFI `VOLUME_CORRUPTED`. This is consistent with the first persistence
-boot formatting the larger boot ESP through the user block capability. The
-current repair makes the M17 ESP read-only, filters VirtIO read-only devices
-from writable user-storage selection, and adds selection/configuration
-regressions. Local synthetic-image QEMU reached `Nagi Kernel started`, but the
-real Servo first-pixel CI acceptance remains authoritative. M17 remains
-blocked; M18 remains not started.
+**Last known repair checkpoint:** public CI run `36099071216` (#183, head
+`4995909db69ea2fa8234662a8d45977b28ecb4fc`) completed with failure. Ubuntu and
+Windows host jobs passed. Target Mesa Softpipe, package, kernel, real Servo
+user-init link (zero undefined symbols), and UEFI loader passed. In the final
+two-boot QEMU run, all M7 persistence checks passed, then the guest printed
+`Nagi M17 trace: GL context creation started` and timed out after 120 seconds
+inside Servo/Surfman/Mesa initialization. The read-only boot ESP repair is
+verified by the persistence gate. The local `./nagi m17` command could not
+rebuild from the existing generated Servo checkout because its fingerprint is
+mismatched; it refused to modify that checkout. Public target CI remains the
+authoritative M17 acceptance. M17 remains blocked; M18 remains not started.
+
+### Current M17 continuation after CI run #183 (2026-09-25)
+
+Public CI run `36099071216` (#183, head
+`4995909db69ea2fa8234662a8d45977b28ecb4fc`) passed Ubuntu host and Windows
+launcher acceptance, Mesa Softpipe archive construction, package/kernel builds,
+the real target Servo user-init link with no undefined symbols, and UEFI loader
+build. The final two-boot M17 QEMU run confirmed that the first boot's
+persistent write and the second boot's mount, lookup, read, mmap, and persistent
+read all pass. On the second boot, the actual target INIT reached surface
+acquisition and entered `SoftwareRenderingContext::new`, then the process
+stopped during GL context setup until the 120-second QEMU timeout. This run
+does not prove whether EGL device refresh, driver selection, GL context
+creation, surface setup, or a later Surfman step is responsible.
+
+The next patch makes Nagi EGL use its software-only renderer policy, clears
+the unsupported Zink override, and leaves other platforms' environment-driven
+behavior intact. Target-only EGL warning logs bracket device discovery, driver
+initialization, surfaceless software and no-DRM probes, and DRI screen creation.
+A Servo source patch adds stderr checkpoints around
+Surfman connection, GL context and function loading, surface binding, make-
+current, and swap-chain setup. `nagi fetch` applies these changes as tracked
+patches; the current generated Servo checkout remains untouched. A local M17 run
+could not be repeated because the generated checkout fingerprint is already
+mismatched. The next public target CI is required to locate the stall and verify
+the two-boot regression. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #182 (2026-09-25)
 
@@ -913,7 +937,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | CI #182 (`36092134517`) built the real Servo init and UEFI loader, then the second QEMU boot failed reading INIT at 10 MiB after the first persistence boot formatted the larger FAT12 boot ESP through the writable block capability. M17 now attaches the boot ESP read-only and kernel selection skips VirtIO devices offering `VIRTIO_BLK_F_RO`; local synthetic-image UEFI loading reaches the kernel, but target two-boot persistence and first-pixel acceptance remain pending. M18 remains forbidden until formal PASS. See ADRs 0019–0024. |
+| M17 | Servo Bootstrap | BLOCKED | CI #183 (`36099071216`) confirms the read-only ESP repair: both QEMU boots pass the M7 persistent-read gate. The real target Servo init and UEFI loader build, then the second boot hangs after entering software GL context initialization. Nagi-only Softpipe selection and EGL/Servo stage logs are the next repair; first-pixel checksum acceptance remains pending. M18 remains forbidden until formal PASS. See ADRs 0019–0025. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

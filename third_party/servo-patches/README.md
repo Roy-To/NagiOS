@@ -20,3 +20,8 @@ The ordered patch `0007-nagi-navigator-platform.patch` adds the Nagi target
 branch for Servo's real `navigator.platform` Web API. It does not affect
 rendering or provide a host fallback; it only completes the target-specific
 platform information required by Servo's script component.
+
+The ordered patch `0008-nagi-m17-rendering-context-traces.patch` adds
+Nagi-only stderr checkpoints around Servo's software Surfman connection,
+context/device creation, GL function loading, surface binding, and swap-chain
+creation. It is a diagnostic adapter; other targets compile a no-op helper.

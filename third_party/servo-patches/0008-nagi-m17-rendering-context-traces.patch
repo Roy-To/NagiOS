@@ -1,0 +1,69 @@
+--- a/components/shared/paint/rendering_context.rs
++++ b/components/shared/paint/rendering_context.rs
+@@ -113,2 +113,11 @@
+ 
++#[cfg(target_os = "nagi")]
++fn nagi_m17_trace(stage: &str) {
++    eprintln!("Nagi M17 trace: {stage}");
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+ impl SurfmanRenderingContext {
+@@ -119,3 +128,5 @@
+     ) -> Result<Self, Error> {
++        nagi_m17_trace("Surfman device creation started");
+         let device = connection.create_device(adapter)?;
++        nagi_m17_trace("Surfman device created");
+ 
+@@ -129,5 +140,8 @@
+         };
++        nagi_m17_trace("GL context descriptor creation started");
+         let context_descriptor =
+             device.create_context_descriptor(&ContextAttributes { flags, version })?;
+-
++        nagi_m17_trace("GL context descriptor created");
++
++        nagi_m17_trace("GL context creation started");
+         let context = device
+@@ -137,4 +151,6 @@
+             })?;
++        nagi_m17_trace("GL context created");
+ 
++        nagi_m17_trace("GL function loading started");
+         #[expect(unsafe_code)]
+         let gleam_gl = {
+@@ -157,2 +173,3 @@
+ 
++        nagi_m17_trace("GL function loading completed");
+         Ok(SurfmanRenderingContext {
+@@ -303,13 +320,26 @@
+ 
++        nagi_m17_trace("Surfman connection started");
+         let connection = Connection::new()?;
++        nagi_m17_trace("Surfman connection created");
+         let adapter = connection.create_software_adapter()?;
++        nagi_m17_trace("Software adapter created");
++        nagi_m17_trace("Surfman rendering context started");
+         let surfman_rendering_info = SurfmanRenderingContext::new(&connection, &adapter, None)?;
++        nagi_m17_trace("Surfman rendering context created");
+ 
+         let surfman_size = Size2D::new(size.width as i32, size.height as i32);
++        nagi_m17_trace("Surface creation started");
+         let surface =
+             surfman_rendering_info.create_surface(SurfaceType::Generic { size: surfman_size })?;
++        nagi_m17_trace("Surface created");
++        nagi_m17_trace("Surface bind started");
+         surfman_rendering_info.bind_surface(surface)?;
++        nagi_m17_trace("Surface bound");
++        nagi_m17_trace("Make-current started");
+         surfman_rendering_info.make_current()?;
+-
++        nagi_m17_trace("Make-current completed");
++
++        nagi_m17_trace("Swap-chain creation started");
+         let swap_chain = surfman_rendering_info.create_attached_swap_chain()?;
++        nagi_m17_trace("Swap-chain created");
+         Ok(SoftwareRenderingContext {

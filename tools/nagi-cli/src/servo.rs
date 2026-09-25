@@ -753,6 +753,30 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_traces_m17_rendering_context_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0008-nagi-m17-rendering-context-traces.patch"),
+        )
+        .expect("M17 rendering-context trace patch");
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("eprintln!(\"Nagi M17 trace: {stage}\")"));
+        for stage in [
+            "Surfman connection started",
+            "GL context creation started",
+            "GL context created",
+            "Surface bind started",
+            "Make-current started",
+            "Swap-chain creation started",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+    }
+
+    #[test]
     fn patch_application_uses_numeric_order() {
         let root = temp_root("patch-apply");
         let checkout = root.join("third_party/servo");

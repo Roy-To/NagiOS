@@ -122,6 +122,13 @@ kernel exposes guest monotonic/realtime clocks but not per-thread CPU
 accounting; this avoids reading an uninitialized clock id or reporting host
 CPU time. Thread creation, synchronization, and rendering stay enabled.
 
+`0021-nagi-static-softpipe-egl-diagnostics.patch` makes EGL use Nagi's
+software-only renderer policy and clears the unsupported Zink override. Other
+platforms retain their existing environment-driven renderer selection.
+Nagi-only warning-level trace points bracket device discovery, driver
+initialization, surfaceless software probing, the no-DRM swrast path, and DRI
+screen creation so target serial output identifies a stalled stage.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

@@ -1,0 +1,117 @@
+--- a/src/egl/main/eglapi.c
++++ b/src/egl/main/eglapi.c
+@@ -678,13 +678,26 @@
+    util_cpu_trace_init();
+    _EGL_FUNC_START(disp, EGL_OBJECT_DISPLAY_KHR, NULL);
+ 
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL device discovery started");
++#endif
+    _eglDeviceRefreshList();
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL device discovery completed");
++#endif
+ 
+    if (!disp)
+       RETURN_EGL_ERROR(NULL, EGL_BAD_DISPLAY, EGL_FALSE);
+ 
+    if (!disp->Initialized) {
+       /* set options */
++#ifdef __NAGI__
++      /* Nagi statically links the CPU-only Gallium Softpipe driver. */
++      disp->Options.ForceSoftware = EGL_TRUE;
++      disp->Options.Zink = EGL_FALSE;
++      _eglLog(_EGL_WARNING,
++              "Nagi M17 trace: EGL selected static Softpipe only");
++#else
+       disp->Options.ForceSoftware =
+          debug_get_bool_option("LIBGL_ALWAYS_SOFTWARE", false);
+       if (disp->Options.ForceSoftware)
+@@ -693,6 +706,7 @@
+ 
+       const char *env = os_get_option("MESA_LOADER_DRIVER_OVERRIDE");
+       disp->Options.Zink = env && !strcmp(env, "zink");
++#endif
+ 
+       const char *gallium_hud_env = os_get_option("GALLIUM_HUD");
+       disp->Options.GalliumHudWarn =
+@@ -702,7 +716,15 @@
+        * Initialize the display using the driver's function.
+        * If the initialisation fails, try again using only software rendering.
+        */
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING,
++              "Nagi M17 trace: EGL driver initialization started");
++#endif
+       if (!_eglDriver.Initialize(disp)) {
++#ifdef __NAGI__
++         _eglLog(_EGL_WARNING,
++                 "Nagi M17 trace: EGL driver initialization failed");
++#endif
+          if (disp->Options.ForceSoftware)
+             RETURN_EGL_ERROR(disp, EGL_NOT_INITIALIZED, EGL_FALSE);
+          else {
+@@ -722,6 +744,10 @@
+          }
+       }
+ 
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING,
++              "Nagi M17 trace: EGL driver initialization completed");
++#endif
+       disp->Initialized = EGL_TRUE;
+       disp->Driver = &_eglDriver;
+ 
+--- a/src/egl/drivers/dri2/platform_surfaceless.c
++++ b/src/egl/drivers/dri2/platform_surfaceless.c
+@@ -332,11 +332,29 @@
+    /* When ForceSoftware is false, we try the HW driver.  When ForceSoftware
+     * is true, we try kms_swrast and swrast in order.
+     */
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING,
++           "Nagi M17 trace: surfaceless software probe started");
++#endif
+    driver_loaded = surfaceless_probe_device(disp, disp->Options.ForceSoftware,
+                                             disp->Options.Zink);
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING,
++           "Nagi M17 trace: surfaceless software probe completed: %s",
++           driver_loaded ? "loaded" : "no DRM driver");
++#endif
+    if (!driver_loaded && disp->Options.ForceSoftware) {
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING,
++              "Nagi M17 trace: no-DRM swrast probe started");
++#endif
+       _eglLog(_EGL_DEBUG, "Falling back to surfaceless swrast without DRM.");
+       driver_loaded = surfaceless_probe_device_sw(disp);
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING,
++              "Nagi M17 trace: no-DRM swrast probe completed: %s",
++              driver_loaded ? "loaded" : "failed");
++#endif
+    }
+ 
+    if (!driver_loaded) {
+@@ -346,11 +364,20 @@
+ 
+    dri2_dpy->fd_display_gpu = dri2_dpy->fd_render_gpu;
+ 
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI screen creation started");
++#endif
+    if (!dri2_create_screen(disp)) {
++#ifdef __NAGI__
++      _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI screen creation failed");
++#endif
+       err = "DRI2: failed to create screen";
+       goto cleanup;
+    }
+ 
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI screen creation completed");
++#endif
+    dri2_setup_screen(disp);
+ #ifdef HAVE_WAYLAND_PLATFORM
+    dri2_dpy->device_name =
