@@ -19,29 +19,67 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #183 passed both host jobs, Mesa Softpipe, package/kernel builds,
-the real Servo user-init link with zero undefined symbols, and the UEFI loader.
-The two-boot M17 QEMU run now passes the persistent-read gate and reaches
-`Nagi M17 trace: GL context creation started`, then hangs for 120 seconds before
-Servo reports a context result. The next repair forces Mesa's software-only
-path on Nagi, clears the unsupported Zink override, and adds Nagi-only
-checkpoints through EGL and Servo/Surfman context setup. The exact stall is not
-yet proven. No Servo-pixel evidence has been produced. M17 remains blocked until
-the guest renders and presents a nonzero Servo pixel checksum; M18 remains
-forbidden until M17 is formally PASS.
+milestone. The latest public run, CI #186 (`36114799741`, head
+`30b2494e556ce27a21e85975da75a3112c436510`), passed Servo bootstrap on Ubuntu
+and target, then failed the Ubuntu locked Clippy and target dependency checks
+because the root `Cargo.lock` lacked the `servo-paint-api -> libc` edge. The
+Windows host build failed at the same lock check. Mesa and M17 QEMU were
+skipped. The active main worktree now contains an uncommitted
+root lockfile update for that edge; it has not yet been verified by CI and was
+left untouched by this foundation branch. Earlier CI #184 reached M17 QEMU and
+timed out after `Nagi M17 trace: GL context creation started`, without any
+pixel checksum or Surface-present marker. M17 remains blocked until the guest
+renders and presents a nonzero Servo pixel checksum; M18 remains `NOT STARTED`
+until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36099071216` (#183, head
-`4995909db69ea2fa8234662a8d45977b28ecb4fc`) completed with failure. Ubuntu and
-Windows host jobs passed. Target Mesa Softpipe, package, kernel, real Servo
-user-init link (zero undefined symbols), and UEFI loader passed. In the final
-two-boot QEMU run, all M7 persistence checks passed, then the guest printed
-`Nagi M17 trace: GL context creation started` and timed out after 120 seconds
-inside Servo/Surfman/Mesa initialization. The read-only boot ESP repair is
-verified by the persistence gate. The local `./nagi m17` command could not
-rebuild from the existing generated Servo checkout because its fingerprint is
-mismatched; it refused to modify that checkout. Public target CI remains the
-authoritative M17 acceptance. M17 remains blocked; M18 remains not started.
+**Last known repair checkpoint:** public CI run `36114799741` (#186, head
+`30b2494e556ce27a21e85975da75a3112c436510`) passed pinned Servo bootstrap, then
+failed the root locked dependency checks. Windows host build, Ubuntu Clippy,
+and target feature-boundary verification all reported `Cargo.lock needs to be
+updated but --locked was passed`; target Mesa, kernel, and M17 acceptance did
+not run. The local main worktree has a pending root lockfile update, but that
+change has no CI result yet. Public target CI remains authoritative for M17.
+M17 remains blocked; M18 remains not started.
+
+### Current M17 continuation after CI run #186 (2026-09-25)
+
+Run `36114799741` (#186, head
+`30b2494e556ce27a21e85975da75a3112c436510`) passed pinned Servo bootstrap on
+Ubuntu and target, confirming the Servo manifest and its own lockfile patch
+were consistent. Ubuntu formatting passed. Ubuntu host Clippy and the target
+feature-boundary check failed, and the Windows host build failed, because the
+Nagi root `Cargo.lock` did not contain the `servo-paint-api -> libc` edge. The
+target did not proceed to Mesa or M17 QEMU. The active main worktree contains
+an uncommitted root-lock repair for that edge; preserve it and require a later
+locked CI result. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #185 (2026-09-25)
+
+Run `36113604201` (#185, head
+`d69d6c8ca01b35b5e500b15be3ddcf4f9d20c6a7`) failed `nagi-bootstrap fetch` on
+Ubuntu, Windows, and target because the direct `servo-paint-api -> libc`
+dependency added by the trace patch was missing from Servo's pinned
+`Cargo.lock`. Patch `0009` added that Servo lock entry; CI #186 passed bootstrap
+with it. The separate root lockfile edge still failed in #186. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #184 (2026-09-25)
+
+Public CI run `36106455335` (#184, head
+`56707103565192957507b177c35373422908588e`) passed Ubuntu host and Windows
+launcher acceptance, target dependency validation, Mesa Softpipe archive
+construction, package/kernel builds, the real target Servo user-init link with
+zero undefined symbols, and UEFI loader build. The final two-boot M17 QEMU run
+passed persistent write/read, mounted the data volume, acquired the Nagi
+Surface, and entered GL context construction. After
+`Nagi M17 trace: GL context creation started`, QEMU did not exit within 120
+seconds and the command returned exit code 4. No first-web-pixel checksum or
+guest pass marker was produced. The software-only EGL policy and tracing added
+for #184's parent checkpoint did not emit a later context result, so the
+specific EGL/Surfman call remains unknown. Review the full run log and use the
+last marker to place a bounded diagnostic before repeating target acceptance.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #183 (2026-09-25)
 

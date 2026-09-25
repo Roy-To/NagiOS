@@ -121,6 +121,10 @@ fn parses_the_complete_m0_command_surface() {
     for (name, expected) in commands {
         assert_eq!(parse_command(&[name.to_owned()]).unwrap(), expected);
     }
+    assert_eq!(
+        parse_command(&["dev".into(), "status".into()]).unwrap(),
+        Command::Dev
+    );
 }
 
 #[test]
@@ -128,6 +132,41 @@ fn rejects_unknown_commands_with_usage_exit_code() {
     let error = parse_command(&["unknown".to_owned()]).unwrap_err();
 
     assert_eq!(error.exit_code(), EXIT_USAGE);
+}
+
+#[test]
+fn dev_requires_a_subcommand_and_rejects_unknown_dev_actions() {
+    assert_eq!(
+        parse_command(&["dev".to_owned()]).unwrap_err().exit_code(),
+        EXIT_USAGE
+    );
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let error = nagi_cli::development::execute(&["unknown".into()], root).unwrap_err();
+    assert_eq!(error.exit_code(), EXIT_USAGE);
+}
+
+#[test]
+fn dev_status_resume_and_verify_read_the_registered_workstream() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let status = nagi_cli::development::execute(&["status".into()], root)
+        .expect("registered development workstream status");
+    assert!(status
+        .iter()
+        .any(|line| line.contains("development-foundation")));
+    assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
+
+    let resume = nagi_cli::development::execute(&["resume".into()], root).expect("resume summary");
+    assert!(resume.iter().any(|line| line.starts_with("Next action: ")));
+
+    let verify = nagi_cli::development::execute(&["verify".into()], root)
+        .expect("state and registry validation");
+    assert!(verify[0].starts_with("PASS development state:"));
 }
 
 #[test]

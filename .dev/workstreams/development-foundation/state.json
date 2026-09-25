@@ -1,0 +1,136 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "development-foundation",
+  "current_milestone": "DF-01",
+  "current_checkpoint": "implementation-and-diagnostic-infrastructure",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "56707103565192957507b177c35373422908588e",
+    "verified_at": "2026-09-25T08:08:00Z",
+    "normal_state": "The foundation worktree is isolated on codex/0.2-development-foundation at base 56707103565192957507b177c35373422908588e. The original main checkout advanced to 30b2494e556ce27a21e85975da75a3112c436510 and now has pre-existing uncommitted M17 changes; this workstream has not modified them. Latest public main CI #186 failed locked root Cargo.lock checks before Mesa or M17 acceptance.",
+    "commands": [
+      "git status --short --branch",
+      "git rev-parse HEAD",
+      "git worktree list --porcelain",
+      "git ls-remote origin refs/heads/main",
+      "gh run list --repo RT-NISH/NagiOS --limit 8",
+      "gh run view 36106455335 --repo RT-NISH/NagiOS --job 107979978355 --log",
+      "gh run view 36114799741 --repo RT-NISH/NagiOS --json databaseId,headSha,conclusion,jobs,url",
+      "gh run view 36114799741 --repo RT-NISH/NagiOS --job 108006242159 --log",
+      "gh run view 36114799741 --repo RT-NISH/NagiOS --job 108006242271 --log",
+      "git status --short --branch (original main checkout, read-only audit)",
+      "git ls-remote origin refs/heads/main"
+    ],
+    "tests": [
+      {
+        "name": "original checkout cleanliness",
+        "command": "git status --short --branch",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "main at 56707103565192957507b177c35373422908588e; no tracked or untracked changes"
+      },
+      {
+        "name": "origin main synchronization",
+        "command": "git ls-remote origin refs/heads/main",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "remote refs/heads/main equals the original checkout HEAD"
+      },
+      {
+        "name": "Nagi 0.1 M17 target CI run 184",
+        "command": "GitHub Actions run 36106455335, nagi-target / M17 first web pixel acceptance",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "target build/link and two-boot persistent read passed; surface was acquired; guest stopped after GL context creation started and QEMU timed out at 120 seconds without a pixel checksum"
+      },
+      {
+        "name": "Nagi 0.1 host and target CI run 183",
+        "command": "GitHub Actions run 36099071216",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "host jobs, Mesa, package, kernel, real Servo init link and UEFI passed; M17 QEMU acceptance stalled after GL context start and produced no pixel evidence"
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36114799741,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36114799741",
+        "head_sha": "30b2494e556ce27a21e85975da75a3112c436510",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Pinned Servo bootstrap passed on Ubuntu and target. Ubuntu format passed. Windows host build, Ubuntu locked Clippy, and target feature-boundary verification failed because the root Cargo.lock lacked servo-paint-api -> libc; Mesa and M17 QEMU were skipped. The root lockfile fix is currently uncommitted in the original main worktree and has no CI result."
+      },
+      {
+        "run_id": 36113604201,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36113604201",
+        "head_sha": "d69d6c8ca01b35b5e500b15be3ddcf4f9d20c6a7",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu, Windows, and target Servo bootstrap failed because the direct servo-paint-api -> libc dependency had not yet been added to Servo pinned Cargo.lock; patch 0009 fixed that for CI #186."
+      },
+      {
+        "run_id": 36106455335,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36106455335",
+        "head_sha": "56707103565192957507b177c35373422908588e",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu and Windows jobs passed. Target build/link and persistent storage passed; the guest acquired its Surface, then QEMU timed out after `GL context creation started`. No pixel checksum or pass marker was produced."
+      },
+      {
+        "run_id": 36099071216,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36099071216",
+        "head_sha": "4995909db69ea2fa8234662a8d45977b28ecb4fc",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "M17 two-boot persistence checks passed, then software GL context setup timed out after 120 seconds; no Servo pixel was accepted."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md",
+    "last_checked_at": "2026-09-25T09:01:43Z",
+    "activation_requirement": "Read the authoritative 0.1 status and require M30 PASS plus an explicit 0.2 integration checkpoint before any 0.2 runtime/product work starts."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not modify, reset, clean, rebase, merge, or cherry-pick into the original NagiOS main checkout or any other active worktree.",
+      "Do not delete or regenerate existing Servo/Mesa outputs as part of this foundation work.",
+      "Do not change 0.1 runtime code, M17 acceptance assertions, or start M18-M30."
+    ]
+  },
+  "next_action": "Commit this implementation checkpoint, rerun focused checks on its exact HEAD, then push and inspect the resulting GitHub Actions run and M17 diagnostic artifacts.",
+  "acceptance_criteria": [
+    "A clean clone can identify its current 0.2 workstream, current Git HEAD, last verified SHA, blocker, and exact next action from tracked state.",
+    "The registry/state validator rejects missing fields, invalid status or failure classes, duplicate IDs/branches, unsafe state paths, and missing dependencies.",
+    "The diagnostic command retains raw logs, inventories every undefined symbol and error line, records process status, and hashes logs/artifacts.",
+    "Existing 0.1 M17 acceptance criteria and runtime sources remain unchanged.",
+    "A single target run is not canceled by a newer push; cheap host jobs can cancel stale runs; CI diagnostic logs are retained when available.",
+    "Focused CLI tests, shell syntax checks, JSON/schema checks, and clean-worktree verification pass."
+  ],
+  "deferred": [
+    "M18-M30 implementation until Nagi 0.1 is complete.",
+    "0.2 runtime implementation until M30 PASS and an explicit integration gate.",
+    "Cache keys, target build/acceptance separation, and binary artifact reuse until artifact fingerprints and transfer costs are measured."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "ci-acceptance",
+      "contract": "Acceptance semantics remain authoritative; diagnostics and cancellation policy may improve without changing PASS conditions.",
+      "version": "0.1-acceptance-preserved",
+      "status": "INTEGRATION_OWNED"
+    },
+    {
+      "workstream_id": "developer-tooling",
+      "contract": "The foundation seeds read-only state/resume/verification and explicit-output diagnostic commands.",
+      "version": "nagi-dev-v1",
+      "status": "IN_PROGRESS"
+    }
+  ]
+}

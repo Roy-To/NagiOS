@@ -1,0 +1,135 @@
+{
+  "schema_ref": "schemas/workstreams.schema.json",
+  "schema_version": 1,
+  "workstreams": [
+    {
+      "id": "development-foundation",
+      "owner": "Codex foundation integrator",
+      "owner_branch": "codex/0.2-development-foundation",
+      "recommended_worktree": "../NagiOS-0.2-prep",
+      "state_file": ".dev/workstreams/development-foundation/state.json",
+      "dependencies": [],
+      "allowed_paths": [
+        ".dev/**",
+        "docs/0.2/**",
+        "docs/decisions/ADR-0011-durable-development-state.md",
+        "docs/development/README.md",
+        "docs/implementation_status.md",
+        "Cargo.lock",
+        "tools/nagi-cli/**",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "tools/nagi-bootstrap/Cargo.lock",
+        "nagi",
+        "nagi.ps1",
+        ".github/workflows/ci.yml",
+        "tests/acceptance/m17_servo_first_web_pixel.sh"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "user/nagi-init/**",
+        "third_party/**",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "Foundation tooling only; no 0.1 runtime work. Nagi 0.1 M30 PASS and an explicit integration checkpoint are required before any 0.2 runtime stream starts.",
+      "merge_boundary": "Dedicated 0.2 integration branch only; never merge to main without explicit user direction."
+    },
+    {
+      "id": "os-core",
+      "owner": "unassigned",
+      "owner_branch": "codex/0.2-os-core",
+      "recommended_worktree": "../NagiOS-0.2-os-core",
+      "state_file": ".dev/workstreams/os-core/state.json",
+      "dependencies": [],
+      "allowed_paths": ["kernel/**", "crates/nagi-bootinfo/**", "crates/nagi-abi/**"],
+      "forbidden_paths": [".github/workflows/**", "Cargo.lock", "docs/implementation_status.md", "third_party/**"],
+      "activation_gate": "Nagi 0.1 M30 PASS; integration owner assigns a bounded milestone and ABI contract.",
+      "merge_boundary": "0.2 integration branch after kernel and ABI acceptance; no direct main merge."
+    },
+    {
+      "id": "platform-apis",
+      "owner": "unassigned",
+      "owner_branch": "codex/0.2-platform-apis",
+      "recommended_worktree": "../NagiOS-0.2-platform-apis",
+      "state_file": ".dev/workstreams/platform-apis/state.json",
+      "dependencies": ["os-core"],
+      "allowed_paths": ["crates/nagi-model/**", "idl/**", "user/libnagi/**", "user/nagi-history/**"],
+      "forbidden_paths": [".github/workflows/**", "Cargo.lock", "docs/implementation_status.md", "third_party/**"],
+      "activation_gate": "Nagi 0.1 M30 PASS; versioned authority, object, Action, Context, Workspace, and Activity contracts are agreed.",
+      "merge_boundary": "0.2 integration branch after interface compatibility and negative permission tests pass."
+    },
+    {
+      "id": "first-party-apps",
+      "owner": "unassigned",
+      "owner_branch": "codex/0.2-first-party-apps",
+      "recommended_worktree": "../NagiOS-0.2-first-party-apps",
+      "state_file": ".dev/workstreams/first-party-apps/state.json",
+      "dependencies": ["platform-apis", "sdk"],
+      "allowed_paths": ["user/apps/**", "tests/first-party/**", "docs/first-party/**"],
+      "forbidden_paths": ["kernel/**", "idl/**", ".github/workflows/**", "Cargo.lock", "third_party/**"],
+      "activation_gate": "Nagi 0.1 M30 PASS; shared platform contracts and app fixtures are versioned.",
+      "merge_boundary": "0.2 integration branch after app-specific and cross-app acceptance."
+    },
+    {
+      "id": "ai-runtime",
+      "owner": "unassigned",
+      "owner_branch": "codex/0.2-ai-runtime",
+      "recommended_worktree": "../NagiOS-0.2-ai-runtime",
+      "state_file": ".dev/workstreams/ai-runtime/state.json",
+      "dependencies": ["platform-apis"],
+      "allowed_paths": ["user/nagi-ai/**", "user/nagi-model-manager/**", "tests/ai/**"],
+      "forbidden_paths": ["kernel/**", "third_party/**", ".github/workflows/**", "Cargo.lock"],
+      "activation_gate": "Nagi 0.1 M30 PASS; provider-neutral request/result and deterministic action-policy contracts are versioned.",
+      "merge_boundary": "0.2 integration branch after offline/failure/permission acceptance; Jev is never a required service."
+    },
+    {
+      "id": "sdk",
+      "owner": "unassigned",
+      "owner_branch": "codex/0.2-sdk",
+      "recommended_worktree": "../NagiOS-0.2-sdk",
+      "state_file": ".dev/workstreams/sdk/state.json",
+      "dependencies": ["platform-apis"],
+      "allowed_paths": ["sdk/**", "samples/**", "tools/nagi-pkg/**"],
+      "forbidden_paths": ["kernel/**", "idl/**", ".github/workflows/**", "Cargo.lock", "third_party/**"],
+      "activation_gate": "Nagi 0.1 M30 PASS; public manifest, capability, and generated-binding contracts are versioned.",
+      "merge_boundary": "0.2 integration branch after out-of-tree sample, install, isolation, and migration checks."
+    },
+    {
+      "id": "developer-tooling",
+      "owner": "unassigned",
+      "owner_branch": "codex/0.2-developer-tooling",
+      "recommended_worktree": "../NagiOS-0.2-developer-tooling",
+      "state_file": ".dev/workstreams/developer-tooling/state.json",
+      "dependencies": [],
+      "allowed_paths": ["tools/nagi-cli/**", "tools/nagi-dev/**", "docs/0.2/**"],
+      "forbidden_paths": ["kernel/**", "user/**", "third_party/**", ".github/workflows/**"],
+      "activation_gate": "Nagi 0.1 M30 PASS for product-facing developer tooling; this foundation's read-only resume/diagnostic helpers are available earlier.",
+      "merge_boundary": "0.2 integration branch after host-tool unit tests and clean-checkout verification."
+    },
+    {
+      "id": "ci-acceptance",
+      "owner": "unassigned",
+      "owner_branch": "codex/0.2-ci-acceptance",
+      "recommended_worktree": "../NagiOS-0.2-ci-acceptance",
+      "state_file": ".dev/workstreams/ci-acceptance/state.json",
+      "dependencies": ["developer-tooling"],
+      "allowed_paths": [".github/workflows/**", "tests/acceptance/**", "tools/ci/**"],
+      "forbidden_paths": ["kernel/**", "user/**", "third_party/**", "Cargo.lock"],
+      "activation_gate": "Nagi 0.1 M30 PASS for release-gate redesign; current foundation may adjust cancellation/diagnostic retention only.",
+      "merge_boundary": "0.2 integration branch after all existing 0.1 acceptance gates remain unchanged and pass."
+    },
+    {
+      "id": "documentation",
+      "owner": "unassigned",
+      "owner_branch": "codex/0.2-documentation",
+      "recommended_worktree": "../NagiOS-0.2-documentation",
+      "state_file": ".dev/workstreams/documentation/state.json",
+      "dependencies": ["platform-apis"],
+      "allowed_paths": ["docs/0.2/**", "docs/architecture/**", "docs/decisions/**"],
+      "forbidden_paths": ["kernel/**", "user/**", "third_party/**", ".github/workflows/**"],
+      "activation_gate": "Nagi 0.1 M30 PASS; update only documented accepted contracts and decisions.",
+      "merge_boundary": "0.2 integration branch after contract owners review; do not duplicate normative specifications."
+    }
+  ]
+}

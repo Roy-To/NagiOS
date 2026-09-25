@@ -1,6 +1,7 @@
 pub(crate) mod cc_nagi;
 pub mod commands;
 pub mod config;
+pub mod development;
 pub mod doctor;
 pub(crate) mod freetype_sys;
 pub(crate) mod hyper_util_servo;
