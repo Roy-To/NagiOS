@@ -19,32 +19,27 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #176 passed the real target user-init link and UEFI loader build,
-CI #177 accepted the host-specific QEMU audio backend, and CI #178 passed the
-M17 disk to QEMU, but its first-boot marker was not observed within 120 seconds.
-The local repair now includes the serial-log tail on M17 boot failures so the
-next public run can identify where boot stopped. The host format/audio issues
-are cleared. No guest-pixel evidence has been produced. The current
-implementation expands only M17's FAT12 ESP, reads init directly into
-below-4-GiB UEFI pages, maps the real ELF through a bounded 512 MiB user image
-window, and allocates zero-fill pages from Nagi conventional memory. M17 remains
-blocked until the guest renders and presents a nonzero Servo pixel checksum;
-M18 remains forbidden until M17 is formally PASS.
+milestone. CI #179 passed both host jobs, the real Servo init link, and UEFI
+loader build, but QEMU stopped in the loader while reserving kernel PT_LOAD
+segment 2 at `0x219000`. Local QEMU/OVMF reproduced the failure and its memory
+map showed that the 18.9 MiB segment crossed ACPI and Boot Services reservations.
+ADR 0023 moves the fixed kernel link base to 64 MiB; a local QEMU boot now reaches
+the kernel and passes the M2–M4 markers. The local default non-Servo init then
+fails M5 ELF validation because it carries an empty PT_TLS header, so the next
+authoritative check is CI with the real M17 init image. No Servo-pixel evidence
+has been produced. M17 remains blocked until the guest renders and presents a
+nonzero Servo pixel checksum; M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36071410328` (#178, head
-`b15cbaa4ef9983529c4fe2065e8f1eeb13d7597f`) completed with failure. Ubuntu
-host and Windows launcher jobs passed; target init link and UEFI loader passed.
-QEMU accepted the Linux audio backend and the newly created persistent disk.
-The first boot then timed out after 120 seconds before the
-`Nagi M7 persistent write PASS` marker was detected. It did not reach the
-dedicated Servo pixel boot. The run has no uploaded serial-log artifact. The
-current local change prints the last 64 serial-log lines when either M17 QEMU
-boot times out. Local `nagi-cli` tests (52 unit and 18 integration), Clippy,
-and pinned format checks pass. The next public run is needed to locate the boot
-stall. Earlier CI #175 reported the init ELF exceeding the previous 8 MiB
-FAT12 per-file capacity. See ADR 0022 for the bounded loader and user ELF
-mapping decision.
+**Last known repair checkpoint:** public CI run `36076724861` (#179, head
+`2821d0156841c9afe7fa11b3755dbfd0f09b9e13`) completed with failure. Ubuntu host
+and Windows launcher passed; the target passed Mesa, kernel, Servo user-init,
+and UEFI loader builds. The M17 QEMU boot failed before kernel entry because
+the fixed kernel BSS PT_LOAD crossed firmware-reserved ranges. The current
+uncommitted repair moves the kernel to 64 MiB and reports overlapping UEFI
+memory descriptors if a fixed segment allocation fails. Local QEMU reaches the
+kernel with this address, but M17 acceptance with the real Servo image remains
+pending. See ADRs 0022 and 0023.
 
 ### Current M17 continuation after CI runs #158–#167 (2026-09-24)
 
@@ -402,6 +397,35 @@ acceptance conditions remain unchanged. Local verification passes 52
 `nagi-cli` unit tests, 18 integration tests, Clippy with warnings denied, all
 pinned CI formatting checks, and `git diff --check`. M17 remains `BLOCKED`;
 M18 remains `NOT STARTED` pending real guest-boot and pixel evidence.
+
+### Current M17 continuation after CI run #179 (2026-09-25)
+
+Public CI run `36076724861` was triggered from head
+`2821d0156841c9afe7fa11b3755dbfd0f09b9e13`. Both host jobs passed. The target
+passed Mesa Softpipe, kernel, the real 127,747,368-byte Servo init link, and
+UEFI loader builds, then timed out in its first QEMU boot. The serial tail
+showed `Nagi Loader: segment allocation failed` before `Nagi Kernel started`.
+
+Local QEMU/OVMF reproduced the failure. Diagnostic output identified kernel
+PT_LOAD segment 2 at `0x219000`, size `0x120d820` (4,622 pages), with UEFI
+status `NOT_FOUND`. Its requested range overlapped conventional memory only
+through `0x800000`, ACPI non-volatile descriptors around 8–9 MiB, and
+Boot-Services data through `0x1780000`. The current writable PT_LOAD includes
+static mmap backing storage and M17's added image page tables, so the old 2 MiB
+link base made it cross those firmware reservations. ADR 0023 records moving
+the fixed kernel base to 64 MiB while keeping exact UEFI allocation, identity
+mapping, and the pixel acceptance unchanged.
+
+After the address change, the local QEMU run printed `Nagi Kernel started` and
+passed M2, M3, and M4 acceptance. The default 41 KiB non-Servo init then
+stopped at M5 ELF validation because its PT_TLS program header has zero file
+and memory sizes; this does not exercise the real M17 init with its static
+TLS. The kernel release build, UEFI loader release build, loader library tests
+(4), loader formatting check, and `git diff --check` pass. The loader binary
+test cannot run as a host test on macOS because `uefi` is target-only; a host
+kernel test also cannot compile x86 inline-assembly registers on this Apple
+Silicon host. The next authoritative step is the public target run using M17's
+real Servo image. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #176 (2026-09-25)
 
@@ -813,7 +837,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | CI #175 (`36049471002`) passed the real target link and UEFI loader, then found the 127,747,368-byte init ELF exceeded the 8 MiB M17 FAT12 image. The next repair uses a 32 KiB-cluster FAT12 ESP, direct UEFI page loading below 4 GiB, and a bounded 512 MiB user image window with zeroed allocator-backed tail/BSS pages. QEMU pixel acceptance remains pending. M18 remains forbidden until formal PASS. See ADRs 0019–0022. |
+| M17 | Servo Bootstrap | BLOCKED | CI #179 (`36076724861`) built the real Servo init and loader, then UEFI could not reserve the expanded kernel PT_LOAD across firmware-reserved low memory. ADR 0023 moves the fixed kernel base to 64 MiB; local QEMU reaches the kernel, while real M17 QEMU and first-pixel acceptance remain pending. The 32 KiB-cluster FAT12 ESP, direct UEFI page loading below 4 GiB, and bounded 512 MiB user image window remain in place. M18 remains forbidden until formal PASS. See ADRs 0019–0023. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|

@@ -7,7 +7,8 @@ PHDRS {
 }
 
 SECTIONS {
-    . = 0x00200000;
+    /* Stay above the reference OVMF's reservations observed in ADR 0023. */
+    . = 0x04000000;
     __nagi_kernel_start = .;
 
     .text ALIGN(0x1000) : {

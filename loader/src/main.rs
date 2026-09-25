@@ -238,7 +238,7 @@ fn init_image_page_count(size: usize) -> Option<usize> {
 }
 
 fn load_segments(plan: LoadPlan, _kernel_size: usize) -> Result<(), &'static str> {
-    for segment in &plan.segments[..plan.segment_count] {
+    for (index, segment) in plan.segments[..plan.segment_count].iter().enumerate() {
         let pages = segment
             .memory_size
             .checked_add(PAGE_SIZE - 1)
@@ -247,13 +247,26 @@ fn load_segments(plan: LoadPlan, _kernel_size: usize) -> Result<(), &'static str
         if pages == 0 {
             return Err(error_message("Nagi Loader: empty load segment"));
         }
-        let allocation = boot::allocate_pages(
+        let allocation = match boot::allocate_pages(
             AllocateType::Address(segment.physical_address),
             MemoryType::LOADER_DATA,
             usize::try_from(pages)
                 .map_err(|_| error_message("Nagi Loader: segment page count overflow"))?,
-        )
-        .map_err(|_| error_message("Nagi Loader: segment allocation failed"))?;
+        ) {
+            Ok(allocation) => allocation,
+            Err(error) => {
+                uefi::println!(
+                    "Nagi Loader: segment allocation failed index={} address={:#x} bytes={:#x} pages={} status={:?}",
+                    index,
+                    segment.physical_address,
+                    segment.memory_size,
+                    pages,
+                    error.status(),
+                );
+                log_segment_memory_map(segment.physical_address, pages);
+                return Err(error_message("Nagi Loader: segment allocation failed"));
+            }
+        };
         if allocation.as_ptr() as u64 != segment.physical_address {
             return Err(error_message(
                 "Nagi Loader: segment allocated at wrong address",
@@ -271,6 +284,33 @@ fn load_segments(plan: LoadPlan, _kernel_size: usize) -> Result<(), &'static str
         }
     }
     Ok(())
+}
+
+fn log_segment_memory_map(address: u64, pages: u64) {
+    let end = address.saturating_add(pages.saturating_mul(PAGE_SIZE));
+    let Ok(memory_map) = boot::memory_map(MemoryType::LOADER_DATA) else {
+        uefi::println!("Nagi Loader: memory map unavailable after segment allocation failure");
+        return;
+    };
+    let mut found = false;
+    for descriptor in memory_map.entries() {
+        let descriptor_end = descriptor
+            .phys_start
+            .saturating_add(descriptor.page_count.saturating_mul(PAGE_SIZE));
+        if descriptor.phys_start < end && address < descriptor_end {
+            found = true;
+            uefi::println!(
+                "Nagi Loader: overlapping memory map type={:?} start={:#x} pages={} end={:#x}",
+                descriptor.ty,
+                descriptor.phys_start,
+                descriptor.page_count,
+                descriptor_end,
+            );
+        }
+    }
+    if !found {
+        uefi::println!("Nagi Loader: no memory map descriptor covers requested segment range");
+    }
 }
 
 fn gather_framebuffer() -> Result<FramebufferInfo, uefi::Error> {
