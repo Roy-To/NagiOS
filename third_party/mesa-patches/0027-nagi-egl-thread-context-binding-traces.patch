@@ -1,0 +1,37 @@
+diff --git a/src/egl/main/eglcontext.c b/src/egl/main/eglcontext.c
+index a7b2d4728d8..fd0cfddbfb9 100644
+--- a/src/egl/main/eglcontext.c
++++ b/src/egl/main/eglcontext.c
+@@ -44,0 +45,3 @@
++#define EGL_CONTEXT_NAGI_TRACE_POINTERS(message, context, thread) \
++   _debug_printf("Nagi M17 trace: EGL context %s ctx=%p thread=%p\n", \
++                 message, (void *)(context), (void *)(thread))
+@@ -46,0 +50 @@
++#define EGL_CONTEXT_NAGI_TRACE_POINTERS(message, context, thread) ((void) 0)
+@@ -830,0 +835,3 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
++   EGL_CONTEXT_NAGI_TRACE("thread binding helper entered");
++   EGL_CONTEXT_NAGI_TRACE_POINTERS("thread binding arguments", ctx, t);
++   EGL_CONTEXT_NAGI_TRACE("thread current-context lookup started");
+@@ -831,0 +839,3 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
++   EGL_CONTEXT_NAGI_TRACE("thread current-context lookup completed");
++   EGL_CONTEXT_NAGI_TRACE_POINTERS("thread binding previous context",
++                                   oldCtx, t);
+@@ -833 +843,2 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
+-      if (oldCtx)
++      if (oldCtx) {
++         EGL_CONTEXT_NAGI_TRACE("thread previous-context clear started");
+@@ -835 +846,4 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
+-      if (ctx)
++         EGL_CONTEXT_NAGI_TRACE("thread previous-context clear completed");
++      }
++      if (ctx) {
++         EGL_CONTEXT_NAGI_TRACE("thread context-owner write started");
+@@ -836,0 +851,2 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
++         EGL_CONTEXT_NAGI_TRACE("thread context-owner write completed");
++      }
+@@ -837,0 +854 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
++      EGL_CONTEXT_NAGI_TRACE("thread current-context write started");
+@@ -838,0 +856 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
++      EGL_CONTEXT_NAGI_TRACE("thread current-context write completed");
+@@ -840,0 +859 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
++   EGL_CONTEXT_NAGI_TRACE("thread binding helper completed");

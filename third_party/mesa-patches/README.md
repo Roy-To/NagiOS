@@ -167,6 +167,11 @@ mutex and marks each binding rejection path, so a target trace can identify a
 stalled validation error path. The Nagi-only traces preserve EGL binding
 semantics and do not alter context ownership.
 
+`0027-nagi-egl-thread-context-binding-traces.patch` splits the remaining
+`_eglBindContextToThread` path into TLS reads, context-owner pointer writes,
+and the thread's current-context write. It also records the context and thread
+pointer values for the target trace.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

@@ -168,6 +168,14 @@ EGL debug-report global mutex. These checkpoints distinguish TLS access,
 validation, error-report locking, and binding work without changing EGL
 binding behavior or acceptance requirements.
 
+CI #199 proved both `_eglGetCurrentThread` calls, all
+`_eglCheckMakeCurrent` ownership/config checks, and the resource refcount
+increments returned. The final marker was `thread context binding started`;
+QEMU did not exit within 120 seconds. The next checkpoint patch splits
+`_eglBindContextToThread` into its current-context read, context-owner write,
+and thread-local current-context write, while recording the context/thread
+pointers. This narrows the stall without changing the binding semantics.
+
 After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
 `libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
 that route did not provide reliable evidence. CI #188 also produced no trace

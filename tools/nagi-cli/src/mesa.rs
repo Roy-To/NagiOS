@@ -1261,6 +1261,79 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_egl_thread_context_binding_has_ordered_trace_checkpoints() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0027-nagi-egl-thread-context-binding-traces.patch"),
+        )
+        .expect("Nagi EGL thread context binding trace patch");
+
+        for checkpoint in [
+            "thread binding helper entered",
+            "thread binding arguments",
+            "thread current-context lookup started",
+            "thread current-context lookup completed",
+            "thread binding previous context",
+            "thread previous-context clear started",
+            "thread previous-context clear completed",
+            "thread context-owner write started",
+            "thread context-owner write completed",
+            "thread current-context write started",
+            "thread current-context write completed",
+            "thread binding helper completed",
+        ] {
+            assert!(
+                patch.contains(checkpoint),
+                "missing M17 EGL thread binding checkpoint: {checkpoint}"
+            );
+        }
+
+        let helper_entered = patch
+            .find("thread binding helper entered")
+            .expect("thread binding helper entry checkpoint");
+        let arguments = patch
+            .find("thread binding arguments")
+            .expect("thread binding arguments checkpoint");
+        let lookup_started = patch
+            .find("thread current-context lookup started")
+            .expect("thread current-context lookup start checkpoint");
+        let lookup_completed = patch
+            .find("thread current-context lookup completed")
+            .expect("thread current-context lookup completion checkpoint");
+        let owner_write_started = patch
+            .find("thread context-owner write started")
+            .expect("thread context-owner write start checkpoint");
+        let owner_write_completed = patch
+            .find("thread context-owner write completed")
+            .expect("thread context-owner write completion checkpoint");
+        let tls_write_started = patch
+            .find("thread current-context write started")
+            .expect("thread current-context write start checkpoint");
+        let tls_write_completed = patch
+            .find("thread current-context write completed")
+            .expect("thread current-context write completion checkpoint");
+        let helper_completed = patch
+            .find("thread binding helper completed")
+            .expect("thread binding helper completion checkpoint");
+
+        assert!(helper_entered < arguments);
+        assert!(arguments < lookup_started);
+        assert!(lookup_started < lookup_completed);
+        assert!(lookup_completed < owner_write_started);
+        assert!(owner_write_started < owner_write_completed);
+        assert!(owner_write_completed < tls_write_started);
+        assert!(tls_write_started < tls_write_completed);
+        assert!(tls_write_completed < helper_completed);
+        assert!(patch.contains("ctx=%p thread=%p"));
+        assert!(patch.contains(
+            "#define EGL_CONTEXT_NAGI_TRACE_POINTERS(message, context, thread) ((void) 0)"
+        ));
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
