@@ -1,7 +1,10 @@
 #[cfg(test)]
 use crate::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
 #[cfg(test)]
-use crate::user_process::{USER_STACK_BASE, USER_STACK_LIMIT, USER_TLS_BASE, USER_TLS_LIMIT};
+use crate::user_process::{
+    USER_MMAP_BASE, USER_MMAP_LIMIT, USER_STACK_BASE, USER_STACK_LIMIT, USER_TLS_BASE,
+    USER_TLS_LIMIT,
+};
 #[cfg(not(test))]
 use nagi_kernel::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
 #[cfg(not(test))]
@@ -306,6 +309,7 @@ pub fn is_valid_user_console_read(address: u64, length: usize) -> bool {
     (address >= USER_IMAGE_BASE && end <= USER_IMAGE_LIMIT)
         || (address >= USER_STACK_BASE && end <= USER_STACK_LIMIT)
         || (address >= USER_TLS_BASE && end <= USER_TLS_LIMIT)
+        || (address >= USER_MMAP_BASE && end <= USER_MMAP_LIMIT)
 }
 
 const fn star_value() -> u64 {
@@ -940,6 +944,7 @@ mod tests {
         SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
     };
     use crate::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
+    use crate::user_process::{USER_MMAP_BASE, USER_MMAP_LIMIT};
 
     // Inspect the actual entry body, not a second model of its save list. This
     // also covers registers the Rust ABI happens to preserve today.
@@ -1101,6 +1106,17 @@ mod tests {
             crate::user_process::USER_STACK_LIMIT - 1,
             2
         ));
+    }
+
+    #[test]
+    fn console_write_policy_allows_bounded_mmap_ranges_for_mapping_validation() {
+        assert!(is_valid_user_console_read(USER_MMAP_BASE, 1));
+        assert!(is_valid_user_console_read(
+            USER_MMAP_BASE,
+            MAX_CONSOLE_WRITE
+        ));
+        assert!(is_valid_user_console_read(USER_MMAP_LIMIT - 1, 1));
+        assert!(!is_valid_user_console_read(USER_MMAP_LIMIT - 1, 2));
     }
 
     #[test]

@@ -63,6 +63,17 @@ the actual Surfman error remained hidden. Patch `0010` reports that error
 through the existing Nagi console callback and keeps Servo's normal diagnostic
 on other targets.
 
+CI run #191 (`36139834714`) passed the same target build stages and reached the
+same Surfman failure without the stdout panic, but the diagnostic line was
+empty. The callback printed its static prefix and newline, while the formatted
+error payload was missing. Servo's `format!` creates an allocated string; the
+Nagi POSIX heap is backed by `mmap`, but the console syscall's preliminary
+address policy allowed only image, stack, and TLS ranges. Its subsequent
+readable-page check already understands mmap-backed user pages. The repair
+allows bounded mmap ranges through the preliminary check and keeps the mapped
+page validation and kernel-side copy in place. The callback also checks and
+reports failed writes.
+
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
 software adapter. Mesa EGL, however, normally derives software selection from
@@ -98,8 +109,9 @@ instruction in the constructor body; other targets retain a no-op helper.
   does not provide. Mesa can still probe software-compatible DRM devices before
   falling back to no-DRM swrast; the new trace points make that path visible.
 - Other Mesa targets keep their current renderer-selection behavior.
-- CI #190 reached Surfman's `device.create_context` after increasing the
-  bounded bootstrap stack. The next target run reports the underlying Surfman
-  error through the Nagi callback without invoking stdout.
+- CI #191 established that the formatted error was lost at the console-write
+  address policy. The next target run will report the actual Surfman error, or
+  a console-write failure marker if the bounded mapped-range check still
+  rejects the buffer.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

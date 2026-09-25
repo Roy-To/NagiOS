@@ -30,9 +30,13 @@ mod guest {
             return;
         }
         let stage = unsafe { core::slice::from_raw_parts(stage, length) };
-        libnagi::console_write(b"Nagi M17 trace: ");
-        libnagi::console_write(stage);
-        libnagi::console_write(b"\r\n");
+        let prefix = b"Nagi M17 trace: ";
+        let written = libnagi::console_write(prefix) == prefix.len()
+            && libnagi::console_write(stage) == stage.len()
+            && libnagi::console_write(b"\r\n") == 2;
+        if !written {
+            libnagi::console_write(b"Nagi M17 trace FAIL console write\r\n");
+        }
     }
 
     const WIDTH: u32 = 320;

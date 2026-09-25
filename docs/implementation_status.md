@@ -19,24 +19,51 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. The 2 MiB bounded bootstrap stack is implemented and locally
-verified. CI #190 passed target builds and reached Surfman's GL context
-creation, then timed out after `device.create_context` returned an error.
-Servo's failure diagnostic panicked when stdout returned `EIO`, hiding the
-Surfman error. The current repair routes that error through the Nagi console
-callback. No Servo-pixel evidence has been produced. M17 remains blocked until
-the guest renders and presents a nonzero Servo pixel checksum; M18 remains
-forbidden until M17 is formally PASS.
+milestone. CI #191 passed target builds and reached Surfman's
+device.create_context, which returned an error, but its detailed trace was
+empty. The formatted error is dynamically allocated in the Nagi POSIX heap;
+the console syscall's preliminary range policy excluded the mmap-backed heap
+even though its later check already validates mapped user-readable pages. The
+current repair allows bounded mmap ranges through that preliminary check and
+makes the Albert callback report console-write failures. No Servo-pixel
+evidence has been produced. M17 remains blocked until the guest renders and
+presents a nonzero Servo pixel checksum; M18 remains forbidden until M17 is
+formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36134006498` (#190, head
-`128dd007e039394ee80737e004b5070e7baefedb`) passed Ubuntu and Windows host
+**Last known repair checkpoint:** public CI run `36139834714` (#191, head
+`8e12ce4e98616c6146e57707114b04929421889b`) passed Ubuntu and Windows host
 checks, target dependency validation, Mesa Softpipe, package, kernel, Nagi
 user-init link, and UEFI loader build. QEMU reached Surfman's GL context
-creation, but Servo's stdout error report panicked on Nagi `EIO`; the
-acceptance timed out after 120 seconds. Public target CI remains authoritative
-for M17. M17 remains
-`BLOCKED`; M18 remains `NOT STARTED`.
+creation and reported FAIL GL context; the error callback emitted an empty
+trace because the formatted message resides in mmap-backed heap memory. Public
+target CI remains authoritative for M17. M17 remains BLOCKED; M18 remains
+NOT STARTED.
+
+### Target evidence from CI run #191 (2026-09-25)
+
+Run `36139834714` (#191, head
+`8e12ce4e98616c6146e57707114b04929421889b`) passed host checks, target
+dependency validation, Mesa Softpipe, package, kernel, Nagi user-init link,
+and UEFI loader build. QEMU passed the two-boot storage gate and reached
+device.create_context. The call returned an error, after which the trace
+prefix and line ending appeared without the formatted Surfman message. The
+existing console syscall validates the user range before checking whether
+pages are actually mapped; that range policy allowed image, stack, and TLS but
+excluded the mmap region used by the POSIX heap. No GL context or pixel was
+produced. M17 remains BLOCKED; M18 remains NOT STARTED.
+
+### Local continuation after CI run #191 (2026-09-25)
+
+The console syscall now permits bounded mmap-region addresses through its
+preliminary range check, while the existing mapped-page validation still
+rejects unmapped addresses before the kernel copies any bytes. Added coverage
+for valid and cross-boundary mmap ranges. The Albert trace callback now checks
+each console-write result and prints a static failure marker if a write is
+rejected. Formatting passed, the kernel library suite passed (93 tests on the
+x86_64-apple-darwin host target), nagi-cli passed all 58 library tests, and the
+Nagi-target release kernel build passed. Public target QEMU verification
+remains pending; M17 remains BLOCKED; M18 remains NOT STARTED.
 
 ### Target evidence from CI run #190 (2026-09-25)
 

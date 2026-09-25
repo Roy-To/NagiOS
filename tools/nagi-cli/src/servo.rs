@@ -774,7 +774,9 @@ mod tests {
             adapter.contains("pub unsafe extern \"C\" fn nagi_m17_console_trace"),
             "M17 trace callback must be supplied by the Nagi-owned Albert adapter"
         );
-        assert!(adapter.contains("libnagi::console_write(b\"Nagi M17 trace: \")"));
+        assert!(adapter.contains("libnagi::console_write(prefix) == prefix.len()"));
+        assert!(adapter.contains("libnagi::console_write(stage) == stage.len()"));
+        assert!(adapter.contains("Nagi M17 trace FAIL console write\\r\\n"));
         assert!(adapter
             .contains("nagi_m17_console_trace(callback_probe.as_ptr(), callback_probe.len())"));
         for stage in [
