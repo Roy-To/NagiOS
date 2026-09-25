@@ -30,6 +30,7 @@ const DESC_F_WRITE: u16 = 2;
 const BLOCK_IN: u32 = 0;
 const BLOCK_OUT: u32 = 1;
 const BLOCK_FLUSH: u32 = 4;
+const VIRTIO_BLK_F_RO: u32 = 1 << 5;
 const VIRTIO_BLK_F_FLUSH: u32 = 1 << 9;
 const BLOCK_SECTOR_SIZE: usize = 512;
 
@@ -419,6 +420,7 @@ fn discover_largest_block_device() -> Option<DeviceCandidate> {
             unsafe {
                 pci_config_write16(0, device, function, PCI_COMMAND_OFFSET, command | 0x0005);
             }
+            let host_features = unsafe { io_read32(io_base + LEGACY_HOST_FEATURES) };
             let low = unsafe { io_read32(io_base + LEGACY_DEVICE_CONFIG) } as u64;
             let high = unsafe { io_read32(io_base + LEGACY_DEVICE_CONFIG + 4) } as u64;
             let capacity_sectors = low | high << 32;
@@ -431,24 +433,36 @@ fn discover_largest_block_device() -> Option<DeviceCandidate> {
                 function,
                 io_base,
                 capacity_sectors,
+                read_only: host_features & VIRTIO_BLK_F_RO != 0,
             };
-            if best.is_none_or(|current: DeviceCandidate| {
-                candidate.capacity_sectors > current.capacity_sectors
-            }) {
-                best = Some(candidate);
-            }
+            best = choose_largest_writable_block_device(best, candidate);
         }
     }
     best
 }
 
-#[derive(Clone, Copy)]
+fn choose_largest_writable_block_device(
+    current: Option<DeviceCandidate>,
+    candidate: DeviceCandidate,
+) -> Option<DeviceCandidate> {
+    if candidate.read_only {
+        return current;
+    }
+    if current.is_none_or(|current| candidate.capacity_sectors > current.capacity_sectors) {
+        Some(candidate)
+    } else {
+        current
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct DeviceCandidate {
     bus: u8,
     device: u8,
     function: u8,
     io_base: u16,
     capacity_sectors: u64,
+    read_only: bool,
 }
 
 const fn pci_config_address(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
@@ -564,9 +578,9 @@ unsafe fn io_write32(port: u16, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        descriptor_flags, make_capability, pci_config_address, request_header, validate_sector,
-        BlockRequestHeader, LegacyQueue, BLOCK_IN, DESC_F_NEXT, DESC_F_WRITE, QUEUE_SIZE,
-        QUEUE_USED_RING_OFFSET,
+        choose_largest_writable_block_device, descriptor_flags, make_capability,
+        pci_config_address, request_header, validate_sector, BlockRequestHeader, DeviceCandidate,
+        LegacyQueue, BLOCK_IN, DESC_F_NEXT, DESC_F_WRITE, QUEUE_SIZE, QUEUE_USED_RING_OFFSET,
     };
 
     #[test]
@@ -607,6 +621,36 @@ mod tests {
     fn rejects_sector_at_capacity() {
         assert!(validate_sector(131_071, 131_072).is_ok());
         assert!(validate_sector(131_072, 131_072).is_err());
+    }
+
+    #[test]
+    fn ignores_read_only_boot_disk_when_choosing_user_storage() {
+        let boot_disk = DeviceCandidate {
+            bus: 0,
+            device: 8,
+            function: 0,
+            io_base: 0xc000,
+            capacity_sectors: 261_415,
+            read_only: true,
+        };
+        let user_data_disk = DeviceCandidate {
+            bus: 0,
+            device: 9,
+            function: 0,
+            io_base: 0xc040,
+            capacity_sectors: 32_768,
+            read_only: false,
+        };
+
+        assert_eq!(choose_largest_writable_block_device(None, boot_disk), None);
+        assert_eq!(
+            choose_largest_writable_block_device(Some(user_data_disk), boot_disk),
+            Some(user_data_disk)
+        );
+        assert_eq!(
+            choose_largest_writable_block_device(None, user_data_disk),
+            Some(user_data_disk)
+        );
     }
 
     #[test]

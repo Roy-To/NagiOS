@@ -9,8 +9,8 @@ use crate::config::{load_toolchain_requirements, validate_project};
 use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
 use crate::image::{
     ensure_persistent_disk, run_qemu, run_qemu_gui, run_qemu_gui_with_events, run_qemu_interactive,
-    write_fat12_image, write_m17_fat12_image, ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER,
-    NAGI_WRITE_MARKER,
+    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image, ImageLayout,
+    QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::mesa::ensure_mesa_checkout;
 use crate::mozjs_sys_nagi::ensure_mozjs_sys_nagi_checkout;
@@ -1779,7 +1779,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             acceptance_marker: NAGI_WRITE_MARKER,
             timeout,
         };
-        if let Err(error) = run_qemu(&first_config) {
+        if let Err(error) = run_qemu_with_read_only_boot_disk(&first_config) {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
@@ -1818,7 +1818,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         acceptance_marker: "Nagi M17 first web pixel PASS",
         timeout,
     };
-    let status = match run_qemu(&config) {
+    let status = match run_qemu_with_read_only_boot_disk(&config) {
         Ok(status) => status,
         Err(error) => {
             return failure(
@@ -2801,5 +2801,28 @@ mod tests {
         assert!(runner
             .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\""));
         assert!(init.contains("Nagi M7 persistent write PASS"));
+    }
+
+    #[test]
+    fn m17_persistence_and_pixel_boots_keep_the_esp_read_only() {
+        let commands = include_str!("commands.rs");
+        let start = commands.find("fn execute_m17(").expect("M17 command");
+        let end = commands[start..]
+            .find("fn execute_m16_sample_build(")
+            .map(|offset| start + offset)
+            .expect("next command helper");
+        let m17_command = &commands[start..end];
+
+        assert_eq!(
+            m17_command
+                .matches("run_qemu_with_read_only_boot_disk(")
+                .count(),
+            2,
+            "both M17 QEMU boots must protect the ESP"
+        );
+        assert!(
+            !m17_command.contains("run_qemu(&"),
+            "M17 must not boot with a writable ESP"
+        );
     }
 }

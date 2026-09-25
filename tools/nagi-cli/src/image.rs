@@ -539,6 +539,17 @@ fn write_u32(target: &mut [u8], offset: usize, value: u32) {
 }
 
 pub fn run_qemu(config: &QemuConfig<'_>) -> Result<i32, String> {
+    run_qemu_with_boot_disk_mode(config, false)
+}
+
+pub fn run_qemu_with_read_only_boot_disk(config: &QemuConfig<'_>) -> Result<i32, String> {
+    run_qemu_with_boot_disk_mode(config, true)
+}
+
+fn run_qemu_with_boot_disk_mode(
+    config: &QemuConfig<'_>,
+    boot_disk_read_only: bool,
+) -> Result<i32, String> {
     let QemuConfig {
         serial_log,
         acceptance_marker,
@@ -546,7 +557,8 @@ pub fn run_qemu(config: &QemuConfig<'_>) -> Result<i32, String> {
         ..
     } = *config;
     let serial_device = format!("file:{}", external_path(serial_log));
-    let mut child = spawn_qemu(config, &serial_device)?;
+    let mut child =
+        spawn_qemu_with_display_mode(config, &serial_device, 0, 0, boot_disk_read_only)?;
     let status = wait_for_qemu(&mut child, serial_log, acceptance_marker, timeout)?;
     Ok(status)
 }
@@ -851,6 +863,16 @@ fn spawn_qemu_with_display(
     qmp_port: u16,
     vnc_display: u16,
 ) -> Result<Child, String> {
+    spawn_qemu_with_display_mode(config, serial_device, qmp_port, vnc_display, false)
+}
+
+fn spawn_qemu_with_display_mode(
+    config: &QemuConfig<'_>,
+    serial_device: &str,
+    qmp_port: u16,
+    vnc_display: u16,
+    boot_disk_read_only: bool,
+) -> Result<Child, String> {
     let QemuConfig {
         qemu,
         ovmf_code,
@@ -882,7 +904,7 @@ fn spawn_qemu_with_display(
         external_path(ovmf_code)
     );
     let vars_drive = format!("if=pflash,format=raw,file={}", external_path(vars_copy));
-    let disk_drive = format!("if=virtio,format=raw,file={}", external_path(disk_image));
+    let disk_drive = image_drive_argument(disk_image, boot_disk_read_only);
     let persistent_drive = format!(
         "if=none,id=nagi-data,format=raw,file={}",
         external_path(persistent_disk)
@@ -958,6 +980,11 @@ fn qemu_audio_driver_for_host(host_os: &str) -> &'static str {
         // audio server.
         _ => "none",
     }
+}
+
+fn image_drive_argument(path: &Path, read_only: bool) -> String {
+    let mode = if read_only { ",readonly=on" } else { "" };
+    format!("if=virtio,format=raw{mode},file={}", external_path(path))
 }
 
 fn terminate_qemu(child: &mut Child, serial_log: &Path, serial: &[u8]) {
@@ -1104,11 +1131,13 @@ fn guest_reached_acceptance(serial: &str, acceptance_marker: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{
         build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
-        initialize_fats, qemu_audio_driver_for_host, write_chain, Fat12Geometry, DATA_OFFSET,
-        FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER,
-        PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
+        image_drive_argument, initialize_fats, qemu_audio_driver_for_host, write_chain,
+        Fat12Geometry, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE,
+        M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
     };
 
     #[test]
@@ -1117,6 +1146,18 @@ mod tests {
         assert_eq!(qemu_audio_driver_for_host("macos"), "coreaudio");
         assert_eq!(qemu_audio_driver_for_host("linux"), "none");
         assert_eq!(qemu_audio_driver_for_host("unknown"), "none");
+    }
+
+    #[test]
+    fn qemu_can_mount_the_m17_boot_image_read_only() {
+        assert_eq!(
+            image_drive_argument(Path::new("m17.img"), true),
+            "if=virtio,format=raw,readonly=on,file=m17.img"
+        );
+        assert_eq!(
+            image_drive_argument(Path::new("m7.img"), false),
+            "if=virtio,format=raw,file=m7.img"
+        );
     }
 
     #[test]

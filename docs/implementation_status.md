@@ -19,26 +19,62 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #181 passed both host jobs, Mesa/package/kernel builds, the real
-Servo user-init link, and UEFI loader build. The M17 QEMU gate reached the UEFI
-loader, which opened `INIT.ELF` and read its size but failed during the file
-data read before `Nagi Kernel started`. The loader currently discards the EFI
-status and byte offset. The next change reports that status, failing offset,
-requested bytes, and file size, and adds a host-only regression that checks all
-links in a 3,899-cluster FAT12 chain matching the previously measured pinned
-Servo init ELF size. No Servo-pixel evidence has been produced. M17 remains
-blocked until the guest renders and presents a nonzero Servo pixel checksum;
-M18 remains forbidden until M17 is formally PASS.
+milestone. CI #182 passed target builds through the real Servo user-init link
+and UEFI loader, then the final QEMU boot failed while reading `INIT.ELF` at
+10 MiB with EFI `VOLUME_CORRUPTED`. The first M7 persistence boot writes an
+ext2 test volume through the kernel's writable block capability. The kernel
+previously selected the largest VirtIO disk, which is the 128 MiB M17 boot ESP
+rather than the 16 MiB user-data disk. The ext2 superblock write overlaps the
+FAT12 allocation table and corrupts the long INIT chain at the observed read
+offset. The repair makes the M17 boot disk read-only and excludes read-only
+VirtIO disks from writable user-storage selection. No Servo-pixel evidence has
+been produced. M17 remains blocked until the guest renders and presents a
+nonzero Servo pixel checksum; M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36088261144` (#181, head
-`25b8a6b4a69e1253977f94415d6937bb34b0d4a1`) completed with failure. Both host
-jobs and all target builds passed. The final QEMU boot reached
-`Nagi Loader: init read failed` after opening the init ELF and allocating its
-buffer; the serial tail contains no kernel-start or pixel marker. The CLI had
-advanced beyond the first persistent-write gate. The current diagnostic adds
-the EFI status and failing read range, and a host-only test covers the full
-long-file FAT12 chain. M17 remains blocked; M18 remains not started.
+**Last known repair checkpoint:** public CI run `36092134517` (#182, head
+`846cb5dc80adcbad01eb5dbd94d127419814639d`) completed with failure. Windows
+launcher passed; Ubuntu host stopped at loader formatting; Mesa/package/kernel,
+real Servo user-init link, and UEFI loader passed. The final M17 QEMU boot
+failed at file offset `0xa00000`, request `0x100000`, file size `0x79d6fe8`,
+with EFI `VOLUME_CORRUPTED`. This is consistent with the first persistence
+boot formatting the larger boot ESP through the user block capability. The
+current repair makes the M17 ESP read-only, filters VirtIO read-only devices
+from writable user-storage selection, and adds selection/configuration
+regressions. Local synthetic-image QEMU reached `Nagi Kernel started`, but the
+real Servo first-pixel CI acceptance remains authoritative. M17 remains
+blocked; M18 remains not started.
+
+### Current M17 continuation after CI run #182 (2026-09-25)
+
+Public CI run `36092134517` (#182, head
+`846cb5dc80adcbad01eb5dbd94d127419814639d`) passed Windows launcher, Mesa
+Softpipe, package/kernel builds, the real Servo user-init link, and UEFI loader
+build. Ubuntu host stopped at the separate loader formatting check. The M17
+acceptance command advanced to its final QEMU boot and failed while reading
+`INIT.ELF`: `VOLUME_CORRUPTED` at file offset `0xa00000`, requesting 1 MiB from
+a 0x79d6fe8-byte file. The EFI diagnostic had already confirmed that opening,
+sizing, allocating, and rewinding the file succeeded.
+
+The failure was caused by the two-boot storage gate using the writable block
+capability on the largest VirtIO device. The M17 EFI image has 261,415 sectors
+(about 128 MiB), while the persistent user-data disk has 32,768 sectors (16
+MiB). On the first boot, `Vfs::mount_or_format` writes its ext2 superblock to
+LBA 2–3. The FAT12 ESP's first FAT begins at LBA 1, so this write overwrites
+FAT12 entries beginning at cluster 341. With INIT beginning at cluster 12,
+cluster 341 is reached near file offset `0xa48000`, inside the failing 1 MiB
+read. This explains why UEFI can load the bootloader and read the first part
+of INIT before the second boot fails.
+
+The repair uses a read-only QEMU attachment for the M17 boot ESP and makes
+kernel VirtIO discovery ignore devices offering `VIRTIO_BLK_F_RO` when choosing
+the writable user-storage capability. A host regression covers the case where
+the read-only boot disk is larger than the writable data disk, and the M17
+image-drive argument test checks that only the M17 boot image is opened
+read-only. Local QEMU with the full-sized synthetic INIT reaches
+`Nagi Kernel started`; public target CI must verify the two-boot persistence
+gate and real Servo pixel acceptance. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Current M17 continuation after CI run #181 (2026-09-25)
 
@@ -877,7 +913,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | CI #179 (`36076724861`) built the real Servo init and loader, then UEFI could not reserve the expanded kernel PT_LOAD across firmware-reserved low memory. ADR 0023 moves the fixed kernel base to 64 MiB; local QEMU reaches the kernel, while real M17 QEMU and first-pixel acceptance remain pending. The 32 KiB-cluster FAT12 ESP, direct UEFI page loading below 4 GiB, and bounded 512 MiB user image window remain in place. M18 remains forbidden until formal PASS. See ADRs 0019–0023. |
+| M17 | Servo Bootstrap | BLOCKED | CI #182 (`36092134517`) built the real Servo init and UEFI loader, then the second QEMU boot failed reading INIT at 10 MiB after the first persistence boot formatted the larger FAT12 boot ESP through the writable block capability. M17 now attaches the boot ESP read-only and kernel selection skips VirtIO devices offering `VIRTIO_BLK_F_RO`; local synthetic-image UEFI loading reaches the kernel, but target two-boot persistence and first-pixel acceptance remain pending. M18 remains forbidden until formal PASS. See ADRs 0019–0024. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -900,7 +936,9 @@ M17 remains `BLOCKED` as a truthful acceptance state; this is not a stop
 condition and is not a first-web-pixel acceptance. The implementation now
 applies sorted tracked Servo, Surfman, and libc patches, records generated
 checkout revisions plus patch/worktree fingerprints, and refuses stale or
-unsafe generated state without overwriting it.
+unsafe generated state without overwriting it. The M17 QEMU boot image is
+read-only, and the writable user-storage capability excludes read-only VirtIO
+devices so the first persistent-write gate cannot alter the FAT12 ESP.
 
 The blocker inventory was reclassified on 2026-09-20.
 
