@@ -5852,6 +5852,7 @@ dependencies = [
  "gleam",
  "glow",
  "image",
+ "libc",
  "log",
  "malloc_size_of_derive",
  "parking_lot",

@@ -30,3 +30,4 @@ on stdio formatting or locking; other targets compile a no-op helper.
 The ordered patch `0009-nagi-m17-rendering-context-traces-lock.patch` records
 the new direct `libc` dependency for `servo-paint-api` in the pinned Servo
 `Cargo.lock`, keeping `nagi fetch` reproducible with locked Cargo commands.
+The Nagi root workspace lockfile also records this dependency edge.

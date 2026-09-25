@@ -21,24 +21,37 @@ Repository instructions:
 **Next action:** M16 is PASS and M17 remains the active implementation
 milestone. CI #184 reached M17 QEMU and timed out after
 `Nagi M17 trace: GL context creation started`; no new EGL/Servo traces appeared.
-The next direct-descriptor trace patch was committed, but CI #185 stopped during
-Servo bootstrap because its added `libc` dependency was missing from the pinned
-Servo lockfile. Patch `0009` now adds that lock entry. The next target CI must
-confirm bootstrap, then report the first direct Servo checkpoint or the next
-failure. No Servo-pixel evidence has been produced. M17 remains blocked until
-the guest renders and presents a nonzero Servo pixel checksum; M18 remains
-forbidden until M17 is formally PASS.
+The direct-descriptor trace patch is committed. CI #185 first found a missing
+pinned Servo lock entry; #0009 fixed that, and CI #186 then found the matching
+edge was also missing from the root `Cargo.lock`. Both lockfiles now include
+`servo-paint-api -> libc`. The next CI must pass locked Clippy and target
+dependency checks before continuing to Mesa and M17 QEMU. No Servo-pixel
+evidence has been produced. M17 remains blocked until the guest renders and
+presents a nonzero Servo pixel checksum; M18 remains forbidden until M17 is
+formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36113604201` (#185, head
-`d69d6c8ca01b35b5e500b15be3ddcf4f9d20c6a7`) failed in the Ubuntu host, Windows,
-and target jobs at `nagi-bootstrap fetch`: the new `servo-paint-api` dependency
-changed Servo's manifest but the tracked patch set did not yet update
-`Cargo.lock`, so Cargo's `--locked` check stopped bootstrap. The host format and
-test steps and target acceptance were skipped. The generated local Servo
-checkout remains untouched because its fingerprint is mismatched. Public
-target CI remains authoritative for M17. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+**Last known repair checkpoint:** public CI run `36114799741` (#186, head
+`30b2494e556ce27a21e85975da75a3112c436510`) passed pinned Servo bootstrap on
+Ubuntu and target. Ubuntu Format also passed. Ubuntu Clippy and target dependency
+feature verification failed because the root `Cargo.lock` did not yet include
+the `servo-paint-api -> libc` edge, so target Mesa and M17 acceptance were
+skipped. Both the pinned Servo and root lockfiles now contain the edge. The
+generated local Servo checkout remains untouched because its fingerprint is
+mismatched. Public target CI remains authoritative for M17. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #186 (2026-09-25)
+
+Run `36114799741` (#186) passed `nagi-bootstrap fetch` on Ubuntu and target,
+confirming ordered patch `0009` keeps the pinned Servo manifest and its lockfile
+consistent. Ubuntu formatting passed. The Ubuntu host Clippy step and target
+M17 dependency feature-boundary step then failed with the same root workspace
+error: `Cargo.lock needs to be updated but --locked was passed`. The pinned
+Servo checkout's own lockfile patch does not update the Nagi root lockfile, so
+the root `servo-paint-api` lock entry now also records `libc`; a CLI contract
+check guards that edge. The next target run must pass locked dependency checks
+before Mesa and init builds. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #185 (2026-09-25)
 

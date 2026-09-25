@@ -24,6 +24,11 @@ direct `libc` dependency added to `servo-paint-api` was not yet present in
 Servo's lockfile. The `--locked` check correctly rejected that incomplete
 source patch set. Patch `0009` now records the corresponding lockfile entry.
 
+CI run #186 (`36114799741`) passed pinned Servo bootstrap after patch `0009`,
+then failed at the root workspace lock boundary: Ubuntu Clippy and the target
+dependency feature check both found that the root `Cargo.lock` also lacked the
+`servo-paint-api -> libc` edge. Both lockfiles now record the direct dependency.
+
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
 software adapter. Mesa EGL, however, normally derives software selection from

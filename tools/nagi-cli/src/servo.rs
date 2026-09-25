@@ -767,6 +767,11 @@ mod tests {
                 "third_party/servo-patches/0009-nagi-m17-rendering-context-traces-lock.patch",
             ))
             .expect("M17 rendering-context trace Cargo.lock patch");
+        let root_lock = fs::read_to_string(root.join("Cargo.lock")).expect("workspace Cargo.lock");
+        let root_paint_api_lock_entry = root_lock
+            .split("[[package]]")
+            .find(|package| package.contains("name = \"servo-paint-api\""))
+            .expect("servo-paint-api entry in workspace Cargo.lock");
         assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
         assert!(patch.contains("libc::write(2, PREFIX.as_ptr().cast(), PREFIX.len())"));
         assert!(
@@ -775,6 +780,7 @@ mod tests {
         );
         assert!(lock_patch.contains("name = \"servo-paint-api\""));
         assert!(lock_patch.contains("+ \"libc\","));
+        assert!(root_paint_api_lock_entry.contains(" \"libc\","));
         for stage in [
             "Surfman connection started",
             "GL context creation started",
