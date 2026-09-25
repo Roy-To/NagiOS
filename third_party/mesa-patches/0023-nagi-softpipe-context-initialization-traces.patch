@@ -1,0 +1,145 @@
+--- a/src/gallium/drivers/softpipe/sp_context.c
++++ b/src/gallium/drivers/softpipe/sp_context.c
+@@ -36,0 +37 @@
++#include "util/u_debug.h"
+@@ -58,0 +60,7 @@
++#ifdef __NAGI__
++#define SP_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: Softpipe " message "\n")
++#else
++#define SP_NAGI_TRACE(message) ((void) 0)
++#endif
++
+@@ -189 +197 @@
+-   struct softpipe_context *softpipe = CALLOC_STRUCT(softpipe_context);
++   struct softpipe_context *softpipe;
+@@ -191,0 +200,5 @@
++   SP_NAGI_TRACE("context creation entered");
++   SP_NAGI_TRACE("context allocation started");
++   softpipe = CALLOC_STRUCT(softpipe_context);
++   SP_NAGI_TRACE("context allocation completed");
++
+@@ -193,0 +207 @@
++   SP_NAGI_TRACE("sampler state initialization started");
+@@ -196,0 +211 @@
++   SP_NAGI_TRACE("sampler state initialization completed");
+@@ -197,0 +213 @@
++   SP_NAGI_TRACE("image state initialization started");
+@@ -200,0 +217 @@
++   SP_NAGI_TRACE("image state initialization completed");
+@@ -201,0 +219 @@
++   SP_NAGI_TRACE("buffer state initialization started");
+@@ -204,0 +223 @@
++   SP_NAGI_TRACE("buffer state initialization completed");
+@@ -238,0 +258 @@
++   SP_NAGI_TRACE("framebuffer cache initialization started");
+@@ -241,0 +262 @@
++   SP_NAGI_TRACE("framebuffer cache initialization completed");
+@@ -252,0 +274,3 @@
++#ifdef __NAGI__
++   SP_NAGI_TRACE("eager texture cache initialization skipped");
++#endif
+@@ -253,0 +278 @@
++   SP_NAGI_TRACE("fragment TGSI machine creation started");
+@@ -254,0 +280 @@
++   SP_NAGI_TRACE("fragment TGSI machine creation completed");
+@@ -256,0 +283 @@
++   SP_NAGI_TRACE("quad shade stage creation started");
+@@ -257,0 +285,2 @@
++   SP_NAGI_TRACE("quad shade stage creation completed");
++   SP_NAGI_TRACE("quad depth-test stage creation started");
+@@ -258,0 +288,2 @@
++   SP_NAGI_TRACE("quad depth-test stage creation completed");
++   SP_NAGI_TRACE("quad blend stage creation started");
+@@ -259,0 +291 @@
++   SP_NAGI_TRACE("quad blend stage creation completed");
+@@ -260,0 +293 @@
++   SP_NAGI_TRACE("stream uploader creation started");
+@@ -262 +295,2 @@
+-   if (!softpipe->pipe.stream_uploader)
++   if (!softpipe->pipe.stream_uploader) {
++      SP_NAGI_TRACE("stream uploader creation failed");
+@@ -263,0 +298,2 @@
++   }
++   SP_NAGI_TRACE("stream uploader creation completed");
+@@ -268,0 +305 @@
++   SP_NAGI_TRACE("draw context creation started");
+@@ -274,0 +312 @@
++   SP_NAGI_TRACE("draw context creation completed");
+@@ -275,0 +314 @@
++   SP_NAGI_TRACE("vertex draw sampler binding started");
+@@ -279,0 +319 @@
++   SP_NAGI_TRACE("vertex draw sampler binding completed");
+@@ -280,0 +321 @@
++   SP_NAGI_TRACE("geometry draw sampler binding started");
+@@ -284,0 +326 @@
++   SP_NAGI_TRACE("geometry draw sampler binding completed");
+@@ -285,0 +328 @@
++   SP_NAGI_TRACE("vertex draw image binding started");
+@@ -289,0 +333 @@
++   SP_NAGI_TRACE("vertex draw image binding completed");
+@@ -290,0 +335 @@
++   SP_NAGI_TRACE("geometry draw image binding started");
+@@ -294,0 +340 @@
++   SP_NAGI_TRACE("geometry draw image binding completed");
+@@ -295,0 +342 @@
++   SP_NAGI_TRACE("vertex draw buffer binding started");
+@@ -299,0 +347 @@
++   SP_NAGI_TRACE("vertex draw buffer binding completed");
+@@ -300,0 +349 @@
++   SP_NAGI_TRACE("geometry draw buffer binding started");
+@@ -304,0 +354 @@
++   SP_NAGI_TRACE("geometry draw buffer binding completed");
+@@ -305,0 +356 @@
++   SP_NAGI_TRACE("vertex buffer backend creation started");
+@@ -307 +358,2 @@
+-   if (!softpipe->vbuf_backend)
++   if (!softpipe->vbuf_backend) {
++      SP_NAGI_TRACE("vertex buffer backend creation failed");
+@@ -308,0 +361,2 @@
++   }
++   SP_NAGI_TRACE("vertex buffer backend creation completed");
+@@ -309,0 +364 @@
++   SP_NAGI_TRACE("vertex buffer stage creation started");
+@@ -311 +366,2 @@
+-   if (!softpipe->vbuf)
++   if (!softpipe->vbuf) {
++      SP_NAGI_TRACE("vertex buffer stage creation failed");
+@@ -312,0 +369,2 @@
++   }
++   SP_NAGI_TRACE("vertex buffer stage creation completed");
+@@ -313,0 +372 @@
++   SP_NAGI_TRACE("draw rasterizer stage installation started");
+@@ -315,0 +375 @@
++   SP_NAGI_TRACE("draw rasterizer stage installation completed");
+@@ -316,0 +377 @@
++   SP_NAGI_TRACE("blitter context creation started");
+@@ -318,0 +380 @@
++      SP_NAGI_TRACE("blitter context creation failed");
+@@ -320,0 +383 @@
++   SP_NAGI_TRACE("blitter context creation completed");
+@@ -322,0 +386 @@
++   SP_NAGI_TRACE("blitter shader cache initialization started");
+@@ -323,0 +388 @@
++   SP_NAGI_TRACE("blitter shader cache initialization completed");
+@@ -325,0 +391 @@
++   SP_NAGI_TRACE("anti-aliased line stage installation started");
+@@ -326,0 +393,2 @@
++   SP_NAGI_TRACE("anti-aliased line stage installation completed");
++   SP_NAGI_TRACE("anti-aliased point stage installation started");
+@@ -327,0 +396 @@
++   SP_NAGI_TRACE("anti-aliased point stage installation completed");
+@@ -329,0 +399 @@
++   SP_NAGI_TRACE("polygon stipple stage installation started");
+@@ -330,0 +401 @@
++   SP_NAGI_TRACE("polygon stipple stage installation completed");
+@@ -331,0 +403 @@
++   SP_NAGI_TRACE("wide point sprite setup started");
+@@ -332,0 +405 @@
++   SP_NAGI_TRACE("wide point sprite setup completed");
+@@ -333,0 +407 @@
++   SP_NAGI_TRACE("drawing stages initialization completed");
+@@ -335,0 +410 @@
++   SP_NAGI_TRACE("context creation completed");
+@@ -338,0 +414 @@
++   SP_NAGI_TRACE("context cleanup started after initialization failure");

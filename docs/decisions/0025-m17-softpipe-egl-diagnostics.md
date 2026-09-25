@@ -81,6 +81,16 @@ returned only when `eglCreateContext` returns `EGL_NO_CONTEXT` and
 and `eglMakeCurrent`. Mesa can map either its EGL context-wrapper allocation
 failure or a DRI/Softpipe context-setup failure to that code.
 
+CI run #193 (`36157913731`) passed the two-boot persistence gate and completed
+EGL driver initialization and DRI screen creation, then timed out after 120
+seconds at `eglCreateContext`. The serial log ended immediately after Servo's
+`GL context creation started` checkpoint, so it does not identify the
+Softpipe initialization call that failed to return. Target compilation
+reported `sp_context.c:190: unused variable 'sh'`, consistent with patch
+`0022` excluding Softpipe's eager texture-cache loop under `__NAGI__`. The
+run therefore shows forward progress beyond DRI screen creation but does not
+prove which call inside `softpipe_create_context` is stalled.
+
 The pinned Softpipe source eagerly allocates one texture tile cache for each
 of its 6 shader stages and 128 sampler-view slots during context creation. A
 cache embeds sixteen 32×32 RGBA-float tiles, so its tile storage alone is 256
@@ -114,8 +124,10 @@ Nagi-only warning-level diagnostics bracket EGL device discovery, driver
 initialization, surfaceless software and no-DRM probes, and DRI screen creation.
 Servo's Nagi patch adds checkpoints through Surfman device/context creation,
 GL function loading, surface binding, make-current, and swap-chain creation.
-These logs are diagnostic and do not change rendering, surface ownership, or
-M17 acceptance criteria.
+Mesa patch `0023` adds Nagi-only `_debug_printf` checkpoints around Softpipe
+context initialization, including draw-context creation and blitter shader
+caching. These logs are diagnostic and do not change rendering, surface
+ownership, or M17 acceptance criteria.
 
 After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
 `libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
@@ -137,9 +149,10 @@ instruction in the constructor body; other targets retain a no-op helper.
   rejects the buffer.
 - CI #192 established that context creation returns `EGL_BAD_ALLOC`. Source
   inspection found Softpipe's 192 MiB eager cache matrix exceeds Nagi's 8 MiB
-  heap; patch `0022` allocates only caches for bound sampler views on Nagi. A
-  new target run must show whether the context advances. If it still fails,
-  instrument the DRI context result and raw EGL error before choosing another
-  memory change.
+  heap; patch `0022` allocates only caches for bound sampler views on Nagi. CI
+  #193 advanced through EGL driver and DRI screen initialization but timed out
+  during Softpipe context creation. Patch `0023` adds stage checkpoints so the
+  next target run can identify the call that does not return before another
+  behavior or memory change is chosen.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

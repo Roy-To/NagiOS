@@ -999,6 +999,37 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_softpipe_context_initialization_has_ordered_trace_checkpoints() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(root.join(
+            "third_party/mesa-patches/0023-nagi-softpipe-context-initialization-traces.patch",
+        ))
+        .expect("Nagi Softpipe context trace patch");
+        assert!(patch.contains("#ifdef __NAGI__"));
+        assert!(patch.contains("_debug_printf(\"Nagi M17 trace: Softpipe \""));
+        assert!(patch.contains("eager texture cache initialization skipped"));
+
+        let draw_start = patch
+            .find("SP_NAGI_TRACE(\"draw context creation started\")")
+            .expect("draw context start checkpoint");
+        let draw_done = patch
+            .find("SP_NAGI_TRACE(\"draw context creation completed\")")
+            .expect("draw context completion checkpoint");
+        assert!(draw_start < draw_done);
+
+        let shader_cache_start = patch
+            .find("SP_NAGI_TRACE(\"blitter shader cache initialization started\")")
+            .expect("blitter shader-cache start checkpoint");
+        let shader_cache_done = patch
+            .find("SP_NAGI_TRACE(\"blitter shader cache initialization completed\")")
+            .expect("blitter shader-cache completion checkpoint");
+        assert!(shader_cache_start < shader_cache_done);
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

@@ -19,28 +19,53 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #192 reported `ContextCreationFailed(BadAlloc)` from
-`eglCreateContext`. Source inspection found that Softpipe eagerly creates 768
-texture caches requiring more than 192 MiB, while Nagi's POSIX heap is fixed
-at 8 MiB. Mesa patch `0022` now creates a cache only for each actually bound
-sampler view and releases it on unbind. The cache-size mismatch is confirmed
-in source; whether it caused the CI failure remains to be checked on target.
-No Servo-pixel evidence has been produced. M17 remains BLOCKED until the guest
-renders and presents a nonzero Servo pixel checksum; M18 remains NOT STARTED
-until M17 is formally PASS.
+milestone. CI #193 passed the two-boot persistence gate, Mesa EGL driver
+initialization, and static Softpipe DRI screen creation, then timed out after
+120 seconds during `eglCreateContext`. Its last serial marker is Servo's
+`GL context creation started`. The target Mesa build warned that `sh` is
+unused in `sp_context.c`, consistent with patch `0022` skipping the eager
+texture-cache loop for Nagi. The call that stalls inside Softpipe context
+initialization is not yet known. Patch `0023` adds Nagi-only checkpoints around
+each major Softpipe context setup call. No Servo-pixel evidence has been
+produced. M17 remains BLOCKED; M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36145246098` (#192, head
-`8f97294433285dd0e284bbbe5dbf0b93e0809809`) passed Ubuntu and Windows host
+**Last known repair checkpoint:** public CI run `36157913731` (#193, head
+`50bcc06b946acb55d0d293a8eec4b46f9a435edc`) passed Ubuntu and Windows host
 checks, target dependency validation, Mesa Softpipe, package, kernel, Nagi
 user-init link, and UEFI loader build. QEMU passed the two-boot storage gate,
-initialized the static Softpipe DRI screen, then reported
-`ContextCreationFailed(BadAlloc)` from Surfman's EGL context creation. Source
-inspection found that the eagerly allocated Softpipe texture-cache matrix
-requires over 192 MiB against the fixed 8 MiB Nagi POSIX heap. Patch `0022`
-changes Nagi to allocate cache storage only for bound sampler views. This is a
-targeted repair whose runtime effect remains unverified. Public target CI
-remains authoritative for M17; M18 remains NOT STARTED.
+EGL software driver initialization, and DRI screen creation, then timed out
+after 120 seconds during `eglCreateContext`. Patch `0022` skips Nagi's eager
+768-entry Softpipe texture-cache allocation; the target build warning that
+`sh` is unused in `sp_context.c` is consistent with that guard. Patch `0023`
+adds Nagi-only initialization checkpoints to identify the remaining stall.
+Public target CI remains authoritative for M17; M18 remains NOT STARTED.
+
+### Target evidence from CI run #193 (2026-09-26)
+
+Run `36157913731` (#193, head
+`50bcc06b946acb55d0d293a8eec4b46f9a435edc`) passed both host jobs and every
+target step through UEFI loader build. The real two-boot QEMU acceptance passed
+the persistence checks and reached EGL's static Softpipe driver. EGL completed
+driver initialization and DRI screen creation. The next `eglCreateContext`
+call did not return within 120 seconds; its serial log ends at
+`Nagi M17 trace: GL context creation started`. There is no Servo frame,
+checksum, or PASS marker. The target Mesa compile warning at
+`sp_context.c:190` reports unused variable `sh`, consistent with the
+`__NAGI__` guard skipping the eager cache loop from patch `0022`. The exact
+Softpipe context-creation call that stalls is unknown. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
+
+### Local continuation after CI run #193 (2026-09-26)
+
+Added Mesa patch `0023` with Nagi-only `_debug_printf` checkpoints around
+Softpipe context construction, including TGSI setup, draw-context creation,
+vertex-buffer stages, and blitter shader caching. This is diagnostic-only and
+does not change rendering behavior. The clean Mesa worktree at pinned revision
+`f1f246cfda65eff82fba3be1caf2d23bdeda60cc` accepted patches `0001`–`0023` in
+order, and `git diff --check` passed there. The next public target CI remains
+necessary to identify the call that stalls; M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Local continuation after CI run #192 (2026-09-26)
 

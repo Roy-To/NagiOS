@@ -139,6 +139,12 @@ unbound. If a bound cache still cannot be allocated, Mesa reports the failure
 and aborts instead of sampling through a null cache or producing misleading
 render output. Other targets keep Mesa's eager cache initialization.
 
+`0023-nagi-softpipe-context-initialization-traces.patch` adds Nagi-only
+checkpoints around Softpipe context initialization. They identify which
+allocator, fallback stage, or shader-cache call fails to return during target
+EGL context creation; they do not change rendering behavior on Nagi or other
+targets.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache
