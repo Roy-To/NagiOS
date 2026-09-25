@@ -1,29 +1,18 @@
-diff --git a/components/shared/paint/Cargo.toml b/components/shared/paint/Cargo.toml
---- a/components/shared/paint/Cargo.toml
-+++ b/components/shared/paint/Cargo.toml
-@@ -22,6 +22,7 @@
- [dependencies]
-+libc = { workspace = true }
- bitflags = { workspace = true }
- crossbeam-channel = { workspace = true }
- dpi = { workspace = true }
- embedder_traits = { workspace = true }
- euclid = { workspace = true }
 diff --git a/components/shared/paint/rendering_context.rs b/components/shared/paint/rendering_context.rs
 --- a/components/shared/paint/rendering_context.rs
 +++ b/components/shared/paint/rendering_context.rs
 @@ -113,2 +113,18 @@
  
 +#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
 +fn nagi_m17_trace(stage: &str) {
-+    const PREFIX: &[u8] = b"Nagi M17 trace: ";
-+    const NEWLINE: &[u8] = b"\n";
 +    #[expect(unsafe_code)]
-+    unsafe {
-+        let _ = libc::write(2, PREFIX.as_ptr().cast(), PREFIX.len());
-+        let _ = libc::write(2, stage.as_ptr().cast(), stage.len());
-+        let _ = libc::write(2, NEWLINE.as_ptr().cast(), NEWLINE.len());
-+    }
++    unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) }
 +}
 +
 +#[cfg(not(target_os = "nagi"))]

@@ -762,25 +762,15 @@ mod tests {
             root.join("third_party/servo-patches/0008-nagi-m17-rendering-context-traces.patch"),
         )
         .expect("M17 rendering-context trace patch");
-        let lock_patch =
-            fs::read_to_string(root.join(
-                "third_party/servo-patches/0009-nagi-m17-rendering-context-traces-lock.patch",
-            ))
-            .expect("M17 rendering-context trace Cargo.lock patch");
-        let root_lock = fs::read_to_string(root.join("Cargo.lock")).expect("workspace Cargo.lock");
-        let root_paint_api_lock_entry = root_lock
-            .split("[[package]]")
-            .find(|package| package.contains("name = \"servo-paint-api\""))
-            .expect("servo-paint-api entry in workspace Cargo.lock");
+        let adapter = fs::read_to_string(root.join("user/nagi-albert/src/lib.rs"))
+            .expect("Nagi Albert adapter");
         assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
-        assert!(patch.contains("libc::write(2, PREFIX.as_ptr().cast(), PREFIX.len())"));
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
         assert!(
-            !patch.contains("eprintln!(\"Nagi M17 trace: {stage}\")"),
-            "M17 stage traces must bypass stdio formatting and locking"
+            adapter.contains("pub unsafe extern \"C\" fn nagi_m17_console_trace"),
+            "M17 trace callback must be supplied by the Nagi-owned Albert adapter"
         );
-        assert!(lock_patch.contains("name = \"servo-paint-api\""));
-        assert!(lock_patch.contains("+ \"libc\","));
-        assert!(root_paint_api_lock_entry.contains(" \"libc\","));
+        assert!(adapter.contains("libnagi::console_write(b\"Nagi M17 trace: \")"));
         for stage in [
             "Surfman connection started",
             "GL context creation started",

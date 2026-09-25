@@ -27,7 +27,17 @@ source patch set. Patch `0009` now records the corresponding lockfile entry.
 CI run #186 (`36114799741`) passed pinned Servo bootstrap after patch `0009`,
 then failed at the root workspace lock boundary: Ubuntu Clippy and the target
 dependency feature check both found that the root `Cargo.lock` also lacked the
-`servo-paint-api -> libc` edge. Both lockfiles now record the direct dependency.
+`servo-paint-api -> libc` edge. At that point both lockfiles recorded the
+direct dependency; the callback repair below removes it because the trace no
+longer needs a direct `libc` dependency.
+
+CI run #187 (`36115897284`) passed the locked host checks, target dependency
+validation, Mesa Softpipe build, Nagi user-init link, and UEFI loader, then
+timed out during the real two-boot M17 QEMU acceptance. The serial log again
+ended at `Nagi M17 trace: GL context creation started`. None of the Servo
+checkpoints written through `libc::write` appeared, so their absence cannot
+show whether the patched Servo constructor was entered or whether that output
+route failed.
 
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
@@ -50,10 +60,12 @@ GL function loading, surface binding, make-current, and swap-chain creation.
 These logs are diagnostic and do not change rendering, surface ownership, or
 M17 acceptance criteria.
 
-After CI #184, Servo's trace helper writes directly to Nagi descriptor 2 through
-`libc::write` rather than Rust stdio. This keeps the next trace attempt on the
-same Nagi descriptor boundary used by the guest console and avoids stdio
-formatting and locking.
+After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
+`libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
+that route did not provide reliable evidence. The diagnostic patch now calls a
+Nagi-only callback in the Albert adapter, which emits the stage through the
+already working `libnagi::console_write` syscall. Other targets retain a no-op
+helper; this callback is diagnostic-only and adds no runtime rendering fallback.
 
 ## Consequences
 
@@ -61,8 +73,8 @@ formatting and locking.
   does not provide. Mesa can still probe software-compatible DRM devices before
   falling back to no-DRM swrast; the new trace points make that path visible.
 - Other Mesa targets keep their current renderer-selection behavior.
-- The next target CI run will verify that the direct Servo checkpoints reach
-  serial output and locate the first Surfman stage after the application-level
-  GL-context marker.
+- The next target CI run will verify that Servo reached the patched constructor
+  and locate the first Surfman stage after the application-level GL-context
+  marker using Nagi's proven console syscall path.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

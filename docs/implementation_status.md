@@ -19,26 +19,44 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #184 reached M17 QEMU and timed out after
-`Nagi M17 trace: GL context creation started`; no new EGL/Servo traces appeared.
-The direct-descriptor trace patch is committed. CI #185 first found a missing
-pinned Servo lock entry; #0009 fixed that, and CI #186 then found the matching
-edge was also missing from the root `Cargo.lock`. Both lockfiles now include
-`servo-paint-api -> libc`. The next CI must pass locked Clippy and target
-dependency checks before continuing to Mesa and M17 QEMU. No Servo-pixel
-evidence has been produced. M17 remains blocked until the guest renders and
-presents a nonzero Servo pixel checksum; M18 remains forbidden until M17 is
-formally PASS.
+milestone. CI #187 passed Servo bootstrap, host checks, target dependency
+validation, Mesa Softpipe, the Nagi user-init link, and UEFI loader build. Its
+two-boot QEMU acceptance again stopped after
+`Nagi M17 trace: GL context creation started` and timed out after 120 seconds.
+The added `libc::write` Servo traces did not appear, so this result cannot
+distinguish an unentered Servo path from an unusable diagnostic route. The
+current repair routes Servo checkpoints through a Nagi Albert callback backed
+by the already working `libnagi::console_write` syscall and removes the
+diagnostic-only `libc` dependency. No Servo-pixel evidence has been produced.
+M17 remains blocked until the guest renders and presents a nonzero Servo pixel
+checksum; M18 remains forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36114799741` (#186, head
-`30b2494e556ce27a21e85975da75a3112c436510`) passed pinned Servo bootstrap on
-Ubuntu and target. Ubuntu Format also passed. Ubuntu Clippy and target dependency
-feature verification failed because the root `Cargo.lock` did not yet include
-the `servo-paint-api -> libc` edge, so target Mesa and M17 acceptance were
-skipped. Both the pinned Servo and root lockfiles now contain the edge. The
-generated local Servo checkout remains untouched because its fingerprint is
-mismatched. Public target CI remains authoritative for M17. M17 remains
+**Last known repair checkpoint:** public CI run `36115897284` (#187, head
+`5b2d23541cab881facb5e9ada9503fd28608644b`) passed all target build stages
+through Nagi user-init linking and UEFI loader build, then timed out during the
+real two-boot M17 QEMU acceptance. The serial log reached GL context creation
+but no Servo internal checkpoint or Mesa EGL output appeared. The generated
+local Servo checkout remains untouched because its fingerprint is mismatched.
+Public target CI remains authoritative for M17. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #187 (2026-09-25)
+
+Run `36115897284` (#187, head
+`5b2d23541cab881facb5e9ada9503fd28608644b`) passed pinned Servo bootstrap,
+Ubuntu format/clippy/build/tests and M0 acceptance, Windows bootstrap/build/
+tests/launcher acceptance, target dependency validation, Mesa Softpipe,
+dependencies, package, kernel, Nagi user-init link, and UEFI loader. M17's real
+two-boot QEMU test again reached `Nagi M17 trace: GL context creation started`
+and timed out after 120 seconds. No `Surfman connection started`, Mesa EGL
+trace, checksum, or PASS appeared. Because the direct `libc::write` Servo
+checkpoints were also absent, their output path was not reliable evidence of
+whether Servo entered the patched constructor. The next diagnostic replaces
+that route with an explicit Nagi-only callback to `libnagi::console_write`,
+then reruns the authoritative target CI. The Servo patch applies cleanly to
+the pinned source, `cargo fmt --all -- --check` passes, and all 58 `nagi-cli`
+unit tests pass with the updated callback source contract. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #186 (2026-09-25)

@@ -24,10 +24,6 @@ platform information required by Servo's script component.
 The ordered patch `0008-nagi-m17-rendering-context-traces.patch` adds
 Nagi-only checkpoints around Servo's software Surfman connection,
 context/device creation, GL function loading, surface binding, and swap-chain
-creation. It writes directly to Nagi descriptor 2 so diagnostics do not depend
-on stdio formatting or locking; other targets compile a no-op helper.
-
-The ordered patch `0009-nagi-m17-rendering-context-traces-lock.patch` records
-the new direct `libc` dependency for `servo-paint-api` in the pinned Servo
-`Cargo.lock`, keeping `nagi fetch` reproducible with locked Cargo commands.
-The Nagi root workspace lockfile also records this dependency edge.
+creation. It sends checkpoints to a Nagi Albert callback that writes through
+the existing `libnagi::console_write` syscall path, bypassing libc and stdio;
+other targets compile a no-op helper.

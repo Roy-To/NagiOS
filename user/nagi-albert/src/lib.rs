@@ -19,6 +19,22 @@ mod guest {
     };
     use url::Url;
 
+    /// Write bounded Servo initialization diagnostics through Nagi's guest console syscall.
+    ///
+    /// # Safety
+    ///
+    /// `stage` must point to `length` readable bytes for the duration of this call.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nagi_m17_console_trace(stage: *const u8, length: usize) {
+        if stage.is_null() || length == 0 || length > 128 {
+            return;
+        }
+        let stage = unsafe { core::slice::from_raw_parts(stage, length) };
+        libnagi::console_write(b"Nagi M17 trace: ");
+        libnagi::console_write(stage);
+        libnagi::console_write(b"\r\n");
+    }
+
     const WIDTH: u32 = 320;
     const HEIGHT: u32 = 200;
     const FIRST_WEB_PAGE: &str = "data:text/html,%3C!doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bbackground%3A%2320384d%3Bcolor%3A%23f7f3e8%3Bfont%3A24px%20sans-serif%3Bdisplay%3Agrid%3Bplace-items%3Acenter%22%3ENagi%20M17%3C%2Fbody%3E";
