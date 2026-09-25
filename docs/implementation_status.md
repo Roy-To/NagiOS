@@ -19,27 +19,54 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #193 passed the two-boot persistence gate, Mesa EGL driver
-initialization, and static Softpipe DRI screen creation, then timed out after
-120 seconds during `eglCreateContext`. Its last serial marker is Servo's
-`GL context creation started`. The target Mesa build warned that `sh` is
-unused in `sp_context.c`, consistent with patch `0022` skipping the eager
-texture-cache loop for Nagi. The call that stalls inside Softpipe context
-initialization is not yet known. Patch `0023` adds Nagi-only checkpoints around
-each major Softpipe context setup call. No Servo-pixel evidence has been
-produced. M17 remains BLOCKED; M18 remains NOT STARTED.
+milestone. CI #195 passed the two-boot persistence gate, Mesa EGL driver
+initialization, DRI screen creation, and every instrumented Softpipe context
+initialization stage, including `Softpipe context creation completed`. QEMU
+then timed out after 120 seconds before Surfman's `GL context created` marker.
+No state-tracker, DRI context, or EGL context-return checkpoint existed yet, so
+the stall is now narrowed to the synchronous Mesa/DRI/EGL work after
+`softpipe_create_context` and before Surfman's context creation returns. Patch
+`0024` adds Nagi-only checkpoints across those boundaries and GL-state setup.
+No Servo-pixel evidence has been produced. M17 remains BLOCKED; M18 remains
+NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36157913731` (#193, head
-`50bcc06b946acb55d0d293a8eec4b46f9a435edc`) passed Ubuntu and Windows host
+**Last known repair checkpoint:** public CI run `36165541043` (#195, head
+`2ec9f747d0843ecb32b64daf62fd6a1e609f2ace`) passed Ubuntu and Windows host
 checks, target dependency validation, Mesa Softpipe, package, kernel, Nagi
 user-init link, and UEFI loader build. QEMU passed the two-boot storage gate,
-EGL software driver initialization, and DRI screen creation, then timed out
-after 120 seconds during `eglCreateContext`. Patch `0022` skips Nagi's eager
-768-entry Softpipe texture-cache allocation; the target build warning that
-`sh` is unused in `sp_context.c` is consistent with that guard. Patch `0023`
-adds Nagi-only initialization checkpoints to identify the remaining stall.
+EGL driver initialization, DRI screen creation, and all Softpipe context
+initialization checkpoints, then timed out after 120 seconds before Surfman
+reported a created GL context. Patch `0024` adds Nagi-only traces through
+state-tracker GL setup, DRI context construction, and EGL context linking.
 Public target CI remains authoritative for M17; M18 remains NOT STARTED.
+
+### Target evidence from CI run #195 (2026-09-26)
+
+Run `36165541043` (#195, head
+`2ec9f747d0843ecb32b64daf62fd6a1e609f2ace`) passed both host jobs and every
+target build step through the UEFI loader. The real two-boot QEMU acceptance
+passed storage persistence, EGL software-driver initialization, and DRI screen
+creation. Its trace then showed `Softpipe context creation completed` after
+all internal Softpipe stages, but never showed Surfman's `GL context created`.
+QEMU timed out after 120 seconds, status 4; there is no first-web-pixel
+checksum or PASS marker. The run rules out a stall inside the instrumented
+`softpipe_create_context` body. It does not identify which state-tracker, DRI,
+or EGL operation after that callback fails to return. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
+
+### Local continuation after CI run #195 (2026-09-26)
+
+Added Mesa patch `0024` with Nagi-only checkpoints from the return of
+`softpipe_create_context` through Mesa GL-state initialization, state-tracker
+context construction, DRI post-processing/thread setup, and EGL context
+creation/linking. Mesa patches remain tracked as numbered patches; the
+generated `third_party/mesa` checkout was not edited. A clean worktree at the
+pinned Mesa revision accepted patches `0001`–`0024` in numeric order with each
+patch prechecked, and `git diff --check` passed. All 61 `nagi-cli` library
+tests, clippy with `-D warnings`, and `cargo fmt --all -- --check` passed.
+Target Mesa compilation and QEMU verification remain pending public CI. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #193 (2026-09-26)
 

@@ -145,6 +145,12 @@ allocator, fallback stage, or shader-cache call fails to return during target
 EGL context creation; they do not change rendering behavior on Nagi or other
 targets.
 
+`0024-nagi-state-tracker-context-traces.patch` follows the completed Softpipe
+context through Mesa's state tracker, GL state initialization, DRI frontend,
+and EGL context linking. The Nagi-only checkpoints identify the next call that
+does not return after `softpipe_create_context`; they do not change rendering
+behavior or surface ownership.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

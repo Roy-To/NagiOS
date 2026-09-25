@@ -1030,6 +1030,66 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_state_tracker_context_creation_has_ordered_trace_checkpoints() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0024-nagi-state-tracker-context-traces.patch"),
+        )
+        .expect("Nagi state-tracker context trace patch");
+
+        for checkpoint in [
+            "pipe context creation started",
+            "GL state tracker creation started",
+            "Mesa core context initialization started",
+            "shared state allocation started",
+            "attribute groups initialization started",
+            "default texture initialization started",
+            "private context allocation started",
+            "CSO context creation started",
+            "GL limits and extensions initialization started",
+            "GL dispatch table initialization started",
+            "context finalization started",
+            "context finalization completed",
+            "DRI2 context creation started",
+            "EGL driver context creation started",
+            "EGL context linking started",
+        ] {
+            assert!(
+                patch.contains(checkpoint),
+                "missing M17 context-creation checkpoint: {checkpoint}"
+            );
+        }
+
+        let state_tracker_start = patch
+            .find("ST_MANAGER_NAGI_TRACE(\"GL state tracker creation started\")")
+            .expect("state-tracker start checkpoint");
+        let state_tracker_returned = patch
+            .find("ST_MANAGER_NAGI_TRACE(st ? \"GL state tracker creation returned\"")
+            .expect("state-tracker return checkpoint");
+        assert!(state_tracker_start < state_tracker_returned);
+        let finalization_start = patch
+            .find("ST_MANAGER_NAGI_TRACE(\"context finalization started\")")
+            .expect("state-tracker finalization start checkpoint");
+        let finalization_done = patch
+            .find("ST_MANAGER_NAGI_TRACE(\"context finalization completed\")")
+            .expect("state-tracker finalization completion checkpoint");
+        assert!(state_tracker_returned < finalization_start);
+        assert!(finalization_start < finalization_done);
+
+        let core_start = patch
+            .find("MESA_CONTEXT_NAGI_TRACE(\"initialization entered\")")
+            .expect("Mesa core start checkpoint");
+        let core_done = patch
+            .find("MESA_CONTEXT_NAGI_TRACE(\"initialization completed\")")
+            .expect("Mesa core completion checkpoint");
+        assert!(core_start < core_done);
+        assert!(patch.contains("#ifdef __NAGI__"));
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

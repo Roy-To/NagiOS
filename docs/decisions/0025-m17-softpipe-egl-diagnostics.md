@@ -129,6 +129,14 @@ context initialization, including draw-context creation and blitter shader
 caching. These logs are diagnostic and do not change rendering, surface
 ownership, or M17 acceptance criteria.
 
+CI #195 showed that all instrumented operations inside
+`softpipe_create_context` completed, including the final context-completion
+marker, while Surfman's `device.create_context` still did not return. Patch
+`0024` therefore adds Nagi-only checkpoints after the Softpipe callback and
+through Mesa state-tracker GL initialization, DRI context construction, and
+EGL context linking. The additional markers do not alter context behavior or
+relax the first-pixel acceptance criteria.
+
 After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
 `libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
 that route did not provide reliable evidence. CI #188 also produced no trace
@@ -150,9 +158,10 @@ instruction in the constructor body; other targets retain a no-op helper.
 - CI #192 established that context creation returns `EGL_BAD_ALLOC`. Source
   inspection found Softpipe's 192 MiB eager cache matrix exceeds Nagi's 8 MiB
   heap; patch `0022` allocates only caches for bound sampler views on Nagi. CI
-  #193 advanced through EGL driver and DRI screen initialization but timed out
-  during Softpipe context creation. Patch `0023` adds stage checkpoints so the
-  next target run can identify the call that does not return before another
-  behavior or memory change is chosen.
+  #195 advanced through all instrumented Softpipe context stages but timed out
+  before Surfman received the created GL context. Patch `0024` traces the
+  state-tracker, DRI, and EGL continuation so the next target run can identify
+  the call that does not return before another behavior or memory change is
+  chosen.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

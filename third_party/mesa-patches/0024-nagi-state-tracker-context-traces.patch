@@ -1,0 +1,206 @@
+diff --git a/src/egl/drivers/dri2/egl_dri2.c b/src/egl/drivers/dri2/egl_dri2.c
+index abab8c9edbc..9eab624b53e 100644
+--- a/src/egl/drivers/dri2/egl_dri2.c
++++ b/src/egl/drivers/dri2/egl_dri2.c
+@@ -1283,0 +1284,3 @@ dri2_create_context(_EGLDisplay *disp, _EGLConfig *conf,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 context creation started");
++#endif
+@@ -1286,0 +1290,5 @@ dri2_create_context(_EGLDisplay *disp, _EGLConfig *conf,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, dri2_ctx->dri_context ?
++           "Nagi M17 trace: DRI2 context creation returned" :
++           "Nagi M17 trace: DRI2 context creation failed");
++#endif
+@@ -1293,0 +1302,4 @@ dri2_create_context(_EGLDisplay *disp, _EGLConfig *conf,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: DRI2 EGL context returned");
++#endif
++
+diff --git a/src/egl/main/eglapi.c b/src/egl/main/eglapi.c
+index 9dc2eb31c48..a9bc741b58d 100644
+--- a/src/egl/main/eglapi.c
++++ b/src/egl/main/eglapi.c
+@@ -938,0 +939,3 @@ eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_list,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL driver context creation started");
++#endif
+@@ -939,0 +943,6 @@ eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_list,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, context ?
++           "Nagi M17 trace: EGL driver context creation returned" :
++           "Nagi M17 trace: EGL driver context creation failed");
++   _eglLog(_EGL_WARNING, "Nagi M17 trace: EGL context linking started");
++#endif
+@@ -940,0 +950,5 @@ eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_list,
++#ifdef __NAGI__
++   _eglLog(_EGL_WARNING, ret != EGL_NO_CONTEXT ?
++           "Nagi M17 trace: EGL context linking completed" :
++           "Nagi M17 trace: EGL context linking failed");
++#endif
+diff --git a/src/gallium/frontends/dri/dri_context.c b/src/gallium/frontends/dri/dri_context.c
+index fe32d5c518f..9b970ad01fe 100644
+--- a/src/gallium/frontends/dri/dri_context.c
++++ b/src/gallium/frontends/dri/dri_context.c
+@@ -44,0 +45,7 @@
++#ifdef __NAGI__
++#define DRI_CONTEXT_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: DRI context %s\n", message)
++#else
++#define DRI_CONTEXT_NAGI_TRACE(message) ((void) 0)
++#endif
++
+@@ -180,0 +188 @@ dri_create_context(struct dri_screen *screen,
++   DRI_CONTEXT_NAGI_TRACE("state tracker call started");
+@@ -182,0 +191,2 @@ dri_create_context(struct dri_screen *screen,
++   DRI_CONTEXT_NAGI_TRACE(ctx->st ? "state tracker returned" :
++                          "state tracker failed");
+@@ -199,0 +210 @@ dri_create_context(struct dri_screen *screen,
++      DRI_CONTEXT_NAGI_TRACE("post-processing and HUD initialization started");
+@@ -204,0 +216 @@ dri_create_context(struct dri_screen *screen,
++      DRI_CONTEXT_NAGI_TRACE("post-processing and HUD initialization completed");
+@@ -244 +256,2 @@ dri_create_context(struct dri_screen *screen,
+-      if (safe)
++      if (safe) {
++         DRI_CONTEXT_NAGI_TRACE("GL thread initialization started");
+@@ -245,0 +259,2 @@ dri_create_context(struct dri_screen *screen,
++         DRI_CONTEXT_NAGI_TRACE("GL thread initialization completed");
++      }
+@@ -248,0 +264 @@ dri_create_context(struct dri_screen *screen,
++   DRI_CONTEXT_NAGI_TRACE("creation completed");
+diff --git a/src/mesa/main/context.c b/src/mesa/main/context.c
+index e95e371ccff..b9d7ff2657f 100644
+--- a/src/mesa/main/context.c
++++ b/src/mesa/main/context.c
+@@ -126,0 +127,7 @@
++
++#ifdef __NAGI__
++#define MESA_CONTEXT_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: Mesa context %s\n", message)
++#else
++#define MESA_CONTEXT_NAGI_TRACE(message) ((void) 0)
++#endif
+@@ -640,0 +648,2 @@ init_attrib_groups(struct gl_context *ctx)
++   MESA_CONTEXT_NAGI_TRACE("attribute groups initialization started");
++
+@@ -645,0 +655 @@ init_attrib_groups(struct gl_context *ctx)
++   MESA_CONTEXT_NAGI_TRACE("constants and extensions initialized");
+@@ -666,0 +677 @@ init_attrib_groups(struct gl_context *ctx)
++   MESA_CONTEXT_NAGI_TRACE("fixed-function state initialized");
+@@ -681,0 +693 @@ init_attrib_groups(struct gl_context *ctx)
++   MESA_CONTEXT_NAGI_TRACE("program and shader state initialized");
+@@ -687,0 +700 @@ init_attrib_groups(struct gl_context *ctx)
++   MESA_CONTEXT_NAGI_TRACE("default texture initialization started");
+@@ -689,0 +703 @@ init_attrib_groups(struct gl_context *ctx)
++   MESA_CONTEXT_NAGI_TRACE("default texture initialization completed");
+@@ -699,0 +714,2 @@ init_attrib_groups(struct gl_context *ctx)
++   MESA_CONTEXT_NAGI_TRACE("attribute groups initialization completed");
++
+@@ -983,0 +1000,2 @@ _mesa_initialize_context(struct gl_context *ctx,
++   MESA_CONTEXT_NAGI_TRACE("initialization entered");
++
+@@ -1034,0 +1053 @@ _mesa_initialize_context(struct gl_context *ctx,
++      MESA_CONTEXT_NAGI_TRACE("shared state allocation started");
+@@ -1035,0 +1055,2 @@ _mesa_initialize_context(struct gl_context *ctx,
++      MESA_CONTEXT_NAGI_TRACE(shared ? "shared state allocation completed" :
++                               "shared state allocation failed");
+@@ -1044,0 +1066 @@ _mesa_initialize_context(struct gl_context *ctx,
++   MESA_CONTEXT_NAGI_TRACE("attribute groups call started");
+@@ -1046,0 +1069 @@ _mesa_initialize_context(struct gl_context *ctx,
++   MESA_CONTEXT_NAGI_TRACE("attribute groups call completed");
+@@ -1087,0 +1111,2 @@ _mesa_initialize_context(struct gl_context *ctx,
++   MESA_CONTEXT_NAGI_TRACE("initialization completed");
++
+diff --git a/src/mesa/state_tracker/st_context.c b/src/mesa/state_tracker/st_context.c
+index 57ee2152cae..594cd00ef29 100644
+--- a/src/mesa/state_tracker/st_context.c
++++ b/src/mesa/state_tracker/st_context.c
+@@ -67,0 +68 @@
++#include "util/u_debug.h"
+@@ -74,0 +76,7 @@ DEBUG_GET_ONCE_BOOL_OPTION(mesa_mvp_dp4, "MESA_MVP_DP4", false)
++#ifdef __NAGI__
++#define ST_CONTEXT_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: GL state %s\n", message)
++#else
++#define ST_CONTEXT_NAGI_TRACE(message) ((void) 0)
++#endif
++
+@@ -437 +445,6 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
+-   struct st_context *st = CALLOC_STRUCT( st_context);
++   struct st_context *st;
++
++   ST_CONTEXT_NAGI_TRACE("private context initialization started");
++   ST_CONTEXT_NAGI_TRACE("private context allocation started");
++   st = CALLOC_STRUCT( st_context);
++   ST_CONTEXT_NAGI_TRACE("private context allocation completed");
+@@ -470,0 +484 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("CSO context creation started");
+@@ -472,0 +487 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("CSO context creation completed");
+@@ -652,0 +668,2 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("capability discovery completed");
++   ST_CONTEXT_NAGI_TRACE("GL limits and extensions initialization started");
+@@ -655,0 +673 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("GL limits and extensions initialization completed");
+@@ -750,0 +769 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("GL version computation started");
+@@ -751,0 +771 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("GL version computation completed");
+@@ -752,0 +773 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("GL dispatch table initialization started");
+@@ -760,0 +782 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("GL dispatch table initialization completed");
+@@ -775,0 +798 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("VBO context initialization started");
+@@ -776,0 +800 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("VBO context initialization completed");
+@@ -793,0 +818 @@ st_create_context_priv(struct gl_context *ctx, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("private context initialization completed");
+@@ -838,0 +864,2 @@ st_create_context(gl_api api, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("creation entered");
++
+@@ -850,0 +878 @@ st_create_context(gl_api api, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("Mesa core context initialization started");
+@@ -851,0 +880 @@ st_create_context(gl_api api, struct pipe_context *pipe,
++      ST_CONTEXT_NAGI_TRACE("Mesa core context initialization failed");
+@@ -854,0 +884 @@ st_create_context(gl_api api, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("Mesa core context initialization completed");
+@@ -872,0 +903,2 @@ st_create_context(gl_api api, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("driver context setup completed");
++   ST_CONTEXT_NAGI_TRACE("private context initialization call started");
+@@ -873,0 +906,2 @@ st_create_context(gl_api api, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE(st ? "private context initialization returned" :
++                         "private context initialization failed");
+@@ -878,0 +913 @@ st_create_context(gl_api api, struct pipe_context *pipe,
++   ST_CONTEXT_NAGI_TRACE("creation completed");
+diff --git a/src/mesa/state_tracker/st_manager.c b/src/mesa/state_tracker/st_manager.c
+index 085c895c270..88bed8c7643 100644
+--- a/src/mesa/state_tracker/st_manager.c
++++ b/src/mesa/state_tracker/st_manager.c
+@@ -64,0 +65 @@
++#include "util/u_debug.h"
+@@ -66,0 +68,7 @@
++#ifdef __NAGI__
++#define ST_MANAGER_NAGI_TRACE(message) \
++   _debug_printf("Nagi M17 trace: State tracker %s\n", message)
++#else
++#define ST_MANAGER_NAGI_TRACE(message) ((void) 0)
++#endif
++
+@@ -947,0 +956,2 @@ st_api_create_context(struct pipe_frontend_screen *fscreen,
++   ST_MANAGER_NAGI_TRACE("context creation entered");
++
+@@ -978,0 +989 @@ st_api_create_context(struct pipe_frontend_screen *fscreen,
++   ST_MANAGER_NAGI_TRACE("pipe context creation started");
+@@ -982,0 +994,2 @@ st_api_create_context(struct pipe_frontend_screen *fscreen,
++   ST_MANAGER_NAGI_TRACE(pipe ? "pipe context creation returned" :
++                         "pipe context creation failed");
+@@ -990,0 +1004 @@ st_api_create_context(struct pipe_frontend_screen *fscreen,
++   ST_MANAGER_NAGI_TRACE("GL state tracker creation started");
+@@ -993,0 +1008,2 @@ st_api_create_context(struct pipe_frontend_screen *fscreen,
++   ST_MANAGER_NAGI_TRACE(st ? "GL state tracker creation returned" :
++                         "GL state tracker creation failed");
+@@ -999,0 +1016 @@ st_api_create_context(struct pipe_frontend_screen *fscreen,
++   ST_MANAGER_NAGI_TRACE("context finalization started");
+@@ -1051,0 +1069 @@ st_api_create_context(struct pipe_frontend_screen *fscreen,
++   ST_MANAGER_NAGI_TRACE("context finalization completed");
