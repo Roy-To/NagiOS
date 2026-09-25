@@ -24,8 +24,10 @@ existing single stack page table, stays below the TLS region, and remains a
 bounded allocation. The kernel already stores the stack's backing pages in its
 static bootstrap storage; the change adds 2 MiB of kernel BSS on the 8 GiB QEMU
 reference machine. The change is implemented in `kernel/src/user_process.rs`;
-the kernel library suite passes locally (92/92). The Nagi-target release build
-and QEMU run remain the required validation.
+the kernel library suite passes locally (92/92). CI #190 reached Surfman GL
+context creation with the larger stack, but its diagnostic panicked on stdout
+`EIO` after a context-creation error. No stack fault or pixel result was
+observed; the GL failure still requires diagnosis.
 
 Keep the constructor and Surfman checkpoints. The next target run must verify
 that it reaches the constructor and identify any later stop. If the checkpoint
@@ -35,6 +37,9 @@ than treating stack exhaustion as proven.
 ## Consequences
 
 - The M17 bootstrap process can use up to 2 MiB of native stack.
+- CI #190 shows the larger stack gets past the previous stop before constructor
+  entry, but does not prove that 2 MiB is the minimum or that stack exhaustion
+  caused the earlier stop.
 - No dynamic or unbounded stack allocation mechanism is introduced.
 - The fixed BSS cost is 2 MiB; TLS and mmap virtual addresses remain unchanged.
 - M17 remains `BLOCKED` until real Servo content is presented to the Nagi

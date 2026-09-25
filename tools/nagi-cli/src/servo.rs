@@ -762,6 +762,10 @@ mod tests {
             root.join("third_party/servo-patches/0008-nagi-m17-rendering-context-traces.patch"),
         )
         .expect("M17 rendering-context trace patch");
+        let error_patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0010-nagi-report-gl-context-error.patch"),
+        )
+        .expect("M17 GL context error diagnostic patch");
         let adapter = fs::read_to_string(root.join("user/nagi-albert/src/lib.rs"))
             .expect("Nagi Albert adapter");
         assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
@@ -784,6 +788,10 @@ mod tests {
         ] {
             assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
         }
+        assert!(error_patch.contains("nagi_m17_trace(&format!("));
+        assert!(error_patch.contains("Surfman GL context creation failed: {error:?}"));
+        assert!(error_patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(error_patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
     }
 
     #[test]

@@ -27,3 +27,9 @@ context/device creation, GL function loading, surface binding, and swap-chain
 creation. It sends checkpoints to a Nagi Albert callback that writes through
 the existing `libnagi::console_write` syscall path, bypassing libc and stdio;
 other targets compile a no-op helper.
+
+The ordered patch `0010-nagi-report-gl-context-error.patch` sends the original
+Surfman GL context-creation error through that callback on Nagi. Servo's normal
+failure report uses `println!`, whose stdout path returns `EIO` in the guest
+and can panic before the underlying Surfman error is visible. Other targets
+retain Servo's existing fallback diagnostics.

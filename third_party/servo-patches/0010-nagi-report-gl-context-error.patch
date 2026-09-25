@@ -1,0 +1,15 @@
+diff --git a/components/shared/paint/rendering_context.rs b/components/shared/paint/rendering_context.rs
+--- a/components/shared/paint/rendering_context.rs
++++ b/components/shared/paint/rendering_context.rs
+@@ -153,5 +153,10 @@ impl SurfmanRenderingContext {
+         let context = device
+             .create_context(&context_descriptor, None)
+-            .inspect_err(|_| {
++            .inspect_err(|error| {
++                #[cfg(target_os = "nagi")]
++                nagi_m17_trace(&format!(
++                    "Surfman GL context creation failed: {error:?}"
++                ));
++                #[cfg(not(target_os = "nagi"))]
+                 print_diagnostics_information_on_context_creation_failure(&device, gl_api, version)
+             })?;

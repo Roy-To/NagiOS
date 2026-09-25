@@ -55,6 +55,14 @@ its entry sequence. The guest bootstrap process has only 8 stack pages (32
 KiB), so a bounded stack increase is the next hypothesis; decision 0026 records
 the 2 MiB experiment. The serial evidence does not yet prove stack exhaustion.
 
+CI run #190 (`36134006498`) reached the patched constructor, completed Mesa
+EGL's Softpipe initialization, and created the Surfman device and context
+descriptor. `device.create_context` returned an error. Servo's existing error
+diagnostic then panicked on `println!` because Nagi stdout returned `EIO`, so
+the actual Surfman error remained hidden. Patch `0010` reports that error
+through the existing Nagi console callback and keeps Servo's normal diagnostic
+on other targets.
+
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
 software adapter. Mesa EGL, however, normally derives software selection from
@@ -90,8 +98,8 @@ instruction in the constructor body; other targets retain a no-op helper.
   does not provide. Mesa can still probe software-compatible DRM devices before
   falling back to no-DRM swrast; the new trace points make that path visible.
 - Other Mesa targets keep their current renderer-selection behavior.
-- CI #189 proved the Albert callback works before the constructor call; the
-  next target run tests a larger bounded bootstrap stack and will show whether
-  the patched constructor is reached.
+- CI #190 reached Surfman's `device.create_context` after increasing the
+  bounded bootstrap stack. The next target run reports the underlying Surfman
+  error through the Nagi callback without invoking stdout.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

@@ -19,24 +19,40 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. After CI #189 stopped before the patched Servo constructor-entry
-checkpoint, the bounded 2 MiB bootstrap-stack experiment from decision 0026
-has been implemented. It uses the existing single stack page table and remains
-below TLS. Local kernel tests pass (92/92), and the Nagi-target release kernel
-build, formatting, and diff checks pass. The full public QEMU acceptance is
-still pending. This is a diagnostic hypothesis, not a proven root cause. No
-Servo-pixel evidence has been produced. M17 remains blocked until the guest
-renders and presents a nonzero Servo pixel checksum; M18 remains forbidden
-until M17 is formally PASS.
+milestone. The 2 MiB bounded bootstrap stack is implemented and locally
+verified. CI #190 passed target builds and reached Surfman's GL context
+creation, then timed out after `device.create_context` returned an error.
+Servo's failure diagnostic panicked when stdout returned `EIO`, hiding the
+Surfman error. The current repair routes that error through the Nagi console
+callback. No Servo-pixel evidence has been produced. M17 remains blocked until
+the guest renders and presents a nonzero Servo pixel checksum; M18 remains
+forbidden until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36126812876` (#189, head
-`2f62290d64833d0926e0cbfc153f802e154d2823`) passed host checks, target
-dependency validation, Mesa Softpipe, package, kernel, Nagi user-init link,
-and UEFI loader build, then timed out during the real two-boot M17 QEMU
-acceptance. The callback self-test printed; the constructor-entry and Surfman
-traces did not. Public target CI remains authoritative for M17. M17 remains
+**Last known repair checkpoint:** public CI run `36134006498` (#190, head
+`128dd007e039394ee80737e004b5070e7baefedb`) passed Ubuntu and Windows host
+checks, target dependency validation, Mesa Softpipe, package, kernel, Nagi
+user-init link, and UEFI loader build. QEMU reached Surfman's GL context
+creation, but Servo's stdout error report panicked on Nagi `EIO`; the
+acceptance timed out after 120 seconds. Public target CI remains authoritative
+for M17. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Target evidence from CI run #190 (2026-09-25)
+
+Run `36134006498` (#190, head
+`128dd007e039394ee80737e004b5070e7baefedb`) passed Ubuntu host checks,
+Windows launcher checks, target Servo bootstrap/feature boundary, Mesa
+Softpipe, M16 package, kernel, Nagi user-init linking and UEFI loader build.
+The two-boot M17 acceptance timed out after 120 seconds. The guest entered
+`SoftwareRenderingContext::new`, initialized EGL's statically linked Softpipe
+path, created the Surfman device and GL context descriptor, then called
+`device.create_context`. That call returned an error. Servo's existing failure
+diagnostic tried `println!` to stdout, which returned Nagi `EIO` and triggered a
+Rust panic before the Surfman error could be printed. The callback and larger
+stack therefore advanced the path substantially, but the GL context error
+remains unknown and no pixel was rendered. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Target evidence from CI run #189 (2026-09-25)
 
@@ -54,7 +70,7 @@ KiB). Decision 0026 records the bounded 2 MiB stack experiment; stack
 exhaustion was not proven by this run. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
 
-### Local continuation after CI run #189 (2026-09-25)
+### Local continuation after CI run #190 (2026-09-25)
 
 Implemented the 2 MiB fixed bootstrap stack by mapping one full 512-entry stack
 page table, keeping the range below TLS and leaving TLS/mmap virtual addresses
@@ -62,9 +78,12 @@ unchanged. Added a regression check for the stack size and boundary. Corrected
 the existing bounded-mapping test to inspect its locally constructed TLS page
 table instead of the unrelated global bootstrap storage. The focused test and
 the complete kernel library suite pass on the Mac host (92/92); formatting,
-diff checks, and the Nagi-target release kernel build pass. The authoritative
-public QEMU acceptance remains to be run. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+diff checks, and the Nagi-target release kernel build pass. CI #190 confirms
+the larger stack reaches Surfman context creation. Patch `0010` now routes its
+failure diagnostic through the callback. It applies to the local generated
+Servo checkout, and all 58 `nagi-cli` library tests pass with the new patch
+contract. The next public run must expose the Surfman error; M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #188 (2026-09-25)
 
