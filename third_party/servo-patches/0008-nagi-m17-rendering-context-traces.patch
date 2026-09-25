@@ -47,7 +47,11 @@ diff --git a/components/shared/paint/rendering_context.rs b/components/shared/pa
  
 +        nagi_m17_trace("GL function loading completed");
          Ok(SurfmanRenderingContext {
-@@ -303,13 +327,26 @@
+@@ -295,2 +319,3 @@
+ impl SoftwareRenderingContext {
+     pub fn new(size: PhysicalSize<u32>) -> Result<Self, Error> {
++        nagi_m17_trace("SoftwareRenderingContext::new entered");
+@@ -303,13 +328,26 @@
  
 +        nagi_m17_trace("Surfman connection started");
          let connection = Connection::new()?;

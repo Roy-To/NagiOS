@@ -23,23 +23,38 @@ milestone. CI #187 passed Servo bootstrap, host checks, target dependency
 validation, Mesa Softpipe, the Nagi user-init link, and UEFI loader build. Its
 two-boot QEMU acceptance again stopped after
 `Nagi M17 trace: GL context creation started` and timed out after 120 seconds.
-The added `libc::write` Servo traces did not appear, so this result cannot
-distinguish an unentered Servo path from an unusable diagnostic route. The
-current repair routes Servo checkpoints through a Nagi Albert callback backed
-by the already working `libnagi::console_write` syscall and removes the
-diagnostic-only `libc` dependency. No Servo-pixel evidence has been produced.
-M17 remains blocked until the guest renders and presents a nonzero Servo pixel
-checksum; M18 remains forbidden until M17 is formally PASS.
+CI #188 repeated that timeout with no trace from the Nagi Albert console
+callback. The current repair adds a callback self-test immediately before the
+context call and a Servo constructor-entry trace before its size guard. This
+will distinguish callback output from entering the patched constructor. No
+Servo-pixel evidence has been produced. M17 remains blocked until the guest
+renders and presents a nonzero Servo pixel checksum; M18 remains forbidden
+until M17 is formally PASS.
 
 **Last updated:** 2026-09-25
-**Last known repair checkpoint:** public CI run `36115897284` (#187, head
-`5b2d23541cab881facb5e9ada9503fd28608644b`) passed all target build stages
+**Last known repair checkpoint:** public CI run `36120900543` (#188, head
+`c41d313d98b3d9dfa3c7f8421453e8f2890149dc`) passed all target build stages
 through Nagi user-init linking and UEFI loader build, then timed out during the
 real two-boot M17 QEMU acceptance. The serial log reached GL context creation
-but no Servo internal checkpoint or Mesa EGL output appeared. The generated
-local Servo checkout remains untouched because its fingerprint is mismatched.
-Public target CI remains authoritative for M17. M17 remains `BLOCKED`; M18
-remains `NOT STARTED`.
+but no trace emitted by the Albert callback or patched Servo constructor. The
+generated local Servo checkout remains untouched because its fingerprint is
+mismatched. Public target CI remains authoritative for M17. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #188 (2026-09-25)
+
+Run `36120900543` (#188, head
+`c41d313d98b3d9dfa3c7f8421453e8f2890149dc`) passed Ubuntu host bootstrap,
+format, clippy, build/tests and M0 acceptance; Windows Servo bootstrap,
+build/tests and launcher acceptance; and target Servo bootstrap, feature
+boundary, Mesa Softpipe, M16 package, kernel, Nagi user-init link and UEFI
+loader. The real QEMU acceptance again timed out after
+`Nagi M17 trace: GL context creation started`. Neither the Servo stage trace nor
+the callback's `libnagi::console_write` output appeared. The next diagnostic
+prints a callback self-test before the call and moves a constructor-entry
+checkpoint ahead of the size guard. Local checks pass: Servo patch application,
+format, `git diff --check`, and all 58 `nagi-cli` tests. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 ### Current M17 continuation after CI run #187 (2026-09-25)
 

@@ -39,6 +39,15 @@ checkpoints written through `libc::write` appeared, so their absence cannot
 show whether the patched Servo constructor was entered or whether that output
 route failed.
 
+CI run #188 (`36120900543`) passed the same build stages after switching Servo
+checkpoints to an Albert callback backed by `libnagi::console_write`. The
+acceptance still timed out at the same application-level marker, and no
+callback or Servo-stage trace appeared. The patch applies to
+`SoftwareRenderingContext::new` before `Connection::new`, but the serial result
+does not establish that the method body executed. The next run adds an Albert
+callback self-test before the method call and a constructor-entry checkpoint
+before its size guard.
+
 The target Mesa build compiles Gallium Softpipe as its only renderer and links
 EGL and Softpipe statically into the guest. Surfman already requests its
 software adapter. Mesa EGL, however, normally derives software selection from
@@ -62,10 +71,11 @@ M17 acceptance criteria.
 
 After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
 `libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
-that route did not provide reliable evidence. The diagnostic patch now calls a
-Nagi-only callback in the Albert adapter, which emits the stage through the
-already working `libnagi::console_write` syscall. Other targets retain a no-op
-helper; this callback is diagnostic-only and adds no runtime rendering fallback.
+that route did not provide reliable evidence. CI #188 also produced no trace
+through the new Nagi-only Albert callback. The callback uses the already
+working `libnagi::console_write` syscall. The next diagnostic checks the
+callback directly before `SoftwareRenderingContext::new` and marks the first
+instruction in the constructor body; other targets retain a no-op helper.
 
 ## Consequences
 
@@ -73,8 +83,7 @@ helper; this callback is diagnostic-only and adds no runtime rendering fallback.
   does not provide. Mesa can still probe software-compatible DRM devices before
   falling back to no-DRM swrast; the new trace points make that path visible.
 - Other Mesa targets keep their current renderer-selection behavior.
-- The next target CI run will verify that Servo reached the patched constructor
-  and locate the first Surfman stage after the application-level GL-context
-  marker using Nagi's proven console syscall path.
+- The next target CI run will show whether the Albert callback works before
+  Servo enters the constructor, then whether the constructor itself is reached.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

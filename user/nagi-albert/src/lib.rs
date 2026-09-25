@@ -118,6 +118,11 @@ mod guest {
         };
         libnagi::console_write(b"Nagi M17 trace: Surface acquired\r\n");
         libnagi::console_write(b"Nagi M17 trace: GL context creation started\r\n");
+        let callback_probe = b"Albert console callback self-test";
+        // SAFETY: The byte slice remains readable for the synchronous callback.
+        unsafe {
+            nagi_m17_console_trace(callback_probe.as_ptr(), callback_probe.len());
+        }
         let context = match SoftwareRenderingContext::new(PhysicalSize::new(WIDTH, HEIGHT)) {
             Ok(context) => Rc::new(context),
             Err(_) => {

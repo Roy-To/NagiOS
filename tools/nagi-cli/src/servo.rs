@@ -771,8 +771,11 @@ mod tests {
             "M17 trace callback must be supplied by the Nagi-owned Albert adapter"
         );
         assert!(adapter.contains("libnagi::console_write(b\"Nagi M17 trace: \")"));
+        assert!(adapter
+            .contains("nagi_m17_console_trace(callback_probe.as_ptr(), callback_probe.len())"));
         for stage in [
             "Surfman connection started",
+            "SoftwareRenderingContext::new entered",
             "GL context creation started",
             "GL context created",
             "Surface bind started",
