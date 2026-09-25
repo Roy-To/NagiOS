@@ -1,0 +1,75 @@
+diff --git a/src/base/egl/context.rs b/src/base/egl/context.rs
+index 9f5d466..812c456 100644
+--- a/src/base/egl/context.rs
++++ b/src/base/egl/context.rs
+@@ -118,0 +119 @@ impl EGLBackedContext {
++        crate::nagi_m17_trace("Surfman context creation lock waiting");
+@@ -119,0 +121 @@ impl EGLBackedContext {
++        crate::nagi_m17_trace("Surfman context creation lock acquired");
+@@ -121,0 +124 @@ impl EGLBackedContext {
++        crate::nagi_m17_trace("Surfman EGL context helper started");
+@@ -127,0 +131 @@ impl EGLBackedContext {
++        crate::nagi_m17_trace("Surfman EGL context helper returned");
+@@ -129,0 +134 @@ impl EGLBackedContext {
++        crate::nagi_m17_trace("Surfman dummy pbuffer creation started");
+@@ -130,0 +136,5 @@ impl EGLBackedContext {
++        crate::nagi_m17_trace(if pbuffer == egl::NO_SURFACE {
++            "Surfman dummy pbuffer creation returned no surface"
++        } else {
++            "Surfman dummy pbuffer creation completed"
++        });
+@@ -140,0 +151 @@ impl EGLBackedContext {
++        crate::nagi_m17_trace("Surfman EGL context wrapper completed");
+@@ -646,0 +658 @@ pub(crate) unsafe fn create_dummy_pbuffer(
++    crate::nagi_m17_trace("Surfman pbuffer context query started");
+@@ -647,0 +660,2 @@ pub(crate) unsafe fn create_dummy_pbuffer(
++    crate::nagi_m17_trace("Surfman pbuffer context query completed");
++    crate::nagi_m17_trace("Surfman pbuffer config selection started");
+@@ -648,0 +663 @@ pub(crate) unsafe fn create_dummy_pbuffer(
++    crate::nagi_m17_trace("Surfman pbuffer config selection completed");
+@@ -660,0 +676 @@ pub(crate) unsafe fn create_dummy_pbuffer(
++    crate::nagi_m17_trace("Surfman EGL pbuffer creation started");
+@@ -663,0 +680,5 @@ pub(crate) unsafe fn create_dummy_pbuffer(
++        crate::nagi_m17_trace(if pbuffer == egl::NO_SURFACE {
++            "Surfman EGL pbuffer creation returned no surface"
++        } else {
++            "Surfman EGL pbuffer creation completed"
++        });
+diff --git a/src/lib.rs b/src/lib.rs
+index 49f117b..86e6143 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -72,0 +73,16 @@ pub(crate) use macros::implement_interfaces;
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++pub(crate) fn nagi_m17_trace(stage: &str) {
++    unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++pub(crate) fn nagi_m17_trace(_: &str) {}
++
+diff --git a/src/mesa_surfaceless/device.rs b/src/mesa_surfaceless/device.rs
+index 56d9088..d0d9afd 100644
+--- a/src/mesa_surfaceless/device.rs
++++ b/src/mesa_surfaceless/device.rs
+@@ -182,0 +183 @@ impl Device {
++            crate::nagi_m17_trace("Surfman EGL context creation started");
+@@ -188,0 +190,2 @@ impl Device {
++            crate::nagi_m17_trace("Surfman EGL context creation returned");
++            crate::nagi_m17_trace("Surfman make-current started");
+@@ -189,0 +193,4 @@ impl Device {
++            crate::nagi_m17_trace("Surfman make-current completed");
++            crate::nagi_m17_trace("Surfman GL function loading started");
++            let gl = Gl::from_loader_function(context::get_proc_address);
++            crate::nagi_m17_trace("Surfman GL function loading completed");
+@@ -192 +199 @@ impl Device {
+-                Gl::from_loader_function(context::get_proc_address),
++                gl,

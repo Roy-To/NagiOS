@@ -12,3 +12,8 @@ driver. The guest image must provide the pinned Mesa EGL/Softpipe symbols.
 Do not edit `third_party/surfman` directly. `nagi fetch` creates that generated
 checkout, applies these patches in numeric order, records a revision/patch/
 worktree fingerprint, and refuses to repair an existing mismatched checkout.
+
+Patch `0002-nagi-m17-egl-context-traces.patch` adds Nagi-only checkpoints
+through EGL context return, dummy-pbuffer creation, make-current, and GL
+function loading. It uses Servo's existing bounded guest-console callback and
+does not change the context or rendering behavior.

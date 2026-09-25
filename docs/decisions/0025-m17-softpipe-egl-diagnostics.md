@@ -137,6 +137,13 @@ through Mesa state-tracker GL initialization, DRI context construction, and
 EGL context linking. The additional markers do not alter context behavior or
 relax the first-pixel acceptance criteria.
 
+CI #196 showed that Mesa state-tracker, DRI context creation, EGL's driver
+`CreateContext`, and `_eglLinkContext` all returned; its final marker was
+`EGL context linking completed`. Surfman's `device.create_context` still did
+not return. Surfman patch `0002` adds Nagi-only checkpoints around the EGL
+context wrapper, dummy pbuffer setup, make-current, and GL function loading.
+These checkpoints do not change the rendering path.
+
 After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
 `libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
 that route did not provide reliable evidence. CI #188 also produced no trace
@@ -158,10 +165,10 @@ instruction in the constructor body; other targets retain a no-op helper.
 - CI #192 established that context creation returns `EGL_BAD_ALLOC`. Source
   inspection found Softpipe's 192 MiB eager cache matrix exceeds Nagi's 8 MiB
   heap; patch `0022` allocates only caches for bound sampler views on Nagi. CI
-  #195 advanced through all instrumented Softpipe context stages but timed out
-  before Surfman received the created GL context. Patch `0024` traces the
-  state-tracker, DRI, and EGL continuation so the next target run can identify
-  the call that does not return before another behavior or memory change is
-  chosen.
+  #196 advanced through EGL context linking but timed out before Surfman's
+  `device.create_context` returned. Mesa patch `0024` rules out the Mesa
+  state-tracker/DRI/EGL path; Surfman patch `0002` traces its pbuffer,
+  make-current, and GL function-loader operations so the next target run can
+  locate the remaining call before another behavior or memory change is chosen.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

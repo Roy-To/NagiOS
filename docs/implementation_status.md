@@ -19,27 +19,49 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #195 passed the two-boot persistence gate, Mesa EGL driver
-initialization, DRI screen creation, and every instrumented Softpipe context
-initialization stage, including `Softpipe context creation completed`. QEMU
-then timed out after 120 seconds before Surfman's `GL context created` marker.
-No state-tracker, DRI context, or EGL context-return checkpoint existed yet, so
-the stall is now narrowed to the synchronous Mesa/DRI/EGL work after
-`softpipe_create_context` and before Surfman's context creation returns. Patch
-`0024` adds Nagi-only checkpoints across those boundaries and GL-state setup.
-No Servo-pixel evidence has been produced. M17 remains BLOCKED; M18 remains
-NOT STARTED.
+milestone. CI #196 passed the two-boot persistence gate, target Mesa Softpipe
+archive, package, kernel, user-init link, UEFI loader, and Mesa/DRI/EGL context
+creation through `EGL context linking completed`. QEMU still timed out after
+120 seconds before Surfman's `GL context created` marker. The stop is now
+narrowed to Surfman's post-`eglCreateContext` work before its
+`device.create_context` returns. Patch `0002` traces dummy-pbuffer creation,
+make-current, and GL function loading inside pinned Surfman. No Servo-pixel
+evidence has been produced. M17 remains BLOCKED; M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36165541043` (#195, head
-`2ec9f747d0843ecb32b64daf62fd6a1e609f2ace`) passed Ubuntu and Windows host
-checks, target dependency validation, Mesa Softpipe, package, kernel, Nagi
-user-init link, and UEFI loader build. QEMU passed the two-boot storage gate,
-EGL driver initialization, DRI screen creation, and all Softpipe context
-initialization checkpoints, then timed out after 120 seconds before Surfman
-reported a created GL context. Patch `0024` adds Nagi-only traces through
-state-tracker GL setup, DRI context construction, and EGL context linking.
-Public target CI remains authoritative for M17; M18 remains NOT STARTED.
+**Last known repair checkpoint:** public CI run `36174195146` (#196, head
+`712b343a817bb4aa177f16dbdbbeb27ceee950c8`) passed Ubuntu and Windows host
+checks and all target builds through UEFI loader. The real QEMU acceptance
+passed the two-boot storage gate and traced context creation through Mesa
+state-tracker, DRI, EGL context linking, then timed out after 120 seconds
+inside Surfman's `device.create_context`. Patch `0002` adds traces around
+Surfman's dummy pbuffer, make-current, and GL loader. Public target CI remains
+authoritative for M17; M18 remains NOT STARTED.
+
+### Target evidence from CI run #196 (2026-09-26)
+
+Run `36174195146` (#196, head
+`712b343a817bb4aa177f16dbdbbeb27ceee950c8`) passed both host jobs and every
+target build step through the UEFI loader. In the real two-boot QEMU
+acceptance, all Softpipe context stages completed; Mesa GL state, DRI context
+construction, `eglCreateContext`, and `_eglLinkContext` also returned. The
+final guest marker was `Nagi M17 trace: EGL context linking completed`.
+QEMU timed out after 120 seconds before Surfman's `GL context created` marker,
+so the stall is after EGL context creation but before `device.create_context`
+returns. There is still no first-web-pixel checksum or PASS marker. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+### Local continuation after CI run #196 (2026-09-26)
+
+Added Surfman patch `0002` with Nagi-only trace checkpoints around the EGL
+context wrapper, dummy-pbuffer config query/creation, make-current, and GL
+function loading. The generated `third_party/surfman` checkout remains
+untouched. A clean worktree at pinned Surfman revision
+`205778f497327c573929c7b471194390e15f331d` accepted patches `0001`–`0002` in
+numeric order with each prechecked, and `git diff --check` passed. All 62
+`nagi-cli` library tests, clippy with `-D warnings`, and
+`cargo fmt --all -- --check` passed. Target compilation and QEMU verification
+remain pending public CI. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #195 (2026-09-26)
 

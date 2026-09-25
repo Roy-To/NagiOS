@@ -541,4 +541,50 @@ mod tests {
             "the Nagi workspace must bind Servo's Surfman dependency to its pinned patched checkout"
         );
     }
+
+    #[test]
+    fn m17_surfman_egl_context_creation_has_ordered_trace_checkpoints() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/surfman-patches/0002-nagi-m17-egl-context-traces.patch"),
+        )
+        .expect("Nagi Surfman context trace patch");
+
+        for checkpoint in [
+            "Surfman EGL context creation started",
+            "Surfman EGL context creation returned",
+            "Surfman dummy pbuffer creation started",
+            "Surfman pbuffer context query started",
+            "Surfman EGL pbuffer creation started",
+            "Surfman make-current started",
+            "Surfman make-current completed",
+            "Surfman GL function loading started",
+            "Surfman GL function loading completed",
+        ] {
+            assert!(
+                patch.contains(checkpoint),
+                "missing M17 Surfman checkpoint: {checkpoint}"
+            );
+        }
+
+        let egl_start = patch
+            .find("Surfman EGL context helper started")
+            .expect("EGL context-helper start checkpoint");
+        let egl_done = patch
+            .find("Surfman EGL context helper returned")
+            .expect("EGL context-helper completion checkpoint");
+        let pbuffer_start = patch
+            .find("Surfman dummy pbuffer creation started")
+            .expect("pbuffer start checkpoint");
+        let pbuffer_done = patch
+            .find("Surfman dummy pbuffer creation completed")
+            .expect("pbuffer completion checkpoint");
+        assert!(egl_start < egl_done);
+        assert!(egl_done < pbuffer_start);
+        assert!(pbuffer_start < pbuffer_done);
+        assert!(patch.contains("nagi_m17_console_trace"));
+    }
 }
