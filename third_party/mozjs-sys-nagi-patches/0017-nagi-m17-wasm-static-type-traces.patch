@@ -1,0 +1,78 @@
+diff --git a/mozjs/js/src/wasm/WasmStaticTypeDefs.cpp b/mozjs/js/src/wasm/WasmStaticTypeDefs.cpp
+--- a/mozjs/js/src/wasm/WasmStaticTypeDefs.cpp
++++ b/mozjs/js/src/wasm/WasmStaticTypeDefs.cpp
+@@ -20,0 +21,12 @@
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
++
+@@ -30,0 +43,2 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm StaticTypeDefs::init entered");
++  NAGI_M17_TRACE("SpiderMonkey Wasm TypeContext allocation started");
+@@ -31,0 +46 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm TypeContext allocation completed");
+@@ -35,0 +51 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm array MutI16 type creation started");
+@@ -36,0 +53 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm array MutI16 type creation completed");
+@@ -39,0 +57 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm array MutI16 reference acquisition started");
+@@ -40,0 +59 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm array MutI16 reference acquisition completed");
+@@ -42,0 +62 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm exception parameter append started");
+@@ -45,0 +66,2 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm exception parameter append completed");
++  NAGI_M17_TRACE("SpiderMonkey Wasm exception tag type creation started");
+@@ -47,0 +70 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm exception tag type creation completed");
+@@ -50,0 +74 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm exception tag reference acquisition started");
+@@ -51,0 +76 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm exception tag reference acquisition completed");
+@@ -54,0 +80 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise parameter append started");
+@@ -57,0 +84,2 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise parameter append completed");
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag type creation started");
+@@ -59,0 +88 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag type creation completed");
+@@ -62,0 +92 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag reference acquisition started");
+@@ -63,0 +94 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag reference acquisition completed");
+@@ -65,0 +97 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm StaticTypeDefs::init completed");
+diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.cpp
+--- a/mozjs/js/src/wasm/WasmTypeDef.cpp
++++ b/mozjs/js/src/wasm/WasmTypeDef.cpp
+@@ -31,0 +32,12 @@
++
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -568,0 +581 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock started");
+@@ -570 +583,5 @@
+-  return locked->insert(recGroup);
++  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock acquired");
++  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set insertion started");
++  SharedRecGroup canonical = locked->insert(recGroup);
++  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set insertion completed");
++  return canonical;

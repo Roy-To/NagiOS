@@ -2556,3 +2556,32 @@ focused `nagi-cli` formatting check passes. A fresh public target run must
 compile the patch and identify the last completed Wasm initialization phase
 before any runtime fix is chosen. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
+
+## SpiderMonkey static Wasm type initialization after CI run #258 (2026-09-26)
+
+Public CI run #258 (`36252263959`, head
+`aba6b3847c2c4b66842628552af3e8cdf2d3d8ac`) passed both host jobs, target
+dependency checks, Mesa Softpipe, M16 package, kernel, real `nagi-init` link,
+and UEFI loader. Its M17 first-web-pixel acceptance failed after QEMU did not
+exit within 120 seconds (exit code 4). The trace completed the Wasm page-size
+lookup, huge-memory configuration, and code-block-map allocation, then stopped
+after `SpiderMonkey Wasm static type definitions initialization started`. No
+`SYS_RANDOM_GET` rejection or VirtIO RNG failure was logged. The prior RNG and
+GC address-search stages remain completed, but no checksum or pixel PASS marker
+was produced.
+
+Pinned `StaticTypeDefs::init()` first allocates a `TypeContext`, creates the
+mutable i16 array type, appends the exception parameter, and creates the
+exception tag type. Type creation reaches the canonical recursion-group set,
+whose operation acquires `typeIdSet`'s exclusive lock and inserts into its
+hash set. The public marker does not distinguish which of these operations
+stopped.
+
+Tracked MozJS patch `0017-nagi-m17-wasm-static-type-traces.patch` adds Nagi-only
+checkpoints for the TypeContext allocation, initial type/parameter operations,
+and canonical type-set lock/insertion. It preserves source behavior and lock
+ordering. The local source-contract test was observed failing before this patch
+was added and then passes; the focused `nagi-cli` format check and patch
+reverse-check also pass. The next target run must compile these diagnostics and
+identify the last completed operation before a runtime change is selected.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

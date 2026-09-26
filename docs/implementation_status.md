@@ -4732,3 +4732,25 @@ initialization behavior. The new source-contract test passes locally, as do the
 focused package format check and patch reverse-check against the materialized
 MozJS checkout. Public target CI must compile the patch and reveal the last
 completed Wasm phase. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #258 (2026-09-26)
+
+Public CI run #258 (`36252263959`, head
+`aba6b3847c2c4b66842628552af3e8cdf2d3d8ac`) passed host CI, target dependency
+checks, Mesa Softpipe, M16 package, kernel, real `nagi-init` link, and UEFI
+loader. The M17 QEMU acceptance failed because QEMU did not exit within 120
+seconds (exit code 4). The new trace completed Wasm page-size lookup,
+huge-memory configuration, and code-block-map allocation, then stopped after
+`SpiderMonkey Wasm static type definitions initialization started`. No guest
+RNG error was logged; no checksum or pixel PASS marker was produced.
+
+Pinned source shows `StaticTypeDefs::init()` begins with TypeContext allocation,
+then creates its first array type and exception tag. Type creation reaches the
+canonical recursion-group set and its exclusive lock. The exact blocked
+operation is not yet known. Tracked patch
+`third_party/mozjs-sys-nagi-patches/0017-nagi-m17-wasm-static-type-traces.patch`
+adds Nagi-only checkpoints around these operations without changing their
+behavior. The local source-contract test now passes after first failing because
+the patch was absent; the focused format check and patch reverse-check pass.
+Public target CI must verify compilation and expose the last completed marker.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

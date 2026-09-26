@@ -112,3 +112,9 @@ GC address discovery and then stopped within `wasm::Init()`. The checkpoints
 bracket page-size lookup, huge-memory configuration, code-block-map allocation,
 static type setup, built-in module setup, and tag-type setup. They use the same
 guest console callback and leave initialization behavior and ordering intact.
+
+Patch `0017` narrows the static Wasm type initialization trace after public
+QEMU reached `StaticTypeDefs::init()` but did not return. It brackets the
+`TypeContext` allocation, initial type and parameter creation, and canonical
+type-set lock/insertion. The checkpoints are Nagi-only and do not change type
+construction or synchronization behavior.
