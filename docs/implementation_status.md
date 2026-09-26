@@ -4767,3 +4767,18 @@ was changed to the new `user_tls_control_base` helper; that commit is not on
 the remote branch used by this CI run, so it has no CI verification yet. The
 owner worktree also has a dirty status-document change and remains untouched.
 The owner-branch scheduler does not change M17's recorded `BLOCKED` state.
+
+## M17 trace acceptance status update (2026-09-26)
+
+Root trace run `36236310925` at `582b5f64585054be354b7d3f9379cfa3054f8828`
+passed both host jobs, built Nagi user init and the UEFI loader, and entered
+the real M17 first-web-pixel acceptance at 11:56 UTC. At 12:10 UTC the target
+job was still in that acceptance step; GitHub does not expose its logs until
+the step completes. No new guest checksum or PASS marker is available, so M17
+remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+The timeout-classifier run `36239110612` passed both host jobs but its pending
+target job was canceled before execution. Newer run `36240025711` at
+`faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1` passed both host jobs and is the
+newest target run pending behind `36236310925`. The developer status command
+now lists all queued and in-progress CI runs before completed runs.

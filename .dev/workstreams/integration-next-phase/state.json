@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "trace-run-362363-qemu-acceptance-active",
+  "current_checkpoint": "trace-acceptance-overdue-awaiting-hosted-logs",
   "status": "IN_PROGRESS",
   "last_verified": {
     "commit_sha": "faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1",
-    "verified_at": "2026-09-26T11:56:58Z",
-    "normal_state": "Integration code commit faeeb22 fixes dev status so every queued/in-progress CI run is shown before completed runs. The nagi-cli suite passes (108 unit and 26 integration tests), formatting and warning-denied Clippy pass, and DF-01 verification passes. Run 36228898043 is confirmed COMPLETED FAILURE: target Servo construction reached pthread_create EAGAIN and produced no pixel checksum or M17 PASS marker. Trace run 36236310925 passed both host jobs, built Nagi user init and the UEFI loader, and is currently in M17 first-web-pixel QEMU acceptance; logs are unavailable until that job completes. Run 36239110612 passed both host jobs but its pending target job was cancelled before execution. Newer run 36240025711 passed both host jobs and its target is pending behind the active trace. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS and an explicit release checkpoint.",
+    "verified_at": "2026-09-26T12:10:29Z",
+    "normal_state": "Integration code commit faeeb22 fixes dev status so every queued/in-progress CI run is shown before completed runs. The nagi-cli suite passes (108 unit and 26 integration tests), formatting and warning-denied Clippy pass, and DF-01 verification passes. Run 36228898043 is confirmed COMPLETED FAILURE: target Servo construction reached pthread_create EAGAIN and produced no pixel checksum or M17 PASS marker. Trace run 36236310925 passed both host jobs, built Nagi user init and the UEFI loader, and entered the real M17 first-web-pixel acceptance at 11:56 UTC. The target step remained active at 12:10 UTC; GitHub withholds logs until completion. Run 36239110612 passed both host jobs but its target was cancelled before execution. Newer run 36240025711 passed both host jobs and is pending at the target job behind the trace. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS and an explicit release checkpoint.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -704,6 +704,13 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "18 registered workstreams and 11 state files validate with faeeb22 as the verified integration code commit."
+      },
+      {
+        "name": "Developer status visibility during active guest acceptance",
+        "command": "./nagi dev status",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The status output shows queued run 36240025711 and active run 36236310925 ahead of completed records, and reports M17 trace acceptance as the next action."
       }
     ],
     "ci_runs": [
@@ -897,7 +904,7 @@
         "head_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Both host jobs passed; target built Nagi user init and the UEFI loader, and is now running the real M17 first-web-pixel QEMU acceptance. Logs are unavailable until the target job completes."
+        "summary": "Both host jobs passed; target built Nagi user init and the UEFI loader, then entered the real M17 first-web-pixel acceptance at 11:56 UTC. The target remains active; GitHub withholds logs until completion."
       },
       {
         "run_id": 36239110612,
@@ -905,7 +912,7 @@
         "head_sha": "4c453969ebd303b7a9ec40803f3b4f61b17d8d75",
         "status": "COMPLETED",
         "conclusion": "CANCELLED",
-        "summary": "Both host jobs passed; the target job was cancelled before execution after it had been pending behind active target acceptance."
+        "summary": "Both host jobs passed; its target job was cancelled before execution while pending behind active target acceptance."
       },
       {
         "run_id": 36232073962,
@@ -929,7 +936,7 @@
         "head_sha": "faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1",
         "status": "QUEUED",
         "conclusion": null,
-        "summary": "Both host jobs passed; target acceptance is pending behind active trace run 36236310925."
+        "summary": "Both host jobs passed; the target job is queued behind active trace run 36236310925."
       }
     ]
   },
@@ -951,7 +958,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Monitor root trace run 36236310925 through the real M17 QEMU acceptance, then inspect its diagnostic artifacts and classifier evidence when the job completes. Run 36240025711 passed both host jobs and its target is queued behind the trace; run 36239110612 passed hosts but its pending target was cancelled before execution. Run 36228898043 is confirmed failed during Servo construction with pthread_create EAGAIN and no pixel evidence. Do not integrate or modify the owner kernel work; its local test adjustment 4d79bbe is unpushed and not CI-verified. Keep M17 BLOCKED until the real guest checksum and acceptance marker appear, M18 NOT STARTED, and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
+  "next_action": "Monitor root trace run 36236310925 until the target acceptance step completes; then inspect its M17 trace, serial log, and diagnostics artifact. The run passed both host jobs and builds through UEFI, but the first-web-pixel step has remained active since 11:56 UTC and its logs are withheld. Run 36240025711 passed hosts and is queued at the target job; run 36239110612 passed hosts but its target was cancelled before execution. Run 36228898043 is confirmed failed during Servo construction with pthread_create EAGAIN and no pixel evidence. Do not integrate or modify the owner kernel work; its local test adjustment 4d79bbe is unpushed and not CI-verified. Keep M17 BLOCKED until the real guest checksum and acceptance marker appear, M18 NOT STARTED, and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
