@@ -86,3 +86,20 @@ untracked `libtarget_check.rlib`; it has been left untouched.
   host sandbox and explicitly says it is not Nagi target restore.
 - Nagi target persistence, event bridge, capability service and restore:
   **NOT RUN**.
+
+## Files merge checkpoint
+
+- Merge commit: `98a0d93859361e1ab8ebbb5c376d744bce36bc29`.
+- Source SHA preserved as a merge parent:
+  `b2c9ee10533aee5f31cb07b0ecc25efa51b217fa`.
+- The shared status file merged automatically because the Activity and Files
+  sections were disjoint. Files remains a standalone Cargo package with its
+  own lockfile; it was not added to the root workspace.
+- Focused Files suite: **48 passed** using the pinned Rust toolchain, the
+  package lockfile, and an isolated Cargo target directory. The suite covered
+  metadata-only search, scoped host grants, symlink/traversal rejection,
+  operations, Trash/restore and checkpoint-hook failures. Its sandbox tests
+  use temporary directories; no user files were read.
+- Files → shared Activity and typed Wayback adapters are not connected yet.
+  The branch's optional hooks remain app-local.
+- Nagi target Files provider/capability service: **NOT RUN**.
