@@ -103,3 +103,27 @@ untracked `libtarget_check.rlib`; it has been left untouched.
 - Files → shared Activity and typed Wayback adapters are not connected yet.
   The branch's optional hooks remain app-local.
 - Nagi target Files provider/capability service: **NOT RUN**.
+
+## Notes merge checkpoint
+
+- Merge commit: `27b43222d6b477c9b030ec008ba7977492162914`.
+- Source SHA preserved as a merge parent:
+  `c1353ffe4d9be9699e6d6ed778661b675a329cb1`.
+- The shared status file merged automatically; Notes is still in its
+  standalone package/workspace and keeps its own lockfile.
+- Focused Notes acceptance suite: **27 passed**. This exercised host stores,
+  authorization-policy failures, Activity redaction/failure handling,
+  revisions/restore-as-copy, localization, and host preview path confinement.
+- Notes already uses canonical `ObjectId` and `WorkspaceId`. Its direct
+  methods can bypass `NotesActionExecutor`, so an integrated UI/provider must
+  not turn Home's UI grant projection into authority. Search indexing must
+  filter authorized hits before exposing title/body snippets.
+- Notes local Activity events omit content, but an Agent origin lacks the
+  shared ledger's delegated authority receipt and authenticated Node/User
+  context. The host adapter must accept valid execution context; target AI
+  events remain blocked until the authority bridge exists.
+- Note revisions remain local document versions. Wayback capture/restore
+  needs an explicit adapter that records a shared checkpoint and performs the
+  Notes restore through the app so the restore creates a new revision/event.
+- Nagi target Notes storage/capabilities and authenticated Agent provenance:
+  **NOT RUN**.

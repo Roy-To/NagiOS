@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "files-merged-focused-tests-passed",
+  "current_checkpoint": "notes-merged-focused-tests-passed",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "98a0d93859361e1ab8ebbb5c376d744bce36bc29",
-    "verified_at": "2026-09-26T03:17:11Z",
-    "normal_state": "Activity + Wayback and Files source SHAs are preserved as merge parents. Activity/Wayback passed 41 host tests, an x86_64-unknown-uefi library check, and the host-only preview; Files passed 48 host tests. Root workspace Cargo test stops before compilation until ./nagi fetch materializes ignored pinned sources. Files hooks are not yet connected to the shared Activity/Wayback contracts. Nagi target runtime remains NOT RUN. Details: docs/first_party/integration/contract-matrix.md.",
+    "commit_sha": "27b43222d6b477c9b030ec008ba7977492162914",
+    "verified_at": "2026-09-26T03:18:22Z",
+    "normal_state": "Activity + Wayback, Files and Notes source SHAs are preserved as merge parents. Activity/Wayback passed 41 host tests, UEFI library check and host preview; Files passed 48 host tests; Notes passed 27 acceptance tests. Search, Activity and Wayback app adapters are not connected yet. Root Activity tests still require ./nagi fetch; Notes and Files standalone package tests passed. Nagi target runtime remains NOT RUN. Details: docs/first_party/integration/contract-matrix.md.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -26,6 +26,7 @@
       "isolated nagi-history: cargo check --lib --no-default-features --target x86_64-unknown-uefi --offline",
       "isolated nagi-history: cargo run --example activity_wayback_preview --features sandbox --offline",
       "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-notes/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
       "git diff --check"
     ],
     "tests": [
@@ -84,6 +85,13 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "48 passed, 0 failed, using the package's standalone lockfile and temporary test sandboxes. The host suite does not establish target filesystem or capability integration."
+      },
+      {
+        "name": "Notes focused acceptance suite",
+        "command": "cargo test --manifest-path user/nagi-notes/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 passed, 0 failed. Host storage/preview and local revision tests ran on the host; target storage and capability integration remain unrun."
       }
     ],
     "ci_runs": []
@@ -108,7 +116,7 @@
       "Do not force push, reset hard, or modify third_party implementation sources."
     ]
   },
-  "next_action": "Merge Notes, run its focused suite and preview checks, then adapt Notes and Files providers/events to the shared Home Search and Activity/Wayback contracts.",
+  "next_action": "Merge Home + Search, run its focused suite and preview checks, then implement real Notes/Files/Activity providers and Notes/Files Activity/Wayback adapters in a standalone host integration package.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
