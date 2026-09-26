@@ -3,53 +3,49 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "parallel-branch-inventory",
+  "current_checkpoint": "capability-permissions-integrated",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "d4dadb617214b9cbaaabb23da9a6b6ab7d7bd2a4",
-    "verified_at": "2026-09-26T06:57:10Z",
-    "normal_state": "Forward-ported DF-01 onto current main while preserving the current M17 status and runtime changes. Removed the stale fixture status expectation, made the CLI status test work on registered and unregistered branches, constrained state-file reads to the canonical repository root, rejected diagnostics with no readable logs, and remove partial reports after write errors. The focused developer CLI and registry checks pass. Actions run 36223836342 passed both host jobs and is still running the target build; DF-01 run 36117826259 passed both host jobs and failed only at the separate M17 QEMU gate. More branch integration remains in progress.",
+    "commit_sha": "8fd2193c9f9292cf78fca49c",
+    "verified_at": "2026-09-26T07:02:32Z",
+    "normal_state": "Integrated the isolated capability/permission host foundation and registered it with the development-foundation dependency in the integration-owned registry. Kept root Cargo workspace/runtime activation gated on M30 PASS and an explicit release checkpoint. The isolated capability crate passes formatting, 26 unit tests, 2 integration tests, and Clippy with warnings denied; nagi-package regressions (5 tests), registry validation (11 registered workstreams, 3 state files), and diff checks pass. The source workstream state remains PARTIAL with its original branch-local CI and root-host limitations recorded; integration verification addresses the registry blocker. M17 remains BLOCKED and M18 remains NOT STARTED per docs/implementation_status.md.",
     "commands": [
-      "git status --short --branch",
-      "git worktree list --porcelain",
-      "git branch -avv",
-      "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline --lib development::tests",
-      "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
-      "./nagi dev status",
+      "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
+      "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path crates/nagi-capability/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test -p nagi-package --lib --locked --offline",
       "./nagi dev verify",
-      "cargo fmt --all -- --check",
-      "sh -n nagi",
-      "sh -n tests/acceptance/m17_servo_first_web_pixel.sh",
-      "git diff --check"
+      "./nagi dev status",
+      "git diff --cached --check; git diff --check"
     ],
     "tests": [
       {
-        "name": "Developer tooling library tests",
-        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline --lib development::tests",
+        "name": "Capability crate formatting, tests, and lint",
+        "command": "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check; cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline; cargo clippy --manifest-path crates/nagi-capability/Cargo.toml --all-targets --locked --offline -- -D warnings",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "All 12 development-module tests passed, including state symlink containment and missing-log diagnostic regressions."
+        "evidence": "Formatting passed; 26 unit tests and 2 integration tests passed; Clippy passed with warnings denied."
       },
       {
-        "name": "Nagi CLI unit and integration tests",
-        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+        "name": "Existing package manifest regression",
+        "command": "cargo test -p nagi-package --lib --locked --offline",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "84 library tests and 20 CLI integration tests passed."
+        "evidence": "All 5 nagi-package library tests passed."
       },
       {
-        "name": "Workstream state verification",
+        "name": "Registered workstream state verification",
         "command": "./nagi dev verify",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "10 registered workstreams and both present state files validated on codex/integration-next-phase at d4dadb617214b9cbaaabb23da9a6b6ab7d7bd2a4."
+        "evidence": "11 registered workstreams and 3 state files validated on codex/integration-next-phase."
       },
       {
-        "name": "Formatting, shell syntax, and diff whitespace",
-        "command": "cargo fmt --all -- --check; sh -n nagi; sh -n tests/acceptance/m17_servo_first_web_pixel.sh; git diff --check",
+        "name": "Integration diff whitespace",
+        "command": "git diff --cached --check; git diff --check",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "All focused syntax, formatting, and whitespace checks passed."
+        "evidence": "No whitespace errors."
       }
     ],
     "ci_runs": [
@@ -89,7 +85,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Continue with the capability, Wayback/model, localization, and host-first app foundations in dependency order; reconcile the App SDK capability ID contract and workstream registration proposals before merging, then run combined host acceptance and record CI.",
+  "next_action": "Review and integrate the App SDK host contract after aligning capability identifier validation with nagi-capability; then continue with Wayback/model/localization and first-party integration in dependency order.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -106,6 +102,12 @@
       "contract": "Use DF-01 schemas, registry ownership, evidence format, and read-only resume/verify/diagnose CLI contract.",
       "version": "nagi-dev-v1",
       "status": "PASS"
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "Host-side capability identifiers and permission policy contract; runtime activation remains release-gated.",
+      "version": "capability-contract-v1",
+      "status": "PARTIAL; isolated host foundation integrated and verified, runtime adapter deferred until M30 PASS and explicit release checkpoint."
     }
   ]
 }
