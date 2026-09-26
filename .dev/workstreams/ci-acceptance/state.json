@@ -1,0 +1,160 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "ci-acceptance",
+  "current_milestone": "CI / Acceptance Infrastructure",
+  "current_checkpoint": "central-acceptance-runner-integrated-local-host-gates-pass",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "1d3d6749638e33e8406f2d705a2082a0e68e1637",
+    "verified_at": "2026-09-26T08:24:42Z",
+    "normal_state": "Integrated the registry-driven acceptance runner, failure classification, timeout handling, per-case logs, JSON report and regression comparison, GitHub summaries, and host/target CI uploads from codex/parallel-acceptance-ci. The integrated CLI suite passes 102 unit and 26 CLI tests; seven bootstrap acceptance tests pass; both M0 host wrappers pass with 19 filtered cases correctly marked NOT RUN. The x86_64 Apple-target nagi-net tests and Clippy pass with the subsec_micros conversion. Native arm64 nagi-net tests fail while compiling libnagi's x86-64 Nagi syscall registers, so no native arm test result is claimed. Public CI for the acceptance-runner merge has not started yet; the source branch CI failed earlier on Clippy and did not exercise the runner. M17 still calls the existing strict first-web-pixel wrapper; no checksum/marker requirements or milestone states changed.",
+    "commands": [
+      "cargo test -p nagi-cli --locked --offline",
+      "cargo fmt --all -- --check",
+      "cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+      "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline acceptance::tests",
+      "cargo test -p nagi-net --locked --offline",
+      "cargo test -p nagi-net --locked --offline --target x86_64-apple-darwin",
+      "cargo clippy -p nagi-net --all-targets --locked --offline --target x86_64-apple-darwin -- -D warnings",
+      "./nagi test --acceptance --list",
+      "./nagi test --acceptance --host-only --ci",
+      "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+      "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'",
+      "./nagi dev verify",
+      "git diff --check; git diff --cached --check"
+    ],
+    "tests": [
+      {
+        "name": "Integrated CLI unit and integration suites",
+        "command": "cargo test -p nagi-cli --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "102 library unit tests and 26 CLI integration tests passed, including acceptance registry parsing, timeout/process behavior, result classification, comparison, help/arity, and diagnostics regressions."
+      },
+      {
+        "name": "Acceptance runner formatting and Clippy",
+        "command": "cargo fmt --all -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting and CLI Clippy passed with warnings denied; three existing target_os=nagi warnings came from libc dependency code."
+      },
+      {
+        "name": "Bootstrap acceptance tests and lint",
+        "command": "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline; cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline acceptance::tests; cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The separate bootstrap package compiles, its seven acceptance tests pass, and Clippy passes with warnings denied."
+      },
+      {
+        "name": "M0 host acceptance runner",
+        "command": "./nagi test --acceptance --host-only --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0-DOCTOR and M0-LAUNCHER passed. The 19 target acceptance cases were accurately recorded as NOT RUN in the generated JSON report."
+      },
+      {
+        "name": "nagi-net x86_64 Apple-target tests",
+        "command": "cargo test -p nagi-net --locked --offline --target x86_64-apple-darwin",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Seven unit tests and one smoltcp integration test passed."
+      },
+      {
+        "name": "nagi-net x86_64 Apple-target Clippy",
+        "command": "cargo clippy -p nagi-net --all-targets --locked --offline --target x86_64-apple-darwin -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Clippy passes with warnings denied; the subsec_micros conversion is accepted."
+      },
+      {
+        "name": "nagi-net native arm64 test attempt",
+        "command": "cargo test -p nagi-net --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The aarch64 host compile fails in libnagi because its Nagi x86-64 syscall inline-assembly registers (rax, rdi, rsi, rcx, r11, and others) are invalid for arm64. The x86_64-target test and Clippy runs pass; no production code was changed to mask this host architecture mismatch."
+      },
+      {
+        "name": "CI diagnostic parser regression",
+        "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The target-link diagnostic parser regression test passed."
+      },
+      {
+        "name": "CI workflow YAML parse",
+        "command": "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Ruby's YAML parser loaded the integrated workflow successfully."
+      },
+      {
+        "name": "Acceptance source-branch GitHub Actions",
+        "command": "gh run view 35975771855 --repo RT-NISH/NagiOS",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Source branch CI failed host Clippy on subsec_nanos() / 1_000 in smoltcp_stack.rs. The integration branch contains the equivalent subsec_micros() conversion and the focused x86_64-target test and Clippy checks pass."
+      },
+      {
+        "name": "Workstream registry and nine durable states validation",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The shared registry and all 9 present state files validated across 16 registered workstreams."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 35975771855,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/35975771855",
+        "head_sha": "c04e13539ae1bec4c2dd548ead375744a0c195e0",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Acceptance-CI source branch stopped in Clippy on subsec_nanos() / 1_000; the runner acceptance suite itself was not reached. The integration branch has subsec_micros() and local focused checks pass."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md section 75 and docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T08:24:42Z",
+    "activation_requirement": "This change centralizes existing acceptance wrappers and diagnostics only. It does not redesign or weaken milestone success criteria; product/runtime activation remains behind the existing Nagi 0.1 sequence and M30 release boundary."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not convert SKIP, BLOCKED, FAIL, or filtered NOT RUN cases into PASS.",
+      "Do not weaken the M17 first-web-pixel checksum or guest acceptance marker.",
+      "Do not change M18 or other milestone state because an acceptance case is unimplemented or not selected.",
+      "Do not merge this integration branch directly to main."
+    ]
+  },
+  "next_action": "Push the integrated acceptance runner and inspect Ubuntu/Windows host acceptance plus target CI artifacts. Keep this workstream PARTIAL until the integrated workflow verifies the runner; independently keep M17 BLOCKED unless the real guest checksum and PASS marker appear.",
+  "acceptance_criteria": [
+    "A single registry maps acceptance IDs to milestone, subsystem, host/target scope, wrapper, timeout, and test name.",
+    "Runner options filter by milestone/subsystem/scope and report all other cases as NOT RUN.",
+    "Wrappers execute with a bounded timeout and process-tree cleanup; failures retain logs and distinguish environment, dependency, compile, link, test, timeout, artifact, and command stages.",
+    "JSON reports include all selected and filtered case states, and regression comparison marks only prior-PASS cases that are selected and no longer PASS.",
+    "CI retains machine-readable reports, case logs, and existing M17 diagnostic artifacts after failed steps.",
+    "M17 continues to invoke the unchanged strict first-web-pixel acceptance wrapper and requires its real pixel evidence."
+  ],
+  "deferred": [
+    "Public integrated GitHub Actions result for the acceptance-runner commit.",
+    "Unselected target acceptance cases remain NOT RUN; no milestone PASS is inferred from the two M0 host cases.",
+    "M17 stays BLOCKED until its guest pixel checksum and acceptance marker are produced by the unmodified underlying wrapper."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "developer-tooling",
+      "contract": "The acceptance command is nested under the existing Nagi host CLI test command and preserves existing doctor, test, and development-state commands.",
+      "version": "nagi-cli-v1",
+      "status": "PASS for the local host CLI integration; full public CI remains pending."
+    }
+  ]
+}

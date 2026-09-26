@@ -7,8 +7,8 @@
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "3aed2e25ecf3c5984bfa16ef998358cf839fa427",
-    "verified_at": "2026-09-26T08:07:35Z",
-    "normal_state": "Integrated the local structured diagnostics, verification report, privacy redaction, bounded crash capture seam, CLI commands, and DF-01 workstream health check on codex/integration-next-phase. 95 nagi-cli unit tests and 24 CLI integration tests pass; CLI and standalone bootstrap Clippy pass with warnings denied; both CLI and bootstrap lockfiles verify. Diagnostics, scoped verify, and host smoke produce passing host evidence. Workstream remains PARTIAL because the pre-integration --vm smoke attempt timed out in the existing M1/M7 QEMU guest boot check; it is separate from the strict M17 first-web-pixel gate. No target crash persistence or runtime authority was added.",
+    "verified_at": "2026-09-26T08:24:42Z",
+    "normal_state": "Integrated the local structured diagnostics, verification report, privacy redaction, bounded crash capture seam, CLI commands, and DF-01 workstream health check on codex/integration-next-phase. 95 nagi-cli unit tests and 24 CLI integration tests pass; CLI and standalone bootstrap Clippy pass with warnings denied; both CLI and bootstrap lockfiles verify. Diagnostics, scoped verify, and host smoke produce passing host evidence. Workstream remains PARTIAL because the pre-integration --vm smoke attempt timed out in the existing M1/M7 QEMU guest boot check; it is separate from the strict M17 first-web-pixel gate. No target crash persistence or runtime authority was added. Public integration run 36228898043 has passed Ubuntu and Windows host jobs; target M17 QEMU acceptance is still running, so no target or M17 conclusion is recorded. The shared DF-01 validator now passes with 16 registered workstreams and 9 state files on the acceptance-runner integration head.",
     "commands": [
       "cargo test -p nagi-cli --locked --offline",
       "cargo fmt --all -- --check",
@@ -50,7 +50,7 @@
         "command": "target/debug/nagi diagnostics --scope diagnostics --json; target/debug/nagi verify --scope workstreams --json; target/debug/nagi smoke --host-only --json",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Diagnostics and scoped verification returned PASS; host smoke returned PASS and ran ./nagi dev verify, validating 16 registered workstreams and 8 state files."
+        "evidence": "Diagnostics and scoped verification returned PASS; host smoke returned PASS and ran ./nagi dev verify, validating 16 registered workstreams and 9 state files."
       },
       {
         "name": "VM smoke guest boot (inherited pre-integration result)",
@@ -69,6 +69,14 @@
     ],
     "ci_runs": [
       {
+        "run_id": 36228898043,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36228898043",
+        "head_sha": "e06ff39976704a0219cd3485703d6ca3ff4b8ebc",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Integrated diagnostics head: Ubuntu and Windows host jobs passed; the target job remains in the independent M17 QEMU acceptance and has no result yet."
+      },
+      {
         "run_id": 36215571919,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215571919",
         "head_sha": "84afe087a0b5c88db7f5fd05a7db11fa64741eb8",
@@ -80,7 +88,7 @@
   },
   "release_line_gate": {
     "source": "docs/0.2/DEVELOPMENT_ARCHITECTURE.md and docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T08:07:35Z",
+    "last_checked_at": "2026-09-26T08:24:42Z",
     "activation_requirement": "This checkpoint provides host-side diagnostics contracts only. Guest crash persistence, target event collection, or production diagnostics service integration require Nagi 0.1 M30 PASS and an explicit release boundary."
   },
   "blocker": {

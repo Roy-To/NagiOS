@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "diagnostics-host-integration-and-m17-aligned-allocation-ci-pending",
+  "current_checkpoint": "acceptance-runner-and-diagnostics-host-foundations-integrated-m17-ci-pending",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "3aed2e25ecf3c5984bfa16ef998358cf839fa427",
-    "verified_at": "2026-09-26T08:07:35Z",
-    "normal_state": "On codex/integration-next-phase, integrated development-foundation, capability/permission, App SDK contracts, Wayback host ledger, shared localization, Model Runtime/Model Store host contracts, and host diagnostics. Diagnostics is PARTIAL: its local event/report contract, DF-01 health check, CLI/bootstrap builds, tests, format, Clippy, and host smoke pass; the inherited optional VM smoke timed out in the existing M1/M7 guest boot acceptance. No target crash store, model weights/inference, or production runtime hook was added. The Model Runtime remains PARTIAL and M17 remains BLOCKED; M18 remains NOT STARTED. Mainline #233 showed target builds through UEFI followed by Servo construction allocation failure without a real pixel checksum or M17 PASS marker. The aligned POSIX allocation repair is on this integration branch and its public QEMU verification is pending in run #36228221098: Ubuntu and Windows host jobs passed, while nagi-target is still running the M17 acceptance. Dirty first-party UI/Home/Search and M17 diagnosis worktrees remain untouched.",
+    "commit_sha": "1d3d6749638e33e8406f2d705a2082a0e68e1637",
+    "verified_at": "2026-09-26T08:24:42Z",
+    "normal_state": "On codex/integration-next-phase, integrated development foundation, capability/permission, App SDK contracts, Wayback host ledger, localization, model-manager host contract, diagnostics, and centralized acceptance tooling. Diagnostics remains PARTIAL due an inherited optional VM smoke timeout; the host health check now invokes the authoritative DF-01 validator. Acceptance tooling is PARTIAL pending public CI: the CLI and bootstrap suites pass, both M0 host wrappers pass, x86_64 nagi-net tests and Clippy pass, and the CI runner preserves the existing M17 wrapper/checksum/marker gate. A native arm64 nagi-net test attempt fails in libnagi's x86-64 syscall inline assembly; no host escape or source weakening was added. Mainline M17 remains BLOCKED: CI #233 showed a 512-byte allocation failure after Servo construction and no pixel checksum or marker. Runs #36228221098 and #36228898043 have passed Ubuntu/Windows host jobs and remain in M17 target QEMU acceptance; neither includes the acceptance-runner merge. M18 remains NOT STARTED. No models, inference, target crash store, production runtime hooks, or first-party runtime paths were activated; dirty UI/Home/Search and M17 diagnosis worktrees remain untouched.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -44,7 +44,14 @@
       "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
       "target/debug/nagi diagnostics --scope diagnostics --json",
       "target/debug/nagi verify --scope workstreams --json",
-      "target/debug/nagi smoke --host-only --json"
+      "target/debug/nagi smoke --host-only --json",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline acceptance::tests",
+      "cargo test -p nagi-net --locked --offline --target x86_64-apple-darwin",
+      "cargo clippy -p nagi-net --all-targets --locked --offline --target x86_64-apple-darwin -- -D warnings",
+      "./nagi test --acceptance --list",
+      "./nagi test --acceptance --host-only --ci",
+      "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+      "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'"
     ],
     "tests": [
       {
@@ -256,9 +263,81 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Diagnostics, scoped workstream verification, and host smoke returned PASS. DF-01 validation passed for 16 registered workstreams and 8 state files."
+      },
+      {
+        "name": "Acceptance runner CLI suite, format, and Clippy",
+        "command": "cargo test -p nagi-cli --locked --offline; cargo fmt --all -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "102 library unit tests and 26 CLI integration tests passed; format and Clippy passed with warnings denied. Three existing target_os=nagi warnings were emitted by libc dependency code."
+      },
+      {
+        "name": "Bootstrap acceptance test suite and checks",
+        "command": "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline; cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline acceptance::tests; cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The separate bootstrap package compiles, all seven acceptance unit tests pass, and bootstrap Clippy passes with warnings denied."
+      },
+      {
+        "name": "M0 host acceptance through registry runner",
+        "command": "./nagi test --acceptance --host-only --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0-DOCTOR and M0-LAUNCHER passed; 19 target cases were marked NOT RUN in the JSON report rather than counted as passes."
+      },
+      {
+        "name": "nagi-net x86_64 Apple-target tests and Clippy",
+        "command": "cargo test -p nagi-net --locked --offline --target x86_64-apple-darwin; cargo clippy -p nagi-net --all-targets --locked --offline --target x86_64-apple-darwin -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Seven unit tests and one integration test passed, and Clippy passed with warnings denied; the integrated conversion uses subsec_micros()."
+      },
+      {
+        "name": "Native arm64 nagi-net test attempt",
+        "command": "cargo test -p nagi-net --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "On the aarch64 host, libnagi fails to compile Nagi x86-64 syscall registers. The same nagi-net test and lint suite pass for x86_64-apple-darwin; no production assembly or syscall behavior was weakened."
+      },
+      {
+        "name": "Acceptance diagnostic parser regression",
+        "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The target link diagnostic parser regression test passed."
+      },
+      {
+        "name": "Acceptance CI workflow YAML syntax",
+        "command": "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Ruby loaded the merged GitHub Actions workflow successfully."
+      },
+      {
+        "name": "Workstream registry and nine durable states validation",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "DF-01 validation passed for 16 registered workstreams and 9 state files on codex/integration-next-phase at commit 1d3d6749638e33e8406f2d705a2082a0e68e1637."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 36228898043,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36228898043",
+        "head_sha": "e06ff39976704a0219cd3485703d6ca3ff4b8ebc",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Diagnostics integration run: Ubuntu and Windows host jobs passed; nagi-target remains in the existing M17 QEMU acceptance. This head predates the acceptance-runner merge."
+      },
+      {
+        "run_id": 35975771855,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/35975771855",
+        "head_sha": "c04e13539ae1bec4c2dd548ead375744a0c195e0",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Acceptance-CI source branch failed host Clippy on subsec_nanos() / 1_000. Integration uses subsec_micros(); focused x86_64-target nagi-net tests and Clippy pass."
+      },
       {
         "run_id": 36228221098,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36228221098",
@@ -343,7 +422,7 @@
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T08:07:35Z",
+    "last_checked_at": "2026-09-26T08:24:42Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -359,7 +438,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Push the diagnostics integration and inspect its Actions run while preserving M17 BLOCKED until real guest pixel evidence appears. Then integrate the clean acceptance-CI branch with the existing strict M17 script unchanged, review and integrate the clean first-party host preview as PARTIAL, and record exact CI results. Keep target/runtime app and diagnostics activation behind their documented gates.",
+  "next_action": "Push the acceptance-runner integration and inspect its Ubuntu/Windows host acceptance plus target M17 artifacts. Continue reviewing the clean first-party preview branch while Actions runs. Keep M17 BLOCKED without a real guest pixel checksum and marker, and keep target/runtime app paths behind the documented gate.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -406,6 +485,12 @@
       "contract": "Local structured events, scoped verification reports, bounded/redacted crash capture, and a workstreams health check that reuses nagi dev verify when DF-01 state is available.",
       "version": "diagnostics-contract-v1",
       "status": "PARTIAL for host foundation; optional VM smoke timed out in the existing M1/M7 acceptance, and target persistence remains deferred."
+    },
+    {
+      "workstream_id": "ci-acceptance",
+      "contract": "A registered runner preserves per-case acceptance scope, filtered NOT RUN evidence, bounded execution, and the unchanged real M17 first-web-pixel wrapper; CI retains reports and diagnostics.",
+      "version": "acceptance-runner-v1",
+      "status": "PARTIAL pending integrated public CI; local runner, host cases, tests, and lint pass."
     }
   ]
 }
