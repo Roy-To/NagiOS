@@ -242,10 +242,10 @@ not modify or merge into M17 worktrees.
   implementation remains independently runnable. The full `./nagi test` host
   suite remains blocked on arm64 macOS by x86_64 syscall-register assembly in
   `user/libnagi`; no ABI, M17, or third-party changes were made.
-- **Next action:** Continue reviewing independent Files host-side error and
-  compatibility cases. When public runtime APIs
-  become available, connect the provider and typed action/hook contracts to
-  the Nagi desktop and services, then run target acceptance for
+- **Next action:** The host-side Files authorization, source identity, Trash
+  recovery, and replacement regressions are verified; no independent Files
+  implementation gap remains in this audit. Resume target adapters when public
+  runtime APIs become available, then run target acceptance for
   FILES-001/002/003/009. Keep this work isolated from M17 and the other app
   workstreams.
 - **Decisions:** Keep this workstream on `codex/first-party-integration`; use typed operations
@@ -253,11 +253,11 @@ not modify or merge into M17 worktrees.
   runtime APIs do not yet exist in this base. Keep target integration separate
   from M17 and the other first-party app branches. DF-01's `.dev` registry/state
   remains unchanged.
-- **Next action:** When public target contracts are available, connect this
-  provider and Action adapter without widening or bypassing the capability
-  boundary. For host-side continuation, inspect the boundary between
-  authorization and provider I/O for concurrent path replacement, then add a
-  focused regression and fix only if a reproducible scoped-access bypass exists.
+- **Next action:** Resume host-side work only when a reproducible first-party
+  defect appears. Connect target provider and Action adapters when public
+  runtime contracts are available, without widening or bypassing the capability
+  boundary; 0.2 production integration still requires M30 PASS and an explicit
+  release/integration checkpoint.
 
 ## M-APP-06 — Notes
 

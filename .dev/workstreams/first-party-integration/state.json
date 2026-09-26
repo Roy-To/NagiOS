@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "files-operation-bound-authorization-and-recoverable-permanent-delete-verified",
+  "current_checkpoint": "files-resource-bound-callbacks-trash-identity-and-notes-symlink-regressions-verified",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "445b70291a0a0b4ad1a990fb3db45b41d8336395",
-    "verified_at": "2026-09-26T16:46:39Z",
-    "normal_state": "Files host list, metadata, and read authorization now use provider-owned operation boundaries: the sandbox checks opened directory/file identity and authorizes canonical locations before returning data. Permanent delete journals the full affected ResourceId tree, removes tags before deleting the Trash payload, and resumes interrupted confirmed deletion on startup; malformed journals fail closed. Implementation and first-party status docs are committed locally as 445b70291a0a0b4ad1a990fb3db45b41d8336395 on codex/first-party-integration and have not yet been pushed. The standalone Files package passes 61 library tests plus one CLI test, host Clippy, Windows-target test compilation and Clippy, rustfmt, and git diff checks. Windows filesystem runtime behavior remains unverified. Prior CI 36253354096 passed Ubuntu and Windows host jobs; its separate M17 target acceptance remains in progress and is outside this workstream. The full ./nagi test remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi. M30 remains NOT STARTED; no 0.2 runtime integration was started.",
+    "commit_sha": "1554246e9a45df27d6b04ee16593eaa3925b9aa9",
+    "verified_at": "2026-09-26T17:19:01Z",
+    "normal_state": "The first-party workstream remains PARTIAL because public target app/runtime services are unavailable. At source SHA 1554246e9a45df27d6b04ee16593eaa3925b9aa9, Files passes 65 library tests plus one CLI test, Notes passes 28 acceptance tests, and the real-provider cross-app suite passes 11 tests. Files now binds FileEntry/checkpoint reads to ResourceId, rechecks source identity and rights after Activity/checkpoint callbacks, and validates stored Trash payload identity during restore, deletion, and recovery. Notes now has a regression proving latest and historical reads reject symlinked revision files. Host/Windows Clippy, Windows test compilation, formatting, diff checks, and development-state validation pass. CI run 36257986412 passed Ubuntu host jobs but its Windows dependency bootstrap was cancelled by the follow-up push. Latest run 36258272684 for this source SHA is in progress: Ubuntu passed through M0 doctor acceptance with launcher acceptance running, while Windows is bootstrapping pinned Servo dependencies. Older run 36253354096 passed Ubuntu and Windows host jobs but failed its separate M17 target acceptance, outside this workstream. The full ./nagi test remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi. M30 remains NOT STARTED; no 0.2 runtime integration was started.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -79,7 +79,21 @@
       "pinned nightly-2025-08-01-aarch64-apple-darwin cargo check --manifest-path apps/nagi-files/Cargo.toml --tests --offline --locked --config build.target=\"x86_64-pc-windows-gnu\"",
       "pinned nightly-2025-08-01-aarch64-apple-darwin cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --offline --locked --config build.target=\"x86_64-pc-windows-gnu\" -- --deny warnings",
       "pinned nightly-2025-08-01-aarch64-apple-darwin rustfmt --edition 2021 --check apps/nagi-files/src/{backend,service,sandbox,tests}.rs",
-      "gh run view 36253354096 --json status,conclusion,url,headSha,jobs"
+      "gh run view 36253354096 --json status,conclusion,url,headSha,jobs",
+      "pinned nightly cargo test --manifest-path apps/nagi-files/Cargo.toml --config build.target=\"aarch64-apple-darwin\"",
+      "pinned nightly cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "pinned nightly cargo check --manifest-path apps/nagi-files/Cargo.toml --tests --target x86_64-pc-windows-gnu",
+      "pinned nightly cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --target x86_64-pc-windows-gnu -- -D warnings",
+      "pinned nightly cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check",
+      "cargo test --manifest-path tests/first-party-integration/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-notes/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "pinned nightly cargo fmt --manifest-path user/nagi-notes/Cargo.toml -- --check",
+      "./nagi dev verify",
+      "gh run view 36257986412 --json status,conclusion,headSha,jobs",
+      "gh run view 36258272684 --json status,conclusion,headSha,jobs",
+      "gh run view 36253354096 --json status,conclusion,headSha,jobs",
+      "gh run view 36257986412 --json status,conclusion,headSha,jobs (final status)",
+      "gh run view 36258272684 --json status,conclusion,headSha,jobs (latest observed status)"
     ],
     "tests": [
       {
@@ -466,6 +480,41 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "All changed Rust files passed rustfmt and the full working diff had no whitespace errors before commit."
+      },
+      {
+        "name": "Files package regression suite after resource-bound and callback identity checks",
+        "command": "pinned nightly cargo test --manifest-path apps/nagi-files/Cargo.toml --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "65 library tests and one preview CLI test passed, including stale ResourceId read, checkpoint callback replacement, and Trash payload replacement cases."
+      },
+      {
+        "name": "First-party real-provider host integration after Files resource-bound reads",
+        "command": "cargo test --manifest-path tests/first-party-integration/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 11 tests passed, including real Files checkpoint snapshot and typed Activity/Wayback integration."
+      },
+      {
+        "name": "Notes host persistence acceptance with symlinked revision regression",
+        "command": "cargo test --manifest-path user/nagi-notes/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 28 acceptance tests passed. Latest and historical revision loads reject symlinked revision files without changing the outside target."
+      },
+      {
+        "name": "Files host and Windows static verification",
+        "command": "pinned nightly cargo clippy/check for host and x86_64-pc-windows-gnu; cargo fmt --check; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Host Clippy, Windows-target Clippy, Windows test compilation, rustfmt, and diff whitespace checks passed. Windows filesystem runtime remains unverified."
+      },
+      {
+        "name": "Development workstream registry/state validation at source HEAD",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "10 registered workstreams and both state files validated on codex/first-party-integration at 1554246e9a45df27d6b04ee16593eaa3925b9aa9."
       }
     ],
     "ci_runs": [
@@ -529,15 +578,31 @@
         "run_id": 36253354096,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36253354096",
         "head_sha": "ea9e214117ce524df85fc02722f74356267b98c2",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host jobs passed. The separate M17 first-web-pixel target acceptance failed; it is outside first-party host scope."
+      },
+      {
+        "run_id": 36257986412,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36257986412",
+        "head_sha": "7533759b6abd1e3da534271df3fb36e64172508c",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Ubuntu host jobs passed, including format, lint, build, tests, M0 doctor/launcher acceptance, and workstream-state verification. The Windows dependency bootstrap was cancelled after the follow-up source push; latest run 36258272684 covers the newer HEAD. No M17 target job ran on this branch."
+      },
+      {
+        "run_id": 36258272684,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36258272684",
+        "head_sha": "1554246e9a45df27d6b04ee16593eaa3925b9aa9",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Ubuntu host and Windows launcher jobs passed. The separate M17 target acceptance is still in progress for source commit ea9e214117ce524df85fc02722f74356267b98c2; it is outside first-party host scope."
+        "summary": "Latest source HEAD is running. Ubuntu passed through M0 doctor acceptance with launcher acceptance in progress; Windows is bootstrapping pinned Servo dependencies. No failure has been reported and no M17 target job ran on this branch."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T16:46:39Z",
+    "last_checked_at": "2026-09-26T17:19:01Z",
     "activation_requirement": "Nagi OS 0.1 M30 PASS and an explicit release/integration checkpoint are required before any 0.2 runtime integration. This stream integrates 0.1 first-party host contracts only and does not change M17."
   },
   "blocker": {
@@ -562,7 +627,7 @@
       "Do not hide the architecture failure by weakening tests or stubbing guest syscall behavior."
     ]
   },
-  "next_action": "Audit the remaining Files mutation paths for resource-ID validation between service checks and provider side effects, then add deterministic tests and targeted fixes where host-side guarantees are feasible. Keep the work in apps/nagi-files/** and docs/first_party/**, rerun the focused suite and host/Windows checks, and checkpoint, commit, push, and inspect CI. Do not modify M17 or begin 0.2 runtime integration before M30 PASS plus an explicit checkpoint.",
+  "next_action": "No further independently implementable first-party host gap was found after the Files identity/recovery audit, Notes revision-symlink regression, and real-provider cross-app verification. Keep the workstream PARTIAL and resume target adapters when public Files, Document/Storage, capability, Search, Activity, and Wayback runtime contracts become available. Any 0.2 production integration still requires Nagi 0.1 M30 PASS plus an explicit release/integration checkpoint. The full ./nagi test also requires an x86_64 development host because user/libnagi uses x86_64 syscall-register assembly; do not modify M17.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
