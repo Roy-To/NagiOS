@@ -679,14 +679,7 @@ where
         if actor != Actor::User {
             return Err(FilesError::new(FilesErrorKind::PermissionRequired));
         }
-        let (nonce, transaction_id, target) = challenge.binding();
-        let pending = self
-            .pending_confirmations
-            .remove(&nonce)
-            .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidConfirmation))?;
-        if pending.transaction_id != transaction_id || pending.target != target {
-            return Err(FilesError::new(FilesErrorKind::InvalidConfirmation));
-        }
+        self.consume_pending_confirmation(&challenge)?;
         Ok(())
     }
 
@@ -699,14 +692,7 @@ where
         if actor != Actor::User {
             return Err(FilesError::new(FilesErrorKind::PermissionRequired));
         }
-        let (nonce, transaction_id, target) = challenge.binding();
-        let pending = self
-            .pending_confirmations
-            .remove(&nonce)
-            .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidConfirmation))?;
-        if pending.transaction_id != transaction_id || pending.target != target {
-            return Err(FilesError::new(FilesErrorKind::InvalidConfirmation));
-        }
+        let (transaction_id, pending) = self.consume_pending_confirmation(&challenge)?;
         let item = self
             .provider
             .list_trash()?
@@ -730,6 +716,24 @@ where
                 Err(error)
             }
         }
+    }
+
+    fn consume_pending_confirmation(
+        &mut self,
+        challenge: &ConfirmationChallenge,
+    ) -> Result<(TransactionId, PendingConfirmation), FilesError> {
+        let (nonce, transaction_id, target) = challenge.binding();
+        let Some(pending) = self.pending_confirmations.get(&nonce) else {
+            return Err(FilesError::new(FilesErrorKind::InvalidConfirmation));
+        };
+        if pending.transaction_id != transaction_id || pending.target != target {
+            return Err(FilesError::new(FilesErrorKind::InvalidConfirmation));
+        }
+        let pending = self
+            .pending_confirmations
+            .remove(&nonce)
+            .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidConfirmation))?;
+        Ok((transaction_id, pending))
     }
 
     fn ensure_available(&self) -> Result<(), FilesError> {

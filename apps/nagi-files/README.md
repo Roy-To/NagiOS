@@ -42,9 +42,9 @@ that take an item index. `help` prints the interactive syntax.
 - `FilesService` checks scoped rights before returning ordinary resource data
   or performing mutations, filters Trash listings by each item's original
   location, verifies opaque resource IDs against current metadata, assigns
-  transaction/action identities, enforces bounded one-use permanent-delete
-  confirmations with explicit user cancellation, and reports Activity/Wayback
-  hook results.
+  transaction/action identities, validates confirmation bindings before
+  consuming bounded one-use permanent-delete challenges, supports explicit
+  user cancellation, and reports Activity/Wayback hook results.
 - `FilesActionApi` provides typed local dispatch for every Files action ID and
   routes calls through `FilesService`. Registering it with Nagi's shared Action
   Registry remains a target integration task.

@@ -171,11 +171,12 @@ not modify or merge into M17 worktrees.
   persistent Trash/tags, Unix and memory identity retention for same-filesystem
   rename/move, Windows volume/file identity with a path fallback when stable
   metadata is unavailable, copy/restore/conflict handling, bounded one-use
-  permanent-delete confirmations with user cancellation,
+  permanent-delete confirmations with binding-safe consumption and user
+  cancellation,
   bounded previews, and capability-rooted traversal/symlink checks; metadata Search;
   Context/Workspace/Activity/Wayback adapter hooks; en-US and ja-JP resources;
   and an interactive Japanese/English host preview.
-- **Verification evidence:** 50 focused tests PASS; package Clippy with
+- **Verification evidence:** 52 focused tests PASS; package Clippy with
   `-D warnings` PASS; package `cargo fmt -- --check` PASS; Japanese host preview
   listing and open smoke PASS in a disposable `/tmp` sandbox. Test/build output
   is isolated under `/tmp/nagi-files-cargo-target`.
@@ -188,20 +189,20 @@ not modify or merge into M17 worktrees.
   | FILES-003 Agent Activity | `PARTIAL` | Activity adapter contract and mock tests pass; agent mutations fail closed when Activity is unavailable; no target ledger connection. |
   | FILES-004 Resource ID retention | `PASS (Unix host); Windows compile verified` | Same-filesystem rename/move preserve IDs in Unix and memory providers. Windows IDs now use volume serial/file index metadata when available; the existing move/restart/Trash/restore test is type-checked on Windows but has not been executed on a Windows host. Unsupported metadata falls back to a path-derived ID. Copy receives a new ID. |
   | FILES-005 Trash restore | `PASS (host/mock)` | Persistent host Trash and memory Trash restore/conflict tests pass. |
-  | FILES-006 permanent-delete confirmation | `PASS (host/mock)` | User-only, bound, one-use challenges are bounded to 64 pending entries; explicit cancellation releases a slot and rejects replay. |
+  | FILES-006 permanent-delete confirmation | `PASS (host/mock)` | User-only, bound, one-use challenges are bounded to 64 pending entries; explicit cancellation releases a slot, replay is rejected, and a mismatched challenge cannot consume another service instance's pending slot. |
   | FILES-007 Context publish | `PASS (contract)` | Selection/current-location snapshot publishes through a typed boundary; shared Context service is not connected. |
   | FILES-008 Workspace reference | `PASS (mock)` | Adapter tests show add/remove reference does not move the resource; target Workspace service is not connected. |
   | FILES-009 Wayback restore | `PARTIAL` | Typed checkpoint boundary, affected-resource list, transaction ID, and truthful reversible hints are tested; supported-resource snapshot restore needs the unavailable Wayback runtime. |
-  | FILES-010 UI-independent core tests | `PASS` | 50 package tests run without the desktop UI. |
+  | FILES-010 UI-independent core tests | `PASS` | 52 package tests run without the desktop UI. |
 
 - **Known limitations:** The host backend rejects lexical traversal, selected-root
   symlinks, checked symlink paths, and reserved metadata aliases. Operations
   below the selected root use `cap-std` directory handles; Unix metadata writes
   and Trash operations also compare the held metadata-directory identity with
   its current in-root entry. Windows identity and test code cross-compile, but
-  runtime regression execution still needs a Windows host. The preview runs with host-user authority and is
-  not an adversarial production sandbox. The preview is a host terminal UI, not
-  a Nagi GUI app.
+  runtime regression execution still needs a Windows host. The preview runs
+  with host-user authority and is not an adversarial production sandbox. The
+  preview is a host terminal UI, not a Nagi GUI app.
   M7 currently exposes a root-directory VFS API, while M10 Files remains a
   static desktop panel; neither supplies a general Files provider, app-scoped
   capability service, or shared Action/Activity/Wayback/Search integration.

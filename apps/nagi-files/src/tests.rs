@@ -761,6 +761,57 @@ fn canceling_permanent_delete_confirmation_releases_its_one_use_slot() {
 }
 
 #[test]
+fn mismatched_cross_service_confirmations_do_not_consume_pending_challenges() {
+    let mut issuer = memory_service();
+    let issued_file = issuer
+        .provider_mut()
+        .insert_file(&Location::parse("issued.txt").unwrap(), b"issued")
+        .unwrap();
+    let (issued_trash, _) = issuer.trash(&issued_file, Actor::User).unwrap();
+    let issued_challenge = issuer.request_permanent_delete(issued_trash.id).unwrap();
+
+    let mut cancel_target = memory_service();
+    let cancel_file = cancel_target
+        .provider_mut()
+        .insert_file(&Location::parse("cancel-target.txt").unwrap(), b"target")
+        .unwrap();
+    let (cancel_trash, _) = cancel_target.trash(&cancel_file, Actor::User).unwrap();
+    let cancel_target_challenge = cancel_target
+        .request_permanent_delete(cancel_trash.id)
+        .unwrap();
+    assert_eq!(
+        cancel_target
+            .cancel_permanent_delete_confirmation(issued_challenge.clone(), Actor::User)
+            .unwrap_err()
+            .kind,
+        FilesErrorKind::InvalidConfirmation
+    );
+    cancel_target
+        .confirm_permanent_delete(cancel_target_challenge, Actor::User)
+        .unwrap();
+
+    let mut confirm_target = memory_service();
+    let confirm_file = confirm_target
+        .provider_mut()
+        .insert_file(&Location::parse("confirm-target.txt").unwrap(), b"target")
+        .unwrap();
+    let (confirm_trash, _) = confirm_target.trash(&confirm_file, Actor::User).unwrap();
+    let confirm_target_challenge = confirm_target
+        .request_permanent_delete(confirm_trash.id)
+        .unwrap();
+    assert_eq!(
+        confirm_target
+            .confirm_permanent_delete(issued_challenge, Actor::User)
+            .unwrap_err()
+            .kind,
+        FilesErrorKind::InvalidConfirmation
+    );
+    confirm_target
+        .cancel_permanent_delete_confirmation(confirm_target_challenge, Actor::User)
+        .unwrap();
+}
+
+#[test]
 fn files_ui_tracks_breadcrumbs_multi_selection_and_empty_loading_error_states() {
     let mut service = memory_service();
     let folder = service
