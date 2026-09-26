@@ -1,6 +1,6 @@
 # Model Runtime / Model Store Foundation Workstream
 
-Status: `IN_PROGRESS`
+Status: `PARTIAL`
 
 ## Goal and boundaries
 
@@ -74,7 +74,7 @@ The accepted generative/decision architecture remains authoritative:
 
 ### 2026-09-26 implementation checkpoint
 
-Status: `IN_PROGRESS`. The foundation slice is implemented and focused checks
+Status: `PARTIAL`. The foundation slice is implemented and focused checks
 pass. M20 remains `NOT STARTED`; this workstream has no production inference
 backend or real target/VM inference acceptance.
 
