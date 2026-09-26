@@ -192,6 +192,33 @@
       "forbidden_paths": ["kernel/**", "user/**", "third_party/**", ".github/workflows/**"],
       "activation_gate": "Nagi 0.1 M30 PASS; update only documented accepted contracts and decisions.",
       "merge_boundary": "0.2 integration branch after contract owners review; do not duplicate normative specifications."
+    },
+    {
+      "id": "app-sdk-contract",
+      "owner": "Codex App SDK contract workstream",
+      "owner_branch": "codex/0.2-app-sdk-contract",
+      "recommended_worktree": "../NagiOS-0.2-app-sdk",
+      "state_file": ".dev/workstreams/app-sdk-contract/state.json",
+      "dependencies": ["development-foundation", "capability-permissions"],
+      "allowed_paths": [
+        "sdk/**",
+        "tools/nagi-pkg/**",
+        ".dev/workstreams/app-sdk-contract/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "user/**",
+        "idl/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/**",
+        "third_party/**",
+        "out/**",
+        "target/**",
+        "docs/implementation_status.md"
+      ],
+      "activation_gate": "Host-side App SDK/Contract preparation only; runtime integration requires Nagi 0.1 M30 PASS and an explicit 0.2 integration checkpoint.",
+      "merge_boundary": "Dedicated codex/integration-next-phase checkpoint after contract compatibility and host acceptance; never merge directly to main."
     }
   ]
 }

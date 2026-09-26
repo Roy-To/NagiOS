@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "sdkContractVersion": { "major": 1, "minor": 0 },
+  "id": "com.nagi.sdk-fixture.activity",
+  "version": "0.1.0",
+  "origin": "first-party",
+  "publisherId": "com.nagi",
+  "displayName": { "en-US": "Activity Fixture", "ja-JP": "アクティビティ例" },
+  "supportedLocales": ["en-US", "ja-JP"],
+  "entrypoint": { "kind": "native", "target": "bin/activity.napp" },
+  "resources": [],
+  "intents": [
+    { "id": "activity.show-entry", "version": 1, "payloadType": "nagi.activity-entry@1", "routeId": "show-entry" }
+  ],
+  "requestedCapabilities": [
+    { "id": "activity.read", "purposeKey": "activity.read_purpose" }
+  ],
+  "backgroundServices": [],
+  "stateCompatibility": { "currentVersion": 1, "minimumReadableVersion": 1 }
+}

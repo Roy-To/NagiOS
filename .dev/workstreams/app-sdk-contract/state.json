@@ -1,0 +1,107 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "app-sdk-contract",
+  "current_milestone": "App SDK / First-Party App Contract Foundation",
+  "current_checkpoint": "host-side-contract-acceptance-verified",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "0117bf51830fc77863b3468f0e8406b3eab4817b",
+    "verified_at": "2026-09-26T03:39:26Z",
+    "normal_state": "PASS for host-side App SDK / First-Party App Contract acceptance at implementation commit 0117bf51830fc77863b3468f0e8406b3eab4817b. SDK, loader/integration, package regression, focused format, Clippy, schema, CLI fixture, and DF state checks pass. Nagi CI #36215084732 failed on Ubuntu and Windows only in the existing DF-01 host test registry_and_active_workstream_state_validate_from_repository: it expects development-foundation state IN_PROGRESS while the committed state is PASS; setup, format, Clippy, and build pass; M0/target jobs are skipped. This failure is outside the App SDK ownership boundary and is assigned to the DF/integration owner. Full ./nagi fmt exits 1 on 416 existing third_party/servo files and zero workstream paths; focused SDK/tool formatting passes. The M16 QEMU first-boot attempt separately fails at M5 with invalid-elf and does not exit within 90 seconds; the M16 package/signing tests pass. This PASS does not mean runtime integration or M30 completion; runtime remains gated on M30 PASS and an explicit 0.2 integration checkpoint.",
+    "commands": [
+      "cargo test --manifest-path sdk/rust/Cargo.toml --locked",
+      "cargo fmt --manifest-path sdk/rust/Cargo.toml -- --check",
+      "cargo clippy --manifest-path sdk/rust/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked",
+      "cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check",
+      "cargo clippy --manifest-path tools/nagi-pkg/Cargo.toml --all-targets --locked -- -D warnings",
+      "for fixture in files notes search activity; do cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate sdk/rust/fixtures/manifests/${fixture}.json; done",
+      "/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+      "cargo test --manifest-path user/nagi-package/Cargo.toml --locked",
+      "cargo clippy --manifest-path user/nagi-package/Cargo.toml --all-targets --locked -- -D warnings",
+      "./nagi dev status",
+      "./nagi dev resume (no argument; selects the current branch workstream)",
+      "./nagi dev verify",
+      "./nagi fmt",
+      "./nagi m16",
+      "gh run view 36215084732 --json status,conclusion,jobs,headSha,url",
+      "gh run view 36215084732 --log-failed"
+    ],
+    "tests": [
+      {"name":"App SDK unit and doc tests","command":"cargo test --manifest-path sdk/rust/Cargo.toml --locked","outcome":"PASS","exit_code":0,"evidence":"44 unit tests passed; 0 failed; doc-tests passed (0 tests)."},
+      {"name":"App SDK focused formatting","command":"cargo fmt --manifest-path sdk/rust/Cargo.toml -- --check","outcome":"PASS","exit_code":0,"evidence":"SDK-owned Rust files are formatted."},
+      {"name":"App SDK Clippy","command":"cargo clippy --manifest-path sdk/rust/Cargo.toml --all-targets --locked -- -D warnings","outcome":"PASS","exit_code":0,"evidence":"All SDK targets pass with warnings denied."},
+      {"name":"Host manifest loader and integration tests","command":"cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked","outcome":"PASS","exit_code":0,"evidence":"7 tests passed; includes fixture load, registration before launch, capability handoff, intents, state, lifecycle, IPC, and malformed input rejection."},
+      {"name":"Host package tool focused formatting","command":"cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check","outcome":"PASS","exit_code":0,"evidence":"nagi-pkg Rust files are formatted."},
+      {"name":"Host package tool Clippy","command":"cargo clippy --manifest-path tools/nagi-pkg/Cargo.toml --all-targets --locked -- -D warnings","outcome":"PASS","exit_code":0,"evidence":"All nagi-pkg targets pass with warnings denied."},
+      {"name":"Manifest schema validation","command":"/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py","outcome":"PASS","exit_code":0,"evidence":"Draft 2020-12 schema accepted 4 fixtures and rejected 14 malformed documents; duplicate-ID and state-version relational rules are explicitly delegated to typed semantic validation and covered by Rust tests."},
+      {"name":"Manifest CLI fixtures","command":"for fixture in files notes search activity; do cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate sdk/rust/fixtures/manifests/${fixture}.json; done","outcome":"PASS","exit_code":0,"evidence":"All four SDK-owned fixtures validate through the built host CLI."},
+      {"name":"M16 package/signing regression tests","command":"cargo test --manifest-path user/nagi-package/Cargo.toml --locked","outcome":"PASS","exit_code":0,"evidence":"5 existing package/signing tests passed, including traversal/signature policy and atomic replacement; three upstream libc-servo unexpected_cfgs warnings remain."},
+      {"name":"M16 package Clippy","command":"cargo clippy --manifest-path user/nagi-package/Cargo.toml --all-targets --locked -- -D warnings","outcome":"PASS","exit_code":0,"evidence":"Command passes; dependency emits three existing unexpected_cfgs(target_os = nagi) warnings from third_party/libc-servo."},
+      {"name":"DF workstream status","command":"./nagi dev status","outcome":"PASS","exit_code":0,"evidence":"Resolved app-sdk-contract on codex/0.2-app-sdk-contract at implementation commit 0117bf51830fc77863b3468f0e8406b3eab4817b."},
+      {"name":"DF workstream resume","command":"./nagi dev resume","outcome":"PASS","exit_code":0,"evidence":"No-argument resume selected app-sdk-contract on the current branch and reported a clean worktree."},
+      {"name":"DF workstream verification","command":"./nagi dev verify","outcome":"PASS","exit_code":0,"evidence":"Validated 10 registered workstreams and 2 state files on the implementation commit."},
+      {"name":"Full repository formatter","command":"./nagi fmt","outcome":"FAIL","exit_code":1,"evidence":"416 formatting-diff file paths, all under third_party/servo; zero SDK or workstream paths. Focused SDK and tools/nagi-pkg formatting checks pass. Vendored sources were left unchanged."},
+      {"name":"M16 QEMU first boot (out-of-scope runtime acceptance)","command":"./nagi m16","outcome":"FAIL","exit_code":null,"evidence":"QEMU did not exit within 90 seconds after M5 user address space failed with reason invalid-elf. Captured diagnostic: evidence/m16-package-diagnose.json (diagnose process exit 4); raw log: evidence/m16-package-first-boot.log. Package regression tests pass; no runtime files changed."},
+      {"name":"Nagi CI #36215084732","command":"gh run view 36215084732 --log-failed","outcome":"FAIL","exit_code":null,"evidence":"Head 07314091095eeaa439a240e845c4a6d9a762ad04. Ubuntu and Windows format, Clippy, and build passed; host workspace test failed in development::tests::registry_and_active_workstream_state_validate_from_repository because it expects development-foundation status IN_PROGRESS while that committed state is PASS. Ubuntu: 67 passed/1 failed; Windows: 65 passed/1 failed. M0 and nagi-target jobs skipped. Reconcile under DF-01/integration ownership; no out-of-scope edits made."}
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36215084732,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215084732",
+        "head_sha": "07314091095eeaa439a240e845c4a6d9a762ad04",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host jobs failed only the existing DF-01 state assertion (expected development-foundation IN_PROGRESS, actual PASS); format, Clippy, and build passed; target job skipped."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and .dev/workstreams/development-foundation/state.json",
+    "last_checked_at": "2026-09-26T03:26:13Z",
+    "activation_requirement": "Host-side contract preparation only. Do not connect to runtime until Nagi 0.1 M30 is PASS and an explicit 0.2 integration checkpoint exists."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": []
+  },
+  "next_action": "DF-01/integration owner: reconcile the host regression test's hard-coded IN_PROGRESS expectation with the committed development-foundation PASS state, then rerun CI. Keep App SDK runtime integration deferred until Nagi 0.1 M30 is PASS and an explicit 0.2 integration checkpoint exists.",
+  "acceptance_criteria": [
+    "Dedicated codex/0.2-app-sdk-contract branch and isolated worktree.",
+    "DF-01 state, ownership, dependency, activation-gate, resume, and verification model is followed; shared-file proposals are flagged for integration-owner checkpoint.",
+    "App manifest v1 schema and host loader cover identity, publisher, entrypoint, locales, resources, intents, requested capabilities, optional services, and state compatibility.",
+    "App identity remains stable and independent from display names, locale, filesystem location, and execution identity.",
+    "Host-side app registration rejects duplicate identifiers and numeric AppId collisions; a fixture registers before launch.",
+    "Lifecycle state and events are distinct; invalid transitions and abnormal termination are represented.",
+    "State backend contract covers app namespace, versions, load/save/reset, missing/corrupt data, and migrations.",
+    "Intent and deep-link contract validates declarations, payload metadata, source/target and correlation identity.",
+    "Transport-independent IPC v1 envelope supports request/response/event/error, correlation and request IDs, ordering metadata, and unsupported-version errors.",
+    "Common error model and capability handoff boundary do not duplicate policy or grant authority.",
+    "Localization handles en-US and ja-JP as first-class locales with en-US fallback and unknown-locale behavior.",
+    "Manifest schema, SDK contract, IPC protocol, and persisted-state versions are independent and documented.",
+    "At least three SDK-owned first-party-like fixtures pass manifest, unit, and integration coverage.",
+    "Schema validation, focused fmt, Clippy, tests, relevant package regression tests, and ./nagi dev verify pass.",
+    "App SDK architecture, runtime adapter points, and first-party adoption guidance are documented.",
+    "No runtime app-host integration, M17/M18-M30 change, first-party app change, Capability implementation, or Wayback implementation.",
+    "Workstream state and handoff reflect actual evidence; final commit is pushed and worktree is clean."
+  ],
+  "deferred": [
+    "Runtime app-host binding, lifecycle delivery, and process execution until M30 PASS and explicit 0.2 integration checkpoint.",
+    "Concrete IPC transport, persistent filesystem/VFS backend, Capability policy engine, and compositor/window surface integration remain owned by their respective runtime/platform workstreams.",
+    "Migration of the existing M16 package parser and adoption by real first-party apps require a later compatibility/integration checkpoint."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 workstream registry, durable state, resume, and verification commands",
+      "version": "1",
+      "status": "PASS"
+    }
+  ]
+}
