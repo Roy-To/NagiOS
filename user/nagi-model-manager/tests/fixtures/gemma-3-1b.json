@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "model_id": "google.gemma-3-1b",
+  "display_name": "Google Gemma 3 1B",
+  "provider": {
+    "provider_id": "google",
+    "display_name": "Google",
+    "family": "gemma3"
+  },
+  "version": "3",
+  "variant": "1b",
+  "runtime_api_version": "nagi.ai/1",
+  "execution": "local",
+  "artifact": {
+    "format": "gguf",
+    "reference": {
+      "kind": "model_store",
+      "artifact_id": "google.gemma-3-1b"
+    },
+    "size_bytes": null,
+    "integrity": null
+  },
+  "capabilities": ["text.generate"],
+  "modalities": ["text"],
+  "context": {
+    "max_input_tokens": 4096,
+    "max_output_tokens": 1024
+  },
+  "resources": {
+    "minimum_ram_bytes": 2147483648,
+    "recommended_ram_bytes": 4294967296,
+    "minimum_storage_bytes": 2147483648,
+    "minimum_cpu_cores": 1,
+    "gpu_required": false
+  },
+  "supported_backends": ["llama_cpp"],
+  "roles": ["lite"],
+  "compatibility": {
+    "architectures": ["x86_64"],
+    "minimum_os_version": null
+  },
+  "license": {
+    "identifier": "google-gemma-terms",
+    "terms_reference": "provider-terms:google.gemma",
+    "acknowledgement_required": true,
+    "notices": [
+      {
+        "notice_id": "gemma-notice",
+        "reference": "provider-notice:google.gemma",
+        "required": true
+      }
+    ]
+  },
+  "source": null
+}

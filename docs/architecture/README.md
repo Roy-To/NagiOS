@@ -26,3 +26,6 @@ Nagi
 routes by typed capability and role across deterministic, decision, and
 generative lanes; specialized Decision Providers remain optional, and the
 Nagi 0.1 Generative LLM runtime remains the local `llama.cpp` / GGUF path.
+
+The user-space Model Manager and local Store metadata contracts are documented
+in [`model-runtime-and-store-contract.md`](model-runtime-and-store-contract.md).
