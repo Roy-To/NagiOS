@@ -151,7 +151,9 @@ Activity/Wayback, Files, Notes, then Home/Search. Merge commits are listed
 above. Only the already-audited status document overlapped; Git resolved its
 disjoint workstream sections automatically. Integration adapters live in the
 separate `tests/first-party-integration` host-only package, not in the root
-Cargo workspace.
+Cargo workspace. The implementation checkpoint is commit
+`36bf5ba4ad0b1d87060a451c49aaafd66b124a81`, pushed to
+`origin/codex/first-party-integration`.
 
 ### Canonical contracts and adapters
 

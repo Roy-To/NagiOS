@@ -291,6 +291,9 @@ not modify or merge into M17 worktrees.
 - **Integration branch:** `codex/first-party-integration`
 - **Worktree:** `/Users/tozawa/Developer/NagiOS-first-party-integration`
 - **Common base:** `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85`
+- **Integration implementation commit:**
+  `36bf5ba4ad0b1d87060a451c49aaafd66b124a81` (pushed to
+  `origin/codex/first-party-integration`).
 - **Source heads retained as merge ancestors:** Activity/Wayback
   `ad532b5fb4c20ca8a467d41e7e72e26054bbc602`; Files
   `b2c9ee10533aee5f31cb07b0ecc25efa51b217fa`; Notes

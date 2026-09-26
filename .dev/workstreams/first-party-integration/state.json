@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "four-source-branches-merged-focused-tests-passed",
-  "status": "IN_PROGRESS",
+  "current_checkpoint": "real-provider-cross-app-host-integration-verified",
+  "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "a35a978537e7de47c414fe1105386cec909ab997",
-    "verified_at": "2026-09-26T03:19:25Z",
-    "normal_state": "All four requested source SHAs are now merge ancestors. Activity/Wayback passed 41 host tests, UEFI library check and host preview; Files passed 48 host tests; Notes passed 27 acceptance tests; Home/Search passed 34 library and 1 preview test. The current Home providers remain fixtures; cross-app adapters, Notes/Files Activity emission, Wayback hooks and canonical registry composition remain to implement. Target runtime remains NOT RUN. Details: docs/first_party/integration/contract-matrix.md.",
+    "commit_sha": "36bf5ba4ad0b1d87060a451c49aaafd66b124a81",
+    "verified_at": "2026-09-26T04:09:53Z",
+    "normal_state": "All four requested branch heads are merge ancestors. A host-only adapter package now connects real Notes, Files, Activity, and Wayback providers to Home/Search. Files regular-file rename captures a read-authorized bounded snapshot and creates a shared checkpoint; unsupported snapshots fail truthfully. The cross-app suite passed 11 tests, Files 48 tests, Notes 27 tests, Home/Search 35 library plus 1 preview test, and isolated Activity/Wayback 41 tests; integration, Files, and Home/Search all-target Clippy and Rust formatting checks passed. The integrated memory-only preview passed in en-US and ja-JP. Target native launch, target capability/object/workspace services, durable history, target checkpoint restore, and target runtime acceptance remain NOT RUN. The ignored cc-nagi source remains absent; the safe ./nagi dev launcher routes DF-01 commands through nagi-bootstrap. See docs/first_party/integration/contract-matrix.md. The updated integration state validated through ./nagi dev verify; ./nagi dev status and ./nagi dev resume also completed successfully while cc-nagi remained absent.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -28,6 +28,21 @@
       "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
       "cargo test --manifest-path user/nagi-notes/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
       "cargo test --manifest-path user/nagi-home-search/Cargo.toml --locked --offline --all-targets --config build.target=\"aarch64-apple-darwin\"",
+      "git diff --check",
+      "cargo test --manifest-path tests/first-party-integration/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+      "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path apps/nagi-files/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-home-search/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-notes/Cargo.toml --offline --locked",
+      "isolated nagi-history host suite: cargo test --lib --offline",
+      "PATH=<nightly-2025-08-01-aarch64-apple-darwin>/bin:$PATH cargo clippy --all-targets --offline --locked -- -D warnings (integration, Files, Home/Search)",
+      "nightly-2025-08-01-aarch64-apple-darwin/bin/rustfmt --edition 2021 --check (changed Rust files)",
+      "git diff --check",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume",
+      "test ! -e third_party/cc-nagi/Cargo.toml",
+      "sh -n nagi",
       "git diff --check"
     ],
     "tests": [
@@ -100,13 +115,76 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "34 library tests and 1 preview test passed. Fixture providers remain in use in the independent package; the cross-app real-provider integration has not run yet."
+      },
+      {
+        "name": "cross-app real-provider host integration",
+        "command": "cargo test --manifest-path tests/first-party-integration/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "11 passed. Real Notes and Files providers, shared Activity and Wayback, typed actions, canonical IDs, capability/privacy checks, Agent fail-closed behavior, and en-US/ja-JP flows."
+      },
+      {
+        "name": "integrated memory-only host preview",
+        "command": "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Home showed Notes/Files in English and Japanese; real Notes/Files searches returned typed actions; Activity and Wayback returned typed event/checkpoint actions; file rename produced a checkpoint; folder checkpoint absence was reported truthfully. Output explicitly said target NOT RUN."
+      },
+      {
+        "name": "Files package regression after snapshot hook integration",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "48 passed, 0 failed."
+      },
+      {
+        "name": "Home/Search package regression after typed history action integration",
+        "command": "cargo test --manifest-path user/nagi-home-search/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "35 library tests and 1 preview test passed."
+      },
+      {
+        "name": "integration, Files, and Home/Search warning-free Clippy",
+        "command": "cargo clippy --all-targets --offline --locked -- --deny warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All three packages passed after PATH was set to the pinned arm64 Rust toolchain so cargo-clippy/clippy-driver matched the selected target."
+      },
+      {
+        "name": "changed Rust source formatting",
+        "command": "rustfmt --edition 2021 --check (changed Rust files)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All modified Rust files passed the pinned toolchain rustfmt check."
+      },
+      {
+        "name": "DF-01 development state validation at integration checkpoint",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "10 registered workstreams and both state files validated at integration code commit 36bf5ba4ad0b1d87060a451c49aaafd66b124a81."
+      },
+      {
+        "name": "DF-01 status and resume with missing cc-nagi source",
+        "command": "./nagi dev status; ./nagi dev resume",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both commands reported first-party-integration / real-provider-cross-app-host-integration-verified through nagi-bootstrap while third_party/cc-nagi/Cargo.toml was absent."
+      },
+      {
+        "name": "cc-nagi absence and launcher syntax",
+        "command": "test ! -e third_party/cc-nagi/Cargo.toml; sh -n nagi",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Confirmed no placeholder or fetched cc-nagi crate was present; the source-lock/fetch path remains the canonical materialization workflow. The launcher shell syntax check passed."
       }
     ],
     "ci_runs": []
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T00:00:00Z",
+    "last_checked_at": "2026-09-26T04:09:53Z",
     "activation_requirement": "This stream integrates 0.1 first-party host contracts only; it does not change M17 or authorize 0.2 runtime implementation. Target integration remains separately gated by the Nagi milestone state."
   },
   "blocker": {
@@ -124,7 +202,7 @@
       "Do not force push, reset hard, or modify third_party implementation sources."
     ]
   },
-  "next_action": "Implement a standalone host integration package that adapts the real Notes, Files and Activity providers into Home/Search, composes first-party registry descriptors, emits shared Activity, and bridges supported revisions/checkpoints; then run cross-app and bilingual preview tests.",
+  "next_action": "Resume target integration when the public Nagi APIs are available: bind authenticated user context, OS capability/object/workspace services, native app launch, Search/Action services, durable Activity/Wayback storage, and target Files snapshot/restore; then run target acceptance. Keep the host suite and all source branches unchanged.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
@@ -134,7 +212,11 @@
     "Host/mock outcomes are not reported as Nagi target PASS; M17 state and sources remain unchanged."
   ],
   "deferred": [
-    "Native app launch, target Search/Workspace services, target capability authorization, durable Activity/Wayback storage, target Notes storage, target Files provider, and target Action dispatcher remain target-runtime dependencies."
+    "Native target app launch and target Action dispatch.",
+    "Authenticated target context and OS capability, ObjectId, and Workspace services.",
+    "Target Search provider service and durable Activity/Wayback storage.",
+    "Target Notes storage and target Files provider, snapshot, and restore services.",
+    "Target runtime acceptance; host and memory preview results are not target PASS."
   ],
   "cross_workstream_dependencies": []
 }
