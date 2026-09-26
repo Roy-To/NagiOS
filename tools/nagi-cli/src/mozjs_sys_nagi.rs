@@ -288,6 +288,16 @@ mod tests {
             "SpiderMonkey Wasm TypeIdSet HashSet add started",
             "SpiderMonkey Wasm TypeIdSet table pod_malloc started",
             "SpiderMonkey Wasm TypeIdSet table pod_malloc completed",
+            "SpiderMonkey Wasm TypeIdSet table slot initialization started",
+            "SpiderMonkey Wasm TypeIdSet table slot initialization completed",
+            "SpiderMonkey Wasm TypeIdSet HashTable createTable started",
+            "SpiderMonkey Wasm TypeIdSet HashTable createTable completed",
+            "SpiderMonkey Wasm TypeIdSet HashTable changeTableSize started",
+            "SpiderMonkey Wasm TypeIdSet HashTable changeTableSize completed",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot started",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot completed",
+            "SpiderMonkey Wasm TypeIdSet setLive started",
+            "SpiderMonkey Wasm TypeIdSet setLive completed",
             "SpiderMonkey Wasm TypeIdSet HashSet add completed",
             "SpiderMonkey Wasm canonical type-set insertion completed",
             "SpiderMonkey Wasm StaticTypeDefs::init completed",
@@ -298,10 +308,18 @@ mod tests {
             );
         }
         assert!(patch.contains("#if defined(__NAGI__)"));
+        assert!(patch.contains("+  using TypeIdSetAllocPolicy = SystemAllocPolicy;"));
         assert!(patch.contains("nagi_m17_console_trace(trace_stage"));
         assert!(patch.contains(
             "-  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();\n+  NAGI_M17_TRACE(\"SpiderMonkey Wasm canonical type-set lock started\");\n+  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();"
         ));
+        assert!(patch.contains(
+            "-    Set::AddPtr p = set_.lookupForAdd(recGroup);\n+    NAGI_M17_TRACE(\"SpiderMonkey Wasm TypeIdSet lookupForAdd started\");\n+    Set::AddPtr p = set_.lookupForAdd(recGroup);\n+    NAGI_M17_TRACE(\"SpiderMonkey Wasm TypeIdSet lookupForAdd completed\");"
+        ));
+        assert!(patch.contains(
+            "-    aPtr.mSlot.setLive(aPtr.mKeyHash, std::forward<Args>(aArgs)...);\n+    if constexpr (requires { AllocPolicy::traceM17SetLiveStarted(); }) {"
+        ));
+        assert!(patch.contains("requires { AllocPolicy::traceM17SetLiveStarted(); }"));
     }
 
     #[test]

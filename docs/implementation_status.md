@@ -4816,3 +4816,22 @@ the trace immediately before that declaration. The source-contract test also
 checks this ordering. The focused tests and a new target CI run must confirm
 the patch compiles before QEMU can provide the allocator markers. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #262 (2026-09-27)
+
+Public CI run #262 (`36264391751`, head
+`0f65867429f49ea999455668d19e03be72ec4f96`) passed both host jobs, target
+dependency checks, Mesa Softpipe, the M16 package, kernel, real `nagi-init`
+link, and UEFI loader. The QEMU M17 acceptance then timed out and returned
+exit code 4, with no checksum or first-web-pixel PASS marker.
+
+In both acceptance boots, recursion-group hashing and `lookupForAdd`
+completed, `HashSet::add` began, and the TypeIdSet-specific `pod_malloc`
+started and completed. The allocator therefore returns; the stall is later in
+the add path. Patch `0017` now adds optional HashTable trace hooks that compile
+to no calls for policies without the TypeIdSet hooks. For this set, they
+bracket slot initialization, `createTable`, `changeTableSize`,
+`findNonLiveSlot`, and `setLive`, so the next target run can isolate the first
+non-returning stage. Non-Nagi builds retain the original `SystemAllocPolicy`,
+and other HashTable instantiations compile the hooks away. No hash-table
+behavior is altered. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

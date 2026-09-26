@@ -51,6 +51,7 @@ diff --git a/mozjs/js/src/wasm/WasmStaticTypeDefs.cpp b/mozjs/js/src/wasm/WasmSt
 +  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag reference acquisition completed");
 @@ -65,0 +97 @@
 +  NAGI_M17_TRACE("SpiderMonkey Wasm StaticTypeDefs::init completed");
+
 diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.cpp
 --- a/mozjs/js/src/wasm/WasmTypeDef.cpp
 +++ b/mozjs/js/src/wasm/WasmTypeDef.cpp
@@ -75,10 +76,42 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +    NAGI_M17_TRACE("SpiderMonkey Wasm RecGroup hash completed");
 +    return groupHash;
 +  }
-@@ -509 +526,11 @@
+@@ -509 +526,46 @@
 -  using Set = HashSet<SharedRecGroup, RecGroupHashPolicy, SystemAllocPolicy>;
++#if defined(__NAGI__)
 +  class TypeIdSetAllocPolicy : public SystemAllocPolicy {
 +   public:
++    static void traceM17CreateTableSlotsStarted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet table slot initialization started");
++    }
++    static void traceM17CreateTableSlotsCompleted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet table slot initialization completed");
++    }
++    static void traceM17CreateTableStarted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashTable createTable started");
++    }
++    static void traceM17CreateTableCompleted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashTable createTable completed");
++    }
++    static void traceM17ChangeTableSizeStarted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashTable changeTableSize started");
++    }
++    static void traceM17ChangeTableSizeCompleted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashTable changeTableSize completed");
++    }
++    static void traceM17FindNonLiveSlotStarted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot started");
++    }
++    static void traceM17FindNonLiveSlotCompleted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot completed");
++    }
++    static void traceM17SetLiveStarted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet setLive started");
++    }
++    static void traceM17SetLiveCompleted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet setLive completed");
++    }
++
 +    template <typename T>
 +    T* pod_malloc(size_t numElems) {
 +      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet table pod_malloc started");
@@ -87,26 +120,96 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +      return result;
 +    }
 +  };
++#else
++  using TypeIdSetAllocPolicy = SystemAllocPolicy;
++#endif
 +  using Set = HashSet<SharedRecGroup, RecGroupHashPolicy, TypeIdSetAllocPolicy>;
-@@ -516 +533,3 @@
+@@ -516 +578,3 @@
 -    Set::AddPtr p = set_.lookupForAdd(recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd started");
 +    Set::AddPtr p = set_.lookupForAdd(recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd completed");
-@@ -524 +543,4 @@
+@@ -524 +588,4 @@
 -    if (!set_.add(p, recGroup)) {
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add started");
 +    bool added = set_.add(p, recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add completed");
 +    if (!added) {
-@@ -569 +601,2 @@
+@@ -569 +636,2 @@
 -  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock started");
 +  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();
-@@ -570 +603,5 @@
+@@ -570 +638,5 @@
 -  return locked->insert(recGroup);
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock acquired");
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set insertion started");
 +  SharedRecGroup canonical = locked->insert(recGroup);
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set insertion completed");
 +  return canonical;
+
+diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
+--- a/mozjs/mfbt/HashTable.h
++++ b/mozjs/mfbt/HashTable.h
+@@ -1738,4 +1738,14 @@
+-      forEachSlot(table, aCapacity, [&](Slot& slot) {
+-        *slot.mKeyHash = sFreeKey;
+-        new (KnownNotNull, slot.toEntry()) Entry();
+-      });
++      if constexpr (requires {
++                      AllocPolicy::traceM17CreateTableSlotsStarted();
++                    }) {
++        AllocPolicy::traceM17CreateTableSlotsStarted();
++      }
++      forEachSlot(table, aCapacity, [&](Slot& slot) {
++        *slot.mKeyHash = sFreeKey;
++        new (KnownNotNull, slot.toEntry()) Entry();
++      });
++      if constexpr (requires {
++                      AllocPolicy::traceM17CreateTableSlotsCompleted();
++                    }) {
++        AllocPolicy::traceM17CreateTableSlotsCompleted();
++      }
+@@ -1921 +1931,7 @@
+-    char* newTable = createTable(*this, newCapacity, aReportFailure);
++    if constexpr (requires { AllocPolicy::traceM17CreateTableStarted(); }) {
++      AllocPolicy::traceM17CreateTableStarted();
++    }
++    char* newTable = createTable(*this, newCapacity, aReportFailure);
++    if constexpr (requires { AllocPolicy::traceM17CreateTableCompleted(); }) {
++      AllocPolicy::traceM17CreateTableCompleted();
++    }
+@@ -2209 +2225,11 @@
+-      RebuildStatus status = changeTableSize(newCapacity, ReportFailure);
++      if constexpr (requires {
++                      AllocPolicy::traceM17ChangeTableSizeStarted();
++                    }) {
++        AllocPolicy::traceM17ChangeTableSizeStarted();
++      }
++      RebuildStatus status = changeTableSize(newCapacity, ReportFailure);
++      if constexpr (requires {
++                      AllocPolicy::traceM17ChangeTableSizeCompleted();
++                    }) {
++        AllocPolicy::traceM17ChangeTableSizeCompleted();
++      }
+@@ -2214 +2240,11 @@
+-      aPtr.mSlot = findNonLiveSlot(aPtr.mKeyHash);
++      if constexpr (requires {
++                      AllocPolicy::traceM17FindNonLiveSlotStarted();
++                    }) {
++        AllocPolicy::traceM17FindNonLiveSlotStarted();
++      }
++      aPtr.mSlot = findNonLiveSlot(aPtr.mKeyHash);
++      if constexpr (requires {
++                      AllocPolicy::traceM17FindNonLiveSlotCompleted();
++                    }) {
++        AllocPolicy::traceM17FindNonLiveSlotCompleted();
++      }
+@@ -2239 +2275,7 @@
+-    aPtr.mSlot.setLive(aPtr.mKeyHash, std::forward<Args>(aArgs)...);
++    if constexpr (requires { AllocPolicy::traceM17SetLiveStarted(); }) {
++      AllocPolicy::traceM17SetLiveStarted();
++    }
++    aPtr.mSlot.setLive(aPtr.mKeyHash, std::forward<Args>(aArgs)...);
++    if constexpr (requires { AllocPolicy::traceM17SetLiveCompleted(); }) {
++      AllocPolicy::traceM17SetLiveCompleted();
++    }

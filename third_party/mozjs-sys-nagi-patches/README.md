@@ -128,3 +128,11 @@ allocation, or synchronization behavior.
 The canonicalization lock-start checkpoint is applied by replacing the lock
 declaration in context, so later additions in this patch cannot move that
 checkpoint outside the function.
+
+After CI #262 showed that the TypeIdSet `pod_malloc` returns but
+`HashSet::add` does not, patch `0017` also adds optional trace hooks to the
+pinned `HashTable.h`. The hooks are selected at compile time only for the
+TypeIdSet allocation policy and bracket table-slot initialization,
+`createTable`, `changeTableSize`, `findNonLiveSlot`, and `setLive`. Other hash
+table policies have no trace callbacks and retain their existing behavior.
+Non-Nagi TypeIdSet builds use the original `SystemAllocPolicy` directly.

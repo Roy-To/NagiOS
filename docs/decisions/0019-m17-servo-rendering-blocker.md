@@ -1887,6 +1887,29 @@ header, causing C prototype-scope tags. The next repair adds that standard
 Mesa header before `sw_helper.h`; no rendering or ABI stub is introduced.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+## HashTable add path after CI run #262 (2026-09-27)
+
+Public CI run #262 (`36264391751`, head
+`0f65867429f49ea999455668d19e03be72ec4f96`) passed the host jobs, target
+dependency boundary, Mesa Softpipe, M16 package, kernel, real `nagi-init`
+link, and UEFI loader. QEMU exceeded its M17 acceptance timeout (exit code 4),
+and no checksum or first-web-pixel PASS marker was produced.
+
+Both acceptance boots completed recursion-group hashing and lookup, entered
+`HashSet::add`, and logged both `TypeIdSet table pod_malloc started` and
+`TypeIdSet table pod_malloc completed`. This rules out a stall inside the base
+allocator call. The trace still lacks `HashSet add completed`, so the
+non-returning operation is later in table creation or entry insertion.
+
+Patch `0017` now adds conditional trace hooks to the pinned `HashTable.h`.
+Only allocation policies that define the private TypeIdSet trace callbacks
+emit markers; other HashTable instantiations compile the `requires` branches
+away. For TypeIdSet, checkpoints bracket table-slot initialization,
+`createTable`, `changeTableSize`, `findNonLiveSlot`, and `setLive`. They are
+diagnostics only and preserve the actual operations and order. Non-Nagi
+TypeIdSet builds use the original `SystemAllocPolicy` directly. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
 ## Remediation continuation (2026-09-23, Servo bootstrap diagnostics)
 
 Public CI run `35857472389` (#122, head `63bb9b8`) failed during the pinned
