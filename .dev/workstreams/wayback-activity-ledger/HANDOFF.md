@@ -3,9 +3,9 @@
 - Workstream: `wayback-activity-ledger`
 - Branch: `codex/0.2-wayback-ledger`
 - Last verified implementation commit: `d52edd3ab2fe29cc32bde92720476a622f2688d3`
-- Registry/state/handoff checkpoint: `6af4849f4d1b1cd9b2c01ddf2421608d9f15b62c` (push pending)
+- Registry/state/handoff checkpoint: `6af4849f4d1b1cd9b2c01ddf2421608d9f15b62c`; pushed branch was verified at `f95ddab4e0498c84bc831213512365d7269bfaac` before this final handoff update.
 - Base: `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9` (DF-01)
-- Status: `IN_PROGRESS` — host-side implementation and local acceptance pass; registry/state handoff checkpoint, push, and CI review remain.
+- Status: `PASS` — host-side Wayback acceptance criteria pass. The CI failure below is an inherited DF-01 state/test mismatch outside this workstream's ownership.
 
 The linked [`state.json`](state.json) is the canonical machine-readable status.
 
@@ -33,7 +33,12 @@ The initial direct `rustc --test` attempt for M15 failed because it did not link
 
 This worktree does not contain fetched root `third_party` patch sources. The successful DF-01 CLI checks used temporary symlinks to the same pinned source directories in the clean DF-01 prep worktree, then removed those links. A subsequent check after removal failed at `third_party/cc-nagi/Cargo.toml`; DF-01 `diagnose` classified it as `HOST_ENV` (log `/tmp/nagi-wayback-missing-third-party.log`, SHA-256 `67fed48104287ae2b21284ad645003bba04aef94b6e37c2cd2f4e11c97c653c5`). This is the fresh-worktree bootstrap prerequisite, not a Wayback compile failure. `./nagi fetch` is the normal source preparation step for a fresh checkout. No symlink or third-party source change is part of this branch.
 
-CI: not yet run at this handoff checkpoint; the dedicated branch has not been pushed yet.
+## CI result and ownership classification
+
+- GitHub Actions run [36213800837](https://github.com/RT-NISH/NagiOS/actions/runs/36213800837), at `f95ddab4e0498c84bc831213512365d7269bfaac`, completed with failure in both `ubuntu-host` and `windows-launcher` at `Test host-compatible workspace`. Both fail the same DF-01 test, `development::tests::registry_and_active_workstream_state_validate_from_repository`: `tools/nagi-cli/src/development.rs:1277` expects `development-foundation` state `IN_PROGRESS`, while that state is `PASS`.
+- The mismatch is present in the selected DF-01 base: commit `ab9a580` changes `.dev/workstreams/development-foundation/state.json` from `IN_PROGRESS` to `PASS` without updating the assertion. The earlier run [36117826259](https://github.com/RT-NISH/NagiOS/actions/runs/36117826259) on `18b364dc` had both host jobs pass before that DF-01 state change. This is an inherited foundation test/state inconsistency, outside Wayback's ownership (`tools/nagi-cli/**` is not in this stream's allowed paths). No foundation code or test was changed here.
+- `nagi-target` was skipped after the host jobs failed. This CI run therefore reports no M17 result; the known M17 graphics gate remains separately owned and is not a Wayback failure.
+- DF-01 `diagnose` recorded the filtered host-test failure at `/tmp/nagi-wayback-ci-foundation-diagnostic.json` (log SHA-256 `bf93510411a430fccbba7b57cca7124bb52f049d0a1b85874ea52bb4a73d6f89`). It preserved the declared `BUILD` class and suggested `UNKNOWN`; the concrete cause was identified by the assertion and the `18b364d..ab9a580` state diff.
 
 ## Deferred integration
 
@@ -46,6 +51,6 @@ The following remain gated on Nagi 0.1 M30 PASS and an explicit 0.2 integration 
 - The standalone package and registry entry need owner review when a future 0.2 integration branch reconciles workspace membership and ownership. No other workstream implementation was copied or modified.
 - M17's known graphics/acceptance status is separate from this host-side acceptance.
 
-## Next exact action
+## Resume and integration boundary
 
-Commit the registry/state/handoff checkpoint, push `codex/0.2-wayback-ledger` to `origin` with a normal push, then inspect the branch CI. Record the remote HEAD and CI result in `state.json`; classify any M17-only failure separately from Wayback acceptance.
+Resume this host-side workstream with `./nagi dev resume wayback-activity-ledger`. No in-scope implementation remains. Filesystem/app/AI hooks, durable guest snapshots, restore execution, UI, and principal lookup remain deferred until Nagi 0.1 M30 PASS and an explicit 0.2 integration checkpoint. Do not resolve the inherited DF-01 test/state mismatch from this branch; it belongs to the foundation owner.

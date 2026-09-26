@@ -3,18 +3,23 @@
   "schema_version": 1,
   "workstream_id": "wayback-activity-ledger",
   "current_milestone": "Wayback / AI Activity Ledger Foundation",
-  "current_checkpoint": "Host-side implementation acceptance passes at d52edd3; registry/state/handoff checkpoint committed as 6af4849; push and CI review pending.",
-  "status": "IN_PROGRESS",
+  "current_checkpoint": "Host-side acceptance PASS at d52edd3; pushed checkpoint f95ddab was locally verified; CI diagnosed as inherited DF-01 state/test mismatch.",
+  "status": "PASS",
   "last_verified": {
-    "commit_sha": "d52edd3ab2fe29cc32bde92720476a622f2688d3",
-    "verified_at": "2026-09-26T03:06:27Z",
-    "normal_state": "The host-side Wayback foundation is committed at d52edd3 and passes its focused acceptance harness. Registry/state/handoff is committed at 6af4849. The dedicated branch push and CI inspection remain in progress. M17 is separately tracked.",
+    "commit_sha": "f95ddab4e0498c84bc831213512365d7269bfaac",
+    "verified_at": "2026-09-26T03:20:51Z",
+    "normal_state": "Wayback host-side acceptance PASS: the dedicated branch contains the complete standalone ledger, restore-planning contracts, schemas, and tests; the local focused harness, M15 regression, and DF-01 verify passed. Branch CI run 36213800837 failed only because both host jobs hit the inherited DF-01 foundation-state assertion (expects IN_PROGRESS while the base state is PASS); nagi-target was skipped. The foundation state/test mismatch is outside Wayback ownership and was not modified. The worktree remains separate from M17/runtime integration.",
     "commands": [
       "./nagi dev status",
       "./nagi dev resume",
       "CARGO_TARGET_DIR=/Users/tozawa/Developer/NagiOS-0.2-wayback/target ./tests/wayback/verify.sh",
       "./nagi dev verify",
-      "./nagi dev diagnose --stage m15-history-regression-standalone-rustc --exit-code 1 --failure-class BUILD --log /tmp/nagi-wayback-m15-standalone-rustc.log"
+      "./nagi dev diagnose --stage m15-history-regression-standalone-rustc --exit-code 1 --failure-class BUILD --log /tmp/nagi-wayback-m15-standalone-rustc.log",
+      "gh run view 36213800837 --json status,conclusion,headSha,jobs,url",
+      "gh run view 36213800837 --job 108325620600 --log-failed",
+      "gh run view 36213800837 --job 108325620444 --log-failed",
+      "git diff 18b364dc01c6a95bbda492f36c8dd0586f12ca8d..ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9 -- .dev/workstreams/development-foundation/state.json",
+      "target/debug/nagi dev diagnose --stage wayback-ci-foundation-state-assertion --exit-code 101 --failure-class BUILD --log /tmp/nagi-wayback-ci-state-test.log --output /tmp/nagi-wayback-ci-foundation-diagnostic.json"
     ],
     "tests": [
       {
@@ -37,13 +42,29 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Draft 2020-12 registry and state schemas accepted the registered Wayback workstream and this state file."
+      },
+      {
+        "name": "Branch CI ownership classification at f95ddab",
+        "command": "GitHub Actions run 36213800837; DF-01 diagnose on filtered host-test log",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Ubuntu and Windows host jobs fail only in development-foundation state validation: the assertion expects IN_PROGRESS but the DF-01 base changed that state to PASS in ab9a580 without updating the test. Both host jobs passed before that upstream change on 18b364d (run 36117826259). The unrelated assertion is outside Wayback allowed paths; nagi-target was skipped. The Wayback acceptance harness and local DF-01 verify pass."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 36213800837,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36213800837",
+        "head_sha": "f95ddab4e0498c84bc831213512365d7269bfaac",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs fail the inherited DF-01 foundation-state test (expects IN_PROGRESS, base state is PASS); nagi-target is skipped. Failure is outside Wayback ownership. Earlier run 36117826259 passed both host jobs at 18b364d before the DF-01 state change."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
-    "last_checked_at": "2026-09-26T03:06:27Z",
+    "last_checked_at": "2026-09-26T03:20:51Z",
     "activation_requirement": "Only host-side contracts and reference planning are in scope here. Filesystem/runtime hooks, restore execution, and user-facing product adoption require 0.1 M30 PASS and an explicit 0.2 integration checkpoint."
   },
   "blocker": {
@@ -57,7 +78,8 @@
       "Clippy identified a complex projection result, a large serialized enum variant, derivable defaults, and an oversized resolver signature. The implementation was refactored; pinned Clippy now passes with -D warnings.",
       "The host Python environment lacked jsonschema. The verifier now installs the fully pinned requirements into a temporary directory only when the exact validator version is unavailable; JSON Schema validation passes.",
       "The host default Rust toolchain selected an incompatible Homebrew architecture. The verification harness now resolves and prepends the repository-pinned Rust toolchain, including clippy-driver.",
-      "After removing temporary source links to leave the branch free of third_party changes, ./nagi dev verify could not load third_party/cc-nagi/Cargo.toml. The built DF-01 CLI diagnose report at /tmp/nagi-wayback-missing-third-party.log (SHA-256 67fed48104287ae2b21284ad645003bba04aef94b6e37c2cd2f4e11c97c653c5) classified this as HOST_ENV: the fresh worktree has not run ./nagi fetch. The earlier status/resume/verify runs passed with temporary symlinks to the same sources in the clean DF-01 prep worktree; the links were removed and are not committed."
+      "After removing temporary source links to leave the branch free of third_party changes, ./nagi dev verify could not load third_party/cc-nagi/Cargo.toml. The built DF-01 CLI diagnose report at /tmp/nagi-wayback-missing-third-party.log (SHA-256 67fed48104287ae2b21284ad645003bba04aef94b6e37c2cd2f4e11c97c653c5) classified this as HOST_ENV: the fresh worktree has not run ./nagi fetch. The earlier status/resume/verify runs passed with temporary symlinks to the same sources in the clean DF-01 prep worktree; the links were removed and are not committed.",
+      "Inspected branch CI run 36213800837 and both failed logs; DF-01 diagnose recorded the assertion mismatch. Comparing 18b364d..ab9a580 showed the foundation state changed from IN_PROGRESS to PASS while tools/nagi-cli/src/development.rs still expects IN_PROGRESS. Both host jobs passed on 18b364d before that upstream state change. The foundation CLI/test is outside Wayback ownership, so no unrelated code was edited; current run skipped nagi-target and did not exercise M17."
     ],
     "do_not_try": [
       "Do not modify filesystem/runtime hooks, M17/M18-M30, Activity or Wayback UI, App SDK, Capability policy, or another app workstream.",
@@ -65,7 +87,7 @@
       "Do not rebase, merge, cherry-pick, force-push, or change another branch/worktree."
     ]
   },
-  "next_action": "Push codex/0.2-wayback-ledger to origin with a normal push, inspect branch CI, then record remote HEAD and final CI classification.",
+  "next_action": "No remaining in-scope implementation. Resume with ./nagi dev resume wayback-activity-ledger; filesystem/runtime hooks and restore execution remain gated on M30 PASS and an explicit 0.2 integration checkpoint.",
   "acceptance_criteria": [
     "[x] Dedicated codex/0.2-wayback-ledger branch and NagiOS-0.2-wayback worktree from latest DF-01.",
     "[x] DF-01 registration, ownership paths, dependency, state, gate, resume, verify, and handoff are accurate.",
@@ -88,7 +110,7 @@
     "[x] No filesystem/runtime connection, actual restore executor, or M17/M18-M30 change is introduced.",
     "[x] No Activity/Wayback UI, App SDK, Capability policy, or other native app workstream is changed.",
     "[x] State and handoff record verified evidence, deferred hooks, dependency boundary, and exact next step.",
-    "[ ] Final worktree is clean and changes are committed and pushed to the dedicated remote branch."
+    "[x] Final worktree is clean and changes are committed and pushed to the dedicated remote branch."
   ],
   "deferred": [
     "Filesystem change hook: not available before the M30 plus explicit 0.2 integration gate; future adapter accepts opaque object/version references and records metadata only, with acceptance proving append/query/provenance and snapshot-required planning without copying content into the ledger.",
