@@ -1,0 +1,126 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "localization-i18n",
+  "current_milestone": "Localization / i18n Foundation",
+  "current_checkpoint": "formatting-boundaries-verified",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "5b2c264098b3e7a98c15bad08a6e0119f7f8c4bd",
+    "verified_at": "2026-09-26T14:02:19Z",
+    "normal_state": "Added Gregorian century/leap-day, clock boundary, i64::MIN, invalid public number options, and percent-overflow regression coverage. All 28 localization tests, package formatting, warnings-denied Clippy, bundled catalog verification, and the x86_64 Nagi user-target library compile pass. Actions run 36247095112 for this commit is in progress. Earlier run 36215320154 passed Ubuntu/Windows host checks and target builds through UEFI, then failed only at the independent M17 first-web-pixel QEMU acceptance; that is not a localization failure.",
+    "commands": [
+      "cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check",
+      "cargo test --locked -p nagi-localization",
+      "cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
+      "cargo run --locked --offline -p nagi-localization --bin localization-check",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "git diff --check"
+    ],
+    "tests": [
+      {
+        "name": "Localization library unit suite",
+        "command": "cargo test --locked -p nagi-localization",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "28 passed, 0 failed; includes leap-century, midnight/noon, signed integer extreme, invalid public options, and percent overflow boundary cases."
+      },
+      {
+        "name": "Localization package format",
+        "command": "cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The localization package is rustfmt-clean."
+      },
+      {
+        "name": "Localization Clippy",
+        "command": "cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets pass with warnings denied."
+      },
+      {
+        "name": "Bundled catalog validation",
+        "command": "cargo run --locked --offline -p nagi-localization --bin localization-check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "2 locale catalogs and 14 messages validated with parity."
+      },
+      {
+        "name": "Nagi user-target localization library compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Library compiles for x86_64-unknown-nagi-user; compile-only, no guest runtime claim."
+      },
+      {
+        "name": "Localization diff whitespace",
+        "command": "git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No whitespace errors."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36215320154,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215320154",
+        "head_sha": "67de0be987ddb1308d2360444e036c7a88dfab7d",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu and Windows host jobs succeeded, as did all target build steps through UEFI. The independent M17 first-web-pixel QEMU acceptance failed; no localization-specific build or test failure."
+      },
+      {
+        "run_id": 36247095112,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36247095112",
+        "head_sha": "5b2c264098b3e7a98c15bad08a6e0119f7f8c4bd",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Actions run for the boundary-test checkpoint is in progress; previous source run passed Ubuntu/Windows host jobs and target builds through UEFI, with failure only at independent M17 QEMU first-web-pixel acceptance."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/architecture/language-architecture.md and docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T14:02:19Z",
+    "activation_requirement": "The catalog, host library, and target compile are contract preparation. Settings/IME/Albert and first-party runtime integration remain with their owners and milestone gates; do not mark M17 or later milestones from this foundation."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not use host locale or timezone state as Nagi behavior.",
+      "Do not claim M17 or later acceptance based on localization host or compile tests.",
+      "Do not take ownership of Settings, IME, Albert preferences, or first-party runtime adapters."
+    ]
+  },
+  "next_action": "Continue with the registered Model Runtime / Model Store workstream in its dedicated worktree. No further safe localization foundation gap was found after boundary coverage; return only for an in-scope host regression or owner-authorized consumer integration after its milestone/release gate. Record run 36247095112 when its host jobs complete, classifying any M17-only target failure separately.",
+  "acceptance_criteria": [
+    "Canonical locale parsing and system-language/region separation are implemented and tested.",
+    "Equal first-class en-US and ja-JP UTF-8 catalogs pass duplicate, namespace, placeholder, and translation-parity checks.",
+    "Stable message IDs, named interpolation, exact/language/English fallback, diagnostics, and deterministic pseudo-localization are implemented.",
+    "Initial Gregorian date/time, number, percentage, USD/JPY display, and symbol-based unit formatting is deterministic without process-global locale lookup.",
+    "Host tests, format, Clippy, catalog checker, and Nagi user-target library compile pass.",
+    "Settings, IME/input-language behavior, Albert language preference, UI consumers, and runtime app wiring remain outside this foundation checkpoint.",
+    "Current mainline M17 BLOCKED and M18 NOT STARTED records are preserved."
+  ],
+  "deferred": [
+    "Settings service and live system-language switching.",
+    "Input language, keyboard layouts, and IME selection.",
+    "Albert/AI conversation-language preferences and Auto detection.",
+    "First-party UI/runtime consumer adoption and font resolution.",
+    "CLDR-wide timezone and currency conversion, localization data expansion, and linguistic collation."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 registry and durable workstream state contract.",
+      "version": "nagi-dev-v1",
+      "status": "PASS"
+    }
+  ]
+}
