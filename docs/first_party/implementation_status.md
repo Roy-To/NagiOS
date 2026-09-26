@@ -168,12 +168,13 @@ not modify or merge into M17 worktrees.
   operation models; FilesService and a typed FilesActionApi for the 15 stable
   Files action IDs; three-pane navigation/selection/inspector view state; scoped
   capability checks; in-memory orchestration backend; host sandbox backend with
-  persistent Trash/tags, identity retention for same-filesystem rename/move,
-  copy/restore/conflict handling, explicit one-use permanent-delete confirmation,
+  persistent Trash/tags, Unix and memory identity retention for same-filesystem
+  rename/move (Windows identity follow-up is in progress), copy/restore/conflict
+  handling, bounded one-use permanent-delete confirmations with user cancellation,
   bounded previews, and capability-rooted traversal/symlink checks; metadata Search;
   Context/Workspace/Activity/Wayback adapter hooks; en-US and ja-JP resources;
   and an interactive Japanese/English host preview.
-- **Verification evidence:** 48 focused tests PASS; package Clippy with
+- **Verification evidence:** 50 focused tests PASS; package Clippy with
   `-D warnings` PASS; package `cargo fmt -- --check` PASS; Japanese host preview
   listing and open smoke PASS in a disposable `/tmp` sandbox. Test/build output
   is isolated under `/tmp/nagi-files-cargo-target`.
@@ -184,13 +185,13 @@ not modify or merge into M17 worktrees.
   | FILES-001 GUI operations | `PARTIAL` | Host three-pane terminal preview and core operations work; Nagi desktop GUI integration is blocked. |
   | FILES-002 Action API | `PARTIAL` | Typed local FilesActionApi dispatches the catalog through FilesService; shared target Action Registry is not connected. |
   | FILES-003 Agent Activity | `PARTIAL` | Activity adapter contract and mock tests pass; agent mutations fail closed when Activity is unavailable; no target ledger connection. |
-  | FILES-004 Resource ID retention | `PASS (host)` | Same-filesystem rename/move preserve IDs in host and memory providers; copy receives a new ID. |
+  | FILES-004 Resource ID retention | `PASS (Unix host; Windows follow-up)` | Same-filesystem rename/move preserve IDs in Unix and memory providers; Windows path-derived identity is being replaced with volume/file identity. Copy receives a new ID. |
   | FILES-005 Trash restore | `PASS (host/mock)` | Persistent host Trash and memory Trash restore/conflict tests pass. |
-  | FILES-006 permanent-delete confirmation | `PASS (host/mock)` | User-only, bound, one-use confirmation is required and tested. |
+  | FILES-006 permanent-delete confirmation | `PASS (host/mock)` | User-only, bound, one-use challenges are bounded to 64 pending entries; explicit cancellation releases a slot and rejects replay. |
   | FILES-007 Context publish | `PASS (contract)` | Selection/current-location snapshot publishes through a typed boundary; shared Context service is not connected. |
   | FILES-008 Workspace reference | `PASS (mock)` | Adapter tests show add/remove reference does not move the resource; target Workspace service is not connected. |
   | FILES-009 Wayback restore | `PARTIAL` | Typed checkpoint boundary, affected-resource list, transaction ID, and truthful reversible hints are tested; supported-resource snapshot restore needs the unavailable Wayback runtime. |
-  | FILES-010 UI-independent core tests | `PASS` | 48 package tests run without the desktop UI. |
+  | FILES-010 UI-independent core tests | `PASS` | 50 package tests run without the desktop UI. |
 
 - **Known limitations:** The host backend rejects lexical traversal, selected-root
   symlinks, checked symlink paths, and reserved metadata aliases. Operations

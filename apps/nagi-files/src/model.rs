@@ -344,6 +344,7 @@ pub enum FilesErrorKind {
     Cancelled,
     ConfirmationRequired,
     InvalidConfirmation,
+    ConfirmationLimitReached,
     ProviderUnavailable,
     ProviderFailure,
     ActivityUnavailable,

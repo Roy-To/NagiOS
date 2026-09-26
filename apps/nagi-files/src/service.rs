@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_CHECKPOINT_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_PENDING_CONFIRMATIONS: usize = 64;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActivityEvent {
@@ -642,6 +643,9 @@ where
             .find(|entry| entry.id == trash_id)
             .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
         self.authorize(CapabilityRight::PermanentDelete, &item.original_location)?;
+        if self.pending_confirmations.len() >= MAX_PENDING_CONFIRMATIONS {
+            return Err(FilesError::new(FilesErrorKind::ConfirmationLimitReached));
+        }
         let transaction_id = TransactionId::new();
         let nonce = self.next_confirmation;
         self.next_confirmation = self.next_confirmation.wrapping_add(1).max(1);
@@ -662,6 +666,28 @@ where
                 .unwrap_or("item")
                 .to_owned(),
         ))
+    }
+
+    /// Releases an unused one-use confirmation challenge without performing
+    /// the irreversible operation. Cancellation remains available even if the
+    /// provider becomes unavailable after the prompt was shown.
+    pub fn cancel_permanent_delete_confirmation(
+        &mut self,
+        challenge: ConfirmationChallenge,
+        actor: Actor,
+    ) -> Result<(), FilesError> {
+        if actor != Actor::User {
+            return Err(FilesError::new(FilesErrorKind::PermissionRequired));
+        }
+        let (nonce, transaction_id, target) = challenge.binding();
+        let pending = self
+            .pending_confirmations
+            .remove(&nonce)
+            .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidConfirmation))?;
+        if pending.transaction_id != transaction_id || pending.target != target {
+            return Err(FilesError::new(FilesErrorKind::InvalidConfirmation));
+        }
+        Ok(())
     }
 
     pub fn confirm_permanent_delete(

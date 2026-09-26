@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::localization::{self, Locale};
+use crate::service::MAX_PENDING_CONFIRMATIONS;
 use crate::{
     render_three_pane, ActivityEvent, ActivityOutcome, ActivitySink, Actor, CancellationToken,
     CapabilityAuthorizer, CapabilityGrant, CapabilityRight, CapabilitySet, CheckpointHook,
@@ -698,6 +699,65 @@ fn permanent_delete_requires_a_bound_one_use_confirmation() {
             .kind,
         FilesErrorKind::InvalidConfirmation
     );
+}
+
+#[test]
+fn pending_permanent_delete_confirmations_are_bounded_and_release_capacity() {
+    let mut service = memory_service();
+    let source = service
+        .provider_mut()
+        .insert_file(&Location::parse("old.txt").unwrap(), b"old")
+        .unwrap();
+    let (trash, _) = service.trash(&source, Actor::User).unwrap();
+    let mut challenges = Vec::new();
+    for _ in 0..MAX_PENDING_CONFIRMATIONS {
+        challenges.push(service.request_permanent_delete(trash.id).unwrap());
+    }
+
+    assert_eq!(
+        service.request_permanent_delete(trash.id).unwrap_err().kind,
+        FilesErrorKind::ConfirmationLimitReached
+    );
+
+    service
+        .confirm_permanent_delete(challenges.remove(0), Actor::User)
+        .unwrap();
+    let another = service
+        .provider_mut()
+        .insert_file(&Location::parse("another.txt").unwrap(), b"another")
+        .unwrap();
+    let (another_trash, _) = service.trash(&another, Actor::User).unwrap();
+    assert!(service.request_permanent_delete(another_trash.id).is_ok());
+}
+
+#[test]
+fn canceling_permanent_delete_confirmation_releases_its_one_use_slot() {
+    let mut service = memory_service();
+    let source = service
+        .provider_mut()
+        .insert_file(&Location::parse("old.txt").unwrap(), b"old")
+        .unwrap();
+    let (trash, _) = service.trash(&source, Actor::User).unwrap();
+    let challenge = service.request_permanent_delete(trash.id).unwrap();
+
+    assert_eq!(
+        service
+            .cancel_permanent_delete_confirmation(challenge.clone(), Actor::Agent)
+            .unwrap_err()
+            .kind,
+        FilesErrorKind::PermissionRequired
+    );
+    service
+        .cancel_permanent_delete_confirmation(challenge.clone(), Actor::User)
+        .unwrap();
+    assert_eq!(
+        service
+            .confirm_permanent_delete(challenge.clone(), Actor::User)
+            .unwrap_err()
+            .kind,
+        FilesErrorKind::InvalidConfirmation
+    );
+    assert!(service.request_permanent_delete(trash.id).is_ok());
 }
 
 #[test]
