@@ -51,6 +51,9 @@ not modify or merge into M17 worktrees.
 - **Base:** `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9`
 - **Resume checkpoint:** Implemented on top of the preparation commit
   `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85` in this dedicated worktree.
+- **Implementation commit:** `c26b7b3baba25b2ae00dbbc3e1286c9156179404`.
+- **Push:** PASS; implementation commit is on
+  `origin/codex/app-home-search`.
 - **Implemented components:** Data-driven Home app registry; read-only adapter
   to M16 `PackageService`; duplicate-safe registry composition; typed app,
   object, workspace, intent, and action contracts; shared Workspace/Object
@@ -64,8 +67,9 @@ not modify or merge into M17 worktrees.
   checks PASS for CSP, Japanese Home/API strings, typed file-open results,
   denied private-note filtering, cancel route, and malformed UTF-8 rejection.
   Rust formatting and `git diff --check` PASS.
-- **Acceptance boundary:** Core/host/mock acceptance is implemented and
-  verified. Nagi target runtime integration is NOT RUN. Current runtime
+- **Acceptance boundary:** Core: PASS; host backend/preview: PASS; mock
+  integration: PASS. Nagi target runtime integration: NOT RUN. External
+  runtime service integration: BLOCKED because the current runtime
   interfaces do not provide the general app launcher, Workspace data service,
   Search providers, or action dispatcher needed for guest integration. Files,
   Notes, Activity, Action, and Workspace preview providers remain in-memory
