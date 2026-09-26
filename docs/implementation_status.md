@@ -4704,20 +4704,24 @@ M18 remains `NOT STARTED`.
 
 Source review of integration commit `582b5f64585054be354b7d3f9379cfa3054f8828`
 confirms that the current native bridge has one child execution slot. The
-POSIX adapter returns `EAGAIN` before the syscall when its single child slot is
-occupied. The kernel bridge also accepts creation only from the main thread,
-atomically reserves one child state, and writes the child context to slot 1.
-This makes thread capacity a concrete candidate for the observed Servo
-`pthread_create` failure, but does not identify which adapter branch the QEMU
-run hit; the bounded trace run `36236310925` is still required for that.
+POSIX adapter can separately return `EAGAIN` before the syscall for a held,
+non-detached child. The kernel bridge also accepts creation only from the main
+thread, atomically reserves one child state, and writes the child context to
+slot 1.
+This made thread capacity a concrete candidate for the observed Servo
+`pthread_create` failure. Public owner-branch run `36232073962` at
+`18ee17a` confirms the specific rejection: its kernel trace said
+`SYS_THREAD_CREATE rejected: child slot occupied`, then recorded the already
+mapped 16 KiB child stack. The failing call therefore reached the native
+thread bridge with a mapped stack and was rejected because the bootstrap child
+slot was occupied.
 
-If the trace reports `child-slot-occupied`, supporting additional simultaneous
-threads requires a scheduler/kernel thread-context change owned by the M17
-runtime workstream and outside this integration branch's permitted paths. If
-it reports `native-thread-create-rejected`, the current trace identifies the
-native bridge boundary but not the specific kernel validation that rejected
-the call. No concurrency is emulated in user space and no thread failure is
-converted into success.
+The confirmed kernel child-slot rejection means supporting additional
+simultaneous threads requires a scheduler/kernel thread-context change owned
+by the M17 runtime workstream and outside this integration branch's permitted
+paths. The root trace may still distinguish the POSIX early-return branch
+from a native syscall rejection. No concurrency is emulated in user space and
+no thread failure is converted into success.
 
 Root run `36235660277` completed with both host jobs passing and the target
 acceptance failing. QEMU's real serial log reached `Servo construction started`,
@@ -4745,3 +4749,21 @@ Ubuntu and Windows host jobs passed; its target job is queued behind the
 active target run. Run `36236310925` remains the trace-enabled M17 target run
 and is building Nagi user init. Neither run has produced a new guest pixel
 result yet.
+
+The M17 owner branch added commit `71fd5c33` for a bounded cooperative
+bootstrap scheduler with 16 thread slots. This kernel and syscall change is
+outside `codex/integration-next-phase`'s permitted paths and remains with its
+owner. Its public run `36237832887` completed with failure: QEMU timed out
+after 120 seconds at Servo construction and produced no pixel checksum or
+PASS marker. The captured excerpt contains no `SYS_THREAD_CREATE rejected`
+line, so this run does not show whether the scheduler dispatched the new
+thread before the hang.
+
+Both host jobs in `36237832887` failed the same
+`m17_mesa_link_does_not_force_duplicate_archive_members` source assertion,
+which still expected the old direct `USER_TLS_CHILD_CONTROL_BASE` assignment.
+The local owner branch is one commit ahead at `4d79bbe`, where the assertion
+was changed to the new `user_tls_control_base` helper; that commit is not on
+the remote branch used by this CI run, so it has no CI verification yet. The
+owner worktree also has a dirty status-document change and remains untouched.
+The owner-branch scheduler does not change M17's recorded `BLOCKED` state.
