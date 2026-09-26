@@ -1747,7 +1747,7 @@ mod tests {
         std::fs::create_dir_all(&root).expect("create diagnostic test directory");
         std::fs::write(root.join("runtime.log"), b"runtime failed\n").expect("write runtime log");
 
-        let output_name = "report\n\u{1b}[2J.json";
+        let output_name = "report.json";
         let args = vec![
             "--stage".into(),
             "runtime\n\u{1b}[31m".into(),
@@ -1763,6 +1763,37 @@ mod tests {
 
         assert!(lines.iter().all(|line| !line.chars().any(char::is_control)));
         assert!(lines[0].contains("runtime\\n\\u{1b}[31m"));
+        assert!(lines[0].contains("report.json"));
+        assert!(root.join(output_name).is_file());
+        std::fs::remove_dir_all(root).expect("remove diagnostic test directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn diagnostic_console_summary_escapes_terminal_controls_in_output_path() {
+        let root = std::env::temp_dir().join(format!(
+            "nagi-diagnostic-path-terminal-controls-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create diagnostic test directory");
+        std::fs::write(root.join("runtime.log"), b"runtime failed\n").expect("write runtime log");
+
+        let output_name = "report\n\u{1b}[2J.json";
+        let args = vec![
+            "--stage".into(),
+            "runtime".into(),
+            "--exit-code".into(),
+            "4".into(),
+            "--log".into(),
+            "runtime.log".into(),
+            "--output".into(),
+            output_name.into(),
+        ];
+
+        let lines = diagnose(&args, &root).expect("write diagnostic report");
+
+        assert!(lines.iter().all(|line| !line.chars().any(char::is_control)));
         assert!(lines[0].contains("report\\n\\u{1b}[2J.json"));
         assert!(root.join(output_name).is_file());
         std::fs::remove_dir_all(root).expect("remove diagnostic test directory");
