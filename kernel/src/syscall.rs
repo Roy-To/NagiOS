@@ -15,6 +15,8 @@ use nagi_kernel::user_process::{
 
 #[cfg(not(test))]
 use core::arch::{asm, global_asm};
+#[cfg(not(test))]
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(not(test))]
 use super::{halt_forever, interrupts, serial_log_read, serial_read_byte, serial_write};
@@ -164,6 +166,126 @@ static mut NAGI_THREAD_CONTEXTS: [UserThreadContext; nagi_abi::BOOTSTRAP_USER_TH
 #[cfg(not(test))]
 #[no_mangle]
 static mut NAGI_SYSCALL_NEXT_CONTEXT: u64 = 0;
+#[cfg(not(test))]
+static M17_USER_THREAD_TRACE_EVENTS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(not(test))]
+fn trace_user_thread_event(event: &[u8], from: u8, to: u8) {
+    const MAX_EVENTS: usize = 128;
+    if M17_USER_THREAD_TRACE_EVENTS.fetch_add(1, Ordering::Relaxed) >= MAX_EVENTS {
+        return;
+    }
+
+    fn thread_digit(thread: u8) -> u8 {
+        if thread < 10 {
+            b'0' + thread
+        } else {
+            b'a' + (thread - 10)
+        }
+    }
+
+    let mut line = [0_u8; 96];
+    let prefix = b"Nagi M17 trace: thread ";
+    let from_label = b" from=";
+    let to_label = b" to=";
+    let mut length = prefix.len();
+    line[..length].copy_from_slice(prefix);
+    line[length..length + event.len()].copy_from_slice(event);
+    length += event.len();
+    line[length..length + from_label.len()].copy_from_slice(from_label);
+    length += from_label.len();
+    line[length] = thread_digit(from);
+    length += 1;
+    line[length..length + to_label.len()].copy_from_slice(to_label);
+    length += to_label.len();
+    line[length] = thread_digit(to);
+    length += 1;
+    line[length..length + 2].copy_from_slice(b"\r\n");
+    length += 2;
+    serial_write(&line[..length]);
+}
+
+#[cfg(not(test))]
+fn append_thread_trace_decimal(line: &mut [u8], length: &mut usize, mut value: u64) {
+    let mut digits = [0_u8; 20];
+    let mut start = digits.len();
+    loop {
+        start -= 1;
+        digits[start] = b'0' + (value % 10) as u8;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    let digit_count = digits.len() - start;
+    line[*length..*length + digit_count].copy_from_slice(&digits[start..]);
+    *length += digit_count;
+}
+
+#[cfg(not(test))]
+fn trace_user_thread_sleep_wait(thread: u8, tick: u64, wake_at: u64) {
+    const MAX_EVENTS: usize = 128;
+    if M17_USER_THREAD_TRACE_EVENTS.fetch_add(1, Ordering::Relaxed) >= MAX_EVENTS {
+        return;
+    }
+
+    let mut line = [0_u8; 112];
+    let prefix = b"Nagi M17 trace: thread sleep-wait id=";
+    let tick_label = b" tick=";
+    let wake_label = b" wake=";
+    let mut length = prefix.len();
+    line[..length].copy_from_slice(prefix);
+    line[length] = if thread < 10 {
+        b'0' + thread
+    } else {
+        b'a' + (thread - 10)
+    };
+    length += 1;
+    line[length..length + tick_label.len()].copy_from_slice(tick_label);
+    length += tick_label.len();
+    append_thread_trace_decimal(&mut line, &mut length, tick);
+    line[length..length + wake_label.len()].copy_from_slice(wake_label);
+    length += wake_label.len();
+    append_thread_trace_decimal(&mut line, &mut length, wake_at);
+    line[length..length + 2].copy_from_slice(b"\r\n");
+    length += 2;
+    serial_write(&line[..length]);
+}
+
+#[cfg(not(test))]
+fn trace_user_thread_sleep_wake(thread: u8, next: u8, tick: u64) {
+    const MAX_EVENTS: usize = 128;
+    if M17_USER_THREAD_TRACE_EVENTS.fetch_add(1, Ordering::Relaxed) >= MAX_EVENTS {
+        return;
+    }
+
+    let mut line = [0_u8; 112];
+    let prefix = b"Nagi M17 trace: thread sleep-wake id=";
+    let next_label = b" next=";
+    let tick_label = b" tick=";
+    let mut length = prefix.len();
+    line[..length].copy_from_slice(prefix);
+    line[length] = if thread < 10 {
+        b'0' + thread
+    } else {
+        b'a' + (thread - 10)
+    };
+    length += 1;
+    line[length..length + next_label.len()].copy_from_slice(next_label);
+    length += next_label.len();
+    line[length] = if next < 10 {
+        b'0' + next
+    } else {
+        b'a' + (next - 10)
+    };
+    length += 1;
+    line[length..length + tick_label.len()].copy_from_slice(tick_label);
+    length += tick_label.len();
+    append_thread_trace_decimal(&mut line, &mut length, tick);
+    line[length..length + 2].copy_from_slice(b"\r\n");
+    length += 2;
+    serial_write(&line[..length]);
+}
 
 #[cfg(not(test))]
 global_asm!(
@@ -658,7 +780,8 @@ fn thread_contexts() -> &'static mut [UserThreadContext; nagi_abi::BOOTSTRAP_USE
 }
 
 #[cfg(not(test))]
-fn switch_to_thread(thread: u8) {
+fn switch_to_thread(from: u8, thread: u8, event: &[u8]) {
+    trace_user_thread_event(event, from, thread);
     unsafe {
         NAGI_SYSCALL_NEXT_CONTEXT =
             core::ptr::addr_of_mut!(NAGI_THREAD_CONTEXTS[thread as usize]) as u64;
@@ -733,11 +856,12 @@ fn valid_thread_exit_code_address(address: u64) -> bool {
 
 #[cfg(not(test))]
 fn thread_yield(frame: &SyscallFrame) -> u64 {
+    let current = current_user_thread();
     save_current_thread_context(frame, 0);
     let Some(next) = thread_table().yield_current(interrupts::timer_ticks()) else {
         return u64::MAX;
     };
-    switch_to_thread(next);
+    switch_to_thread(current, next, b"yield");
     0
 }
 
@@ -746,16 +870,19 @@ fn thread_sleep(duration_ns: u64, frame: &SyscallFrame) -> u64 {
     if duration_ns == 0 {
         return thread_yield(frame);
     }
+    let current = current_user_thread();
     save_current_thread_context(frame, 0);
     let now = interrupts::timer_ticks();
     let sleep_ticks = duration_ns.div_ceil(10_000_000).max(1);
     let wake_at = now.saturating_add(sleep_ticks);
     if let Some(next) = thread_table().sleep_current(wake_at, now) {
-        switch_to_thread(next);
+        switch_to_thread(current, next, b"sleep");
         return 0;
     }
+    trace_user_thread_sleep_wait(current, now, wake_at);
     if let Some(next) = wait_until_runnable(false) {
-        switch_to_thread(next);
+        trace_user_thread_sleep_wake(current, next, interrupts::timer_ticks());
+        switch_to_thread(current, next, b"sleep");
         0
     } else {
         halt_forever()
@@ -859,6 +986,7 @@ fn thread_create(frame: &SyscallFrame) -> u64 {
     context.user_rsp = stack_end - 8;
     context.user_fs_base =
         nagi_kernel::user_process::user_tls_control_base(thread as usize).unwrap_or(0);
+    trace_user_thread_event(b"create", current_user_thread(), thread);
     u64::from(thread)
 }
 
@@ -884,10 +1012,10 @@ fn thread_join(thread: u64, result_address: u64, frame: &SyscallFrame) -> u64 {
             unsafe { NAGI_THREAD_JOIN_OUT[caller as usize] = result_address };
             let current = thread_table().current();
             if current != caller {
-                switch_to_thread(current);
+                switch_to_thread(caller, current, b"join");
                 0
             } else if let Some(next) = wait_until_runnable(true) {
-                switch_to_thread(next);
+                switch_to_thread(caller, next, b"join");
                 0
             } else {
                 u64::MAX
@@ -899,6 +1027,7 @@ fn thread_join(thread: u64, result_address: u64, frame: &SyscallFrame) -> u64 {
 
 #[cfg(not(test))]
 fn thread_exit(code: u64) -> u64 {
+    let current = current_user_thread();
     let now = interrupts::timer_ticks();
     let Some(outcome) = thread_table().exit_current(code, now) else {
         return u64::MAX;
@@ -917,7 +1046,7 @@ fn thread_exit(code: u64) -> u64 {
         .next_thread
         .or_else(|| wait_until_runnable(false))
         .unwrap_or_else(|| halt_forever());
-    switch_to_thread(next);
+    switch_to_thread(current, next, b"exit");
     u64::MAX
 }
 

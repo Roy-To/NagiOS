@@ -24,6 +24,10 @@ const PTHREAD_INHERIT_SCHED: c_int = 1;
 const PTHREAD_SCOPE_SYSTEM: c_int = 1;
 const SCHED_RR: c_int = 1;
 static NEXT_TLS_KEY: AtomicUsize = AtomicUsize::new(1);
+#[cfg(target_os = "nagi")]
+static PTHREAD_TRAMPOLINE_ENTERED_TRACES: AtomicUsize = AtomicUsize::new(0);
+#[cfg(target_os = "nagi")]
+static PTHREAD_ROUTINE_RETURNED_TRACES: AtomicUsize = AtomicUsize::new(0);
 static mut TLS_VALUES: [[usize; TLS_SLOTS]; THREAD_SLOTS] = [[0; TLS_SLOTS]; THREAD_SLOTS];
 const THREAD_NAME_LENGTH: usize = 16;
 static mut THREAD_NAMES: [[u8; THREAD_NAME_LENGTH]; THREAD_SLOTS] =
@@ -212,9 +216,19 @@ extern "C" fn pthread_trampoline(record: *mut c_void) -> ! {
     let record = record.cast::<PthreadStartRecord>();
     let (start, argument) = unsafe { ((*record).start, (*record).argument) };
     unsafe { release_pthread_start_record(record) };
+    #[cfg(target_os = "nagi")]
+    trace_pthread_stage(
+        &PTHREAD_TRAMPOLINE_ENTERED_TRACES,
+        b"pthread trampoline entered",
+    );
     let result = start
         .map(|routine| routine(argument))
         .unwrap_or(ptr::null_mut());
+    #[cfg(target_os = "nagi")]
+    trace_pthread_stage(
+        &PTHREAD_ROUTINE_RETURNED_TRACES,
+        b"pthread routine returned",
+    );
     libnagi::thread_exit(result as u64)
 }
 
@@ -2196,6 +2210,23 @@ pub unsafe extern "C" fn sysconf(name: c_int) -> isize {
 #[cfg(target_os = "nagi")]
 fn trace_pthread_create_failure(message: &'static [u8]) {
     let _ = unsafe { crate::nagi_posix_write(2, message.as_ptr(), message.len()) };
+}
+
+#[cfg(target_os = "nagi")]
+fn trace_pthread_stage(counter: &AtomicUsize, stage: &'static [u8]) {
+    const MAX_STAGE_TRACES: usize = 16;
+    if counter.fetch_add(1, Ordering::Relaxed) >= MAX_STAGE_TRACES {
+        return;
+    }
+    let mut line = [0_u8; 96];
+    let prefix = b"Nagi M17 trace: ";
+    let mut length = prefix.len();
+    line[..length].copy_from_slice(prefix);
+    line[length..length + stage.len()].copy_from_slice(stage);
+    length += stage.len();
+    line[length..length + 2].copy_from_slice(b"\r\n");
+    length += 2;
+    let _ = unsafe { crate::nagi_posix_write(2, line.as_ptr(), length) };
 }
 
 #[cfg(not(target_os = "nagi"))]

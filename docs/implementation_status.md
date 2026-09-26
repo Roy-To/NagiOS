@@ -27,14 +27,17 @@ CI; until it produces the real first-web-pixel checksum and pass marker, M17
 remains `BLOCKED` and M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run 36232073962 (#238, head
-18ee17af21a2dcf567497832a7e261e0d5f201c1) passed both host jobs and all target
-build steps through UEFI. QEMU created the Mesa GL context, then Servo's
-memory-profiler thread creation was rejected with the exact kernel trace
-`SYS_THREAD_CREATE rejected: child slot occupied`. The real acceptance
-produced no first-web-pixel checksum or PASS marker. ADR 0029 records the
-bounded multi-thread bootstrap needed to continue. M17 remains BLOCKED; M18
-remains NOT STARTED.
+**Last known repair checkpoint:** public CI run 36237832887 (#252, head
+`71fd5c33b53e97251ca4dc0f4569c8944887eb10`) passed the Nagi kernel,
+user-init, and UEFI builds. The real QEMU acceptance reached
+`Servo construction started` after EGL context creation, then timed out after
+120 seconds without a `Servo constructed` trace or first-web-pixel checksum.
+The log did not establish whether a child thread was created, selected, or
+entered its POSIX start routine. Local commit `4d79bbe` repairs the two host
+jobs' stale fixed-TLS-address assertion. Bounded scheduler, sleep-tick,
+trampoline, Servo-construction, and worker traces now identify the next QEMU
+stop point. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI Actions run #238 (2026-09-26)
 
@@ -75,6 +78,65 @@ Local verification on 2026-09-26:
 - Standalone scheduler and thread-helper harnesses passed 9 and 2 tests,
   respectively.
 - `git diff --check` passed.
+
+Public CI run 36237832887 (workflow run #252, head
+`71fd5c33b53e97251ca4dc0f4569c8944887eb10`) passed Ubuntu formatting,
+Clippy, and build, and passed the Windows workspace build. Both host test jobs
+then failed on the same stale source-contract assertion in
+`tools/nagi-cli/src/mesa.rs:606`, which expected a fixed child TLS address.
+The implementation now assigns each thread its own TLS control page. Local
+commit `4d79bbe` updates the assertion to require that per-thread mapping;
+the focused source-contract test and all 72 `nagi-cli` library tests pass
+locally. This repair is not included in run #252. Its target job passed the
+Nagi kernel, user-init, and UEFI builds. The real QEMU acceptance timed out
+after 120 seconds (exit status 4) during `ServoBuilder::build()`: the final
+application trace was `Servo construction started`, with no
+`Servo constructed`, pthread-create rejection, kernel thread-create rejection,
+panic, first-web-pixel checksum, or PASS marker reported after that point.
+Thus the run does not show whether a worker was created or scheduled. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current diagnostic continuation after CI run #252 (2026-09-26)
+
+Added bounded kernel traces for bootstrap thread creation and each yield,
+sleep, join, and exit context switch, including source and destination thread
+IDs. If a sleeping thread has no runnable peer, the kernel records the
+current tick and deadline before waiting and the observed tick after wake, so
+a stalled deadline can be distinguished from a worker that never reaches its
+wait. Added POSIX traces for the first 16 pthread trampoline entries and first
+16 routine returns. Nagi-owned Servo patch `0011` adds checkpoints inside
+`Servo::new` around option/media setup, profiler creation, JavaScript
+initialization, paint/resource/storage setup, constellation startup, TLS
+prewarming, and final construction. Patch `0012` traces the Servo media and
+memory-profiler workers from spawn request through worker entry and
+successful profiler construction. The 128-event kernel cap and per-stage
+POSIX caps keep the diagnostics finite. Scheduling and acceptance behavior are
+unchanged.
+This instrumentation distinguishes a synchronous setup stall, a failed
+context restore, a child that is never created or selected, a trampoline-entry
+failure, and a worker that enters but does not return or yield. It does not
+fix a root cause.
+
+Local verification on 2026-09-26:
+
+- The CI-scoped Rust formatting commands passed.
+- `cargo check -p nagi-kernel --lib --tests --target
+  x86_64-unknown-linux-gnu --locked` passed using the pinned nightly toolchain;
+  it reported the pre-existing unused imports in test-only syscall code.
+- The release `x86_64-unknown-nagi` kernel build passed.
+- `cargo check -p nagi-posix --tests --target
+  x86_64-unknown-linux-gnu --locked` passed as a compile check; the x86 test
+  binary was not executed on this Apple-Silicon host.
+- The `x86_64-unknown-nagi-user` POSIX target check passed, with the existing
+  visibility and dead-code warnings.
+- Servo diagnostic patches 0011 and 0012 passed `git apply --check` against the
+  current generated checkout with patches 0001–0010 applied.
+- All 74 `nagi-cli` library tests passed, including source-contract checks for
+  Servo patches 0011 and 0012.
+- `git diff --check` passed.
+
+The complete `nagi-init --features m17-servo` link and QEMU acceptance still
+require public target CI. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 The POSIX test suite was not executed on this Apple-Silicon host: its
 `libnagi` syscall assembly uses x86 registers, so a native AArch64 test build

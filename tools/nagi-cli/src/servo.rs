@@ -797,6 +797,67 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_traces_m17_construction_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0011-nagi-m17-servo-construction-traces.patch"),
+        )
+        .expect("M17 Servo construction trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "Servo::new entered",
+            "Servo::new options initialized",
+            "Servo::new media init started",
+            "Servo::new time profiler started",
+            "Servo::new memory profiler started",
+            "Servo::new JS engine setup started",
+            "Servo::new paint creation started",
+            "Servo::new resource threads started",
+            "Servo::new storage threads started",
+            "Servo::new constellation started",
+            "Servo::new TLS prewarm started",
+            "Servo::new completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
+    fn servo_patch_boundary_traces_m17_media_and_memory_workers() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0012-nagi-m17-servo-worker-traces.patch"),
+        )
+        .expect("M17 Servo worker trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "ServoMedia init spawn started",
+            "ServoMedia worker entered",
+            "ServoMedia worker completed",
+            "ServoMedia init spawn returned",
+            "MemoryProfiler create entered",
+            "MemoryProfiler spawn started",
+            "MemoryProfiler worker entered",
+            "MemoryProfiler initialized",
+            "MemoryProfiler worker returned",
+            "MemoryProfiler spawn returned",
+            "MemoryProfiler create completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
     fn patch_application_uses_numeric_order() {
         let root = temp_root("patch-apply");
         let checkout = root.join("third_party/servo");

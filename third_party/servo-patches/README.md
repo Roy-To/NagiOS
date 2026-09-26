@@ -33,3 +33,18 @@ Surfman GL context-creation error through that callback on Nagi. Servo's normal
 failure report uses `println!`, whose stdout path returns `EIO` in the guest
 and can panic before the underlying Surfman error is visible. Other targets
 retain Servo's existing fallback diagnostics.
+
+The ordered patch `0011-nagi-m17-servo-construction-traces.patch` adds
+Nagi-only checkpoints around `Servo::new` option/media setup, profiler
+creation, JavaScript initialization, paint/resource/storage setup, constellation
+startup, TLS prewarming, and final Servo construction. The checkpoints use the
+same Nagi console callback and compile to no-ops on other targets. They locate
+synchronous initialization stalls without changing Servo's startup order.
+
+The ordered patch `0012-nagi-m17-servo-worker-traces.patch` follows the first
+Servo media worker and memory-profiler worker across spawn, entry, and return.
+It distinguishes spawn failure from a worker that starts but stalls during
+backend or profiler initialization, and marks when the memory profiler has
+been constructed before it enters its receive loop. These Nagi-only
+checkpoints use the same console callback and are no-ops on other targets;
+they do not change thread creation or scheduling behavior.
