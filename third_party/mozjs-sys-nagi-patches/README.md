@@ -143,3 +143,14 @@ construction, around the first liveness read and result, and through the first
 collision probe when needed. The liveness result is read once and drives the
 same branch as the uninstrumented implementation. The first-probe markers are
 emitted once, so an unexpected collision loop does not flood the serial log.
+
+CI #264 reached the primary liveness-read marker but emitted no result. Patch
+`0017` now logs the primary index, capacity, table base, and key-hash address
+before the read, then logs the loaded hash value. It performs one load and
+passes that value to the same `Slot::isLiveHash` predicate. Numeric fields
+are formatted into bounded stack buffers and sent through the existing guest
+console callback; no allocator or hash-table state is introduced.
+The `nagi-cli` source-contract test guards the message-buffer declarations,
+and the complete ordered patch series was applied to the SHA-256-verified
+registry source archive. Target compilation and the next real guest trace
+remain pending public CI.

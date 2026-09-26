@@ -2702,3 +2702,32 @@ result. These Nagi-only callbacks exist only on the TypeIdSet allocation
 policy; each liveness value is read once and feeds the original branch. No
 allocator, table layout, hash, or retry behavior is changed. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
+
+## TypeIdSet liveness-read trace after CI run #264 (2026-09-27)
+
+Public CI run #264 (`36272680212`, head
+`6b128ac29da04badfe60ed0bf0d6452f09f75a45`) passed the host jobs, target
+dependency boundary, Mesa Softpipe, M16 package, kernel, real `nagi-init`
+link, and UEFI loader. The M17 QEMU acceptance timed out with exit code 4.
+Both boots stopped after
+`findNonLiveSlot primary liveness read started`; neither produced a checksum
+or first-web-pixel PASS marker.
+
+The new checkpoints show that `hash1` and `slotForIndex` returned. The
+next read is `*slot.mKeyHash` inside the liveness check. CI #264 does not
+show its address or loaded value, so it cannot yet distinguish an invalid
+pointer from a hash value/table-state problem.
+
+The next diagnostic records `h1`, capacity, table base, and the slot's
+key-hash pointer before loading. It then reads the hash once, records the raw
+value, and passes that value to the same `Slot::isLiveHash` predicate. The
+markers compile only for the Nagi TypeIdSet policy. This keeps the existing
+predicate and branch while identifying whether the load itself returns.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+The source-contract test now guards the diagnostic buffers' declared
+capacities. All 77 `nagi-cli` library tests and ordered application of the
+patch series to the SHA-256-verified registry archive pass. Local C++ build
+verification remains pending because the host linker invokes `xcrun` as
+x86_64, which cannot load the installed arm64/arm64e-only `libxcrun`; public
+target CI remains authoritative for this patch's compile and guest trace.

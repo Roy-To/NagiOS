@@ -4817,6 +4817,35 @@ checks this ordering. The focused tests and a new target CI run must confirm
 the patch compiles before QEMU can provide the allocator markers. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #264 (2026-09-27)
+
+Public CI run #264 (`36272680212`, head
+`6b128ac29da04badfe60ed0bf0d6452f09f75a45`) passed both host jobs, the M17
+target dependency boundary, Mesa Softpipe, M16 package, kernel, real
+`nagi-init` link, and UEFI loader build. The M17 QEMU first-web-pixel
+acceptance timed out and returned exit code 4; neither boot produced a
+checksum or first-web-pixel PASS marker.
+
+Both guest traces completed table allocation, slot initialization,
+`createTable`, `changeTableSize`, primary-index calculation, and primary
+slot construction. They stopped after `primary liveness read started`, with
+no live/free result. The next Nagi-only checkpoint logs the index, capacity,
+table base, and key-hash address before the load, then logs the raw hash after
+one load and evaluates the existing `Slot::isLiveHash` predicate on that
+value. This distinguishes an invalid slot address from an unexpected key hash
+without reading memory twice or changing the hash-table branch. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+The local `nagi-cli` library suite passes all 77 tests, including the source
+contract for the new trace and a guard for the fixed-size address-message
+buffers. Rust formatting and `git diff --check` pass. The ordered MozJS patch
+series 0001–0017 applies to the cached registry archive after its SHA-256 is
+verified against `sources.lock` (`28adaa4255fd0d42133b993ff81d391df41de1d718777f2e3f0aee5ba8636f10`).
+The repository `./nagi fetch` bootstrap could not link locally: its linker
+invoked `xcrun` as x86_64 while the installed Command Line Tools provide
+arm64/arm64e `libxcrun`. Thus this host has not compiled the updated C++ patch;
+the next target CI must verify that compile and emit the address/hash trace.
+
 ### Current M17 continuation after CI run #263 (2026-09-27)
 
 Public CI run #263 (`36267970162`, head

@@ -301,7 +301,9 @@ mod tests {
             "SpiderMonkey Wasm TypeIdSet HashSet add completed",
             "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary index computed",
             "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot computed",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot state index=0x",
             "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary liveness read started",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary key hash=0x",
             "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot is live",
             "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot is free",
             "SpiderMonkey Wasm TypeIdSet findNonLiveSlot collision path entered",
@@ -332,6 +334,10 @@ mod tests {
             "-    aPtr.mSlot.setLive(aPtr.mKeyHash, std::forward<Args>(aArgs)...);\n+    if constexpr (requires { AllocPolicy::traceM17SetLiveStarted(); }) {"
         ));
         assert!(patch.contains("requires { AllocPolicy::traceM17SetLiveStarted(); }"));
+        assert!(patch.contains("const HashNumber primaryKeyHash = *slot.mKeyHash;"));
+        assert!(patch.contains("const bool primarySlotIsLive = Slot::isLiveHash(primaryKeyHash);"));
+        assert!(patch.contains("+      char indexMessage[128];"));
+        assert!(patch.contains("+      char addressMessage[96];"));
         let find_non_live = patch
             .find("  Slot findNonLiveSlot(HashNumber aKeyHash) {")
             .expect("findNonLiveSlot patch context");
@@ -339,7 +345,9 @@ mod tests {
         let ordered_stages = [
             "traceM17FindNonLiveSlotPrimaryIndexComputed",
             "traceM17FindNonLiveSlotPrimarySlotComputed",
+            "traceM17FindNonLiveSlotPrimarySlotState",
             "traceM17FindNonLiveSlotPrimaryLivenessReadStarted",
+            "traceM17FindNonLiveSlotPrimaryHashValue",
             "traceM17FindNonLiveSlotPrimarySlotIsLive",
             "traceM17FindNonLiveSlotPrimarySlotIsFree",
             "traceM17FindNonLiveSlotCollisionPathEntered",

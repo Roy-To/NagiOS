@@ -76,7 +76,7 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +    NAGI_M17_TRACE("SpiderMonkey Wasm RecGroup hash completed");
 +    return groupHash;
 +  }
-@@ -509 +526,82 @@
+@@ -509 +526,131 @@
 -  using Set = HashSet<SharedRecGroup, RecGroupHashPolicy, SystemAllocPolicy>;
 +#if defined(__NAGI__)
 +  class TypeIdSetAllocPolicy : public SystemAllocPolicy {
@@ -141,6 +141,55 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +    static void traceM17FindNonLiveSlotFirstProbeSlotIsFree() {
 +      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe slot is free");
 +    }
++    static char* appendTraceText(char* output, const char* text) {
++      while (*text) {
++        *output++ = *text++;
++      }
++      return output;
++    }
++
++    static char* appendTraceHex(char* output, uintptr_t value, size_t digits) {
++      static constexpr char alphabet[] = "0123456789abcdef";
++      for (size_t i = 0; i < digits; ++i) {
++        size_t shift = (digits - i - 1) * 4;
++        output[i] = alphabet[(value >> shift) & 0xf];
++      }
++      return output + digits;
++    }
++
++    static void traceM17FindNonLiveSlotPrimarySlotState(
++        HashNumber index, uint32_t tableCapacity, uintptr_t table,
++        uintptr_t keyHash) {
++      char indexMessage[128];
++      char* indexCursor = appendTraceText(
++          indexMessage,
++          "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot state index=0x");
++      indexCursor = appendTraceHex(indexCursor, index, 8);
++      indexCursor = appendTraceText(indexCursor, " capacity=0x");
++      indexCursor = appendTraceHex(indexCursor, tableCapacity, 8);
++      nagi_m17_console_trace(indexMessage,
++                             static_cast<size_t>(indexCursor - indexMessage));
++
++      char addressMessage[96];
++      char* addressCursor =
++          appendTraceText(addressMessage, "SpiderMonkey Wasm TypeIdSet table=0x");
++      addressCursor =
++          appendTraceHex(addressCursor, table, sizeof(uintptr_t) * 2);
++      addressCursor = appendTraceText(addressCursor, " keyhash=0x");
++      addressCursor =
++          appendTraceHex(addressCursor, keyHash, sizeof(uintptr_t) * 2);
++      nagi_m17_console_trace(
++          addressMessage, static_cast<size_t>(addressCursor - addressMessage));
++    }
++
++    static void traceM17FindNonLiveSlotPrimaryHashValue(HashNumber hash) {
++      char message[96];
++      char* cursor = appendTraceText(
++          message,
++          "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary key hash=0x");
++      cursor = appendTraceHex(cursor, hash, 8);
++      nagi_m17_console_trace(message, static_cast<size_t>(cursor - message));
++    }
 +    static void traceM17SetLiveStarted() {
 +      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet setLive started");
 +    }
@@ -160,22 +209,22 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +  using TypeIdSetAllocPolicy = SystemAllocPolicy;
 +#endif
 +  using Set = HashSet<SharedRecGroup, RecGroupHashPolicy, TypeIdSetAllocPolicy>;
-@@ -516 +614,3 @@
+@@ -516 +663,3 @@
 -    Set::AddPtr p = set_.lookupForAdd(recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd started");
 +    Set::AddPtr p = set_.lookupForAdd(recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd completed");
-@@ -524 +624,4 @@
+@@ -524 +673,4 @@
 -    if (!set_.add(p, recGroup)) {
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add started");
 +    bool added = set_.add(p, recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add completed");
 +    if (!added) {
-@@ -569 +672,2 @@
+@@ -569 +721,2 @@
 -  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock started");
 +  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();
-@@ -570 +674,5 @@
+@@ -570 +723,5 @@
 -  return locked->insert(recGroup);
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock acquired");
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set insertion started");
@@ -205,7 +254,7 @@ diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
 +                    }) {
 +        AllocPolicy::traceM17CreateTableSlotsCompleted();
 +      }
-@@ -1882,29 +1892,105 @@
+@@ -1882,29 +1892,121 @@
 -  Slot findNonLiveSlot(HashNumber aKeyHash) {
 -    MOZ_ASSERT(!(aKeyHash & sCollisionBit));
 -    MOZ_ASSERT(mTable);
@@ -254,6 +303,15 @@ diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
 +                  }) {
 +      AllocPolicy::traceM17FindNonLiveSlotPrimarySlotComputed();
 +    }
++    if constexpr (requires {
++                    AllocPolicy::traceM17FindNonLiveSlotPrimarySlotState(
++                        h1, capacity(), reinterpret_cast<uintptr_t>(mTable),
++                        reinterpret_cast<uintptr_t>(slot.mKeyHash));
++                  }) {
++      AllocPolicy::traceM17FindNonLiveSlotPrimarySlotState(
++          h1, capacity(), reinterpret_cast<uintptr_t>(mTable),
++          reinterpret_cast<uintptr_t>(slot.mKeyHash));
++    }
 +
 +    // Miss: return space for a new entry.
 +    if constexpr (requires {
@@ -261,7 +319,14 @@ diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
 +                  }) {
 +      AllocPolicy::traceM17FindNonLiveSlotPrimaryLivenessReadStarted();
 +    }
-+    const bool primarySlotIsLive = slot.isLive();
++    const HashNumber primaryKeyHash = *slot.mKeyHash;
++    if constexpr (requires {
++                    AllocPolicy::traceM17FindNonLiveSlotPrimaryHashValue(
++                        primaryKeyHash);
++                  }) {
++      AllocPolicy::traceM17FindNonLiveSlotPrimaryHashValue(primaryKeyHash);
++    }
++    const bool primarySlotIsLive = Slot::isLiveHash(primaryKeyHash);
 +    if (primarySlotIsLive) {
 +      if constexpr (requires {
 +                      AllocPolicy::traceM17FindNonLiveSlotPrimarySlotIsLive();
@@ -340,7 +405,7 @@ diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
 +      }
 +    }
 +  }
-@@ -1921 +1931,7 @@
+@@ -1921 +2023,7 @@
 -    char* newTable = createTable(*this, newCapacity, aReportFailure);
 +    if constexpr (requires { AllocPolicy::traceM17CreateTableStarted(); }) {
 +      AllocPolicy::traceM17CreateTableStarted();
@@ -349,7 +414,7 @@ diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
 +    if constexpr (requires { AllocPolicy::traceM17CreateTableCompleted(); }) {
 +      AllocPolicy::traceM17CreateTableCompleted();
 +    }
-@@ -2209 +2225,11 @@
+@@ -2209 +2317,11 @@
 -      RebuildStatus status = changeTableSize(newCapacity, ReportFailure);
 +      if constexpr (requires {
 +                      AllocPolicy::traceM17ChangeTableSizeStarted();
@@ -362,7 +427,7 @@ diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
 +                    }) {
 +        AllocPolicy::traceM17ChangeTableSizeCompleted();
 +      }
-@@ -2214 +2240,11 @@
+@@ -2214 +2332,11 @@
 -      aPtr.mSlot = findNonLiveSlot(aPtr.mKeyHash);
 +      if constexpr (requires {
 +                      AllocPolicy::traceM17FindNonLiveSlotStarted();
@@ -375,7 +440,7 @@ diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
 +                    }) {
 +        AllocPolicy::traceM17FindNonLiveSlotCompleted();
 +      }
-@@ -2239 +2275,7 @@
+@@ -2239 +2367,7 @@
 -    aPtr.mSlot.setLive(aPtr.mKeyHash, std::forward<Args>(aArgs)...);
 +    if constexpr (requires { AllocPolicy::traceM17SetLiveStarted(); }) {
 +      AllocPolicy::traceM17SetLiveStarted();
