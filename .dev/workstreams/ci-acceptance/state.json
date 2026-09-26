@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "ci-acceptance",
   "current_milestone": "CI / Acceptance Infrastructure",
-  "current_checkpoint": "windows-m0-locked-executable-repair-ci-running",
+  "current_checkpoint": "root-host-gates-pass-m17-target-running",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "0dca4156265fa0ddb03a478b1122365e58431311",
-    "verified_at": "2026-09-26T09:42:14Z",
-    "normal_state": "The acceptance runner remains integrated and its CLI suite passes. Run #36232966992 confirmed Windows script-root resolution now works, then failed because nested cargo tried to remove the still-running target/debug/nagi.exe. Commit 3d2001c assigns nested launcher invocations a temporary CARGO_TARGET_DIR and restores/cleans it. Local M0 Linux shell acceptance, CLI formatting, all 103 unit and 26 CLI tests, and Clippy pass; the PowerShell script is not locally executable because pwsh is absent. Run #36233551349 is in progress. Keep CI acceptance PARTIAL until Windows acceptance and the integrated target workflow complete; M17 evidence criteria are unchanged.",
+    "commit_sha": "3d2001c58f64cd5a3f63751224c2fb21ee325e40",
+    "verified_at": "2026-09-26T09:49:10Z",
+    "normal_state": "The Windows nested launcher test is now verified. Root CI #36233551349 passed Ubuntu and Windows host jobs; its Windows acceptance artifact records M0-LAUNCHER PASS (exit 0, 14,642 ms), with 20 target cases accurately marked NOT RUN. The PowerShell acceptance uses an isolated temporary CARGO_TARGET_DIR to avoid replacing the executable that is running the test. The target job is still executing the real M17 first-web-pixel acceptance, so the whole workstream remains PARTIAL and M17 remains BLOCKED until actual pixel evidence and marker appear.",
     "commands": [
       "cargo test -p nagi-cli --locked --offline",
       "cargo fmt --all -- --check",
@@ -39,7 +39,9 @@
       "cargo fmt --package nagi-cli -- --check",
       "cargo test -p nagi-cli --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
       "cargo clippy -p nagi-cli --all-targets --locked --offline --config 'build.target=\"x86_64-apple-darwin\"' -- -D warnings",
-      "./nagi dev status"
+      "./nagi dev status",
+      "gh run view 36233551349 --json status,conclusion,jobs,url",
+      "gh run download 36233551349 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362335-windows"
     ],
     "tests": [
       {
@@ -143,9 +145,9 @@
       {
         "name": "Windows M0 PowerShell acceptance with isolated Cargo target",
         "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
-        "outcome": "IN_PROGRESS",
-        "exit_code": null,
-        "evidence": "Root CI run 36233551349 is verifying the temporary CARGO_TARGET_DIR fix."
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Windows artifact from #36233551349 records M0-LAUNCHER PASS, exit 0 in 14,642 ms, with 20 filtered target cases NOT RUN."
       },
       {
         "name": "Recent CI status ordering regression",
@@ -215,13 +217,13 @@
         "head_sha": "3d2001c58f64cd5a3f63751224c2fb21ee325e40",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Windows and Ubuntu host jobs are checking isolated nested Cargo target behavior; target is gated."
+        "summary": "Ubuntu and Windows host gates passed; Windows M0-LAUNCHER passed in the retained artifact. The M17 target job is running, so overall CI remains IN_PROGRESS."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md section 75 and docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T09:42:14Z",
+    "last_checked_at": "2026-09-26T09:49:10Z",
     "activation_requirement": "This change centralizes existing acceptance wrappers and diagnostics only. It does not redesign or weaken milestone success criteria; product/runtime activation remains behind the existing Nagi 0.1 sequence and M30 release boundary."
   },
   "blocker": {
@@ -238,7 +240,7 @@
       "Do not merge this integration branch directly to main."
     ]
   },
-  "next_action": "Inspect root run 36233551349 for Windows M0 acceptance and Ubuntu host completion. Inspect the target artifact only if both hosts pass. Keep CI acceptance PARTIAL until the Windows wrapper and integrated workflow are verified; preserve M17 checksum/marker criteria.",
+  "next_action": "Inspect target run 36233551349 and its M17 diagnostic artifacts. Keep CI acceptance PARTIAL and M17 BLOCKED until the real guest pixel checksum and marker are produced.",
   "acceptance_criteria": [
     "A single registry maps acceptance IDs to milestone, subsystem, host/target scope, wrapper, timeout, and test name.",
     "Runner options filter by milestone/subsystem/scope and report all other cases as NOT RUN.",

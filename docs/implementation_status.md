@@ -3096,7 +3096,10 @@ file-lock failure: nested Cargo could not replace the running
 isolated temporary `CARGO_TARGET_DIR` and restores the environment afterward.
 The local M0 host run passed through the Linux shell wrapper; this macOS host
 has no `pwsh`, so that does not verify the Windows script. Root run
-`36233551349` is checking the isolated build. M17 remains `BLOCKED` until the
+`36233551349` passed both Ubuntu and Windows host jobs. Its retained Windows
+report records M0-LAUNCHER `PASS` (exit 0); 20 filtered target cases remain
+`NOT RUN`. The run's target job is now executing the real M17 first-web-pixel
+acceptance. M17 remains `BLOCKED` until the
 real guest produces its pixel checksum and acceptance marker; M18 remains
 `NOT STARTED`. The UI-specific M10 guest preview remains blocked before UI
 startup by the existing M5 `invalid-elf` / empty `PT_TLS` failure. No kernel
