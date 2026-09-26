@@ -6,7 +6,7 @@
   "current_checkpoint": "capability-permissions-integrated",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "8fd2193c9f9292cf78fca49c0cc7a0f9b0e1288e",
+    "commit_sha": "8fd2193725a46c47e3ca4c2dcf98d7424902f077",
     "verified_at": "2026-09-26T07:02:32Z",
     "normal_state": "Integrated the isolated capability/permission host foundation and registered it with the development-foundation dependency in the integration-owned registry. Kept root Cargo workspace/runtime activation gated on M30 PASS and an explicit release checkpoint. The isolated capability crate passes formatting, 26 unit tests, 2 integration tests, and Clippy with warnings denied; nagi-package regressions (5 tests), registry validation (11 registered workstreams, 3 state files), and diff checks pass. The source workstream state remains PARTIAL with its original branch-local CI and root-host limitations recorded; integration verification addresses the registry blocker. M17 remains BLOCKED and M18 remains NOT STARTED per docs/implementation_status.md.",
     "commands": [
