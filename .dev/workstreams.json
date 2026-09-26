@@ -219,6 +219,36 @@
       ],
       "activation_gate": "Host-side App SDK/Contract preparation only; runtime integration requires Nagi 0.1 M30 PASS and an explicit 0.2 integration checkpoint.",
       "merge_boundary": "Dedicated codex/integration-next-phase checkpoint after contract compatibility and host acceptance; never merge directly to main."
+    },
+    {
+      "id": "wayback-activity-ledger",
+      "owner": "Codex Wayback / AI Activity Ledger",
+      "owner_branch": "codex/0.2-wayback-ledger",
+      "recommended_worktree": "../NagiOS-0.2-wayback",
+      "state_file": ".dev/workstreams/wayback-activity-ledger/state.json",
+      "dependencies": ["development-foundation"],
+      "allowed_paths": [
+        ".dev/workstreams/wayback-activity-ledger/**",
+        "crates/nagi-wayback/**",
+        "docs/0.2/wayback/**",
+        "schemas/wayback/**",
+        "tests/wayback/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "sdk/**",
+        "crates/nagi-model/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "third_party/**",
+        ".github/workflows/**",
+        "docs/implementation_status.md",
+        "docs/first_party/**"
+      ],
+      "activation_gate": "Host-side contract/reference work only. Filesystem/runtime integration, restore execution, and user-facing product adoption require Nagi 0.1 M30 PASS plus an explicit 0.2 integration checkpoint.",
+      "merge_boundary": "Host-side contracts may integrate on codex/integration-next-phase after focused checks; runtime and product adoption remain gated, and this branch must never merge directly to main."
     }
   ]
 }
