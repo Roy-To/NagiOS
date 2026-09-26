@@ -1,0 +1,12 @@
+[package]
+name = "nagi-ui"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Backend-neutral, no_std UI tokens and interaction contracts for Nagi OS"
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"

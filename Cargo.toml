@@ -14,6 +14,7 @@ members = [
     "user/nagi-audio",
     "user/nagi-history",
     "user/nagi-package",
+    "user/nagi-ui",
     "user/nagi-servo",
     "user/nagi-init",
 ]

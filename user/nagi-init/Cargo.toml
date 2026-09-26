@@ -30,6 +30,7 @@ nagi-audio = { path = "../nagi-audio" }
 nagi-history = { path = "../nagi-history" }
 nagi-package = { path = "../nagi-package" }
 nagi-sdk = { path = "../../sdk/rust" }
+nagi-ui = { path = "../nagi-ui" }
 nagi-net = { path = "../nagi-net" }
 nagi-pal = { path = "../nagi-pal" }
 nagi-posix = { path = "../nagi-posix" }

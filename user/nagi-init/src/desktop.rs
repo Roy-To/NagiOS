@@ -2,7 +2,8 @@ use core::arch::asm;
 
 use libnagi::{DisplayInfo, InputEvent};
 
-use crate::ui::{rgba, Painter, Rect};
+use crate::ui::{Painter, Rect};
+use nagi_ui::{color, ColorRole, ThemeMode};
 
 const APP_COUNT: usize = 4;
 const WINDOW_WIDTH: i32 = 145;
@@ -10,11 +11,13 @@ const WINDOW_HEIGHT: i32 = 70;
 const TITLE_HEIGHT: i32 = 14;
 const POINTER_START_X: i32 = 80;
 const POINTER_START_Y: i32 = 58;
-const BACKGROUND: u32 = rgba(16, 24, 40);
-const PANEL: u32 = rgba(228, 235, 240);
-const TITLE: u32 = rgba(38, 166, 154);
-const BORDER: u32 = rgba(8, 12, 20);
-const TEXT: u32 = rgba(15, 23, 42);
+const PREVIEW_THEME: ThemeMode = ThemeMode::Light;
+const BACKGROUND: u32 = color(PREVIEW_THEME, ColorRole::Canvas).to_pixel();
+const PANEL: u32 = color(PREVIEW_THEME, ColorRole::Surface).to_pixel();
+const TITLE: u32 = color(PREVIEW_THEME, ColorRole::Accent).to_pixel();
+const BORDER: u32 = color(PREVIEW_THEME, ColorRole::BorderStrong).to_pixel();
+const TEXT: u32 = color(PREVIEW_THEME, ColorRole::TextPrimary).to_pixel();
+const TITLE_TEXT: u32 = color(PREVIEW_THEME, ColorRole::TextOnAccent).to_pixel();
 
 #[no_mangle]
 static NAGI_M10_READY: [u8; b"Nagi M10 desktop READY\r\n".len()] = *b"Nagi M10 desktop READY\r\n";
@@ -135,7 +138,7 @@ impl Desktop {
         );
         painter.fill(
             Rect::new(self.pointer_x - 1, self.pointer_y - 1, 3, 3),
-            rgba(245, 158, 11),
+            color(PREVIEW_THEME, ColorRole::Focus).to_pixel(),
         );
     }
 
@@ -201,7 +204,7 @@ impl Desktop {
             Rect::new(window.x + 1, window.y + 1, window.width - 2, TITLE_HEIGHT),
             TITLE,
         );
-        painter.text(window.x + 6, window.y + 4, title, PANEL);
+        painter.text(window.x + 6, window.y + 4, title, TITLE_TEXT);
         painter.text(window.x + 8, window.y + TITLE_HEIGHT + 12, content, TEXT);
     }
 }
