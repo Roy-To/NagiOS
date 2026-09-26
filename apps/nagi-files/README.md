@@ -46,12 +46,15 @@ that take an item index. `help` prints the interactive syntax.
   and fails closed when it cannot resolve an alias unambiguously.
 - Host providers can override `list_authorized`, `metadata_authorized`, and
   `read_file_authorized` to bind policy checks to provider-owned operations.
-  The sandbox opens and verifies the directory before authorizing enumeration,
-  captures metadata from the verified parent handle, and opens files before
-  authorizing reads. Reads use the same verified file handle after the policy
-  callback, so a raced path cannot redirect the operation to another resource.
-  These handle-bound operations fail closed if the host filesystem cannot
-  provide stable identities for the opened entries.
+  Resource-bound reads can also override `read_file_authorized_for_resource`
+  to require that the opened handle still matches the `ResourceId` supplied by
+  the caller. The sandbox opens and verifies the directory before authorizing
+  enumeration, captures metadata from the verified parent handle, and opens
+  files before authorizing reads. Reads use the same verified file handle after
+  the policy callback, so a raced path cannot redirect the operation to another
+  resource. `FilesService` uses resource-bound reads for FileEntry previews and
+  checkpoint snapshots. These handle-bound operations fail closed if the host
+  filesystem cannot provide stable identities for the opened entries.
 - `FilesService` checks scoped rights against that resolved location before
   returning ordinary resource data or performing mutations, filters Trash
   listings by each item's original location, verifies opaque resource IDs
@@ -74,15 +77,16 @@ that take an item index. `help` prints the interactive syntax.
   metadata-directory handles against their in-sandbox entries before metadata
   writes and Trash operations. Permanent delete records a versioned journal
   containing the affected resource IDs before writing tag removal or deleting
-  the Trash payload. Startup completes an interrupted confirmed deletion;
-  Trash listing fails closed while recovery is pending. This prevents failed
-  Trash-index writes from leaving stale resource metadata on disk. This is a
-  host preview backend, not isolation from a hostile process running as the
+  the Trash payload. Restore, permanent delete, and journal recovery compare
+  the Trash payload identity with its stored entry and fail closed on mismatch;
+  Trash listing also fails closed while recovery is pending. This prevents
+  failed Trash-index writes from leaving stale resource metadata on disk. This
+  is a host preview backend, not isolation from a hostile process running as the
   same OS user or a production Nagi capability implementation. Resource IDs
   use device/inode metadata on Unix and volume serial/file index metadata on
   Windows; when a non-Unix filesystem cannot provide stable identity metadata,
   the provider falls back to a path-derived ID whose value can change after a
-  move.
+  move and cannot detect replacement at the same path.
 - Search returns filename, location, kind, size, modified-time, and tag
   metadata. It checks read permission per returned resource and skips denied
   resources without revealing their names.

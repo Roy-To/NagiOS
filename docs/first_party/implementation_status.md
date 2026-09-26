@@ -163,9 +163,12 @@ not modify or merge into M17 worktrees.
   capability enforcement, in-memory provider, directory-handle-rooted host
   sandbox provider, search, hooks, localization, and host preview are
   implemented. Host list, metadata, and read operations bind authorization to
-  an opened directory or file snapshot. Focused package verification passes.
-  Nagi target desktop/provider integration is blocked by missing public Files
-  runtime APIs.
+  an opened directory or file snapshot. FileEntry previews and checkpoint
+  snapshots additionally bind reads to the caller's ResourceId. Operations
+  recheck source identity and relevant rights after Activity/checkpoint hooks;
+  Trash restore, deletion, and recovery validate the stored payload identity.
+  Focused package verification passes. Nagi target desktop/provider integration
+  is blocked by missing public Files runtime APIs.
 - **Implemented components:** `apps/nagi-files` contains resource/location and
   operation models; FilesService and a typed FilesActionApi for the 15 stable
   Files action IDs; three-pane navigation/selection/inspector view state; scoped
@@ -179,10 +182,12 @@ not modify or merge into M17 worktrees.
   bounded previews, and capability-rooted traversal/symlink checks; metadata Search;
   Context/Workspace/Activity/Wayback adapter hooks; en-US and ja-JP resources;
   and an interactive Japanese/English host preview.
-- **Verification evidence:** 62 focused tests PASS (61 library tests and one
+- **Verification evidence:** 66 focused tests PASS (65 library tests and one
   CLI localization test). Regressions cover case-insensitive scoped denies,
-  resource creation during authorization before list/read/metadata, directory
-  replacement by a symlink, descendant-tag cleanup, corrupt journal paths, and
+  resource creation during authorization before list/read/metadata, stale
+  ResourceId reads, source replacement during checkpoint callbacks, Trash
+  payload replacement before restore/permanent delete, directory replacement
+  by a symlink, descendant-tag cleanup, corrupt journal paths, and
   permanent-delete recovery when either index write fails. Package host Clippy with `-D warnings`, Windows-target
   `cargo check --tests`, Windows-target Clippy with `-D warnings`, formatting,
   and `git diff --check` all PASS. Windows filesystem behavior remains
@@ -201,16 +206,20 @@ not modify or merge into M17 worktrees.
   | FILES-007 Context publish | `PASS (contract)` | Selection/current-location snapshot publishes through a typed boundary; shared Context service is not connected. |
   | FILES-008 Workspace reference | `PASS (mock)` | Adapter tests show add/remove reference does not move the resource; target Workspace service is not connected. |
   | FILES-009 Wayback restore | `PARTIAL` | Typed checkpoint boundary, affected-resource list, transaction ID, and truthful reversible hints are tested; supported-resource snapshot restore needs the unavailable Wayback runtime. |
-  | FILES-010 UI-independent core tests | `PASS` | 62 package tests run without the desktop UI (61 library and one preview CLI test). |
+  | FILES-010 UI-independent core tests | `PASS` | 66 package tests run without the desktop UI (65 library and one preview CLI test). |
 
 - **Known limitations:** The host backend rejects lexical traversal, selected-root
   symlinks, checked symlink paths, and reserved metadata aliases. Operations
   below the selected root use `cap-std` directory handles; Unix metadata writes
   and Trash operations also compare the held metadata-directory identity with
   its current in-root entry. List and metadata authorization use the checked
-  directory handle; file reads use a checked file handle after authorizing its
-  resolved spelling. A versioned permanent-delete journal records the complete
-  affected ResourceId set and startup resumes interrupted confirmed deletions.
+  directory handle; file reads authorize the resolved spelling and use the
+  same checked file handle. FileEntry previews and checkpoint snapshots also
+  compare that opened handle's ResourceId with the caller's ID. Operations
+  recheck source IDs and rights after Activity/checkpoint callbacks, while Trash
+  restore/deletion/recovery verify payload identity against the stored entry.
+  A versioned permanent-delete journal records the complete affected ResourceId
+  set and startup resumes interrupted confirmed deletions.
   Filesystems without stable entry identities use path-derived IDs for metadata
   but fail closed on handle-bound traversal and reads. Windows identity and
   test code cross-compile, but
@@ -233,8 +242,8 @@ not modify or merge into M17 worktrees.
   implementation remains independently runnable. The full `./nagi test` host
   suite remains blocked on arm64 macOS by x86_64 syscall-register assembly in
   `user/libnagi`; no ABI, M17, or third-party changes were made.
-- **Next action:** Continue auditing the remaining mutation paths for
-  resource-ID binding and recoverable index updates. When public runtime APIs
+- **Next action:** Continue reviewing independent Files host-side error and
+  compatibility cases. When public runtime APIs
   become available, connect the provider and typed action/hook contracts to
   the Nagi desktop and services, then run target acceptance for
   FILES-001/002/003/009. Keep this work isolated from M17 and the other app

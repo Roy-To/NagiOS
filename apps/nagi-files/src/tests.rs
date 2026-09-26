@@ -454,6 +454,55 @@ fn checkpoint_failure_is_visible_and_does_not_fake_checkpoint_success() {
 }
 
 #[test]
+fn rename_revalidates_resource_after_checkpoint_callback() {
+    struct ReplacingCheckpoint {
+        root: PathBuf,
+    }
+
+    impl CheckpointHook for ReplacingCheckpoint {
+        fn checkpoint_before(&mut self, _: &WaybackCheckpointRequest) -> Result<String, String> {
+            fs::rename(self.root.join("source.txt"), self.root.join("original.txt"))
+                .map_err(|error| error.to_string())?;
+            fs::write(self.root.join("source.txt"), b"replacement")
+                .map_err(|error| error.to_string())?;
+            Ok("checkpoint".to_owned())
+        }
+    }
+
+    let temp = TempSandbox::new();
+    fs::write(temp.path().join("source.txt"), b"original").unwrap();
+    let mut service = FilesService::new(
+        SandboxProvider::new(temp.path()).unwrap(),
+        full_capabilities(),
+    )
+    .with_checkpoint_hook(ReplacingCheckpoint {
+        root: temp.path().to_owned(),
+    });
+    let source = service.list(&Location::root()).unwrap().remove(0);
+
+    assert_eq!(
+        service
+            .rename(
+                &source,
+                &FileName::parse("renamed.txt").unwrap(),
+                Actor::User,
+            )
+            .unwrap_err()
+            .kind,
+        FilesErrorKind::Conflict
+    );
+    assert_eq!(
+        fs::read(temp.path().join("original.txt")).unwrap(),
+        b"original"
+    );
+    assert_eq!(
+        fs::read(temp.path().join("source.txt")).unwrap(),
+        b"replacement"
+    );
+    assert!(!temp.path().join("renamed.txt").exists());
+}
+
+#[test]
 fn agent_mutation_fails_closed_when_activity_is_unavailable() {
     let mut service = memory_service();
     let error = service
@@ -1474,6 +1523,61 @@ fn sandbox_trash_persists_and_restore_preserves_resource_identity() {
 }
 
 #[test]
+fn sandbox_restore_rejects_replaced_trash_payload_identity() {
+    let temp = TempSandbox::new();
+    fs::write(temp.path().join("restore.txt"), b"original").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let trashed = provider
+        .trash(&Location::parse("restore.txt").unwrap())
+        .unwrap();
+    let payload = fs::read_dir(temp.path().join(".nagi-files/trash"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let held = temp.path().join(".nagi-files/trash/original-payload");
+    fs::rename(&payload, &held).unwrap();
+    fs::write(&payload, b"replacement").unwrap();
+
+    assert_eq!(
+        provider.restore(trashed.id).unwrap_err().kind,
+        FilesErrorKind::Conflict
+    );
+    assert!(!temp.path().join("restore.txt").exists());
+    assert_eq!(fs::read(held).unwrap(), b"original");
+    assert_eq!(fs::read(payload).unwrap(), b"replacement");
+    assert_eq!(provider.list_trash().unwrap(), vec![trashed]);
+}
+
+#[test]
+fn sandbox_permanent_delete_rejects_replaced_trash_payload_identity() {
+    let temp = TempSandbox::new();
+    fs::write(temp.path().join("delete.txt"), b"original").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let trashed = provider
+        .trash(&Location::parse("delete.txt").unwrap())
+        .unwrap();
+    let payload = fs::read_dir(temp.path().join(".nagi-files/trash"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let held = temp.path().join(".nagi-files/trash/original-payload");
+    fs::rename(&payload, &held).unwrap();
+    fs::write(&payload, b"replacement").unwrap();
+
+    assert_eq!(
+        provider.permanently_delete(trashed.id).unwrap_err().kind,
+        FilesErrorKind::Conflict
+    );
+    assert_eq!(fs::read(held).unwrap(), b"original");
+    assert_eq!(fs::read(payload).unwrap(), b"replacement");
+    assert_eq!(provider.list_trash().unwrap(), vec![trashed]);
+}
+
+#[test]
 fn sandbox_restore_conflict_preserves_trash_for_later_restore() {
     let temp = TempSandbox::new();
     fs::write(temp.path().join("item.txt"), b"old").unwrap();
@@ -1925,4 +2029,30 @@ fn sandbox_preview_reader_enforces_the_requested_byte_limit() {
         .read_file(&Location::parse("bounded.txt").unwrap(), 16)
         .unwrap_err();
     assert_eq!(error.kind, FilesErrorKind::FileTooLarge);
+}
+
+#[test]
+fn sandbox_authorized_read_rejects_a_replaced_resource_id() {
+    let temp = TempSandbox::new();
+    let path = temp.path().join("identity.txt");
+    fs::write(&path, b"original").unwrap();
+    let provider = SandboxProvider::new(temp.path()).unwrap();
+    let location = Location::parse("identity.txt").unwrap();
+    let original = provider.metadata(&location).unwrap();
+    fs::rename(&path, temp.path().join("held.txt")).unwrap();
+    fs::write(&path, b"replacement").unwrap();
+    let mut authorize = |_: &Location| Ok(());
+
+    assert_eq!(
+        provider
+            .read_file_authorized_for_resource(
+                original.id,
+                &location,
+                crate::MAX_PREVIEW_BYTES,
+                &mut authorize,
+            )
+            .unwrap_err()
+            .kind,
+        FilesErrorKind::Conflict
+    );
 }

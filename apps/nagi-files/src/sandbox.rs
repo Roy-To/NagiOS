@@ -30,6 +30,7 @@ struct StoredTrash {
 struct OpenReadTarget {
     file: File,
     location: Location,
+    id: ResourceId,
     size_bytes: u64,
 }
 
@@ -270,17 +271,16 @@ impl SandboxProvider {
                 .metadata()
                 .map_err(|error| map_io_error(error).at(location.clone()))?;
             let checked_id = stable_resource_id(&metadata);
-            let opened_id = stable_resource_id(&opened_metadata);
-            if !opened_metadata.is_file()
-                || checked_id.is_none()
-                || opened_id.is_none()
-                || checked_id != opened_id
-            {
+            let Some(opened_id) = stable_resource_id(&opened_metadata) else {
+                return Err(FilesError::new(FilesErrorKind::Conflict).at(location.clone()));
+            };
+            if !opened_metadata.is_file() || checked_id != Some(opened_id) {
                 return Err(FilesError::new(FilesErrorKind::Conflict).at(location.clone()));
             }
             return Ok(OpenReadTarget {
                 file,
                 location: Location::parse(&canonical.join("/"))?,
+                id: opened_id,
                 size_bytes: opened_metadata.len(),
             });
         }
@@ -397,6 +397,7 @@ impl SandboxProvider {
         &self,
         item: &StoredTrash,
     ) -> Result<BTreeSet<ResourceId>, FilesError> {
+        self.verify_trash_payload(item)?;
         let mut ids = BTreeSet::new();
         let identity_path = self.root.join(item.entry.original_location.as_str());
         collect_tree_resource_ids(
@@ -408,6 +409,29 @@ impl SandboxProvider {
         )?;
         ids.insert(item.entry.id);
         Ok(ids)
+    }
+
+    fn verify_trash_payload(&self, item: &StoredTrash) -> Result<(), FilesError> {
+        let metadata = self
+            .trash_dir
+            .symlink_metadata(&item.trash_name)
+            .map_err(|error| map_io_error(error).at(item.entry.original_location.clone()))?;
+        let kind = if metadata.is_file() {
+            EntryKind::File
+        } else if metadata.is_dir() {
+            EntryKind::Folder
+        } else {
+            return Err(
+                FilesError::new(FilesErrorKind::Conflict).at(item.entry.original_location.clone())
+            );
+        };
+        let identity_path = self.root.join(item.entry.original_location.as_str());
+        if kind != item.entry.kind || resource_id(&identity_path, &metadata) != item.entry.id {
+            return Err(
+                FilesError::new(FilesErrorKind::Conflict).at(item.entry.original_location.clone())
+            );
+        }
+        Ok(())
     }
 
     fn persist_permanent_delete_journal(
@@ -524,13 +548,26 @@ impl SandboxProvider {
         let Some(pending) = self.load_pending_permanent_delete()? else {
             return Ok(());
         };
-        if self
+        let indexed_item = self
             .trash
             .iter()
             .find(|item| item.entry.id == pending.id)
+            .cloned();
+        if indexed_item
+            .as_ref()
             .is_some_and(|item| item.trash_name != pending.trash_name)
         {
             return Err(FilesError::new(FilesErrorKind::CorruptMetadata));
+        }
+        match self.trash_dir.symlink_metadata(&pending.trash_name) {
+            Ok(_) => {
+                let item = indexed_item
+                    .as_ref()
+                    .ok_or_else(|| FilesError::new(FilesErrorKind::CorruptMetadata))?;
+                self.verify_trash_payload(item)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(map_io_error(error)),
         }
 
         let mut removed_tags = BTreeMap::new();
@@ -546,10 +583,14 @@ impl SandboxProvider {
             }
         }
         match self.trash_dir.symlink_metadata(&pending.trash_name) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(FilesError::new(FilesErrorKind::CorruptMetadata));
+            Ok(_) => {
+                if let Some(item) = indexed_item.as_ref() {
+                    self.verify_trash_payload(item)?;
+                } else {
+                    return Err(FilesError::new(FilesErrorKind::CorruptMetadata));
+                }
+                remove_tree(&self.trash_dir, &pending.trash_name).map_err(map_io_error)?;
             }
-            Ok(_) => remove_tree(&self.trash_dir, &pending.trash_name).map_err(map_io_error)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(map_io_error(error)),
         }
@@ -676,6 +717,33 @@ impl SandboxProvider {
         }
         Ok(())
     }
+
+    fn read_file_authorized_inner(
+        &self,
+        location: &Location,
+        expected_id: Option<ResourceId>,
+        max_bytes: usize,
+        authorize: &mut dyn FnMut(&Location) -> Result<(), FilesError>,
+    ) -> Result<Vec<u8>, FilesError> {
+        let target = match self.open_read_target(location) {
+            Ok(target) => target,
+            Err(error) => {
+                match self.authorization_location(location) {
+                    Ok(authorization_location) => authorize(&authorization_location)?,
+                    Err(_) => {
+                        authorize(location)?;
+                        return Err(FilesError::new(FilesErrorKind::ProviderFailure));
+                    }
+                }
+                return Err(error);
+            }
+        };
+        authorize(&target.location)?;
+        if expected_id.is_some_and(|id| id != target.id) {
+            return Err(FilesError::new(FilesErrorKind::Conflict).at(target.location));
+        }
+        read_open_file(target, max_bytes)
+    }
 }
 
 impl FilesystemProvider for SandboxProvider {
@@ -750,21 +818,17 @@ impl FilesystemProvider for SandboxProvider {
         max_bytes: usize,
         authorize: &mut dyn FnMut(&Location) -> Result<(), FilesError>,
     ) -> Result<Vec<u8>, FilesError> {
-        let target = match self.open_read_target(location) {
-            Ok(target) => target,
-            Err(error) => {
-                match self.authorization_location(location) {
-                    Ok(authorization_location) => authorize(&authorization_location)?,
-                    Err(_) => {
-                        authorize(location)?;
-                        return Err(FilesError::new(FilesErrorKind::ProviderFailure));
-                    }
-                }
-                return Err(error);
-            }
-        };
-        authorize(&target.location)?;
-        read_open_file(target, max_bytes)
+        self.read_file_authorized_inner(location, None, max_bytes, authorize)
+    }
+
+    fn read_file_authorized_for_resource(
+        &self,
+        id: ResourceId,
+        location: &Location,
+        max_bytes: usize,
+        authorize: &mut dyn FnMut(&Location) -> Result<(), FilesError>,
+    ) -> Result<Vec<u8>, FilesError> {
+        self.read_file_authorized_inner(location, Some(id), max_bytes, authorize)
     }
 
     fn set_tags(&mut self, location: &Location, tags: &[String]) -> Result<FileEntry, FilesError> {
@@ -971,6 +1035,7 @@ impl FilesystemProvider for SandboxProvider {
             .position(|item| item.entry.id == id)
             .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
         let item = self.trash[index].clone();
+        self.verify_trash_payload(&item)?;
         let (destination_parent, destination_name) =
             self.checked_restore_destination(&item.entry.original_location)?;
         self.trash_dir

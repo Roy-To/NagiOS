@@ -88,6 +88,20 @@ pub trait FilesystemProvider {
         authorize(&authorization_location)?;
         self.read_file(location, max_bytes)
     }
+    /// Read a previously identified resource. Host providers should compare
+    /// the opened entry identity with `id` before returning bytes; virtual
+    /// providers can use the default, which verifies before the authorized
+    /// read operation.
+    fn read_file_authorized_for_resource(
+        &self,
+        id: ResourceId,
+        location: &Location,
+        max_bytes: usize,
+        authorize: &mut dyn FnMut(&Location) -> Result<(), FilesError>,
+    ) -> Result<Vec<u8>, FilesError> {
+        self.verify_resource(id, location)?;
+        self.read_file_authorized(location, max_bytes, authorize)
+    }
     fn set_tags(&mut self, location: &Location, tags: &[String]) -> Result<FileEntry, FilesError> {
         let _ = tags;
         Err(FilesError::new(crate::FilesErrorKind::ProviderUnavailable).at(location.clone()))

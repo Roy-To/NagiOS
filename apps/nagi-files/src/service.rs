@@ -237,7 +237,11 @@ where
             .preconditions
             .push(crate::OperationPrecondition::SourceExists);
         self.begin_agent_operation(&intent)?;
-        match self.read_authorized_file(&location, crate::MAX_PREVIEW_BYTES) {
+        if let Err(error) = self.revalidate_resource(source.id, CapabilityRight::Read, &location) {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
+        match self.read_authorized_resource(source.id, &location, crate::MAX_PREVIEW_BYTES) {
             Ok(contents) if contents.len() <= crate::MAX_PREVIEW_BYTES => {
                 let result = self.success(&intent, vec![source.id], HookStatus::NotApplicable);
                 Ok((contents, result))
@@ -271,13 +275,20 @@ where
         self.authorize(CapabilityRight::WorkspaceReference, &location)?;
         self.provider.verify_resource(source.id, &location)?;
         let mut intent = OperationIntent::new(OperationKind::AddToWorkspace, actor);
-        intent.source = Some(location);
+        intent.source = Some(location.clone());
         intent.affected.push(source.id);
         intent
             .preconditions
             .push(crate::OperationPrecondition::SourceExists);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) = self
+            .revalidate_resource(source.id, CapabilityRight::Read, &location)
+            .and_then(|_| self.authorize(CapabilityRight::WorkspaceReference, &location))
+        {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         let Some(workspace) = self.workspace.as_mut() else {
             self.failure(
                 &intent,
@@ -312,13 +323,20 @@ where
         self.authorize(CapabilityRight::WorkspaceReference, &location)?;
         self.provider.verify_resource(source.id, &location)?;
         let mut intent = OperationIntent::new(OperationKind::RemoveFromWorkspace, actor);
-        intent.source = Some(location);
+        intent.source = Some(location.clone());
         intent.affected.push(source.id);
         intent
             .preconditions
             .push(crate::OperationPrecondition::SourceExists);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) = self
+            .revalidate_resource(source.id, CapabilityRight::Read, &location)
+            .and_then(|_| self.authorize(CapabilityRight::WorkspaceReference, &location))
+        {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         let Some(workspace) = self.workspace.as_mut() else {
             self.failure(
                 &intent,
@@ -365,6 +383,12 @@ where
             .push(crate::OperationPrecondition::SourceExists);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) =
+            self.revalidate_resource(source.id, CapabilityRight::SetMetadata, &location)
+        {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         match self.provider.set_tags(&location, &normalized) {
             Ok(entry) => {
                 let result = self.success(&intent, vec![entry.id], checkpoint);
@@ -407,6 +431,10 @@ where
             .push(crate::OperationPrecondition::DestinationAbsent);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) = self.authorize(CapabilityRight::Create, parent) {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         match self.provider.create_folder(parent, name) {
             Ok(entry) => {
                 intent.affected.push(entry.id);
@@ -441,6 +469,12 @@ where
         ]);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) =
+            self.revalidate_resource(source.id, CapabilityRight::Rename, &source_location)
+        {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         match self.provider.rename(&source_location, name) {
             Ok(entry) => {
                 let result = self.success(&intent, vec![entry.id], checkpoint);
@@ -496,6 +530,13 @@ where
         ]);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) = self
+            .revalidate_resource(source.id, CapabilityRight::Read, &source_location)
+            .and_then(|_| self.authorize(CapabilityRight::Create, destination))
+        {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         match self
             .provider
             .copy(&source_location, destination, name, cancellation)
@@ -534,6 +575,13 @@ where
         ]);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) = self
+            .revalidate_resource(source.id, CapabilityRight::Move, &source_location)
+            .and_then(|_| self.authorize(CapabilityRight::Create, destination))
+        {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         match self.provider.move_item(&source_location, destination, name) {
             Ok(entry) => {
                 let result = self.success(&intent, vec![entry.id], checkpoint);
@@ -578,13 +626,19 @@ where
         self.authorize(CapabilityRight::Delete, &source_location)?;
         self.provider.verify_resource(source.id, &source_location)?;
         let mut intent = OperationIntent::new(OperationKind::Trash, actor);
-        intent.source = Some(source_location);
+        intent.source = Some(source_location.clone());
         intent.affected.push(source.id);
         intent
             .preconditions
             .push(crate::OperationPrecondition::SourceExists);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) =
+            self.revalidate_resource(source.id, CapabilityRight::Delete, &source_location)
+        {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         match self
             .provider
             .trash(intent.source.as_ref().expect("set above"))
@@ -622,6 +676,10 @@ where
             .push(crate::OperationPrecondition::DestinationAbsent);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
+        if let Err(error) = self.authorize(CapabilityRight::Restore, &item.original_location) {
+            self.failure(&intent, &error);
+            return Err(error);
+        }
         match self.provider.restore(trash_id) {
             Ok(entry) => {
                 let result = self.success(&intent, vec![entry.id], checkpoint);
@@ -748,6 +806,16 @@ where
         }
     }
 
+    fn revalidate_resource(
+        &self,
+        id: ResourceId,
+        right: CapabilityRight,
+        location: &Location,
+    ) -> Result<(), FilesError> {
+        self.authorize(right, location)?;
+        self.provider.verify_resource(id, location).map(|_| ())
+    }
+
     fn authorize(&self, right: CapabilityRight, location: &Location) -> Result<(), FilesError> {
         let authorization_location = match self.provider.authorization_location(location) {
             Ok(location) => location,
@@ -793,6 +861,20 @@ where
         };
         self.provider
             .read_file_authorized(location, max_bytes, &mut authorize)
+    }
+
+    fn read_authorized_resource(
+        &self,
+        id: ResourceId,
+        location: &Location,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, FilesError> {
+        let authorizer = &self.authorizer;
+        let mut authorize = |resolved: &Location| {
+            Self::authorize_spelling(authorizer, CapabilityRight::Read, resolved)
+        };
+        self.provider
+            .read_file_authorized_for_resource(id, location, max_bytes, &mut authorize)
     }
 
     fn checkpoint_before(&mut self, intent: &OperationIntent) -> HookStatus {
@@ -850,8 +932,7 @@ where
             );
         }
         let contents = self
-            .provider
-            .read_file(location, MAX_CHECKPOINT_CAPTURE_BYTES)
+            .read_authorized_resource(request.affected[0], location, MAX_CHECKPOINT_CAPTURE_BYTES)
             .map_err(|error| format!("Files checkpoint source read failed: {error:?}"))?;
         if contents.len() > MAX_CHECKPOINT_CAPTURE_BYTES {
             return Err("Files checkpoint source exceeds the 16 MiB host capture limit".into());
