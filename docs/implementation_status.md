@@ -4813,3 +4813,16 @@ This run contains the timeout-classifier correction; its final diagnostic
 will verify that the QEMU timeout is no longer mislabeled as a linker failure.
 M17 remains `BLOCKED` until a real guest pixel checksum and acceptance marker
 are present; M18 remains `NOT STARTED`.
+
+## M17 classifier validation result (2026-09-26)
+
+Run `36240025711` at `faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1` completed
+with both host jobs passing and the target acceptance failing. Its failure
+report correctly labeled the QEMU result `stage=timeout`; QEMU did not exit
+within 120 seconds. The serial trace again reached Servo construction and
+recorded `pthread_create failed attempt=2
+stage=native-thread-create-rejected bridge_stack_bytes=16384 pthread_error=11`.
+The serial log SHA-256 is
+`58a39abf231fa1fc6db060e847735bd994e07c12334e6be73cc23b050581da2e`.
+There is no real pixel checksum or guest PASS marker. The classifier fix is
+verified; M17 remains `BLOCKED` and M18 remains `NOT STARTED`.

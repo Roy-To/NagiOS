@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "classifier-ci-362400-qemu-acceptance-active",
+  "current_checkpoint": "classifier-verified-m17-runtime-still-blocked",
   "status": "IN_PROGRESS",
   "last_verified": {
     "commit_sha": "faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1",
-    "verified_at": "2026-09-26T12:51:30Z",
-    "normal_state": "Integration code commit faeeb22 fixes dev status so every queued/in-progress CI run is shown before completed runs. The nagi-cli suite passes (108 unit and 26 integration tests), formatting and warning-denied Clippy pass. Trace run 36236310925 completed with both host jobs passing and target failure: after Servo construction, attempt 2 returned native-thread-create-rejected with bridge_stack_bytes=16384 and pthread_error=11; QEMU timed out at 120 seconds. Its serial log SHA-256 is 6b1d0c7449561a180d7b676061d72fba0d5bacfe4b57ace13d5032ff2ea7b98b; no real pixel checksum or guest PASS marker was produced. Run 36240025711 passed both host jobs, built Nagi user init and the UEFI loader, and entered real M17 QEMU first-web-pixel acceptance at 12:50 UTC. The target result is pending, and the run includes the timeout-classifier fix. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS and an explicit release checkpoint.",
+    "verified_at": "2026-09-26T13:16:50Z",
+    "normal_state": "Integration code commit faeeb22 fixes dev status so every queued/in-progress CI run is shown before completed runs. The nagi-cli suite passes (108 unit and 26 integration tests), formatting and warning-denied Clippy pass. Run 36236310925 failed target acceptance after both host jobs passed: attempt 2 returned native-thread-create-rejected with a 16 KiB bridge stack and pthread_error=11, then QEMU timed out; no pixel evidence. Run 36240025711 at faeeb22 also passed both host jobs and failed target acceptance with the same native thread rejection and no checksum/PASS marker. Its CI report correctly classified QEMU did not exit within 120 seconds as stage=timeout, verifying the classifier fix. Serial log SHA-256 for run 36240025711 is 58a39abf231fa1fc6db060e847735bd994e07c12334e6be73cc23b050581da2e. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS and an explicit release checkpoint.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -124,7 +124,10 @@
       "gh run view 36240025711 --json status,conclusion,jobs,url",
       "gh run view 36236310925 --log-failed",
       "gh run download 36236310925 --name m17-diagnostics-36236310925 --dir /tmp/nagi-m17-36236310925",
-      "shasum -a 256 /tmp/nagi-m17-36236310925/m17-servo.log"
+      "shasum -a 256 /tmp/nagi-m17-36236310925/m17-servo.log",
+      "gh run view 36240025711 --log-failed",
+      "gh run download 36240025711 --name m17-diagnostics-36240025711 --dir /tmp/nagi-m17-36240025711",
+      "shasum -a 256 /tmp/nagi-m17-36240025711/m17-servo.log"
     ],
     "tests": [
       {
@@ -735,6 +738,20 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "18 registered workstreams and 11 state files validate while run 36240025711 is in QEMU acceptance."
+      },
+      {
+        "name": "Hosted QEMU timeout-stage classifier validation",
+        "command": "gh run view 36240025711 --log-failed",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The target acceptance annotation classified “QEMU did not exit within 120 seconds” as stage=timeout; both host jobs, including the diagnostic parser regression tests, passed."
+      },
+      {
+        "name": "DF-01 verification after classifier CI completion",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate after recording completed run 36240025711."
       }
     ],
     "ci_runs": [
@@ -958,9 +975,9 @@
         "run_id": 36240025711,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36240025711",
         "head_sha": "faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Both host jobs passed; Nagi user init and UEFI built, and the target entered real M17 QEMU first-web-pixel acceptance at 12:50 UTC. Result is pending; this run includes the timeout-classifier fix."
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed. Target QEMU acceptance failed after Servo construction with native-thread-create-rejected (attempt 2, 16 KiB bridge stack, pthread_error=11), then timed out at 120 seconds without a pixel checksum or PASS marker. Classifier correctly reported stage=timeout. Serial log SHA-256: 58a39abf231fa1fc6db060e847735bd994e07c12334e6be73cc23b050581da2e."
       }
     ]
   },
@@ -982,7 +999,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Monitor run 36240025711 through the M17 first-web-pixel QEMU result and inspect its timeout classification and diagnostics. Both host jobs passed, Nagi user init and UEFI built, and QEMU acceptance began at 12:50 UTC; the result is pending. The prior trace run 36236310925 failed after Servo construction with native-thread-create-rejected (attempt 2, 16 KiB bridge stack, pthread_error=11), followed by a 120-second timeout and no pixel evidence. Do not integrate or modify the owner kernel work; its local test adjustment 4d79bbe is unpushed and not CI-verified. Keep M17 BLOCKED until the real guest checksum and acceptance marker appear, M18 NOT STARTED, and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
+  "next_action": "Preserve the verified timeout classification and keep M17 BLOCKED: run 36240025711 confirms the root native bridge rejects attempt 2 with a mapped 16 KiB stack and pthread_error=11, then QEMU times out without pixel evidence. The owner-branch run 36232073962 separately identified the kernel child slot as occupied. The cooperative scheduler change and follow-up test remain owned by the M17 workstream; do not edit that worktree or integrate its unverified local commit. The integration-safe host foundations have no additional unblocked source changes identified. Resume integration when there is new owner CI/evidence or after M30 PASS and an explicit release checkpoint authorizes 0.2 runtime/product work.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
