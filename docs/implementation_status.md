@@ -19,24 +19,43 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #203 passed target builds through UEFI, then timed out inside
-the first observed EGL context bind. Its full trace excerpt contains one
-`eglMakeCurrent` path and no TLS zero-initialization marker; the first bind
-reported a non-null previous context and an invalid-looking owner value. The
-underlying writer is unproven. Mesa patch `0030` adds a Nagi-only TLS
-initialization cookie and resets unverified EGL thread state before use. CI
-must show whether the cookie mismatch is present and whether EGL binding then
-returns. The real guest VirtIO RNG backend is linked but still lacks runtime
-verification. No Servo-pixel evidence has been produced. M17 remains BLOCKED;
-M18 remains NOT STARTED.
+milestone. CI #204 confirmed Mesa patch `0030` detected the bad EGL TLS cookie,
+reset the state, completed EGL make-current, and reached Surfman's GL function
+loading start marker. Rust std then panicked because `__nagi_std_random_fill`
+returned -1.
+CI #204 did not contain the new `SYS_RANDOM_GET` failure trace, so the rejected
+user buffer versus guest VirtIO RNG error is still unknown. The bounded kernel
+diagnostics and Clippy fix are now locally verified; start the next public
+target run and use its trace to identify and repair the concrete RNG failure.
+No Servo frame or pixel checksum has been produced. M17 remains BLOCKED; M18
+remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36212259814` (#203, head
-`c1506888655123d819ec75be66891f0cd5477533`) passed host jobs and all target
-builds through UEFI loader. QEMU timed out after 120 seconds during EGL thread
-context binding. The failure output preserves bounded M17 markers from the
-serial log. No frame or pixel checksum was produced. Public target CI remains
-authoritative for M17; M18 remains NOT STARTED.
+**Last known repair checkpoint:** public CI run `36216371334` (#204, head
+`e674668c04061c9abfaf944f609b5f29bf108310`) passed target builds through UEFI
+loader. QEMU timed out after 120 seconds after EGL make-current returned and
+Surfman began loading GL functions; Rust std panicked on guest random failure.
+The Ubuntu host lint job separately failed on a Clippy `filter_next` warning,
+now corrected locally. No frame or pixel checksum was produced. Public target
+CI remains authoritative for M17; M18 remains NOT STARTED.
+
+### Target evidence from CI run #204 (2026-09-26)
+
+Run `36216371334` (#204, head
+`e674668c04061c9abfaf944f609b5f29bf108310`) passed Mesa Softpipe, package,
+kernel, Nagi user-init, and UEFI builds. Its real two-boot QEMU acceptance
+reported an EGL thread-info cookie mismatch (`inited=80`), reset the TLS state
+with `context=0x0`, completed context/thread/surface binding, completed the
+state-tracker and DRI make-current calls, and returned from Surfman
+make-current. The last Surfman marker announced the start of GL function
+loading.
+Rust std panicked at `std/src/sys/random/nagi.rs:7:5` because the Nagi random
+ABI returned -1. No `SYS_RANDOM_GET` failure reason was logged by this commit,
+so the trace does not distinguish user-buffer validation from VirtIO RNG
+failure. The 120-second acceptance ended with status 4; no real Servo frame,
+pixel checksum, or M17 PASS marker was produced. The separate Ubuntu host job
+failed because Clippy rejected `filter().next()` (`filter_next`); the local
+source now uses `.any()`. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #203 (2026-09-26)
 
@@ -65,6 +84,19 @@ retain Mesa's original `!inited` condition. This is a targeted recovery
 experiment for #203's unexplained preexisting state, not a proven root-cause
 fix. Public target CI must show whether the cookie mismatches and whether the
 real EGL/Servo path advances. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Local continuation after CI run #204 (2026-09-26)
+
+Added kernel serial diagnostics for every `SYS_RANDOM_GET` rejection class and
+each `RandomError` returned by the real VirtIO RNG implementation. The syscall
+still returns failure to its caller on error and adds no alternate entropy
+source. The existing `nagi-cli` source-contract check now covers the new
+diagnostics. Fixed CI #204's Clippy warning by replacing `filter().next()` with
+`.any()`. Verification passed: `cargo fmt --all -- --check`, all 71
+`nagi-cli` library tests, the full x86_64-target host-workspace Clippy command,
+the Nagi kernel release target build, and `git diff --check`. The next target
+log must identify the RNG failure cause. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Target evidence from CI run #202 (2026-09-26)
 

@@ -1448,11 +1448,9 @@ mod tests {
         assert!(mismatch_trace < non_nagi_guard);
         assert!(non_nagi_guard < set_cookie);
         assert!(patch.contains("#ifdef __NAGI__"));
-        assert!(patch
+        assert!(!patch
             .lines()
-            .filter(|line| line.starts_with('-') && !line.starts_with("---"))
-            .next()
-            .is_none());
+            .any(|line| line.starts_with('-') && !line.starts_with("---")));
     }
 
     #[test]

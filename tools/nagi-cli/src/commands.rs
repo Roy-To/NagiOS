@@ -2887,6 +2887,7 @@ mod tests {
         let rust_std_patch =
             include_str!("../../../third_party/rust-std/patches/0001-nagi-target-support.patch");
         let libnagi = include_str!("../../../user/libnagi/src/lib.rs");
+        let syscall = include_str!("../../../kernel/src/syscall.rs");
 
         assert!(rust_std_patch.contains("target_os = \"nagi\""));
         assert!(rust_std_patch.contains("mod nagi;"));
@@ -2896,6 +2897,18 @@ mod tests {
             "std entropy must cross the Nagi guest RNG ABI"
         );
         assert!(libnagi.contains("let mut result = SYS_RANDOM_GET;"));
+        for diagnostic in [
+            "SYS_RANDOM_GET rejected: user buffer range",
+            "random_error_trace(error)",
+            "RandomError::PciUnavailable",
+            "RandomError::RequestTimeout",
+            "RandomError::QueueCorrupt",
+        ] {
+            assert!(
+                syscall.contains(diagnostic),
+                "missing guest RNG failure diagnostic: {diagnostic}"
+            );
+        }
         assert!(
             !rust_std_patch
                 .contains("else if #[cfg(any(target_os = \"redox\", target_os = \"nagi\"))]"),

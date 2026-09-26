@@ -870,24 +870,66 @@ fn block_flush(capability: u64) -> u64 {
 #[cfg(not(test))]
 fn random_get(address: u64, length: u64) -> u64 {
     let Ok(length) = usize::try_from(length) else {
+        serial_write(b"Nagi M17 trace: SYS_RANDOM_GET rejected: length overflow\r\n");
         return u64::MAX;
     };
     if length == 0 {
         return 0;
     }
-    if length > MAX_RANDOM_BYTES
-        || !nagi_kernel::user_process::is_user_writable_range_mapped(address, length)
-    {
+    if length > MAX_RANDOM_BYTES {
+        serial_write(b"Nagi M17 trace: SYS_RANDOM_GET rejected: length limit\r\n");
+        return u64::MAX;
+    }
+    if !nagi_kernel::user_process::is_user_writable_range_mapped(address, length) {
+        serial_write(b"Nagi M17 trace: SYS_RANDOM_GET rejected: user buffer range\r\n");
         return u64::MAX;
     }
     let mut buffer = [0_u8; MAX_RANDOM_BYTES];
-    if nagi_kernel::random::fill(&mut buffer[..length]).is_err() {
+    if let Err(error) = nagi_kernel::random::fill(&mut buffer[..length]) {
+        serial_write(random_error_trace(error));
         return u64::MAX;
     }
     for (index, byte) in buffer[..length].iter().enumerate() {
         unsafe { (address as *mut u8).add(index).write_volatile(*byte) };
     }
     length as u64
+}
+
+fn random_error_trace(error: nagi_kernel::random::RandomError) -> &'static [u8] {
+    use nagi_kernel::random::RandomError;
+
+    match error {
+        RandomError::NotInitialized => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: not initialized\r\n"
+        }
+        RandomError::PciUnavailable => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: PCI device unavailable\r\n"
+        }
+        RandomError::InvalidBar => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: invalid BAR\r\n"
+        }
+        RandomError::UnsupportedQueue => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: queue too small\r\n"
+        }
+        RandomError::AddressOutOfRange => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: DMA address out of range\r\n"
+        }
+        RandomError::DeviceFailure => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: device rejected request\r\n"
+        }
+        RandomError::RequestTimeout => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: request timeout\r\n"
+        }
+        RandomError::QueueCorrupt => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: invalid used descriptor\r\n"
+        }
+        RandomError::InvalidBuffer => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: invalid buffer length\r\n"
+        }
+        RandomError::Busy => {
+            b"Nagi M17 trace: SYS_RANDOM_GET VirtIO failure: request already active\r\n"
+        }
+    }
 }
 
 #[cfg(not(test))]

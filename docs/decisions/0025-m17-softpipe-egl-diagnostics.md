@@ -138,6 +138,16 @@ is retained to test this hypothesis. The experiment preserves EGL's ordinary
 binding path and does not relax M17 acceptance; target CI must show whether the
 cookie check fires and whether the real path advances.
 
+CI #204 (`36216371334`) confirmed that patch `0030` detected `inited=80` with
+an invalid cookie, reset the EGL TLS state to `context=0x0`, and allowed EGL
+make-current to complete and reach Surfman's GL function-loading start marker.
+Rust std then panicked because the guest random ABI returned `-1`. That run
+did not contain kernel diagnostics distinguishing a rejected user buffer from
+a VirtIO RNG error. The next step adds reason-specific serial traces at the
+existing `SYS_RANDOM_GET` boundary while preserving its failure return and
+real guest-only entropy contract. The run produced no Servo frame or pixel
+checksum; M17 remains blocked.
+
 ## Decision
 
 Under `__NAGI__`, EGL initialization sets `ForceSoftware` and clears `Zink` so
@@ -265,5 +275,12 @@ instruction in the constructor body; other targets retain a no-op helper.
   state if `inited` is set without a valid cookie. This is a diagnostic repair
   experiment; the cookie mismatch and recovery still require target evidence,
   and the underlying memory writer is unknown.
+- CI #204 showed the cookie mismatch (`inited=80`) and TLS reset worked far
+  enough for EGL make-current and Surfman GL function loading to return. Rust
+  std's guest random request then failed with `-1`; the run did not report
+  whether the user-buffer policy or VirtIO RNG caused it. Kernel diagnostics
+  now preserve that distinction without changing the syscall's failure
+  semantics or introducing another entropy source. No pixel checksum was
+  produced.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.
