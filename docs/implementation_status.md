@@ -19,24 +19,44 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #201 passed the target build through UEFI loader, then failed the
-two-boot QEMU acceptance. EGL reached a current context; Rust std subsequently
-panicked while `HashMap::RandomState` requested entropy from its Redox
-`/scheme/rand` backend, which Nagi does not provide (`EINVAL`, 22). Nagi already
-has a real VirtIO RNG syscall and `libnagi::random_fill`. The Nagi-only Rust std
-backend now calls that syscall through a stable `libnagi` ABI, and Mesa patch
-`0029` removes the repetitive per-lookup TLS line. Public target CI is next.
-No Servo-pixel evidence has been produced. M17 remains BLOCKED; M18 remains
-NOT STARTED.
+milestone. CI #202 passed target builds through UEFI loader, then timed out
+inside EGL context binding. `_EGLThreadInfo::CurrentContext` was
+`0x400002b78ca0`; reading that object's `Binding` produced
+`0x8d48080844110f00`, and the last marker was immediately before Mesa cleared
+the previous binding. The 64-line failure tail cannot establish whether the
+old pointer is stale TLS or valid earlier EGL state. The failure report now
+includes a bounded excerpt of M17 trace markers from the whole serial log, so
+the next run can show earlier EGL/TLS events. The real guest VirtIO RNG backend
+is linked, but #202 stopped before its runtime path. No Servo-pixel evidence
+has been produced. M17 remains BLOCKED; M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36205146068` (#201, head
-`3ade2f26ca24c3825927e8aa6339e7bc2534c7a7`) passed Ubuntu and Windows host
-checks and all target builds through UEFI loader. QEMU reached EGL current
-context state, then Rust std's Redox random backend opened `/scheme/rand` and
-panicked on `EINVAL` (22); QEMU did not exit within 120 seconds. No frame or
-pixel checksum was produced. Public target CI remains authoritative for M17;
-M18 remains NOT STARTED.
+**Last known repair checkpoint:** public CI run `36208851031` (#202, head
+`306d68f6c17f6a700c5f0112cf5a263c58ca9130`) passed host jobs and all target
+builds through UEFI loader. QEMU timed out after 120 seconds during EGL thread
+context binding. No frame or pixel checksum was produced. Public target CI
+remains authoritative for M17; M18 remains NOT STARTED.
+
+### Target evidence from CI run #202 (2026-09-26)
+
+Run `36208851031` (#202, head
+`306d68f6c17f6a700c5f0112cf5a263c58ca9130`) passed both host jobs and every
+target build step through the UEFI loader, including Mesa Softpipe and the
+Nagi user-init link with the Nagi-specific Rust std random backend. The real
+two-boot QEMU acceptance timed out after 120 seconds with status 4. Its final
+serial traces show Surfman creating its dummy pbuffer and calling
+`eglMakeCurrent`; EGL completed make-current validation and reference updates,
+then `_eglBindContextToThread` read `CurrentContext=0x400002b78ca0` while the
+new context was `0x400020813710`. Reading the old object's `Binding` returned
+`0x8d48080844110f00`; the trace reached `thread previous-context clear started`
+but had no completion marker. This is evidence of a suspicious old-context
+value, not proof of its source or that the write itself caused the timeout.
+The CI report included only the last 64 serial lines, so it could not show
+earlier EGL binds or the TLS initialization trace. The M17 failure report now
+includes a bounded excerpt of M17 trace markers from the serial log before the
+tail. The acceptance did not reach the random request or a Servo frame, so it
+does not verify the runtime RNG path. No pixel checksum or PASS marker was
+produced. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #201 (2026-09-26)
 

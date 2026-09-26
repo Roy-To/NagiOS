@@ -113,6 +113,17 @@ software adapter. Mesa EGL, however, normally derives software selection from
 before falling back to swrast. Nagi should enter the renderer path its build
 actually provides.
 
+CI #202 (`36208851031`) passed all target builds through UEFI loader, then
+timed out inside `_eglBindContextToThread` during the real QEMU acceptance.
+The previous `CurrentContext` was `0x400002b78ca0`, and reading its `Binding`
+returned `0x8d48080844110f00`; the trace stopped after previous-context
+clearing started. Since failure output retained only the final 64 serial lines,
+it does not establish whether earlier EGL operations set a valid old context or
+TLS began with an invalid value. The M17 failure report now retains a bounded
+excerpt of trace markers from the full serial log, including earlier EGL and
+TLS events. The run stopped before requesting runtime entropy, so the VirtIO
+RNG backend is linked but not yet runtime verified.
+
 ## Decision
 
 Under `__NAGI__`, EGL initialization sets `ForceSoftware` and clears `Zink` so
@@ -228,5 +239,11 @@ instruction in the constructor body; other targets retain a no-op helper.
   `0029` also removes patch `0028`'s per-lookup TLS state line because CI #201
   repeated it until the bounded serial excerpt was dominated by duplicates.
   EGL behavior and first-pixel acceptance criteria remain unchanged.
+- CI #202 showed a non-null previous context at the next EGL bind, but its
+  owner field looked invalid and the 64-line tail omitted earlier EGL/TLS
+  events. The Nagi CLI now includes a bounded full-log M17 trace excerpt in
+  QEMU failure output, preserving both the earliest and latest markers while
+  keeping the existing serial tail. This improves diagnosis without changing
+  the EGL path or first-pixel acceptance criteria.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

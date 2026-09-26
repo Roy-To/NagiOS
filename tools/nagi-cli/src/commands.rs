@@ -1824,8 +1824,9 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m17: QEMU: {error}\nserial log tail:\n{}",
-                    serial_log_tail(&log_path, 64)
+                    "m17: QEMU: {error}\nM17 trace excerpt:\n{}\nserial log tail:\n{}",
+                    serial_log_m17_trace_excerpt(&log_path, 256),
+                    serial_log_tail(&log_path, 64),
                 ),
             )
         }
@@ -1869,6 +1870,37 @@ fn serial_log_tail(path: &Path, max_lines: usize) -> String {
         Err(error) => return format!("(could not read {}: {error})", path.display()),
     };
     last_serial_lines(&serial, max_lines)
+}
+
+fn serial_log_m17_trace_excerpt(path: &Path, max_lines: usize) -> String {
+    let serial = match fs::read_to_string(path) {
+        Ok(serial) => serial,
+        Err(error) => return format!("(could not read {}: {error})", path.display()),
+    };
+    m17_trace_excerpt(&serial, max_lines)
+}
+
+fn m17_trace_excerpt(serial: &str, max_lines: usize) -> String {
+    let trace_lines = serial
+        .lines()
+        .filter(|line| line.contains("Nagi M17 trace:"))
+        .collect::<Vec<_>>();
+    if trace_lines.is_empty() {
+        return "(no Nagi M17 trace markers)".into();
+    }
+    if trace_lines.len() <= max_lines {
+        return trace_lines.join("\n");
+    }
+
+    let head_count = max_lines.div_ceil(2);
+    let tail_count = max_lines - head_count;
+    let omitted_count = trace_lines.len() - max_lines;
+    let mut excerpt = trace_lines[..head_count].join("\n");
+    excerpt.push_str(&format!(
+        "\n[omitted {omitted_count} M17 trace lines]\n{}",
+        trace_lines[trace_lines.len() - tail_count..].join("\n")
+    ));
+    excerpt
 }
 
 fn last_serial_lines(serial: &str, max_lines: usize) -> String {
@@ -2758,13 +2790,37 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 
 #[cfg(test)]
 mod tests {
-    use super::last_serial_lines;
+    use super::{last_serial_lines, m17_trace_excerpt};
 
     #[test]
     fn serial_log_excerpt_keeps_the_last_lines_in_order() {
         assert_eq!(
             last_serial_lines("first\r\nsecond\r\nthird\r\n", 2),
             "second\nthird"
+        );
+    }
+
+    #[test]
+    fn m17_trace_excerpt_keeps_earlier_egl_events_and_skips_non_trace_lines() {
+        assert_eq!(
+            m17_trace_excerpt(
+                "boot noise\nNagi M17 trace: TLS initialized\nother noise\nNagi M17 trace: EGL bind started\n",
+                8,
+            ),
+            "Nagi M17 trace: TLS initialized\nNagi M17 trace: EGL bind started"
+        );
+    }
+
+    #[test]
+    fn m17_trace_excerpt_bounds_long_logs_and_keeps_both_ends() {
+        let serial = (0..8)
+            .map(|index| format!("Nagi M17 trace: event {index}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert_eq!(
+            m17_trace_excerpt(&serial, 4),
+            "Nagi M17 trace: event 0\nNagi M17 trace: event 1\n[omitted 4 M17 trace lines]\nNagi M17 trace: event 6\nNagi M17 trace: event 7"
         );
     }
 
