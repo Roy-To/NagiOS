@@ -277,6 +277,35 @@
       ],
       "activation_gate": "Catalog and host-library contracts may be prepared before M30; production Settings, input, Albert, UI, or first-party service integration must follow its owning milestone and the explicit release boundary.",
       "merge_boundary": "Host localization foundation is integrated on codex/integration-next-phase; no direct main merge or production service activation."
+    },
+    {
+      "id": "model-runtime",
+      "owner": "Codex Model Runtime / Model Store foundation",
+      "owner_branch": "codex/ws-model-runtime",
+      "recommended_worktree": "../../.codex/worktrees/nagi-model-runtime/NagiOS",
+      "state_file": ".dev/workstreams/model-runtime/state.json",
+      "dependencies": ["development-foundation"],
+      "allowed_paths": [
+        "user/nagi-model-manager/**",
+        "docs/architecture/README.md",
+        "docs/architecture/model-runtime-and-store-contract.md",
+        "docs/schemas/nagi-model-manifest-v1.schema.json",
+        "docs/workstreams/model-runtime.md",
+        ".dev/workstreams/model-runtime/**"
+      ],
+      "forbidden_paths": [
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/**",
+        "docs/implementation_status.md",
+        "kernel/**",
+        "loader/**",
+        "crates/nagi-model/**",
+        "third_party/**",
+        "user/libnagi/**"
+      ],
+      "activation_gate": "Host-side model metadata, registry, store lifecycle, and provider contracts only. M20 remains NOT STARTED until earlier milestones pass and a real local Granite response is accepted; 0.2 production runtime integration requires M30 PASS and an explicit integration checkpoint.",
+      "merge_boundary": "Host contracts may integrate on codex/integration-next-phase. Do not activate inference, model weights, or runtime services before the milestone and release gates; never merge directly to main."
     }
   ]
 }
