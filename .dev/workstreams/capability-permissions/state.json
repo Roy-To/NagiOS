@@ -1,0 +1,204 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "capability-permissions",
+  "current_milestone": "CAP-01-host-foundation",
+  "current_checkpoint": "host-policy-core-verified",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "f6941349df9a2e2f746211dd91ad347ebec940be",
+    "verified_at": "2026-09-26T02:53:23Z",
+    "normal_state": "The host-side capability and permission foundation is committed on codex/0.2-capability-permissions. Its isolated crate passes 26 unit tests, 2 integration tests, formatting, Clippy with warnings denied, declaration-schema validation, and the existing nagi-package regression suite (5 tests). DF-01 dev verify passed for its 9 registered streams and 1 registered state when the worktree had temporary links to already-pinned local dependency sources. This branch is not registered because .dev/workstreams.json is integration-owner-only, so dev status and no-argument dev resume cannot resolve it; a minimal registration proposal is included for the integration owner. After removing those temporary links to leave a clean worktree, ./nagi dev verify cannot start because the root Cargo graph expects third_party/cc-nagi; pinned sources must be prepared before using the root CLI in this worktree. GitHub Actions run 36212755007 on head c7afa1c failed in the pre-existing root CLI state test on Ubuntu and Windows: the test expects IN_PROGRESS while the DF-01 state at base ab9a580 says PASS. Root Format, Lint, and Build passed on Ubuntu; both hosts failed only at that test step. This DF-01 mismatch is outside this workstream and was not changed. Whole-workspace fmt/test/lint also have the Apple Silicon host limitations recorded below. No runtime enforcement, M17, M18-M30, other app workstreams, SDK, or Wayback files were changed. Temporary third_party symlinks were removed and their targets were not modified.",
+    "commands": [
+      "git status --short --branch",
+      "git rev-parse HEAD",
+      "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check (pinned nightly-2025-08-01 toolchain)",
+      "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline (pinned nightly-2025-08-01 toolchain)",
+      "cargo clippy --manifest-path crates/nagi-capability/Cargo.toml --all-targets --locked --offline -- -D warnings (pinned nightly-2025-08-01 toolchain)",
+      "python jsonschema Draft202012Validator validates capability declaration schema and sample",
+      "cargo test -p nagi-package --lib --locked --offline (pinned nightly-2025-08-01 toolchain)",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume",
+      "./nagi dev diagnose --stage capability-workstream-resume --exit-code 4 --failure-class SOURCE --log /tmp/nagi-capability-resume.log --output /tmp/nagi-capability-resume.diagnostics.json",
+      "./nagi dev resume capability-permissions (checked CLI usage; DF-01 resume takes no positional argument)",
+      "./nagi fmt",
+      "./nagi test",
+      "./nagi lint",
+      "gh run view 36212755007 --repo RT-NISH/NagiOS --json conclusion,headSha,jobs,url",
+      "gh run view 36212755007 --repo RT-NISH/NagiOS --job 108322569779 --log",
+      "gh run view 36212755007 --repo RT-NISH/NagiOS --job 108322569881 --log",
+      "git show ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9:.dev/workstreams/development-foundation/state.json",
+      "git show ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9:tools/nagi-cli/src/development.rs"
+    ],
+    "tests": [
+      {
+        "name": "Capability declaration and policy crate tests",
+        "command": "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Pinned nightly-2025-08-01 arm64 toolchain: 26 unit tests and 2 integration tests passed; doc tests contained 0 tests."
+      },
+      {
+        "name": "Capability crate formatting",
+        "command": "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The isolated capability crate passes formatting with the pinned nightly-2025-08-01 rustfmt."
+      },
+      {
+        "name": "Capability crate Clippy",
+        "command": "cargo clippy --manifest-path crates/nagi-capability/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All crate targets pass Clippy with warnings denied on the pinned nightly-2025-08-01 arm64 toolchain."
+      },
+      {
+        "name": "Capability declaration JSON Schema",
+        "command": "Python jsonschema Draft202012Validator.check_schema, FormatChecker, sample and negative fixtures",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Schema is valid; sample is accepted; malformed capability identifier, unknown field, and schema version 2 are rejected."
+      },
+      {
+        "name": "Existing package manifest regression",
+        "command": "cargo test -p nagi-package --lib --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 5 existing package library tests pass. The existing line-based manifest was not modified."
+      },
+      {
+        "name": "DF-01 state verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "DF-01 reports 9 registered workstreams and 1 registered state valid. Its verifier does not discover this branch-local state because the integration-owned registry has no capability-permissions entry."
+      },
+      {
+        "name": "DF-01 state verification after temporary dependency-link cleanup",
+        "command": "./nagi dev verify",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "With temporary dependency links removed to leave the Git worktree clean, the root CLI cannot rebuild because the fresh worktree has no third_party/cc-nagi/Cargo.toml. No third-party source was fetched or changed; DF-01 verification passed before cleanup when the pinned local dependency paths were available."
+      },
+      {
+        "name": "DF-01 status and resume for this branch",
+        "command": "./nagi dev status; ./nagi dev resume",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "Both commands report: branch codex/0.2-capability-permissions is not registered in .dev/workstreams.json. The resume diagnostic report is /tmp/nagi-capability-resume.diagnostics.json; its source log SHA-256 is 84f6aa6ab84135741481fe7d724b2f3e14088cbc1bb04aed59229a8231858582 and the classifier suggested UNKNOWN. The integration-owner-only registry was left unchanged."
+      },
+      {
+        "name": "DF-01 resume positional-argument usage check",
+        "command": "./nagi dev resume capability-permissions",
+        "outcome": "FAIL",
+        "exit_code": 2,
+        "evidence": "The current DF-01 CLI usage is `nagi dev status|resume|verify`; resume takes no positional workstream argument and resolves the current branch. The supported no-argument resume invocation was also run and its registry failure is recorded above."
+      },
+      {
+        "name": "DF-01 resume failure diagnosis",
+        "command": "./nagi dev diagnose --stage capability-workstream-resume --exit-code 4 --failure-class SOURCE --log /tmp/nagi-capability-resume.log --output /tmp/nagi-capability-resume.diagnostics.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Diagnostic JSON preserved exit code 4, the branch-not-registered message, source commit ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9, and suggested failure class UNKNOWN."
+      },
+      {
+        "name": "Repository-wide formatting command",
+        "command": "./nagi fmt",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "The root formatter scans pinned third_party Servo sources and reports broad differences under its formatting version. No third-party source was changed; the capability crate's own pinned formatter check passes."
+      },
+      {
+        "name": "Repository-wide test command on Apple Silicon host",
+        "command": "./nagi test",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The host build attempts x86_64 inline-assembly registers (including rax and rdi) in Nagi code on an aarch64 macOS host. This is a host-target limitation outside the host-only capability crate; no target runtime tests were claimed."
+      },
+      {
+        "name": "Repository-wide lint command on Apple Silicon host",
+        "command": "./nagi lint",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The root build fails in unrelated target/build dependencies: cpufeatures lacks libc support for aarch64 in this graph and an xcrun dynamic-library architecture mismatch occurs. The dedicated capability crate Clippy check passes."
+      },
+      {
+        "name": "GitHub Actions host CI run 36212755007",
+        "command": "Nagi CI on c7afa1cd6d1fa7e89f8249acbb463a89ed4bb59a, ubuntu-host and windows-launcher jobs",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Both jobs passed dependency bootstrap and host-compatible workspace build, then failed the same existing nagi-cli test `development::tests::registry_and_active_workstream_state_validate_from_repository` at tools/nagi-cli/src/development.rs:1277. It expects status IN_PROGRESS but the committed DF-01 state at base ab9a580 is PASS. Ubuntu reported 67 passed/1 failed; Windows reported 65 passed/1 failed. Ubuntu Format, Lint, and Build passed. The test and state are identical to branch base ab9a580; capability code is outside the root workspace and was not implicated. M0 acceptance and the later state verification steps were skipped after test failure; nagi-target was skipped."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36212755007,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36212755007",
+        "head_sha": "c7afa1cd6d1fa7e89f8249acbb463a89ed4bb59a",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host jobs failed only the same pre-existing DF-01 state/test expectation mismatch; Ubuntu Format, Lint, and Build passed."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/0.2/WORKSTREAMS.md and docs/Nagi_OS_0.1_Codex_Implementation_Spec.md",
+    "last_checked_at": "2026-09-26T02:41:11Z",
+    "activation_requirement": "This crate remains host-side only. Runtime/product integration and root workspace activation require Nagi 0.1 M30 PASS and an explicit Nagi 0.2 integration checkpoint."
+  },
+  "blocker": {
+    "active": true,
+    "class": "UNKNOWN",
+    "summary": "DF-01 status/resume cannot associate the current branch with this state until the integration owner registers the workstream in .dev/workstreams.json. DF-01 explicitly reserves that shared registry for the integration owner, so this feature branch cannot safely complete registration itself; a minimal row proposal is committed alongside this state.",
+    "reproduction_commands": [
+      "Prepare the pinned dependency paths required by the root Cargo manifest, then run ./nagi dev status",
+      "Prepare the pinned dependency paths required by the root Cargo manifest, then run ./nagi dev resume"
+    ],
+    "failure_log_summary": "/tmp/nagi-capability-resume.diagnostics.json records exit 4, the unregistered-branch error, source log SHA-256 84f6aa6ab84135741481fe7d724b2f3e14088cbc1bb04aed59229a8231858582, and suggested class UNKNOWN.",
+    "attempted_fixes": [
+      "Read docs/0.2/WORKSTREAMS.md ownership rules and preserved .dev/workstreams.json unchanged.",
+      "Added .dev/workstreams/capability-permissions/registration-proposal.json for integration-owner review.",
+      "Ran DF-01 dev diagnose on the supported resume invocation and validated the current CLI positional-argument usage."
+    ],
+    "do_not_try": [
+      "Do not edit .dev/workstreams.json or .dev/schemas/** from this feature branch; that ownership belongs to the integration owner.",
+      "Do not add runtime hooks before M30 PASS and an explicit integration checkpoint.",
+      "Do not modify M17, M18-M30, other app workstreams, App SDK, or Wayback to work around this registry boundary."
+    ]
+  },
+  "next_action": "Integration owner: prepare the pinned root dependencies, review registration-proposal.json, add the capability-permissions row in an owned integration checkpoint, then rerun ./nagi dev verify, ./nagi dev status, and ./nagi dev resume. Keep runtime integration gated on M30 PASS and the explicit 0.2 integration checkpoint.",
+  "acceptance_criteria": [
+    "PASS: Dedicated codex/0.2-capability-permissions branch/worktree was created from the verified DF-01 remote HEAD and existing worktrees were preserved.",
+    "PASS: DF-01 shared-file ownership rules were followed; no shared registry, shared schema, root manifest/lock, implementation status, CI, or third_party source was modified.",
+    "PASS: Capability IDs, principal identity/kinds, resource scopes, grant effects/sources/lifetimes, revocation, timestamps, and versioned policy model are implemented.",
+    "PASS: Independent versioned capability declaration schema, parser, trusted principal binding, example, and malformed-input handling are implemented.",
+    "PASS: Default-deny evaluation, explicit deny precedence, grant, deny, revoke, check, list, explain, scope checks, session and one-shot behavior are implemented.",
+    "PASS: PolicyStore persistence contract and versioned deterministic in-memory implementation are implemented; malformed persisted data and unsupported versions are rejected fail-closed.",
+    "PASS: CapabilityEnforcer defines the runtime adapter boundary; no runtime enforcement hook is implemented.",
+    "PASS: Security-oriented unit and integration tests cover principal isolation, default deny, unknown capabilities, scope boundaries, revoke, deny, grant lifetimes, malformed data, explanation, persistence, and one-shot consumption.",
+    "PASS: Capability declaration JSON Schema validates against Draft 2020-12; valid and negative fixtures were checked.",
+    "PASS: Capability crate fmt, test, and Clippy checks pass; existing nagi-package regression tests pass.",
+    "PARTIAL: Root-wide fmt/test/lint commands fail due external Servo formatting and Apple Silicon host-target build limitations; failures and scoped passing equivalents are recorded above.",
+    "PARTIAL: DF-01 dev verify passes for registered workstreams, but this branch's dev status/resume cannot resolve its state until integration owner registers it; a row proposal is included.",
+    "PASS: M17, M18-M30, runtime hooks, other native app workstreams, App SDK, and Wayback were not modified.",
+    "PASS: Implementation commit f6941349df9a2e2f746211dd91ad347ebec940be and the durable state/registration-proposal handoff are committed; normal push was confirmed and remote HEAD matched c7afa1cd6d1fa7e89f8249acbb463a89ed4bb59a before this CI-record update.",
+    "PARTIAL: GitHub Actions run 36212755007 failed on both host jobs at the pre-existing DF-01 state/test mismatch documented above; M0 acceptance and target jobs were skipped."
+  ],
+  "deferred": [
+    "Integration owner registration of capability-permissions in .dev/workstreams.json; see registration-proposal.json.",
+    "Root workspace Cargo.toml/Cargo.lock integration and shared dependency reconciliation, reserved for integration owner.",
+    "Trusted installed-identity binding at the service host; declarations do not supply caller authority.",
+    "Durable PolicyStore adapter with atomic durable transactions and schema migration.",
+    "Service-specific runtime enforcement hooks and negative backend non-invocation tests after M30 PASS and explicit 0.2 integration checkpoint.",
+    "Manifest consumer integration through the SDK/package contract owner; the existing line-based nagi-package manifest remains unchanged."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 durable workstream-state and ownership rules",
+      "version": "workstream-state-v1",
+      "status": "PASS at base ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9; branch-local state awaits integration-owner registry entry."
+    }
+  ]
+}
