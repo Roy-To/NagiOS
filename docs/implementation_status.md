@@ -4631,6 +4631,18 @@ cases. Public CI for this integrated runner is pending. The runner itself does
 not turn filtered or missing evidence into a pass; no milestone status is
 inferred from host acceptance.
 
+### First-party integration branch CI (2026-09-26)
+
+Source run `36230579035` at `6cc3255` and documentation/state run
+`36231127467` at `efa1c37` completed with both Ubuntu and Windows host jobs
+passing. Both target jobs built through UEFI, then the unchanged real M17
+QEMU acceptance timed out at `GL context creation started`; neither produced
+a real pixel checksum or M17 PASS marker. The later root run `36233551349`
+advanced through context creation into Servo construction before observing the
+pthread-create `EAGAIN`, so that later trace is the current failure evidence.
+The first-party workstream remains `PARTIAL`; its target runtime behavior was
+not accepted by these runs.
+
 ## Human CLI terminal-control escaping checkpoint (2026-09-26)
 
 Commit 7bd2afab365ccc1c450ec2e370ba15d9cc915ddc hardens human-readable

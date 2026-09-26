@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "m17-pthread-failure-trace-pushed-host-verified-ci-running",
+  "current_checkpoint": "integration-branch-audit-deferred-capability-wayback-m17-diagnostic-ci-running",
   "status": "IN_PROGRESS",
   "last_verified": {
     "commit_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
-    "verified_at": "2026-09-26T10:40:24Z",
-    "normal_state": "Integration head 582b5f6 adds bounded, allocation-free user-space diagnostics for pthread_create failures. The nagi-posix suite passes (9 tests), package formatting and warning-denied Clippy pass, and the Nagi x86_64 user-target library compiles with five existing visibility/dead-code warnings. Root CI #36233551349 passed Ubuntu and Windows host jobs and target builds through UEFI, but QEMU entered Servo construction, received pthread_create EAGAIN, and timed out without a real pixel checksum or M17 PASS marker. Root CI #36235206493 exposed a Windows-invalid test filename; commit dd192ca fixes the fixture. Run #36235660277 passed both host jobs and was building Nagi user init at the latest check. Run #36236310925 for 582b5f6 is in progress. The app branch audit found no missing source commits to integrate; dirty detached first-party target work remains untouched. M17 remains BLOCKED, M18 remains NOT STARTED, and 0.2 runtime/product stays gated on M30 PASS plus an explicit release checkpoint.",
+    "verified_at": "2026-09-26T10:49:24Z",
+    "normal_state": "Integration head 582b5f6 adds bounded, allocation-free user-space diagnostics for pthread_create failures. The nagi-posix suite passes (9 tests), package formatting and warning-denied Clippy pass, and the Nagi x86_64 user-target library compiles with five existing visibility/dead-code warnings. Root CI #36233551349 passed Ubuntu and Windows host jobs and target builds through UEFI, but QEMU entered Servo construction, received pthread_create EAGAIN, and timed out without a real pixel checksum or M17 PASS marker. Root CI #36235206493 exposed a Windows-invalid test filename; commit dd192ca fixes the fixture. Run #36235660277 passed both host jobs and was building Nagi user init at the latest check. Run #36236310925 for 582b5f6 has both host jobs passed; its target job is pending. The app branch audit found no missing source commits to integrate; dirty detached first-party target work remains untouched. M17 remains BLOCKED, M18 remains NOT STARTED, and 0.2 runtime/product stays gated on M30 PASS plus an explicit release checkpoint. Read-only branch comparison at root HEAD a62c63c found no missing source commits on the registered app, SDK, capability-permissions, development foundation, Wayback-ledger, diagnostics, localization, model-runtime, UI, or acceptance branches. The unique codex/parallel-capability-core commit 59d7e10 is deferred because it introduces a competing capability/policy and manifest API across paths owned by other workstreams; the unique codex/parallel-wayback-ledger commit 4943fd8 is deferred because it duplicates the canonical contract and applies reverts without policy/authorization. Dirty M17 and first-party sibling worktrees, plus the Home/Search untracked build artifact, were preserved. Capability Core reports 31 local tests plus workspace check, Clippy, and formatting in a temporary workspace, but the root workspace/doctor and public CI were unavailable. The parallel Wayback branch has no remote or CI run; its reported local checks do not override the missing policy/authorization boundary found in source review.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -94,7 +94,11 @@
       "cargo fmt --manifest-path user/nagi-posix/Cargo.toml",
       "gh run view 36235206493 --log-failed",
       "gh run view 36235660277 --json status,conclusion,jobs,url",
-      "gh run view 36236310925 --json status,conclusion,jobs,url"
+      "gh run view 36236310925 --json status,conclusion,jobs,url",
+      "gh run view 36230579035 --log-failed",
+      "gh run view 36231127467 --log-failed",
+      "git show --stat --oneline codex/parallel-capability-core",
+      "git show --stat --oneline codex/parallel-wayback-ledger"
     ],
     "tests": [
       {
@@ -713,17 +717,17 @@
         "run_id": 36230579035,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36230579035",
         "head_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "First-party source head 6cc3255: Ubuntu and Windows host jobs passed; the independent M17 target job is still running."
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed and the target build reached UEFI. The M17 QEMU acceptance timed out at GL context creation started; no real pixel checksum or PASS marker was produced."
       },
       {
         "run_id": 36231127467,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231127467",
         "head_sha": "efa1c372d0599370bc0b8833e6f4b0c1b8f6917e",
-        "status": "QUEUED",
-        "conclusion": null,
-        "summary": "First-party documentation/state checkpoint head efa1c37 is queued behind the earlier branch run."
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed and the target build reached UEFI. The M17 QEMU acceptance timed out at GL context creation started; no real pixel checksum or PASS marker was produced. Later root run 36233551349 advanced farther into Servo construction and observed pthread_create EAGAIN."
       },
       {
         "run_id": 36231902947,
@@ -779,13 +783,13 @@
         "head_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "CI for the bounded pthread diagnostic commit is running. Ubuntu host passed; Windows was bootstrapping pinned Servo dependencies, and the target job had not started at the latest check."
+        "summary": "CI for the bounded pthread diagnostic commit is pending target execution. Ubuntu and Windows host jobs passed; the nagi-target job had not started at the latest check."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T10:40:24Z",
+    "last_checked_at": "2026-09-26T10:49:24Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -801,7 +805,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Inspect root CI runs 36235660277 (dd192ca) and 36236310925 (582b5f6) as they complete. Use the new bounded user-space pthread trace to distinguish child-slot, stack-mmap, and native-bridge rejection if the target reaches that path. Keep M17 BLOCKED until the real guest emits the first-pixel checksum and acceptance marker; keep M18 NOT STARTED and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
+  "next_action": "Inspect root CI runs 36235660277 (dd192ca) and 36236310925 (582b5f6) as they complete. Use the bounded user-space pthread trace to distinguish child-slot, stack-mmap, and native-bridge rejection if the target reaches that path. Do not cherry-pick the unaffiliated parallel capability/Wayback commits without resolving canonical API, ownership, and authorization concerns. Keep M17 BLOCKED until the real guest emits the first-pixel checksum and acceptance marker; keep M18 NOT STARTED and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -810,7 +814,9 @@
   ],
   "deferred": [
     "M17 first-web-pixel QEMU verification of a commit containing the bounded pthread-create trace; require a real guest pixel checksum and the existing acceptance marker.",
-    "Nagi 0.1 M18-M30 and any 0.2 production runtime or product activation until their documented gates pass."
+    "Nagi 0.1 M18-M30 and any 0.2 production runtime or product activation until their documented gates pass.",
+    "codex/parallel-capability-core@59d7e10: defer the competing policy and pipe-delimited manifest API; its 31 reported local tests and static checks were in a temporary workspace, with no root-workspace/doctor or CI evidence. Revisit only with capability, SDK, and package owners against the registered contracts.",
+    "codex/parallel-wayback-ledger@4943fd8: defer the duplicate ledger and revert executor that lacks an authorization/policy input; the branch has no remote or public CI evidence."
   ],
   "cross_workstream_dependencies": [
     {
