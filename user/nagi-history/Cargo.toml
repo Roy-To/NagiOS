@@ -4,6 +4,15 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+default = []
+sandbox = []
+
+[[example]]
+name = "activity_wayback_preview"
+path = "examples/activity_wayback_preview.rs"
+required-features = ["sandbox"]
+
 [dependencies]
 nagi-model = { path = "../../crates/nagi-model" }
 
