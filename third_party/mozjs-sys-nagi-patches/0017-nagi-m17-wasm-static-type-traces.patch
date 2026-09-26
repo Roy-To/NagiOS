@@ -75,6 +75,19 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +    NAGI_M17_TRACE("SpiderMonkey Wasm RecGroup hash completed");
 +    return groupHash;
 +  }
+@@ -509 +526,11 @@
+-  using Set = HashSet<SharedRecGroup, RecGroupHashPolicy, SystemAllocPolicy>;
++  class TypeIdSetAllocPolicy : public SystemAllocPolicy {
++   public:
++    template <typename T>
++    T* pod_malloc(size_t numElems) {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet table pod_malloc started");
++      T* result = SystemAllocPolicy::pod_malloc<T>(numElems);
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet table pod_malloc completed");
++      return result;
++    }
++  };
++  using Set = HashSet<SharedRecGroup, RecGroupHashPolicy, TypeIdSetAllocPolicy>;
 @@ -516 +533,3 @@
 -    Set::AddPtr p = set_.lookupForAdd(recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd started");

@@ -4777,3 +4777,23 @@ allocation. Patch `0017-nagi-m17-wasm-static-type-traces.patch` now brackets
 the recursion-group hash, `lookupForAdd`, and `HashSet::add` separately. The
 next public target run must identify which operation fails before any runtime
 change is selected. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #260 (2026-09-27)
+
+Public CI run #260 (`36259126957`, head
+`cc1d9956c5abe76d2b10f9206585978c57a1131b`) passed both host jobs, target
+dependency checks, Mesa Softpipe, the M16 package, kernel, real `nagi-init`
+link, and UEFI loader. QEMU again did not exit within the 120-second M17
+acceptance bound (exit code 4), so no guest checksum or first-web-pixel PASS
+marker was produced.
+
+The new markers completed recursion-group hashing and `lookupForAdd`, then
+stopped after `HashSet::add` started. This narrows the stall to the add path;
+it does not yet prove the allocator is responsible. For an empty set, the
+pinned `HashTable` implementation creates its initial table through the
+allocation policy's `pod_malloc`. Patch `0017` now uses a TypeIdSet-local
+`SystemAllocPolicy` wrapper to trace immediately before and after that call.
+This preserves the base allocation implementation and adds no global malloc
+tracing. The next target run must establish whether `pod_malloc` is entered
+and returns before choosing a runtime repair. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.

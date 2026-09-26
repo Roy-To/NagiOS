@@ -286,6 +286,8 @@ mod tests {
             "SpiderMonkey Wasm TypeIdSet lookupForAdd started",
             "SpiderMonkey Wasm TypeIdSet lookupForAdd completed",
             "SpiderMonkey Wasm TypeIdSet HashSet add started",
+            "SpiderMonkey Wasm TypeIdSet table pod_malloc started",
+            "SpiderMonkey Wasm TypeIdSet table pod_malloc completed",
             "SpiderMonkey Wasm TypeIdSet HashSet add completed",
             "SpiderMonkey Wasm canonical type-set insertion completed",
             "SpiderMonkey Wasm StaticTypeDefs::init completed",

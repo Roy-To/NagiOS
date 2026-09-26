@@ -2608,7 +2608,33 @@ POSIX heap lock, but this run does not prove it.
 
 Patch `0017-nagi-m17-wasm-static-type-traces.patch` now emits Nagi-only markers
 around `RecGroupHashPolicy::hash`, `lookupForAdd`, and `HashSet::add`. These
-checkpoints preserve the upstream operation order and distinguish a hashing
-stall from probing or first-table allocation. The next target run should use
-the last marker to select a targeted fix. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+checkpoints preserve the upstream operation order. CI #260 completed hashing
+and lookup but stopped inside `HashSet::add`, which has not yet distinguished
+insertion logic from first-table allocation. For an empty set, pinned
+`HashTable::add` creates the initial table through the allocation policy's
+`pod_malloc`. Patch `0017` now brackets that call with Nagi-only markers in a
+TypeIdSet-local wrapper around `SystemAllocPolicy`. The wrapper delegates to
+the unchanged base allocator. The next target run must show whether the
+allocation is entered and returns before a runtime repair is chosen. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## TypeIdSet allocation trace after CI run #260 (2026-09-27)
+
+Public CI run #260 (`36259126957`, head
+`cc1d9956c5abe76d2b10f9206585978c57a1131b`) passed both host jobs, the target
+dependency boundary, Mesa Softpipe, M16 package, kernel, real `nagi-init`
+link, and UEFI loader. QEMU exceeded the 120-second M17 acceptance limit and
+returned exit code 4; no checksum or first-web-pixel PASS marker was produced.
+
+The guest trace completed the recursion-group hash and `TypeIdSet`'s
+`lookupForAdd`, then entered `HashSet::add` without returning. Pinned
+`HashTable::add` creates an initial table on the empty-set path through
+`createTable`, which invokes the allocation policy's `pod_malloc`. That makes
+the allocation path the next boundary to inspect, but CI #260 does not show
+whether it is the cause.
+
+Patch `0017-nagi-m17-wasm-static-type-traces.patch` now wraps
+`SystemAllocPolicy::pod_malloc` only for this TypeIdSet. Nagi-only markers
+bracket the unchanged base allocator call, so the next real target run can
+show whether allocation is entered and returns. No allocator or hash-table
+behavior has changed. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

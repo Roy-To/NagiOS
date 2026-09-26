@@ -118,6 +118,9 @@ QEMU reached `StaticTypeDefs::init()` but did not return. It brackets the
 `TypeContext` allocation, initial type and parameter creation, and canonical
 type-set lock/insertion. After CI #259 stopped inside canonical type-set
 insertion, it also brackets recursion-group hashing, `lookupForAdd`, and
-`HashSet::add` so the next target run can distinguish lookup from initial
-set-table allocation. The checkpoints are Nagi-only and do not change type
-construction or synchronization behavior.
+`HashSet::add`. CI #260 completed hashing and lookup but stopped inside
+`HashSet::add`, so the patch now wraps the `SystemAllocPolicy::pod_malloc`
+call for this TypeIdSet only, with markers immediately before and after the
+unchanged base allocator call. These checkpoints determine whether initial
+table allocation is entered and returns; they do not change type construction,
+allocation, or synchronization behavior.
