@@ -320,9 +320,7 @@ impl ObjectRefs {
     }
 
     fn contains(self, value: ObjectId) -> bool {
-        self.values[..self.length as usize]
-            .iter()
-            .any(|item| *item == Some(value))
+        self.values[..self.length as usize].contains(&Some(value))
     }
 
     fn iter(&self) -> impl Iterator<Item = ObjectId> + '_ {

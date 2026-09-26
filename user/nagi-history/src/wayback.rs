@@ -368,6 +368,34 @@ pub enum CheckpointPinChange {
     Unchanged,
 }
 
+/// Provenance and actor details for a user-visible checkpoint pin change.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CheckpointPinRequest {
+    checkpoint_id: CheckpointId,
+    pinned: bool,
+    occurred_at: Timestamp,
+    actor: Actor,
+    provenance: Provenance,
+}
+
+impl CheckpointPinRequest {
+    pub const fn new(
+        checkpoint_id: CheckpointId,
+        pinned: bool,
+        occurred_at: Timestamp,
+        actor: Actor,
+        provenance: Provenance,
+    ) -> Self {
+        Self {
+            checkpoint_id,
+            pinned,
+            occurred_at,
+            actor,
+            provenance,
+        }
+    }
+}
+
 pub trait CheckpointMutationPolicy {
     fn can_change_pin(&self, actor: Actor, checkpoint: &CheckpointRecord, pinned: bool) -> bool;
 }
@@ -450,14 +478,17 @@ impl CheckpointStore {
     /// ledger capacity checks succeed. Repeating the current state is a no-op.
     pub fn set_pinned(
         &mut self,
-        id: CheckpointId,
-        pinned: bool,
-        occurred_at: Timestamp,
-        actor: Actor,
-        provenance: Provenance,
+        request: CheckpointPinRequest,
         policy: &dyn CheckpointMutationPolicy,
         activity: &mut dyn ActivitySink,
     ) -> Result<CheckpointPinChange, CheckpointError> {
+        let CheckpointPinRequest {
+            checkpoint_id: id,
+            pinned,
+            occurred_at,
+            actor,
+            provenance,
+        } = request;
         let index = self.records[..MAX_CHECKPOINTS]
             .iter()
             .position(|record| record.is_some_and(|record| record.id == id))
@@ -1218,11 +1249,7 @@ pub trait CheckpointWriteStore: CheckpointReadStore {
 
     fn set_checkpoint_pin(
         &mut self,
-        id: CheckpointId,
-        pinned: bool,
-        occurred_at: Timestamp,
-        actor: Actor,
-        provenance: Provenance,
+        request: CheckpointPinRequest,
         policy: &dyn CheckpointMutationPolicy,
         activity: &mut dyn ActivitySink,
     ) -> Result<CheckpointPinChange, CheckpointError>;
@@ -1268,24 +1295,11 @@ impl CheckpointWriteStore for CheckpointStore {
 
     fn set_checkpoint_pin(
         &mut self,
-        id: CheckpointId,
-        pinned: bool,
-        occurred_at: Timestamp,
-        actor: Actor,
-        provenance: Provenance,
+        request: CheckpointPinRequest,
         policy: &dyn CheckpointMutationPolicy,
         activity: &mut dyn ActivitySink,
     ) -> Result<CheckpointPinChange, CheckpointError> {
-        CheckpointStore::set_pinned(
-            self,
-            id,
-            pinned,
-            occurred_at,
-            actor,
-            provenance,
-            policy,
-            activity,
-        )
+        CheckpointStore::set_pinned(self, request, policy, activity)
     }
 }
 
@@ -1312,6 +1326,21 @@ pub enum RestoreMode {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RestorePlanId(pub u64);
+
+/// Input envelope for creating a restore preview; validation occurs before recording.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RestorePlanRequest<'a> {
+    pub id: RestorePlanId,
+    pub checkpoint: &'a CheckpointRecord,
+    pub actor: Actor,
+    pub provenance: Provenance,
+    pub context: ActivityContext,
+    pub created_at: Timestamp,
+    pub mode: RestoreMode,
+    pub selected_objects: &'a [ObjectId],
+    pub current: &'a [CurrentObjectRevision],
+    pub correlation: CorrelationId,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RestoreItem {
@@ -1454,18 +1483,21 @@ pub enum RestoreError {
 
 /// Build and record a restore preview. No object state changes in this step.
 pub fn prepare_restore_plan(
-    id: RestorePlanId,
-    checkpoint: &CheckpointRecord,
-    actor: Actor,
-    provenance: Provenance,
-    context: ActivityContext,
-    created_at: Timestamp,
-    mode: RestoreMode,
-    selected_objects: &[ObjectId],
-    current: &[CurrentObjectRevision],
-    correlation: CorrelationId,
+    request: RestorePlanRequest<'_>,
     activity: &mut dyn ActivitySink,
 ) -> Result<RestorePlan, RestoreError> {
+    let RestorePlanRequest {
+        id,
+        checkpoint,
+        actor,
+        provenance,
+        context,
+        created_at,
+        mode,
+        selected_objects,
+        current,
+        correlation,
+    } = request;
     if checkpoint.validity != CheckpointValidity::Available || checkpoint.backend_ref.0 == 0 {
         return Err(RestoreError::CheckpointUnavailable);
     }
@@ -2669,6 +2701,22 @@ pub mod sandbox {
             }
         }
 
+        fn pin_request(
+            checkpoint_id: CheckpointId,
+            pinned: bool,
+            seconds: i64,
+        ) -> CheckpointPinRequest {
+            CheckpointPinRequest::new(
+                checkpoint_id,
+                pinned,
+                time(seconds),
+                USER,
+                Provenance::Direct {
+                    originating_intent: None,
+                },
+            )
+        }
+
         fn add_checkpoint(
             sandbox: &mut InMemoryRestoreSandbox,
             store: &mut CheckpointStore,
@@ -2705,13 +2753,7 @@ pub mod sandbox {
             if pinned {
                 store
                     .set_pinned(
-                        id,
-                        true,
-                        time(seconds),
-                        USER,
-                        Provenance::Direct {
-                            originating_intent: None,
-                        },
+                        pin_request(id, true, seconds),
                         &AllowCheckpointPin,
                         activity,
                     )
@@ -2728,18 +2770,20 @@ pub mod sandbox {
             current: &[CurrentObjectRevision],
         ) -> RestorePlan {
             prepare_restore_plan(
-                RestorePlanId(5),
-                checkpoint,
-                USER,
-                Provenance::Direct {
-                    originating_intent: None,
+                RestorePlanRequest {
+                    id: RestorePlanId(5),
+                    checkpoint,
+                    actor: USER,
+                    provenance: Provenance::Direct {
+                        originating_intent: None,
+                    },
+                    context: CONTEXT,
+                    created_at: time(12),
+                    mode,
+                    selected_objects: ids,
+                    current,
+                    correlation: CorrelationId(77),
                 },
-                CONTEXT,
-                time(12),
-                mode,
-                ids,
-                current,
-                CorrelationId(77),
                 activity,
             )
             .unwrap()
@@ -3088,13 +3132,7 @@ pub mod sandbox {
             let pinned = store.create(make_draft(1, 0), &mut activity).unwrap().0;
             store
                 .set_pinned(
-                    pinned,
-                    true,
-                    time(0),
-                    USER,
-                    Provenance::Direct {
-                        originating_intent: None,
-                    },
+                    pin_request(pinned, true, 0),
                     &AllowCheckpointPin,
                     &mut activity,
                 )
@@ -3154,17 +3192,7 @@ pub mod sandbox {
                 1,
             );
             let pinned = store
-                .set_pinned(
-                    id,
-                    true,
-                    time(2),
-                    USER,
-                    Provenance::Direct {
-                        originating_intent: None,
-                    },
-                    &AllowPin,
-                    &mut activity,
-                )
+                .set_pinned(pin_request(id, true, 2), &AllowPin, &mut activity)
                 .unwrap();
             let CheckpointPinChange::Changed(pin_event) = pinned else {
                 panic!("pin must change an unpinned checkpoint");
@@ -3175,31 +3203,11 @@ pub mod sandbox {
                 ActionKind::CheckpointPinned
             );
             assert_eq!(
-                store.set_pinned(
-                    id,
-                    true,
-                    time(3),
-                    USER,
-                    Provenance::Direct {
-                        originating_intent: None,
-                    },
-                    &AllowPin,
-                    &mut activity,
-                ),
+                store.set_pinned(pin_request(id, true, 3), &AllowPin, &mut activity,),
                 Ok(CheckpointPinChange::Unchanged)
             );
             let unpinned = store
-                .set_pinned(
-                    id,
-                    false,
-                    time(4),
-                    USER,
-                    Provenance::Direct {
-                        originating_intent: None,
-                    },
-                    &AllowPin,
-                    &mut activity,
-                )
+                .set_pinned(pin_request(id, false, 4), &AllowPin, &mut activity)
                 .unwrap();
             let CheckpointPinChange::Changed(unpin_event) = unpinned else {
                 panic!("unpin must change the pinned checkpoint");
@@ -3210,17 +3218,7 @@ pub mod sandbox {
                 ActionKind::CheckpointUnpinned
             );
             assert_eq!(
-                store.set_pinned(
-                    id,
-                    true,
-                    time(5),
-                    USER,
-                    Provenance::Direct {
-                        originating_intent: None,
-                    },
-                    &DenyPin,
-                    &mut activity,
-                ),
+                store.set_pinned(pin_request(id, true, 5), &DenyPin, &mut activity,),
                 Err(CheckpointError::PermissionDenied)
             );
             assert!(!store.get(id).unwrap().is_pinned());
@@ -3245,17 +3243,7 @@ pub mod sandbox {
                     .unwrap();
             }
             assert_eq!(
-                store.set_pinned(
-                    id,
-                    true,
-                    time(7),
-                    USER,
-                    Provenance::Direct {
-                        originating_intent: None,
-                    },
-                    &AllowPin,
-                    &mut activity,
-                ),
+                store.set_pinned(pin_request(id, true, 7), &AllowPin, &mut activity,),
                 Err(CheckpointError::Capacity)
             );
             assert!(!store.get(id).unwrap().is_pinned());

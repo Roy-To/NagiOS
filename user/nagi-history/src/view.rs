@@ -110,12 +110,14 @@ pub fn render_timeline<S: ActivityReadStore>(
     output: &mut [u8],
 ) -> Result<usize, ViewError> {
     render_timeline_at(
-        ledger,
-        filter,
-        viewer,
-        policy,
-        time_formatter,
-        locale,
+        TimelineRenderRequest {
+            ledger,
+            filter,
+            viewer,
+            policy,
+            time_formatter,
+            locale,
+        },
         output,
         0,
     )
@@ -153,12 +155,14 @@ pub fn render_transaction_group<S: ActivityReadStore>(
         offset,
     )?;
     render_timeline_at(
-        ledger,
-        filter,
-        viewer,
-        policy,
-        time_formatter,
-        locale,
+        TimelineRenderRequest {
+            ledger,
+            filter,
+            viewer,
+            policy,
+            time_formatter,
+            locale,
+        },
         output,
         offset,
     )
@@ -196,12 +200,14 @@ pub fn render_action_group<S: ActivityReadStore>(
         offset,
     )?;
     render_timeline_at(
-        ledger,
-        filter,
-        viewer,
-        policy,
-        time_formatter,
-        locale,
+        TimelineRenderRequest {
+            ledger,
+            filter,
+            viewer,
+            policy,
+            time_formatter,
+            locale,
+        },
         output,
         offset,
     )
@@ -583,23 +589,36 @@ pub fn render_checkpoint_detail(
     Ok(offset)
 }
 
-fn render_timeline_at<S: ActivityReadStore>(
-    ledger: &S,
+struct TimelineRenderRequest<'a, S> {
+    ledger: &'a S,
     filter: ActivityQuery,
     viewer: Actor,
-    policy: &dyn ActivityAccessPolicy,
-    time_formatter: &dyn ActivityTimeFormatter,
+    policy: &'a dyn ActivityAccessPolicy,
+    time_formatter: &'a dyn ActivityTimeFormatter,
     locale: UserLocale,
+}
+
+fn render_timeline_at<S: ActivityReadStore>(
+    request: TimelineRenderRequest<'_, S>,
     output: &mut [u8],
     mut offset: usize,
 ) -> Result<usize, ViewError> {
     let mut count = 0usize;
-    for event in ledger.query_visible(filter, viewer, policy) {
-        offset = render_event_row(event, time_formatter, locale, output, offset)?;
+    for event in request
+        .ledger
+        .query_visible(request.filter, request.viewer, request.policy)
+    {
+        offset = render_event_row(
+            event,
+            request.time_formatter,
+            request.locale,
+            output,
+            offset,
+        )?;
         count += 1;
     }
     if count == 0 && offset == 0 {
-        return render_empty_state(locale, output).map_err(Into::into);
+        return render_empty_state(request.locale, output).map_err(Into::into);
     }
     Ok(offset)
 }
@@ -869,7 +888,7 @@ fn append_failure(
             "操作に失敗しました".as_bytes(),
         ),
     };
-    append_localized(locale, en, ja, output, offset).map_err(Into::into)
+    append_localized(locale, en, ja, output, offset)
 }
 
 fn append_provenance(
@@ -1317,13 +1336,15 @@ mod tests {
         }
         store
             .set_pinned(
-                checkpoint_id,
-                true,
-                time(31),
-                USER,
-                Provenance::Direct {
-                    originating_intent: None,
-                },
+                crate::wayback::CheckpointPinRequest::new(
+                    checkpoint_id,
+                    true,
+                    time(31),
+                    USER,
+                    Provenance::Direct {
+                        originating_intent: None,
+                    },
+                ),
                 &AllowPin,
                 &mut activity,
             )

@@ -16,7 +16,8 @@ use nagi_history::wayback::{
     compare_with_policy, execute_restore, prepare_restore_plan, CheckpointAccessPolicy,
     CheckpointDraft, CheckpointObject, CheckpointOrigin, CheckpointQuery, CheckpointReadStore,
     CheckpointReason, CheckpointScope, CheckpointStore, CurrentObjectRevision, DiffAccessPolicy,
-    RestoreBackendAvailability, RestoreMode, RestorePlanId, RestorePolicy, SnapshotBackend,
+    RestoreBackendAvailability, RestoreMode, RestorePlanId, RestorePlanRequest, RestorePolicy,
+    SnapshotBackend,
 };
 use nagi_history::{ActivityContext, AppId, AppSessionId, NodeId, ObjectId, WorkspaceId};
 
@@ -150,19 +151,26 @@ fn run() -> Result<(), &'static str> {
     })?;
 
     let plan = prepare_restore_plan(
-        RestorePlanId(1),
-        CheckpointReadStore::get_checkpoint_visible(&checkpoints, checkpoint, USER, &Allow)
+        RestorePlanRequest {
+            id: RestorePlanId(1),
+            checkpoint: CheckpointReadStore::get_checkpoint_visible(
+                &checkpoints,
+                checkpoint,
+                USER,
+                &Allow,
+            )
             .ok_or("checkpoint disappeared")?,
-        USER,
-        Provenance::Direct {
-            originating_intent: None,
+            actor: USER,
+            provenance: Provenance::Direct {
+                originating_intent: None,
+            },
+            context: CONTEXT,
+            created_at: Timestamp::new(1_790_000_002, 0).map_err(|_| "invalid timestamp")?,
+            mode: RestoreMode::InPlace,
+            selected_objects: &[target_object],
+            current: &[CurrentObjectRevision::new(target_object, RevisionId(2))],
+            correlation: CorrelationId(34),
         },
-        CONTEXT,
-        Timestamp::new(1_790_000_002, 0).map_err(|_| "invalid timestamp")?,
-        RestoreMode::InPlace,
-        &[target_object],
-        &[CurrentObjectRevision::new(target_object, RevisionId(2))],
-        CorrelationId(34),
         &mut activity,
     )
     .map_err(|_| "could not prepare restore preview")?;
