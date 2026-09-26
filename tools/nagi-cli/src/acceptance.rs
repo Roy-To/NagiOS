@@ -958,9 +958,12 @@ fn failure_stage(output: &str) -> FailureStage {
     let lower = output.to_ascii_lowercase();
     if is_environment_failure(&lower) {
         FailureStage::Environment
-    } else if lower.contains("timed out") || lower.contains("timeout waiting") {
+    } else if lower.contains("timed out")
+        || lower.contains("timeout waiting")
+        || lower.contains("did not exit within")
+    {
         FailureStage::Timeout
-    } else if lower.contains("undefined symbol")
+    } else if lower.contains("undefined symbol:")
         || lower.contains("undefined reference")
         || lower.contains("linking with")
         || lower.contains("linker command failed")
@@ -1276,6 +1279,18 @@ mod tests {
         assert_eq!(
             failure_stage("QEMU timeout waiting for the boot marker"),
             FailureStage::Timeout
+        );
+        assert_eq!(
+            failure_stage(
+                "FAIL m17: QEMU: QEMU did not exit within 120 seconds\n\
+                 Suggested failure class: GRAPHICS\n\
+                 Logs: 7/7 readable; undefined symbols: 0; errors: 15"
+            ),
+            FailureStage::Timeout
+        );
+        assert_eq!(
+            failure_stage("diagnostic summary: undefined symbols: 0; errors: 15"),
+            FailureStage::Command
         );
         let (status, stage, _) = classify_result("cargo was not found", Some(4), false);
         assert_eq!(status, Status::Blocked);

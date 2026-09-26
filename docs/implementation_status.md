@@ -4699,3 +4699,39 @@ existing visibility/dead-code warnings. Actions run `36236310925` for this
 commit has both host jobs passed, and its target job is pending behind the
 earlier target run. The real QEMU result is pending. M17 remains `BLOCKED`;
 M18 remains `NOT STARTED`.
+
+## M17 pthread bridge capacity audit (2026-09-26)
+
+Source review of integration commit `582b5f64585054be354b7d3f9379cfa3054f8828`
+confirms that the current native bridge has one child execution slot. The
+POSIX adapter returns `EAGAIN` before the syscall when its single child slot is
+occupied. The kernel bridge also accepts creation only from the main thread,
+atomically reserves one child state, and writes the child context to slot 1.
+This makes thread capacity a concrete candidate for the observed Servo
+`pthread_create` failure, but does not identify which adapter branch the QEMU
+run hit; the bounded trace run `36236310925` is still required for that.
+
+If the trace reports `child-slot-occupied`, supporting additional simultaneous
+threads requires a scheduler/kernel thread-context change owned by the M17
+runtime workstream and outside this integration branch's permitted paths. If
+it reports `native-thread-create-rejected`, the current trace identifies the
+native bridge boundary but not the specific kernel validation that rejected
+the call. No concurrency is emulated in user space and no thread failure is
+converted into success.
+
+Root run `36235660277` completed with both host jobs passing and the target
+acceptance failing. QEMU's real serial log reached `Servo construction started`,
+then recorded the Servo profile thread panic with `pthread_create` error 11
+(`EAGAIN`), followed by abort redirection; QEMU did not exit within the
+acceptance's 120-second window. The serial log SHA-256 is
+`8be7a9676148b1915c146fed25d932bf2ae6158603f65bf468012c821d00830d`. The run
+produced no first-pixel checksum or guest PASS marker. Its acceptance report
+incorrectly labeled the failure stage `link`: the diagnostic summary's plural
+`undefined symbols: 0` matched a broad linker substring, while the QEMU
+`did not exit within 120 seconds` wording was not recognized as a timeout.
+The host classifier now recognizes that timeout wording and requires the
+singular linker diagnostic `undefined symbol:`; regression tests preserve
+timeout and linker distinctions. This changes reporting only; the acceptance
+verdict remains FAIL. Trace-enabled run `36236310925` has started its target
+job; its M17 QEMU result is pending. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
