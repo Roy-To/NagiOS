@@ -1,0 +1,186 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "model-runtime",
+  "current_milestone": "Model Runtime / Model Store Foundation",
+  "current_checkpoint": "backend-compatibility-and-store-invariants-verified",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "2db5ec3b459bab8f1d98306cb0e71888bf4a653c",
+    "verified_at": "2026-09-26T14:15:34Z",
+    "normal_state": "Dedicated branch fixes the CRLF-sensitive malformed-manifest regression, prevents registry availability from combining runtime and artifact compatibility across separate backend descriptors, and makes ModelStoreRecord invariants private with read-only accessors. The complete package suite passes 29 tests, package formatting and warnings-denied Clippy pass. A local Nagi-target compile could not start because this worktree lacks prepared out/rust-src/library/Cargo.toml; the GitHub target job is running. Runs 36247763516 (implementation) and 36247891574 (documentation checkpoint) are in progress/pending. M20 remains NOT STARTED and M17 remains separately blocked. Formal Draft 2020-12 schema evaluation remains blocked by the registry forbidding root Cargo.lock changes needed for a validator dependency.",
+    "commands": [
+      "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check",
+      "cargo test --locked -p nagi-model-manager --all-targets",
+      "cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
+      "cargo test --locked -p nagi-model-manager rejects_unknown_fields_and_malformed_json",
+      "cargo test --locked -p nagi-model-manager does_not_combine_runtime_and_artifact_support_from_separate_descriptors",
+      "cargo test --locked -p nagi-model-manager --test manifest_schema",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=out/rust-src/library cargo check --locked -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --offline -Zbuild-std=std,panic_abort",
+      "git diff --check"
+    ],
+    "tests": [
+      {
+        "name": "Model manager host suite",
+        "command": "cargo test --locked -p nagi-model-manager --all-targets",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "26 unit tests, 2 manifest/schema contract tests, and 1 external consumer Store API test passed."
+      },
+      {
+        "name": "Model manager formatting",
+        "command": "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Package source and tests are rustfmt-clean."
+      },
+      {
+        "name": "Model manager Clippy",
+        "command": "cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets passed with warnings denied."
+      },
+      {
+        "name": "CRLF malformed-manifest regression before fix",
+        "command": "cargo test --locked -p nagi-model-manager rejects_unknown_fields_and_malformed_json",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Explicit CRLF input retained the required source field with the old LF-sensitive mutation; parser returned Ok and reproduced the Windows CI failure."
+      },
+      {
+        "name": "CRLF malformed-manifest regression after fix",
+        "command": "cargo test --locked -p nagi-model-manager rejects_unknown_fields_and_malformed_json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "CRLF input now removes the field by content and the strict parser returns MalformedJson."
+      },
+      {
+        "name": "Split-backend compatibility regression before fix",
+        "command": "cargo test --locked -p nagi-model-manager does_not_combine_runtime_and_artifact_support_from_separate_descriptors",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Registry returned Available although one same-ID descriptor lacked artifact format support and the other lacked runtime API support."
+      },
+      {
+        "name": "Split-backend compatibility regression after fix",
+        "command": "cargo test --locked -p nagi-model-manager does_not_combine_runtime_and_artifact_support_from_separate_descriptors",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Registry returns IncompatibleBackend unless a single descriptor satisfies runtime, format, and architecture requirements."
+      },
+      {
+        "name": "Store API contract tests",
+        "command": "cargo test --locked -p nagi-model-manager --test store_api",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "External consumer reads manifest, integrity, license, install state, and versions through public getters; required-term acknowledgement initializes fail-closed."
+      },
+      {
+        "name": "Nagi user-target local compile attempt",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=out/rust-src/library cargo check --locked -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --offline -Zbuild-std=std,panic_abort",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Cargo could not start because generated out/rust-src/library/Cargo.toml is absent in this worktree. No package compilation failure occurred; target CI prepares this input."
+      },
+      {
+        "name": "Model manifest schema contract tests",
+        "command": "cargo test --locked -p nagi-model-manager --test manifest_schema",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Schema parses as JSON, selected version/required/closed-object declarations match, and three fixtures pass the typed parser. A Draft 2020-12 evaluator is not run."
+      },
+      {
+        "name": "Model manager whitespace validation",
+        "command": "git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No whitespace errors."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36215549131,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215549131",
+        "head_sha": "21dbe1e4a3277fa336e73616018994e80847caa7",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu host job passed. Windows host tests failed only the line-ending-sensitive malformed-manifest fixture; M17 target acceptance failed independently after target builds reached UEFI. The Windows regression is fixed in this integration branch."
+      },
+      {
+        "run_id": 36247763516,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36247763516",
+        "head_sha": "1e62cc207cf4ee9b9192d478c8e9af44a68fe481",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Implementation checkpoint CI is still running; host jobs are bootstrapping dependencies and the target job has prepared the patched Rust std source and is bootstrapping Servo."
+      },
+      {
+        "run_id": 36247891574,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36247891574",
+        "head_sha": "2db5ec3b459bab8f1d98306cb0e71888bf4a653c",
+        "status": "QUEUED",
+        "conclusion": null,
+        "summary": "Documentation/test-name clarification checkpoint is queued; it follows implementation checkpoint 1e62cc2."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/workstreams/model-runtime.md and docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T14:15:34Z",
+    "activation_requirement": "This is a host-side foundation and target compile only. Nagi 0.1 M20 remains NOT STARTED until M17-M19 are completed in order and a real local Granite response is accepted; any 0.2 product/runtime activation also requires M30 PASS and an explicit integration checkpoint."
+  },
+  "blocker": {
+    "active": true,
+    "class": "UNKNOWN",
+    "summary": "Full Draft 2020-12 validation of the manifest schema remains unimplemented. Adding a validator dependency would require changing the shared root Cargo.lock, which is explicitly in this workstream registry entry forbidden_paths. Existing schema JSON/selected-key tests and strict typed manifest parsing remain in place.",
+    "reproduction_commands": [
+      "cargo test --locked -p nagi-model-manager --test manifest_schema"
+    ],
+    "failure_log_summary": "The current passing manifest_schema tests parse the schema as JSON, inspect selected version/required/closed-object declarations, and parse the three fixtures through ModelManifest::parse_json; they do not evaluate the full schema draft.",
+    "attempted_fixes": [
+      "Inspected current package dependencies and test harness; no JSON Schema evaluator is available without a new locked dependency. No out-of-scope lockfile change or partial home-grown schema interpreter was added."
+    ],
+    "do_not_try": [
+      "Do not edit Cargo.lock or expand allowed_paths without the Development Foundation/workstream owner.",
+      "Do not treat the typed parser as proof of full Draft 2020-12 conformance.",
+      "Do not treat test-support fake providers as real inference.",
+      "Do not add host filesystem access, model downloads, or a host AI daemon.",
+      "Do not mark M20 complete without a real local Granite response inside Nagi.",
+      "Do not activate production runtime before milestone/release gates."
+    ]
+  },
+  "next_action": "Proceed to the registered Diagnostics workstream in its dedicated branch. Keep Model Runtime PARTIAL and M20 NOT STARTED. For model-runtime resumption, inspect CI runs 36247763516 and 36247891574; if host checks pass and only M17 target acceptance fails, record that separately. Reopen full JSON Schema validation only after the shared Cargo.lock path is authorized or an already-locked approved validator is available.",
+  "acceptance_criteria": [
+    "Strict model manifest v1 parsing rejects unknown fields, malformed identifiers, unsupported versions, invalid resource bounds, and malformed integrity metadata.",
+    "Registry selection filters by capability, role, architecture, available resources, context, and offline constraints with deterministic user-preference/default/fallback ordering.",
+    "Model Store metadata models install/update/removal lifecycle, integrity checks, license acknowledgement, NOTICE records, and prior-version preservation on failed updates.",
+    "Provider/runtime APIs are capability-neutral and expose bounded model reads, request limits, cancellation/deadline inputs, and structured errors.",
+    "Granite, Qwen, and Gemma fixtures are explicitly illustrative and contain no downloadable weights or false hash/license claims.",
+    "Host tests, formatting, Clippy, schema contract tests, and Nagi user-target library compilation pass.",
+    "No production inference backend, model weights, host downloader/service, or kernel/runtime hook is included.",
+    "M20 remains NOT STARTED until M17-M19 finish in order and a real local Granite response is accepted."
+  ],
+  "deferred": [
+    "Pinned distributable IBM Granite 4.2 3B revision, source URL, exact filename, size, SHA-256, provider license, and NOTICE validation.",
+    "Production llama.cpp/GGUF backend and real local inference inside Nagi.",
+    "Model artifact persistence/download through an authorized Nagi user-space store, with signature and integrity verification.",
+    "Production permission checks, App SDK integration, and model-service process activation.",
+    "M20 acceptance until prerequisite milestones and its real-response criterion pass.",
+    "Full Draft 2020-12 schema evaluation; resume after an authorized validator dependency and shared lockfile ownership/allowlist are available."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 registry and durable state contract.",
+      "version": "nagi-dev-v1",
+      "status": "PASS"
+    },
+    {
+      "workstream_id": "localization-i18n",
+      "contract": "No runtime dependency; model identity and provider metadata remain independent of display localization.",
+      "version": "localization-contract-v1",
+      "status": "INDEPENDENT / NO API DEPENDENCY"
+    }
+  ]
+}
