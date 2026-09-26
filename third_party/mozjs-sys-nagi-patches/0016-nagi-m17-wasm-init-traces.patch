@@ -1,0 +1,65 @@
+diff --git a/mozjs/js/src/wasm/WasmProcess.cpp b/mozjs/js/src/wasm/WasmProcess.cpp
+--- a/mozjs/js/src/wasm/WasmProcess.cpp
++++ b/mozjs/js/src/wasm/WasmProcess.cpp
+@@ -30,0 +31,12 @@
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
++
+@@ -169,0 +182 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm static tag allocation started");
+@@ -170,0 +184,2 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm static tag allocation completed");
++  NAGI_M17_TRACE("SpiderMonkey Wasm static tag initialization started");
+@@ -173,0 +189 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm static tag initialization completed");
+@@ -178,0 +195 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag allocation started");
+@@ -179,0 +197,2 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag allocation completed");
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag initialization started");
+@@ -182,0 +202 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm JS promise tag initialization completed");
+@@ -189,0 +210 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm::Init entered");
+@@ -193,0 +215 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm system page-size lookup started");
+@@ -194,0 +217 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm system page-size lookup completed");
+@@ -197,0 +221 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm huge-memory configuration started");
+@@ -198,0 +223 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm huge-memory configuration completed");
+@@ -200,0 +226 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm code-block map allocation started");
+@@ -201,0 +228 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm code-block map allocation completed");
+@@ -205,0 +233 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm static type definitions initialization started");
+@@ -208,0 +237 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm static type definitions initialization completed");
+@@ -210,0 +240 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm built-in module functions initialization started");
+@@ -214 +244,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey Wasm built-in module functions initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey Wasm code-block map publication started");
+@@ -216 +248,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey Wasm code-block map publication completed");
++
++  NAGI_M17_TRACE("SpiderMonkey Wasm static tag types initialization started");
+@@ -220 +254,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey Wasm static tag types initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey Wasm::Init completed");

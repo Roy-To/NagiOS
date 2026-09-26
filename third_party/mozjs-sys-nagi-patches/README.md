@@ -105,3 +105,10 @@ kernel's VirtIO RNG boundary. Without this adapter, SpiderMonkey's random
 provider returns failure and GC address-limit selection retries indefinitely.
 Other platform providers remain unchanged, and an entropy failure remains a
 failure rather than being replaced with host or deterministic bytes.
+
+Patch `0016` adds Nagi-only checkpoints inside SpiderMonkey's Wasm process
+initialization after the public QEMU trace showed that `JS_Init` advanced past
+GC address discovery and then stopped within `wasm::Init()`. The checkpoints
+bracket page-size lookup, huge-memory configuration, code-block-map allocation,
+static type setup, built-in module setup, and tag-type setup. They use the same
+guest console callback and leave initialization behavior and ordering intact.

@@ -179,6 +179,27 @@ mod tests {
         }
         assert!(js_init_trace_patch.contains("nagi_m17_console_trace(trace_stage"));
 
+        let wasm_init_trace_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0016-nagi-m17-wasm-init-traces.patch"),
+        )
+        .expect("mozjs M17 Wasm initialization trace patch");
+        for stage in [
+            "SpiderMonkey Wasm::Init entered",
+            "SpiderMonkey Wasm system page-size lookup completed",
+            "SpiderMonkey Wasm huge-memory configuration completed",
+            "SpiderMonkey Wasm code-block map allocation completed",
+            "SpiderMonkey Wasm static type definitions initialization completed",
+            "SpiderMonkey Wasm built-in module functions initialization completed",
+            "SpiderMonkey Wasm static tag types initialization completed",
+            "SpiderMonkey Wasm::Init completed",
+        ] {
+            assert!(
+                wasm_init_trace_patch.contains(stage),
+                "missing SpiderMonkey Wasm initialization trace stage: {stage}"
+            );
+        }
+        assert!(wasm_init_trace_patch.contains("nagi_m17_console_trace(trace_stage"));
+
         assert!(
             !root
                 .join(

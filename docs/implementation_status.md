@@ -4708,3 +4708,27 @@ all 76 `nagi-cli` library tests, the focused package formatting check, the
 patch application check against the pinned MozJS checkout, and C++ signature
 syntax checking. Public CI still needs to verify the full target link and real
 guest RNG/render path. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #257 (2026-09-26)
+
+Public CI run #257 (`36249263091`, head
+`3648b760d7bd4b1623dd9232461bbfe6b07c69dd`) passed host CI, the target
+dependency boundary, Mesa Softpipe, M16 package, kernel, real `nagi-init`
+link, and UEFI loader. Real QEMU first-web-pixel acceptance timed out after
+120 seconds with exit code 4. The trace completed SpiderMonkey GC address
+discovery and GC memory setup, then stopped at the
+`SpiderMonkey Wasm initialization started` marker. No `SYS_RANDOM_GET` rejection or VirtIO RNG failure
+was logged; the #256 entropy loop is no longer the observed stopping point.
+No pixel checksum or PASS marker was produced.
+
+Pinned-source inspection shows `JS_Init` next enters `js::wasm::Init()`, which
+checks the system page size, configures huge memory, allocates the Wasm
+code-block map, initializes static types and built-in module functions,
+publishes the map, and creates static tag types. The exact blocked operation is
+not yet known. Tracked patch
+`third_party/mozjs-sys-nagi-patches/0016-nagi-m17-wasm-init-traces.patch`
+adds Nagi-only trace checkpoints around these operations without changing
+initialization behavior. The new source-contract test passes locally, as do the
+focused package format check and patch reverse-check against the materialized
+MozJS checkout. Public target CI must compile the patch and reveal the last
+completed Wasm phase. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

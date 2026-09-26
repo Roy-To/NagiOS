@@ -2527,3 +2527,32 @@ failure and introduces no host entropy or deterministic substitute. The local
 patch applies to the pinned generated source. The public target run remains
 the authoritative runtime verification; M17 remains `BLOCKED` pending the
 real Servo guest checksum and PASS marker.
+
+## SpiderMonkey Wasm initialization after CI run #257 (2026-09-26)
+
+Public CI run #257 (`36249263091`, head
+`3648b760d7bd4b1623dd9232461bbfe6b07c69dd`) passed the Ubuntu and Windows host
+jobs, target dependency checks, Mesa Softpipe build, M16 package, kernel, real
+`nagi-init` link, and UEFI loader. Its real QEMU first-web-pixel acceptance
+timed out after 120 seconds with exit code 4. The serial trace completed the
+GC address-limit search and GC memory initialization, then stopped after the
+`SpiderMonkey Wasm initialization started` marker. The log contains no
+`SYS_RANDOM_GET` rejection or VirtIO RNG failure, so the #256 entropy stall is
+no longer the observed stopping point. No guest checksum or first-web-pixel
+PASS marker was produced.
+
+In the pinned source, `JS_Init` calls `js::wasm::Init()` immediately after GC
+memory initialization. That function checks the system page size and configures
+huge memory, allocates the process-wide code-block map, initializes static Wasm
+type definitions and built-in module functions, publishes the map, and creates
+static tag types. The public trace does not establish which operation stopped.
+
+Tracked MozJS patch `0016-nagi-m17-wasm-init-traces.patch` adds Nagi-only
+checkpoints around these operations, including the internal tag-type setup.
+They call the existing guest console callback and do not alter initialization
+behavior, ordering, or Wasm support. The local source-contract test passes, the
+patch reverse-check succeeds against the materialized pinned checkout, and the
+focused `nagi-cli` formatting check passes. A fresh public target run must
+compile the patch and identify the last completed Wasm initialization phase
+before any runtime fix is chosen. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
