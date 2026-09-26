@@ -39,6 +39,9 @@ static mut PTHREAD_START_RECORD: PthreadStartRecord = PthreadStartRecord {
 };
 static mut PTHREAD_STACK: *mut u8 = ptr::null_mut();
 static mut PTHREAD_DETACHED: bool = false;
+static PTHREAD_CREATE_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(target_os = "nagi")]
+static PTHREAD_CREATE_FAILURE_TRACES: AtomicUsize = AtomicUsize::new(0);
 
 // The kernel gives the initial Nagi process a fixed, mapped user stack. The
 // POSIX attribute bridge reports that guest range to Rust std instead of
@@ -47,6 +50,27 @@ static mut PTHREAD_DETACHED: bool = false;
 const NAGI_MAIN_STACK_BASE: usize = 0x0000_4000_0020_0000;
 const NAGI_MAIN_STACK_SIZE: usize = 8 * 4096;
 const NAGI_PTHREAD_STACK_SIZE: usize = 4 * 4096;
+
+#[inline]
+fn trace_pthread_create_failure(attempt: usize, stage: &[u8], error: c_int) {
+    #[cfg(target_os = "nagi")]
+    {
+        const MAX_FAILURE_TRACES: usize = 8;
+        if PTHREAD_CREATE_FAILURE_TRACES.fetch_add(1, Ordering::Relaxed) < MAX_FAILURE_TRACES {
+            let (line, length) = crate::thread_diagnostics::format_pthread_create_failure(
+                attempt,
+                stage,
+                NAGI_PTHREAD_STACK_SIZE,
+                error.max(0) as usize,
+            );
+            let _ = libnagi::console_write(&line[..length]);
+        }
+    }
+    #[cfg(not(target_os = "nagi"))]
+    {
+        let _ = (attempt, stage, error);
+    }
+}
 
 #[repr(C)]
 struct NagiPthreadAttr {
@@ -1719,11 +1743,16 @@ pub unsafe extern "C" fn pthread_create(
     if thread.is_null() || start.is_none() {
         return EINVAL;
     }
+    let attempt = PTHREAD_CREATE_ATTEMPTS
+        .fetch_add(1, Ordering::Relaxed)
+        .saturating_add(1);
     if !PTHREAD_STACK.is_null() && !PTHREAD_DETACHED {
+        trace_pthread_create_failure(attempt, b"child-slot-occupied", EAGAIN);
         return EAGAIN;
     }
     let stack = crate::nagi_posix_mmap(NAGI_PTHREAD_STACK_SIZE, 3);
     if stack.is_null() {
+        trace_pthread_create_failure(attempt, b"stack-mmap-failed", EAGAIN);
         return EAGAIN;
     }
     PTHREAD_START_RECORD = PthreadStartRecord { start, argument };
@@ -1739,6 +1768,7 @@ pub unsafe extern "C" fn pthread_create(
             argument: ptr::null_mut(),
         };
         set_errno(EAGAIN);
+        trace_pthread_create_failure(attempt, b"native-thread-create-rejected", EAGAIN);
         return EAGAIN;
     };
     let previous_detached_stack = if PTHREAD_DETACHED {

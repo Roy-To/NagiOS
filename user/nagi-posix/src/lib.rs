@@ -6,6 +6,9 @@ pub mod fs;
 pub mod net;
 pub mod process;
 
+#[cfg(any(target_os = "nagi", test))]
+mod thread_diagnostics;
+
 #[cfg(target_os = "nagi")]
 mod abi;
 #[cfg(target_os = "nagi")]
