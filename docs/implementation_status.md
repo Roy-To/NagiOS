@@ -4803,3 +4803,13 @@ the timeout `stage=link`; it predates the classifier correction in `4c45396`.
 The newer classifier/status run `36240025711` passed both host jobs and has
 started its target build; it is now bootstrapping pinned Servo source. M17
 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## M17 classifier validation run status (2026-09-26)
+
+Run `36240025711` at `faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1` passed both
+host jobs, built Nagi user init and the UEFI loader, and entered the real M17
+first-web-pixel QEMU acceptance at 12:50 UTC. The target result is pending.
+This run contains the timeout-classifier correction; its final diagnostic
+will verify that the QEMU timeout is no longer mislabeled as a linker failure.
+M17 remains `BLOCKED` until a real guest pixel checksum and acceptance marker
+are present; M18 remains `NOT STARTED`.
