@@ -341,4 +341,35 @@ mod tests {
             "MozJS's explicit link boundary must recognize the Nagi user target"
         );
     }
+
+    #[test]
+    fn mozjs_random_bytes_use_nagi_virtio_entropy() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0015-nagi-virtio-rng.patch"),
+        )
+        .expect("MozJS Nagi VirtIO RNG patch");
+        for contract in [
+            "diff --git a/mozjs/mfbt/RandomNum.cpp",
+            "#if defined(__NAGI__)",
+            "extern \"C\" int __nagi_random_fill(void* buffer, size_t length);",
+            "return __nagi_random_fill(aBuffer, aLength) == 0;",
+        ] {
+            assert!(
+                patch.contains(contract),
+                "missing MozJS Nagi entropy contract: {contract}"
+            );
+        }
+
+        let libnagi =
+            std::fs::read_to_string(root.join("user/libnagi/src/lib.rs")).expect("libnagi source");
+        assert!(libnagi.contains("pub unsafe extern \"C\" fn __nagi_random_fill"));
+        assert!(libnagi.contains("pub unsafe extern \"C\" fn __nagi_std_random_fill"));
+        assert!(libnagi.contains("unsafe { __nagi_random_fill(destination, length) }"));
+        assert!(libnagi.contains("inlateout(\"rax\") result"));
+        assert!(libnagi.contains("SYS_RANDOM_GET"));
+    }
 }

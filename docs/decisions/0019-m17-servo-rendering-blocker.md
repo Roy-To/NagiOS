@@ -2495,3 +2495,35 @@ boundaries. They call the existing bounded guest console callback and do not
 change initialization order, mapping, JIT policy, or random sources. The next
 public CI acceptance should identify the last completed phase before any
 runtime repair is chosen. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## SpiderMonkey GC address-limit entropy after CI run #256 (2026-09-26)
+
+Public CI run `36245650368` (#256, head
+`e8522ecf95de389e387d178dc0331de39cc159d4`) passed the real `nagi-init` link
+and UEFI build. QEMU still timed out after 120 seconds, but the new nested
+initialization traces narrowed the stall from all of `script::init()` to
+SpiderMonkey's `FindAddressLimitInner` during GC memory initialization. The
+serial stream reached `SpiderMonkey address-limit search entered` and emitted
+no later initialization stage, checksum, or first-web-pixel marker.
+
+`FindAddressLimitInner` calls `GetNumberInRange`, which loops until
+`mozilla::RandomUint64()` returns a value. The pinned
+`mfbt/RandomNum.cpp` provider has no `__NAGI__` path: its Unix fallback uses
+Linux `getrandom` only for `__linux__`, otherwise it opens `/dev/urandom`.
+Nagi's custom target does not provide those host APIs; its POSIX `open` goes
+through the guest VFS and no `/dev/urandom` provider is implemented. This
+leaves SpiderMonkey repeatedly receiving `Nothing()` and explains the observed
+stall. This diagnosis is based on the exact last guest marker and the pinned
+provider call path; the next CI run must confirm that the target VirtIO RNG
+call succeeds and initialization advances.
+
+The Nagi fix uses the existing kernel VirtIO RNG syscall through a shared
+`libnagi` C ABI named `__nagi_random_fill`. Rust std's existing
+`__nagi_std_random_fill` remains as a delegating compatibility symbol. Tracked
+MozJS patch `0015-nagi-virtio-rng.patch` selects this ABI only for `__NAGI__`,
+while preserving the upstream providers for every other OS. It propagates RNG
+failure and introduces no host entropy or deterministic substitute. The local
+`nagi-cli` suite passes 76/76 tests, the package format check passes, and the
+patch applies to the pinned generated source. The public target run remains
+the authoritative runtime verification; M17 remains `BLOCKED` pending the
+real Servo guest checksum and PASS marker.

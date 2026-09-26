@@ -4672,3 +4672,39 @@ existing guest console callback and preserve all initialization operations
 and ordering. Host source-contract checks cover the new markers. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`. The next public target CI run must still
 produce the real guest-rendered checksum and PASS marker.
+
+### Current M17 continuation after CI run #256 (2026-09-26)
+
+Public CI run #256 (`36245650368`, head
+`e8522ecf95de389e387d178dc0331de39cc159d4`) passed both host jobs, the
+target dependency boundary, Mesa Softpipe build, M16 package, kernel, real
+`nagi-init` link, and UEFI loader. The real QEMU first-web-pixel acceptance
+then timed out after 120 seconds with exit code 4; no checksum or PASS marker
+was produced.
+
+The new guest trace narrowed the stall. Servo `script::init()` completed its
+JIT choice, proxy handlers, generated bindings, memory reporter, and platform
+initialization. SpiderMonkey `JS_Init` completed process, TLS, allocator, and
+mutex setup, then entered GC address-limit search and did not return from
+`FindAddressLimitInner`. The serial log contains no RNG error diagnostic.
+
+Source inspection identifies the missing target entropy route. In
+`mozjs/mfbt/RandomNum.cpp`, SpiderMonkey's Unix provider uses Linux
+`getrandom` only when `__linux__` is defined; otherwise it opens
+`/dev/urandom`. Nagi is a custom target, and its POSIX `open` routes into the
+guest VFS, which has no `/dev/urandom` device. `Memory.cpp`'s
+`GetNumberInRange` retries while `RandomUint64()` returns `Nothing`, so this
+provider failure explains the observed synchronous loop. Nagi already has a
+real guest VirtIO RNG syscall and `libnagi` C ABI for Rust std, but SpiderMonkey
+was not using it.
+
+The target adapter adds `__nagi_random_fill` as the shared `libnagi` C ABI,
+keeps `__nagi_std_random_fill` as a delegating compatibility entry point, and
+adds tracked MozJS patch `0015-nagi-virtio-rng.patch` to route only the Nagi
+build through that VirtIO RNG boundary. Other OS providers stay unchanged;
+entropy failure is propagated without host or deterministic fallback.
+The new `nagi-cli` source-contract test passes. Local validation also passes
+all 76 `nagi-cli` library tests, the focused package formatting check, the
+patch application check against the pinned MozJS checkout, and C++ signature
+syntax checking. Public CI still needs to verify the full target link and real
+guest RNG/render path. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

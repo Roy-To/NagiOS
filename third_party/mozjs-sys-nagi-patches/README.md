@@ -97,3 +97,11 @@ the JIT random-address and executable-memory mapping boundaries. It writes
 through Nagi's existing bounded console callback and compiles to a no-op on
 other targets. The patch only adds diagnostics; it does not change memory
 mapping, JIT policy, random sources, or initialization order.
+
+Patch `0015` connects SpiderMonkey's operating-system entropy provider to
+`libnagi`'s `__nagi_random_fill` ABI. Nagi has no Linux `getrandom` syscall
+number or `/dev/urandom` device; the existing guest entropy source is the
+kernel's VirtIO RNG boundary. Without this adapter, SpiderMonkey's random
+provider returns failure and GC address-limit selection retries indefinitely.
+Other platform providers remain unchanged, and an entropy failure remains a
+failure rather than being replaced with host or deterministic bytes.
