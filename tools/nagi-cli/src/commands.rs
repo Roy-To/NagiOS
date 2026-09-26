@@ -2915,4 +2915,14 @@ mod tests {
             "Nagi must not use Rust std's Redox /scheme/rand backend"
         );
     }
+
+    #[test]
+    fn m17_guest_rng_scans_the_transitional_entropy_device_id() {
+        let random = include_str!("../../../kernel/src/random.rs");
+
+        assert!(random.contains("const VIRTIO_RNG_LEGACY_ID: u16 = 0x1005;"));
+        assert!(random.contains("const VIRTIO_RNG_MODERN_ID: u16 = 0x1044;"));
+        assert!(random.contains("if !is_rng_device(vendor, device_id)"));
+        assert!(random.contains("fn is_rng_device(vendor: u16, device_id: u16) -> bool"));
+    }
 }

@@ -895,6 +895,7 @@ fn random_get(address: u64, length: u64) -> u64 {
     length as u64
 }
 
+#[cfg(not(test))]
 fn random_error_trace(error: nagi_kernel::random::RandomError) -> &'static [u8] {
     use nagi_kernel::random::RandomError;
 

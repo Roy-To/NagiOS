@@ -24,9 +24,11 @@ reset the state, completed EGL make-current, and reached Surfman's GL function
 loading start marker. Rust std then panicked because `__nagi_std_random_fill`
 returned -1.
 CI #204 did not contain the new `SYS_RANDOM_GET` failure trace, so the rejected
-user buffer versus guest VirtIO RNG error is still unknown. The bounded kernel
-diagnostics and Clippy fix are now locally verified; start the next public
-target run and use its trace to identify and repair the concrete RNG failure.
+user buffer versus guest VirtIO RNG error is still unknown. Source audit found
+the VirtIO transitional RNG PCI ID was wrong: `0x1003` is the console, while
+the entropy device is `0x1005`. The scanner now recognizes the correct ID and
+has a regression check. CI #205 is still running the previous revision; the
+next target run must verify the corrected device discovery and entropy request.
 No Servo frame or pixel checksum has been produced. M17 remains BLOCKED; M18
 remains NOT STARTED.
 
@@ -94,9 +96,22 @@ source. The existing `nagi-cli` source-contract check now covers the new
 diagnostics. Fixed CI #204's Clippy warning by replacing `filter().next()` with
 `.any()`. Verification passed: `cargo fmt --all -- --check`, all 71
 `nagi-cli` library tests, the full x86_64-target host-workspace Clippy command,
-the Nagi kernel release target build, and `git diff --check`. The next target
-log must identify the RNG failure cause. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+the Nagi kernel release target build, and `git diff --check`. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+Source audit then found the concrete RNG discovery defect: QEMU is configured
+with `virtio-rng-pci,disable-modern=on`, but the kernel treated transitional
+PCI ID `0x1003` (VirtIO console) as RNG. The VirtIO entropy device uses
+transitional ID `0x1005`; the scanner now accepts `0x1005` and modern ID
+`0x1044`, with a regression check rejecting the console ID. All 72 tests from
+`cargo test -p nagi-cli --lib` pass. The kernel test sources compile under
+`cargo check -p nagi-kernel --tests --target x86_64-unknown-linux-gnu --locked`.
+The Nagi kernel release target build and x86_64 host-workspace Clippy also
+pass. The kernel test binary could not be linked on this Mac because the
+installed linker cannot link an x86_64 Linux test harness; the actual Nagi
+target build succeeded. CI #205 predates the ID correction, so the fixed guest
+RNG path still requires public target verification. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
 
 ### Target evidence from CI run #202 (2026-09-26)
 

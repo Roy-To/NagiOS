@@ -143,10 +143,17 @@ an invalid cookie, reset the EGL TLS state to `context=0x0`, and allowed EGL
 make-current to complete and reach Surfman's GL function-loading start marker.
 Rust std then panicked because the guest random ABI returned `-1`. That run
 did not contain kernel diagnostics distinguishing a rejected user buffer from
-a VirtIO RNG error. The next step adds reason-specific serial traces at the
-existing `SYS_RANDOM_GET` boundary while preserving its failure return and
-real guest-only entropy contract. The run produced no Servo frame or pixel
-checksum; M17 remains blocked.
+a VirtIO RNG error. Follow-up commit `d4ce627` added reason-specific serial
+traces at the existing `SYS_RANDOM_GET` boundary while preserving its failure
+return and real guest-only entropy contract. The run produced no Servo frame
+or pixel checksum; M17 remains blocked.
+
+The follow-up source audit found that the legacy PCI ID constant used by the
+kernel RNG scanner was `0x1003`, which identifies a VirtIO console. QEMU's
+`virtio-rng-pci,disable-modern=on` uses the transitional entropy-device ID
+`0x1005`. The scanner now recognizes `0x1005` as well as modern ID `0x1044`,
+and a regression check rejects the console ID. Public target acceptance must
+still confirm that guest entropy succeeds and Servo reaches a real pixel.
 
 ## Decision
 

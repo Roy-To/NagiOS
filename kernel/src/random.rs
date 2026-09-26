@@ -6,7 +6,7 @@ use core::sync::atomic::{fence, AtomicBool, Ordering};
 const PCI_CONFIG_ADDRESS: u16 = 0x0cf8;
 const PCI_CONFIG_DATA: u16 = 0x0cfc;
 const VIRTIO_VENDOR_ID: u16 = 0x1af4;
-const VIRTIO_RNG_LEGACY_ID: u16 = 0x1003;
+const VIRTIO_RNG_LEGACY_ID: u16 = 0x1005;
 const VIRTIO_RNG_MODERN_ID: u16 = 0x1044;
 const PCI_COMMAND_OFFSET: u8 = 0x04;
 const PCI_BAR0_OFFSET: u8 = 0x10;
@@ -238,9 +238,7 @@ fn discover_device() -> Option<DeviceCandidate> {
             let identity = unsafe { pci_config_read32(0, device, function, 0) };
             let vendor = identity as u16;
             let device_id = (identity >> 16) as u16;
-            if vendor != VIRTIO_VENDOR_ID
-                || (device_id != VIRTIO_RNG_LEGACY_ID && device_id != VIRTIO_RNG_MODERN_ID)
-            {
+            if !is_rng_device(vendor, device_id) {
                 continue;
             }
             let bar = unsafe { pci_config_read32(0, device, function, PCI_BAR0_OFFSET) };
@@ -259,6 +257,11 @@ fn discover_device() -> Option<DeviceCandidate> {
         }
     }
     None
+}
+
+const fn is_rng_device(vendor: u16, device_id: u16) -> bool {
+    vendor == VIRTIO_VENDOR_ID
+        && (device_id == VIRTIO_RNG_LEGACY_ID || device_id == VIRTIO_RNG_MODERN_ID)
 }
 
 const fn queue_address_is_usable(address: u64) -> bool {
@@ -333,9 +336,17 @@ unsafe fn io_write32(port: u16, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        pci_config_address, queue_address_is_usable, LegacyQueue, QUEUE_SIZE,
-        QUEUE_USED_RING_OFFSET,
+        is_rng_device, pci_config_address, queue_address_is_usable, LegacyQueue, QUEUE_SIZE,
+        QUEUE_USED_RING_OFFSET, VIRTIO_VENDOR_ID,
     };
+
+    #[test]
+    fn recognizes_transitional_and_modern_entropy_device_ids() {
+        assert!(is_rng_device(VIRTIO_VENDOR_ID, 0x1005));
+        assert!(is_rng_device(VIRTIO_VENDOR_ID, 0x1044));
+        assert!(!is_rng_device(VIRTIO_VENDOR_ID, 0x1003));
+        assert!(!is_rng_device(0xffff, 0x1005));
+    }
 
     #[test]
     fn encodes_pci_configuration_address() {
