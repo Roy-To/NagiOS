@@ -151,15 +151,7 @@ fn status(root: &Path, resume: bool) -> Result<Vec<String>, CliError> {
         ),
     ];
     if let Some(ci_runs) = verified["ci_runs"].as_array() {
-        for run in ci_runs.iter().take(2) {
-            lines.push(format!(
-                "CI: run {} {} ({}) — {}",
-                run["run_id"].as_u64().unwrap_or_default(),
-                run["status"].as_str().unwrap_or("UNKNOWN"),
-                run["conclusion"].as_str().unwrap_or("no conclusion"),
-                run["url"].as_str().unwrap_or("")
-            ));
-        }
+        lines.extend(format_recent_ci_run_lines(ci_runs));
     }
     lines.push(format!(
         "Next action: {}",
@@ -181,6 +173,24 @@ fn status(root: &Path, resume: bool) -> Result<Vec<String>, CliError> {
         }
     }
     Ok(lines)
+}
+
+fn format_recent_ci_run_lines(ci_runs: &[Value]) -> Vec<String> {
+    let mut recent_runs: Vec<_> = ci_runs.iter().collect();
+    recent_runs.sort_unstable_by_key(|run| std::cmp::Reverse(run["run_id"].as_u64().unwrap_or(0)));
+    recent_runs
+        .into_iter()
+        .take(2)
+        .map(|run| {
+            format!(
+                "CI: run {} {} ({}) — {}",
+                run["run_id"].as_u64().unwrap_or_default(),
+                run["status"].as_str().unwrap_or("UNKNOWN"),
+                run["conclusion"].as_str().unwrap_or("no conclusion"),
+                run["url"].as_str().unwrap_or("")
+            )
+        })
+        .collect()
 }
 
 fn verify(root: &Path) -> Result<Vec<String>, CliError> {
@@ -1327,6 +1337,37 @@ mod tests {
             state["release_line_gate"]["source"],
             "docs/implementation_status.md"
         );
+    }
+
+    #[test]
+    fn status_displays_the_two_most_recent_ci_runs_first() {
+        let runs = vec![
+            json!({
+                "run_id": 100,
+                "status": "COMPLETED",
+                "conclusion": "SUCCESS",
+                "url": "https://example.test/runs/100"
+            }),
+            json!({
+                "run_id": 300,
+                "status": "IN_PROGRESS",
+                "conclusion": null,
+                "url": "https://example.test/runs/300"
+            }),
+            json!({
+                "run_id": 200,
+                "status": "COMPLETED",
+                "conclusion": "FAILURE",
+                "url": "https://example.test/runs/200"
+            }),
+        ];
+
+        let lines = super::format_recent_ci_run_lines(&runs);
+
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("run 300 IN_PROGRESS"), "{:?}", lines);
+        assert!(lines[1].contains("run 200 COMPLETED"), "{:?}", lines);
+        assert!(!lines.iter().any(|line| line.contains("run 100")));
     }
 
     #[test]

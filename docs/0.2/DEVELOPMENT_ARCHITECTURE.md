@@ -53,6 +53,8 @@ those live values are not duplicated in state. `last_verified.commit_sha` is
 the last commit whose recorded checks completed successfully. Git HEAD is the
 current commit, including the commit that carries the state update; this avoids
 a self-referential commit hash.
+The status summary displays the two most recent CI records first; the state
+file retains the full CI history.
 
 ## Resume protocol
 
