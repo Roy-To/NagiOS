@@ -154,16 +154,18 @@ not modify or merge into M17 worktrees.
 ## M-APP-05 — Files
 
 - **Status:** `IN_PROGRESS`
-- **Branch:** `codex/app-files`
-- **Worktree:** `/Users/tozawa/Developer/NagiOS-app-files`
+- **Branch:** `codex/first-party-integration`
+- **Worktree:** `/Users/tozawa/Developer/NagiOS-first-party-integration`
 - **Product base:** `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9`; the branch
   also contains the committed first-party status preparation checkpoint
   `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85`.
 - **Current checkpoint:** Files domain, view model, typed Action dispatch,
   capability enforcement, in-memory provider, directory-handle-rooted host
   sandbox provider, search, hooks, localization, and host preview are
-  implemented. Focused package verification passes. Nagi target desktop/provider
-  integration is blocked by missing public Files runtime APIs.
+  implemented. Host list, metadata, and read operations bind authorization to
+  an opened directory or file snapshot. Focused package verification passes.
+  Nagi target desktop/provider integration is blocked by missing public Files
+  runtime APIs.
 - **Implemented components:** `apps/nagi-files` contains resource/location and
   operation models; FilesService and a typed FilesActionApi for the 15 stable
   Files action IDs; three-pane navigation/selection/inspector view state; scoped
@@ -177,12 +179,13 @@ not modify or merge into M17 worktrees.
   bounded previews, and capability-rooted traversal/symlink checks; metadata Search;
   Context/Workspace/Activity/Wayback adapter hooks; en-US and ja-JP resources;
   and an interactive Japanese/English host preview.
-- **Verification evidence:** 54 focused tests PASS (53 library tests and one
-  CLI localization test), including a macOS case-alias regression proving a
-  scoped deny remains effective; package host Clippy with `-D warnings`,
-  Windows-target `cargo check --tests`, Windows-target Clippy with `-D warnings`,
-  and package formatting all PASS. Japanese host preview listing and open smoke
-  PASS in a disposable `/tmp` sandbox. Windows filesystem behavior remains
+- **Verification evidence:** 62 focused tests PASS (61 library tests and one
+  CLI localization test). Regressions cover case-insensitive scoped denies,
+  resource creation during authorization before list/read/metadata, directory
+  replacement by a symlink, descendant-tag cleanup, corrupt journal paths, and
+  permanent-delete recovery when either index write fails. Package host Clippy with `-D warnings`, Windows-target
+  `cargo check --tests`, Windows-target Clippy with `-D warnings`, formatting,
+  and `git diff --check` all PASS. Windows filesystem behavior remains
   cross-compiled, not executed; the current macOS package run used the local
   ignored Cargo target directory.
 - **Acceptance status:**
@@ -198,13 +201,19 @@ not modify or merge into M17 worktrees.
   | FILES-007 Context publish | `PASS (contract)` | Selection/current-location snapshot publishes through a typed boundary; shared Context service is not connected. |
   | FILES-008 Workspace reference | `PASS (mock)` | Adapter tests show add/remove reference does not move the resource; target Workspace service is not connected. |
   | FILES-009 Wayback restore | `PARTIAL` | Typed checkpoint boundary, affected-resource list, transaction ID, and truthful reversible hints are tested; supported-resource snapshot restore needs the unavailable Wayback runtime. |
-  | FILES-010 UI-independent core tests | `PASS` | 54 package tests run without the desktop UI (53 library and one preview CLI test). |
+  | FILES-010 UI-independent core tests | `PASS` | 62 package tests run without the desktop UI (61 library and one preview CLI test). |
 
 - **Known limitations:** The host backend rejects lexical traversal, selected-root
   symlinks, checked symlink paths, and reserved metadata aliases. Operations
   below the selected root use `cap-std` directory handles; Unix metadata writes
   and Trash operations also compare the held metadata-directory identity with
-  its current in-root entry. Windows identity and test code cross-compile, but
+  its current in-root entry. List and metadata authorization use the checked
+  directory handle; file reads use a checked file handle after authorizing its
+  resolved spelling. A versioned permanent-delete journal records the complete
+  affected ResourceId set and startup resumes interrupted confirmed deletions.
+  Filesystems without stable entry identities use path-derived IDs for metadata
+  but fail closed on handle-bound traversal and reads. Windows identity and
+  test code cross-compile, but
   runtime regression execution still needs a Windows host. The preview runs
   with host-user authority and is not an adversarial production sandbox. The
   preview is a host terminal UI, not a Nagi GUI app.
@@ -217,16 +226,20 @@ not modify or merge into M17 worktrees.
   Future target integration must adapt the typed provider and capability
   contracts to public Nagi runtime APIs; host/mock results are not target
   acceptance.
-- **Failure classification:** No current package test/build failure. The
+- **Failure classification:** No current Files package test/build failure. The
   remaining target work is blocked by external runtime/API dependencies:
   M7's root-only VFS, M10's static Files panel, and missing public Files,
   Action Registry, Activity, Wayback, and Search provider APIs. Host and mock
-  implementation remains independently runnable.
-- **Next action:** When those public runtime APIs become available, connect the
-  provider and typed action/hook contracts to the Nagi desktop and services,
-  then run target integration acceptance for FILES-001/002/003/009. Keep this
-  work isolated from M17 and the other app workstreams.
-- **Decisions:** Keep this workstream on `codex/app-files`; use typed operations
+  implementation remains independently runnable. The full `./nagi test` host
+  suite remains blocked on arm64 macOS by x86_64 syscall-register assembly in
+  `user/libnagi`; no ABI, M17, or third-party changes were made.
+- **Next action:** Continue auditing the remaining mutation paths for
+  resource-ID binding and recoverable index updates. When public runtime APIs
+  become available, connect the provider and typed action/hook contracts to
+  the Nagi desktop and services, then run target acceptance for
+  FILES-001/002/003/009. Keep this work isolated from M17 and the other app
+  workstreams.
+- **Decisions:** Keep this workstream on `codex/first-party-integration`; use typed operations
   and local contracts because shared Resource/Capability/Activity/Wayback/Search
   runtime APIs do not yet exist in this base. Keep target integration separate
   from M17 and the other first-party app branches. DF-01's `.dev` registry/state

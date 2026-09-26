@@ -194,22 +194,25 @@ where
 
     pub fn list(&self, location: &Location) -> Result<Vec<FileEntry>, FilesError> {
         self.ensure_available()?;
-        self.authorize(CapabilityRight::Enumerate, location)?;
-        self.provider.list(location)
+        let authorizer = &self.authorizer;
+        let mut authorize = |resolved: &Location| {
+            Self::authorize_spelling(authorizer, CapabilityRight::Enumerate, resolved)
+        };
+        self.provider.list_authorized(location, &mut authorize)
     }
 
     pub fn metadata(&self, location: &Location) -> Result<FileEntry, FilesError> {
         self.ensure_available()?;
-        self.authorize(CapabilityRight::Read, location)?;
-        self.provider.metadata(location)
+        let authorizer = &self.authorizer;
+        let mut authorize = |resolved: &Location| {
+            Self::authorize_spelling(authorizer, CapabilityRight::Read, resolved)
+        };
+        self.provider.metadata_authorized(location, &mut authorize)
     }
 
     pub fn read_file(&self, location: &Location) -> Result<Vec<u8>, FilesError> {
         self.ensure_available()?;
-        self.authorize(CapabilityRight::Read, location)?;
-        let contents = self
-            .provider
-            .read_file(location, crate::MAX_PREVIEW_BYTES)?;
+        let contents = self.read_authorized_file(location, crate::MAX_PREVIEW_BYTES)?;
         bounded_preview(contents, location)
     }
 
@@ -234,7 +237,7 @@ where
             .preconditions
             .push(crate::OperationPrecondition::SourceExists);
         self.begin_agent_operation(&intent)?;
-        match self.provider.read_file(&location, crate::MAX_PREVIEW_BYTES) {
+        match self.read_authorized_file(&location, crate::MAX_PREVIEW_BYTES) {
             Ok(contents) if contents.len() <= crate::MAX_PREVIEW_BYTES => {
                 let result = self.success(&intent, vec![source.id], HookStatus::NotApplicable);
                 Ok((contents, result))
@@ -749,15 +752,15 @@ where
         let authorization_location = match self.provider.authorization_location(location) {
             Ok(location) => location,
             Err(_) => {
-                self.authorize_spelling(right, location)?;
+                Self::authorize_spelling(&self.authorizer, right, location)?;
                 return Err(FilesError::new(FilesErrorKind::ProviderFailure));
             }
         };
-        self.authorize_spelling(right, &authorization_location)
+        Self::authorize_spelling(&self.authorizer, right, &authorization_location)
     }
 
     fn authorize_spelling(
-        &self,
+        authorizer: &A,
         right: CapabilityRight,
         location: &Location,
     ) -> Result<(), FilesError> {
@@ -765,7 +768,7 @@ where
             right,
             location: location.clone(),
         };
-        match self.authorizer.decide(&request) {
+        match authorizer.decide(&request) {
             PermissionDecision::Allow => Ok(()),
             PermissionDecision::Ask => {
                 Err(FilesError::new(FilesErrorKind::PermissionRequired).at(location.clone()))
@@ -777,6 +780,19 @@ where
                 Err(FilesError::new(FilesErrorKind::CapabilityUnavailable).at(location.clone()))
             }
         }
+    }
+
+    fn read_authorized_file(
+        &self,
+        location: &Location,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, FilesError> {
+        let authorizer = &self.authorizer;
+        let mut authorize = |resolved: &Location| {
+            Self::authorize_spelling(authorizer, CapabilityRight::Read, resolved)
+        };
+        self.provider
+            .read_file_authorized(location, max_bytes, &mut authorize)
     }
 
     fn checkpoint_before(&mut self, intent: &OperationIntent) -> HookStatus {

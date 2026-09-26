@@ -16,7 +16,44 @@ pub trait FilesystemProvider {
         Ok(location.clone())
     }
     fn list(&self, location: &Location) -> Result<Vec<FileEntry>, FilesError>;
+    /// Enumerate through a provider-owned operation boundary. Host providers
+    /// should open the directory before calling `authorize`, then enumerate
+    /// from that same handle. The default preserves virtual providers whose
+    /// locations do not race host paths.
+    fn list_authorized(
+        &self,
+        location: &Location,
+        authorize: &mut dyn FnMut(&Location) -> Result<(), FilesError>,
+    ) -> Result<Vec<FileEntry>, FilesError> {
+        let authorization_location = match self.authorization_location(location) {
+            Ok(location) => location,
+            Err(_) => {
+                authorize(location)?;
+                return Err(FilesError::new(crate::FilesErrorKind::ProviderFailure));
+            }
+        };
+        authorize(&authorization_location)?;
+        self.list(location)
+    }
     fn metadata(&self, location: &Location) -> Result<FileEntry, FilesError>;
+    /// Return one metadata snapshot authorized against the location it
+    /// describes. Host providers should capture the resource before calling
+    /// `authorize`; virtual providers can use the default ordering.
+    fn metadata_authorized(
+        &self,
+        location: &Location,
+        authorize: &mut dyn FnMut(&Location) -> Result<(), FilesError>,
+    ) -> Result<FileEntry, FilesError> {
+        let authorization_location = match self.authorization_location(location) {
+            Ok(location) => location,
+            Err(_) => {
+                authorize(location)?;
+                return Err(FilesError::new(crate::FilesErrorKind::ProviderFailure));
+            }
+        };
+        authorize(&authorization_location)?;
+        self.metadata(location)
+    }
     fn verify_resource(
         &self,
         id: ResourceId,
@@ -31,6 +68,26 @@ pub trait FilesystemProvider {
     /// Read at most `max_bytes`; providers must detect one byte beyond the
     /// limit and return `FileTooLarge` without buffering the complete file.
     fn read_file(&self, location: &Location, max_bytes: usize) -> Result<Vec<u8>, FilesError>;
+    /// Read through a provider-owned operation boundary. Host providers should
+    /// override this to resolve and open the resource before calling
+    /// `authorize`, then read from that same handle. The default preserves the
+    /// contract for virtual providers whose locations do not race host paths.
+    fn read_file_authorized(
+        &self,
+        location: &Location,
+        max_bytes: usize,
+        authorize: &mut dyn FnMut(&Location) -> Result<(), FilesError>,
+    ) -> Result<Vec<u8>, FilesError> {
+        let authorization_location = match self.authorization_location(location) {
+            Ok(location) => location,
+            Err(_) => {
+                authorize(location)?;
+                return Err(FilesError::new(crate::FilesErrorKind::ProviderFailure));
+            }
+        };
+        authorize(&authorization_location)?;
+        self.read_file(location, max_bytes)
+    }
     fn set_tags(&mut self, location: &Location, tags: &[String]) -> Result<FileEntry, FilesError> {
         let _ = tags;
         Err(FilesError::new(crate::FilesErrorKind::ProviderUnavailable).at(location.clone()))

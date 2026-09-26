@@ -8,11 +8,12 @@ use crate::localization::{self, Locale};
 use crate::service::MAX_PENDING_CONFIRMATIONS;
 use crate::{
     render_three_pane, ActivityEvent, ActivityOutcome, ActivitySink, Actor, CancellationToken,
-    CapabilityAuthorizer, CapabilityGrant, CapabilityRight, CapabilitySet, CheckpointHook,
-    ContextPublisher, EntryKind, FileName, FilesActionApi, FilesActionCall, FilesActionResponse,
-    FilesApp, FilesContextSnapshot, FilesErrorKind, FilesSearchProvider, FilesService,
-    FilesystemProvider, HookStatus, InMemoryProvider, Location, OperationKind, PermissionDecision,
-    Reversibility, SandboxProvider, Tag, WaybackCheckpointRequest, WorkspaceReferenceSink,
+    CapabilityAuthorizer, CapabilityGrant, CapabilityRequest, CapabilityRight, CapabilitySet,
+    CheckpointHook, ContextPublisher, EntryKind, FileName, FilesActionApi, FilesActionCall,
+    FilesActionResponse, FilesApp, FilesContextSnapshot, FilesErrorKind, FilesSearchProvider,
+    FilesService, FilesystemProvider, HookStatus, InMemoryProvider, Location, OperationKind,
+    PermissionDecision, Reversibility, SandboxProvider, Tag, WaybackCheckpointRequest,
+    WorkspaceReferenceSink,
 };
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
@@ -1009,6 +1010,162 @@ fn sandbox_case_insensitive_path_alias_keeps_scoped_deny_effective() {
 }
 
 #[test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn sandbox_path_created_between_authorization_and_read_does_not_bypass_scoped_deny() {
+    let temp = TempSandbox::new();
+    fs::create_dir(temp.path().join("CaseProbe")).unwrap();
+    let case_insensitive = temp.path().join("caseprobe").exists();
+    fs::remove_dir(temp.path().join("CaseProbe")).unwrap();
+    if !case_insensitive {
+        return;
+    }
+
+    struct CreatingAuthorizer {
+        root: PathBuf,
+        policy: CapabilitySet,
+        injected: std::sync::atomic::AtomicBool,
+    }
+
+    impl CapabilityAuthorizer for CreatingAuthorizer {
+        fn decide(&self, request: &CapabilityRequest) -> PermissionDecision {
+            if request.right == CapabilityRight::Read
+                && request.location == Location::parse("private/secret.txt").unwrap()
+                && !self.injected.swap(true, Ordering::SeqCst)
+            {
+                fs::create_dir(self.root.join("Private")).unwrap();
+                fs::write(self.root.join("Private/secret.txt"), b"classified").unwrap();
+            }
+            self.policy.decide(request)
+        }
+    }
+
+    let authorizer = CreatingAuthorizer {
+        root: temp.path().to_owned(),
+        policy: CapabilitySet::from_grants([
+            CapabilityGrant::allow(Location::root(), CapabilityRight::Read),
+            CapabilityGrant::deny(Location::parse("Private").unwrap(), CapabilityRight::Read),
+        ]),
+        injected: std::sync::atomic::AtomicBool::new(false),
+    };
+    let service = FilesService::new(SandboxProvider::new(temp.path()).unwrap(), authorizer);
+    let alias = Location::parse("private/secret.txt").unwrap();
+
+    assert_eq!(
+        service.read_file(&alias).unwrap_err().kind,
+        FilesErrorKind::NotFound
+    );
+    assert_eq!(
+        service.read_file(&alias).unwrap_err().kind,
+        FilesErrorKind::PermissionDenied
+    );
+}
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn sandbox_directory_created_between_authorization_and_listing_does_not_bypass_scoped_deny() {
+    let temp = TempSandbox::new();
+    fs::create_dir(temp.path().join("CaseProbe")).unwrap();
+    let case_insensitive = temp.path().join("caseprobe").exists();
+    fs::remove_dir(temp.path().join("CaseProbe")).unwrap();
+    if !case_insensitive {
+        return;
+    }
+
+    struct CreatingAuthorizer {
+        root: PathBuf,
+        policy: CapabilitySet,
+        injected: std::sync::atomic::AtomicBool,
+    }
+
+    impl CapabilityAuthorizer for CreatingAuthorizer {
+        fn decide(&self, request: &CapabilityRequest) -> PermissionDecision {
+            if request.right == CapabilityRight::Enumerate
+                && request.location == Location::parse("private").unwrap()
+                && !self.injected.swap(true, Ordering::SeqCst)
+            {
+                fs::create_dir(self.root.join("Private")).unwrap();
+                fs::write(self.root.join("Private/secret.txt"), b"classified").unwrap();
+            }
+            self.policy.decide(request)
+        }
+    }
+
+    let authorizer = CreatingAuthorizer {
+        root: temp.path().to_owned(),
+        policy: CapabilitySet::from_grants([
+            CapabilityGrant::allow(Location::root(), CapabilityRight::Enumerate),
+            CapabilityGrant::deny(
+                Location::parse("Private").unwrap(),
+                CapabilityRight::Enumerate,
+            ),
+        ]),
+        injected: std::sync::atomic::AtomicBool::new(false),
+    };
+    let service = FilesService::new(SandboxProvider::new(temp.path()).unwrap(), authorizer);
+    let alias = Location::parse("private").unwrap();
+
+    assert_eq!(
+        service.list(&alias).unwrap_err().kind,
+        FilesErrorKind::NotFound
+    );
+    assert_eq!(
+        service.list(&alias).unwrap_err().kind,
+        FilesErrorKind::PermissionDenied
+    );
+}
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn sandbox_file_created_between_authorization_and_metadata_does_not_bypass_scoped_deny() {
+    let temp = TempSandbox::new();
+    fs::create_dir(temp.path().join("CaseProbe")).unwrap();
+    let case_insensitive = temp.path().join("caseprobe").exists();
+    fs::remove_dir(temp.path().join("CaseProbe")).unwrap();
+    if !case_insensitive {
+        return;
+    }
+
+    struct CreatingAuthorizer {
+        root: PathBuf,
+        policy: CapabilitySet,
+        injected: std::sync::atomic::AtomicBool,
+    }
+
+    impl CapabilityAuthorizer for CreatingAuthorizer {
+        fn decide(&self, request: &CapabilityRequest) -> PermissionDecision {
+            if request.right == CapabilityRight::Read
+                && request.location == Location::parse("private/secret.txt").unwrap()
+                && !self.injected.swap(true, Ordering::SeqCst)
+            {
+                fs::create_dir(self.root.join("Private")).unwrap();
+                fs::write(self.root.join("Private/secret.txt"), b"classified").unwrap();
+            }
+            self.policy.decide(request)
+        }
+    }
+
+    let authorizer = CreatingAuthorizer {
+        root: temp.path().to_owned(),
+        policy: CapabilitySet::from_grants([
+            CapabilityGrant::allow(Location::root(), CapabilityRight::Read),
+            CapabilityGrant::deny(Location::parse("Private").unwrap(), CapabilityRight::Read),
+        ]),
+        injected: std::sync::atomic::AtomicBool::new(false),
+    };
+    let service = FilesService::new(SandboxProvider::new(temp.path()).unwrap(), authorizer);
+    let alias = Location::parse("private/secret.txt").unwrap();
+
+    assert_eq!(
+        service.metadata(&alias).unwrap_err().kind,
+        FilesErrorKind::NotFound
+    );
+    assert_eq!(
+        service.metadata(&alias).unwrap_err().kind,
+        FilesErrorKind::PermissionDenied
+    );
+}
+
+#[test]
 fn sandbox_rejects_hidden_internal_metadata_and_symlink_path_traversal() {
     let temp = TempSandbox::new();
     let outside = TempSandbox::new();
@@ -1363,6 +1520,111 @@ fn sandbox_permanent_delete_requires_confirmation_and_removes_trash_data() {
 }
 
 #[test]
+fn sandbox_permanent_delete_clears_tags_before_trash_index_failure() {
+    let temp = TempSandbox::new();
+    fs::write(temp.path().join("memo.txt"), b"memo").unwrap();
+    let location = Location::parse("memo.txt").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let original = provider.metadata(&location).unwrap();
+    provider
+        .set_tags(&location, &["important".to_owned()])
+        .unwrap();
+    let trashed = provider.trash(&location).unwrap();
+    assert_eq!(trashed.id, original.id);
+
+    fs::create_dir(temp.path().join(".nagi-files/trash-index-v1.tmp")).unwrap();
+    assert_eq!(
+        provider.permanently_delete(trashed.id).unwrap_err().kind,
+        FilesErrorKind::PartialFailure
+    );
+    assert!(!fs::read_to_string(temp.path().join(".nagi-files/tags-v1"))
+        .unwrap()
+        .contains(&trashed.id.to_string()));
+    assert!(temp.path().join(".nagi-files/trash-delete-v1").is_file());
+    assert_eq!(
+        provider.list_trash().unwrap_err().kind,
+        FilesErrorKind::PartialFailure
+    );
+
+    fs::remove_dir(temp.path().join(".nagi-files/trash-index-v1.tmp")).unwrap();
+    assert_eq!(
+        provider.restore(trashed.id).unwrap_err().kind,
+        FilesErrorKind::NotFound
+    );
+    assert!(provider.list_trash().unwrap().is_empty());
+    assert!(!temp.path().join(".nagi-files/trash-delete-v1").exists());
+    drop(provider);
+    let provider = SandboxProvider::new(temp.path()).unwrap();
+    assert!(provider.list_trash().unwrap().is_empty());
+    assert!(!temp.path().join(".nagi-files/trash-delete-v1").exists());
+    assert!(!fs::read_to_string(temp.path().join(".nagi-files/tags-v1"))
+        .unwrap()
+        .contains(&trashed.id.to_string()));
+}
+
+#[test]
+fn sandbox_permanent_delete_preserves_trash_when_tag_index_cannot_be_written() {
+    let temp = TempSandbox::new();
+    fs::write(temp.path().join("memo.txt"), b"memo").unwrap();
+    let location = Location::parse("memo.txt").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let tagged = provider
+        .set_tags(&location, &["important".to_owned()])
+        .unwrap();
+    let trashed = provider.trash(&location).unwrap();
+    assert_eq!(trashed.id, tagged.id);
+
+    fs::create_dir(temp.path().join(".nagi-files/tags-v1.tmp")).unwrap();
+    assert_eq!(
+        provider.permanently_delete(trashed.id).unwrap_err().kind,
+        FilesErrorKind::CorruptMetadata
+    );
+    assert!(!temp.path().join(".nagi-files/trash-delete-v1").exists());
+    assert_eq!(provider.list_trash().unwrap(), vec![trashed.clone()]);
+    assert_eq!(
+        fs::read_dir(temp.path().join(".nagi-files/trash"))
+            .unwrap()
+            .count(),
+        1
+    );
+
+    drop(provider);
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    assert_eq!(provider.list_trash().unwrap(), vec![trashed]);
+    provider.restore(tagged.id).unwrap();
+    assert_eq!(
+        provider.metadata(&location).unwrap().tags,
+        vec!["important"]
+    );
+}
+
+#[test]
+fn sandbox_permanent_delete_removes_tags_for_folder_descendants() {
+    let temp = TempSandbox::new();
+    fs::create_dir(temp.path().join("folder")).unwrap();
+    fs::write(temp.path().join("folder/nested.txt"), b"nested").unwrap();
+    let folder = Location::parse("folder").unwrap();
+    let nested = Location::parse("folder/nested.txt").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let folder_entry = provider.metadata(&folder).unwrap();
+    let nested_entry = provider
+        .set_tags(&nested, &["classified".to_owned()])
+        .unwrap();
+    let trashed = provider.trash(&folder).unwrap();
+    assert_eq!(trashed.id, folder_entry.id);
+
+    drop(provider);
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    provider.restore(trashed.id).unwrap();
+    assert_eq!(provider.metadata(&nested).unwrap().tags, vec!["classified"]);
+    let trashed = provider.trash(&folder).unwrap();
+    provider.permanently_delete(trashed.id).unwrap();
+    assert!(!fs::read_to_string(temp.path().join(".nagi-files/tags-v1"))
+        .unwrap()
+        .contains(&nested_entry.id.to_string()));
+}
+
+#[test]
 fn localization_resources_include_navigation_error_selection_and_conflict_strings() {
     for required in [
         "files.sidebar.home",
@@ -1571,6 +1833,23 @@ fn sandbox_rejects_corrupt_trash_manifest_paths() {
         "00000000000000000000000000000001\t0\tf\t-\t7365637265742e747874\t2e2e\n",
     )
     .unwrap();
+    assert!(matches!(
+        SandboxProvider::new(temp.path()),
+        Err(error) if error.kind == FilesErrorKind::CorruptMetadata
+    ));
+}
+
+#[test]
+fn sandbox_rejects_corrupt_permanent_delete_journal_paths() {
+    let temp = TempSandbox::new();
+    fs::create_dir(temp.path().join(".nagi-files")).unwrap();
+    fs::create_dir(temp.path().join(".nagi-files/trash")).unwrap();
+    fs::write(
+        temp.path().join(".nagi-files/trash-delete-v1"),
+        "v1\t00000000000000000000000000000001\t2e2e\n00000000000000000000000000000001\n",
+    )
+    .unwrap();
+
     assert!(matches!(
         SandboxProvider::new(temp.path()),
         Err(error) if error.kind == FilesErrorKind::CorruptMetadata
