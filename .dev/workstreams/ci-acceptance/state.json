@@ -35,7 +35,11 @@
       "gh run view 36232966992 --json status,conclusion,jobs,url",
       "gh run view 36232966992 --log-failed",
       "gh run download 36232966992 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362329-windows",
-      "gh run view 36233551349 --json status,conclusion,jobs,url"
+      "gh run view 36233551349 --json status,conclusion,jobs,url",
+      "cargo fmt --package nagi-cli -- --check",
+      "cargo test -p nagi-cli --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+      "cargo clippy -p nagi-cli --all-targets --locked --offline --config 'build.target=\"x86_64-apple-darwin\"' -- -D warnings",
+      "./nagi dev status"
     ],
     "tests": [
       {
@@ -142,6 +146,34 @@
         "outcome": "IN_PROGRESS",
         "exit_code": null,
         "evidence": "Root CI run 36233551349 is verifying the temporary CARGO_TARGET_DIR fix."
+      },
+      {
+        "name": "Recent CI status ordering regression",
+        "command": "cargo test -p nagi-cli --lib status_displays_the_two_most_recent_ci_runs_first --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The status formatter sorts by numeric run ID and displays the two newest records first."
+      },
+      {
+        "name": "Developer CLI test suite after status summary fix",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "103 library unit tests and all 26 CLI integration tests passed."
+      },
+      {
+        "name": "Developer CLI formatting and Clippy after status summary fix",
+        "command": "cargo fmt --package nagi-cli -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline --config 'build.target=\"x86_64-apple-darwin\"' -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "Live developer status output",
+        "command": "./nagi dev status",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The integration status displayed in-progress run 36233551349 followed by failed run 36232966992, rather than older historical entries."
       }
     ],
     "ci_runs": [
