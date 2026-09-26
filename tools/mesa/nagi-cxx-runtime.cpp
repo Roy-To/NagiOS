@@ -8,6 +8,8 @@ using nagi_size_t = __SIZE_TYPE__;
 using nagi_uintptr_t = __UINTPTR_TYPE__;
 
 extern "C" void *nagi_posix_malloc(nagi_size_t size);
+extern "C" void *nagi_posix_malloc_aligned(nagi_size_t size,
+                                            nagi_size_t alignment);
 extern "C" void nagi_posix_free(void *pointer);
 extern "C" int nagi_posix_sleep_ns(nagi_uintptr_t duration);
 extern "C" [[noreturn]] void abort();
@@ -1448,6 +1450,16 @@ static void *nagi_allocate(nagi_size_t size) {
     return pointer;
 }
 
+static void *nagi_allocate_aligned(nagi_size_t size,
+                                   std::align_val_t alignment) {
+    void *pointer = nagi_posix_malloc_aligned(
+        size == 0 ? 1 : size, static_cast<nagi_size_t>(alignment));
+    if (pointer == nullptr) {
+        abort();
+    }
+    return pointer;
+}
+
 void *operator new(nagi_size_t size) {
     return nagi_allocate(size);
 }
@@ -1464,20 +1476,24 @@ void *operator new[](nagi_size_t size, const std::nothrow_t &) noexcept {
     return nagi_posix_malloc(size == 0 ? 1 : size);
 }
 
-void *operator new(nagi_size_t size, std::align_val_t) {
-    return nagi_allocate(size);
+void *operator new(nagi_size_t size, std::align_val_t alignment) {
+    return nagi_allocate_aligned(size, alignment);
 }
 
-void *operator new[](nagi_size_t size, std::align_val_t) {
-    return nagi_allocate(size);
+void *operator new[](nagi_size_t size, std::align_val_t alignment) {
+    return nagi_allocate_aligned(size, alignment);
 }
 
-void *operator new(nagi_size_t size, std::align_val_t, const std::nothrow_t &) noexcept {
-    return nagi_posix_malloc(size == 0 ? 1 : size);
+void *operator new(nagi_size_t size, std::align_val_t alignment,
+                   const std::nothrow_t &) noexcept {
+    return nagi_posix_malloc_aligned(
+        size == 0 ? 1 : size, static_cast<nagi_size_t>(alignment));
 }
 
-void *operator new[](nagi_size_t size, std::align_val_t, const std::nothrow_t &) noexcept {
-    return nagi_posix_malloc(size == 0 ? 1 : size);
+void *operator new[](nagi_size_t size, std::align_val_t alignment,
+                     const std::nothrow_t &) noexcept {
+    return nagi_posix_malloc_aligned(
+        size == 0 ? 1 : size, static_cast<nagi_size_t>(alignment));
 }
 
 void operator delete(void *pointer) noexcept {

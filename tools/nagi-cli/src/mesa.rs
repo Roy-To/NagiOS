@@ -752,6 +752,8 @@ mod tests {
         assert!(runtime.contains("operator delete"));
         assert!(runtime.contains("__stack_chk_guard"));
         assert!(runtime.contains("nagi_posix_malloc"));
+        assert!(runtime.contains("nagi_posix_malloc_aligned"));
+        assert!(runtime.contains("static_cast<nagi_size_t>(alignment)"));
         assert!(runtime.contains("nagi_posix_free"));
         assert!(runtime.contains("_ZNSt3__122__libcpp_verbose_abortEPKcz"));
         assert!(runtime.contains("__cxa_guard_acquire"));

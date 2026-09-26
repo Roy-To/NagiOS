@@ -9,8 +9,8 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
 
 use crate::errno::{
-    set_errno, EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP, ENOTTY,
-    ERANGE, ETIMEDOUT,
+    errno, set_errno, EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP,
+    ENOTTY, ERANGE, ETIMEDOUT,
 };
 use libnagi::storage::{DirectoryEntry, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH};
 use nagi_pal::time::{Clock, GuestClock};
@@ -140,18 +140,15 @@ pub unsafe extern "C" fn posix_memalign(
 ) -> c_int {
     if result.is_null() || alignment < core::mem::size_of::<usize>() || !alignment.is_power_of_two()
     {
-        return write_errno_and_fail(EINVAL);
+        return EINVAL;
     }
-    let pointer = malloc(size.max(1));
+    let previous_errno = errno();
+    let pointer = crate::nagi_posix_malloc_aligned(size.max(1), alignment);
     if pointer.is_null() {
-        return write_errno_and_fail(ENOMEM);
+        set_errno(previous_errno);
+        return ENOMEM;
     }
-    // The Nagi PAL's user allocation alignment is 16 bytes.  Refuse a
-    // stronger alignment instead of returning a misaligned pointer.
-    if (pointer as usize) & (alignment - 1) != 0 {
-        return write_errno_and_fail(ENOMEM);
-    }
-    result.write(pointer);
+    result.write(pointer.cast());
     0
 }
 

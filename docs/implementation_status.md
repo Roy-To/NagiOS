@@ -28,24 +28,25 @@ instead of `0x1005` (VirtIO entropy). The scanner now recognizes `0x1005` and
 modern ID `0x1044`, with a regression check. CI #205 (Actions run ID
 `36219851280`, head `d4ce627`) was canceled during `Build Nagi user init` after
 the next push; it produced no QEMU acceptance evidence. Actions run #232
-(`36220293827`, head `35efaf6`) passed both host jobs and all target builds.
-Its QEMU run passed persistence, initialized EGL/Softpipe, and created the GL
-context. Servo construction then failed on a 512-byte allocation from the
-fixed 8 MiB POSIX heap and QEMU timed out after 120 seconds. The working
-hypothesis is that the bootstrap heap is too small for Servo initialization.
-Local follow-up under ADR 0027 expands the bounded heap to 64 MiB and its mmap
-backing window to 128 MiB while preserving the guest-only allocation path. The
-change still needs public QEMU verification. No Servo frame or pixel checksum
-has yet been produced. M17 remains BLOCKED; M18 remains NOT STARTED.
+(`36220293827`, head `35efaf6`) passed target builds, persistence, and Mesa
+context creation, then reported a 512-byte allocation failure during Servo
+construction. ADR 0027 expanded the bounded heap to 64 MiB and mmap backing to
+128 MiB. CI #233 (`36223836342`, head `1993a45`) still reported the 512-byte
+failure and produced no pixel checksum. Source audit found that Rust's Unix
+`System` allocator routes over-aligned layouts through `posix_memalign`, while
+Nagi's implementation only accepts the underlying 16-byte alignment. ADR 0028
+adds an in-heap aligned-allocation wrapper and regression coverage; its source
+diagnosis still requires public target verification. M17 remains BLOCKED; M18
+remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36220293827` (Actions run
-#232, head `35efaf661fa3bd4c2e7fb207b9e03e11d4cc4b38`) passed both host jobs and
-all target build steps through UEFI. QEMU accepted persistent storage and
-reached `Servo construction started`, then reported `memory allocation of 512
-bytes failed`; the guest did not exit and QEMU timed out at 120 seconds. No
-pixel result is available. Public target CI remains authoritative for M17;
-M18 remains NOT STARTED.
+**Last known repair checkpoint:** public CI run `36223836342` (Actions run
+#233, head `1993a4582952d3c1176ceff4434ac07a11a02881`) passed both host jobs and
+all target build steps through UEFI. QEMU accepted persistent storage, created
+the Mesa GL context, and reached `Servo construction started`, then reported
+`memory allocation of 512 bytes failed`. It produced no pixel checksum or
+PASS marker. The new over-aligned POSIX allocation path is not yet verified by
+public target CI. M17 remains BLOCKED; M18 remains NOT STARTED.
 
 ### Target evidence from CI run #204 (2026-09-26)
 
@@ -158,6 +159,53 @@ Apple-Silicon host because the kernel and syscall crates use x86-only inline
 assembly. The next public target run must verify that the expanded heap carries
 Servo through construction to the real frame checksum. M17 remains `BLOCKED`;
 M18 remains `NOT STARTED`.
+
+### Target evidence from CI Actions run #233 (2026-09-26)
+
+Actions run `36223836342` (#233, head
+`1993a4582952d3c1176ceff4434ac07a11a02881`) passed Ubuntu host, Windows
+launcher, Mesa Softpipe, package, kernel, user-init, and UEFI build steps. The
+real QEMU acceptance accepted persistent storage, initialized Mesa/EGL, and
+created the GL context. Servo construction then reported `memory allocation of
+512 bytes failed`, redirected `abort()` to `mozalloc_abort`, and ended without
+a first-web-pixel checksum or PASS marker. The serial excerpt contains neither
+`POSIX heap mapping unavailable` nor `POSIX allocator returned no block`.
+
+The failure size alone does not include its requested alignment. Source audit
+of the pinned Rust Unix allocator shows `System::alloc` uses `posix_memalign`
+when a layout requires stronger alignment. Nagi's prior `posix_memalign`
+implementation allocated with ordinary malloc and returned `ENOMEM` when its
+16-byte-aligned result did not meet that request. This is a source-confirmed
+failure path consistent with the log, not runtime proof of the exact
+512-byte layout. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Local continuation after CI Actions run #233 (2026-09-26)
+
+ADR 0028 replaces the 16-byte-only `posix_memalign` behavior with a finite,
+guest-heap-backed aligned allocation. Over-aligned pointers carry validated
+metadata that lets `nagi_posix_free` recover the original allocation and lets
+`malloc_usable_size` return the requested payload size; the requested size
+remains at the `pointer - 16` ABI location used by `realloc`. C++ aligned
+throwing and nothrow `operator new` overloads now pass their requested
+`align_val_t` to the same allocator; aligned delete already returns them
+through `nagi_posix_free`. The failure case does not use a host allocator or
+weaken OOM behavior.
+
+Added allocator tests for POSIX alignment validation, 512-byte and 4096-byte
+alignment, freeing/coalescing the underlying blocks, and overflow rejection.
+The tests type-check for `x86_64-unknown-linux-gnu`; the package test binary
+cannot be linked for the Apple-Silicon host because `libnagi` uses x86 syscall
+registers, and the x86_64 macOS test link is rejected by relibc's ELF-style
+`.data` section on Mach-O. The focused `nagi-cli` C++ runtime contract test
+passes. `nagi-posix` test code type-checks on the Linux target, Clippy passes,
+and the Nagi target package check passes with five existing warnings. The
+target C++ runtime compiles for `x86_64-unknown-none`, and its object contains
+the aligned `new`/`new[]` overloads referencing
+`nagi_posix_malloc_aligned`. The repository's CI-format command and
+`git diff --check` pass. Public Ubuntu CI remains responsible for executing
+the allocator unit tests, and public QEMU acceptance must verify that Servo
+reaches the real first-web-pixel checksum. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### Target evidence from CI run #202 (2026-09-26)
 
