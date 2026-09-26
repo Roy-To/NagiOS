@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "windows-safe-retry-m17-qemu-running-diagnostic-run-pending",
+  "current_checkpoint": "timeout-classifier-fixed-trace-target-running",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
-    "verified_at": "2026-09-26T11:08:30Z",
-    "normal_state": "Integration head 582b5f6 adds bounded, allocation-free user-space diagnostics for pthread_create failures. The nagi-cli suite now passes (107 unit and 26 integration tests, including four terminal-control regressions); the Windows-safe fixture correction is locally verified. The nagi-posix suite passes (9 tests), package formatting and warning-denied Clippy pass, and the Nagi x86_64 user-target library compiles with five existing visibility/dead-code warnings. Root CI #36233551349 passed Ubuntu and Windows host jobs and target builds through UEFI, but QEMU entered Servo construction, received pthread_create EAGAIN, and timed out without a real pixel checksum or M17 PASS marker. Root CI #36235206493 exposed a Windows-invalid test filename; commit dd192ca fixes the fixture. Run #36235660277 passed both host jobs and advanced to the real M17 QEMU acceptance; its target result is pending. Run #36236310925 for 582b5f6 has both host jobs passed; its target job is pending behind the earlier target run. The app branch audit found no missing source commits to integrate; dirty detached first-party target work remains untouched. M17 remains BLOCKED, M18 remains NOT STARTED, and 0.2 runtime/product stays gated on M30 PASS plus an explicit release checkpoint. Read-only branch comparison at root HEAD a62c63c found no missing source commits on the registered app, SDK, capability-permissions, development foundation, Wayback-ledger, diagnostics, localization, model-runtime, UI, or acceptance branches. The unique codex/parallel-capability-core commit 59d7e10 is deferred because it introduces a competing capability/policy and manifest API across paths owned by other workstreams; the unique codex/parallel-wayback-ledger commit 4943fd8 is deferred because it duplicates the canonical contract and applies reverts without policy/authorization. Dirty M17 and first-party sibling worktrees, plus the Home/Search untracked build artifact, were preserved. Capability Core reports 31 local tests plus workspace check, Clippy, and formatting in a temporary workspace, but the root workspace/doctor and public CI were unavailable. The parallel Wayback branch has no remote or CI run; its reported local checks do not override the missing policy/authorization boundary found in source review.",
+    "commit_sha": "4c453969ebd303b7a9ec40803f3b4f61b17d8d75",
+    "verified_at": "2026-09-26T11:34:43Z",
+    "normal_state": "Integration commit 582b5f6 adds bounded, allocation-free user-space diagnostics for pthread_create failures. Run 36235660277 completed with both host jobs passing; its target reached Servo construction, panicked in Servo profile thread spawn with pthread_create EAGAIN (errno 11), then QEMU failed to exit within 120 seconds. No real pixel checksum or PASS marker was produced. The acceptance report mislabeled the failure as LINK because its diagnostic summary contained “undefined symbols: 0” and its timeout wording was not recognized. Integration commit 4c45396 narrows the linker match to “undefined symbol:” and recognizes “did not exit within”; the exact regression test fails before and passes after that fix. The nagi-cli suite passes (107 unit and 26 integration tests), formatting and warning-denied Clippy pass. Source review confirms the current POSIX/kernel bridge has one child slot, a candidate cause but not a proven explanation until trace commit run 36236310925 completes. That run has started its target build. CI run 36239110612 for 4c45396 has started both host jobs; its target job is gated on them and on the active target run. M17 remains BLOCKED without a real checksum/PASS marker; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS plus an explicit release checkpoint. Read-only branch comparison at root HEAD a62c63c found no missing source commits on the registered app, SDK, capability-permissions, development foundation, Wayback-ledger, diagnostics, localization, model-runtime, UI, or acceptance branches. The unique codex/parallel-capability-core commit 59d7e10 remains deferred because its roughly 17-file/2,300-line competing capability/policy and manifest API crosses other streams’ owned/shared paths and duplicates canonical APIs; its 31 local tests and static checks were reported from a temporary workspace, without root doctor/workspace or public CI evidence. The unique codex/parallel-wayback-ledger commit 4943fd8 remains deferred because it duplicates the canonical ledger and calls revert execution without authorization/policy input; it has no remote or public CI. Dirty M17 and first-party sibling worktrees, including the Home/Search untracked build artifact, remain preserved.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -98,7 +98,20 @@
       "gh run view 36230579035 --log-failed",
       "gh run view 36231127467 --log-failed",
       "git show --stat --oneline codex/parallel-capability-core",
-      "git show --stat --oneline codex/parallel-wayback-ledger"
+      "git show --stat --oneline codex/parallel-wayback-ledger",
+      "git worktree list --porcelain",
+      "git branch -vv",
+      "git ls-remote --heads origin codex/integration-next-phase main",
+      "./nagi dev resume",
+      "sed -n 1737,1822p user/nagi-posix/src/abi.rs",
+      "sed -n 688,727p kernel/src/syscall.rs",
+      "gh run download 36235660277 --dir /tmp/nagi-m17-36235660277",
+      "sha256sum /tmp/nagi-m17-36235660277/m17-diagnostics-36235660277/m17-servo.log",
+      "python3 -m json.tool .dev/workstreams/integration-next-phase/state.json",
+      "cargo test -p nagi-cli --lib --locked --offline --config build.target=\"aarch64-apple-darwin\" failures_keep_stage_distinction_and_block_missing_environment",
+      "gh run view 36239110612 --json status,conclusion,headSha,updatedAt,jobs,url",
+      "gh run view 36236310925 --json status,conclusion,updatedAt,jobs",
+      "gh run view 36239110612 --json status,conclusion,updatedAt,jobs"
     ],
     "tests": [
       {
@@ -590,6 +603,55 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "18 registered workstreams and 11 state files validate on code commit 582b5f6."
+      },
+      {
+        "name": "DF-01 verification after M17 pthread bridge capacity audit",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on integration head e3984d7; the source review is recorded in docs/implementation_status.md without changing runtime behavior."
+      },
+      {
+        "name": "Observed M17 timeout classifier regression reproduced before fix",
+        "command": "cargo test -p nagi-cli --lib --locked --offline --config build.target=\"aarch64-apple-darwin\" failures_keep_stage_distinction_and_block_missing_environment",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Against the original classifier the exact QEMU “did not exit within 120 seconds” output plus “undefined symbols: 0” produced Link instead of Timeout."
+      },
+      {
+        "name": "M17 timeout and linker summary classification after fix",
+        "command": "cargo test -p nagi-cli --lib --locked --offline --config build.target=\"aarch64-apple-darwin\" failures_keep_stage_distinction_and_block_missing_environment",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The exact timeout/report-summary combination classifies as Timeout; a plural zero-symbol summary alone does not classify as Link. Existing true undefined-symbol linker case remains Link."
+      },
+      {
+        "name": "nagi-cli suite after timeout classification fix",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "107 library unit tests and 26 CLI integration tests passed. The test build emits three existing target_os=\"nagi\" cfg warnings from third_party/libc-servo."
+      },
+      {
+        "name": "nagi-cli formatting after timeout classification fix",
+        "command": "cargo fmt --package nagi-cli -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Rust formatting check passed."
+      },
+      {
+        "name": "nagi-cli Clippy after timeout classification fix",
+        "command": "cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All CLI targets passed Clippy with warnings denied."
+      },
+      {
+        "name": "DF-01 verification after timeout-classifier checkpoint",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on integration code commit 4c45396."
       }
     ],
     "ci_runs": [
@@ -773,9 +835,9 @@
         "run_id": 36235660277,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36235660277",
         "head_sha": "dd192ca3d303c85f20d206c88976ed26b766612a",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Ubuntu and Windows host jobs passed, including Windows M0 launcher acceptance. The target build reached and is currently running the real M17 QEMU acceptance; this run predates the pthread diagnostic commit."
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed. Target acceptance reached Servo construction, then its profile thread panicked with pthread_create EAGAIN (11) and QEMU timed out at 120 seconds; no real pixel checksum or guest PASS marker. The report incorrectly labeled the stage LINK from “undefined symbols: 0”; commit 4c45396 fixes classification."
       },
       {
         "run_id": 36236310925,
@@ -783,13 +845,21 @@
         "head_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Both Ubuntu and Windows host jobs passed for the bounded pthread diagnostic commit. The nagi-target job is pending behind run 36235660277; no target evidence is available yet."
+        "summary": "Both host jobs passed for the bounded pthread trace commit. At 2026-09-26T11:34:31Z the target job was building the Nagi kernel; M17 QEMU trace output is not yet available."
+      },
+      {
+        "run_id": 36239110612,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36239110612",
+        "head_sha": "4c453969ebd303b7a9ec40803f3b4f61b17d8d75",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "CI for the timeout-stage classifier fix is running both host jobs; both were bootstrapping pinned Servo source dependencies at the latest check. The target job is gated on both host jobs and the active target concurrency slot."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T11:08:30Z",
+    "last_checked_at": "2026-09-26T11:33:43Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -805,7 +875,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Inspect root CI runs 36235660277 (dd192ca) and 36236310925 (582b5f6) as they complete. Use the bounded user-space pthread trace to distinguish child-slot, stack-mmap, and native-bridge rejection if the target reaches that path. Do not cherry-pick the unaffiliated parallel capability/Wayback commits without resolving canonical API, ownership, and authorization concerns. Keep M17 BLOCKED until the real guest emits the first-pixel checksum and acceptance marker; keep M18 NOT STARTED and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
+  "next_action": "Inspect run 36236310925 as the bounded pthread trace reaches M17 QEMU acceptance, and inspect run 36239110612 for the classifier fix host/target gates. The completed run 36235660277 proves the Servo profile pthread_create EAGAIN and QEMU timeout but contains no bounded bridge trace. Use run 36236310925 to identify child-slot, mmap, or native-bridge rejection. Keep M17 BLOCKED until a real guest pixel checksum and acceptance marker appear; keep M18 NOT STARTED and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",

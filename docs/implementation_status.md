@@ -4735,3 +4735,13 @@ timeout and linker distinctions. This changes reporting only; the acceptance
 verdict remains FAIL. Trace-enabled run `36236310925` has started its target
 job; its M17 QEMU result is pending. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
+
+Integration commit `4c453969ebd303b7a9ec40803f3b4f61b17d8d75` fixes that
+acceptance-stage classifier and adds regression coverage for the observed
+timeout plus the plural `undefined symbols: 0` diagnostic summary. The CLI
+suite passes (107 unit and 26 integration tests), as do package formatting and
+warning-denied Clippy. CI run `36239110612` is validating this commit; its
+Ubuntu and Windows host jobs are running, and its target job remains gated on
+those jobs and the active target concurrency slot. Run `36236310925` remains
+the trace-enabled M17 target run. Neither run has produced a new guest pixel
+result yet.
