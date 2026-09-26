@@ -22,20 +22,38 @@ if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
     throw "could not resolve the Nagi launcher from the M0 acceptance script: $launcher"
 }
 
-$invalidOutput = @(& $launcher doctor --unexpected 2>&1)
-if ($LASTEXITCODE -ne 2) {
-    $invalidOutput | ForEach-Object { Write-Output ([string] $_) }
-    throw "launcher did not preserve usage exit code 2 (got $LASTEXITCODE)"
-}
+$previousCargoTargetDir = $env:CARGO_TARGET_DIR
+$isolatedCargoTargetDir = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "nagi-m0-launcher-$PID"
+try {
+    # The acceptance runner itself is nagi.exe. Keep nested cargo runs from
+    # replacing that locked executable on Windows.
+    $env:CARGO_TARGET_DIR = $isolatedCargoTargetDir
 
-$helpOutput = @(& $launcher --help 2>&1)
-if ($LASTEXITCODE -ne 0) {
-    $helpOutput | ForEach-Object { Write-Output ([string] $_) }
-    throw "launcher did not preserve help success exit code 0 (got $LASTEXITCODE)"
-}
-if (($helpOutput -join "`n") -notmatch 'Nagi OS developer orchestrator') {
-    $helpOutput | ForEach-Object { Write-Output ([string] $_) }
-    throw 'launcher help output was not recognized'
-}
+    $invalidOutput = @(& $launcher doctor --unexpected 2>&1)
+    if ($LASTEXITCODE -ne 2) {
+        $invalidOutput | ForEach-Object { Write-Output ([string] $_) }
+        throw "launcher did not preserve usage exit code 2 (got $LASTEXITCODE)"
+    }
 
-Write-Output 'PASS M0 Windows launcher exit propagation'
+    $helpOutput = @(& $launcher --help 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        $helpOutput | ForEach-Object { Write-Output ([string] $_) }
+        throw "launcher did not preserve help success exit code 0 (got $LASTEXITCODE)"
+    }
+    if (($helpOutput -join "`n") -notmatch 'Nagi OS developer orchestrator') {
+        $helpOutput | ForEach-Object { Write-Output ([string] $_) }
+        throw 'launcher help output was not recognized'
+    }
+
+    Write-Output 'PASS M0 Windows launcher exit propagation'
+}
+finally {
+    if ($null -eq $previousCargoTargetDir) {
+        Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+    } else {
+        $env:CARGO_TARGET_DIR = $previousCargoTargetDir
+    }
+    if (Test-Path -LiteralPath $isolatedCargoTargetDir) {
+        Remove-Item -LiteralPath $isolatedCargoTargetDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
