@@ -2,7 +2,12 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\\..')).Path
+$scriptPath = $MyInvocation.MyCommand.Path
+if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+    throw 'could not resolve the M0 launcher acceptance script path'
+}
+$scriptDirectory = Split-Path -Parent $scriptPath
+$repositoryRoot = (Resolve-Path (Join-Path $scriptDirectory '../..')).Path
 $launcher = Join-Path $repositoryRoot 'nagi.ps1'
 
 $invalidOutput = @(& $launcher doctor --unexpected 2>&1)
