@@ -2,13 +2,19 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$scriptPath = $MyInvocation.MyCommand.Path
+$scriptPath = $PSCommandPath
 if ([string]::IsNullOrWhiteSpace($scriptPath)) {
     throw 'could not resolve the M0 launcher acceptance script path'
 }
-$scriptDirectory = Split-Path -Parent $scriptPath
-$repositoryRoot = (Resolve-Path (Join-Path $scriptDirectory '../..')).Path
+$scriptDirectory = [System.IO.Path]::GetDirectoryName($scriptPath)
+if ([string]::IsNullOrWhiteSpace($scriptDirectory)) {
+    throw "could not resolve the directory for the M0 launcher acceptance script: $scriptPath"
+}
+$repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $scriptDirectory -ChildPath '..\..'))
 $launcher = Join-Path $repositoryRoot 'nagi.ps1'
+if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+    throw "could not resolve the Nagi launcher from the M0 acceptance script: $launcher"
+}
 
 $invalidOutput = @(& $launcher doctor --unexpected 2>&1)
 if ($LASTEXITCODE -ne 2) {
