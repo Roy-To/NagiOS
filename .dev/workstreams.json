@@ -200,15 +200,39 @@
     },
     {
       "id": "ci-acceptance",
-      "owner": "unassigned",
-      "owner_branch": "codex/0.2-ci-acceptance",
+      "owner": "Codex acceptance tooling workstream",
+      "owner_branch": "codex/parallel-acceptance-ci",
       "recommended_worktree": "../NagiOS-0.2-ci-acceptance",
       "state_file": ".dev/workstreams/ci-acceptance/state.json",
       "dependencies": ["developer-tooling"],
-      "allowed_paths": [".github/workflows/**", "tests/acceptance/**", "tools/ci/**"],
-      "forbidden_paths": ["kernel/**", "user/**", "third_party/**", "Cargo.lock"],
+      "allowed_paths": [
+        ".github/workflows/**",
+        "Cargo.lock",
+        "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md",
+        "docs/implementation_status.md",
+        "docs/testing/README.md",
+        "tests/acceptance/**",
+        "tests/test_target_link_diagnostics.py",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "tools/nagi-bootstrap/Cargo.lock",
+        "tools/nagi-cli/Cargo.toml",
+        "tools/nagi-cli/src/acceptance.rs",
+        "tools/nagi-cli/src/commands.rs",
+        "tools/nagi-cli/src/lib.rs",
+        "tools/nagi-cli/tests/cli.rs"
+      ],
+      "forbidden_paths": [
+        ".dev/workstreams.json",
+        ".dev/schemas/**",
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "third_party/**",
+        "out/**",
+        "target/**"
+      ],
       "activation_gate": "Nagi 0.1 M30 PASS for release-gate redesign; current foundation may adjust cancellation/diagnostic retention only.",
-      "merge_boundary": "0.2 integration branch after all existing 0.1 acceptance gates remain unchanged and pass."
+      "merge_boundary": "Host-side acceptance runner may integrate on codex/integration-next-phase while the 0.1 milestone scripts and success criteria remain authoritative and unmodified; do not merge directly to main."
     },
     {
       "id": "documentation",

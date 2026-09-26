@@ -4530,3 +4530,23 @@ the shared library's serialization dependencies; this integration adds the
 missing direct dependency and verifies the standalone package locally. VM
 smoke still times out before guest boot acceptance, so this workstream remains
 `PARTIAL`. Mainline M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Acceptance-CI workstream checkpoint (2026-09-26)
+
+The host-side acceptance registry and runner from branch
+`codex/parallel-acceptance-ci` are integrated on
+`codex/integration-next-phase`. The CI host jobs now use the central runner and
+publish its reports/logs; the target job routes M17 through the registered
+existing `m17_servo_first_web_pixel.sh` wrapper. Its required real guest pixel
+checksum and acceptance marker remain unchanged. The current M17 state remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+The source branch CI run `35975771855` failed the host Clippy gate on
+`duration.subsec_nanos() / 1_000` in `user/nagi-net/src/smoltcp_stack.rs`.
+The integration branch already has the equivalent `subsec_micros()` conversion;
+the focused x86_64 Apple-target `nagi-net` tests (8 total) and Clippy pass.
+The integrated `nagi-cli` suite passes 102 unit and 26 CLI tests, the bootstrap
+acceptance suite passes 7 tests, and the host acceptance run passes both M0
+cases. Public CI for this integrated runner is pending. The runner itself does
+not turn filtered or missing evidence into a pass; no milestone status is
+inferred from host acceptance.

@@ -59,6 +59,7 @@ pub enum Command {
     M16,
     M17,
     Test,
+    Acceptance,
     Clean,
     Fmt,
     Lint,
@@ -255,6 +256,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m15" => Command::M15,
         "m16" => Command::M16,
         "m17" => Command::M17,
+        "test" if args.get(1).is_some_and(|arg| arg == "--acceptance") => Command::Acceptance,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -286,6 +288,8 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
             args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--allow-missing")
         }
         Command::Dev => args.len() >= 2,
+        Command::Test => args.len() == 1,
+        Command::Acceptance => args.len() >= 2,
         Command::Help
         | Command::Fetch
         | Command::Build
@@ -303,7 +307,6 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M15
         | Command::M16
         | Command::M17
-        | Command::Test
         | Command::Clean
         | Command::Fmt
         | Command::Lint => args.len() == 1,
@@ -373,6 +376,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::Fetch => execute_fetch(root),
         Command::Build => run_cargo(root, "build", &host_workspace_args("build")),
         Command::Test => run_cargo(root, "test", &host_workspace_args("test")),
+        Command::Acceptance => crate::acceptance::execute(&args[2..], root),
         Command::Fmt => run_cargo(root, "fmt", &["fmt", "--all", "--", "--check"]),
         Command::Lint => run_cargo(root, "lint", &host_workspace_args("clippy")),
         Command::Clean => execute_clean(root),
@@ -3460,7 +3464,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, dev status|resume|verify|diagnose, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }

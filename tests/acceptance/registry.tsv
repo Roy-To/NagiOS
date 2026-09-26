@@ -1,0 +1,22 @@
+# id	milestone	subsystem	scope	script_stem	timeout_seconds	test
+M0-DOCTOR	M0	toolchain	host	m0_doctor	180	host dependency doctor
+M0-LAUNCHER	M0	developer-cli	host	m0_launcher	180	launcher exit propagation
+M1-BOOT	M1	boot	target	m1_qemu_boot	1800	UEFI to kernel QEMU boot
+M2-MEMORY	M2	memory	target	m2_memory_interrupts	1800	memory exceptions and interrupts
+M3-SMP	M3	scheduler	target	m3_smp_scheduler	1800	SMP scheduler and threads
+M4-IPC	M4	ipc	target	m4_handles_vmo_ipc	1800	handles VMO and IPC
+M5-FIRST-USER	M5	userspace	target	m5_first_user_process	1800	first user process
+M6-SUPERVISOR	M6	supervisor	target	m6_init_supervisor_registry	1800	init supervisor and registry
+M7-FILESYSTEM	M7	filesystem	target	m7_block_filesystem_persistence	1800	block filesystem persistence
+M8-CLI	M8	cli	target	m8_cli_foundation	1800	guest CLI foundation
+M9-DISPLAY	M9	display	target	m9_display_input_window	1800	display input and window
+M10-DESKTOP	M10	desktop	target	m10_ui_desktop	1800	UI desktop
+M11-SECURITY	M11	security	target	m11_permissions_security	1800	permissions and security
+M12-NETWORK	M12	network	target	m12_networking	1800	networking
+M13-POSIX	M13	posix	target	m13	1800	integrated Rust POSIX acceptance
+M13-POSIX-FOCUSED	M13	posix	target	m13_rust_posix	1800	focused POSIX compatibility acceptance
+M13-RUST-STD	M13	rust-std	target	m13_rust_std	1800	Rust standard library acceptance
+M14-AUDIO	M14	audio	target	m14_audio	1800	audio
+M15-HISTORY	M15	history	target	m15_history	1800	history and transactions
+M16-PACKAGE	M16	package-sdk	target	m16_package_sdk	1800	package and SDK
+M17-FIRST-WEB-PIXEL	M17	servo	target	m17_servo_first_web_pixel	5400	real Servo first web pixel

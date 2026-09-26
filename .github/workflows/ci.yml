@@ -41,16 +41,25 @@ jobs:
           cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check
           cargo fmt --manifest-path loader/Cargo.toml -- --check
           rustfmt --check user/nagi-albert/src/lib.rs
+      - name: Regression tests for CI diagnostic parsers
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Lint host-compatible workspace
         run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
       - name: Build host-compatible workspace
         run: cargo build --workspace --exclude nagi-kernel --locked
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
-      - name: M0 doctor acceptance
-        run: ./tests/acceptance/m0_doctor.sh
-      - name: M0 launcher acceptance
-        run: ./tests/acceptance/m0_launcher.sh
+      - name: Focused host acceptance (M0)
+        run: ./nagi test --acceptance --host-only --ci
+      - name: Upload Ubuntu acceptance reports and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-ubuntu-host-${{ github.run_attempt }}
+          path: |
+            out/test-results/
+            out/logs/acceptance/
+          if-no-files-found: ignore
       - name: Verify development workstream state
         run: ./nagi dev verify
   windows-launcher:
@@ -97,11 +106,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\nagi.ps1 doctor --allow-missing
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify Windows launcher exit propagation
+      - name: Focused Windows host acceptance (M0 launcher)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          .\tests\acceptance\m0_launcher.ps1
+          .\nagi.ps1 test --acceptance --host-only --subsystem developer-cli --ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify development workstream state
         shell: pwsh
@@ -109,12 +118,21 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\nagi.ps1 dev verify
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows acceptance reports and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-windows-host-${{ github.run_attempt }}
+          path: |
+            out/test-results/
+            out/logs/acceptance/
+          if-no-files-found: ignore
   nagi-target:
     needs: [ubuntu-host, windows-launcher]
     concurrency:
       group: nagi-ci-target-${{ github.ref }}
       cancel-in-progress: false
-    timeout-minutes: 90
+    timeout-minutes: 120
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -254,7 +272,7 @@ jobs:
           NAGI_CXX_HEADERS: /usr/include/c++/v1
         run: |
           source out/mesa-venv/bin/activate
-          sh tests/acceptance/m17_servo_first_web_pixel.sh
+          ./nagi test --acceptance --target-only --milestone M17 --ci
       - name: Capture target runner resource state
         if: always()
         run: |
@@ -274,3 +292,17 @@ jobs:
           path: out/logs/m17-*
           if-no-files-found: error
           retention-days: 30
+      - name: Upload target acceptance reports and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-nagi-target-${{ github.run_attempt }}
+          path: |
+            out/test-results/
+            out/logs/acceptance/
+            out/logs/m17-runner-resources.log
+            out/logs/m17-bootstrap.log
+            out/logs/m17-nagi-user-init.log
+            out/logs/m17-undefined-symbols.txt
+            out/logs/m17-servo.log
+          if-no-files-found: ignore
