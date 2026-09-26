@@ -377,6 +377,47 @@ mod tests {
     }
 
     #[test]
+    fn covers_gregorian_century_and_clock_boundaries() {
+        assert!(Date::new(1900, 2, 29).is_err());
+        assert!(Date::new(2000, 2, 29).is_ok());
+
+        let english = formatter("en-US");
+        let japanese = formatter("ja-JP");
+        assert_eq!(english.format_time(Time::new(0, 0).unwrap()), "12:00 AM");
+        assert_eq!(english.format_time(Time::new(12, 0).unwrap()), "12:00 PM");
+        assert_eq!(english.format_time(Time::new(23, 59).unwrap()), "11:59 PM");
+        assert_eq!(japanese.format_time(Time::new(0, 0).unwrap()), "00:00");
+        assert_eq!(japanese.format_time(Time::new(23, 59).unwrap()), "23:59");
+    }
+
+    #[test]
+    fn handles_integer_extremes_and_invalid_public_number_options() {
+        let english = formatter("en-US");
+        assert_eq!(
+            english.format_integer(i64::MIN),
+            "-9,223,372,036,854,775,808"
+        );
+        assert_eq!(
+            english
+                .format_decimal(
+                    1.2,
+                    NumberOptions {
+                        minimum_fraction_digits: 0,
+                        maximum_fraction_digits: 7,
+                    },
+                )
+                .unwrap_err(),
+            super::FormatError::InvalidNumberOptions
+        );
+        assert_eq!(
+            english
+                .format_percent(f64::MAX, NumberOptions::DECIMAL)
+                .unwrap_err(),
+            super::FormatError::NonFiniteNumber
+        );
+    }
+
+    #[test]
     fn uses_region_independently_of_system_language_without_process_locale() {
         let english_ui_japanese_region = formatter("ja-JP");
         assert_eq!(

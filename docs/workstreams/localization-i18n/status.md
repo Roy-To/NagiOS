@@ -13,8 +13,10 @@ This workstream owns only the shared localization foundation, catalog
 validation, formatting contract, caller guide, and focused tests. It does not
 take ownership of M17/Servo, DF-01, Capability, App SDK, Activity, Wayback,
 first-party application features, the UI Design System, Settings, IME, or
-font/compositor internals. No `.dev/workstreams` registry or DF-01 state schema
-was present at the inspected base revision.
+font/compositor internals. The current registry on `codex/integration-next-phase`
+assigns this workstream its crate, architecture/guide, status, and durable-state
+paths; the older source branch itself predates the registry, so it does not own
+the registry or DF-01 schema.
 
 ## Implemented
 
@@ -34,7 +36,7 @@ was present at the inspected base revision.
 
 Host checks:
 
-- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test -p nagi-localization --locked` — PASS, 26 tests.
+- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test -p nagi-localization --locked` — PASS, 28 tests, including Gregorian century/leap-day, midnight/noon, `i64::MIN`, invalid public number options, and percent overflow boundaries.
 - `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy -p nagi-localization --all-targets --locked -- -D warnings` — PASS.
 - `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check` — PASS.
 - `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo run --locked -p nagi-localization --bin localization-check` — PASS, 2 locales and 14 messages.
@@ -53,6 +55,14 @@ Broader repository checks and limitations:
 - `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi test` — FAIL outside this workstream: on the AArch64 host, existing `user/libnagi` x86-64 syscall assembly rejects registers such as `rax` and `rdi`. The failure includes 136 invalid-register errors; no unrelated runtime code was changed.
 - `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --all -- --check` — FAIL because the command also formats the fetched pinned Servo checkout and reports its existing formatting differences. No third-party source was modified. The localization crate's own format check passes.
 - `git diff --check` — PASS. A source scan found no host locale or process-environment API references in the localization crate.
+
+Latest source-branch CI:
+
+- GitHub Actions run `36215320154` for `67de0be987ddb1308d2360444e036c7a88dfab7d`
+  passed the Ubuntu host suite, Windows host suite, and target builds through
+  UEFI. It failed only in the independent M17 QEMU first-web-pixel acceptance.
+  That target failure produced no localization failure and did not validate or
+  invalidate runtime localization integration; M17 remains separately blocked.
 
 ## Remaining gates
 
