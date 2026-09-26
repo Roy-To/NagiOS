@@ -4652,9 +4652,9 @@ console summaries, and diagnostics-bundle host/commit headers now escape
 control characters before display. JSON report output remains serialized by
 the JSON encoder.
 
-Three regression tests cover hostile workstream state, diagnostics-bundle
+Four regression tests cover hostile workstream state, diagnostics-bundle
 headers, and diagnostic stage/output-path summaries. The complete nagi-cli
-suite passes (106 unit tests and 26 CLI integration tests), as do formatting,
+suite passes (107 unit tests and 26 CLI integration tests), as do formatting,
 Clippy with warnings denied, `./nagi dev verify` (18 registered workstreams;
 11 state files), and `git diff --check`. The test build still reports three
 existing `target_os = "nagi"` configuration warnings from the vendored libc
