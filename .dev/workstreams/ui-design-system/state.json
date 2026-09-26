@@ -112,7 +112,7 @@
       "Do not change M17 BLOCKED or start M18 based on host/UI library checks."
     ]
   },
-  "next_action": "Inspect root CI run 36231902947. Keep target UI visual/input acceptance blocked until the owning M5 loader issue is repaired and the guest reaches the actual desktop. Keep 0.2 runtime adoption gated on M30 PASS and an explicit checkpoint.",
+  "next_action": "Inspect root CI run 36232534175. Keep target UI visual/input acceptance blocked until the owning M5 loader issue is repaired and the guest reaches the actual desktop. Keep 0.2 runtime adoption gated on M30 PASS and an explicit checkpoint.",
   "acceptance_criteria": [
     "Semantic light/dark roles and typography, spacing, density, radius, elevation, and motion tokens are defined and tested.",
     "Reusable deterministic component, focus, dialog, and Command Palette state contracts are available without drawing pixels or executing app actions.",

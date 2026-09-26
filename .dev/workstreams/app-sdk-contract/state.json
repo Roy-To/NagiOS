@@ -71,7 +71,7 @@
     "attempted_fixes": [],
     "do_not_try": []
   },
-  "next_action": "DF-01/integration owner: reconcile the host regression test's hard-coded IN_PROGRESS expectation with the committed development-foundation PASS state, then rerun CI. Keep App SDK runtime integration deferred until Nagi 0.1 M30 is PASS and an explicit 0.2 integration checkpoint exists.",
+  "next_action": "The integration tree corrected the stale DF-01 fixture expectation and its CLI regression tests pass with the recorded PASS state. Host app-contract and fixture work is complete; keep lifecycle adapters, app adoption, and runtime integration deferred until M30 PASS and an explicit 0.2 integration checkpoint.",
   "acceptance_criteria": [
     "Dedicated codex/0.2-app-sdk-contract branch and isolated worktree.",
     "DF-01 state, ownership, dependency, activation-gate, resume, and verification model is followed; shared-file proposals are flagged for integration-owner checkpoint.",

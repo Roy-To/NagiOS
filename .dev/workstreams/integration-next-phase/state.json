@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "first-party-ui-host-integration-merged-root-ci-running",
+  "current_checkpoint": "windows-m0-launcher-path-repair-ci-running",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
-    "verified_at": "2026-09-26T09:12:26Z",
-    "normal_state": "On codex/integration-next-phase at 94dbf8708af743469678cf5f662bc4a6dd892a45, the shared UI design system and first-party host integration are merged. Notes, Files, Activity/Wayback, and Home/Search use the memory-only host adapter; target application launch, durable target storage, and target Action dispatch remain NOT RUN. Local verification passed nagi-cli (102 unit + 26 CLI), nagi-history (41), Files (48), Notes (27), Home/Search (35 + 1), cross-app integration (11), UI (27), root workspace Clippy, four standalone package Clippy checks, formatting, M0 host acceptance, and the bilingual integrated memory-only preview. DF-01 validation passed for 18 registered workstreams and 11 state files. CI #36230579035 has both host jobs passing and its M17 target job running; merged-root run #36231902947 has Ubuntu and Windows host jobs in progress. M17 remains BLOCKED without a real guest pixel checksum and acceptance marker; M18 remains NOT STARTED. 0.2 runtime/product work remains gated on M30 PASS and an explicit integration checkpoint.",
+    "commit_sha": "9fc3f10d36b70862a219de24b21a043974a3e1a9",
+    "verified_at": "2026-09-26T09:30:23Z",
+    "normal_state": "At 9fc3f10, the UI foundation and first-party host adapters remain integrated; target app launch, durable target storage, and target Action dispatch remain NOT RUN. Prior focused host suites, Clippy, formatting, bilingual memory-only preview, and DF-01 validation remain recorded as passing. Root #36231902947 passed Ubuntu but Windows failed M0 PowerShell script-root resolution. First repair 83faf55 used $PSCommandPath but CI #36232534175 showed its extended \\\\?\\ path retained .. segments, so Test-Path could not resolve nagi.ps1; Ubuntu passed and the target was skipped. Repair 9fc3f10 now walks DirectoryInfo.Parent twice and removes the dot segments. Local M0 acceptance passed via the Linux shell wrapper; this host has no pwsh, so Windows verification is pending #36232966992. First-party target #36230579035 remains in M17 acceptance; #36231127467 host jobs passed and its target is pending. Read-only reviews deferred unregistered branches 59d7e10 (parallel capability-core) and 4943fd8 (parallel Wayback ledger) for duplicate/incompatible contracts, no remote CI, and Wayback ownership/authorization violations. M17 remains BLOCKED without a real guest pixel checksum and marker; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS and an explicit release checkpoint.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -71,7 +71,16 @@
       "cargo fmt --manifest-path user/nagi-notes/Cargo.toml -- --check",
       "cargo fmt --manifest-path user/nagi-home-search/Cargo.toml -- --check",
       "cargo fmt --manifest-path tests/first-party-integration/Cargo.toml -- --check",
-      "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --locked --offline --config build.target=\"aarch64-apple-darwin\""
+      "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "./nagi test --acceptance --host-only --subsystem developer-cli --ci",
+      "sh -n tests/acceptance/m0_launcher.sh",
+      "./nagi dev verify",
+      "git diff --check",
+      "gh run view 36231902947 --log-failed",
+      "gh run view 36232534175 --json status,conclusion,jobs,url",
+      "gh run view 36232534175 --log-failed",
+      "gh run download 36232534175 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362325-windows",
+      "gh run view 36232966992 --json status,conclusion,jobs,url"
     ],
     "tests": [
       {
@@ -423,6 +432,27 @@
         "outcome": "NOT_RUN",
         "exit_code": null,
         "evidence": "Not executed; host preview and host service adapters do not establish target runtime behavior."
+      },
+      {
+        "name": "M0 Linux launcher acceptance after PowerShell path repair",
+        "command": "./nagi test --acceptance --host-only --subsystem developer-cli --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0-LAUNCHER passed through tests/acceptance/m0_launcher.sh on macOS; this does not exercise the Windows PowerShell wrapper."
+      },
+      {
+        "name": "Windows M0 PowerShell acceptance after path repair",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Run 36232534175 failed because Test-Path received an extended \\\\?\\ path containing tests\\acceptance\\..\\..; artifact inspected. Commit 9fc3f10 removes dot segments by walking parent directories. The next Windows CI result is pending."
+      },
+      {
+        "name": "Windows M0 PowerShell acceptance after parent-directory path repair",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Run 36232966992 is checking the committed DirectoryInfo.Parent-based root resolution; this macOS host has no pwsh."
       }
     ],
     "ci_runs": [
@@ -566,15 +596,31 @@
         "run_id": 36231902947,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231902947",
         "head_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu host passed. Windows failed M0 PowerShell acceptance before the launcher assertions with a null Path during script-root resolution; retained diagnostics inspected. Target was skipped. The follow-up path repair is committed at 83faf55 and is under run 36232534175."
+      },
+      {
+        "run_id": 36232534175,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36232534175",
+        "head_sha": "83faf55f14815cc1f0ca6f5aee45a6827536c6ee",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu passed. Windows M0 acceptance still failed: artifact showed Test-Path could not resolve nagi.ps1 because the \\?\\ extended path retained .. segments. Target was skipped. Commit 9fc3f10 now derives the root by DirectoryInfo parent traversal."
+      },
+      {
+        "run_id": 36232966992,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36232966992",
+        "head_sha": "9fc3f10d36b70862a219de24b21a043974a3e1a9",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Merged root head 94dbf87: Ubuntu and Windows host jobs are running; target job is gated on host completion."
+        "summary": "Second Windows M0 path fix uses DirectoryInfo.Parent traversal to avoid \\?\\ extended-path dot segments. Ubuntu and Windows host jobs are running; target is gated."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T09:12:26Z",
+    "last_checked_at": "2026-09-26T09:30:23Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -590,7 +636,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Inspect root Nagi CI run 36231902947 at head 94dbf87 after the Ubuntu and Windows host jobs finish, then inspect its target artifact. Keep M17 BLOCKED unless the guest produces the real first-web-pixel checksum and PASS marker; keep M18 NOT STARTED and all 0.2 runtime/product work gated on M30 PASS plus an explicit release checkpoint. While CI runs, audit remaining clean host-only workstream candidates without touching dirty sibling worktrees.",
+  "next_action": "Inspect root CI run 36232966992. If Windows and Ubuntu host jobs pass, inspect the M17 target artifact for a real guest pixel checksum and acceptance marker; keep M17 BLOCKED otherwise and M18 NOT STARTED. Continue host-only work under the existing M30 plus explicit release-checkpoint gate. Keep the unregistered parallel capability and Wayback branches deferred unless their contracts and ownership/security boundaries are reconciled.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",

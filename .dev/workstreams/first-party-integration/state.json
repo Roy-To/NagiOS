@@ -361,7 +361,7 @@
       "Do not hide the architecture failure by weakening tests or stubbing guest syscall behavior."
     ]
   },
-  "next_action": "Inspect source target run 36230579035 and merged root run 36231902947. Keep the host integration PARTIAL. Resume target app/runtime work only after authenticated context, capability/object/workspace services, native app launch, Search/Action dispatch, durable history, and Files snapshot/restore APIs are available; M18 remains gated on real M17 pixel evidence.",
+  "next_action": "Inspect first-party target run 36230579035 and merged-root run 36232534175. Keep this workstream PARTIAL. Resume target app/runtime work only after authenticated context, capability/object/workspace services, native app launch, Search/Action dispatch, durable history, and Files snapshot/restore APIs are available; M18 remains gated on real M17 pixel evidence.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",

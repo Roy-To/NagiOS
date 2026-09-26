@@ -99,7 +99,7 @@
       "Do not rebase, merge, cherry-pick, force-push, or change another branch/worktree."
     ]
   },
-  "next_action": "No remaining in-scope implementation. Resume with ./nagi dev resume wayback-activity-ledger; filesystem/runtime hooks and restore execution remain gated on M30 PASS and an explicit 0.2 integration checkpoint.",
+  "next_action": "The registered host-side Wayback contract and tests are integrated; the inherited DF-01 status assertion was corrected in the integration tree. No further host contract implementation is pending. Keep filesystem hooks, durable backend, restore execution, and product adoption gated on M30 PASS and an explicit 0.2 integration checkpoint.",
   "acceptance_criteria": [
     "[x] Dedicated codex/0.2-wayback-ledger branch and NagiOS-0.2-wayback worktree from latest DF-01.",
     "[x] DF-01 registration, ownership paths, dependency, state, gate, resume, verify, and handoff are accurate.",

@@ -104,7 +104,7 @@
       "Do not upload local diagnostics reports unless the user explicitly selects an output path."
     ]
   },
-  "next_action": "Inspect the integrated branch CI result. Keep the diagnostics contract host-local and resolve any CI failure without changing the existing guest acceptance criteria; retain PARTIAL while the inherited VM smoke timeout remains.",
+  "next_action": "Inspect root CI run 36232534175 for the integrated host and target workflow. Keep diagnostics host-local and PARTIAL while the inherited VM smoke timeout remains; do not change the existing guest acceptance criteria.",
   "acceptance_criteria": [
     "Versioned structured events and reports enforce bounds, safe redaction, unique check IDs, and outcome derivation.",
     "Registered health checks are scoped, continue after individual failures, and classify host versus VM evidence.",

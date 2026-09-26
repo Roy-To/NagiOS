@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "ci-acceptance",
   "current_milestone": "CI / Acceptance Infrastructure",
-  "current_checkpoint": "central-acceptance-runner-integrated-local-host-gates-pass",
+  "current_checkpoint": "windows-m0-extended-path-repair-ci-running",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "1d3d6749638e33e8406f2d705a2082a0e68e1637",
-    "verified_at": "2026-09-26T08:24:42Z",
-    "normal_state": "Integrated the registry-driven acceptance runner, failure classification, timeout handling, per-case logs, JSON report and regression comparison, GitHub summaries, and host/target CI uploads from codex/parallel-acceptance-ci. The integrated CLI suite passes 102 unit and 26 CLI tests; seven bootstrap acceptance tests pass; both M0 host wrappers pass with 19 filtered cases correctly marked NOT RUN. The x86_64 Apple-target nagi-net tests and Clippy pass with the subsec_micros conversion. Native arm64 nagi-net tests fail while compiling libnagi's x86-64 Nagi syscall registers, so no native arm test result is claimed. Public CI for the acceptance-runner merge has not started yet; the source branch CI failed earlier on Clippy and did not exercise the runner. M17 still calls the existing strict first-web-pixel wrapper; no checksum/marker requirements or milestone states changed.",
+    "commit_sha": "9fc3f10d36b70862a219de24b21a043974a3e1a9",
+    "verified_at": "2026-09-26T09:30:23Z",
+    "normal_state": "The registry-driven acceptance runner remains integrated. Root #36231902947 passed Ubuntu but failed Windows during script-root resolution. First path repair 83faf55 used $PSCommandPath; CI #36232534175 showed that the extended \\\\?\\ path retained .. segments and Test-Path could not resolve the launcher, so the target was skipped. Commit 9fc3f10 walks DirectoryInfo.Parent twice to eliminate dot segments. Local Linux M0 acceptance passes through the shell wrapper; Windows PowerShell remains unverified locally because pwsh is unavailable. Run #36232966992 is in progress. Keep this workstream PARTIAL until integrated Windows host acceptance and the target workflow finish; M17 checksum/marker criteria are unchanged.",
     "commands": [
       "cargo test -p nagi-cli --locked --offline",
       "cargo fmt --all -- --check",
@@ -24,7 +24,15 @@
       "python3 -m unittest discover -s tests -p 'test_*.py' -v",
       "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'",
       "./nagi dev verify",
-      "git diff --check; git diff --cached --check"
+      "git diff --check; git diff --cached --check",
+      "./nagi test --acceptance --host-only --subsystem developer-cli --ci",
+      "sh -n tests/acceptance/m0_launcher.sh",
+      "./nagi dev verify",
+      "git diff --check",
+      "gh run view 36232534175 --json status,conclusion,jobs,url",
+      "gh run view 36232534175 --log-failed",
+      "gh run download 36232534175 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362325-windows",
+      "gh run view 36232966992 --json status,conclusion,jobs,url"
     ],
     "tests": [
       {
@@ -103,6 +111,27 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The shared registry and all 9 present state files validated across 16 registered workstreams."
+      },
+      {
+        "name": "M0 Linux launcher acceptance after PowerShell path repair",
+        "command": "./nagi test --acceptance --host-only --subsystem developer-cli --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0-LAUNCHER passed with the shell wrapper on macOS. The PowerShell wrapper is not exercised by this host command."
+      },
+      {
+        "name": "Windows M0 PowerShell acceptance after path repair",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Run 36232534175 failed because Test-Path received an extended \\\\?\\ path containing .. segments; the artifact was inspected. Commit 9fc3f10 removes the dot segments."
+      },
+      {
+        "name": "Windows M0 PowerShell acceptance after parent-directory path repair",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Root Actions run 36232966992 is checking the committed fix; no local pwsh is installed."
       }
     ],
     "ci_runs": [
@@ -113,12 +142,36 @@
         "status": "COMPLETED",
         "conclusion": "FAILURE",
         "summary": "Acceptance-CI source branch stopped in Clippy on subsec_nanos() / 1_000; the runner acceptance suite itself was not reached. The integration branch has subsec_micros() and local focused checks pass."
+      },
+      {
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231902947",
+        "head_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu passed; Windows M0 PowerShell acceptance failed during script-root resolution with a null Path before launcher assertions, so target was skipped. Fix committed at 83faf55.",
+        "run_id": 36231902947
+      },
+      {
+        "run_id": 36232534175,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36232534175",
+        "head_sha": "83faf55f14815cc1f0ca6f5aee45a6827536c6ee",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu passed; Windows M0 acceptance failed because Test-Path received an extended \\?\\ path with .. segments. Target skipped; the follow-up fix is 9fc3f10."
+      },
+      {
+        "run_id": 36232966992,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36232966992",
+        "head_sha": "9fc3f10d36b70862a219de24b21a043974a3e1a9",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "DirectoryInfo.Parent path resolution is under Windows CI verification; both host jobs are running and target is gated."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md section 75 and docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T08:24:42Z",
+    "last_checked_at": "2026-09-26T09:30:23Z",
     "activation_requirement": "This change centralizes existing acceptance wrappers and diagnostics only. It does not redesign or weaken milestone success criteria; product/runtime activation remains behind the existing Nagi 0.1 sequence and M30 release boundary."
   },
   "blocker": {
@@ -135,7 +188,7 @@
       "Do not merge this integration branch directly to main."
     ]
   },
-  "next_action": "Push the integrated acceptance runner and inspect Ubuntu/Windows host acceptance plus target CI artifacts. Keep this workstream PARTIAL until the integrated workflow verifies the runner; independently keep M17 BLOCKED unless the real guest checksum and PASS marker appear.",
+  "next_action": "Inspect root run 36232966992 for Windows M0 and Ubuntu host results; inspect its target acceptance artifact only if both hosts pass. Keep CI acceptance PARTIAL until the wrapper and integrated workflow are verified; preserve M17 checksum and marker criteria.",
   "acceptance_criteria": [
     "A single registry maps acceptance IDs to milestone, subsystem, host/target scope, wrapper, timeout, and test name.",
     "Runner options filter by milestone/subsystem/scope and report all other cases as NOT RUN.",

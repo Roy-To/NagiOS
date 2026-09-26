@@ -257,7 +257,7 @@
       "Do not change 0.1 runtime code, M17 acceptance assertions, or start M18-M30."
     ]
   },
-  "next_action": "DF-01 is complete. Check mainline CI run 36120900543 and update the 0.1 status with its result. Keep Nagi 0.1 M18–M30 NOT STARTED until M17 passes; resume 0.2 runtime/product work only after M30 is PASS and an explicit 0.2 integration checkpoint establishes the release-line boundary.",
+  "next_action": "DF-01 validation passes on the integration tree (18 registered workstreams and 11 state files). Preserve the M17 gate; keep Nagi 0.1 M18–M30 NOT STARTED until M17 passes, and resume 0.2 runtime/product work only after M30 PASS and an explicit integration checkpoint.",
   "acceptance_criteria": [
     "A clean clone can identify its current 0.2 workstream, current Git HEAD, last verified SHA, blocker, and exact next action from tracked state.",
     "The registry/state validator rejects missing fields, invalid status or failure classes, duplicate IDs/branches, unsafe state paths, and missing dependencies.",

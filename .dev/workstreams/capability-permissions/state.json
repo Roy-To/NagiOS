@@ -167,7 +167,7 @@
       "Do not modify M17, M18-M30, other app workstreams, App SDK, or Wayback to work around this registry boundary."
     ]
   },
-  "next_action": "Integration owner: prepare the pinned root dependencies, review registration-proposal.json, add the capability-permissions row in an owned integration checkpoint, then rerun ./nagi dev verify, ./nagi dev status, and ./nagi dev resume. Keep runtime integration gated on M30 PASS and the explicit 0.2 integration checkpoint.",
+  "next_action": "The capability-permissions registry row and host policy crate are already integrated. Its format, 26 unit tests, 2 integration tests, Clippy, and package manifest regression pass on the integration tree. Keep runtime authorization enforcement gated on M30 PASS and an explicit 0.2 integration checkpoint; do not add a second capability policy API without resolving the canonical contract.",
   "acceptance_criteria": [
     "PASS: Dedicated codex/0.2-capability-permissions branch/worktree was created from the verified DF-01 remote HEAD and existing worktrees were preserved.",
     "PASS: DF-01 shared-file ownership rules were followed; no shared registry, shared schema, root manifest/lock, implementation status, CI, or third_party source was modified.",

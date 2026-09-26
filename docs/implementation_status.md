@@ -3084,12 +3084,42 @@ memory-only integration preview passed.
 
 First-party source CI run `36230579035` passed both host jobs; its target job
 is still running the unchanged M17 first-web-pixel acceptance. Merged-root CI
-run `36231902947` has both host jobs in progress. M17 remains `BLOCKED` until
-the real guest produces its pixel checksum and acceptance marker; M18 remains
+run `36231902947` passed Ubuntu but failed Windows M0 PowerShell acceptance
+during script-root resolution; its target job was skipped. The first repair,
+commit `83faf55`, used `$PSCommandPath`, but run `36232534175` showed that the
+Windows `\\?\` extended path retained `..` segments and `Test-Path` could not
+resolve the launcher. Commit `9fc3f10` now derives the repository root by
+walking the script directory's parent directories, removing those segments.
+The local M0 host run passed through the Linux shell wrapper; this macOS host
+has no `pwsh`, so that does not verify the Windows script. Root run
+`36232966992` is checking the second repair. M17 remains `BLOCKED` until the
+real guest produces its pixel checksum and acceptance marker; M18 remains
 `NOT STARTED`. The UI-specific M10 guest preview remains blocked before UI
 startup by the existing M5 `invalid-elf` / empty `PT_TLS` failure. No kernel
 or loader changes were made. Nagi 0.2 runtime/product work remains gated on
 M30 PASS and an explicit release checkpoint.
+
+# 3H. Unregistered parallel branch review (2026-09-26)
+
+Two clean, local-only branches were reviewed against the registered contracts
+and current integration tree. Neither has a remote branch or GitHub Actions
+run, and neither was merged or modified:
+
+- `codex/parallel-capability-core` at `59d7e10` adds a second capability
+  policy API and line-based package declaration alongside the registered
+  `crates/nagi-capability` and JSON App SDK manifest contract. Its scope,
+  grant lifecycle, ID vocabulary, and manifest representation are not
+  compatible enough for a mechanical merge. Defer it until the canonical
+  capability API is explicitly reconciled.
+- `codex/parallel-wayback-ledger` at `4943fd8` adds a second activity/Wayback
+  schema that overlaps the registered `crates/nagi-wayback` and
+  `user/nagi-history`, changes paths forbidden by its workstream ownership,
+  and exposes a revert executor without a policy/permission input. Defer the
+  branch; any useful access-filtering or idempotency ideas require a later
+  authorized-contract review within the registered Wayback workstream.
+
+The active first-party and M17 diagnostic worktrees contain uncommitted
+changes and were left untouched.
 
 # 4. Current milestone detail
 
