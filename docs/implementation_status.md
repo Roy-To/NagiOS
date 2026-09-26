@@ -4338,3 +4338,37 @@ creation. The public annotation retained only the warning tail and
 `fatal error:` lines in the bounded annotation. Target link, UEFI, and real
 QEMU first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
+
+## Independent diagnostics workstream checkpoint (2026-09-26)
+
+Workstream `diagnostics` is `IN_PROGRESS` on isolated branch
+`codex/ws-diagnostics`, based on `c1506888655123d819ec75be66891f0cd5477533`.
+This checkpoint does not change M17's recorded status or take ownership of
+M17, DF-01, Activity, Wayback, Capability, App SDK, or other workstreams.
+
+Implemented a versioned structured event and verification-report contract,
+bounded crash/fatal capture with a sink interface, privacy-class redaction,
+health-check registration and scoped aggregation, and the `nagi diagnostics`,
+`nagi verify`, and `nagi smoke` commands. Added a JSON Schema, CLI and contract
+tests, and local-first diagnostics documentation. Reports are emitted to a
+file only when `--output` is explicitly supplied. Crash persistence remains a
+portable contract until the target diagnostics/VFS boundary is available.
+
+Evidence from this checkout:
+
+- `RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustdoc /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo test -p nagi-cli --locked --offline` — PASS, 81 unit tests and 22 CLI integration tests.
+- `/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo fmt --all -- --check` — PASS; rustfmt emitted warnings that configured unstable formatting keys are ignored.
+- `python3 -m json.tool docs/testing/diagnostic-report.schema.json >/dev/null` — PASS for JSON syntax. Full JSON Schema validation was not run because no schema validator is installed; the CLI contract test also checks schema versions and diagnostic event round-trip.
+- `./target/debug/nagi diagnostics --scope diagnostics --json` and `./target/debug/nagi verify --scope diagnostics --json` — PASS, host evidence.
+- `./target/debug/nagi smoke --host-only --json` — PASS, host checks pass; DF-01 workstream-state check is explicitly `SKIPPED` because `.dev/workstreams.json` is absent from this checkout.
+- `./target/debug/nagi smoke --vm --json` — FAIL, classified as `VM` / `ACCEPTANCE`: QEMU did not exit within the existing 30-second M1/M7 acceptance window. Retrying with the pinned nightly toolchain on `PATH` passed the earlier Cargo channel mismatch and reached QEMU, but hit the same timeout. This is an existing guest boot acceptance boundary; no M17 or guest implementation was changed here.
+- `cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings` — BLOCKED by the host linker toolchain: `xcrun` attempted to load an x86_64 `libxcrun.dylib`, while the installed Command Line Tools library contains arm64/arm64e slices. Explicit nightly `RUSTC`/`RUSTDOC`, Homebrew clang, and `SDKROOT` did not resolve it. The full Cargo test suite above did link and pass.
+- `git diff --check` — PASS. The report command smoke results above were produced from the host executable and are not target-test evidence.
+
+DF-01 state files were inspected in the separate DF-01 worktree, but this
+branch does not contain that registry or its validator. The diagnostics API
+provides the scoped `HealthCheck` seam; `workstreams` currently reports
+`SKIPPED` and does not duplicate or modify DF-01 state handling. Registering
+the owner-provided validator after integration remains outstanding. The VM
+smoke timeout and unavailable host Clippy linker also remain unresolved, so
+this workstream is not marked `PASS`.

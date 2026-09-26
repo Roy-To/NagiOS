@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use nagi_cli::commands::{parse_command, Command, EXIT_SUCCESS, EXIT_USAGE};
+use nagi_cli::commands::{execute, parse_command, Command, EXIT_SUCCESS, EXIT_USAGE};
 use nagi_cli::config::load_toolchain_requirements;
 use nagi_cli::doctor::{
     run_doctor, run_doctor_with_requirements, CommandEvidence, DoctorPolicy, HostProbe,
@@ -96,6 +96,9 @@ fn canned_version(candidate: &str) -> &'static str {
 fn parses_the_complete_m0_command_surface() {
     let commands = [
         ("doctor", Command::Doctor),
+        ("diagnostics", Command::Diagnostics),
+        ("verify", Command::Verify),
+        ("smoke", Command::Smoke),
         ("fetch", Command::Fetch),
         ("build", Command::Build),
         ("image", Command::Image),
@@ -151,12 +154,162 @@ fn host_clippy_command_keeps_warning_deny_boundary() {
 #[test]
 fn rejects_unexpected_arguments_for_every_command() {
     for name in [
-        "doctor", "fetch", "build", "image", "run", "shell", "gui", "desktop", "test", "clean",
-        "fmt", "lint", "security", "network", "posix", "std", "m13", "m14", "m15", "m16", "m17",
+        "doctor",
+        "diagnostics",
+        "verify",
+        "smoke",
+        "fetch",
+        "build",
+        "image",
+        "run",
+        "shell",
+        "gui",
+        "desktop",
+        "test",
+        "clean",
+        "fmt",
+        "lint",
+        "security",
+        "network",
+        "posix",
+        "std",
+        "m13",
+        "m14",
+        "m15",
+        "m16",
+        "m17",
     ] {
         let error = parse_command(&[name.to_owned(), "unexpected".to_owned()]).unwrap_err();
         assert_eq!(error.exit_code(), EXIT_USAGE, "{name}");
     }
+}
+
+#[test]
+fn diagnostics_commands_validate_modes_and_options() {
+    assert_eq!(
+        parse_command(&[
+            "verify".into(),
+            "--scope".into(),
+            "diagnostics".into(),
+            "--format".into(),
+            "json".into(),
+        ])
+        .unwrap(),
+        Command::Verify
+    );
+    assert_eq!(
+        parse_command(&["diagnostics".into(), "--json".into()]).unwrap(),
+        Command::Diagnostics
+    );
+    assert_eq!(
+        parse_command(&[
+            "smoke".into(),
+            "--vm".into(),
+            "--format".into(),
+            "json".into()
+        ])
+        .unwrap(),
+        Command::Smoke
+    );
+    for args in [
+        vec!["verify".into(), "--format".into(), "xml".into()],
+        vec!["verify".into(), "--scope".into(), "".into()],
+        vec!["smoke".into(), "--vm".into(), "--host-only".into()],
+        vec!["diagnostics".into(), "--unknown".into()],
+        vec![
+            "verify".into(),
+            "--json".into(),
+            "--format".into(),
+            "json".into(),
+        ],
+    ] {
+        assert_eq!(parse_command(&args).unwrap_err().exit_code(), EXIT_USAGE);
+    }
+}
+
+#[test]
+fn focused_diagnostics_verification_emits_a_machine_report() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let result = execute(
+        &[
+            "verify".into(),
+            "--scope".into(),
+            "diagnostics".into(),
+            "--format".into(),
+            "json".into(),
+        ],
+        root,
+        &StaticProbe::default(),
+    );
+    assert_eq!(
+        result.exit_code,
+        EXIT_SUCCESS,
+        "{}",
+        result.lines.join("\n")
+    );
+    let report: serde_json::Value = serde_json::from_str(&result.lines.join("\n")).unwrap();
+    assert_eq!(report["outcome"], "PASS");
+    assert_eq!(report["requested_scope"], "diagnostics");
+    assert_eq!(report["checks"][0]["evidence_kind"], "HOST");
+}
+
+#[test]
+fn missing_workstream_validator_is_not_reported_as_pass() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let result = execute(
+        &[
+            "verify".into(),
+            "--scope".into(),
+            "workstreams".into(),
+            "--format".into(),
+            "json".into(),
+        ],
+        root,
+        &StaticProbe::default(),
+    );
+    assert_ne!(result.exit_code, EXIT_SUCCESS);
+    let report: serde_json::Value = serde_json::from_str(&result.lines.join("\n")).unwrap();
+    assert_eq!(report["outcome"], "NOT_RUN");
+    assert_eq!(report["checks"][0]["status"], "SKIPPED");
+    assert_eq!(report["checks"][0]["evidence_kind"], "HOST");
+}
+
+#[test]
+fn diagnostics_bundle_is_local_and_versioned() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let result = execute(
+        &[
+            "diagnostics".into(),
+            "--scope".into(),
+            "diagnostics".into(),
+            "--format".into(),
+            "json".into(),
+        ],
+        root,
+        &StaticProbe::default(),
+    );
+    assert_eq!(
+        result.exit_code,
+        EXIT_SUCCESS,
+        "{}",
+        result.lines.join("\n")
+    );
+    let report: serde_json::Value = serde_json::from_str(&result.lines.join("\n")).unwrap();
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["verification"]["outcome"], "PASS");
+    assert_eq!(
+        report["events"][0]["event_code"],
+        "DIAGNOSTICS.REPORT_CREATED"
+    );
 }
 
 #[test]
