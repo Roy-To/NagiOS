@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.invalid/schemas/wayback/contracts-v1.schema.json",
+  "title": "Nagi Wayback serialized contracts v1",
+  "description": "Validates one serialized ledger, entry, transaction view, snapshot manifest, restore point, or restore plan. Payload bytes and executable operations are outside this contract.",
+  "oneOf": [
+    { "$ref": "#/$defs/ledgerDocument" },
+    { "$ref": "#/$defs/activityEntry" },
+    { "$ref": "#/$defs/transaction" },
+    { "$ref": "#/$defs/snapshotManifest" },
+    { "$ref": "#/$defs/restorePoint" },
+    { "$ref": "#/$defs/restorePlan" }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "timestamp": { "type": "integer", "minimum": 0 },
+    "actorKind": {
+      "enum": ["user", "ai", "system", "application", "automation", "remote_device"]
+    },
+    "principalReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "id"],
+      "properties": {
+        "namespace": { "$ref": "#/$defs/identifier" },
+        "id": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/actorKind" },
+        "principal": { "$ref": "#/$defs/principalReference" },
+        "app_id": { "$ref": "#/$defs/identifier" },
+        "delegated_for": { "$ref": "#/$defs/principalReference" },
+        "model_id": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "actionType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "name"],
+      "properties": {
+        "namespace": { "$ref": "#/$defs/identifier" },
+        "name": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource_type", "external_id"],
+      "properties": {
+        "resource_type": { "$ref": "#/$defs/identifier" },
+        "external_id": { "$ref": "#/$defs/identifier" },
+        "app_id": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "summary": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "detail"],
+          "properties": {
+            "kind": { "const": "public" },
+            "detail": { "type": "string", "minLength": 1, "maxLength": 512 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "detail"],
+          "properties": {
+            "kind": { "enum": ["redacted", "omitted"] },
+            "detail": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason"],
+              "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 512 } }
+            }
+          }
+        }
+      ]
+    },
+    "metadataValue": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "value"], "properties": { "type": { "const": "text" }, "value": { "type": "string", "minLength": 1, "maxLength": 512 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "value"], "properties": { "type": { "const": "integer" }, "value": { "type": "integer" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "value"], "properties": { "type": { "const": "boolean" }, "value": { "type": "boolean" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "value"], "properties": { "type": { "const": "principal_reference" }, "value": { "$ref": "#/$defs/principalReference" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "value"], "properties": { "type": { "const": "snapshot_reference" }, "value": { "$ref": "#/$defs/identifier" } } }
+      ]
+    },
+    "metadataField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sensitivity", "disposition"],
+      "properties": {
+        "sensitivity": { "enum": ["public", "personal", "sensitive", "secret"] },
+        "disposition": { "enum": ["recorded", "redacted", "omitted", "unavailable"] },
+        "value": { "$ref": "#/$defs/metadataValue" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 512 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": { "const": "recorded" },
+              "sensitivity": { "enum": ["sensitive", "secret"] }
+            },
+            "required": ["disposition", "sensitivity"]
+          },
+          "then": { "not": { "required": ["value"] } }
+        },
+        {
+          "if": { "properties": { "disposition": { "const": "recorded" } }, "required": ["disposition"] },
+          "then": { "required": ["value"] },
+          "else": { "not": { "required": ["value"] } }
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "initiating_event": { "$ref": "#/$defs/identifier" },
+        "parent_entry_id": { "$ref": "#/$defs/identifier" },
+        "cause_entry_id": { "$ref": "#/$defs/identifier" },
+        "correlation_id": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "reversibility": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "exact_reversible" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "compensation_required" }, "detail": { "type": "object", "additionalProperties": false, "required": ["contract_id"], "properties": { "contract_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "snapshot_required" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id"], "properties": { "snapshot_id": { "anyOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }] } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "enum": ["irreversible", "unknown"] }, "detail": { "type": "object", "additionalProperties": false, "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 512 } } } } }
+      ]
+    },
+    "payloadMetadata": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["availability"], "properties": { "availability": { "enum": ["not_captured", "redacted", "omitted", "unavailable"] }, "reason": { "type": "string", "minLength": 1, "maxLength": 512 } } },
+        { "type": "object", "additionalProperties": false, "required": ["availability", "snapshot_id"], "properties": { "availability": { "const": "snapshot_reference" }, "snapshot_id": { "$ref": "#/$defs/identifier" }, "reason": { "type": "string", "minLength": 1, "maxLength": 512 } } }
+      ]
+    },
+    "entryIntegrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "entry_hash"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "previous_entry_hash": { "$ref": "#/$defs/digest" },
+        "entry_hash": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "activityEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "id", "timestamp_ms", "actor", "action_type", "target", "provenance", "summary", "metadata", "reversibility", "snapshot_refs", "restore_point_refs", "integrity"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "id": { "$ref": "#/$defs/identifier" },
+        "timestamp_ms": { "$ref": "#/$defs/timestamp" },
+        "actor": { "$ref": "#/$defs/actor" },
+        "app_id": { "$ref": "#/$defs/identifier" },
+        "action_type": { "$ref": "#/$defs/actionType" },
+        "target": { "$ref": "#/$defs/target" },
+        "transaction_id": { "$ref": "#/$defs/identifier" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "summary": { "$ref": "#/$defs/summary" },
+        "metadata": { "type": "object", "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" }, "additionalProperties": { "$ref": "#/$defs/metadataField" } },
+        "reversibility": { "$ref": "#/$defs/reversibility" },
+        "snapshot_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } },
+        "restore_point_refs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } },
+        "payload": { "$ref": "#/$defs/payloadMetadata" },
+        "integrity": { "$ref": "#/$defs/entryIntegrity" }
+      }
+    },
+    "atomicity": { "enum": ["atomic_local", "best_effort_partial", "external_compensation"] },
+    "transactionDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "id", "started_at_ms", "actor", "summary", "atomicity"],
+      "properties": { "schema_version": { "const": 1 }, "id": { "$ref": "#/$defs/identifier" }, "started_at_ms": { "$ref": "#/$defs/timestamp" }, "actor": { "$ref": "#/$defs/actor" }, "summary": { "$ref": "#/$defs/summary" }, "atomicity": { "$ref": "#/$defs/atomicity" } }
+    },
+    "transactionFinished": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "id", "finished_at_ms", "outcome"],
+      "properties": { "schema_version": { "const": 1 }, "id": { "$ref": "#/$defs/identifier" }, "finished_at_ms": { "$ref": "#/$defs/timestamp" }, "outcome": { "enum": ["committed", "aborted", "partially_applied"] }, "failure": { "$ref": "#/$defs/summary" } }
+    },
+    "transactionState": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "open" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "committed" }, "detail": { "type": "object", "additionalProperties": false, "required": ["at_ms"], "properties": { "at_ms": { "$ref": "#/$defs/timestamp" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "aborted" }, "detail": { "type": "object", "additionalProperties": false, "required": ["at_ms", "reason"], "properties": { "at_ms": { "$ref": "#/$defs/timestamp" }, "reason": { "anyOf": [{ "$ref": "#/$defs/summary" }, { "type": "null" }] } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "partially_applied" }, "detail": { "type": "object", "additionalProperties": false, "required": ["at_ms", "failure"], "properties": { "at_ms": { "$ref": "#/$defs/timestamp" }, "failure": { "$ref": "#/$defs/summary" } } } } }
+      ]
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "id", "started_at_ms", "actor", "summary", "atomicity", "entry_ids", "state"],
+      "properties": { "schema_version": { "const": 1 }, "id": { "$ref": "#/$defs/identifier" }, "started_at_ms": { "$ref": "#/$defs/timestamp" }, "actor": { "$ref": "#/$defs/actor" }, "summary": { "$ref": "#/$defs/summary" }, "atomicity": { "$ref": "#/$defs/atomicity" }, "entry_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } }, "state": { "$ref": "#/$defs/transactionState" } }
+    },
+    "ledgerBoundary": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["sequence"], "properties": { "sequence": { "const": 0 } } },
+        { "type": "object", "additionalProperties": false, "required": ["sequence", "record_hash"], "properties": { "sequence": { "type": "integer", "minimum": 1 }, "record_hash": { "$ref": "#/$defs/digest" } } }
+      ]
+    },
+    "scopeReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_type", "external_id"],
+      "properties": { "scope_type": { "$ref": "#/$defs/identifier" }, "external_id": { "$ref": "#/$defs/identifier" }, "app_id": { "$ref": "#/$defs/identifier" } }
+    },
+    "restorePoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "id", "timestamp_ms", "label", "snapshot_ids", "ledger_boundary", "scopes", "compatibility_version"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "id": { "$ref": "#/$defs/identifier" },
+        "timestamp_ms": { "$ref": "#/$defs/timestamp" },
+        "label": { "$ref": "#/$defs/summary" },
+        "snapshot_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } },
+        "ledger_boundary": { "$ref": "#/$defs/ledgerBoundary" },
+        "scopes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/scopeReference" } },
+        "compatibility_version": { "$ref": "#/$defs/identifier" },
+        "source_transaction": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "snapshotManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "id", "scope", "created_at_ms", "source_ledger_boundary", "content_digest", "backend_id", "compatibility_version"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "id": { "$ref": "#/$defs/identifier" },
+        "scope": { "$ref": "#/$defs/scopeReference" },
+        "created_at_ms": { "$ref": "#/$defs/timestamp" },
+        "source_transaction": { "$ref": "#/$defs/identifier" },
+        "source_ledger_boundary": { "$ref": "#/$defs/ledgerBoundary" },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "item_count": { "type": "integer", "minimum": 0 },
+        "byte_count": { "type": "integer", "minimum": 0 },
+        "backend_id": { "$ref": "#/$defs/identifier" },
+        "compatibility_version": { "$ref": "#/$defs/identifier" },
+        "parent_snapshot": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "restoreTarget": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "id"], "properties": { "kind": { "const": "transaction" }, "id": { "$ref": "#/$defs/identifier" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "id"], "properties": { "kind": { "const": "restore_point" }, "id": { "$ref": "#/$defs/identifier" } } }
+      ]
+    },
+    "restoreStep": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "exact_undo" }, "detail": { "type": "object", "additionalProperties": false, "required": ["entry_id"], "properties": { "entry_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "compensation" }, "detail": { "type": "object", "additionalProperties": false, "required": ["entry_id", "contract_id"], "properties": { "entry_id": { "$ref": "#/$defs/identifier" }, "contract_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "snapshot_restore" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id", "scope"], "properties": { "snapshot_id": { "$ref": "#/$defs/identifier" }, "scope": { "$ref": "#/$defs/scopeReference" } } } } }
+      ]
+    },
+    "planBlocker": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "transaction_not_committed" }, "detail": { "type": "object", "additionalProperties": false, "required": ["transaction_id"], "properties": { "transaction_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "partial_transaction" }, "detail": { "type": "object", "additionalProperties": false, "required": ["transaction_id"], "properties": { "transaction_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "irreversible_action" }, "detail": { "type": "object", "additionalProperties": false, "required": ["entry_id", "reason"], "properties": { "entry_id": { "$ref": "#/$defs/identifier" }, "reason": { "type": "string", "minLength": 1, "maxLength": 512 } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "unknown_reversibility" }, "detail": { "type": "object", "additionalProperties": false, "required": ["entry_id", "reason"], "properties": { "entry_id": { "$ref": "#/$defs/identifier" }, "reason": { "type": "string", "minLength": 1, "maxLength": 512 } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "missing_snapshot_reference" }, "detail": { "type": "object", "additionalProperties": false, "required": ["entry_id"], "properties": { "entry_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "missing_snapshot" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id"], "properties": { "snapshot_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "snapshot_backend_unavailable" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id"], "properties": { "snapshot_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "invalid_snapshot_manifest" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id", "reason"], "properties": { "snapshot_id": { "$ref": "#/$defs/identifier" }, "reason": { "type": "string", "minLength": 1, "maxLength": 512 } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "snapshot_scope_mismatch" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id"], "properties": { "snapshot_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "snapshot_dependency_cycle" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id"], "properties": { "snapshot_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "restore_point_scope_missing_snapshot" }, "detail": { "type": "object", "additionalProperties": false, "required": ["scope"], "properties": { "scope": { "$ref": "#/$defs/scopeReference" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "restore_point_scope_not_captured" }, "detail": { "type": "object", "additionalProperties": false, "required": ["entry_id", "scope"], "properties": { "entry_id": { "$ref": "#/$defs/identifier" }, "scope": { "$ref": "#/$defs/scopeReference" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "snapshot_not_before_action" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id", "entry_id"], "properties": { "snapshot_id": { "$ref": "#/$defs/identifier" }, "entry_id": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "detail"], "properties": { "kind": { "const": "compatibility_mismatch" }, "detail": { "type": "object", "additionalProperties": false, "required": ["snapshot_id", "expected", "actual"], "properties": { "snapshot_id": { "$ref": "#/$defs/identifier" }, "expected": { "$ref": "#/$defs/identifier" }, "actual": { "$ref": "#/$defs/identifier" } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "no_restorable_actions" } } }
+      ]
+    },
+    "restorePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "target", "steps", "required_snapshots", "blockers", "affected_scopes", "executable", "execution_boundary"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "target": { "$ref": "#/$defs/restoreTarget" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/restoreStep" } },
+        "required_snapshots": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/identifier" } },
+        "blockers": { "type": "array", "items": { "$ref": "#/$defs/planBlocker" } },
+        "affected_scopes": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/scopeReference" } },
+        "executable": { "type": "boolean" },
+        "execution_boundary": { "const": "plan_only_future_authorized_executor_required" }
+      }
+    },
+    "ledgerPayload": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "data"], "properties": { "kind": { "const": "activity_entry" }, "data": { "$ref": "#/$defs/activityEntry" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "data"], "properties": { "kind": { "const": "transaction_started" }, "data": { "$ref": "#/$defs/transactionDraft" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "data"], "properties": { "kind": { "const": "transaction_finished" }, "data": { "$ref": "#/$defs/transactionFinished" } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "data"], "properties": { "kind": { "const": "restore_point_created" }, "data": { "$ref": "#/$defs/restorePoint" } } }
+      ]
+    },
+    "ledgerRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "sequence", "payload", "record_hash"],
+      "properties": { "schema_version": { "const": 1 }, "sequence": { "type": "integer", "minimum": 1 }, "previous_hash": { "$ref": "#/$defs/digest" }, "payload": { "$ref": "#/$defs/ledgerPayload" }, "record_hash": { "$ref": "#/$defs/digest" } }
+    },
+    "ledgerCheckpoint": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["last_sequence"], "properties": { "last_sequence": { "const": 0 } } },
+        { "type": "object", "additionalProperties": false, "required": ["last_sequence", "head_hash"], "properties": { "last_sequence": { "type": "integer", "minimum": 1 }, "head_hash": { "$ref": "#/$defs/digest" } } }
+      ]
+    },
+    "ledgerDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "records", "checkpoint"],
+      "properties": { "schema_version": { "const": 1 }, "records": { "type": "array", "items": { "$ref": "#/$defs/ledgerRecord" } }, "checkpoint": { "$ref": "#/$defs/ledgerCheckpoint" } }
+    }
+  }
+}
