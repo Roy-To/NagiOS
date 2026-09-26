@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "integration-branch-audit-deferred-capability-wayback-m17-diagnostic-ci-running",
+  "current_checkpoint": "windows-safe-retry-m17-qemu-running-diagnostic-run-pending",
   "status": "IN_PROGRESS",
   "last_verified": {
     "commit_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
-    "verified_at": "2026-09-26T10:51:00Z",
-    "normal_state": "Integration head 582b5f6 adds bounded, allocation-free user-space diagnostics for pthread_create failures. The nagi-cli suite now passes (107 unit and 26 integration tests, including four terminal-control regressions); the Windows-safe fixture correction is locally verified. The nagi-posix suite passes (9 tests), package formatting and warning-denied Clippy pass, and the Nagi x86_64 user-target library compiles with five existing visibility/dead-code warnings. Root CI #36233551349 passed Ubuntu and Windows host jobs and target builds through UEFI, but QEMU entered Servo construction, received pthread_create EAGAIN, and timed out without a real pixel checksum or M17 PASS marker. Root CI #36235206493 exposed a Windows-invalid test filename; commit dd192ca fixes the fixture. Run #36235660277 passed both host jobs and was building Nagi user init at the latest check. Run #36236310925 for 582b5f6 has both host jobs passed; its target job is pending. The app branch audit found no missing source commits to integrate; dirty detached first-party target work remains untouched. M17 remains BLOCKED, M18 remains NOT STARTED, and 0.2 runtime/product stays gated on M30 PASS plus an explicit release checkpoint. Read-only branch comparison at root HEAD a62c63c found no missing source commits on the registered app, SDK, capability-permissions, development foundation, Wayback-ledger, diagnostics, localization, model-runtime, UI, or acceptance branches. The unique codex/parallel-capability-core commit 59d7e10 is deferred because it introduces a competing capability/policy and manifest API across paths owned by other workstreams; the unique codex/parallel-wayback-ledger commit 4943fd8 is deferred because it duplicates the canonical contract and applies reverts without policy/authorization. Dirty M17 and first-party sibling worktrees, plus the Home/Search untracked build artifact, were preserved. Capability Core reports 31 local tests plus workspace check, Clippy, and formatting in a temporary workspace, but the root workspace/doctor and public CI were unavailable. The parallel Wayback branch has no remote or CI run; its reported local checks do not override the missing policy/authorization boundary found in source review.",
+    "verified_at": "2026-09-26T11:08:30Z",
+    "normal_state": "Integration head 582b5f6 adds bounded, allocation-free user-space diagnostics for pthread_create failures. The nagi-cli suite now passes (107 unit and 26 integration tests, including four terminal-control regressions); the Windows-safe fixture correction is locally verified. The nagi-posix suite passes (9 tests), package formatting and warning-denied Clippy pass, and the Nagi x86_64 user-target library compiles with five existing visibility/dead-code warnings. Root CI #36233551349 passed Ubuntu and Windows host jobs and target builds through UEFI, but QEMU entered Servo construction, received pthread_create EAGAIN, and timed out without a real pixel checksum or M17 PASS marker. Root CI #36235206493 exposed a Windows-invalid test filename; commit dd192ca fixes the fixture. Run #36235660277 passed both host jobs and advanced to the real M17 QEMU acceptance; its target result is pending. Run #36236310925 for 582b5f6 has both host jobs passed; its target job is pending behind the earlier target run. The app branch audit found no missing source commits to integrate; dirty detached first-party target work remains untouched. M17 remains BLOCKED, M18 remains NOT STARTED, and 0.2 runtime/product stays gated on M30 PASS plus an explicit release checkpoint. Read-only branch comparison at root HEAD a62c63c found no missing source commits on the registered app, SDK, capability-permissions, development foundation, Wayback-ledger, diagnostics, localization, model-runtime, UI, or acceptance branches. The unique codex/parallel-capability-core commit 59d7e10 is deferred because it introduces a competing capability/policy and manifest API across paths owned by other workstreams; the unique codex/parallel-wayback-ledger commit 4943fd8 is deferred because it duplicates the canonical contract and applies reverts without policy/authorization. Dirty M17 and first-party sibling worktrees, plus the Home/Search untracked build artifact, were preserved. Capability Core reports 31 local tests plus workspace check, Clippy, and formatting in a temporary workspace, but the root workspace/doctor and public CI were unavailable. The parallel Wayback branch has no remote or CI run; its reported local checks do not override the missing policy/authorization boundary found in source review.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -775,7 +775,7 @@
         "head_sha": "dd192ca3d303c85f20d206c88976ed26b766612a",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Ubuntu and Windows host jobs passed, including Windows M0 launcher acceptance. At the latest check, the target job was building Nagi user init; this run predates the pthread diagnostic commit."
+        "summary": "Ubuntu and Windows host jobs passed, including Windows M0 launcher acceptance. The target build reached and is currently running the real M17 QEMU acceptance; this run predates the pthread diagnostic commit."
       },
       {
         "run_id": 36236310925,
@@ -783,13 +783,13 @@
         "head_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "CI for the bounded pthread diagnostic commit is pending target execution. Ubuntu and Windows host jobs passed; the nagi-target job had not started at the latest check."
+        "summary": "Both Ubuntu and Windows host jobs passed for the bounded pthread diagnostic commit. The nagi-target job is pending behind run 36235660277; no target evidence is available yet."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T10:51:00Z",
+    "last_checked_at": "2026-09-26T11:08:30Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {

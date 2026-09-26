@@ -4669,9 +4669,9 @@ Run `36235206493` at `7caf740` exposed a Windows-only regression-test fixture
 failure: Windows does not allow the test's newline/ESC filename. The fixture
 now uses a valid cross-platform output filename while retaining a separate
 Unix-only hostile-filename case. On run `36235660277` at `dd192ca`, both host
-jobs passed, including Windows M0 launcher acceptance; at the latest check the
-target job was still building Nagi user init. M17 remains `BLOCKED`; M18
-remains `NOT STARTED`.
+jobs passed, including Windows M0 launcher acceptance; the target job has
+advanced to the real M17 QEMU acceptance. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ## M17 pthread-create diagnostic checkpoint (2026-09-26)
 
@@ -4696,7 +4696,6 @@ Verification on that source commit: all 9 `nagi-posix` tests pass, including
 two formatter bounds/content tests; package formatting and Clippy with
 warnings denied pass; the Nagi user-target library check passes with five
 existing visibility/dead-code warnings. Actions run `36236310925` for this
-commit is in progress; at the latest check its Ubuntu host job had passed and
-its Windows job was bootstrapping pinned Servo dependencies. The target job
-had not started. The real QEMU result is pending. M17 remains `BLOCKED`; M18
-remains `NOT STARTED`.
+commit has both host jobs passed, and its target job is pending behind the
+earlier target run. The real QEMU result is pending. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
