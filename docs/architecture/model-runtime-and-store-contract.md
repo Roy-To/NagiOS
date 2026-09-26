@@ -81,8 +81,10 @@ verification before `Installed`;
 failed updates preserve the prior installed version and retry target. A model
 whose terms require acknowledgement cannot enter install until the exact
 manifest terms reference is acknowledged. Required NOTICE entries remain
-separate metadata. Removal can be rejected while in use or marked as required
-by the system.
+separate metadata. Invariant-bearing record fields are private and exposed
+through read-only accessors; callers can change them only through the checked
+acknowledgement, install, update, transition, and removal methods. Removal can
+be rejected while in use or marked as required by the system.
 
 This is a deterministic service contract only. It does not write files,
 download models, or alter the existing VFS/Capability contracts.

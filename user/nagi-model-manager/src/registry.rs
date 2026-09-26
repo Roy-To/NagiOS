@@ -375,10 +375,10 @@ impl ModelRegistry {
         {
             return AvailabilityState::IncompatibleRuntime;
         }
-        if !supported_backends
-            .iter()
-            .any(|backend| backend.supports_manifest(manifest, target_architecture))
-        {
+        if !supported_backends.iter().any(|backend| {
+            backend.supports_runtime(manifest)
+                && backend.supports_manifest(manifest, target_architecture)
+        }) {
             return AvailabilityState::IncompatibleBackend;
         }
         if !resources_fit(manifest, resources) {
@@ -502,6 +502,36 @@ mod tests {
         let incompatible = manifest(include_str!("../tests/fixtures/qwen3-4b.json"));
         assert_eq!(
             incompatible_registry.discover(incompatible, &PresentArtifact, &[], budget(), "x86_64"),
+            Ok(AvailabilityState::IncompatibleBackend)
+        );
+    }
+
+    #[test]
+    fn does_not_combine_runtime_and_artifact_support_from_separate_descriptors() {
+        let model = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
+        let backend_id = model.supported_backends[0].clone();
+        let runtime_only = BackendDescriptor {
+            backend_id: backend_id.clone(),
+            artifact_formats: vec![FormatId::new("safetensors").unwrap()],
+            runtime_api_versions: vec![String::from(crate::MODEL_RUNTIME_API_VERSION)],
+            architectures: vec![String::from("x86_64")],
+        };
+        let artifact_only = BackendDescriptor {
+            backend_id,
+            artifact_formats: vec![model.artifact.format.clone()],
+            runtime_api_versions: vec![String::from("nagi.ai/99")],
+            architectures: vec![String::from("x86_64")],
+        };
+        let mut registry = ModelRegistry::new();
+
+        assert_eq!(
+            registry.discover(
+                model,
+                &PresentArtifact,
+                &[runtime_only, artifact_only],
+                budget(),
+                "x86_64"
+            ),
             Ok(AvailabilityState::IncompatibleBackend)
         );
     }

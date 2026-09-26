@@ -25,13 +25,11 @@ pub enum RemovalEligibility {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelStoreRecord {
-    pub manifest: ModelManifest,
-    pub state: InstallState,
-    pub installed_version: Option<String>,
-    pub update_version: Option<String>,
-    pub integrity: Option<IntegrityMetadata>,
-    pub license: LicenseMetadata,
-    pub license_acknowledged: bool,
+    manifest: ModelManifest,
+    state: InstallState,
+    installed_version: Option<String>,
+    update_version: Option<String>,
+    license_acknowledged: bool,
     removal_constraint: RemovalEligibility,
 }
 
@@ -70,8 +68,6 @@ impl ModelStoreRecord {
         manifest.validate().map_err(StoreError::Manifest)?;
         let license_acknowledged = !manifest.license.acknowledgement_required;
         Ok(Self {
-            integrity: manifest.artifact.integrity.clone(),
-            license: manifest.license.clone(),
             manifest,
             state: InstallState::NotInstalled,
             installed_version: None,
@@ -85,8 +81,36 @@ impl ModelStoreRecord {
         &self.manifest.model_id
     }
 
+    pub fn manifest(&self) -> &ModelManifest {
+        &self.manifest
+    }
+
+    pub fn state(&self) -> InstallState {
+        self.state
+    }
+
+    pub fn installed_version(&self) -> Option<&str> {
+        self.installed_version.as_deref()
+    }
+
+    pub fn update_version(&self) -> Option<&str> {
+        self.update_version.as_deref()
+    }
+
+    pub fn integrity(&self) -> Option<&IntegrityMetadata> {
+        self.manifest.artifact.integrity.as_ref()
+    }
+
+    pub fn license(&self) -> &LicenseMetadata {
+        &self.manifest.license
+    }
+
+    pub fn license_acknowledged(&self) -> bool {
+        self.license_acknowledged
+    }
+
     pub fn acknowledge_terms(&mut self, reference: &str) -> Result<(), StoreError> {
-        match self.license.terms_reference.as_deref() {
+        match self.manifest.license.terms_reference.as_deref() {
             Some(expected) if expected == reference => {
                 self.license_acknowledged = true;
                 Ok(())
@@ -96,10 +120,10 @@ impl ModelStoreRecord {
     }
 
     pub fn request_install(&mut self) -> Result<(), StoreError> {
-        if self.license.acknowledgement_required && !self.license_acknowledged {
+        if self.manifest.license.acknowledgement_required && !self.license_acknowledged {
             return Err(StoreError::LicenseAcknowledgementRequired);
         }
-        if self.integrity.is_none() {
+        if self.integrity().is_none() {
             return Err(StoreError::IntegrityRequired);
         }
         self.transition(InstallState::InstallRequested)
@@ -212,8 +236,17 @@ mod tests {
     fn records_license_terms_before_allowing_install() {
         let gemma = manifest(include_str!("../tests/fixtures/gemma-3-1b.json"));
         let mut record = ModelStoreRecord::discovered(gemma).unwrap();
-        assert_eq!(record.license.identifier, "google-gemma-terms");
-        assert!(!record.license_acknowledged);
+        assert_eq!(record.manifest().model_id.as_str(), "google.gemma-3-1b");
+        assert_eq!(
+            record.integrity(),
+            record.manifest().artifact.integrity.as_ref()
+        );
+        assert_eq!(record.license(), &record.manifest().license);
+        assert_eq!(record.state(), InstallState::NotInstalled);
+        assert_eq!(record.installed_version(), None);
+        assert_eq!(record.update_version(), None);
+        assert_eq!(record.license().identifier, "google-gemma-terms");
+        assert!(!record.license_acknowledged());
         assert_eq!(
             record.request_install(),
             Err(StoreError::LicenseAcknowledgementRequired)
@@ -226,7 +259,7 @@ mod tests {
             .acknowledge_terms("provider-terms:google.gemma")
             .unwrap();
         record.request_install().unwrap();
-        assert_eq!(record.state, InstallState::InstallRequested);
+        assert_eq!(record.state(), InstallState::InstallRequested);
     }
 
     #[test]
@@ -237,15 +270,15 @@ mod tests {
         record.transition(InstallState::Installing).unwrap();
         record.transition(InstallState::Verifying).unwrap();
         record.transition(InstallState::Installed).unwrap();
-        assert_eq!(record.installed_version.as_deref(), Some("4.2"));
+        assert_eq!(record.installed_version(), Some("4.2"));
 
         record.publish_update("4.2.1").unwrap();
-        assert_eq!(record.state, InstallState::UpdateAvailable);
+        assert_eq!(record.state(), InstallState::UpdateAvailable);
         record.request_install().unwrap();
         record.transition(InstallState::Installing).unwrap();
         record.transition(InstallState::Verifying).unwrap();
         record.transition(InstallState::Installed).unwrap();
-        assert_eq!(record.installed_version.as_deref(), Some("4.2.1"));
+        assert_eq!(record.installed_version(), Some("4.2.1"));
 
         record.set_removal_constraint(RemovalEligibility::InUse);
         assert_eq!(record.request_remove(), Err(StoreError::InUse));
@@ -268,7 +301,7 @@ mod tests {
             record.transition(InstallState::Installed),
             Err(StoreError::InvalidTransition)
         );
-        assert_eq!(record.state, InstallState::NotInstalled);
+        assert_eq!(record.state(), InstallState::NotInstalled);
     }
 
     #[test]
@@ -278,7 +311,7 @@ mod tests {
                 .unwrap();
         let mut record = ModelStoreRecord::discovered(qwen).unwrap();
         assert_eq!(record.request_install(), Err(StoreError::IntegrityRequired));
-        assert_eq!(record.state, InstallState::NotInstalled);
+        assert_eq!(record.state(), InstallState::NotInstalled);
     }
 
     #[test]
@@ -293,13 +326,13 @@ mod tests {
         record.request_install().unwrap();
         record.transition(InstallState::Installing).unwrap();
         record.transition(InstallState::Failed).unwrap();
-        assert_eq!(record.installed_version.as_deref(), Some("4.2"));
-        assert_eq!(record.update_version.as_deref(), Some("4.2.1"));
+        assert_eq!(record.installed_version(), Some("4.2"));
+        assert_eq!(record.update_version(), Some("4.2.1"));
         assert_eq!(
             record.transition(InstallState::NotInstalled),
             Err(StoreError::InvalidTransition)
         );
         record.request_install().unwrap();
-        assert_eq!(record.state, InstallState::InstallRequested);
+        assert_eq!(record.state(), InstallState::InstallRequested);
     }
 }

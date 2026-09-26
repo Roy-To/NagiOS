@@ -426,7 +426,8 @@ mod tests {
             ModelManifest::parse_json(b"{"),
             Err(ManifestError::MalformedJson)
         );
-        let missing_nullable_field = VALID.replace("  \"source\": null\n", "");
+        let crlf_input = VALID.replace("\r\n", "\n").replace('\n', "\r\n");
+        let missing_nullable_field = crlf_input.replace("\"source\": null", "");
         assert_eq!(
             ModelManifest::parse_json(missing_nullable_field.as_bytes()),
             Err(ManifestError::MalformedJson)
