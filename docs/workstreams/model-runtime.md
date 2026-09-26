@@ -86,9 +86,10 @@ backend or real target/VM inference acceptance.
 - The fixtures use no real artifact hash/source pin or license claim. Unit
   tests use synthetic integrity metadata only for in-memory orchestration.
 - No M17, Servo, Capability, App SDK, Activity, Wayback, kernel, or third-party
-  source files were changed. `.dev` and DF-01 workstream state tooling were not
-  present in the inspected checkout. `implementation_status.md` keeps M20
-  `NOT STARTED`.
+  source files were changed. The inspected owner branch predates `.dev` and
+  DF-01 state tooling; the current integration registry assigns this stream
+  only `.dev/workstreams/model-runtime/**`, not the shared registry/schema.
+  `implementation_status.md` keeps M20 `NOT STARTED`.
 
 Verification:
 
@@ -108,3 +109,29 @@ Verification:
 Git: branch `codex/ws-model-runtime`; worktree
 `/Users/tozawa/.codex/worktrees/nagi-model-runtime/NagiOS`. The commit SHA
 and push result are reported in the workstream handoff.
+
+### 2026-09-26 host-contract hardening
+
+The source-branch Windows failure was reproduced with explicit CRLF input.
+The malformed-manifest test now removes the required `source` field without
+assuming LF line endings. Registry discovery now requires one backend
+descriptor to satisfy both the runtime API and artifact/architecture
+constraints; separate descriptors with the same backend ID cannot be combined
+to report a false `Available`. `ModelStoreRecord` keeps its invariant-bearing
+fields private, derives integrity and license data from its immutable manifest,
+and exposes read-only accessors for consumers.
+
+Verification on the dedicated worktree:
+
+- `cargo test --locked -p nagi-model-manager --all-targets` — PASS: 26 unit
+  tests, 2 manifest/schema tests, and 1 external Store API test.
+- `cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check` —
+  PASS.
+- `cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings` —
+  PASS.
+- Focused Windows-line-ending and split-backend regressions each failed before
+  their fix and pass afterward.
+- The local Nagi-target `cargo check` was attempted but could not start because
+  this worktree lacks the prepared `out/rust-src/library/Cargo.toml`; this is a
+  generated host setup input, not a package compile error. The source-branch CI
+  target job will provide the reproducible prepared-source check.
