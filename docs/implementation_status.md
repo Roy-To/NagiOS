@@ -4782,3 +4782,24 @@ target job was canceled before execution. Newer run `36240025711` at
 `faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1` passed both host jobs and is the
 newest target run pending behind `36236310925`. The developer status command
 now lists all queued and in-progress CI runs before completed runs.
+
+## M17 trace acceptance result (2026-09-26)
+
+Run `36236310925` completed with both host jobs passing and the target job
+failing in the real QEMU first-web-pixel acceptance. Its serial log reached
+`Servo construction started`, then recorded
+`pthread_create failed attempt=2 stage=native-thread-create-rejected
+bridge_stack_bytes=16384 pthread_error=11`. QEMU did not exit within 120
+seconds. There is no real pixel checksum or guest PASS marker. The serial log
+SHA-256 is
+`6b1d0c7449561a180d7b676061d72fba0d5bacfe4b57ace13d5032ff2ea7b98b`.
+
+The trace distinguishes native thread-bridge rejection from the POSIX early
+return and stack-allocation failure branches; it does not report the kernel's
+specific rejection reason. Owner-branch run `36232073962` separately recorded
+`SYS_THREAD_CREATE rejected: child slot occupied` after mapping the same
+16 KiB stack. The root run's older `582b5f6` acceptance summary still labeled
+the timeout `stage=link`; it predates the classifier correction in `4c45396`.
+The newer classifier/status run `36240025711` passed both host jobs and has
+started its target build; it is now bootstrapping pinned Servo source. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
