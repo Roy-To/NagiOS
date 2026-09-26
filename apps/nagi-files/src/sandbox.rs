@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -117,6 +118,58 @@ impl SandboxProvider {
                 .map_err(|error| map_io_error(error).at(location.clone()))?;
         }
         Ok(current)
+    }
+
+    fn authorization_location(&self, location: &Location) -> Result<Location, FilesError> {
+        let requested: Vec<_> = location.components().collect();
+        if requested
+            .first()
+            .is_some_and(|part| is_internal_component(part))
+        {
+            return Ok(location.clone());
+        }
+
+        let mut canonical = Vec::with_capacity(requested.len());
+        let mut current = self.root_dir.try_clone().map_err(map_io_error)?;
+        for (index, part) in requested.iter().enumerate() {
+            let (name, metadata, used_alias) = match resolve_component_name(&current, part)? {
+                Some(resolved) => resolved,
+                None => {
+                    canonical.extend(requested[index..].iter().map(|part| (*part).to_owned()));
+                    break;
+                }
+            };
+            canonical.push(name.clone());
+
+            if index + 1 == requested.len()
+                || metadata.file_type().is_symlink()
+                || !metadata.is_dir()
+            {
+                if index + 1 < requested.len() {
+                    canonical.extend(requested[index + 1..].iter().map(|part| (*part).to_owned()));
+                }
+                break;
+            }
+
+            let next = current.open_dir(&name).map_err(|_| {
+                FilesError::new(FilesErrorKind::ProviderFailure).at(location.clone())
+            })?;
+            let opened_metadata = next.dir_metadata().map_err(|_| {
+                FilesError::new(FilesErrorKind::ProviderFailure).at(location.clone())
+            })?;
+            let metadata_id = stable_resource_id(&metadata);
+            let opened_id = stable_resource_id(&opened_metadata);
+            if (used_alias && (metadata_id.is_none() || opened_id.is_none()))
+                || metadata_id
+                    .zip(opened_id)
+                    .is_some_and(|(left, right)| left != right)
+            {
+                return Err(FilesError::new(FilesErrorKind::ProviderFailure).at(location.clone()));
+            }
+            current = next;
+        }
+
+        Location::parse(&canonical.join("/"))
     }
 
     fn public_parent(&self, location: &Location) -> Result<(Dir, String), FilesError> {
@@ -324,6 +377,10 @@ impl SandboxProvider {
 impl FilesystemProvider for SandboxProvider {
     fn availability(&self) -> ProviderAvailability {
         ProviderAvailability::Available
+    }
+
+    fn authorization_location(&self, location: &Location) -> Result<Location, FilesError> {
+        SandboxProvider::authorization_location(self, location)
     }
 
     fn list(&self, location: &Location) -> Result<Vec<FileEntry>, FilesError> {
@@ -674,6 +731,62 @@ fn is_internal_component(value: &str) -> bool {
     value.eq_ignore_ascii_case(INTERNAL_DIR)
 }
 
+fn resolve_component_name(
+    directory: &Dir,
+    requested: &str,
+) -> Result<Option<(String, cap_std::fs::Metadata, bool)>, FilesError> {
+    let mut names = Vec::<OsString>::new();
+    for entry in directory
+        .entries()
+        .map_err(|_| FilesError::new(FilesErrorKind::ProviderFailure))?
+    {
+        let entry = entry.map_err(|_| FilesError::new(FilesErrorKind::ProviderFailure))?;
+        let name = entry.file_name();
+        if name == OsStr::new(requested) {
+            let metadata = directory
+                .symlink_metadata(&name)
+                .map_err(|_| FilesError::new(FilesErrorKind::ProviderFailure))?;
+            let name = name
+                .into_string()
+                .map_err(|_| FilesError::new(FilesErrorKind::ProviderFailure))?;
+            return Ok(Some((name, metadata, false)));
+        }
+        names.push(name);
+    }
+
+    let requested_metadata = match directory.symlink_metadata(requested) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(FilesError::new(FilesErrorKind::ProviderFailure)),
+    };
+    let requested_id = stable_resource_id(&requested_metadata)
+        .ok_or_else(|| FilesError::new(FilesErrorKind::ProviderFailure))?;
+
+    let mut matching_name = None;
+    for name in names {
+        let metadata = directory
+            .symlink_metadata(&name)
+            .map_err(|_| FilesError::new(FilesErrorKind::ProviderFailure))?;
+        if stable_resource_id(&metadata) == Some(requested_id) {
+            if matching_name.is_some() {
+                // Multiple hard links have the same identity, so metadata
+                // alone cannot safely reveal which spelling the host resolved.
+                return Err(FilesError::new(FilesErrorKind::ProviderFailure));
+            }
+            matching_name = Some((name, metadata));
+        }
+    }
+
+    matching_name
+        .map(|(name, metadata)| {
+            let name = name
+                .into_string()
+                .map_err(|_| FilesError::new(FilesErrorKind::ProviderFailure))?;
+            Ok((name, metadata, true))
+        })
+        .transpose()
+}
+
 fn ensure_internal_directory(parent: &Dir, name: &str) -> Result<(), FilesError> {
     match parent.symlink_metadata(name) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
@@ -902,23 +1015,40 @@ fn remove_tree(parent: &Dir, name: &str) -> std::io::Result<()> {
     }
 }
 
-fn resource_id(_path: &Path, metadata: &cap_std::fs::Metadata) -> ResourceId {
+fn stable_resource_id(metadata: &cap_std::fs::Metadata) -> Option<ResourceId> {
     #[cfg(unix)]
     {
-        ResourceId((u128::from(metadata.dev()) << 64) | u128::from(metadata.ino()))
+        Some(ResourceId(
+            (u128::from(metadata.dev()) << 64) | u128::from(metadata.ino()),
+        ))
     }
     #[cfg(windows)]
     {
-        match metadata.volume_serial_number().zip(metadata.file_index()) {
-            Some((volume_serial_number, file_index)) => {
+        metadata
+            .volume_serial_number()
+            .zip(metadata.file_index())
+            .map(|(volume_serial_number, file_index)| {
                 windows_resource_id(volume_serial_number, file_index)
-            }
-            None => path_fallback_resource_id(_path),
-        }
+            })
     }
     #[cfg(not(any(unix, windows)))]
     {
-        path_fallback_resource_id(_path)
+        None
+    }
+}
+
+fn resource_id(path: &Path, metadata: &cap_std::fs::Metadata) -> ResourceId {
+    if let Some(id) = stable_resource_id(metadata) {
+        return id;
+    }
+    #[cfg(not(unix))]
+    {
+        path_fallback_resource_id(path)
+    }
+    #[cfg(unix)]
+    {
+        let _ = path;
+        unreachable!("Unix metadata always has a stable resource identity")
     }
 }
 

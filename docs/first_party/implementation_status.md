@@ -172,15 +172,19 @@ not modify or merge into M17 worktrees.
   rename/move, Windows volume/file identity with a path fallback when stable
   metadata is unavailable, copy/restore/conflict handling, bounded one-use
   permanent-delete confirmations with binding-safe consumption and user
-  cancellation,
+  cancellation, provider-aware canonical spelling before scoped authorization
+  on case-insensitive host filesystems,
   bounded previews, and capability-rooted traversal/symlink checks; metadata Search;
   Context/Workspace/Activity/Wayback adapter hooks; en-US and ja-JP resources;
   and an interactive Japanese/English host preview.
-- **Verification evidence:** 53 focused tests PASS (52 library tests and one
-  CLI localization test); package Clippy with
-  `-D warnings` PASS; package `cargo fmt -- --check` PASS; Japanese host preview
-  listing and open smoke PASS in a disposable `/tmp` sandbox. Test/build output
-  is isolated under `/tmp/nagi-files-cargo-target`.
+- **Verification evidence:** 54 focused tests PASS (53 library tests and one
+  CLI localization test), including a macOS case-alias regression proving a
+  scoped deny remains effective; package host Clippy with `-D warnings`,
+  Windows-target `cargo check --tests`, Windows-target Clippy with `-D warnings`,
+  and package formatting all PASS. Japanese host preview listing and open smoke
+  PASS in a disposable `/tmp` sandbox. Windows filesystem behavior remains
+  cross-compiled, not executed; the current macOS package run used the local
+  ignored Cargo target directory.
 - **Acceptance status:**
 
   | Criterion | Status | Evidence / boundary |
@@ -194,7 +198,7 @@ not modify or merge into M17 worktrees.
   | FILES-007 Context publish | `PASS (contract)` | Selection/current-location snapshot publishes through a typed boundary; shared Context service is not connected. |
   | FILES-008 Workspace reference | `PASS (mock)` | Adapter tests show add/remove reference does not move the resource; target Workspace service is not connected. |
   | FILES-009 Wayback restore | `PARTIAL` | Typed checkpoint boundary, affected-resource list, transaction ID, and truthful reversible hints are tested; supported-resource snapshot restore needs the unavailable Wayback runtime. |
-  | FILES-010 UI-independent core tests | `PASS` | 53 package tests run without the desktop UI (52 library and one preview CLI test). |
+  | FILES-010 UI-independent core tests | `PASS` | 54 package tests run without the desktop UI (53 library and one preview CLI test). |
 
 - **Known limitations:** The host backend rejects lexical traversal, selected-root
   symlinks, checked symlink paths, and reserved metadata aliases. Operations
@@ -229,8 +233,9 @@ not modify or merge into M17 worktrees.
   remains unchanged.
 - **Next action:** When public target contracts are available, connect this
   provider and Action adapter without widening or bypassing the capability
-  boundary. Separately harden host operations against concurrent path
-  replacement if this preview is expected to run in a hostile shared sandbox.
+  boundary. For host-side continuation, inspect the boundary between
+  authorization and provider I/O for concurrent path replacement, then add a
+  focused regression and fix only if a reproducible scoped-access bypass exists.
 
 ## M-APP-06 — Notes
 

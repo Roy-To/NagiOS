@@ -10,6 +10,11 @@ pub enum ProviderAvailability {
 /// Implementations must treat `Location` values as provider-relative names.
 pub trait FilesystemProvider {
     fn availability(&self) -> ProviderAvailability;
+    /// Resolve provider-specific aliases before checking scoped capabilities.
+    /// Virtual or case-sensitive providers can keep the supplied spelling.
+    fn authorization_location(&self, location: &Location) -> Result<Location, FilesError> {
+        Ok(location.clone())
+    }
     fn list(&self, location: &Location) -> Result<Vec<FileEntry>, FilesError>;
     fn metadata(&self, location: &Location) -> Result<FileEntry, FilesError>;
     fn verify_resource(

@@ -746,6 +746,21 @@ where
     }
 
     fn authorize(&self, right: CapabilityRight, location: &Location) -> Result<(), FilesError> {
+        let authorization_location = match self.provider.authorization_location(location) {
+            Ok(location) => location,
+            Err(_) => {
+                self.authorize_spelling(right, location)?;
+                return Err(FilesError::new(FilesErrorKind::ProviderFailure));
+            }
+        };
+        self.authorize_spelling(right, &authorization_location)
+    }
+
+    fn authorize_spelling(
+        &self,
+        right: CapabilityRight,
+        location: &Location,
+    ) -> Result<(), FilesError> {
         let request = CapabilityRequest {
             right,
             location: location.clone(),

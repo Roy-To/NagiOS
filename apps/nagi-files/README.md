@@ -39,9 +39,15 @@ that take an item index. `help` prints the interactive syntax.
 
 - `FilesystemProvider` owns enumeration, metadata, file reads, create/copy/move,
   rename, Trash, restore, permanent delete, and tags.
-- `FilesService` checks scoped rights before returning ordinary resource data
-  or performing mutations, filters Trash listings by each item's original
-  location, verifies opaque resource IDs against current metadata, assigns
+- `FilesystemProvider::authorization_location` can resolve provider-specific
+  path aliases before capability checks; virtual and case-sensitive providers
+  keep their supplied spelling. The sandbox maps existing case-insensitive
+  aliases to their actual directory-entry spelling using stable file identity
+  and fails closed when it cannot resolve an alias unambiguously.
+- `FilesService` checks scoped rights against that resolved location before
+  returning ordinary resource data or performing mutations, filters Trash
+  listings by each item's original location, verifies opaque resource IDs
+  against current metadata, assigns
   transaction/action identities, validates confirmation bindings before
   consuming bounded one-use permanent-delete challenges, supports explicit
   user cancellation, and reports Activity/Wayback hook results.

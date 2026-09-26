@@ -988,6 +988,27 @@ fn sandbox_enumeration_navigation_unicode_empty_folder_and_metadata() {
 }
 
 #[test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn sandbox_case_insensitive_path_alias_keeps_scoped_deny_effective() {
+    let temp = TempSandbox::new();
+    fs::create_dir(temp.path().join("Private")).unwrap();
+    fs::write(temp.path().join("Private/secret.txt"), b"classified").unwrap();
+    assert!(temp.path().join("private/secret.txt").exists());
+
+    let authorizer = CapabilitySet::from_grants([
+        CapabilityGrant::allow(Location::root(), CapabilityRight::Read),
+        CapabilityGrant::deny(Location::parse("Private").unwrap(), CapabilityRight::Read),
+    ]);
+    let service = FilesService::new(SandboxProvider::new(temp.path()).unwrap(), authorizer);
+    let alias = Location::parse("private/secret.txt").unwrap();
+
+    assert_eq!(
+        service.read_file(&alias).unwrap_err().kind,
+        FilesErrorKind::PermissionDenied
+    );
+}
+
+#[test]
 fn sandbox_rejects_hidden_internal_metadata_and_symlink_path_traversal() {
     let temp = TempSandbox::new();
     let outside = TempSandbox::new();
