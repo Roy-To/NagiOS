@@ -93,6 +93,8 @@ not modify or merge into M17 worktrees.
 - **Worktree:** `/Users/tozawa/Developer/NagiOS-app-notes`
 - **Base:** `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9`
 - **Preparation commit:** `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85`.
+- **Implementation checkpoint:** `690b1a6855cc8e69cb815c815a015e429e3ca993`
+  is pushed to `origin/codex/app-notes`.
 - **Implemented components:** Notes-only Cargo package; ObjectId-based note
   and block model; 10 Markdown block/reference kinds; front matter and stable
   block identities; live editor sessions; debounced, coalesced autosave with
@@ -136,7 +138,9 @@ not modify or merge into M17 worktrees.
   than misregistering a 0.1 app milestone in that registry. Host revisions
   use immutable Markdown entries and create-only atomic installation so a
   stale writer cannot replace an existing revision.
-- **Next action:** Finish the post-change audit and verification, record the
-  final Notes checkpoint, and commit/push this dedicated branch. Later runtime
-  integration should resume from the capability and provider boundaries
-  above; M17 and sibling app workstreams remain separate.
+- **Next action:** Resume when the Nagi Document/Storage capability, native
+  Notes surface, shared Search/Activity/Wayback adapters, or Albert reference
+  caller is available; connect those through the existing Notes interfaces
+  and run the target acceptance checks. Until then, Notes core and host
+  verification are independently usable. Keep M17 and sibling app workstreams
+  separate.
