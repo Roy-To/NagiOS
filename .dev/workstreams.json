@@ -36,6 +36,35 @@
       "merge_boundary": "Dedicated 0.2 integration branch only; never merge to main without explicit user direction."
     },
     {
+      "id": "diagnostics",
+      "owner": "Codex diagnostics workstream",
+      "owner_branch": "codex/ws-diagnostics",
+      "recommended_worktree": "../nagi-diagnostics",
+      "state_file": ".dev/workstreams/diagnostics/state.json",
+      "dependencies": ["development-foundation"],
+      "allowed_paths": [
+        "Cargo.lock",
+        "docs/implementation_status.md",
+        "docs/testing/**",
+        "tools/nagi-cli/**",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "tools/nagi-bootstrap/Cargo.lock"
+      ],
+      "forbidden_paths": [
+        ".dev/workstreams.json",
+        ".dev/schemas/**",
+        ".github/workflows/**",
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "third_party/**",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "Host-local diagnostics and verification contracts may integrate early; guest crash persistence and target event collection require Nagi 0.1 M30 PASS and an explicit release boundary.",
+      "merge_boundary": "Host-side diagnostics may integrate on codex/integration-next-phase; do not merge directly to main or add target persistence before its gate."
+    },
+    {
       "id": "integration-next-phase",
       "owner": "Codex integration owner",
       "owner_branch": "codex/integration-next-phase",

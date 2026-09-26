@@ -4493,3 +4493,40 @@ creation. The public annotation retained only the warning tail and
 `fatal error:` lines in the bounded annotation. Target link, UEFI, and real
 QEMU first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
+
+## Diagnostics workstream checkpoint (2026-09-26)
+
+Workstream `diagnostics` is integrated on `codex/integration-next-phase` from
+`codex/ws-diagnostics` (source base `c1506888655123d819ec75be66891f0cd5477533`).
+It is `PARTIAL`: its host diagnostics contract is implemented and verified,
+while VM smoke remains bounded by an existing guest boot acceptance timeout.
+This checkpoint does not change M17's recorded status or take ownership of
+Activity, Wayback, Capability, App SDK, or other workstreams.
+
+Implemented a versioned structured event and verification-report contract,
+bounded crash/fatal capture with a sink interface, privacy-class redaction,
+health-check registration and scoped aggregation, and the `nagi diagnostics`,
+`nagi verify`, and `nagi smoke` commands. Added a JSON Schema, CLI and contract
+tests, and local-first diagnostics documentation. Reports are emitted to a
+file only when `--output` is explicitly supplied. Crash persistence remains a
+portable contract until the target diagnostics/VFS boundary is available.
+
+Evidence from the integration checkout:
+
+- `cargo test -p nagi-cli --locked --offline` — PASS, 95 unit tests and 24 CLI integration tests.
+- `cargo fmt --all -- --check` — PASS.
+- `cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings` — PASS; the CLI target compiles cleanly, with three existing `target_os = "nagi"` configuration warnings emitted by the libc dependency.
+- `cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline` — PASS after adding its direct `serde` dependency for the shared CLI library.
+- `python3 -m json.tool docs/testing/diagnostic-report.schema.json >/dev/null` — PASS for JSON syntax. Full JSON Schema validation was not run because no schema validator is installed; the CLI contract test also checks schema versions and diagnostic event round-trip.
+- `nagi diagnostics --scope diagnostics --json`, `nagi verify --scope diagnostics --json`, and `nagi smoke --host-only --json` — PASS after wiring the workstream health check to the existing `nagi dev verify` state validator.
+- `./target/debug/nagi smoke --vm --json` — FAIL, classified as `VM` / `ACCEPTANCE`: QEMU did not exit within the existing 30-second M1/M7 acceptance window. Retrying with the pinned nightly toolchain on `PATH` passed the earlier Cargo channel mismatch and reached QEMU, but hit the same timeout. This is an existing guest boot acceptance boundary; no M17 or guest implementation was changed here.
+- `git diff --check` — PASS. The report command smoke results above were produced from the host executable and are not target-test evidence.
+
+The `workstreams` health check now invokes the owner-provided DF-01 validator
+and passes on this integration registry. A CI run on this integrated head is
+still required. The source-branch Actions run `36215571919` failed while
+compiling `nagi-bootstrap` because its package dependencies did not include
+the shared library's serialization dependencies; this integration adds the
+missing direct dependency and verifies the standalone package locally. VM
+smoke still times out before guest boot acceptance, so this workstream remains
+`PARTIAL`. Mainline M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
