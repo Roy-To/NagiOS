@@ -57,3 +57,15 @@ failure.
   Nagi-owned metadata; returned pointers remain inside the guest mapping.
 - M17 remains `BLOCKED` until public target CI produces the real frame checksum
   and PASS marker. M18 remains `NOT STARTED`.
+
+## Public QEMU result from CI run #237
+
+Actions run 36228589557 (#237, head
+c54af8a046bd510f63aa5f88e2ecbe66dc737101) passed the target builds, UEFI,
+persistent storage, and Mesa GL context creation. It advanced beyond the prior
+512-byte allocation failure and then stopped when Servo's memory-profiler
+thread creation returned EAGAIN. The trace does not include the failed
+allocation's layout or alignment, so this run is consistent with the allocator
+repair advancing the path but does not independently prove the exact
+over-aligned request was served. There is still no first-web-pixel checksum or
+PASS marker; M17 remains BLOCKED.

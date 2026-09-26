@@ -1711,6 +1711,14 @@ pub unsafe extern "C" fn sysconf(name: c_int) -> isize {
 /// POSIX thread creation is a bounded adapter over Nagi's native
 /// entry/argument/stack bridge. The bootstrap process admits one child at a
 /// time; the child returns through `thread_exit`, never through a host ABI.
+#[cfg(target_os = "nagi")]
+fn trace_pthread_create_failure(message: &'static [u8]) {
+    let _ = unsafe { crate::nagi_posix_write(2, message.as_ptr(), message.len()) };
+}
+
+#[cfg(not(target_os = "nagi"))]
+fn trace_pthread_create_failure(_message: &'static [u8]) {}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_create(
     thread: *mut usize,
@@ -1719,13 +1727,20 @@ pub unsafe extern "C" fn pthread_create(
     argument: *mut c_void,
 ) -> c_int {
     if thread.is_null() || start.is_none() {
+        trace_pthread_create_failure(
+            b"Nagi M17 trace: pthread_create rejected invalid arguments\r\n",
+        );
         return EINVAL;
     }
     if !PTHREAD_STACK.is_null() && !PTHREAD_DETACHED {
+        trace_pthread_create_failure(
+            b"Nagi M17 trace: pthread_create rejected: joinable child slot occupied\r\n",
+        );
         return EAGAIN;
     }
     let stack = crate::nagi_posix_mmap(NAGI_PTHREAD_STACK_SIZE, 3);
     if stack.is_null() {
+        trace_pthread_create_failure(b"Nagi M17 trace: pthread_create child-stack mmap failed\r\n");
         return EAGAIN;
     }
     PTHREAD_START_RECORD = PthreadStartRecord { start, argument };
@@ -1740,6 +1755,9 @@ pub unsafe extern "C" fn pthread_create(
             start: None,
             argument: ptr::null_mut(),
         };
+        trace_pthread_create_failure(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected mapped 16 KiB child stack\r\n",
+        );
         set_errno(EAGAIN);
         return EAGAIN;
     };

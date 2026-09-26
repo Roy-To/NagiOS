@@ -19,34 +19,58 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #204 confirmed Mesa patch `0030` detected the bad EGL TLS cookie,
-reset the state, completed EGL make-current, and reached Surfman's GL function
-loading start marker. Rust std then panicked because `__nagi_std_random_fill`
-returned -1. Kernel diagnostics and source audit then identified the concrete
-cause: the guest RNG scanner used transitional PCI ID `0x1003` (VirtIO console)
-instead of `0x1005` (VirtIO entropy). The scanner now recognizes `0x1005` and
-modern ID `0x1044`, with a regression check. CI #205 (Actions run ID
-`36219851280`, head `d4ce627`) was canceled during `Build Nagi user init` after
-the next push; it produced no QEMU acceptance evidence. Actions run #232
-(`36220293827`, head `35efaf6`) passed target builds, persistence, and Mesa
-context creation, then reported a 512-byte allocation failure during Servo
-construction. ADR 0027 expanded the bounded heap to 64 MiB and mmap backing to
-128 MiB. CI #233 (`36223836342`, head `1993a45`) still reported the 512-byte
-failure and produced no pixel checksum. Source audit found that Rust's Unix
-`System` allocator routes over-aligned layouts through `posix_memalign`, while
-Nagi's implementation only accepts the underlying 16-byte alignment. ADR 0028
-adds an in-heap aligned-allocation wrapper and regression coverage; its source
-diagnosis still requires public target verification. M17 remains BLOCKED; M18
+milestone. Public CI run #237 (Actions run ID 36228589557, head c54af8a)
+passed Ubuntu host, Windows launcher, target builds, UEFI, persistent storage,
+and Mesa GL context creation. It advanced beyond the previous 512-byte
+allocation failure, then Servo panicked while spawning its memory-profiler
+thread with EAGAIN. The log does not distinguish a joinable child already
+occupying the bounded POSIX adapter, a failed child-stack mmap, or a kernel
+thread-syscall rejection. Source inspection also found that the 128 MiB
+bootstrap mmap window tracks only four regions. The current diagnostic
+follow-up reports those rejection paths without changing behavior; use its
+next public QEMU run to select the correct repair. M17 remains BLOCKED; M18
 remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36223836342` (Actions run
-#233, head `1993a4582952d3c1176ceff4434ac07a11a02881`) passed both host jobs and
-all target build steps through UEFI. QEMU accepted persistent storage, created
-the Mesa GL context, and reached `Servo construction started`, then reported
-`memory allocation of 512 bytes failed`. It produced no pixel checksum or
-PASS marker. The new over-aligned POSIX allocation path is not yet verified by
-public target CI. M17 remains BLOCKED; M18 remains NOT STARTED.
+**Last known repair checkpoint:** public CI run 36228589557 (#237, head
+c54af8a046bd510f63aa5f88e2ecbe66dc737101) passed both host jobs and all target
+build steps through UEFI. QEMU created the Mesa GL context and began Servo
+construction. third_party/servo/components/profile/mem.rs:48 then panicked
+with Thread spawning failed: Os { code: 11, kind: WouldBlock }; no first-web-
+pixel checksum or PASS marker was produced. The over-aligned allocator
+advanced past the former 512-byte OOM. M17 remains BLOCKED; M18 remains NOT
+STARTED.
+
+### Target evidence from CI Actions run #237 (2026-09-26)
+
+Actions run 36228589557 (#237, head
+c54af8a046bd510f63aa5f88e2ecbe66dc737101) passed Ubuntu host checks, the
+Windows launcher job, Mesa Softpipe, package, kernel, user-init, and UEFI
+builds. The real QEMU acceptance created the Mesa/EGL GL context and entered
+Servo construction, then panicked in Profiler::create at
+third_party/servo/components/profile/mem.rs:48 because thread creation
+returned EAGAIN (WouldBlock). It produced no first-web-pixel checksum or
+PASS marker. The log does not distinguish child-stack mmap failure from the
+single-child bridge's occupied-slot or kernel validation failures. M17 remains
+BLOCKED; M18 remains NOT STARTED.
+
+### Local diagnostic continuation after CI run #237 (2026-09-26)
+
+Added failure-only serial traces at the POSIX pthread adapter, the kernel
+thread-create validation branches, and the kernel memory-map syscall. The
+traces do not change POSIX return values, thread-slot limit, stack size,
+mmap-window size, or region-table capacity. The four-region mmap table remains
+a candidate cause, not a confirmed one.
+
+Local verification passed the repository CI format command, all 72
+`nagi-cli` library tests, `cargo check -p nagi-kernel --tests` for
+`x86_64-unknown-linux-gnu`, the release Nagi kernel target build, POSIX test
+source checking for `x86_64-unknown-linux-gnu`, the Nagi target POSIX library
+check, CI-equivalent workspace Clippy for `x86_64-unknown-linux-gnu`, and
+`git diff --check`. Host-side kernel/POSIX test binaries are not run on this
+Apple-Silicon Mac because the user syscall code uses x86 registers. The next
+public QEMU run must identify which branch returns `EAGAIN`; M17 remains
+`BLOCKED` and M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #204 (2026-09-26)
 

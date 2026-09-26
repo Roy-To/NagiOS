@@ -658,7 +658,11 @@ fn thread_sleep(duration_ns: u64) -> u64 {
 
 #[cfg(not(test))]
 fn memory_map(length: u64, protection: u64) -> u64 {
-    nagi_kernel::user_process::mmap_user(length, protection).unwrap_or(u64::MAX)
+    let Some(address) = nagi_kernel::user_process::mmap_user(length, protection) else {
+        serial_write(b"Nagi M17 trace: SYS_MEMORY_MAP rejected by bootstrap mapper\r\n");
+        return u64::MAX;
+    };
+    address
 }
 
 #[cfg(not(test))]
@@ -685,9 +689,17 @@ fn memory_protect(address: u64, length: u64, protection: u64) -> u64 {
 }
 
 #[cfg(not(test))]
+fn thread_create_rejected(message: &'static [u8]) -> u64 {
+    serial_write(message);
+    u64::MAX
+}
+
+#[cfg(not(test))]
 fn thread_create(frame: &SyscallFrame) -> u64 {
     if NAGI_CURRENT_THREAD.load(Ordering::Acquire) != 0 {
-        return u64::MAX;
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: caller is child thread\r\n",
+        );
     }
     if NAGI_THREAD_STATE
         .compare_exchange(
@@ -698,19 +710,27 @@ fn thread_create(frame: &SyscallFrame) -> u64 {
         )
         .is_err()
     {
-        return u64::MAX;
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: child slot occupied\r\n",
+        );
     }
     let Some(stack_end) = frame.arg3.checked_add(frame.arg4) else {
         NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
-        return u64::MAX;
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: stack range overflow\r\n",
+        );
     };
     if !nagi_kernel::user_process::is_user_executable_range_mapped(frame.arg1, 1) {
         NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
-        return u64::MAX;
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: entry is not executable\r\n",
+        );
     }
     if frame.arg3 < USER_MMAP_BASE || stack_end > USER_MMAP_LIMIT {
         NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
-        return u64::MAX;
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: stack outside mmap window\r\n",
+        );
     }
     if frame.arg4 == 0
         || frame.arg4 > MAX_NATIVE_THREAD_STACK
@@ -718,11 +738,15 @@ fn thread_create(frame: &SyscallFrame) -> u64 {
         || !frame.arg4.is_multiple_of(4096)
     {
         NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
-        return u64::MAX;
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: invalid stack size or alignment\r\n",
+        );
     }
     if !nagi_kernel::user_process::is_user_writable_range_mapped(frame.arg3, frame.arg4 as usize) {
         NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
-        return u64::MAX;
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: stack is not writable\r\n",
+        );
     }
     nagi_kernel::user_process::reset_child_tls();
     let context = unsafe { &mut NAGI_THREAD_CONTEXTS[1] };
