@@ -4741,7 +4741,7 @@ acceptance-stage classifier and adds regression coverage for the observed
 timeout plus the plural `undefined symbols: 0` diagnostic summary. The CLI
 suite passes (107 unit and 26 integration tests), as do package formatting and
 warning-denied Clippy. CI run `36239110612` is validating this commit; its
-Ubuntu and Windows host jobs are running, and its target job remains gated on
-those jobs and the active target concurrency slot. Run `36236310925` remains
-the trace-enabled M17 target run. Neither run has produced a new guest pixel
+Ubuntu and Windows host jobs passed; its target job is queued behind the
+active target run. Run `36236310925` remains the trace-enabled M17 target run
+and is building Nagi user init. Neither run has produced a new guest pixel
 result yet.
