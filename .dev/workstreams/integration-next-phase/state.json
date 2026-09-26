@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "wayback-host-ledger-integrated",
+  "current_checkpoint": "localization-foundation-integrated",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "a4409f6aa7e1384554db28a77cb3b644d3a412eb",
-    "verified_at": "2026-09-26T07:14:17Z",
-    "normal_state": "Integrated the standalone Wayback Activity Ledger contract and registration. Its host harness passed: 20 unit tests, 4 integration scenarios, formatting, Clippy with warnings denied, six Draft 2020-12 contracts plus negative cases, four existing M15 history tests, and DF-01 registry/state verification. The Wayback contract validates and plans restore metadata but includes no filesystem/runtime hook or restore executor. Capability and App SDK host checks remain passing; runtime integration remains gated by M30 and an explicit release checkpoint. M17 remains BLOCKED and M18 remains NOT STARTED. Mainline Actions run 36223836342 remains in progress at M17 QEMU acceptance; integration branch Actions run 36225995143 is bootstrapping Servo dependencies.",
+    "commit_sha": "b264b0907130a8602d0038a630e5d51449ad83d9",
+    "verified_at": "2026-09-26T07:19:46Z",
+    "normal_state": "Integrated Capability/Permission, App SDK, Wayback, and shared Localization host foundations on codex/integration-next-phase. Localization is now a root workspace package with its format check included in CI; current-tree checks pass for all 26 localization tests, formatting, Clippy with warnings denied, catalog validation (2 locales/14 messages), and a Nagi user-target library compile. The prior mainline docs/implementation_status.md and M17 status were preserved. Existing M17 remains BLOCKED and M18 remains NOT STARTED. Wayback’s full host harness and the capability/SDK focused checks pass. Localization source CI run 36215320154 passed Ubuntu/Windows host jobs and target builds through UEFI, then failed only at the independent M17 first-web-pixel QEMU acceptance. Integration branch run 36225995143 is still attached to the earlier a64f7b7 checkpoint and is not yet evidence for the subsequent merges.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -26,7 +26,12 @@
       "/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
       "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate sdk/rust/fixtures/manifests/{files,notes,search,activity}.json",
       "git diff --check; git diff --cached --check",
-      "./tests/wayback/verify.sh"
+      "./tests/wayback/verify.sh",
+      "cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check",
+      "cargo test --locked -p nagi-localization",
+      "cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
+      "cargo run --locked -p nagi-localization --bin localization-check",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort"
     ],
     "tests": [
       {
@@ -126,6 +131,34 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The crate is a standalone host-side reference contract; restore plans remain non-executable and no filesystem, runtime, UI, kernel, or capability authority hook was added."
+      },
+      {
+        "name": "Localization library and format/lint checks",
+        "command": "cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check; cargo test --locked -p nagi-localization; cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting and Clippy passed; all 26 localization unit tests passed."
+      },
+      {
+        "name": "Localization catalog checker",
+        "command": "cargo run --locked -p nagi-localization --bin localization-check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The checker validated 2 first-class locales and 14 messages."
+      },
+      {
+        "name": "Localization target compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The library compiles for the Nagi x86_64 user target; no runtime or QEMU result is claimed."
+      },
+      {
+        "name": "Localization registry and state validation",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "14 registered workstreams and 6 state files validated after adding the durable localization record."
       }
     ],
     "ci_runs": [
@@ -176,12 +209,20 @@
         "status": "IN_PROGRESS",
         "conclusion": null,
         "summary": "Integration branch push check: Ubuntu and Windows are still bootstrapping pinned Servo dependencies; later host and target jobs have not run yet."
+      },
+      {
+        "run_id": 36215320154,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215320154",
+        "head_sha": "67de0be987ddb1308d2360444e036c7a88dfab7d",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Localization source branch: Ubuntu and Windows host jobs and target builds through UEFI passed; only the unrelated M17 first-web-pixel QEMU acceptance failed."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T07:14:17Z",
+    "last_checked_at": "2026-09-26T07:19:46Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -197,7 +238,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Continue with the Localization / i18n host foundation, selectively preserving current mainline milestone history and keeping root manifests and shared status integration-owned; then integrate the model-runtime host foundation without enabling inference.",
+  "next_action": "Integrate the Model Runtime / Model Store host foundation selectively. Preserve the root milestone status, enforce the default Granite 4.2 3B architecture without adding a production inference backend, and record whether its workspace and host checks fit the current gate. Then reconcile diagnostics, acceptance, and first-party integration.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -232,6 +273,12 @@
       "contract": "Append-only activity/provenance, metadata-only snapshots, bounded restore planning, and explicit non-executable blockers.",
       "version": "wayback-contracts-v1",
       "status": "PASS for host-side contract and tests; filesystem hooks, durable backend, restore execution, and product adoption remain release-gated."
+    },
+    {
+      "workstream_id": "localization-i18n",
+      "contract": "First-class en-US/ja-JP catalogs, canonical locale IDs, deterministic fallback, independent system-language and region inputs, and host formatting.",
+      "version": "localization-contract-v1",
+      "status": "PASS for host foundation and Nagi-target library compilation; production consumer integration remains with its owning milestone."
     }
   ]
 }
