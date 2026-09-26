@@ -25,8 +25,8 @@ pub use model::*;
 pub use sandbox::SandboxProvider;
 pub use search::{FilesSearchProvider, SearchRecord};
 pub use service::{
-    ActivityEvent, ActivityOutcome, ActivitySink, CheckpointHook, FilesService, HookStatus,
-    NoopActivitySink, NoopCheckpointHook, OperationOutcome, OperationResult,
+    ActivityEvent, ActivityOutcome, ActivitySink, CheckpointHook, CheckpointSnapshot, FilesService,
+    HookStatus, NoopActivitySink, NoopCheckpointHook, OperationOutcome, OperationResult,
     WaybackCheckpointRequest, WorkspaceReferenceResult, WorkspaceReferenceSink,
 };
 pub use ui::{

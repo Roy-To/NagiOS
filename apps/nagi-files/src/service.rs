@@ -7,6 +7,8 @@ use crate::{
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const MAX_CHECKPOINT_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActivityEvent {
     pub transaction_id: TransactionId,
@@ -29,15 +31,25 @@ pub enum ActivityOutcome {
     Denied,
 }
 
-pub trait ActivitySink {
+pub trait ActivitySink: Send {
     fn record(&mut self, event: &ActivityEvent) -> Result<(), String>;
 }
 
-pub trait CheckpointHook {
+pub trait CheckpointHook: Send {
     fn checkpoint_before(&mut self, request: &WaybackCheckpointRequest) -> Result<String, String>;
+
+    /// Optional snapshot-aware path. Older hooks remain source-compatible and
+    /// receive the original metadata-only request through the default method.
+    fn checkpoint_before_with_snapshots(
+        &mut self,
+        request: &WaybackCheckpointRequest,
+        _snapshots: &[CheckpointSnapshot],
+    ) -> Result<String, String> {
+        self.checkpoint_before(request)
+    }
 }
 
-pub trait WorkspaceReferenceSink {
+pub trait WorkspaceReferenceSink: Send {
     fn add_reference(&mut self, workspace_id: &str, resource_id: ResourceId) -> Result<(), String>;
 
     fn remove_reference(
@@ -58,11 +70,23 @@ pub struct WorkspaceReferenceResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WaybackCheckpointRequest {
     pub transaction_id: TransactionId,
+    pub actor: Actor,
     pub action_id: &'static str,
     pub source: Option<Location>,
     pub destination: Option<Location>,
     pub affected: Vec<ResourceId>,
     pub reversibility: Reversibility,
+}
+
+/// A read-authorized pre-operation file version passed only to a trusted
+/// checkpoint hook. Contents are private checkpoint payload and must never be
+/// copied to Activity records, Search text, or logs.
+#[derive(Clone, Eq, PartialEq)]
+pub struct CheckpointSnapshot {
+    pub resource_id: ResourceId,
+    pub location: Location,
+    pub contents: Vec<u8>,
+    pub modified_at_epoch_seconds: Option<i64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -714,20 +738,69 @@ where
         if intent.reversibility != Reversibility::Reversible {
             return HookStatus::NotApplicable;
         }
-        let Some(hook) = self.checkpoint.as_mut() else {
+        if self.checkpoint.is_none() {
             return HookStatus::Unavailable;
-        };
-        match hook.checkpoint_before(&WaybackCheckpointRequest {
+        }
+        let request = WaybackCheckpointRequest {
             transaction_id: intent.transaction_id,
+            actor: intent.actor,
             action_id: intent.kind.action_id(),
             source: intent.source.clone(),
             destination: intent.destination.clone(),
             affected: intent.affected.clone(),
             reversibility: intent.reversibility,
-        }) {
+        };
+        let snapshots = match self.capture_checkpoint_snapshots(&request) {
+            Ok(snapshots) => snapshots,
+            Err(error) => return HookStatus::Failed(error),
+        };
+        let Some(hook) = self.checkpoint.as_mut() else {
+            return HookStatus::Unavailable;
+        };
+        match hook.checkpoint_before_with_snapshots(&request, &snapshots) {
             Ok(id) => HookStatus::Created(id),
             Err(error) => HookStatus::Failed(error),
         }
+    }
+
+    fn capture_checkpoint_snapshots(
+        &self,
+        request: &WaybackCheckpointRequest,
+    ) -> Result<Vec<CheckpointSnapshot>, String> {
+        if request.affected.is_empty() {
+            return Ok(Vec::new());
+        }
+        if request.affected.len() != 1 {
+            return Err("Files host checkpoint capture supports one affected resource".to_owned());
+        }
+        let location = request
+            .source
+            .as_ref()
+            .ok_or_else(|| "Files checkpoint has no pre-operation source location".to_owned())?;
+        self.authorize(CapabilityRight::Read, location)
+            .map_err(|error| format!("Files checkpoint read permission unavailable: {error:?}"))?;
+        let entry = self
+            .provider
+            .verify_resource(request.affected[0], location)
+            .map_err(|error| format!("Files checkpoint source verification failed: {error:?}"))?;
+        if entry.kind != EntryKind::File {
+            return Err(
+                "Files host checkpoint capture currently supports regular files only".into(),
+            );
+        }
+        let contents = self
+            .provider
+            .read_file(location, MAX_CHECKPOINT_CAPTURE_BYTES)
+            .map_err(|error| format!("Files checkpoint source read failed: {error:?}"))?;
+        if contents.len() > MAX_CHECKPOINT_CAPTURE_BYTES {
+            return Err("Files checkpoint source exceeds the 16 MiB host capture limit".into());
+        }
+        Ok(vec![CheckpointSnapshot {
+            resource_id: entry.id,
+            location: location.clone(),
+            contents,
+            modified_at_epoch_seconds: entry.modified_at,
+        }])
     }
 
     fn begin_agent_operation(&mut self, intent: &OperationIntent) -> Result<(), FilesError> {

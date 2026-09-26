@@ -4,6 +4,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use nagi_history::activity::{CheckpointId, EventId};
 use nagi_model::{AppId, ObjectId, WorkspaceId};
 
 use crate::actions::{ActionAvailability, CapabilityContext, CapabilityId, TypedAction};
@@ -146,6 +147,8 @@ pub enum SearchIdentity {
     App(AppId),
     Object(ObjectId),
     Workspace(WorkspaceId),
+    Activity(EventId),
+    Checkpoint(CheckpointId),
     Action(String),
 }
 
@@ -155,6 +158,8 @@ impl SearchIdentity {
             Self::App(app) => format!("app:{:016x}", app.0),
             Self::Object(object) => format!("object:{:016x}", object.0),
             Self::Workspace(workspace) => format!("workspace:{:016x}", workspace.0),
+            Self::Activity(event) => format!("activity:{}", event.get()),
+            Self::Checkpoint(checkpoint) => format!("checkpoint:{}", checkpoint.0),
             Self::Action(action) => format!("action:{action}"),
         };
         SearchIdentityKey(key)
@@ -793,6 +798,7 @@ mod tests {
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+    use nagi_history::activity::{CheckpointId, EventId};
     use nagi_model::{AppId, ObjectId, WorkspaceId};
 
     use crate::actions::{ActionAvailability, CapabilityContext, CapabilityId, TypedAction};
@@ -1367,6 +1373,32 @@ mod tests {
         assert_eq!(
             response.results[0].identity,
             SearchIdentity::Object(ObjectId(1))
+        );
+    }
+
+    #[test]
+    fn activity_and_checkpoint_results_keep_distinct_canonical_identity() {
+        let event = EventId::new(17).unwrap();
+        let checkpoint = CheckpointId::new(17).unwrap();
+        let activity_identity = SearchIdentity::Activity(event);
+        let checkpoint_identity = SearchIdentity::Checkpoint(checkpoint);
+
+        assert_ne!(activity_identity, checkpoint_identity);
+        assert_ne!(
+            activity_identity.stable_id(),
+            checkpoint_identity.stable_id()
+        );
+        assert_eq!(
+            TypedAction::OpenActivityEvent { event_id: event },
+            TypedAction::OpenActivityEvent { event_id: event }
+        );
+        assert_eq!(
+            TypedAction::OpenCheckpoint {
+                checkpoint_id: checkpoint
+            },
+            TypedAction::OpenCheckpoint {
+                checkpoint_id: checkpoint
+            }
         );
     }
 }

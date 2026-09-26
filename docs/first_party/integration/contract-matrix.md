@@ -143,3 +143,84 @@ untracked `libtarget_check.rlib`; it has been left untouched.
   event/checkpoint destinations and has no dispatcher.
 - Nagi target App Registry, Search provider service and Action dispatcher:
   **NOT RUN**.
+
+## Integrated host checkpoint
+
+The four branches are merged as actual history ancestors in this order:
+Activity/Wayback, Files, Notes, then Home/Search. Merge commits are listed
+above. Only the already-audited status document overlapped; Git resolved its
+disjoint workstream sections automatically. Integration adapters live in the
+separate `tests/first-party-integration` host-only package, not in the root
+Cargo workspace.
+
+### Canonical contracts and adapters
+
+- `nagi_model::ObjectId`, `WorkspaceId`, `AppId`, and `TransactionId` remain
+  the shared identity contracts. Files `ResourceId(u128)` is mapped by a
+  reversible in-memory resolver; no truncation or path-derived identity is
+  used. Workspace host context is currently absent and target Workspace
+  resolution remains unavailable.
+- Home/Search `TypedAction` remains the Search activation contract. It now
+  has distinct `OpenActivityEvent(EventId)` and
+  `OpenCheckpoint(CheckpointId)` actions. Actions are marked
+  `HostPreviewOnly`; the host harness does not claim to dispatch target app
+  launch or target open operations.
+- Notes Search adapts the actual `NotesSearchProvider`, and evaluates the
+  injected `Get` policy before candidate/snippet construction. Files Search
+  adapts the actual `FilesSearchProvider` and `FilesService` with its scoped
+  `CapabilitySet`. Activity and Wayback Search query the shared typed ledger
+  and checkpoint stores after user visibility-policy checks.
+- Notes user events enter the shared Activity ledger without note body text.
+  Persisted revisions create canonical Wayback revision/checkpoint records
+  whose backend references resolve back to `NoteStore::load_revision`.
+- Files user events enter that same Activity ledger and preserve canonical
+  transaction IDs, mapped targets, success/failure/denial result, and linked
+  checkpoint IDs. Agent operations fail closed without delegated provenance.
+  Read-authorized regular-file rename snapshots create actual in-memory
+  Wayback revisions/checkpoints before mutation. Folder creation,
+  multi-object/source-less operations, denied/unavailable read access, and
+  snapshots above 16 MiB do not produce checkpoints. Folder creation still
+  records its own successful Activity result. Checkpoint bytes remain in the
+  host snapshot backend and never enter Activity or Search. Capacity is
+  preflighted for both checkpoint and operation Activity events before the
+  snapshot is stored.
+- Home uses a canonical `RegistrySnapshot` built from stable Notes and Files
+  `AppId`s. Names localize in `en-US` and `ja-JP`; the entries say `HostPreview`
+  and do not claim target launch. Activity and Wayback remain framework
+  services rather than fabricated installed apps.
+- Host stores are memory-only and scoped to the test process. Package sandbox
+  tests use temporary directories; this integration harness reads and writes
+  no user data. UI-visible capability context remains an additional result and
+  action filter, never the provider's authority source.
+
+### Integrated verification
+
+- Cross-app integration crate: **11 passed**, including real Notes/Files
+  providers, canonical object resolution, Notes and Files Activity, Notes and
+  Files Wayback paths, typed event/checkpoint actions, English/Japanese Home
+  and Search, Files read authorization, Notes `Get` filtering, user-scoped
+  Activity/Checkpoint reads, Agent fail-closed behavior, note body redaction,
+  truthful folder checkpoint failure, and failed Files operation wording.
+- Warning-free all-target Clippy (`-D warnings`): **PASS** for the integration,
+  Files, and Home/Search packages. Rust formatting check: **PASS**.
+- Files package: **48 passed** after snapshot-aware checkpoint-hook changes.
+- Home/Search package: **35 library + 1 preview test passed** with the typed
+  event/checkpoint actions and canonical shared ID dependency.
+- Notes package: **27 passed** at the merged source revision. Its app crate
+  has no integration-source changes.
+- Activity/Wayback package: **41 isolated host tests passed**, and library
+  checks for `x86_64-unknown-uefi` passed. The root invocation still stops
+  before compilation while the ignored, pinned `cc-nagi` source is absent.
+- Integrated host preview is an explicit host-only executable. Target runtime
+  results are **NOT RUN**, including native launch, durable storage, target
+  object/capability services, target Search service, and checkpoint restore.
+
+### Remaining adapters and gates
+
+The host adapters are deliberately process-local and do not claim to be
+security boundaries. Target-side authenticated user context, capability
+services, object/workspace resolvers, application launcher, Search/Action
+services, durable Activity/Wayback stores, and target Files snapshot/restore
+backend remain **BLOCKED on public Nagi runtime interfaces** or **NOT RUN**.
+The source branches and worktrees remain unchanged; the target runtime and M17
+state remain unchanged.

@@ -241,6 +241,8 @@ enum ActionPayload {
     LaunchApp { app_id: String },
     OpenObject { object_id: u64, app_id: String },
     OpenWorkspace { workspace_id: u64 },
+    OpenActivityEvent { event_id: u64 },
+    OpenCheckpoint { checkpoint_id: u64 },
     InvokeAction { action_id: String },
     OpenSearch,
     OpenIntentEntry,
@@ -457,6 +459,10 @@ fn search_result_payload(
         SearchIdentity::Workspace(workspace) => {
             ("workspace", format!("workspace:{:016x}", workspace.0))
         }
+        SearchIdentity::Activity(event) => ("activity", format!("activity:{}", event.get())),
+        SearchIdentity::Checkpoint(checkpoint) => {
+            ("checkpoint", format!("checkpoint:{}", checkpoint.0))
+        }
         SearchIdentity::Action(action) => ("action", format!("action:{action}")),
     };
     let category = result.category.localization_key();
@@ -494,6 +500,12 @@ fn action_payload(action: TypedAction) -> ActionPayload {
         },
         TypedAction::OpenWorkspace { workspace_id } => ActionPayload::OpenWorkspace {
             workspace_id: workspace_id.0,
+        },
+        TypedAction::OpenActivityEvent { event_id } => ActionPayload::OpenActivityEvent {
+            event_id: event_id.get(),
+        },
+        TypedAction::OpenCheckpoint { checkpoint_id } => ActionPayload::OpenCheckpoint {
+            checkpoint_id: checkpoint_id.0,
         },
         TypedAction::InvokeAction { action_id } => ActionPayload::InvokeAction { action_id },
         TypedAction::OpenSearch => ActionPayload::OpenSearch,

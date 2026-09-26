@@ -11,6 +11,7 @@ resolver = "2"
 
 [dependencies]
 nagi-model = { path = "../../crates/nagi-model" }
+nagi-history = { path = "../nagi-history" }
 nagi-package = { path = "../nagi-package" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"

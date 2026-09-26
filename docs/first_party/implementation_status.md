@@ -285,3 +285,44 @@ not modify or merge into M17 worktrees.
   and run the target acceptance checks. Until then, Notes core and host
   verification are independently usable. Keep M17 and sibling app workstreams
   separate.
+
+## First-party integration checkpoint
+
+- **Integration branch:** `codex/first-party-integration`
+- **Worktree:** `/Users/tozawa/Developer/NagiOS-first-party-integration`
+- **Common base:** `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85`
+- **Source heads retained as merge ancestors:** Activity/Wayback
+  `ad532b5fb4c20ca8a467d41e7e72e26054bbc602`; Files
+  `b2c9ee10533aee5f31cb07b0ecc25efa51b217fa`; Notes
+  `c1353ffe4d9be9699e6d6ed778661b675a329cb1`; Home/Search
+  `3968b42d10e6e05d387ea658638c5165e91d3e04`.
+- **Host integration:** `PASS` for the isolated integration harness. Real
+  Notes/Files/Activity/Wayback providers feed Home/Search; Notes and Files
+  events append to the shared host Activity ledger; Notes revisions and
+  supported read-authorized Files regular-file mutations create Wayback
+  checkpoints; Home uses canonical app descriptors; search returns typed
+  object/event/checkpoint actions. Files folders and unsupported snapshots
+  truthfully report unavailable checkpoint capture.
+- **Privacy/capability and locale checks:** `PASS (host)` for pre-candidate
+  Notes `Get` filtering, Files scoped provider authorization, user-scoped
+  Activity/checkpoint visibility, Agent fail-closed paths without delegated
+  provenance, no note-body Activity exposure, no file snapshot text in Search,
+  and principal Home/Search flows in `en-US` and `ja-JP`.
+- **Focused results:** Activity/Wayback 41 isolated tests; Files 48 tests;
+  Notes 27 tests; Home/Search 35 library + 1 preview test; cross-app harness
+  11 tests. Integrated host preview shows Notes/Files in both locale catalogs,
+  real provider search, typed actions, Activity, and file-level Wayback capture.
+  Warning-free all-target Clippy and formatting checks pass for the integration,
+  Files, and Home/Search packages. All are host results and do not establish
+  target runtime acceptance.
+- **Target/runtime state:** `NOT RUN` for native launch, authenticated target
+  context, OS capability/object/workspace services, target provider wiring,
+  durable Activity/Wayback stores, and target snapshot restore. Continue as
+  `PARTIAL` until those runtime interfaces and target acceptance exist.
+- **DF-01 `cc-nagi` issue:** root Cargo's pinned source is an ignored fetch
+  artifact. `./nagi fetch` materializes it from the source lock; the safe
+  development launcher now routes `./nagi dev` through `tools/nagi-bootstrap`
+  so verify/status/resume work without it. No placeholder or third-party
+  source modification was made.
+- M17 status and worktree were not changed. All four source branches and
+  worktrees remain intact.

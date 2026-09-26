@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use nagi_history::activity::{CheckpointId, EventId};
 use nagi_model::{AppId, ObjectId, WorkspaceId};
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -34,10 +35,17 @@ pub struct CapabilityContext {
 }
 
 impl CapabilityContext {
-    pub(crate) fn from_grants(grants: impl IntoIterator<Item = CapabilityId>) -> Self {
+    /// Build the UI's capability projection from the authenticated caller's
+    /// visible capability set. This is a presentation filter only; providers
+    /// and OS services must still enforce their own authorization boundaries.
+    pub fn from_visible_grants(grants: impl IntoIterator<Item = CapabilityId>) -> Self {
         Self {
             granted: grants.into_iter().collect(),
         }
+    }
+
+    pub(crate) fn from_grants(grants: impl IntoIterator<Item = CapabilityId>) -> Self {
+        Self::from_visible_grants(grants)
     }
 
     pub fn allows(&self, capability: Option<&CapabilityId>) -> bool {
@@ -54,6 +62,8 @@ pub enum TypedAction {
     LaunchApp { app_id: AppId },
     OpenObject { object_id: ObjectId, app_id: AppId },
     OpenWorkspace { workspace_id: WorkspaceId },
+    OpenActivityEvent { event_id: EventId },
+    OpenCheckpoint { checkpoint_id: CheckpointId },
     InvokeAction { action_id: String },
     OpenSearch,
     OpenIntentEntry,
