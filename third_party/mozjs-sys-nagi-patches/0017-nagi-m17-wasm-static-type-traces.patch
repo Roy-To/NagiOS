@@ -99,9 +99,11 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +    bool added = set_.add(p, recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add completed");
 +    if (!added) {
-@@ -568,0 +591 @@
+@@ -569 +601,2 @@
+-  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock started");
-@@ -570 +593,5 @@
++  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();
+@@ -570 +603,5 @@
 -  return locked->insert(recGroup);
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock acquired");
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set insertion started");

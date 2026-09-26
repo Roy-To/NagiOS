@@ -299,6 +299,9 @@ mod tests {
         }
         assert!(patch.contains("#if defined(__NAGI__)"));
         assert!(patch.contains("nagi_m17_console_trace(trace_stage"));
+        assert!(patch.contains(
+            "-  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();\n+  NAGI_M17_TRACE(\"SpiderMonkey Wasm canonical type-set lock started\");\n+  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();"
+        ));
     }
 
     #[test]

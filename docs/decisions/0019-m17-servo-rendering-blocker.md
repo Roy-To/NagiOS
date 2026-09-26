@@ -2638,3 +2638,21 @@ Patch `0017-nagi-m17-wasm-static-type-traces.patch` now wraps
 bracket the unchanged base allocator call, so the next real target run can
 show whether allocation is entered and returns. No allocator or hash-table
 behavior has changed. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Patch hunk placement correction after CI run #261 (2026-09-27)
+
+Public CI run #261 (`36262571944`, head
+`e14ed151a91cda8597083465c45d94ebbbc1f0a6`) passed the host jobs, target
+dependency boundary, Mesa Softpipe, M16 package, and kernel, then failed while
+compiling MozJS in `Build Nagi user init`. Clang reported
+`expected member name or ';' after declaration specifiers` on the canonical
+type-set lock-start trace in `WasmTypeDef.cpp`. The user-init link, UEFI loader,
+and QEMU acceptance were not reached.
+
+The added allocator wrapper inserted ten lines before a zero-context hunk.
+That hunk used a fixed output line and placed the lock trace at class scope
+after `clearRecGroup`. Patch `0017` now anchors the trace to the lock
+declaration itself and places it immediately before the call inside
+`TypeContext::canonicalizeGroup`. The source-contract test asserts this block
+so future patch edits cannot silently move the trace out of the function.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

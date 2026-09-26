@@ -124,3 +124,7 @@ call for this TypeIdSet only, with markers immediately before and after the
 unchanged base allocator call. These checkpoints determine whether initial
 table allocation is entered and returns; they do not change type construction,
 allocation, or synchronization behavior.
+
+The canonicalization lock-start checkpoint is applied by replacing the lock
+declaration in context, so later additions in this patch cannot move that
+checkpoint outside the function.

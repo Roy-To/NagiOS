@@ -4797,3 +4797,22 @@ This preserves the base allocation implementation and adds no global malloc
 tracing. The next target run must establish whether `pod_malloc` is entered
 and returns before choosing a runtime repair. M17 remains `BLOCKED`; M18
 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #261 (2026-09-27)
+
+Public CI run #261 (`36262571944`, head
+`e14ed151a91cda8597083465c45d94ebbbc1f0a6`) passed the Ubuntu and Windows
+host jobs, target dependency checks, Mesa Softpipe, M16 package, and kernel.
+`Build Nagi user init` failed while compiling the updated MozJS patch, before
+the user-init link, UEFI loader, or QEMU acceptance ran. Clang reported
+`expected member name or ';' after declaration specifiers` at the canonical
+type-set lock trace in `WasmTypeDef.cpp`.
+
+The allocator wrapper added ten source lines before a zero-context insertion
+hunk. Its fixed output line left the lock-start trace at class scope after
+`TypeIdSet::clearRecGroup`, which caused the C++ error. Patch `0017` now
+replaces the actual lock declaration with a context-anchored hunk and places
+the trace immediately before that declaration. The source-contract test also
+checks this ordering. The focused tests and a new target CI run must confirm
+the patch compiles before QEMU can provide the allocator markers. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
