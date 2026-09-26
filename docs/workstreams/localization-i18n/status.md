@@ -1,9 +1,11 @@
 # Localization / i18n workstream status
 
-**State:** `IN_PROGRESS` (implementation verified; commit and push pending)
+**State:** `PASS`
 **Branch:** `codex/ws-localization-i18n`
 **Worktree:** `/Users/tozawa/.codex/worktrees/nagi-localization-i18n`
 **Base:** `c1506888655123d819ec75be66891f0cd5477533`
+**Implementation commit:** `efa7706baed554f65d2ec5c9adde61305479d607`
+**Push:** successful to `origin/codex/ws-localization-i18n` (no force push)
 
 ## Scope and boundary
 
@@ -54,5 +56,7 @@ Broader repository checks and limitations:
 
 ## Remaining gates
 
-- Review the final diff, commit the verified workstream state, and push this
-  branch without force. Then record the final git result here.
+No owner-scope implementation or verification gate remains. Repository-wide
+host tests and formatting limitations are recorded above; neither failure is
+in localization-owned code. Runtime QEMU validation remains for a future
+integration that consumes this crate through the UI/App SDK boundary.

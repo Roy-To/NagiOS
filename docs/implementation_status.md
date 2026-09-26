@@ -39,13 +39,14 @@ remains authoritative for M17; M18 remains NOT STARTED.
 
 ### Independent workstream checkpoint: localization-i18n
 
-The localization foundation is being implemented on isolated branch
-`codex/ws-localization-i18n`; this does not change the active M17 milestone or
-claim M17 progress. The host unit suite (26 tests), catalog checker, Clippy,
-crate formatting, and Nagi user-target compile pass. Commit/push are pending.
+The localization foundation workstream is `PASS` on isolated branch
+`codex/ws-localization-i18n` (implementation commit
+`efa7706baed554f65d2ec5c9adde61305479d607`, pushed). This does not change the
+active M17 milestone or claim M17 progress. The host unit suite (26 tests),
+catalog checker, Clippy, crate formatting, and Nagi user-target compile pass.
 See [`docs/workstreams/localization-i18n/status.md`](workstreams/localization-i18n/status.md)
-for exact commands, the unrelated Apple Silicon workspace-test failure, and
-workstream boundaries.
+for exact commands, broader verification limitations, and workstream
+boundaries.
 
 ### Target evidence from CI run #202 (2026-09-26)
 
