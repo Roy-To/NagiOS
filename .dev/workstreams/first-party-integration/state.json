@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "real-provider-cross-app-host-integration-verified",
+  "current_checkpoint": "fetch-enabled-root-activity-pass-full-host-suite-arm64-blocker",
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "36bf5ba4ad0b1d87060a451c49aaafd66b124a81",
-    "verified_at": "2026-09-26T04:09:53Z",
-    "normal_state": "All four requested branch heads are merge ancestors. A host-only adapter package now connects real Notes, Files, Activity, and Wayback providers to Home/Search. Files regular-file rename captures a read-authorized bounded snapshot and creates a shared checkpoint; unsupported snapshots fail truthfully. The cross-app suite passed 11 tests, Files 48 tests, Notes 27 tests, Home/Search 35 library plus 1 preview test, and isolated Activity/Wayback 41 tests; integration, Files, and Home/Search all-target Clippy and Rust formatting checks passed. The integrated memory-only preview passed in en-US and ja-JP. Target native launch, target capability/object/workspace services, durable history, target checkpoint restore, and target runtime acceptance remain NOT RUN. The ignored cc-nagi source remains absent; the safe ./nagi dev launcher routes DF-01 commands through nagi-bootstrap. See docs/first_party/integration/contract-matrix.md. The updated integration state validated through ./nagi dev verify; ./nagi dev status and ./nagi dev resume also completed successfully while cc-nagi remained absent.",
+    "verified_at": "2026-09-26T06:44:31Z",
+    "normal_state": "All four requested branch heads are merge ancestors. A host-only adapter package now connects real Notes, Files, Activity, and Wayback providers to Home/Search. Files regular-file rename captures a read-authorized bounded snapshot and creates a shared checkpoint; unsupported snapshots fail truthfully. The cross-app suite passed 11 tests, Files 48 tests, Notes 27 tests, Home/Search 35 library plus 1 preview test, and isolated Activity/Wayback 41 tests; integration, Files, and Home/Search all-target Clippy and Rust formatting checks passed. The integrated memory-only preview passed in en-US and ja-JP. Target native launch, target capability/object/workspace services, durable history, target checkpoint restore, and target runtime acceptance remain NOT RUN. The ignored cc-nagi source remains absent; the safe ./nagi dev launcher routes DF-01 commands through nagi-bootstrap. See docs/first_party/integration/contract-matrix.md. The updated integration state validated through ./nagi dev verify; ./nagi dev status and ./nagi dev resume also completed successfully while cc-nagi remained absent. After the prior pushed host-integration checkpoint, ./nagi fetch successfully materialized the ignored, source-lock-pinned cc-nagi and other pinned inputs. The root nagi-history test then passed all 41 tests. The full ./nagi test is blocked on this arm64 macOS host because user/libnagi contains x86_64 inline registers compiled for aarch64; ./nagi fmt reports check-only differences in fetched Servo sources. No tracked source, M17 state, or source branch was changed. Details are recorded in docs/first_party/integration/contract-matrix.md. The post-fetch state with the arm64 HOST_ENV blocker also passes ./nagi dev verify/status/resume.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -43,7 +43,16 @@
       "./nagi dev resume",
       "test ! -e third_party/cc-nagi/Cargo.toml",
       "sh -n nagi",
-      "git diff --check"
+      "git diff --check",
+      "./nagi fetch",
+      "cargo test -p nagi-history --lib --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "PATH=<nightly-2025-08-01-aarch64-apple-darwin>/bin:$PATH RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin ./nagi test",
+      "PATH=<nightly-2025-08-01-aarch64-apple-darwin>/bin:$PATH RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin ./nagi fmt",
+      "git status --short",
+      "git diff --check",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume"
     ],
     "tests": [
       {
@@ -178,31 +187,80 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Confirmed no placeholder or fetched cc-nagi crate was present; the source-lock/fetch path remains the canonical materialization workflow. The launcher shell syntax check passed."
+      },
+      {
+        "name": "pinned third-party source materialization",
+        "command": "./nagi fetch",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The standalone bootstrap validated and materialized pinned cc-nagi, Servo, Mesa/Softpipe, Surfman, tempfile, mozjs_sys and related Cargo sources. Generated trees are ignored fetch inputs; none was edited."
+      },
+      {
+        "name": "root Activity and Wayback suite after fetch",
+        "command": "cargo test -p nagi-history --lib --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 passed, 0 failed in the root workspace after cc-nagi was materialized."
+      },
+      {
+        "name": "standard full root host workspace test",
+        "command": "./nagi test",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The arm64 macOS host compile stopped in user/libnagi because x86_64 inline registers (rax, rdi, rsi, rcx, r11 and related) are invalid on aarch64-apple-darwin. No M17, ABI, or third-party source changes were made."
+      },
+      {
+        "name": "standard root formatting check",
+        "command": "./nagi fmt",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Check-only rustfmt reported differences in the fetched pinned Servo checkout with the installed formatter; no Servo source was modified."
+      },
+      {
+        "name": "tracked worktree after fetch and root checks",
+        "command": "git status --short; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No tracked or untracked source changes were created by fetch, the failing root commands, or their generated build outputs."
+      },
+      {
+        "name": "DF-01 state validation after fetch and root-suite findings",
+        "command": "./nagi dev verify; ./nagi dev status; ./nagi dev resume",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The updated checkpoint and HOST_ENV blocker validated; status/resume reported PARTIAL on codex/first-party-integration."
       }
     ],
     "ci_runs": []
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T04:09:53Z",
+    "last_checked_at": "2026-09-26T06:44:31Z",
     "activation_requirement": "This stream integrates 0.1 first-party host contracts only; it does not change M17 or authorize 0.2 runtime implementation. Target integration remains separately gated by the Nagi milestone state."
   },
   "blocker": {
-    "active": false,
-    "class": null,
-    "summary": null,
-    "reproduction_commands": [],
-    "failure_log_summary": null,
-    "attempted_fixes": [],
+    "active": true,
+    "class": "HOST_ENV",
+    "summary": "The full standard ./nagi test workspace cannot compile on this arm64 macOS host because user/libnagi uses x86_64 inline syscall registers. Standalone first-party suites and the root nagi-history suite pass. This blocks only the full host workspace check, not the completed host integration.",
+    "reproduction_commands": [
+      "./nagi test"
+    ],
+    "failure_log_summary": "Compilation fails in user/libnagi/src/lib.rs with invalid register errors for rax, rdi, rsi, rcx, r11, rdx, and r10 under aarch64-apple-darwin.",
+    "attempted_fixes": [
+      "./nagi fetch materialized the pinned cc-nagi source; the root nagi-history suite then passed 41 tests.",
+      "Retried the complete ./nagi test using the pinned arm64 toolchain; it still failed at the x86_64 syscall register ABI in user/libnagi.",
+      "Kept first-party integration and package suites isolated and passing; did not alter ABI code, M17, or tests."
+    ],
     "do_not_try": [
       "Do not edit or commit in M17 worktrees or branches.",
       "Do not modify docs/implementation_status.md or other M17 state.",
       "Do not commit to main or source branches.",
       "Do not rewrite or delete source branches/worktrees.",
-      "Do not force push, reset hard, or modify third_party implementation sources."
+      "Do not force push, reset hard, or modify third_party implementation sources.",
+      "Do not hide the architecture failure by weakening tests or stubbing guest syscall behavior."
     ]
   },
-  "next_action": "Resume target integration when the public Nagi APIs are available: bind authenticated user context, OS capability/object/workspace services, native app launch, Search/Action services, durable Activity/Wayback storage, and target Files snapshot/restore; then run target acceptance. Keep the host suite and all source branches unchanged.",
+  "next_action": "First rerun ./nagi test on a supported x86_64 development host to complete full root host-workspace verification. Then resume target integration when public Nagi APIs are available for authenticated context, OS capability/object/workspace services, native app launch, Search/Action services, durable Activity/Wayback storage, and target Files snapshot/restore. Keep the already-passing host integration and all source branches unchanged.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
@@ -212,6 +270,7 @@
     "Host/mock outcomes are not reported as Nagi target PASS; M17 state and sources remain unchanged."
   ],
   "deferred": [
+    "Full root host workspace test on a supported x86_64 development host; current arm64 host cannot compile user/libnagi x86_64 inline register operands.",
     "Native target app launch and target Action dispatch.",
     "Authenticated target context and OS capability, ObjectId, and Workspace services.",
     "Target Search provider service and durable Activity/Wayback storage.",

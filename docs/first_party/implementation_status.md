@@ -325,7 +325,17 @@ not modify or merge into M17 worktrees.
 - **DF-01 `cc-nagi` issue:** root Cargo's pinned source is an ignored fetch
   artifact. `./nagi fetch` materializes it from the source lock; the safe
   development launcher now routes `./nagi dev` through `tools/nagi-bootstrap`
-  so verify/status/resume work without it. No placeholder or third-party
-  source modification was made.
+  so verify/status/resume work without it. After the supported fetch completed,
+  root `cargo test -p nagi-history --lib --locked --offline` passed all 41
+  tests. No placeholder or third-party source modification was made.
+- **Broader root host checks:** `./nagi test` is `FAIL` on this arm64 macOS
+  host because `user/libnagi` compiles x86_64-only inline registers (`rax`,
+  `rdi`, and related registers) for the arm64 host target. The isolated
+  first-party package tests and root Activity tests pass; no low-level ABI or
+  M17 change was made. `./nagi fmt` is also `FAIL` because the current pinned
+  rustfmt reports formatting diffs across fetched Servo files; it ran in
+  check-only mode and no Servo source was changed. The DF-01 state now records
+  the full-workspace arm64 compile failure as a `HOST_ENV` blocker while
+  retaining the first-party integration status as `PARTIAL`.
 - M17 status and worktree were not changed. All four source branches and
   worktrees remain intact.

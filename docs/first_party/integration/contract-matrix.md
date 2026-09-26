@@ -217,6 +217,25 @@ Cargo workspace. The implementation checkpoint is commit
   results are **NOT RUN**, including native launch, durable storage, target
   object/capability services, target Search service, and checkpoint restore.
 
+### Post-fetch root workflow check
+
+- `./nagi fetch`: **PASS**. It materialized the source-lock-pinned `cc-nagi`
+  artifact and validated the pinned Surfman, tempfile, mozjs_sys, Servo, and
+  Mesa sources. The generated trees are ignored fetch inputs; none was edited.
+- With `cc-nagi` present, root
+  `cargo test -p nagi-history --lib --locked --offline`: **PASS**, 41 tests.
+  This resolves the earlier pre-compilation Cargo error for that package.
+- Standard `./nagi test`: **FAIL** on this arm64 macOS host while compiling
+  `user/libnagi`: inline registers `rax`, `rdi`, and related x86_64 registers
+  are invalid for the arm64 host target. No syscall ABI or M17 changes were
+  made. First-party standalone suites remain green.
+- Standard `./nagi fmt`: **FAIL** because the pinned Servo checkout has
+  rustfmt differences with the installed formatter. It is a check-only run;
+  Servo source was not modified.
+- `./nagi dev verify`, `./nagi dev status`, and `./nagi dev resume` pass with
+  the updated fetch/test state. The workstream remains `PARTIAL`; DF-01 records
+  the arm64-only full-workspace compile failure as a `HOST_ENV` blocker.
+
 ### Remaining adapters and gates
 
 The host adapters are deliberately process-local and do not claim to be
