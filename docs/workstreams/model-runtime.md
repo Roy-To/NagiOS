@@ -135,3 +135,11 @@ Verification on the dedicated worktree:
   this worktree lacks the prepared `out/rust-src/library/Cargo.toml`; this is a
   generated host setup input, not a package compile error. The source-branch CI
   target job will provide the reproducible prepared-source check.
+
+The manifest contract test verifies the schema file parses as JSON, spot-checks
+its version/required/closed-object declarations, and checks the fixtures with
+the strict typed parser. A Draft 2020-12 evaluator is not currently run. Adding
+a locked validator dependency would also require the shared root `Cargo.lock`,
+which the authoritative workstream registry lists as forbidden; this exact
+schema-validation gap remains deferred until the lockfile boundary is
+authorized. Existing typed parsing and semantic negative tests remain active.

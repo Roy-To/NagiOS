@@ -31,7 +31,7 @@ fn schema_file_is_valid_json_and_declares_closed_versioned_manifest() {
 }
 
 #[test]
-fn bundled_model_profiles_are_valid_v1_schema_examples() {
+fn bundled_model_profiles_are_valid_v1_manifest_examples() {
     let examples = [
         include_bytes!("fixtures/qwen3-4b.json").as_slice(),
         include_bytes!("fixtures/granite-4.2-3b.json").as_slice(),
