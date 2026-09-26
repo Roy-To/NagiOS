@@ -563,6 +563,19 @@ fn is_secret_key(key: &str) -> bool {
     .any(|needle| key.contains(needle))
 }
 
+pub(crate) fn escape_terminal_controls(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                character.escape_default().to_string()
+            } else {
+                character.to_string()
+            }
+        })
+        .collect()
+}
+
 fn redact_inline_secrets(value: &str) -> String {
     let mut output = String::new();
     let mut cursor = 0;
@@ -609,16 +622,7 @@ fn redact_inline_secrets(value: &str) -> String {
         output.push_str(REDACTED);
         cursor = value_end;
     }
-    let single_line = output
-        .chars()
-        .map(|character| match character {
-            '\n' => "\\n".to_owned(),
-            '\r' => "\\r".to_owned(),
-            '\t' => "\\t".to_owned(),
-            control if control.is_control() => "?".to_owned(),
-            character => character.to_string(),
-        })
-        .collect::<String>();
+    let single_line = escape_terminal_controls(&output);
     bounded_text(&single_line, MAX_MESSAGE_BYTES)
 }
 
@@ -1341,10 +1345,15 @@ impl DiagnosticsBundle {
     pub fn render_human(&self) -> String {
         let mut lines = vec![format!(
             "Nagi diagnostics bundle v{} ({}/{})",
-            self.schema_version, self.host_os, self.host_arch
+            self.schema_version,
+            escape_terminal_controls(&self.host_os),
+            escape_terminal_controls(&self.host_arch)
         )];
         if let Some(commit) = &self.source_commit {
-            lines.push(format!("source commit: {commit}"));
+            lines.push(format!(
+                "source commit: {}",
+                escape_terminal_controls(commit)
+            ));
         }
         lines.push(self.verification.render_human());
         lines.extend(self.events.iter().map(|event| {
@@ -1468,6 +1477,28 @@ mod tests {
         assert!(!rendered.contains("top-secret"));
         assert!(!rendered.contains("bearer-secret"));
         assert!(!rendered.contains("private text"));
+    }
+
+    #[test]
+    fn diagnostics_bundle_human_header_escapes_terminal_controls() {
+        let bundle = DiagnosticsBundle {
+            schema_version: DIAGNOSTIC_BUNDLE_SCHEMA_VERSION,
+            generated_at_unix_ms: 1,
+            source_commit: Some("unknown\rcommit".into()),
+            host_os: "linux\u{1b}[2J".into(),
+            host_arch: "x86_64\ninjected".into(),
+            verification: VerificationReport::new(Vec::new(), None, None, 1),
+            events: Vec::new(),
+        };
+
+        let rendered = bundle.render_human();
+
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(!rendered.contains('\r'));
+        assert_eq!(rendered.matches('\n').count(), 2, "{rendered:?}");
+        assert!(rendered.contains("linux\\u{1b}[2J"));
+        assert!(rendered.contains("x86_64\\ninjected"));
+        assert!(rendered.contains("unknown\\rcommit"));
     }
 
     #[test]

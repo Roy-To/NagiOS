@@ -172,7 +172,10 @@ fn status(root: &Path, resume: bool) -> Result<Vec<String>, CliError> {
             );
         }
     }
-    Ok(lines)
+    Ok(lines
+        .into_iter()
+        .map(|line| crate::diagnostics::escape_terminal_controls(&line))
+        .collect())
 }
 
 fn format_recent_ci_run_lines(ci_runs: &[Value]) -> Vec<String> {
@@ -216,10 +219,10 @@ fn verify(root: &Path) -> Result<Vec<String>, CliError> {
             ));
         }
     }
-    Ok(vec![format!(
+    Ok(vec![crate::diagnostics::escape_terminal_controls(&format!(
         "PASS development state: {} registered workstreams, {verified_states} state files validated; branch {} at {}",
         registry.len(), repo.branch, repo.head
-    )])
+    ))])
 }
 
 fn load_registry(root: &Path) -> Result<Vec<Workstream>, CliError> {
@@ -778,10 +781,10 @@ fn diagnose(args: &[String], root: &Path) -> Result<Vec<String>, CliError> {
             )));
         }
         Ok(vec![
-            format!(
+            crate::diagnostics::escape_terminal_controls(&format!(
                 "DIAGNOSTICS recorded: stage {stage}; process exit code {exit_code}; report {}",
                 path.display()
-            ),
+            )),
             format!(
                 "Suggested failure class: {}",
                 report["suggested_failure_class"]
@@ -1371,6 +1374,114 @@ mod tests {
     }
 
     #[test]
+    fn status_and_resume_escape_terminal_controls_from_workstream_state() {
+        use std::process::Command;
+
+        let root = std::env::temp_dir().join(format!(
+            "nagi-dev-status-terminal-controls-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".dev/workstreams/integration-next-phase"))
+            .expect("create temporary workstream");
+
+        let source_root = repo_root();
+        let registry_path = root.join(REGISTRY_PATH);
+        std::fs::create_dir_all(registry_path.parent().unwrap()).expect("create registry dir");
+        let mut registry: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(source_root.join(REGISTRY_PATH)).expect("read source registry"),
+        )
+        .expect("parse source registry");
+        let integration = registry["workstreams"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|entry| entry["id"] == "integration-next-phase")
+            .expect("integration workstream row");
+        integration["owner"] = json!("Integration owner\u{1b}[2J");
+        std::fs::write(
+            &registry_path,
+            serde_json::to_vec_pretty(&registry).expect("serialize registry"),
+        )
+        .expect("write registry");
+
+        let state_path = root.join(".dev/workstreams/integration-next-phase/state.json");
+        let mut state: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(source_root.join(".dev/workstreams/integration-next-phase/state.json"))
+                .expect("read source state"),
+        )
+        .expect("parse source state");
+        state["current_checkpoint"] = json!("checkpoint\r\ninjected");
+        state["next_action"] = json!("inspect\u{1b}[31mRED\u{1b}[0m");
+        state["blocker"]["do_not_try"] = json!(["avoid\u{1b}[2Jclear"]);
+        std::fs::write(
+            &state_path,
+            serde_json::to_vec_pretty(&state).expect("serialize state"),
+        )
+        .expect("write state");
+
+        let init = Command::new("git")
+            .args(["init", "--initial-branch=codex/integration-next-phase"])
+            .current_dir(&root)
+            .output()
+            .expect("initialize temporary git repository");
+        assert!(
+            init.status.success(),
+            "{}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+        for (key, value) in [
+            ("user.name", "Nagi Test"),
+            ("user.email", "nagi@example.test"),
+        ] {
+            let config = Command::new("git")
+                .args(["config", key, value])
+                .current_dir(&root)
+                .output()
+                .expect("configure temporary git repository");
+            assert!(
+                config.status.success(),
+                "{}",
+                String::from_utf8_lossy(&config.stderr)
+            );
+        }
+        let add = Command::new("git")
+            .args(["add", ".dev"])
+            .current_dir(&root)
+            .output()
+            .expect("stage temporary state");
+        assert!(
+            add.status.success(),
+            "{}",
+            String::from_utf8_lossy(&add.stderr)
+        );
+        let commit = Command::new("git")
+            .args(["commit", "-m", "test fixture"])
+            .current_dir(&root)
+            .output()
+            .expect("commit temporary state");
+        assert!(
+            commit.status.success(),
+            "{}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+
+        let status = super::execute(&["status".into()], &root).expect("status output");
+        let resume = super::execute(&["resume".into()], &root).expect("resume output");
+        for line in status.iter().chain(&resume) {
+            assert!(
+                !line.chars().any(char::is_control),
+                "terminal control leaked in output line: {line:?}"
+            );
+        }
+        assert!(status.iter().any(|line| line.contains("\\u{1b}[31mRED")));
+        assert!(status.iter().any(|line| line.contains("\\r\\ninjected")));
+        assert!(resume.iter().any(|line| line.contains("\\u{1b}[2Jclear")));
+
+        std::fs::remove_dir_all(root).expect("remove temporary workstream");
+    }
+
+    #[test]
     fn registry_validation_rejects_duplicate_ids_branches_dependencies_and_unsafe_paths() {
         let row = |id: &str, branch: &str, state_file: &str, dependencies: Vec<&str>| {
             json!({
@@ -1623,6 +1734,37 @@ mod tests {
             std::fs::read(&report).expect("report remains unchanged"),
             first_report
         );
+        std::fs::remove_dir_all(root).expect("remove diagnostic test directory");
+    }
+
+    #[test]
+    fn diagnostic_console_summary_escapes_terminal_controls() {
+        let root = std::env::temp_dir().join(format!(
+            "nagi-diagnostic-terminal-controls-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create diagnostic test directory");
+        std::fs::write(root.join("runtime.log"), b"runtime failed\n").expect("write runtime log");
+
+        let output_name = "report\n\u{1b}[2J.json";
+        let args = vec![
+            "--stage".into(),
+            "runtime\n\u{1b}[31m".into(),
+            "--exit-code".into(),
+            "4".into(),
+            "--log".into(),
+            "runtime.log".into(),
+            "--output".into(),
+            output_name.into(),
+        ];
+
+        let lines = diagnose(&args, &root).expect("write diagnostic report");
+
+        assert!(lines.iter().all(|line| !line.chars().any(char::is_control)));
+        assert!(lines[0].contains("runtime\\n\\u{1b}[31m"));
+        assert!(lines[0].contains("report\\n\\u{1b}[2J.json"));
+        assert!(root.join(output_name).is_file());
         std::fs::remove_dir_all(root).expect("remove diagnostic test directory");
     }
 
