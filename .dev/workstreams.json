@@ -72,6 +72,38 @@
       "merge_boundary": "0.2 integration branch after app-specific and cross-app acceptance."
     },
     {
+      "id": "first-party-integration",
+      "owner": "Codex first-party integrator",
+      "owner_branch": "codex/first-party-integration",
+      "recommended_worktree": "../NagiOS-first-party-integration",
+      "state_file": ".dev/workstreams/first-party-integration/state.json",
+      "dependencies": [],
+      "allowed_paths": [
+        ".dev/**",
+        "docs/first_party/**",
+        "docs/development/README.md",
+        "nagi",
+        "nagi.ps1",
+        "tools/nagi-cli/**",
+        "tests/development/**",
+        "user/nagi-history/**",
+        "user/nagi-notes/**",
+        "user/nagi-home-search/**",
+        "apps/nagi-files/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "third_party/**",
+        "out/**",
+        "target/**",
+        "docs/implementation_status.md",
+        "tests/acceptance/m17_servo_first_web_pixel.*"
+      ],
+      "activation_gate": "Dedicated 0.1 first-party integration only. Do not modify M17 or mark target runtime integrations PASS.",
+      "merge_boundary": "Dedicated first-party integration branch/worktree; never merge to main without explicit user direction."
+    },
+    {
       "id": "ai-runtime",
       "owner": "unassigned",
       "owner_branch": "codex/0.2-ai-runtime",

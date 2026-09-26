@@ -1,0 +1,55 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "first-party-integration",
+  "current_milestone": "M-APP-INTEGRATION",
+  "current_checkpoint": "source-contract-audit-complete",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85",
+    "verified_at": "2026-09-26T00:00:00Z",
+    "normal_state": "Integration worktree created from the four-branch common ancestor. Source and remote SHAs, changed-path overlap, canonical Nagi IDs, app-local adapters, and cc-nagi materialization were audited. No source merge or integration test has run yet. Details: docs/first_party/integration/contract-matrix.md.",
+    "commands": [
+      "git worktree list --porcelain",
+      "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
+      "git ls-remote origin refs/heads/codex/app-home-search refs/heads/codex/app-notes refs/heads/codex/app-activity-wayback refs/heads/codex/app-files",
+      "git diff --name-only be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85..<source-branch>",
+      "inspect .dev schemas, Nagi specifications, source status, and provider contracts"
+    ],
+    "tests": [],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T00:00:00Z",
+    "activation_requirement": "This stream integrates 0.1 first-party host contracts only; it does not change M17 or authorize 0.2 runtime implementation. Target integration remains separately gated by the Nagi milestone state."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not edit or commit in M17 worktrees or branches.",
+      "Do not modify docs/implementation_status.md or other M17 state.",
+      "Do not commit to main or source branches.",
+      "Do not rewrite or delete source branches/worktrees.",
+      "Do not force push, reset hard, or modify third_party implementation sources."
+    ]
+  },
+  "next_action": "Merge Activity + Wayback as the first audited source branch, resolve only the shared first-party status file semantically, and run its focused host checks.",
+  "acceptance_criteria": [
+    "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
+    "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
+    "Notes, Files, and Activity host providers connect to Home/Search with permission-filtered typed results where supported.",
+    "Notes/Files semantic operations are visible through the shared host Activity and Wayback contracts where valid provenance is available.",
+    "English and Japanese host flows and sandbox isolation are checked.",
+    "Host/mock outcomes are not reported as Nagi target PASS; M17 state and sources remain unchanged."
+  ],
+  "deferred": [
+    "Native app launch, target Search/Workspace services, target capability authorization, durable Activity/Wayback storage, target Notes storage, target Files provider, and target Action dispatcher remain target-runtime dependencies."
+  ],
+  "cross_workstream_dependencies": []
+}
