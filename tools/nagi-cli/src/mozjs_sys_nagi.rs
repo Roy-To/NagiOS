@@ -280,6 +280,13 @@ mod tests {
             "SpiderMonkey Wasm exception parameter append completed",
             "SpiderMonkey Wasm exception tag type creation completed",
             "SpiderMonkey Wasm canonical type-set lock acquired",
+            "SpiderMonkey Wasm canonical type-set insertion started",
+            "SpiderMonkey Wasm RecGroup hash started",
+            "SpiderMonkey Wasm RecGroup hash completed",
+            "SpiderMonkey Wasm TypeIdSet lookupForAdd started",
+            "SpiderMonkey Wasm TypeIdSet lookupForAdd completed",
+            "SpiderMonkey Wasm TypeIdSet HashSet add started",
+            "SpiderMonkey Wasm TypeIdSet HashSet add completed",
             "SpiderMonkey Wasm canonical type-set insertion completed",
             "SpiderMonkey Wasm StaticTypeDefs::init completed",
         ] {

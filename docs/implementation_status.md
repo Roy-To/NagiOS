@@ -4754,3 +4754,26 @@ behavior. The local source-contract test now passes after first failing because
 the patch was absent; the focused format check and patch reverse-check pass.
 Public target CI must verify compilation and expose the last completed marker.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+
+### Current M17 continuation after CI run #259 (2026-09-26)
+
+Public CI run #259 (`36255926378`, head
+`28954b4d0546a77f3b21df5d8066aee51c26288e`) passed both host jobs, target
+dependency checks, Mesa Softpipe, the M16 package, kernel, real `nagi-init`
+link, and UEFI loader. The M17 QEMU acceptance failed because QEMU did not
+exit within 120 seconds (exit code 4). The new static-type trace completed
+TypeContext allocation and acquired the canonical type-set lock, then stopped
+at `SpiderMonkey Wasm canonical type-set insertion started`. The more precise
+trace places the stall inside `TypeIdSet::insert`; no first-web-pixel checksum
+or PASS marker was produced.
+
+Pinned source shows that `insert` calls `HashSet::lookupForAdd` before
+`HashSet::add`. The first path hashes the one-type mutable-I16 array group; if
+the static set is still empty, the add path allocates its initial table through
+`SystemAllocPolicy`, which reaches Nagi's malloc/heap-lock path. This is a
+candidate only; CI #259 did not distinguish hashing, lookup, and table
+allocation. Patch `0017-nagi-m17-wasm-static-type-traces.patch` now brackets
+the recursion-group hash, `lookupForAdd`, and `HashSet::add` separately. The
+next public target run must identify which operation fails before any runtime
+change is selected. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

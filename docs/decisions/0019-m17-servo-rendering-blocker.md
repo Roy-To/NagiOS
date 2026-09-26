@@ -2585,3 +2585,30 @@ was added and then passes; the focused `nagi-cli` format check and patch
 reverse-check also pass. The next target run must compile these diagnostics and
 identify the last completed operation before a runtime change is selected.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+
+## Canonical type-set insertion trace after CI run #259 (2026-09-26)
+
+Public CI run #259 (`36255926378`, head
+`28954b4d0546a77f3b21df5d8066aee51c26288e`) passed both host jobs, target
+dependency checks, Mesa Softpipe, M16 package, kernel, real `nagi-init` link,
+and UEFI loader. QEMU did not exit within its 120-second acceptance bound
+(exit code 4). The new trace completed TypeContext allocation and acquired
+the Wasm type-set lock, but stopped after
+`SpiderMonkey Wasm canonical type-set insertion started`. No checksum or
+first-web-pixel PASS marker was produced.
+
+Pinned-source inspection narrows the call to `TypeIdSet::insert`, which runs
+`HashSet::lookupForAdd(recGroup)` followed by `HashSet::add(p, recGroup)` on a
+miss. The first static group is the mutable-I16 array type. Hashing this group
+is a finite walk over that type; an empty table's first `add` instead allocates
+the initial hash table through `SystemAllocPolicy` and the Nagi allocation
+path. A heap allocator stall is plausible because that path uses Nagi's
+POSIX heap lock, but this run does not prove it.
+
+Patch `0017-nagi-m17-wasm-static-type-traces.patch` now emits Nagi-only markers
+around `RecGroupHashPolicy::hash`, `lookupForAdd`, and `HashSet::add`. These
+checkpoints preserve the upstream operation order and distinguish a hashing
+stall from probing or first-table allocation. The next target run should use
+the last marker to select a targeted fix. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.

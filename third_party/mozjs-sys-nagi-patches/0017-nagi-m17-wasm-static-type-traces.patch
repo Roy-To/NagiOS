@@ -67,9 +67,28 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +#else
 +#  define NAGI_M17_TRACE(stage) ((void)0)
 +#endif
-@@ -568,0 +581 @@
+@@ -500 +512,6 @@
+-  static HashNumber hash(Lookup lookup) { return lookup->hash(); }
++  static HashNumber hash(Lookup lookup) {
++    NAGI_M17_TRACE("SpiderMonkey Wasm RecGroup hash started");
++    HashNumber groupHash = lookup->hash();
++    NAGI_M17_TRACE("SpiderMonkey Wasm RecGroup hash completed");
++    return groupHash;
++  }
+@@ -516 +533,3 @@
+-    Set::AddPtr p = set_.lookupForAdd(recGroup);
++    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd started");
++    Set::AddPtr p = set_.lookupForAdd(recGroup);
++    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd completed");
+@@ -524 +543,4 @@
+-    if (!set_.add(p, recGroup)) {
++    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add started");
++    bool added = set_.add(p, recGroup);
++    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add completed");
++    if (!added) {
+@@ -568,0 +591 @@
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock started");
-@@ -570 +583,5 @@
+@@ -570 +593,5 @@
 -  return locked->insert(recGroup);
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock acquired");
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set insertion started");

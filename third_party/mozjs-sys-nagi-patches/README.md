@@ -116,5 +116,8 @@ guest console callback and leave initialization behavior and ordering intact.
 Patch `0017` narrows the static Wasm type initialization trace after public
 QEMU reached `StaticTypeDefs::init()` but did not return. It brackets the
 `TypeContext` allocation, initial type and parameter creation, and canonical
-type-set lock/insertion. The checkpoints are Nagi-only and do not change type
+type-set lock/insertion. After CI #259 stopped inside canonical type-set
+insertion, it also brackets recursion-group hashing, `lookupForAdd`, and
+`HashSet::add` so the next target run can distinguish lookup from initial
+set-table allocation. The checkpoints are Nagi-only and do not change type
 construction or synchronization behavior.
