@@ -907,15 +907,34 @@ fn resource_id(_path: &Path, metadata: &cap_std::fs::Metadata) -> ResourceId {
     {
         ResourceId((u128::from(metadata.dev()) << 64) | u128::from(metadata.ino()))
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        let mut hash = 0xcbf2_9ce4_8422_2325_u128;
-        for byte in _path.to_string_lossy().as_bytes() {
-            hash ^= u128::from(*byte);
-            hash = hash.wrapping_mul(0x100_0000_01b3);
+        match metadata.volume_serial_number().zip(metadata.file_index()) {
+            Some((volume_serial_number, file_index)) => {
+                windows_resource_id(volume_serial_number, file_index)
+            }
+            None => path_fallback_resource_id(_path),
         }
-        ResourceId(hash)
     }
+    #[cfg(not(any(unix, windows)))]
+    {
+        path_fallback_resource_id(_path)
+    }
+}
+
+#[cfg(any(windows, test))]
+fn windows_resource_id(volume_serial_number: u32, file_index: u64) -> ResourceId {
+    ResourceId((u128::from(volume_serial_number) << 64) | u128::from(file_index))
+}
+
+#[cfg(not(unix))]
+fn path_fallback_resource_id(path: &Path) -> ResourceId {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u128;
+    for byte in path.to_string_lossy().as_bytes() {
+        hash ^= u128::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    ResourceId(hash)
 }
 
 fn map_io_error(error: std::io::Error) -> FilesError {
@@ -1016,5 +1035,26 @@ fn is_cross_device(error: &std::io::Error) -> bool {
     #[cfg(not(any(unix, windows)))]
     {
         false
+    }
+}
+
+#[cfg(test)]
+mod windows_identity_tests {
+    use super::windows_resource_id;
+
+    #[test]
+    fn windows_resource_id_uses_volume_and_file_identity() {
+        let first_location = windows_resource_id(0x1234_abcd, 0x0102_0304_0506_0708);
+        let moved_location = windows_resource_id(0x1234_abcd, 0x0102_0304_0506_0708);
+
+        assert_eq!(first_location, moved_location);
+        assert_ne!(
+            first_location,
+            windows_resource_id(0x1234_abce, 0x0102_0304_0506_0708)
+        );
+        assert_ne!(
+            first_location,
+            windows_resource_id(0x1234_abcd, 0x0102_0304_0506_0709)
+        );
     }
 }

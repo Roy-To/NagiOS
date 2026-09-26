@@ -60,7 +60,10 @@ that take an item index. `help` prints the interactive syntax.
   metadata-directory handles against their in-sandbox entries before metadata
   writes and Trash operations. This is a host preview backend, not isolation
   from a hostile process running as the same OS user or a production Nagi
-  capability implementation.
+  capability implementation. Resource IDs use device/inode metadata on Unix
+  and volume serial/file index metadata on Windows; when a non-Unix filesystem
+  cannot provide stable identity metadata, the provider falls back to a
+  path-derived ID whose value can change after a move.
 - Search returns filename, location, kind, size, modified-time, and tag
   metadata. It checks read permission per returned resource and skips denied
   resources without revealing their names.

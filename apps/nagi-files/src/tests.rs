@@ -985,6 +985,7 @@ fn sandbox_rejects_hidden_internal_metadata_and_symlink_path_traversal() {
 }
 
 #[test]
+#[cfg(unix)]
 fn sandbox_symlinks_are_presented_but_never_followed_or_copied() {
     let temp = TempSandbox::new();
     let outside = TempSandbox::new();
@@ -1151,6 +1152,7 @@ fn sandbox_missing_source_and_invalid_destination_fail_without_side_effects() {
 }
 
 #[test]
+#[cfg(unix)]
 fn sandbox_partial_copy_failure_rolls_back_new_destination() {
     let temp = TempSandbox::new();
     let outside = TempSandbox::new();
@@ -1446,6 +1448,7 @@ fn typed_action_api_keeps_agent_mutations_fail_closed_without_activity() {
 }
 
 #[test]
+#[cfg(unix)]
 fn sandbox_symlink_at_internal_storage_boundary_fails_closed() {
     let temp = TempSandbox::new();
     let outside = TempSandbox::new();
