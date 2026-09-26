@@ -1,0 +1,16 @@
+[package]
+name = "nagi-model-manager"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+test-support = []
+
+[dependencies]
+nagi-model = { path = "../../crates/nagi-model" }
+serde = { version = "=1.0.229", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "=1.0.151", default-features = false, features = ["alloc"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

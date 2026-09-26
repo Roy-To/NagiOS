@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nagi:model-manifest:v1",
+  "title": "Nagi Model Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "model_id", "display_name", "provider", "version",
+    "variant", "runtime_api_version", "execution", "artifact", "capabilities",
+    "modalities", "context", "resources", "supported_backends", "roles",
+    "compatibility", "license", "source"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "model_id": {"$ref": "#/$defs/id"},
+    "display_name": {"type": "string", "minLength": 1},
+    "provider": {"$ref": "#/$defs/provider"},
+    "version": {"type": "string", "minLength": 1},
+    "variant": {"type": "string", "minLength": 1},
+    "runtime_api_version": {"const": "nagi.ai/1"},
+    "execution": {"enum": ["local", "remote"]},
+    "artifact": {"$ref": "#/$defs/artifact"},
+    "capabilities": {"$ref": "#/$defs/idList"},
+    "modalities": {"$ref": "#/$defs/idList"},
+    "context": {"$ref": "#/$defs/context"},
+    "resources": {"$ref": "#/$defs/resources"},
+    "supported_backends": {"$ref": "#/$defs/idList"},
+    "roles": {"$ref": "#/$defs/idList"},
+    "compatibility": {"$ref": "#/$defs/compatibility"},
+    "license": {"$ref": "#/$defs/license"},
+    "source": {"anyOf": [{"$ref": "#/$defs/source"}, {"type": "null"}]}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "license": {
+            "properties": {"acknowledgement_required": {"const": true}}
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "license": {
+            "properties": {"terms_reference": {"type": "string", "minLength": 1}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"source": {"type": "object"}}},
+      "then": {
+        "properties": {
+          "artifact": {
+            "properties": {
+              "size_bytes": {"type": "integer", "minimum": 1},
+              "integrity": {"$ref": "#/$defs/integrity"}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+    "idList": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "provider": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider_id", "display_name", "family"],
+      "properties": {
+        "provider_id": {"$ref": "#/$defs/id"},
+        "display_name": {"type": "string", "minLength": 1},
+        "family": {"type": "string", "minLength": 1}
+      }
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "reference", "size_bytes", "integrity"],
+      "properties": {
+        "format": {"$ref": "#/$defs/id"},
+        "reference": {"$ref": "#/$defs/artifactReference"},
+        "size_bytes": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
+        "integrity": {"anyOf": [{"$ref": "#/$defs/integrity"}, {"type": "null"}]}
+      }
+    },
+    "artifactReference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "artifact_id"],
+      "properties": {
+        "kind": {"const": "model_store"},
+        "artifact_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "integrity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithm", "digest"],
+      "properties": {
+        "algorithm": {"const": "sha256"},
+        "digest": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+      }
+    },
+    "context": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_input_tokens", "max_output_tokens"],
+      "properties": {
+        "max_input_tokens": {"type": "integer", "minimum": 1},
+        "max_output_tokens": {"type": "integer", "minimum": 1}
+      }
+    },
+    "resources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum_ram_bytes", "recommended_ram_bytes", "minimum_storage_bytes", "minimum_cpu_cores", "gpu_required"],
+      "properties": {
+        "minimum_ram_bytes": {"type": "integer", "minimum": 1},
+        "recommended_ram_bytes": {"anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
+        "minimum_storage_bytes": {"type": "integer", "minimum": 0},
+        "minimum_cpu_cores": {"type": "integer", "minimum": 1, "maximum": 255},
+        "gpu_required": {"type": "boolean"}
+      }
+    },
+    "compatibility": {
+      "type": "object", "additionalProperties": false,
+      "required": ["architectures", "minimum_os_version"],
+      "properties": {
+        "architectures": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "minimum_os_version": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+      }
+    },
+    "license": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identifier", "terms_reference", "acknowledgement_required", "notices"],
+      "properties": {
+        "identifier": {"type": "string", "minLength": 1},
+        "terms_reference": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+        "acknowledgement_required": {"type": "boolean"},
+        "notices": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["notice_id", "reference", "required"],
+            "properties": {
+              "notice_id": {"$ref": "#/$defs/id"},
+              "reference": {"type": "string", "minLength": 1},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["uri", "revision", "file_name"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "file_name": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\]+$"}
+      }
+    }
+  }
+}

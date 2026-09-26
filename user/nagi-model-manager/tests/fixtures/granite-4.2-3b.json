@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "model_id": "ibm.granite-4.2-3b",
+  "display_name": "IBM Granite 4.2 3B",
+  "provider": {
+    "provider_id": "ibm",
+    "display_name": "IBM",
+    "family": "granite"
+  },
+  "version": "4.2",
+  "variant": "3b",
+  "runtime_api_version": "nagi.ai/1",
+  "execution": "local",
+  "artifact": {
+    "format": "gguf",
+    "reference": {
+      "kind": "model_store",
+      "artifact_id": "ibm.granite-4.2-3b"
+    },
+    "size_bytes": null,
+    "integrity": null
+  },
+  "capabilities": ["text.generate", "structured.generate"],
+  "modalities": ["text"],
+  "context": {
+    "max_input_tokens": 4096,
+    "max_output_tokens": 1024
+  },
+  "resources": {
+    "minimum_ram_bytes": 2147483648,
+    "recommended_ram_bytes": 4294967296,
+    "minimum_storage_bytes": 2147483648,
+    "minimum_cpu_cores": 1,
+    "gpu_required": false
+  },
+  "supported_backends": ["llama_cpp"],
+  "roles": ["standard", "default_standard_candidate"],
+  "compatibility": {
+    "architectures": ["x86_64"],
+    "minimum_os_version": null
+  },
+  "license": {
+    "identifier": "provider-terms:ibm-granite",
+    "terms_reference": "provider-terms:ibm.granite",
+    "acknowledgement_required": false,
+    "notices": [
+      {
+        "notice_id": "model-notice",
+        "reference": "provider-notice:ibm.granite",
+        "required": true
+      }
+    ]
+  },
+  "source": null
+}
