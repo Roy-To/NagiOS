@@ -49,7 +49,9 @@ Unit tests cover manifest load/rejection, identity/locales, lifecycle transition
 - State restoration receives both `currentVersion` and
   `minimumReadableVersion`; corrupt, future, and too-old state is reported
   rather than silently reset or downgraded.
-- The dedicated workstream registration was added as the minimal appended row
-  explicitly requested for DF tracking. `.dev/workstreams.json` remains shared
-  and integration-owned; treat this row as a focused integration conflict
-  candidate during consolidation.
+- Two integration-owned boundaries are carried only as focused feature-branch
+  proposals: the appended `.dev/workstreams.json` row needed to track this
+  stream, and `tools/nagi-pkg/Cargo.toml` / its lock update for the host JSON
+  parser. Before integration, the owner should create a checkpoint, confirm
+  the dependency and registry consumers, and record any migration/review plan.
+  No shared file was changed on main or the DF branch.
