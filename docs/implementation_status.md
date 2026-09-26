@@ -19,37 +19,28 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #204 confirmed Mesa patch `0030` recovered the EGL TLS cookie,
-completed make-current, and reached Surfman's GL function loading. Rust std
-then failed because `__nagi_std_random_fill` returned -1. Kernel diagnostics
-and source audit identified the concrete cause: the guest RNG scanner used
-transitional PCI ID `0x1003` (VirtIO console) instead of `0x1005` (VirtIO
-entropy). The scanner now recognizes `0x1005` and modern ID `0x1044`, with a
-regression check. Actions run #205 (`36219851280`, head `d4ce627`) was canceled
-during `Build Nagi user init` and produced no QEMU evidence. Run #232
-(`36220293827`, head `35efaf6`) passed host jobs and target builds, then failed
-at Servo construction with a 512-byte allocation error. Its local follow-up
-expanded the bounded guest heap to 64 MiB and the mmap window to 128 MiB. Run
-#233 (`36223836342`, head `1993a45`) reproduced the same allocation error after
-the heap expansion, so heap capacity alone is not established as the cause.
-Source inspection shows Rust's Unix `System` allocator uses `posix_memalign`
-for alignments above `MIN_ALIGN`; Nagi's shim still returned a regular heap
-pointer and rejected it when it did not meet the requested alignment. The
-latest trace lacks the normal heap-mapping and no-free-block diagnostics,
-making an over-aligned request the current hypothesis. A bounded aligned
-allocation path is implemented in `nagi-posix`; focused tests and the Nagi
-target compile pass locally. Public QEMU verification is still required. No
-Servo frame or pixel checksum has been produced. M17 remains BLOCKED; M18
-remains NOT STARTED.
+milestone. CI run `36233551349` at head `3d2001c` passed both host jobs
+and target builds through UEFI, but QEMU stopped after creating the Softpipe
+context and entering Servo construction. A Servo thread spawn received
+`EAGAIN` from `pthread_create` (`nagi errno`), then abort was
+redirected and QEMU timed out at 120 seconds. The serial log had no kernel
+`SYS_THREAD_CREATE rejected` reason, and no first-pixel checksum or PASS marker
+was produced. A bounded, allocation-free user-space trace now distinguishes
+an occupied POSIX child slot, failed fixed-stack mmap, and native thread-bridge
+rejection; its log identifies the 16 KiB bridge stack and returned pthread
+error without changing the one-child behavior. Host tests and the Nagi user
+target library compile pass. Public QEMU verification of this trace is still
+required. M17 remains BLOCKED; M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36223836342` (#233, head
-`1993a4582952d3c1176ceff4434ac07a11a02881`) passed both host jobs and all
-target build steps through UEFI. QEMU reached `Servo construction started`,
-then reported `memory allocation of 512 bytes failed`, redirected abort to
-`mozalloc_abort`, and timed out at 120 seconds. The bounded trace contains no
-POSIX heap mapping or no-free-block diagnostic. No pixel result is available.
-Public target CI remains authoritative for M17; M18 remains NOT STARTED.
+**Last known repair checkpoint:** commit `582b5f64585054be354b7d3f9379cfa3054f8828`
+adds bounded pthread-create failure tracing. Nine `nagi-posix` host tests,
+warning-denied Clippy, formatting, and the Nagi user-target library check pass;
+the target check emits five existing visibility/dead-code warnings. Public CI
+run `36236310925` is evaluating that commit. The preceding target evidence,
+run `36233551349` at `3d2001c`, ended with the Servo thread-spawn `EAGAIN`
+described above and produced no pixel result. Public target CI remains
+authoritative for M17; M18 remains NOT STARTED.
 
 ### Target evidence from CI run #233 (2026-09-26)
 
@@ -4657,8 +4648,43 @@ Clippy with warnings denied, `./nagi dev verify` (18 registered workstreams;
 existing `target_os = "nagi"` configuration warnings from the vendored libc
 dependency. No guest, kernel, loader, or third-party source changed.
 
-The already-running Actions run 36233551349 was built from parent commit
-3d2001c58f64cd5a3f63751224c2fb21ee325e40, before this host CLI change. Its
-Ubuntu and Windows host jobs passed; the target job is still running the real
-M17 first-web-pixel acceptance. This host fix does not provide M17 pixel
-evidence. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+Actions run `36233551349` was built from parent commit
+`3d2001c58f64cd5a3f63751224c2fb21ee325e40`. Ubuntu and Windows host jobs
+passed. Its target acceptance completed with failure after QEMU timed out
+during Servo construction; it produced no M17 checksum or PASS marker.
+
+Run `36235206493` at `7caf740` exposed a Windows-only regression-test fixture
+failure: Windows does not allow the test's newline/ESC filename. The fixture
+now uses a valid cross-platform output filename while retaining a separate
+Unix-only hostile-filename case. On run `36235660277` at `dd192ca`, both host
+jobs passed, including Windows M0 launcher acceptance; at the latest check the
+target job was still building Nagi user init. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.
+
+## M17 pthread-create diagnostic checkpoint (2026-09-26)
+
+Target run `36233551349` passed Ubuntu/Windows host jobs and target builds
+through UEFI, then QEMU created the Softpipe context and entered Servo
+construction. A Servo thread spawn returned `EAGAIN` from `pthread_create`
+(`nagi errno`); abort was redirected and QEMU timed out at 120 seconds. There
+was no kernel `SYS_THREAD_CREATE rejected` reason and no real first-pixel
+checksum or PASS marker. The runner's stage label alone does not establish
+the root cause.
+
+Commit `582b5f64585054be354b7d3f9379cfa3054f8828` adds a fixed-buffer,
+allocation-free user-space trace for the three POSIX bridge outcomes: an
+occupied child slot, failed fixed-stack mmap, and native thread-bridge
+rejection. Each failure line reports the attempt, stage, actual 16 KiB bridge
+stack size, and returned pthread error. Guest logging is limited to the first
+eight failures; return and errno behavior and the single-child bridge remain
+unchanged. The formatter is a host-testable module because the guest ABI file
+is not part of host test builds.
+
+Verification on that source commit: all 9 `nagi-posix` tests pass, including
+two formatter bounds/content tests; package formatting and Clippy with
+warnings denied pass; the Nagi user-target library check passes with five
+existing visibility/dead-code warnings. Actions run `36236310925` for this
+commit is in progress; at the latest check its Ubuntu host job had passed and
+its Windows job was bootstrapping pinned Servo dependencies. The target job
+had not started. The real QEMU result is pending. M17 remains `BLOCKED`; M18
+remains `NOT STARTED`.

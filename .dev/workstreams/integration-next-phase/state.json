@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "root-host-cli-control-escaping-verified-m17-target-running",
+  "current_checkpoint": "m17-pthread-failure-trace-pushed-host-verified-ci-running",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "7bd2afab365ccc1c450ec2e370ba15d9cc915ddc",
-    "verified_at": "2026-09-26T10:12:56Z",
-    "normal_state": "On code commit 7bd2afab, human developer CLI output now escapes terminal control characters from workstream state, diagnostic summaries, and diagnostics-bundle headers. The nagi-cli suite passes (106 unit + 26 integration tests), three focused regression tests pass, format and warning-denied Clippy pass, and ./nagi dev verify validates 18 registered workstreams and 11 state files. Public CI #36233551349 is from parent commit 3d2001c: Ubuntu and Windows host jobs passed; its target job is still running the real M17 first-web-pixel acceptance. That run is not evidence for the CLI code commit and has not produced M17 pixel evidence. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS plus explicit release checkpoint.",
+    "commit_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
+    "verified_at": "2026-09-26T10:40:24Z",
+    "normal_state": "Integration head 582b5f6 adds bounded, allocation-free user-space diagnostics for pthread_create failures. The nagi-posix suite passes (9 tests), package formatting and warning-denied Clippy pass, and the Nagi x86_64 user-target library compiles with five existing visibility/dead-code warnings. Root CI #36233551349 passed Ubuntu and Windows host jobs and target builds through UEFI, but QEMU entered Servo construction, received pthread_create EAGAIN, and timed out without a real pixel checksum or M17 PASS marker. Root CI #36235206493 exposed a Windows-invalid test filename; commit dd192ca fixes the fixture. Run #36235660277 passed both host jobs and was building Nagi user init at the latest check. Run #36236310925 for 582b5f6 is in progress. The app branch audit found no missing source commits to integrate; dirty detached first-party target work remains untouched. M17 remains BLOCKED, M18 remains NOT STARTED, and 0.2 runtime/product stays gated on M30 PASS plus an explicit release checkpoint.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -90,7 +90,11 @@
       "gh run view 36233551349 --json status,conclusion,jobs,url",
       "gh run download 36233551349 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362335-windows",
       "cargo test -p nagi-cli --locked --offline --config build.target=\"aarch64-apple-darwin\" terminal_controls",
-      "cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings"
+      "cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+      "cargo fmt --manifest-path user/nagi-posix/Cargo.toml",
+      "gh run view 36235206493 --log-failed",
+      "gh run view 36235660277 --json status,conclusion,jobs,url",
+      "gh run view 36236310925 --json status,conclusion,jobs,url"
     ],
     "tests": [
       {
@@ -547,6 +551,41 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "No whitespace errors in the source change."
+      },
+      {
+        "name": "M17 pthread diagnostic formatter tests",
+        "command": "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 9 unit tests pass, including exact stage/bridge-stack/pthread-error formatting and bounded long-stage/maximum-integer formatting."
+      },
+      {
+        "name": "M17 pthread diagnostic formatting and whitespace",
+        "command": "cargo fmt --manifest-path user/nagi-posix/Cargo.toml -- --check; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Rust formatting and Git whitespace checks pass."
+      },
+      {
+        "name": "M17 pthread diagnostic Clippy",
+        "command": "cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All host test and library targets pass Clippy with warnings denied."
+      },
+      {
+        "name": "M17 pthread diagnostic Nagi user-target compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The nagi-posix library compiles for x86_64-unknown-nagi-user; Cargo reports five existing visibility/dead-code warnings in abi.rs and runtime.rs."
+      },
+      {
+        "name": "Updated DF-01 integration state validator",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on code commit 582b5f6."
       }
     ],
     "ci_runs": [
@@ -714,15 +753,39 @@
         "run_id": 36233551349,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36233551349",
         "head_sha": "3d2001c58f64cd5a3f63751224c2fb21ee325e40",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu and Windows host jobs passed and target builds reached UEFI. QEMU created the Softpipe context and entered Servo construction; pthread_create returned EAGAIN, abort was redirected, and the 120-second acceptance timed out. No real pixel checksum or M17 PASS marker was produced."
+      },
+      {
+        "run_id": 36235206493,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36235206493",
+        "head_sha": "7caf7400a29653be775981da7cf56eed1e7356c1",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu passed. Windows host tests rejected the new regression fixture because its filename contained newline/ESC characters; the target job was skipped. Commit dd192ca now uses a Windows-valid filename for the cross-platform summary test and keeps the hostile-filename case Unix-only."
+      },
+      {
+        "run_id": 36235660277,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36235660277",
+        "head_sha": "dd192ca3d303c85f20d206c88976ed26b766612a",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Ubuntu and Windows host jobs passed, including M0-LAUNCHER on Windows; retained report shows 1 PASS and 20 filtered target cases NOT RUN. The nagi-target job is running the real M17 first-web-pixel acceptance; overall run remains IN_PROGRESS."
+        "summary": "Ubuntu and Windows host jobs passed, including Windows M0 launcher acceptance. At the latest check, the target job was building Nagi user init; this run predates the pthread diagnostic commit."
+      },
+      {
+        "run_id": 36236310925,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36236310925",
+        "head_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "CI for the bounded pthread diagnostic commit is running. Ubuntu host passed; Windows was bootstrapping pinned Servo dependencies, and the target job had not started at the latest check."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T09:49:10Z",
+    "last_checked_at": "2026-09-26T10:40:24Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -738,7 +801,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Inspect target job and retained M17 diagnostics for run 36233551349. Keep M17 BLOCKED unless the real guest emits the first-pixel checksum and acceptance marker; keep M18 NOT STARTED and all 0.2 runtime/product work gated on M30 PASS plus an explicit release checkpoint.",
+  "next_action": "Inspect root CI runs 36235660277 (dd192ca) and 36236310925 (582b5f6) as they complete. Use the new bounded user-space pthread trace to distinguish child-slot, stack-mmap, and native-bridge rejection if the target reaches that path. Keep M17 BLOCKED until the real guest emits the first-pixel checksum and acceptance marker; keep M18 NOT STARTED and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -746,7 +809,7 @@
     "No 0.2 production runtime or guest authority path is activated before M30 PASS and an explicit release boundary."
   ],
   "deferred": [
-    "M17 first-web-pixel QEMU verification of commit 55be56d7169d697a69d9167288ec0e4b523df610.",
+    "M17 first-web-pixel QEMU verification of a commit containing the bounded pthread-create trace; require a real guest pixel checksum and the existing acceptance marker.",
     "Nagi 0.1 M18-M30 and any 0.2 production runtime or product activation until their documented gates pass."
   ],
   "cross_workstream_dependencies": [
