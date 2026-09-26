@@ -48,3 +48,11 @@ backend or profiler initialization, and marks when the memory profiler has
 been constructed before it enters its receive loop. These Nagi-only
 checkpoints use the same console callback and are no-ops on other targets;
 they do not change thread creation or scheduling behavior.
+
+
+The ordered patch `0013-nagi-m17-js-engine-init-traces.patch` adds Nagi-only
+checkpoints inside Servo's synchronous `script::init()` path. It brackets the
+JIT decision, proxy-handler setup, generated static binding registration,
+memory reporter initialization, platform initialization, and engine setup
+construction. This narrows a JavaScript bootstrap stall without changing the
+initialization order or operations; other targets compile a no-op helper.

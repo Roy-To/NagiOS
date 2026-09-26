@@ -2467,3 +2467,31 @@ The M17-specific writer and its 2 MiB ELF FAT12 regression test are now in
 place; all 50 `nagi-cli` unit tests and 18 CLI integration tests pass locally.
 The next target CI run must verify the image is readable by OVMF and reach the
 existing QEMU checksum/present acceptance before M17 can pass.
+
+## JavaScript initialization trace after CI run #255 (2026-09-26)
+
+Public CI run #255 (`36241271287`, head
+`d0a7c3c4de713606b673f45b7de044f48f7eed81`) passed target linking and UEFI
+loader construction, then QEMU timed out after 120 seconds. The final serial
+marker was `Servo::new JS engine setup started`. The complete diagnostic
+contained 435 M17 trace lines; the 256-line excerpt omitted only 179 interior
+lines, and the independent serial tail ended at the same marker. ServoMedia
+and MemoryProfiler workers both completed their observed entry/initialization
+paths. No later thread event or kernel rejection appeared.
+
+That Servo marker brackets all of synchronous `script::init()`, not one
+SpiderMonkey API call. Source inspection found that the function then
+initializes proxy handlers, generated DOM-binding statics, the memory
+reporter, and `JSEngineSetup::default()`, which enters SpiderMonkey `JS_Init`.
+Two target-sensitive candidates inside `JS_Init` are GC address-limit probing
+through map/unmap calls and JIT setup's random-address selection and
+executable-memory mapping. The run does not prove either is the cause.
+
+The tracked Servo patch `0013-nagi-m17-js-engine-init-traces.patch` adds
+Nagi-only checkpoints around each synchronous `script::init()` phase. The
+tracked MozJS patch `0014-nagi-m17-js-init-traces.patch` adds Nagi-only
+checkpoints around `JS_Init`, GC address discovery, and JIT entropy/mapping
+boundaries. They call the existing bounded guest console callback and do not
+change initialization order, mapping, JIT policy, or random sources. The next
+public CI acceptance should identify the last completed phase before any
+runtime repair is chosen. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

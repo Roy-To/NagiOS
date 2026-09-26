@@ -828,6 +828,40 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_traces_m17_javascript_engine_initialization() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0013-nagi-m17-js-engine-init-traces.patch"),
+        )
+        .expect("M17 JavaScript engine initialization trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "script::init entered",
+            "script::init JIT decision started",
+            "script::init JIT decision completed",
+            "script::init proxyhandler started",
+            "script::init proxyhandler completed",
+            "script::init proxy handlers registration started",
+            "script::init proxy handlers registration completed",
+            "script::init static bindings initialization started",
+            "script::init static bindings initialization completed",
+            "script::init memory reporter initialization started",
+            "script::init memory reporter initialization completed",
+            "script::init platform initialization started",
+            "script::init platform initialization completed",
+            "script::init engine setup construction started",
+            "script::init engine setup construction completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
     fn servo_patch_boundary_traces_m17_media_and_memory_workers() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

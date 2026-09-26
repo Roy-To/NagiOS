@@ -4640,3 +4640,35 @@ creation. The public annotation retained only the warning tail and
 `fatal error:` lines in the bounded annotation. Target link, UEFI, and real
 QEMU first-web-pixel acceptance were not reached. M18 remains `NOT STARTED`;
 no M17 PASS is recorded.
+
+### Current M17 continuation after CI run #255 (2026-09-26)
+
+Public CI run #255 (`36241271287`, head
+`d0a7c3c4de713606b673f45b7de044f48f7eed81`) passed the Ubuntu and Windows
+host jobs, Mesa Softpipe build, target dependency checks, package build, kernel
+build, real `nagi-init` link, and UEFI loader build. The M17 QEMU acceptance
+then timed out after 120 seconds and returned exit code 4. The last serial
+marker was `Servo::new JS engine setup started`; no guest checksum or first
+web-pixel PASS marker was produced.
+
+The complete failure output contained 435 M17 trace lines. Its 256-line
+excerpt omitted 179 interior lines while retaining the head and tail; the
+separate final-64-line serial tail also ended at the JavaScript-engine marker.
+The excerpt cap therefore did not hide later guest activity. The ServoMedia
+worker entered and returned, and the MemoryProfiler worker entered,
+initialized, and yielded back to the main thread. No later thread event,
+panic, or kernel rejection appeared. This narrows the stall to synchronous
+Servo `script::init()` but does not establish the exact failing operation.
+
+Source inspection shows `script::init()` proceeds through proxy handlers,
+generated binding statics, memory-reporter setup, and `JSEngineSetup::default()`,
+which calls SpiderMonkey `JS_Init`. `JS_Init` synchronously initializes the
+GC memory subsystem and JIT. GC initialization probes the target address range;
+JIT initialization can request random bytes and reserve executable memory.
+These are diagnostic hypotheses, not confirmed causes. New reproducible,
+Nagi-only trace patches `third_party/servo-patches/0013` and
+`third_party/mozjs-sys-nagi-patches/0014` bracket those stages through the
+existing guest console callback and preserve all initialization operations
+and ordering. Host source-contract checks cover the new markers. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`. The next public target CI run must still
+produce the real guest-rendered checksum and PASS marker.

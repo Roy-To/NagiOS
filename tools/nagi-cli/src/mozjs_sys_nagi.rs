@@ -159,6 +159,26 @@ mod tests {
                 && jsglue_malloc_patch.contains("malloc_usable_size")
         );
 
+        let js_init_trace_patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0014-nagi-m17-js-init-traces.patch"),
+        )
+        .expect("mozjs M17 JS initialization trace patch");
+        for stage in [
+            "SpiderMonkey JS_Init entered",
+            "SpiderMonkey GC memory initialization started",
+            "SpiderMonkey address-limit search started",
+            "SpiderMonkey JIT initialization started",
+            "SpiderMonkey JIT executable memory map started",
+            "SpiderMonkey JIT executable memory map completed",
+            "SpiderMonkey JS_Init completed",
+        ] {
+            assert!(
+                js_init_trace_patch.contains(stage),
+                "missing SpiderMonkey initialization trace stage: {stage}"
+            );
+        }
+        assert!(js_init_trace_patch.contains("nagi_m17_console_trace(trace_stage"));
+
         assert!(
             !root
                 .join(

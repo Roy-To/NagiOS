@@ -1,0 +1,62 @@
+diff --git a/components/script/engine/init.rs b/components/script/engine/init.rs
+--- a/components/script/engine/init.rs
++++ b/components/script/engine/init.rs
+@@ -12,0 +13,19 @@
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m17_trace(stage: &str) {
++    #[expect(unsafe_code)]
++    unsafe {
++        nagi_m17_console_trace(stage.as_ptr(), stage.len())
++    }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
+@@ -165,0 +185,2 @@
++    nagi_m17_trace("script::init entered");
++    nagi_m17_trace("script::init JIT decision started");
+@@ -173,0 +195 @@
++        nagi_m17_trace("script::init JIT backend disable started");
+@@ -177 +199,4 @@
+-    }
++        nagi_m17_trace("script::init JIT backend disable completed");
++    }
++    nagi_m17_trace("script::init JIT decision completed");
++    nagi_m17_trace("script::init proxyhandler started");
+@@ -178,0 +204 @@
++    nagi_m17_trace("script::init proxyhandler completed");
+@@ -181,0 +208 @@
++    nagi_m17_trace("script::init proxy handlers registration started");
+@@ -182,0 +210,2 @@
++    nagi_m17_trace("script::init proxy handlers registration completed");
++    nagi_m17_trace("script::init static bindings initialization started");
+@@ -184 +213,3 @@
+-
++    nagi_m17_trace("script::init static bindings initialization completed");
++
++    nagi_m17_trace("script::init memory reporter initialization started");
+@@ -188 +219,3 @@
+-
++    nagi_m17_trace("script::init memory reporter initialization completed");
++
++    nagi_m17_trace("script::init platform initialization started");
+@@ -190,3 +223,7 @@
+-
+-    JSEngineSetup::default()
+-}
++    nagi_m17_trace("script::init platform initialization completed");
++
++    nagi_m17_trace("script::init engine setup construction started");
++    let setup = JSEngineSetup::default();
++    nagi_m17_trace("script::init engine setup construction completed");
++    setup
++}

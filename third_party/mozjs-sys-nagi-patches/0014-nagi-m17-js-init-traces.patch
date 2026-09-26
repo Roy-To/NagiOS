@@ -1,0 +1,141 @@
+diff --git a/mozjs/js/src/vm/Initialization.cpp b/mozjs/js/src/vm/Initialization.cpp
+--- a/mozjs/js/src/vm/Initialization.cpp
++++ b/mozjs/js/src/vm/Initialization.cpp
+@@ -36,0 +37,12 @@
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
++
+@@ -109,0 +122 @@
++  NAGI_M17_TRACE("SpiderMonkey JS_Init entered");
+@@ -134,0 +148 @@
++    NAGI_M17_TRACE("SpiderMonkey process creation initialization started");
+@@ -135,0 +150 @@
++    NAGI_M17_TRACE("SpiderMonkey process creation initialization completed");
+@@ -144,0 +160 @@
++    NAGI_M17_TRACE("SpiderMonkey TLS initialization started");
+@@ -145,0 +162 @@
++    NAGI_M17_TRACE("SpiderMonkey TLS initialization completed");
+@@ -155,0 +173 @@
++  NAGI_M17_TRACE("SpiderMonkey allocator initialization started");
+@@ -157 +175,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey allocator initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey mutex initialization started");
+@@ -159 +179,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey mutex initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey GC memory initialization started");
+@@ -161 +183,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey GC memory initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey Wasm initialization started");
+@@ -162,0 +187 @@
++  NAGI_M17_TRACE("SpiderMonkey Wasm initialization completed");
+@@ -166,0 +192 @@
++    NAGI_M17_TRACE("SpiderMonkey JIT initialization started");
+@@ -168,2 +194,4 @@
+-  }
+-
++    NAGI_M17_TRACE("SpiderMonkey JIT initialization completed");
++  }
++
++  NAGI_M17_TRACE("SpiderMonkey date-time initialization started");
+@@ -170,0 +199 @@
++  NAGI_M17_TRACE("SpiderMonkey date-time initialization completed");
+@@ -178,0 +208 @@
++  NAGI_M17_TRACE("SpiderMonkey ICU initialization started");
+@@ -181,0 +212 @@
++  NAGI_M17_TRACE("SpiderMonkey ICU initialization completed");
+@@ -184,0 +216 @@
++    NAGI_M17_TRACE("SpiderMonkey helper-thread state initialization started");
+@@ -185,0 +218,2 @@
++    NAGI_M17_TRACE("SpiderMonkey helper-thread state initialization completed");
++    NAGI_M17_TRACE("SpiderMonkey futex-thread initialization started");
+@@ -186,0 +221,2 @@
++    NAGI_M17_TRACE("SpiderMonkey futex-thread initialization completed");
++    NAGI_M17_TRACE("SpiderMonkey GC statistics initialization started");
+@@ -187,0 +224,2 @@
++    NAGI_M17_TRACE("SpiderMonkey GC statistics initialization completed");
++    NAGI_M17_TRACE("SpiderMonkey testing-functions initialization started");
+@@ -189,2 +227,4 @@
+-  }
+-
++    NAGI_M17_TRACE("SpiderMonkey testing-functions initialization completed");
++  }
++
++  NAGI_M17_TRACE("SpiderMonkey shared-string cache initialization started");
+@@ -191,0 +232,2 @@
++  NAGI_M17_TRACE("SpiderMonkey shared-string cache initialization completed");
++  NAGI_M17_TRACE("SpiderMonkey parser-atoms initialization started");
+@@ -192,0 +235 @@
++  NAGI_M17_TRACE("SpiderMonkey parser-atoms initialization completed");
+@@ -205,0 +249 @@
++  NAGI_M17_TRACE("SpiderMonkey JS_Init completed");
+diff --git a/mozjs/js/src/gc/Memory.cpp b/mozjs/js/src/gc/Memory.cpp
+--- a/mozjs/js/src/gc/Memory.cpp
++++ b/mozjs/js/src/gc/Memory.cpp
+@@ -46,0 +47,12 @@
++
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -366,0 +379 @@
++  NAGI_M17_TRACE("SpiderMonkey address-limit search entered");
+@@ -393,0 +407 @@
++  NAGI_M17_TRACE("SpiderMonkey address-limit search completed");
+@@ -425,0 +440 @@
++  NAGI_M17_TRACE("SpiderMonkey GC memory subsystem entered");
+@@ -447,0 +463 @@
++    NAGI_M17_TRACE("SpiderMonkey address-limit search started");
+@@ -448,0 +465 @@
++    NAGI_M17_TRACE("SpiderMonkey address-limit search returned");
+@@ -474,0 +492 @@
++  NAGI_M17_TRACE("SpiderMonkey GC memory subsystem completed");
+diff --git a/mozjs/js/src/jit/ProcessExecutableMemory.cpp b/mozjs/js/src/jit/ProcessExecutableMemory.cpp
+--- a/mozjs/js/src/jit/ProcessExecutableMemory.cpp
++++ b/mozjs/js/src/jit/ProcessExecutableMemory.cpp
+@@ -28,0 +29,12 @@
++
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -440,0 +453 @@
++  NAGI_M17_TRACE("SpiderMonkey JIT random seed started");
+@@ -441,0 +455 @@
++  NAGI_M17_TRACE("SpiderMonkey JIT random seed completed");
+@@ -506,0 +521 @@
++  NAGI_M17_TRACE("SpiderMonkey JIT executable address selection started");
+@@ -507,0 +523 @@
++  NAGI_M17_TRACE("SpiderMonkey JIT executable address selection completed");
+@@ -515,0 +532 @@
++  NAGI_M17_TRACE("SpiderMonkey JIT executable memory map started");
+@@ -517,0 +535 @@
++  NAGI_M17_TRACE("SpiderMonkey JIT executable memory map completed");

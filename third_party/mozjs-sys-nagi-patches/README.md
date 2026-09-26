@@ -90,3 +90,10 @@ into the image or importing a host runtime.
 The generated source is materialized from `third_party/sources.lock` and is
 never edited in the Cargo cache. Each patch is checked and applied before the
 source fingerprint is recorded.
+
+Patch `0014` adds Nagi-only checkpoints around SpiderMonkey's synchronous
+`JS_Init` phases, including GC address-limit probing, JIT initialization, and
+the JIT random-address and executable-memory mapping boundaries. It writes
+through Nagi's existing bounded console callback and compiles to a no-op on
+other targets. The patch only adds diagnostics; it does not change memory
+mapping, JIT policy, random sources, or initialization order.
