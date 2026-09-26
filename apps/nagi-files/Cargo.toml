@@ -1,0 +1,18 @@
+[package]
+name = "nagi-files"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+name = "nagi_files"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nagi-files-preview"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
