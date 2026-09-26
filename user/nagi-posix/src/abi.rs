@@ -142,16 +142,11 @@ pub unsafe extern "C" fn posix_memalign(
     {
         return write_errno_and_fail(EINVAL);
     }
-    let pointer = malloc(size.max(1));
+    let pointer = crate::nagi_posix_malloc_aligned(size, alignment);
     if pointer.is_null() {
         return write_errno_and_fail(ENOMEM);
     }
-    // The Nagi PAL's user allocation alignment is 16 bytes.  Refuse a
-    // stronger alignment instead of returning a misaligned pointer.
-    if (pointer as usize) & (alignment - 1) != 0 {
-        return write_errno_and_fail(ENOMEM);
-    }
-    result.write(pointer);
+    result.write(pointer.cast());
     0
 }
 

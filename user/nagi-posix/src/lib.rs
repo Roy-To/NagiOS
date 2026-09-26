@@ -68,26 +68,25 @@ use core::ptr;
 
 #[cfg(target_os = "nagi")]
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-#[cfg(target_os = "nagi")]
-use errno::ENOMEM;
-use errno::{set_errno, EBADF, EINVAL, ENOSYS};
+use errno::{set_errno, EBADF, EINVAL, ENOMEM, ENOSYS};
 #[cfg(target_os = "nagi")]
 use nagi_pal::time::{Clock, GuestClock};
 
 #[cfg(any(target_os = "nagi", test))]
 const POSIX_HEAP_SIZE: usize = 64 * 1024 * 1024;
-#[cfg(target_os = "nagi")]
 const BLOCK_HEADER_SIZE: usize = 16;
-#[cfg(target_os = "nagi")]
 const ALLOCATION_HEADER_SIZE: usize = 16;
-#[cfg(target_os = "nagi")]
 const USER_POINTER_OFFSET: usize = BLOCK_HEADER_SIZE + ALLOCATION_HEADER_SIZE;
+#[cfg(any(target_os = "nagi", test))]
+const ALIGNED_BACKREF_OFFSET: usize = 3 * core::mem::size_of::<usize>();
 #[cfg(target_os = "nagi")]
 const MIN_BLOCK_SIZE: usize = USER_POINTER_OFFSET + 16;
 #[cfg(target_os = "nagi")]
 const ALLOCATED_MARKER: usize = usize::MAX;
 #[cfg(target_os = "nagi")]
 const ALLOCATION_MAGIC: usize = 0x4e41_4749_414c_4c4f;
+#[cfg(target_os = "nagi")]
+const ALIGNED_ALLOCATION_MAGIC: usize = 0x4e41_4749_414c_414e;
 
 #[cfg(target_os = "nagi")]
 static POSIX_HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
@@ -96,12 +95,41 @@ static POSIX_HEAP_FREE_HEAD: AtomicUsize = AtomicUsize::new(0);
 #[cfg(target_os = "nagi")]
 static POSIX_HEAP_LOCK: AtomicBool = AtomicBool::new(false);
 
-#[cfg(target_os = "nagi")]
+#[cfg(any(target_os = "nagi", test))]
 #[inline]
 fn align_up(value: usize, alignment: usize) -> Option<usize> {
     value
         .checked_add(alignment - 1)
         .map(|value| value & !(alignment - 1))
+}
+
+fn aligned_reservation_size(size: usize, alignment: usize) -> Option<usize> {
+    if alignment < core::mem::size_of::<usize>() || !alignment.is_power_of_two() {
+        return None;
+    }
+    size.max(1)
+        .checked_add(alignment.checked_sub(1)?)?
+        .checked_add(USER_POINTER_OFFSET)
+}
+
+#[cfg(any(target_os = "nagi", test))]
+fn aligned_allocation_layout(
+    raw_pointer: usize,
+    size: usize,
+    alignment: usize,
+) -> Option<(usize, usize)> {
+    let reservation = aligned_reservation_size(size, alignment)?;
+    let payload_start = raw_pointer.checked_add(USER_POINTER_OFFSET)?;
+    let aligned_pointer = align_up(payload_start, alignment)?;
+    let allocation_end = aligned_pointer.checked_add(size.max(1))?;
+    let reservation_end = raw_pointer.checked_add(reservation)?;
+    if aligned_pointer.checked_sub(raw_pointer)? < USER_POINTER_OFFSET
+        || aligned_pointer.checked_sub(ALIGNED_BACKREF_OFFSET)? < raw_pointer
+        || allocation_end > reservation_end
+    {
+        return None;
+    }
+    Some((aligned_pointer, reservation))
 }
 
 #[cfg(target_os = "nagi")]
@@ -217,7 +245,44 @@ unsafe fn release_to_heap(pointer: *mut u8) {
     let Some((base, end)) = heap_bounds() else {
         return;
     };
-    let address = pointer as usize;
+    let mut address = pointer as usize;
+    if address < base + USER_POINTER_OFFSET || address >= end {
+        return;
+    }
+    let aligned_header = (address - ALLOCATION_HEADER_SIZE) as *mut usize;
+    let requested_size = aligned_header.read();
+    let magic = aligned_header.add(1).read();
+    if magic == ALIGNED_ALLOCATION_MAGIC {
+        let Some(backref_address) = address.checked_sub(ALIGNED_BACKREF_OFFSET) else {
+            return;
+        };
+        let raw_pointer = (backref_address as *const usize).read();
+        if raw_pointer < base + USER_POINTER_OFFSET
+            || raw_pointer >= address
+            || !raw_pointer.is_multiple_of(16)
+        {
+            return;
+        }
+        let Some(raw_header_address) = raw_pointer.checked_sub(ALLOCATION_HEADER_SIZE) else {
+            return;
+        };
+        let raw_header = raw_header_address as *const usize;
+        let raw_size = raw_header.read();
+        if raw_header.add(1).read() != ALLOCATION_MAGIC
+            || address
+                .checked_add(requested_size)
+                .map_or(true, |allocation_end| {
+                    raw_pointer
+                        .checked_add(raw_size)
+                        .is_none_or(|raw_end| allocation_end > raw_end)
+                })
+        {
+            return;
+        }
+        address = raw_pointer;
+    } else if magic != ALLOCATION_MAGIC {
+        return;
+    }
     let Some(block_address) = address.checked_sub(USER_POINTER_OFFSET) else {
         return;
     };
@@ -232,15 +297,15 @@ unsafe fn release_to_heap(pointer: *mut u8) {
     let block = block_address as *mut usize;
     let block_size = block.read();
     let marker = block.add(1).read();
-    let header = (address - ALLOCATION_HEADER_SIZE) as *mut usize;
+    let allocation_header = (address - ALLOCATION_HEADER_SIZE) as *mut usize;
     if marker != ALLOCATED_MARKER
         || block_size < MIN_BLOCK_SIZE
         || !block_size.is_multiple_of(16)
         || block_address
             .checked_add(block_size)
             .map_or(true, |value| value > end)
-        || header.add(1).read() != ALLOCATION_MAGIC
-        || header.read() > block_size - USER_POINTER_OFFSET
+        || allocation_header.add(1).read() != ALLOCATION_MAGIC
+        || allocation_header.read() > block_size - USER_POINTER_OFFSET
     {
         return;
     }
@@ -272,6 +337,51 @@ unsafe fn release_to_heap(pointer: *mut u8) {
             previous_block.write(previous_size + block.read());
             previous_block.add(1).write(block.add(1).read());
         }
+    }
+}
+
+/// Allocate a POSIX-aligned block from the bounded guest heap.
+///
+/// The ordinary allocator returns 16-byte-aligned pointers. This entry point
+/// reserves alignment slack inside the same bounded heap and records the
+/// original allocation pointer immediately before the aligned result so that
+/// `free`, `realloc`, and `malloc_usable_size` can retain their existing ABI.
+#[no_mangle]
+pub extern "C" fn nagi_posix_malloc_aligned(size: usize, alignment: usize) -> *mut u8 {
+    if alignment < core::mem::size_of::<usize>() || !alignment.is_power_of_two() {
+        set_errno(EINVAL);
+        return ptr::null_mut();
+    }
+    let Some(reservation) = aligned_reservation_size(size, alignment) else {
+        set_errno(ENOMEM);
+        return ptr::null_mut();
+    };
+    #[cfg(target_os = "nagi")]
+    {
+        let raw_pointer = nagi_posix_malloc(reservation);
+        if raw_pointer.is_null() {
+            return ptr::null_mut();
+        }
+        let Some((aligned_pointer, _)) =
+            aligned_allocation_layout(raw_pointer as usize, size, alignment)
+        else {
+            nagi_posix_free(raw_pointer);
+            set_errno(ENOMEM);
+            return ptr::null_mut();
+        };
+        let header = (aligned_pointer - ALIGNED_BACKREF_OFFSET) as *mut usize;
+        unsafe {
+            header.write(raw_pointer as usize);
+            header.add(1).write(size);
+            header.add(2).write(ALIGNED_ALLOCATION_MAGIC);
+        }
+        aligned_pointer as *mut u8
+    }
+    #[cfg(not(target_os = "nagi"))]
+    {
+        let _ = reservation;
+        set_errno(ENOSYS);
+        ptr::null_mut()
     }
 }
 
@@ -334,7 +444,7 @@ pub unsafe extern "C" fn nagi_posix_malloc_usable_size(pointer: *mut u8) -> usiz
         }
         let header = unsafe { pointer.sub(ALLOCATION_HEADER_SIZE).cast::<usize>() };
         let magic = unsafe { header.add(1).read() };
-        if magic != ALLOCATION_MAGIC {
+        if magic != ALLOCATION_MAGIC && magic != ALIGNED_ALLOCATION_MAGIC {
             return 0;
         }
         return unsafe { header.read() };
@@ -549,14 +659,45 @@ pub extern "C" fn nagi_posix_sleep_ns(duration: u64) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        nagi_posix_malloc, nagi_posix_mmap, nagi_posix_mprotect, nagi_posix_munmap,
-        nagi_posix_poll, nagi_posix_write, POSIX_HEAP_SIZE,
+        aligned_allocation_layout, aligned_reservation_size, nagi_posix_malloc, nagi_posix_mmap,
+        nagi_posix_mprotect, nagi_posix_munmap, nagi_posix_poll, nagi_posix_write,
+        ALIGNED_BACKREF_OFFSET, POSIX_HEAP_SIZE, USER_POINTER_OFFSET,
     };
     use crate::errno::{errno, EINVAL, ENOSYS};
 
     #[test]
     fn servo_posix_heap_budget_is_64_mib() {
         assert_eq!(POSIX_HEAP_SIZE, 64 * 1024 * 1024);
+    }
+
+    #[test]
+    fn posix_aligned_reservations_cover_padding_metadata_and_payload() {
+        for (raw_pointer, alignment) in [(0x10000, 16), (0x10010, 64), (0x10030, 4096)] {
+            let size = 512;
+            let (aligned_pointer, reservation) =
+                aligned_allocation_layout(raw_pointer, size, alignment).expect("layout");
+            assert!(aligned_pointer.is_multiple_of(alignment));
+            assert!(aligned_pointer - raw_pointer >= USER_POINTER_OFFSET);
+            assert!(aligned_pointer - ALIGNED_BACKREF_OFFSET >= raw_pointer);
+            assert!(aligned_pointer + size <= raw_pointer + reservation);
+            assert_eq!(
+                reservation,
+                aligned_reservation_size(size, alignment).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn posix_aligned_reservations_reject_invalid_alignment_and_overflow() {
+        for alignment in [0, 3, 4] {
+            assert_eq!(aligned_reservation_size(512, alignment), None);
+            assert_eq!(aligned_allocation_layout(0x10000, 512, alignment), None);
+        }
+        assert_eq!(aligned_reservation_size(usize::MAX, 16), None);
+        assert_eq!(
+            aligned_reservation_size(usize::MAX, 1usize << (usize::BITS - 1)),
+            None
+        );
     }
 
     #[test]

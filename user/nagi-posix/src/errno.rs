@@ -19,7 +19,7 @@ struct ErrnoCell(UnsafeCell<i32>);
 
 unsafe impl Sync for ErrnoCell {}
 
-#[link_section = ".data"]
+#[cfg_attr(target_os = "nagi", link_section = ".data")]
 #[no_mangle]
 static ERRNO: ErrnoCell = ErrnoCell(UnsafeCell::new(0));
 

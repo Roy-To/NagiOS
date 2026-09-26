@@ -19,33 +19,66 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #204 confirmed Mesa patch `0030` detected the bad EGL TLS cookie,
-reset the state, completed EGL make-current, and reached Surfman's GL function
-loading start marker. Rust std then panicked because `__nagi_std_random_fill`
-returned -1. Kernel diagnostics and source audit then identified the concrete
-cause: the guest RNG scanner used transitional PCI ID `0x1003` (VirtIO console)
-instead of `0x1005` (VirtIO entropy). The scanner now recognizes `0x1005` and
-modern ID `0x1044`, with a regression check. CI #205 (Actions run ID
-`36219851280`, head `d4ce627`) was canceled during `Build Nagi user init` after
-the next push; it produced no QEMU acceptance evidence. Actions run #232
-(`36220293827`, head `35efaf6`) passed both host jobs and all target builds.
-Its QEMU run passed persistence, initialized EGL/Softpipe, and created the GL
-context. Servo construction then failed on a 512-byte allocation from the
-fixed 8 MiB POSIX heap and QEMU timed out after 120 seconds. The working
-hypothesis is that the bootstrap heap is too small for Servo initialization.
-Local follow-up under ADR 0027 expands the bounded heap to 64 MiB and its mmap
-backing window to 128 MiB while preserving the guest-only allocation path. The
-change still needs public QEMU verification. No Servo frame or pixel checksum
-has yet been produced. M17 remains BLOCKED; M18 remains NOT STARTED.
+milestone. CI #204 confirmed Mesa patch `0030` recovered the EGL TLS cookie,
+completed make-current, and reached Surfman's GL function loading. Rust std
+then failed because `__nagi_std_random_fill` returned -1. Kernel diagnostics
+and source audit identified the concrete cause: the guest RNG scanner used
+transitional PCI ID `0x1003` (VirtIO console) instead of `0x1005` (VirtIO
+entropy). The scanner now recognizes `0x1005` and modern ID `0x1044`, with a
+regression check. Actions run #205 (`36219851280`, head `d4ce627`) was canceled
+during `Build Nagi user init` and produced no QEMU evidence. Run #232
+(`36220293827`, head `35efaf6`) passed host jobs and target builds, then failed
+at Servo construction with a 512-byte allocation error. Its local follow-up
+expanded the bounded guest heap to 64 MiB and the mmap window to 128 MiB. Run
+#233 (`36223836342`, head `1993a45`) reproduced the same allocation error after
+the heap expansion, so heap capacity alone is not established as the cause.
+Source inspection shows Rust's Unix `System` allocator uses `posix_memalign`
+for alignments above `MIN_ALIGN`; Nagi's shim still returned a regular heap
+pointer and rejected it when it did not meet the requested alignment. The
+latest trace lacks the normal heap-mapping and no-free-block diagnostics,
+making an over-aligned request the current hypothesis. A bounded aligned
+allocation path is implemented in `nagi-posix`; focused tests and the Nagi
+target compile pass locally. Public QEMU verification is still required. No
+Servo frame or pixel checksum has been produced. M17 remains BLOCKED; M18
+remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36220293827` (Actions run
-#232, head `35efaf661fa3bd4c2e7fb207b9e03e11d4cc4b38`) passed both host jobs and
-all target build steps through UEFI. QEMU accepted persistent storage and
-reached `Servo construction started`, then reported `memory allocation of 512
-bytes failed`; the guest did not exit and QEMU timed out at 120 seconds. No
-pixel result is available. Public target CI remains authoritative for M17;
-M18 remains NOT STARTED.
+**Last known repair checkpoint:** public CI run `36223836342` (#233, head
+`1993a4582952d3c1176ceff4434ac07a11a02881`) passed both host jobs and all
+target build steps through UEFI. QEMU reached `Servo construction started`,
+then reported `memory allocation of 512 bytes failed`, redirected abort to
+`mozalloc_abort`, and timed out at 120 seconds. The bounded trace contains no
+POSIX heap mapping or no-free-block diagnostic. No pixel result is available.
+Public target CI remains authoritative for M17; M18 remains NOT STARTED.
+
+### Target evidence from CI run #233 (2026-09-26)
+
+Run `36223836342` (#233, head
+`1993a4582952d3c1176ceff4434ac07a11a02881`) passed the Ubuntu and Windows
+host jobs and the target build through UEFI. The two-boot QEMU acceptance
+passed persistent storage, repaired and initialized the EGL TLS state, created
+the Softpipe context and swap chain, and entered Servo construction. It then
+reported `memory allocation of 512 bytes failed`, redirected `abort()` to
+`mozalloc_abort`, and timed out after 120 seconds with status 4. The trace
+contains neither `POSIX heap mapping unavailable` nor
+`POSIX allocator returned no block`. No Servo frame, pixel checksum, or M17
+PASS marker was produced. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Local continuation after CI run #233 (2026-09-26)
+
+The 64 MiB POSIX heap and 128 MiB mmap window did not prevent the 512-byte
+allocation failure. Rust's Unix `System` allocator routes allocations whose
+alignment exceeds `MIN_ALIGN` through `posix_memalign`; the Nagi shim only
+returned its ordinary allocation and rejected pointers that missed the
+requested alignment. Because the QEMU trace lacks the ordinary heap-failure
+diagnostics, an over-aligned allocation is the current hypothesis; the trace
+does not expose the requested alignment. The Nagi allocator now reserves
+alignment slack inside its bounded guest heap, records a back-reference so
+`free` and `malloc_usable_size` retain their existing boundary, and validates
+size/alignment arithmetic. Seven focused tests pass on the x86_64 macOS test
+target, and `nagi-posix` compiles for the Nagi user target. Public QEMU
+acceptance must verify whether Servo advances to the real pixel checksum.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #204 (2026-09-26)
 
