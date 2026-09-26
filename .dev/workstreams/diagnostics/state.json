@@ -1,0 +1,161 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "diagnostics",
+  "current_milestone": "Developer Tooling / Diagnostics",
+  "current_checkpoint": "privacy-redaction-draft-2020-12-schema-and-bootstrap",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "ab01402c51aace319a2f0f95c484282e26eee830",
+    "verified_at": "2026-09-26T14:58:16Z",
+    "normal_state": "On codex/ws-diagnostics, host-side diagnostics now redact quoted JSON and colon/equal credential forms, compile the report schema as Draft 2020-12, and validate a generated diagnostics bundle. The standalone bootstrap declares its shared CLI dependencies. The CLI package has 83 unit and 22 integration tests passing; focused formatting, CLI/bootstrap Clippy, bootstrap checks, fetch, diagnostics, scoped verify, and host-only smoke pass. The M1/M7 QEMU smoke timed out at 30 seconds. The full workspace test command cannot assemble x86-64 libnagi syscall registers on this aarch64 host, and repository-wide fmt reports differences in fetched upstream Servo files. Those results do not change M17 status. DF-01 is absent from this source branch, so the workstream-state health check is SKIPPED; its existing validator remains an integration dependency. Branch CI run 36249804255 completed both Ubuntu and Windows host jobs successfully; its target job remains in the independent M17 acceptance; prior source CI 36215571919 failed only at the standalone bootstrap dependency check, which the local build now passes. The integration-branch run 36240025711 passed host jobs and failed in the separate M17 QEMU path. The persisted diagnostics state was also validated against the registered workstream-state Draft 2020-12 schema.",
+    "commands": [
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test -p nagi-cli --all-targets --locked --offline",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path tools/nagi-cli/Cargo.toml -- --check",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi fetch",
+      "./target/debug/nagi diagnostics --scope diagnostics --json",
+      "./target/debug/nagi verify --scope diagnostics --json",
+      "./target/debug/nagi smoke --host-only --json",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./target/debug/nagi smoke --vm --json",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi test",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi fmt",
+      "CARGO_TARGET_DIR=/Users/tozawa/.codex/worktrees/nagi-diagnostics/target PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo run --manifest-path /tmp/nagi-diagnostics-state-validate-ab01402/Cargo.toml --offline -- /tmp/nagi-diagnostics-state-validate-ab01402/state.schema.json /tmp/nagi-diagnostics-state-validate-ab01402/state.json",
+      "git diff --check; git diff --cached --check"
+    ],
+    "tests": [
+      {
+        "name": "Diagnostics CLI unit and integration tests",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "83 library unit tests and 22 CLI integration tests passed, including JSON/colon credential redaction and Draft 2020-12 valid, unknown-property, and numeric-boundary cases."
+      },
+      {
+        "name": "Owned CLI formatting and lint",
+        "command": "cargo fmt --manifest-path tools/nagi-cli/Cargo.toml -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Owned CLI package format check and Clippy passed. The pinned libc dependency emitted three pre-existing target_os=nagi check-cfg warnings."
+      },
+      {
+        "name": "Standalone bootstrap dependency checks",
+        "command": "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline; cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Standalone bootstrap builds and passes Clippy with the direct serde, serde_json, and jsonschema dependencies required by the shared CLI source."
+      },
+      {
+        "name": "Pinned dependency fetch",
+        "command": "./nagi fetch",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, and Mesa/Softpipe sources validated."
+      },
+      {
+        "name": "Host diagnostics commands",
+        "command": "target/debug/nagi diagnostics --scope diagnostics --json; target/debug/nagi verify --scope diagnostics --json; target/debug/nagi smoke --host-only --json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All three host commands passed. Diagnostics schema health check reported Draft 2020-12 validation; absent DF-01 registry was explicitly SKIPPED."
+      },
+      {
+        "name": "M1/M7 VM smoke acceptance",
+        "command": "target/debug/nagi smoke --vm --json",
+        "outcome": "FAIL",
+        "exit_code": 11,
+        "evidence": "With the pinned nightly toolchain, the existing QEMU guest boot did not exit within 30 seconds. QEMU reported no host audio driver. This is not M17 first-web-pixel evidence."
+      },
+      {
+        "name": "Full host workspace test entry point",
+        "command": "./nagi test",
+        "outcome": "FAIL",
+        "exit_code": 11,
+        "evidence": "Outside diagnostics paths: Apple Silicon host compilation failed because user/libnagi contains x86-64 syscall register assembly (invalid rax/rdi/rcx/r11 registers). Focused Diagnostics tests passed."
+      },
+      {
+        "name": "Repository-wide format entry point",
+        "command": "./nagi fmt",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "cargo fmt --all -- --check reports formatting differences in fetched upstream third_party/servo files. No third-party files were modified; owned CLI formatting passed."
+      },
+      {
+        "name": "Diagnostics branch Actions",
+        "command": "gh run view 36249804255 --repo RT-NISH/NagiOS",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Run 36249804255 for ab01402: ubuntu-host and windows-launcher passed; nagi-target remains in progress in the separate M17 QEMU acceptance."
+      },
+      {
+        "name": "Diagnostics workstream state schema validation",
+        "command": "CARGO_TARGET_DIR=/Users/tozawa/.codex/worktrees/nagi-diagnostics/target PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo run --manifest-path /tmp/nagi-diagnostics-state-validate-ab01402/Cargo.toml --offline -- /tmp/nagi-diagnostics-state-validate-ab01402/state.schema.json /tmp/nagi-diagnostics-state-validate-ab01402/state.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "state.json validates against the registered DF-01 Draft 2020-12 workstream-state schema using jsonschema 0.58."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36249804255,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36249804255",
+        "head_sha": "ab01402c51aace319a2f0f95c484282e26eee830",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Ubuntu and Windows host jobs passed for the verified Diagnostics code commit; only the independent M17 target acceptance remained in progress at this checkpoint."
+      },
+      {
+        "run_id": 36215571919,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215571919",
+        "head_sha": "84afe087a0b5c88db7f5fd05a7db11fa64741eb8",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Prior Diagnostics source CI failed compiling the standalone bootstrap because it lacked direct dependencies required by the shared CLI source; fixed and locally verified."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/0.2/DEVELOPMENT_ARCHITECTURE.md and docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T14:52:06Z",
+    "activation_requirement": "This checkpoint provides host-side diagnostics contracts only. Guest crash persistence, target event collection, or production diagnostics service integration require Nagi 0.1 M30 PASS and an explicit release boundary."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not treat --vm smoke as evidence for the strict M17 first-web-pixel gate.",
+      "Do not add target crash persistence or guest event collection before the M30 plus explicit integration release gate.",
+      "Do not edit x86-64 libnagi assembly from the Diagnostics workstream or alter the existing M1/M7/M17 acceptance criteria.",
+      "Do not modify fetched third_party/servo files to silence repository-wide rustfmt output.",
+      "Do not upload local diagnostics reports unless the user explicitly selects an output path."
+    ]
+  },
+  "next_action": "Proceed to the next assigned host-side workstream. Run 36249804255 has passed both host jobs; its remaining target job is M17 acceptance and must stay separate from Diagnostics status. After the DF-01 registry is integrated into this source line, register its owner-provided validator through the HealthCheck seam. Keep guest persistence behind M30 PASS and an explicit integration checkpoint.",
+  "acceptance_criteria": [
+    "Versioned structured events and reports enforce bounds, safe redaction, unique check IDs, and outcome derivation.",
+    "Registered health checks are scoped, continue after individual failures, and classify host versus VM evidence.",
+    "Diagnostics, verify, and host smoke commands pass with reports written only to an explicit output path.",
+    "When DF-01 is present, the workstreams health check reuses the authoritative nagi dev verify validator; when absent, it reports SKIPPED.",
+    "Crash capture remains a bounded portable contract and does not claim target persistence.",
+    "No diagnostics result changes M17 or any later milestone status without that milestone's acceptance evidence."
+  ],
+  "deferred": [
+    "Target crash persistence and guest event collection until the relevant runtime boundary and release gate are available.",
+    "M1/M7 QEMU smoke remains an independent acceptance boundary; its current 30-second timeout does not imply any M17 first-web-pixel result.",
+    "Register the DF-01 state validator after its authoritative registry and validator are integrated into this workstream source line."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "Reuse the DF-01 registry and state validator through nagi dev verify, and align failure classes to the accepted durable-state vocabulary.",
+      "version": "nagi-dev-v1",
+      "status": "PASS"
+    }
+  ]
+}
