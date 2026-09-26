@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "app-sdk-contract-host-integrated",
+  "current_checkpoint": "wayback-host-ledger-integrated",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "2d53e04cc1b1ce28c3f3d55a40b202e9c0bcc244",
-    "verified_at": "2026-09-26T07:09:47Z",
-    "normal_state": "Integrated Capability/Permission and App SDK host foundations. Capability namespace validation is now consistent across App SDK resolution, manifest semantic validation, and the Draft 2020-12 schema; regression checks reproduce the old acceptance and now reject malformed IDs. The SDK and nagi-pkg host contracts pass focused tests, formatting, and Clippy; all four manifest fixtures, 20 malformed schema cases, the existing package/signing regression, and DF-01 registry verification pass. The SDK registry row depends on both development-foundation and capability-permissions. No root workspace/runtime activation was made. M17 remains BLOCKED and M18 remains NOT STARTED in docs/implementation_status.md. Base Actions run 36223836342 has passed Ubuntu and Windows host jobs and all target builds through UEFI; the real M17 first-web-pixel acceptance is still running, with no outcome recorded yet.",
+    "commit_sha": "a4409f6aa7e1384554db28a77cb3b644d3a412eb",
+    "verified_at": "2026-09-26T07:14:17Z",
+    "normal_state": "Integrated the standalone Wayback Activity Ledger contract and registration. Its host harness passed: 20 unit tests, 4 integration scenarios, formatting, Clippy with warnings denied, six Draft 2020-12 contracts plus negative cases, four existing M15 history tests, and DF-01 registry/state verification. The Wayback contract validates and plans restore metadata but includes no filesystem/runtime hook or restore executor. Capability and App SDK host checks remain passing; runtime integration remains gated by M30 and an explicit release checkpoint. M17 remains BLOCKED and M18 remains NOT STARTED. Mainline Actions run 36223836342 remains in progress at M17 QEMU acceptance; integration branch Actions run 36225995143 is bootstrapping Servo dependencies.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -25,7 +25,8 @@
       "cargo clippy --manifest-path tools/nagi-pkg/Cargo.toml --all-targets --locked -- -D warnings",
       "/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
       "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate sdk/rust/fixtures/manifests/{files,notes,search,activity}.json",
-      "git diff --check; git diff --cached --check"
+      "git diff --check; git diff --cached --check",
+      "./tests/wayback/verify.sh"
     ],
     "tests": [
       {
@@ -111,6 +112,20 @@
         "outcome": "FAIL",
         "exit_code": 1,
         "evidence": "Before the fix, both new Rust regressions accepted `files` and the schema validator accepted malformed capability IDs. The same focused checks pass after the fix."
+      },
+      {
+        "name": "Wayback host acceptance harness",
+        "command": "./tests/wayback/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "20 unit tests, 4 integration scenarios, fmt, Clippy with warnings denied, six Draft 2020-12 contract fixtures plus negative cases, four existing nagi-history tests, and DF-01 schema/state verification passed."
+      },
+      {
+        "name": "Wayback runtime boundary review",
+        "command": "Review crates/nagi-wayback/src/lib.rs and docs/0.2/wayback/architecture.md",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The crate is a standalone host-side reference contract; restore plans remain non-executable and no filesystem, runtime, UI, kernel, or capability authority hook was added."
       }
     ],
     "ci_runs": [
@@ -145,12 +160,28 @@
         "status": "COMPLETED",
         "conclusion": "failure",
         "summary": "App SDK source-branch CI failed the same old DF-01 status assertion; SDK format, Clippy, and build passed, target job skipped. The stale assertion is corrected in this integration branch."
+      },
+      {
+        "run_id": 36214541886,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36214541886",
+        "head_sha": "89c7115d54ea065ebbcf3c4fd8f94df603cbf065",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Wayback source-branch CI passed formatting, lint, and build but both host test jobs failed an inherited DF-01 status assertion; the target job was skipped. The integration branch updates that stale assertion."
+      },
+      {
+        "run_id": 36225995143,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36225995143",
+        "head_sha": "a64f7b70db4fe3ce9b065942b28a4efd4ff6f317",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Integration branch push check: Ubuntu and Windows are still bootstrapping pinned Servo dependencies; later host and target jobs have not run yet."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T07:09:47Z",
+    "last_checked_at": "2026-09-26T07:14:17Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -166,7 +197,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Continue in dependency order with the Wayback ledger and localization/model foundations, then reconcile diagnostics, acceptance, and first-party integration; preserve dirty parallel UI worktrees and keep runtime activation gated on M30 PASS plus an explicit release checkpoint.",
+  "next_action": "Continue with the Localization / i18n host foundation, selectively preserving current mainline milestone history and keeping root manifests and shared status integration-owned; then integrate the model-runtime host foundation without enabling inference.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -195,6 +226,12 @@
       "contract": "Host-side app manifest, identity, lifecycle, state, intent, IPC, and capability handoff contract; capability IDs follow capability-contract-v1.",
       "version": "app-sdk-contract-v1",
       "status": "PASS for host contracts and fixtures; runtime adapters and first-party adoption remain deferred."
+    },
+    {
+      "workstream_id": "wayback-activity-ledger",
+      "contract": "Append-only activity/provenance, metadata-only snapshots, bounded restore planning, and explicit non-executable blockers.",
+      "version": "wayback-contracts-v1",
+      "status": "PASS for host-side contract and tests; filesystem hooks, durable backend, restore execution, and product adoption remain release-gated."
     }
   ]
 }
