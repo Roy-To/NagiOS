@@ -6,11 +6,17 @@ $scriptPath = $PSCommandPath
 if ([string]::IsNullOrWhiteSpace($scriptPath)) {
     throw 'could not resolve the M0 launcher acceptance script path'
 }
-$scriptDirectory = [System.IO.Path]::GetDirectoryName($scriptPath)
-if ([string]::IsNullOrWhiteSpace($scriptDirectory)) {
+$scriptDirectoryPath = [System.IO.Path]::GetDirectoryName($scriptPath)
+if ([string]::IsNullOrWhiteSpace($scriptDirectoryPath)) {
     throw "could not resolve the directory for the M0 launcher acceptance script: $scriptPath"
 }
-$repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $scriptDirectory -ChildPath '..\..'))
+$scriptDirectory = [System.IO.DirectoryInfo]::new($scriptDirectoryPath)
+$testsDirectory = $scriptDirectory.Parent
+$repositoryDirectory = if ($null -eq $testsDirectory) { $null } else { $testsDirectory.Parent }
+if ($null -eq $repositoryDirectory) {
+    throw "could not resolve the repository root from the M0 launcher acceptance script: $scriptPath"
+}
+$repositoryRoot = $repositoryDirectory.FullName
 $launcher = Join-Path $repositoryRoot 'nagi.ps1'
 if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
     throw "could not resolve the Nagi launcher from the M0 acceptance script: $launcher"
