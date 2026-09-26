@@ -179,11 +179,23 @@ fn status(root: &Path, resume: bool) -> Result<Vec<String>, CliError> {
 }
 
 fn format_recent_ci_run_lines(ci_runs: &[Value]) -> Vec<String> {
-    let mut recent_runs: Vec<_> = ci_runs.iter().collect();
-    recent_runs.sort_unstable_by_key(|run| std::cmp::Reverse(run["run_id"].as_u64().unwrap_or(0)));
-    recent_runs
+    let mut active_runs: Vec<_> = ci_runs
+        .iter()
+        .filter(|run| matches!(run["status"].as_str(), Some("QUEUED" | "IN_PROGRESS")))
+        .collect();
+    let mut completed_runs: Vec<_> = ci_runs
+        .iter()
+        .filter(|run| !matches!(run["status"].as_str(), Some("QUEUED" | "IN_PROGRESS")))
+        .collect();
+    let newest_first = |runs: &mut Vec<&Value>| {
+        runs.sort_unstable_by_key(|run| std::cmp::Reverse(run["run_id"].as_u64().unwrap_or(0)));
+    };
+    newest_first(&mut active_runs);
+    newest_first(&mut completed_runs);
+    let completed_to_show = 2usize.saturating_sub(active_runs.len());
+    active_runs.extend(completed_runs.into_iter().take(completed_to_show));
+    active_runs
         .into_iter()
-        .take(2)
         .map(|run| {
             format!(
                 "CI: run {} {} ({}) — {}",
@@ -1371,6 +1383,47 @@ mod tests {
         assert!(lines[0].contains("run 300 IN_PROGRESS"), "{:?}", lines);
         assert!(lines[1].contains("run 200 COMPLETED"), "{:?}", lines);
         assert!(!lines.iter().any(|line| line.contains("run 100")));
+    }
+
+    #[test]
+    fn status_keeps_active_ci_runs_visible_ahead_of_newer_completed_runs() {
+        let runs = vec![
+            json!({
+                "run_id": 36235660277u64,
+                "status": "COMPLETED",
+                "conclusion": "FAILURE",
+                "url": "https://example.test/runs/36235660277"
+            }),
+            json!({
+                "run_id": 36236310925u64,
+                "status": "IN_PROGRESS",
+                "conclusion": null,
+                "url": "https://example.test/runs/36236310925"
+            }),
+            json!({
+                "run_id": 36237832887u64,
+                "status": "COMPLETED",
+                "conclusion": "FAILURE",
+                "url": "https://example.test/runs/36237832887"
+            }),
+            json!({
+                "run_id": 36239110612u64,
+                "status": "QUEUED",
+                "conclusion": null,
+                "url": "https://example.test/runs/36239110612"
+            }),
+        ];
+
+        let lines = super::format_recent_ci_run_lines(&runs);
+
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("run 36239110612 QUEUED"), "{:?}", lines);
+        assert!(
+            lines[1].contains("run 36236310925 IN_PROGRESS"),
+            "{:?}",
+            lines
+        );
+        assert!(!lines.iter().any(|line| line.contains("run 36237832887")));
     }
 
     #[test]
