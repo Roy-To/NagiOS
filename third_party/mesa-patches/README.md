@@ -179,6 +179,11 @@ pointer from clearing it, so the QEMU trace can distinguish bad TLS state from
 an invalid or unwritable context pointer. These Nagi-only checkpoints do not
 change EGL binding behavior.
 
+`0029-nagi-bound-egl-tls-tracing.patch` removes the per-call current-context
+trace added for CI #201. That diagnostic repeated on every EGL TLS lookup and
+crowded the bounded serial log; one-time TLS initialization and context-owner
+checkpoints remain available.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

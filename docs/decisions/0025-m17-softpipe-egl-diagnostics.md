@@ -219,5 +219,14 @@ instruction in the constructor body; other targets retain a no-op helper.
   already present in TLS before binding and whether its owner field is
   readable. M17 remains blocked pending real Servo content and a nonzero pixel
   checksum; M18 remains NOT STARTED.
+- CI #201 passed EGL current-context binding and then exposed a separate
+  runtime blocker: Rust std's `HashMap::RandomState` used the Redox
+  `/scheme/rand` path, which returned Nagi `EINVAL` and panicked before Servo
+  could render. Nagi already has `SYS_RANDOM_GET` backed by the guest VirtIO
+  RNG. The Nagi std random backend must call that path directly; host entropy,
+  RDRAND, and deterministic substitute bytes are not valid fallbacks. Patch
+  `0029` also removes patch `0028`'s per-lookup TLS state line because CI #201
+  repeated it until the bounded serial excerpt was dominated by duplicates.
+  EGL behavior and first-pixel acceptance criteria remain unchanged.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

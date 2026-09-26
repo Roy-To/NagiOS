@@ -447,6 +447,25 @@ pub fn random_fill(bytes: &mut [u8]) -> bool {
     true
 }
 
+/// Rust std's Nagi random backend calls this stable C ABI to seed
+/// `RandomState` from the guest VirtIO RNG syscall.
+#[cfg(target_os = "nagi")]
+#[no_mangle]
+pub unsafe extern "C" fn __nagi_std_random_fill(destination: *mut u8, length: usize) -> i32 {
+    if length == 0 {
+        return 0;
+    }
+    if destination.is_null() {
+        return -1;
+    }
+    let destination = unsafe { core::slice::from_raw_parts_mut(destination, length) };
+    if random_fill(destination) {
+        0
+    } else {
+        -1
+    }
+}
+
 #[cfg(target_os = "nagi")]
 #[no_mangle]
 pub unsafe extern "Rust" fn __getrandom_v03_custom(

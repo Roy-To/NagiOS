@@ -19,24 +19,62 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #200 passed target Mesa Softpipe, package, kernel, user-init
-link, and UEFI loader. The two-boot QEMU acceptance reached EGL context
-binding, then timed out while clearing a reported previous-context pointer
-(`0x400002b92640`). Mesa patch `0028` records the EGL TLS initialization flag
-and current-context value before binding, plus the old context owner read.
-This evidence does not establish whether the non-null old context is valid or
-comes from stale TLS. No Servo-pixel evidence has been produced. M17 remains
-BLOCKED; M18 remains NOT STARTED.
+milestone. CI #201 passed the target build through UEFI loader, then failed the
+two-boot QEMU acceptance. EGL reached a current context; Rust std subsequently
+panicked while `HashMap::RandomState` requested entropy from its Redox
+`/scheme/rand` backend, which Nagi does not provide (`EINVAL`, 22). Nagi already
+has a real VirtIO RNG syscall and `libnagi::random_fill`. The Nagi-only Rust std
+backend now calls that syscall through a stable `libnagi` ABI, and Mesa patch
+`0029` removes the repetitive per-lookup TLS line. Public target CI is next.
+No Servo-pixel evidence has been produced. M17 remains BLOCKED; M18 remains
+NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36197334175` (#200, head
-`8ba8443761873bff33ac6550f697df69479dd23a`) passed Ubuntu and Windows host
-checks and all target builds through UEFI loader. The QEMU acceptance reached
-`_eglBindContextToThread`, where `_EGLThreadInfo::CurrentContext` held
-`0x400002b92640`; the trace stopped after `thread previous-context clear
-started`, before the `Binding = NULL` store returned. QEMU timed out after 120
-seconds. Public target CI
-remains authoritative for M17; M18 remains NOT STARTED.
+**Last known repair checkpoint:** public CI run `36205146068` (#201, head
+`3ade2f26ca24c3825927e8aa6339e7bc2534c7a7`) passed Ubuntu and Windows host
+checks and all target builds through UEFI loader. QEMU reached EGL current
+context state, then Rust std's Redox random backend opened `/scheme/rand` and
+panicked on `EINVAL` (22); QEMU did not exit within 120 seconds. No frame or
+pixel checksum was produced. Public target CI remains authoritative for M17;
+M18 remains NOT STARTED.
+
+### Target evidence from CI run #201 (2026-09-26)
+
+Run `36205146068` (#201, head
+`3ade2f26ca24c3825927e8aa6339e7bc2534c7a7`) passed both host jobs and every
+target build step through the UEFI loader, including Mesa Softpipe and the Nagi
+user-init link. The real two-boot QEMU acceptance reached EGL with
+`inited=1` and `CurrentContext=0x400020813710`, then Rust std panicked at
+`library/std/src/sys/random/redox.rs` while opening `/scheme/rand`; the guest
+errno was `EINVAL` (22), followed by `mozalloc_abort`. The run ended with the
+120-second QEMU timeout. This shows EGL progressed past the prior context
+binding diagnostic, but produces no real Servo frame, pixel checksum, or PASS
+marker. Source inspection confirmed `libnagi::random_fill` already uses
+`SYS_RANDOM_GET`; Rust std had not used it. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+### Local continuation after CI run #201 (2026-09-26)
+
+Changed the Rust std patch so `target_os = "nagi"` selects a dedicated random
+backend instead of Redox's `/scheme/rand` implementation. Its stable C ABI
+`__nagi_std_random_fill` in `libnagi` calls the existing bounded
+`random_fill`/`SYS_RANDOM_GET` path; failures remain errors and there is no host,
+RDRAND, or fixed-byte fallback. Added Mesa patch `0029` to remove the repeated
+current-context TLS trace while retaining one-time initialization and owner
+checkpoints.
+
+The modified Rust std patch applies to the installed pinned-nightly `rust-src`.
+All 29 Mesa patches apply in numeric order from the pinned Mesa source. `cargo
+fmt --all -- --check`, `git diff --check`, `cargo clippy -p nagi-cli --lib -- -D
+warnings`, and all 68 `nagi-cli` library tests passed. `./nagi std` built the
+Nagi Rust std user-init, kernel, UEFI loader, and image with the new backend,
+then its local QEMU acceptance timed out after 45 seconds. Its serial log
+contains only UEFI screen-control bytes and no guest acceptance markers, so
+this does not verify runtime entropy. The existing local persistent user-data
+image was reused. `cargo test -p libnagi --lib` is not runnable on this Apple
+Silicon host: its x86-64 syscall `asm!` registers are invalid for the host
+architecture. Public target CI is required to verify the linked Servo user-init
+and runtime path. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #200 (2026-09-26)
 

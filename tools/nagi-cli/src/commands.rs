@@ -2825,4 +2825,25 @@ mod tests {
             "M17 must not boot with a writable ESP"
         );
     }
+
+    #[test]
+    fn m17_rust_std_random_backend_uses_guest_rng_boundary() {
+        let rust_std_patch =
+            include_str!("../../../third_party/rust-std/patches/0001-nagi-target-support.patch");
+        let libnagi = include_str!("../../../user/libnagi/src/lib.rs");
+
+        assert!(rust_std_patch.contains("target_os = \"nagi\""));
+        assert!(rust_std_patch.contains("mod nagi;"));
+        assert!(rust_std_patch.contains("fn __nagi_std_random_fill"));
+        assert!(
+            libnagi.contains("pub unsafe extern \"C\" fn __nagi_std_random_fill"),
+            "std entropy must cross the Nagi guest RNG ABI"
+        );
+        assert!(libnagi.contains("let mut result = SYS_RANDOM_GET;"));
+        assert!(
+            !rust_std_patch
+                .contains("else if #[cfg(any(target_os = \"redox\", target_os = \"nagi\"))]"),
+            "Nagi must not use Rust std's Redox /scheme/rand backend"
+        );
+    }
 }

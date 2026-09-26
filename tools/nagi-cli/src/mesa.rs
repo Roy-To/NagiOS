@@ -1393,6 +1393,22 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_egl_tls_trace_does_not_repeat_for_current_context() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0029-nagi-bound-egl-tls-tracing.patch"),
+        )
+        .expect("Nagi bounded EGL TLS trace patch");
+
+        assert!(patch.contains("thread-info already current"));
+        assert!(patch.contains("-   if (unlikely(!current->inited) || current->CurrentContext) {"));
+        assert!(patch.contains("thread-info zero initialization started"));
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

@@ -1,0 +1,15 @@
+diff --git a/src/egl/main/eglcurrent.c b/src/egl/main/eglcurrent.c
+index 572c42856aa..f9c77e0f726 100644
+--- a/src/egl/main/eglcurrent.c
++++ b/src/egl/main/eglcurrent.c
+@@ -72,10 +72,5 @@ _eglGetCurrentThread(void)
+ {
+    _EGLThreadInfo *current = &_egl_TLS;
+-   if (unlikely(!current->inited) || current->CurrentContext) {
+-      EGL_CURRENT_NAGI_TRACE_STATE(
+-         current->inited ? "thread-info already current" : "thread-info before init",
+-         current, current->inited ? current->CurrentContext : NULL);
+-   }
+    if (unlikely(!current->inited)) {
+       EGL_CURRENT_NAGI_TRACE("thread-info zero initialization started");
+       memset(current, 0, sizeof(current[0]));

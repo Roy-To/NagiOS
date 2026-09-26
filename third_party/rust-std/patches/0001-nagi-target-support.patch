@@ -40,15 +40,32 @@ diff --git a/library/std/src/sys/random/mod.rs b/library/std/src/sys/random/mod.
 index fc85797..82541c7 100644
 --- a/library/std/src/sys/random/mod.rs
 +++ b/library/std/src/sys/random/mod.rs
-@@ -48,7 +48,7 @@ cfg_if::cfg_if! {
+@@ -48,7 +48,10 @@ cfg_if::cfg_if! {
      ))] {
          mod unix_legacy;
          pub use unix_legacy::fill_bytes;
 -    } else if #[cfg(target_os = "redox")] {
-+    } else if #[cfg(any(target_os = "redox", target_os = "nagi"))] {
++    } else if #[cfg(target_os = "redox")] {
          mod redox;
          pub use redox::fill_bytes;
++    } else if #[cfg(target_os = "nagi")] {
++        mod nagi;
++        pub use nagi::fill_bytes;
      } else if #[cfg(all(target_vendor = "fortanix", target_env = "sgx"))] {
+diff --git a/library/std/src/sys/random/nagi.rs b/library/std/src/sys/random/nagi.rs
+new file mode 100644
+index 0000000..d66b79a
+--- /dev/null
++++ b/library/std/src/sys/random/nagi.rs
+@@ -0,0 +1,8 @@
++unsafe extern "C" {
++    fn __nagi_std_random_fill(destination: *mut u8, length: usize) -> i32;
++}
++
++pub fn fill_bytes(bytes: &mut [u8]) {
++    let result = unsafe { __nagi_std_random_fill(bytes.as_mut_ptr(), bytes.len()) };
++    assert_eq!(result, 0, "failed to generate random data");
++}
 diff --git a/library/std/src/sys/pal/unix/os.rs b/library/std/src/sys/pal/unix/os.rs
 index 0e68313..7468258 100644
 --- a/library/std/src/sys/pal/unix/os.rs
