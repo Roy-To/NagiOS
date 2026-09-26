@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "capability-permissions-integrated",
+  "current_checkpoint": "app-sdk-contract-host-integrated",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "8fd2193725a46c47e3ca4c2dcf98d7424902f077",
-    "verified_at": "2026-09-26T07:02:32Z",
-    "normal_state": "Integrated the isolated capability/permission host foundation and registered it with the development-foundation dependency in the integration-owned registry. Kept root Cargo workspace/runtime activation gated on M30 PASS and an explicit release checkpoint. The isolated capability crate passes formatting, 26 unit tests, 2 integration tests, and Clippy with warnings denied; nagi-package regressions (5 tests), registry validation (11 registered workstreams, 3 state files), and diff checks pass. The source workstream state remains PARTIAL with its original branch-local CI and root-host limitations recorded; integration verification addresses the registry blocker. M17 remains BLOCKED and M18 remains NOT STARTED per docs/implementation_status.md.",
+    "commit_sha": "2d53e04cc1b1ce28c3f3d55a40b202e9c0bcc244",
+    "verified_at": "2026-09-26T07:09:47Z",
+    "normal_state": "Integrated Capability/Permission and App SDK host foundations. Capability namespace validation is now consistent across App SDK resolution, manifest semantic validation, and the Draft 2020-12 schema; regression checks reproduce the old acceptance and now reject malformed IDs. The SDK and nagi-pkg host contracts pass focused tests, formatting, and Clippy; all four manifest fixtures, 20 malformed schema cases, the existing package/signing regression, and DF-01 registry verification pass. The SDK registry row depends on both development-foundation and capability-permissions. No root workspace/runtime activation was made. M17 remains BLOCKED and M18 remains NOT STARTED in docs/implementation_status.md. Base Actions run 36223836342 has passed Ubuntu and Windows host jobs and all target builds through UEFI; the real M17 first-web-pixel acceptance is still running, with no outcome recorded yet.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -16,7 +16,16 @@
       "cargo test -p nagi-package --lib --locked --offline",
       "./nagi dev verify",
       "./nagi dev status",
-      "git diff --cached --check; git diff --check"
+      "git diff --cached --check; git diff --check",
+      "cargo fmt --manifest-path sdk/rust/Cargo.toml -- --check",
+      "cargo test --manifest-path sdk/rust/Cargo.toml --locked",
+      "cargo clippy --manifest-path sdk/rust/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check",
+      "cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked",
+      "cargo clippy --manifest-path tools/nagi-pkg/Cargo.toml --all-targets --locked -- -D warnings",
+      "/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+      "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate sdk/rust/fixtures/manifests/{files,notes,search,activity}.json",
+      "git diff --check; git diff --cached --check"
     ],
     "tests": [
       {
@@ -46,6 +55,62 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "No whitespace errors."
+      },
+      {
+        "name": "App SDK contract tests",
+        "command": "cargo test --manifest-path sdk/rust/Cargo.toml --locked",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "46 unit tests and doc-tests passed, including regression cases for single-segment, leading-digit, underscore, empty, leading-hyphen segment, and uppercase capability IDs."
+      },
+      {
+        "name": "App SDK format and Clippy",
+        "command": "cargo fmt --manifest-path sdk/rust/Cargo.toml -- --check; cargo clippy --manifest-path sdk/rust/Cargo.toml --all-targets --locked -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "SDK formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "Host manifest loader tests, format, and Clippy",
+        "command": "cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check; cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked; cargo clippy --manifest-path tools/nagi-pkg/Cargo.toml --all-targets --locked -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 7 loader/integration tests passed; focused formatting and Clippy passed."
+      },
+      {
+        "name": "Manifest schema and malformed fixtures",
+        "command": "/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Draft 2020-12 schema accepted 4 valid fixtures and rejected 20 malformed documents, including six noncanonical capability IDs."
+      },
+      {
+        "name": "SDK manifest CLI fixtures",
+        "command": "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate {files,notes,search,activity}.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All four SDK-owned manifest fixtures validate through the host CLI."
+      },
+      {
+        "name": "M16 package/signing regression",
+        "command": "cargo test -p nagi-package --lib --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 5 existing package/signing tests passed; only the repository’s existing target_os=nagi dependency warnings were emitted."
+      },
+      {
+        "name": "Registered workstream state verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "12 registered workstreams and 4 state files validated on codex/integration-next-phase."
+      },
+      {
+        "name": "Capability namespace mismatch regression (pre-fix evidence)",
+        "command": "cargo test --manifest-path sdk/rust/Cargo.toml --locked capability_requests_require_canonical_dot_separated_namespaces; cargo test --manifest-path sdk/rust/Cargo.toml --locked manifest_contract_rejects_non_canonical_capability_ids; /tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Before the fix, both new Rust regressions accepted `files` and the schema validator accepted malformed capability IDs. The same focused checks pass after the fix."
       }
     ],
     "ci_runs": [
@@ -64,12 +129,28 @@
         "status": "COMPLETED",
         "conclusion": "FAILURE",
         "summary": "Both host jobs passed DF-01 verification. The target build completed, then the unchanged M17 QEMU acceptance timed out before a web pixel."
+      },
+      {
+        "run_id": 36212755007,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36212755007",
+        "head_sha": "c7afa1cd6d1fa7e89f8249acbb463a89ed4bb59a",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Capability source-branch CI failed the old DF-01 test expecting IN_PROGRESS after development-foundation recorded PASS; isolated capability crate checks passed. The stale assertion is corrected in this integration branch."
+      },
+      {
+        "run_id": 36215084732,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215084732",
+        "head_sha": "07314091095eeaa439a240e845c4a6d9a762ad04",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "App SDK source-branch CI failed the same old DF-01 status assertion; SDK format, Clippy, and build passed, target job skipped. The stale assertion is corrected in this integration branch."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T06:57:10Z",
+    "last_checked_at": "2026-09-26T07:09:47Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -85,7 +166,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Review and integrate the App SDK host contract after aligning capability identifier validation with nagi-capability; then continue with Wayback/model/localization and first-party integration in dependency order.",
+  "next_action": "Continue in dependency order with the Wayback ledger and localization/model foundations, then reconcile diagnostics, acceptance, and first-party integration; preserve dirty parallel UI worktrees and keep runtime activation gated on M30 PASS plus an explicit release checkpoint.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -108,6 +189,12 @@
       "contract": "Host-side capability identifiers and permission policy contract; runtime activation remains release-gated.",
       "version": "capability-contract-v1",
       "status": "PARTIAL; isolated host foundation integrated and verified, runtime adapter deferred until M30 PASS and explicit release checkpoint."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Host-side app manifest, identity, lifecycle, state, intent, IPC, and capability handoff contract; capability IDs follow capability-contract-v1.",
+      "version": "app-sdk-contract-v1",
+      "status": "PASS for host contracts and fixtures; runtime adapters and first-party adoption remain deferred."
     }
   ]
 }
