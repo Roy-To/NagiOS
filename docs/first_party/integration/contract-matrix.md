@@ -59,6 +59,11 @@ unchanged.
 
 - Contract audit: `PASS` (read-only source and contract comparison).
 - Branch ancestry and remote SHA check: `PASS`.
-- `cc-nagi` tooling repair: in progress.
+- `cc-nagi` clean-checkout developer-state path: `PASS`; launcher regression,
+  `./nagi dev verify/status/resume`, shell syntax, and diff checks passed while
+  the generated manifest remained absent.
 - Provider/app integration: not started.
 - Nagi target runtime integration: `NOT RUN`.
+
+The Home/Search source worktree also contains an unrelated, pre-existing
+untracked `libtarget_check.rlib`; it has been left untouched.

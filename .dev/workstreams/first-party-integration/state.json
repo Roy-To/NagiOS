@@ -3,20 +3,49 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "source-contract-audit-complete",
+  "current_checkpoint": "contract-audit-and-dev-bootstrap-verified",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85",
-    "verified_at": "2026-09-26T00:00:00Z",
-    "normal_state": "Integration worktree created from the four-branch common ancestor. Source and remote SHAs, changed-path overlap, canonical Nagi IDs, app-local adapters, and cc-nagi materialization were audited. No source merge or integration test has run yet. Details: docs/first_party/integration/contract-matrix.md.",
+    "commit_sha": "10e1c98a4859f9f10233a791582e9993170a749c",
+    "verified_at": "2026-09-26T03:09:27Z",
+    "normal_state": "Integration base and source contracts are recorded in docs/first_party/integration/contract-matrix.md. The clean dev CLI bootstrap fix passed the dispatch regression test and ./nagi dev verify/status/resume while third_party/cc-nagi/Cargo.toml remained absent. No source branch has been merged yet.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
       "git ls-remote origin refs/heads/codex/app-home-search refs/heads/codex/app-notes refs/heads/codex/app-activity-wayback refs/heads/codex/app-files",
       "git diff --name-only be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85..<source-branch>",
-      "inspect .dev schemas, Nagi specifications, source status, and provider contracts"
+      "inspect .dev schemas, Nagi specifications, source status, and provider contracts",
+      "sh -n nagi",
+      "sh tests/development/nagi_dispatch.sh",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume",
+      "test ! -e third_party/cc-nagi/Cargo.toml",
+      "git diff --check"
     ],
-    "tests": [],
+    "tests": [
+      {
+        "name": "launcher routes dev through standalone bootstrap",
+        "command": "sh tests/development/nagi_dispatch.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The wrapper selected tools/nagi-bootstrap/Cargo.toml and nagi-bootstrap for dev verify; a normal build still selected the root Cargo.toml and nagi-cli."
+      },
+      {
+        "name": "DF-01 state verification before cc-nagi materialization",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "10 registered workstreams and both existing state files validated from the standalone bootstrap while third_party/cc-nagi/Cargo.toml was absent."
+      },
+      {
+        "name": "DF-01 status and resume before cc-nagi materialization",
+        "command": "./nagi dev status && ./nagi dev resume",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both commands reported codex/first-party-integration and its current checkpoint without requiring generated third-party sources."
+      }
+    ],
     "ci_runs": []
   },
   "release_line_gate": {
