@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "wayback-activity-ledger",
   "current_milestone": "Wayback / AI Activity Ledger Foundation",
-  "current_checkpoint": "Host-side acceptance PASS at d52edd3; pushed checkpoint f95ddab was locally verified; CI diagnosed as inherited DF-01 state/test mismatch.",
+  "current_checkpoint": "Host-side acceptance PASS at d52edd3; pushed checkpoint 89c7115 verified; repeated CI failures are the inherited DF-01 state/test mismatch.",
   "status": "PASS",
   "last_verified": {
-    "commit_sha": "f95ddab4e0498c84bc831213512365d7269bfaac",
-    "verified_at": "2026-09-26T03:20:51Z",
-    "normal_state": "Wayback host-side acceptance PASS: the dedicated branch contains the complete standalone ledger, restore-planning contracts, schemas, and tests; the local focused harness, M15 regression, and DF-01 verify passed. Branch CI run 36213800837 failed only because both host jobs hit the inherited DF-01 foundation-state assertion (expects IN_PROGRESS while the base state is PASS); nagi-target was skipped. The foundation state/test mismatch is outside Wayback ownership and was not modified. The worktree remains separate from M17/runtime integration.",
+    "commit_sha": "89c7115d54ea065ebbcf3c4fd8f94df603cbf065",
+    "verified_at": "2026-09-26T03:28:26Z",
+    "normal_state": "Wayback host-side acceptance PASS: the standalone ledger and restore-planning contracts pass the focused local harness, M15 regression, schema checks, and DF-01 status/resume/verify. GitHub Actions runs 36213800837 (at f95ddab) and 36214541886 (at 89c7115) both fail the same inherited DF-01 foundation-state assertion on Ubuntu and Windows: expected IN_PROGRESS, actual PASS. The latest run passed format, lint, and build; nagi-target was skipped. The mismatch is outside Wayback ownership and neither DF-01 code nor M17/runtime integration was modified.",
     "commands": [
       "./nagi dev status",
       "./nagi dev resume",
@@ -19,7 +19,10 @@
       "gh run view 36213800837 --job 108325620600 --log-failed",
       "gh run view 36213800837 --job 108325620444 --log-failed",
       "git diff 18b364dc01c6a95bbda492f36c8dd0586f12ca8d..ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9 -- .dev/workstreams/development-foundation/state.json",
-      "target/debug/nagi dev diagnose --stage wayback-ci-foundation-state-assertion --exit-code 101 --failure-class BUILD --log /tmp/nagi-wayback-ci-state-test.log --output /tmp/nagi-wayback-ci-foundation-diagnostic.json"
+      "target/debug/nagi dev diagnose --stage wayback-ci-foundation-state-assertion --exit-code 101 --failure-class BUILD --log /tmp/nagi-wayback-ci-state-test.log --output /tmp/nagi-wayback-ci-foundation-diagnostic.json",
+      "gh run view 36214541886 --json status,conclusion,headSha,jobs",
+      "gh run view 36214541886 --job 108327785900 --log-failed",
+      "gh run view 36214541886 --job 108327786049 --log-failed"
     ],
     "tests": [
       {
@@ -44,11 +47,11 @@
         "evidence": "Draft 2020-12 registry and state schemas accepted the registered Wayback workstream and this state file."
       },
       {
-        "name": "Branch CI ownership classification at f95ddab",
-        "command": "GitHub Actions run 36213800837; DF-01 diagnose on filtered host-test log",
+        "name": "Repeated branch CI ownership classification",
+        "command": "GitHub Actions runs 36213800837 and 36214541886; DF-01 diagnose on filtered host-test log",
         "outcome": "FAIL",
         "exit_code": 101,
-        "evidence": "Ubuntu and Windows host jobs fail only in development-foundation state validation: the assertion expects IN_PROGRESS but the DF-01 base changed that state to PASS in ab9a580 without updating the test. Both host jobs passed before that upstream change on 18b364d (run 36117826259). The unrelated assertion is outside Wayback allowed paths; nagi-target was skipped. The Wayback acceptance harness and local DF-01 verify pass."
+        "evidence": "Both runs reproduce the same assertion on Ubuntu and Windows: development::tests::registry_and_active_workstream_state_validate_from_repository expects IN_PROGRESS, while DF-01 base state is PASS. In latest run 36214541886, format, lint, and build passed; host tests failed and nagi-target was skipped. Comparing 18b364d..ab9a580 proves the foundation state changed without updating the test; both host jobs passed before that upstream change. No out-of-scope foundation code was edited. Local Wayback harness and DF-01 verify pass."
       }
     ],
     "ci_runs": [
@@ -59,12 +62,20 @@
         "status": "COMPLETED",
         "conclusion": "FAILURE",
         "summary": "Both host jobs fail the inherited DF-01 foundation-state test (expects IN_PROGRESS, base state is PASS); nagi-target is skipped. Failure is outside Wayback ownership. Earlier run 36117826259 passed both host jobs at 18b364d before the DF-01 state change."
+      },
+      {
+        "run_id": 36214541886,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36214541886",
+        "head_sha": "89c7115d54ea065ebbcf3c4fd8f94df603cbf065",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Repeated run: Ubuntu and Windows format, lint, and build pass; both host test jobs fail the inherited DF-01 foundation-state assertion (expects IN_PROGRESS, base state is PASS). nagi-target is skipped. No Wayback failure or M17 result."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
-    "last_checked_at": "2026-09-26T03:20:51Z",
+    "last_checked_at": "2026-09-26T03:28:26Z",
     "activation_requirement": "Only host-side contracts and reference planning are in scope here. Filesystem/runtime hooks, restore execution, and user-facing product adoption require 0.1 M30 PASS and an explicit 0.2 integration checkpoint."
   },
   "blocker": {
@@ -79,7 +90,8 @@
       "The host Python environment lacked jsonschema. The verifier now installs the fully pinned requirements into a temporary directory only when the exact validator version is unavailable; JSON Schema validation passes.",
       "The host default Rust toolchain selected an incompatible Homebrew architecture. The verification harness now resolves and prepends the repository-pinned Rust toolchain, including clippy-driver.",
       "After removing temporary source links to leave the branch free of third_party changes, ./nagi dev verify could not load third_party/cc-nagi/Cargo.toml. The built DF-01 CLI diagnose report at /tmp/nagi-wayback-missing-third-party.log (SHA-256 67fed48104287ae2b21284ad645003bba04aef94b6e37c2cd2f4e11c97c653c5) classified this as HOST_ENV: the fresh worktree has not run ./nagi fetch. The earlier status/resume/verify runs passed with temporary symlinks to the same sources in the clean DF-01 prep worktree; the links were removed and are not committed.",
-      "Inspected branch CI run 36213800837 and both failed logs; DF-01 diagnose recorded the assertion mismatch. Comparing 18b364d..ab9a580 showed the foundation state changed from IN_PROGRESS to PASS while tools/nagi-cli/src/development.rs still expects IN_PROGRESS. Both host jobs passed on 18b364d before that upstream state change. The foundation CLI/test is outside Wayback ownership, so no unrelated code was edited; current run skipped nagi-target and did not exercise M17."
+      "Inspected branch CI run 36213800837 and both failed logs; DF-01 diagnose recorded the assertion mismatch. Comparing 18b364d..ab9a580 showed the foundation state changed from IN_PROGRESS to PASS while tools/nagi-cli/src/development.rs still expects IN_PROGRESS. Both host jobs passed on 18b364d before that upstream state change. The foundation CLI/test is outside Wayback ownership, so no unrelated code was edited; current run skipped nagi-target and did not exercise M17.",
+      "Pushed final handoff commit 89c7115 and allowed the follow-up CI run 36214541886 to complete. Ubuntu and Windows reproduce the same DF-01 assertion; formatting, lint, and build pass, while host tests fail and nagi-target is skipped. This confirms the mismatch is stable and inherited from the DF-01 base, so no out-of-scope change was made."
     ],
     "do_not_try": [
       "Do not modify filesystem/runtime hooks, M17/M18-M30, Activity or Wayback UI, App SDK, Capability policy, or another app workstream.",
