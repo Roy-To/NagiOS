@@ -176,6 +176,17 @@ QEMU did not exit within 120 seconds. The next checkpoint patch splits
 and thread-local current-context write, while recording the context/thread
 pointers. This narrows the stall without changing the binding semantics.
 
+CI #200 completed both TLS lookups, validation and reference increments, then
+reported `_EGLThreadInfo::CurrentContext` as `0x400002b92640` while attempting
+to bind context `0x400020813710`. Its trace stopped before the previous
+context's `Binding = NULL` store returned. Source inspection found no earlier public
+`eglMakeCurrent` marker in this QEMU acceptance and no other Mesa write to
+`CurrentContext`; this makes unexpected TLS contents a hypothesis, not a
+proven cause. Mesa patch `0028` records the `inited` and current-context
+values in `_eglGetCurrentThread`, brackets zero initialization, and brackets
+the old context owner read before clearing it. It remains diagnostic-only and
+does not alter EGL state or the M17 acceptance.
+
 After CI #184, Servo's trace helper wrote directly to Nagi descriptor 2 through
 `libc::write` rather than Rust stdio. CI #187 still produced no such trace, so
 that route did not provide reliable evidence. CI #188 also produced no trace
@@ -203,5 +214,10 @@ instruction in the constructor body; other targets retain a no-op helper.
   add Nagi-only trace checkpoints through context linking and EGL thread,
   context, and surface binding. They do not relax the M17 acceptance criteria
   or change the rendering path.
+- CI #200 added the first observed non-null `CurrentContext` pointer at EGL's
+  initial traced make-current. Patch `0028` identifies whether that value is
+  already present in TLS before binding and whether its owner field is
+  readable. M17 remains blocked pending real Servo content and a nonzero pixel
+  checksum; M18 remains NOT STARTED.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

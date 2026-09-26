@@ -172,6 +172,13 @@ semantics and do not alter context ownership.
 and the thread's current-context write. It also records the context and thread
 pointer values for the target trace.
 
+`0028-nagi-egl-tls-state-traces.patch` reports whether EGL thread-local state
+was initialized and whether it already contained a current context before the
+first traced binding. It also separates reading a previous context's owner
+pointer from clearing it, so the QEMU trace can distinguish bad TLS state from
+an invalid or unwritable context pointer. These Nagi-only checkpoints do not
+change EGL binding behavior.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

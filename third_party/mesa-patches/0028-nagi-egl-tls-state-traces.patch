@@ -1,0 +1,55 @@
+diff --git a/src/egl/main/eglcontext.c b/src/egl/main/eglcontext.c
+index fd0cfddbfb9..30921b423b5 100644
+--- a/src/egl/main/eglcontext.c
++++ b/src/egl/main/eglcontext.c
+@@ -841,6 +841,12 @@ _eglBindContextToThread(_EGLContext *ctx, _EGLThreadInfo *t)
+                                    oldCtx, t);
+    if (ctx != oldCtx) {
+       if (oldCtx) {
++         _EGLThreadInfo *oldBinding;
++         EGL_CONTEXT_NAGI_TRACE("thread previous-context owner read started");
++         oldBinding = oldCtx->Binding;
++         EGL_CONTEXT_NAGI_TRACE_POINTERS("thread previous-context owner",
++                                         oldCtx, oldBinding);
++         EGL_CONTEXT_NAGI_TRACE("thread previous-context owner read completed");
+          EGL_CONTEXT_NAGI_TRACE("thread previous-context clear started");
+          oldCtx->Binding = NULL;
+          EGL_CONTEXT_NAGI_TRACE("thread previous-context clear completed");
+diff --git a/src/egl/main/eglcurrent.c b/src/egl/main/eglcurrent.c
+index ab6ef0cc839..572c42856aa 100644
+--- a/src/egl/main/eglcurrent.c
++++ b/src/egl/main/eglcurrent.c
+@@ -42,8 +42,13 @@
+ #ifdef __NAGI__
+ #define EGL_CURRENT_NAGI_TRACE(message) \
+    _debug_printf("Nagi M17 trace: EGL current %s\n", message)
++#define EGL_CURRENT_NAGI_TRACE_STATE(message, thread, context) \
++   _debug_printf("Nagi M17 trace: EGL TLS %s thread=%p inited=%u context=%p\n", \
++                 message, (void *)(thread), (unsigned)(thread)->inited, \
++                 (void *)(context))
+ #else
+ #define EGL_CURRENT_NAGI_TRACE(message) ((void) 0)
++#define EGL_CURRENT_NAGI_TRACE_STATE(message, thread, context) ((void) 0)
+ #endif
+ 
+ static __THREAD_INITIAL_EXEC _EGLThreadInfo _egl_TLS = {
+@@ -67,10 +72,19 @@ _EGLThreadInfo *
+ _eglGetCurrentThread(void)
+ {
+    _EGLThreadInfo *current = &_egl_TLS;
++   if (unlikely(!current->inited) || current->CurrentContext) {
++      EGL_CURRENT_NAGI_TRACE_STATE(
++         current->inited ? "thread-info already current" : "thread-info before init",
++         current, current->inited ? current->CurrentContext : NULL);
++   }
+    if (unlikely(!current->inited)) {
++      EGL_CURRENT_NAGI_TRACE("thread-info zero initialization started");
+       memset(current, 0, sizeof(current[0]));
++      EGL_CURRENT_NAGI_TRACE("thread-info zero initialization completed");
+       _eglInitThreadInfo(current);
+       current->inited = true;
++      EGL_CURRENT_NAGI_TRACE_STATE("thread-info initialized", current,
++                                   current->CurrentContext);
+    }
+    return current;
+ }

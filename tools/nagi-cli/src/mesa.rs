@@ -1334,6 +1334,65 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_egl_tls_state_has_ordered_trace_checkpoints() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0028-nagi-egl-tls-state-traces.patch"),
+        )
+        .expect("Nagi EGL TLS state trace patch");
+
+        for checkpoint in [
+            "thread-info before init",
+            "thread-info zero initialization started",
+            "thread-info zero initialization completed",
+            "thread-info initialized",
+            "thread-info already current",
+            "thread previous-context owner read started",
+            "thread previous-context owner",
+            "thread previous-context owner read completed",
+        ] {
+            assert!(
+                patch.contains(checkpoint),
+                "missing M17 EGL TLS checkpoint: {checkpoint}"
+            );
+        }
+
+        let zero_started = patch
+            .find("thread-info zero initialization started")
+            .expect("TLS zero initialization start checkpoint");
+        let zero_completed = patch
+            .find("thread-info zero initialization completed")
+            .expect("TLS zero initialization completion checkpoint");
+        let initialized = patch
+            .find("thread-info initialized")
+            .expect("TLS initialized checkpoint");
+        assert!(zero_started < zero_completed);
+        assert!(zero_completed < initialized);
+
+        let owner_read_started = patch
+            .find("thread previous-context owner read started")
+            .expect("old context owner read start checkpoint");
+        let owner_value = patch
+            .find("thread previous-context owner\",")
+            .expect("old context owner value checkpoint");
+        let owner_read_completed = patch
+            .find("thread previous-context owner read completed")
+            .expect("old context owner read completion checkpoint");
+        let owner_clear_started = patch
+            .find("thread previous-context clear started")
+            .expect("old context clear checkpoint");
+        assert!(owner_read_started < owner_value);
+        assert!(owner_value < owner_read_completed);
+        assert!(owner_read_completed < owner_clear_started);
+        assert!(patch.contains("thread=%p inited=%u context=%p"));
+        assert!(patch.contains("current->inited ? current->CurrentContext : NULL"));
+        assert!(patch.contains("EGL_CURRENT_NAGI_TRACE_STATE(message, thread, context) ((void) 0)"));
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
