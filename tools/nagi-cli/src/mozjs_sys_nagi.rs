@@ -299,6 +299,18 @@ mod tests {
             "SpiderMonkey Wasm TypeIdSet setLive started",
             "SpiderMonkey Wasm TypeIdSet setLive completed",
             "SpiderMonkey Wasm TypeIdSet HashSet add completed",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary index computed",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot computed",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary liveness read started",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot is live",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot is free",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot collision path entered",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot hash2 computed",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot first collision mark completed",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe slot computed",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe liveness read started",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe slot is live",
+            "SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe slot is free",
             "SpiderMonkey Wasm canonical type-set insertion completed",
             "SpiderMonkey Wasm StaticTypeDefs::init completed",
         ] {
@@ -320,6 +332,35 @@ mod tests {
             "-    aPtr.mSlot.setLive(aPtr.mKeyHash, std::forward<Args>(aArgs)...);\n+    if constexpr (requires { AllocPolicy::traceM17SetLiveStarted(); }) {"
         ));
         assert!(patch.contains("requires { AllocPolicy::traceM17SetLiveStarted(); }"));
+        let find_non_live = patch
+            .find("  Slot findNonLiveSlot(HashNumber aKeyHash) {")
+            .expect("findNonLiveSlot patch context");
+        let find_non_live_patch = &patch[find_non_live..];
+        let ordered_stages = [
+            "traceM17FindNonLiveSlotPrimaryIndexComputed",
+            "traceM17FindNonLiveSlotPrimarySlotComputed",
+            "traceM17FindNonLiveSlotPrimaryLivenessReadStarted",
+            "traceM17FindNonLiveSlotPrimarySlotIsLive",
+            "traceM17FindNonLiveSlotPrimarySlotIsFree",
+            "traceM17FindNonLiveSlotCollisionPathEntered",
+            "traceM17FindNonLiveSlotHash2Computed",
+            "traceM17FindNonLiveSlotFirstCollisionMarkCompleted",
+            "traceM17FindNonLiveSlotFirstProbeSlotComputed",
+            "traceM17FindNonLiveSlotFirstProbeLivenessReadStarted",
+            "traceM17FindNonLiveSlotFirstProbeSlotIsLive",
+            "traceM17FindNonLiveSlotFirstProbeSlotIsFree",
+        ];
+        let mut previous = 0;
+        for stage in ordered_stages {
+            let position = find_non_live_patch
+                .find(stage)
+                .unwrap_or_else(|| panic!("missing ordered TypeIdSet probe checkpoint: {stage}"));
+            assert!(
+                position > previous,
+                "TypeIdSet probe checkpoint is out of order: {stage}"
+            );
+            previous = position;
+        }
     }
 
     #[test]

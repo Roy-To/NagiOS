@@ -4817,6 +4817,28 @@ checks this ordering. The focused tests and a new target CI run must confirm
 the patch compiles before QEMU can provide the allocator markers. M17 remains
 `BLOCKED`; M18 remains `NOT STARTED`.
 
+### Current M17 continuation after CI run #263 (2026-09-27)
+
+Public CI run #263 (`36267970162`, head
+`9f00e9dedfa47514f9645d57426b7a3b42257e80`) passed target dependency
+checks, Mesa Softpipe, the M16 package, kernel, real `nagi-init` link, and
+UEFI loader build. The M17 QEMU first-web-pixel acceptance timed out and
+returned exit code 4. Neither acceptance boot produced a checksum or
+first-web-pixel PASS marker.
+
+Both serial traces completed TypeIdSet table allocation, all slot
+initialization, `createTable`, and `changeTableSize`, then stopped
+immediately after `findNonLiveSlot started`. The pinned HashTable source
+shows that a freshly initialized table should return from its first
+`slot.isLive()` check. Patch `0017` now adds Nagi-only checkpoints after
+primary-index computation, after primary-slot construction, around the first
+liveness read and result, and through the first collision probe if the primary
+slot is unexpectedly live. The result of each `isLive()` read is stored once
+and drives the same branch as before; tracing is compiled only for the
+TypeIdSet allocation policy. This run does not yet identify whether the stop is
+in index calculation, slot construction, liveness access, or the trace
+callback itself. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
 ### Current M17 continuation after CI run #262 (2026-09-27)
 
 Public CI run #262 (`36264391751`, head

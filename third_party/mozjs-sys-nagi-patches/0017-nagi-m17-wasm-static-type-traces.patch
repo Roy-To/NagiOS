@@ -76,7 +76,7 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +    NAGI_M17_TRACE("SpiderMonkey Wasm RecGroup hash completed");
 +    return groupHash;
 +  }
-@@ -509 +526,46 @@
+@@ -509 +526,82 @@
 -  using Set = HashSet<SharedRecGroup, RecGroupHashPolicy, SystemAllocPolicy>;
 +#if defined(__NAGI__)
 +  class TypeIdSetAllocPolicy : public SystemAllocPolicy {
@@ -105,6 +105,42 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +    static void traceM17FindNonLiveSlotCompleted() {
 +      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot completed");
 +    }
++    static void traceM17FindNonLiveSlotPrimaryIndexComputed() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary index computed");
++    }
++    static void traceM17FindNonLiveSlotPrimarySlotComputed() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot computed");
++    }
++    static void traceM17FindNonLiveSlotPrimaryLivenessReadStarted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary liveness read started");
++    }
++    static void traceM17FindNonLiveSlotPrimarySlotIsLive() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot is live");
++    }
++    static void traceM17FindNonLiveSlotPrimarySlotIsFree() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot primary slot is free");
++    }
++    static void traceM17FindNonLiveSlotCollisionPathEntered() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot collision path entered");
++    }
++    static void traceM17FindNonLiveSlotHash2Computed() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot hash2 computed");
++    }
++    static void traceM17FindNonLiveSlotFirstCollisionMarkCompleted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot first collision mark completed");
++    }
++    static void traceM17FindNonLiveSlotFirstProbeSlotComputed() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe slot computed");
++    }
++    static void traceM17FindNonLiveSlotFirstProbeLivenessReadStarted() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe liveness read started");
++    }
++    static void traceM17FindNonLiveSlotFirstProbeSlotIsLive() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe slot is live");
++    }
++    static void traceM17FindNonLiveSlotFirstProbeSlotIsFree() {
++      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet findNonLiveSlot first probe slot is free");
++    }
 +    static void traceM17SetLiveStarted() {
 +      NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet setLive started");
 +    }
@@ -124,22 +160,22 @@ diff --git a/mozjs/js/src/wasm/WasmTypeDef.cpp b/mozjs/js/src/wasm/WasmTypeDef.c
 +  using TypeIdSetAllocPolicy = SystemAllocPolicy;
 +#endif
 +  using Set = HashSet<SharedRecGroup, RecGroupHashPolicy, TypeIdSetAllocPolicy>;
-@@ -516 +578,3 @@
+@@ -516 +614,3 @@
 -    Set::AddPtr p = set_.lookupForAdd(recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd started");
 +    Set::AddPtr p = set_.lookupForAdd(recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet lookupForAdd completed");
-@@ -524 +588,4 @@
+@@ -524 +624,4 @@
 -    if (!set_.add(p, recGroup)) {
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add started");
 +    bool added = set_.add(p, recGroup);
 +    NAGI_M17_TRACE("SpiderMonkey Wasm TypeIdSet HashSet add completed");
 +    if (!added) {
-@@ -569 +636,2 @@
+@@ -569 +672,2 @@
 -  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock started");
 +  ExclusiveData<TypeIdSet>::Guard locked = typeIdSet.lock();
-@@ -570 +638,5 @@
+@@ -570 +674,5 @@
 -  return locked->insert(recGroup);
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set lock acquired");
 +  NAGI_M17_TRACE("SpiderMonkey Wasm canonical type-set insertion started");
@@ -169,6 +205,141 @@ diff --git a/mozjs/mfbt/HashTable.h b/mozjs/mfbt/HashTable.h
 +                    }) {
 +        AllocPolicy::traceM17CreateTableSlotsCompleted();
 +      }
+@@ -1882,29 +1892,105 @@
+-  Slot findNonLiveSlot(HashNumber aKeyHash) {
+-    MOZ_ASSERT(!(aKeyHash & sCollisionBit));
+-    MOZ_ASSERT(mTable);
+-
+-    // We assume 'aKeyHash' has already been distributed.
+-
+-    // Compute the primary hash address.
+-    HashNumber h1 = hash1(aKeyHash);
+-    Slot slot = slotForIndex(h1);
+-
+-    // Miss: return space for a new entry.
+-    if (!slot.isLive()) {
+-      return slot;
+-    }
+-
+-    // Collision: double hash.
+-    DoubleHash dh = hash2(aKeyHash);
+-
+-    while (true) {
+-      slot.setCollision();
+-
+-      h1 = applyDoubleHash(h1, dh);
+-
+-      slot = slotForIndex(h1);
+-      if (!slot.isLive()) {
+-        return slot;
+-      }
+-    }
+-  }
++  Slot findNonLiveSlot(HashNumber aKeyHash) {
++    MOZ_ASSERT(!(aKeyHash & sCollisionBit));
++    MOZ_ASSERT(mTable);
++
++    // We assume 'aKeyHash' has already been distributed.
++
++    // Compute the primary hash address.
++    HashNumber h1 = hash1(aKeyHash);
++    if constexpr (requires {
++                    AllocPolicy::traceM17FindNonLiveSlotPrimaryIndexComputed();
++                  }) {
++      AllocPolicy::traceM17FindNonLiveSlotPrimaryIndexComputed();
++    }
++    Slot slot = slotForIndex(h1);
++    if constexpr (requires {
++                    AllocPolicy::traceM17FindNonLiveSlotPrimarySlotComputed();
++                  }) {
++      AllocPolicy::traceM17FindNonLiveSlotPrimarySlotComputed();
++    }
++
++    // Miss: return space for a new entry.
++    if constexpr (requires {
++                    AllocPolicy::traceM17FindNonLiveSlotPrimaryLivenessReadStarted();
++                  }) {
++      AllocPolicy::traceM17FindNonLiveSlotPrimaryLivenessReadStarted();
++    }
++    const bool primarySlotIsLive = slot.isLive();
++    if (primarySlotIsLive) {
++      if constexpr (requires {
++                      AllocPolicy::traceM17FindNonLiveSlotPrimarySlotIsLive();
++                    }) {
++        AllocPolicy::traceM17FindNonLiveSlotPrimarySlotIsLive();
++      }
++    } else {
++      if constexpr (requires {
++                      AllocPolicy::traceM17FindNonLiveSlotPrimarySlotIsFree();
++                    }) {
++        AllocPolicy::traceM17FindNonLiveSlotPrimarySlotIsFree();
++      }
++    }
++    if (!primarySlotIsLive) {
++      return slot;
++    }
++
++    // Collision: double hash.
++    if constexpr (requires {
++                    AllocPolicy::traceM17FindNonLiveSlotCollisionPathEntered();
++                  }) {
++      AllocPolicy::traceM17FindNonLiveSlotCollisionPathEntered();
++    }
++    DoubleHash dh = hash2(aKeyHash);
++    if constexpr (requires {
++                    AllocPolicy::traceM17FindNonLiveSlotHash2Computed();
++                  }) {
++      AllocPolicy::traceM17FindNonLiveSlotHash2Computed();
++    }
++
++    bool traceFirstProbe = true;
++    while (true) {
++      slot.setCollision();
++      if (traceFirstProbe) {
++        if constexpr (requires {
++                        AllocPolicy::traceM17FindNonLiveSlotFirstCollisionMarkCompleted();
++                      }) {
++          AllocPolicy::traceM17FindNonLiveSlotFirstCollisionMarkCompleted();
++        }
++      }
++
++      h1 = applyDoubleHash(h1, dh);
++
++      slot = slotForIndex(h1);
++      if (traceFirstProbe) {
++        if constexpr (requires {
++                        AllocPolicy::traceM17FindNonLiveSlotFirstProbeSlotComputed();
++                      }) {
++          AllocPolicy::traceM17FindNonLiveSlotFirstProbeSlotComputed();
++        }
++        if constexpr (requires {
++                        AllocPolicy::traceM17FindNonLiveSlotFirstProbeLivenessReadStarted();
++                      }) {
++          AllocPolicy::traceM17FindNonLiveSlotFirstProbeLivenessReadStarted();
++        }
++      }
++      const bool slotIsLive = slot.isLive();
++      if (traceFirstProbe) {
++        if (slotIsLive) {
++          if constexpr (requires {
++                          AllocPolicy::traceM17FindNonLiveSlotFirstProbeSlotIsLive();
++                        }) {
++            AllocPolicy::traceM17FindNonLiveSlotFirstProbeSlotIsLive();
++          }
++        } else {
++          if constexpr (requires {
++                          AllocPolicy::traceM17FindNonLiveSlotFirstProbeSlotIsFree();
++                        }) {
++            AllocPolicy::traceM17FindNonLiveSlotFirstProbeSlotIsFree();
++          }
++        }
++        traceFirstProbe = false;
++      }
++      if (!slotIsLive) {
++        return slot;
++      }
++    }
++  }
 @@ -1921 +1931,7 @@
 -    char* newTable = createTable(*this, newCapacity, aReportFailure);
 +    if constexpr (requires { AllocPolicy::traceM17CreateTableStarted(); }) {

@@ -2679,3 +2679,26 @@ declaration itself and places it immediately before the call inside
 `TypeContext::canonicalizeGroup`. The source-contract test asserts this block
 so future patch edits cannot silently move the trace out of the function.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## TypeIdSet primary-slot trace after CI run #263 (2026-09-27)
+
+Public CI run #263 (`36267970162`, head
+`9f00e9dedfa47514f9645d57426b7a3b42257e80`) passed target dependency
+checks, Mesa Softpipe, the M16 package, kernel, the real `nagi-init` link,
+and UEFI loader build. Both M17 QEMU acceptance boots timed out with exit code
+4. Neither produced a checksum or first-web-pixel PASS marker.
+
+The guest trace completed TypeIdSet table allocation, slot initialization,
+`createTable`, and `changeTableSize`, then stopped immediately after
+`findNonLiveSlot started`. In the pinned HashTable implementation, the
+initial table is created with every slot marked free, so the first primary
+slot check should return without entering the collision path. CI #263 does not
+show whether the primary index, slot pointer, or liveness read is responsible.
+
+Patch `0017` now traces those operations separately and records whether the
+primary slot is live or free. If it is unexpectedly live, it also records
+`hash2`, the first collision mark, and the first probe slot and liveness
+result. These Nagi-only callbacks exist only on the TypeIdSet allocation
+policy; each liveness value is read once and feeds the original branch. No
+allocator, table layout, hash, or retry behavior is changed. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.

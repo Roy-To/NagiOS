@@ -136,3 +136,10 @@ TypeIdSet allocation policy and bracket table-slot initialization,
 `createTable`, `changeTableSize`, `findNonLiveSlot`, and `setLive`. Other hash
 table policies have no trace callbacks and retain their existing behavior.
 Non-Nagi TypeIdSet builds use the original `SystemAllocPolicy` directly.
+
+After CI #263 stopped immediately after `findNonLiveSlot` began, patch
+`0017` added Nagi-only markers after primary-index calculation and slot
+construction, around the first liveness read and result, and through the first
+collision probe when needed. The liveness result is read once and drives the
+same branch as the uninstrumented implementation. The first-probe markers are
+emitted once, so an unexpected collision loop does not flood the serial log.
