@@ -118,9 +118,20 @@ of the selected presentation language.
 
 ## Current implementation boundary
 
-The existing M10 Japanese UTF-8 rendering/input path is compatible with this
-architecture, but it is not by itself the shared localization framework.
-At this checkpoint no full `en-US`/`ja-JP` resource catalog or language
-settings service is claimed. Future localization work must use this document
-as the common contract and must add focused lookup, fallback, invalid-locale,
-and Unicode tests before claiming the relevant milestone complete.
+`crates/nagi-localization` provides the shared user-space foundation: canonical
+locale IDs, separate system-language and region inputs, versioned UTF-8 JSON
+catalogs, stable message IDs, named interpolation, exact/language/English
+fallback, structured diagnostics, first-class `en-US` and `ja-JP` resources,
+deterministic initial formatting, and an `en-XA` pseudo-locale. The catalog
+checker validates metadata, duplicate IDs, English/Japanese parity, and
+placeholder parity. The resource and caller contract is documented in
+`docs/guides/localization.md`.
+
+This foundation does not implement the Settings service, input-language or IME
+selection, Albert conversation-language preferences, UI components, font
+resolution, or dictionary-based collation. Those remain owned by their
+respective system workstreams and should consume this crate through its public
+API. Nagi 0.1 formatting currently covers Gregorian dates, clock times,
+numbers, percentages, USD/JPY display, and a small symbol-based unit set; it
+does not provide timezone conversion, currency conversion, CLDR-wide data, or
+linguistic sorting. No process-global host locale or timezone is consulted.

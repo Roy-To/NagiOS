@@ -37,6 +37,16 @@ builds through UEFI loader. QEMU timed out after 120 seconds during EGL thread
 context binding. No frame or pixel checksum was produced. Public target CI
 remains authoritative for M17; M18 remains NOT STARTED.
 
+### Independent workstream checkpoint: localization-i18n
+
+The localization foundation is being implemented on isolated branch
+`codex/ws-localization-i18n`; this does not change the active M17 milestone or
+claim M17 progress. The host unit suite (26 tests), catalog checker, Clippy,
+crate formatting, and Nagi user-target compile pass. Commit/push are pending.
+See [`docs/workstreams/localization-i18n/status.md`](workstreams/localization-i18n/status.md)
+for exact commands, the unrelated Apple Silicon workspace-test failure, and
+workstream boundaries.
+
 ### Target evidence from CI run #202 (2026-09-26)
 
 Run `36208851031` (#202, head

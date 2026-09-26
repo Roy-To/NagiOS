@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "locale": "ja-JP",
+  "script": "Jpan",
+  "direction": "ltr",
+  "font_fallback_scripts": ["Jpan", "Hani", "Latn"],
+  "messages": {
+    "common.cancel": "キャンセル",
+    "common.close": "閉じる",
+    "common.continue": "続行",
+    "common.save": "保存",
+    "settings.language.title": "システムの言語",
+    "settings.region.title": "地域と言語形式",
+    "system.message_unavailable": "このメッセージは利用できません。"
+  }
+}
