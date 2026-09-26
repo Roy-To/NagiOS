@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "fetch-enabled-root-activity-pass-full-host-suite-arm64-blocker",
+  "current_checkpoint": "host-ci-repair-local-verified-ci-pending",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "36bf5ba4ad0b1d87060a451c49aaafd66b124a81",
-    "verified_at": "2026-09-26T06:44:31Z",
-    "normal_state": "All four requested branch heads are merge ancestors. A host-only adapter package now connects real Notes, Files, Activity, and Wayback providers to Home/Search. Files regular-file rename captures a read-authorized bounded snapshot and creates a shared checkpoint; unsupported snapshots fail truthfully. The cross-app suite passed 11 tests, Files 48 tests, Notes 27 tests, Home/Search 35 library plus 1 preview test, and isolated Activity/Wayback 41 tests; integration, Files, and Home/Search all-target Clippy and Rust formatting checks passed. The integrated memory-only preview passed in en-US and ja-JP. Target native launch, target capability/object/workspace services, durable history, target checkpoint restore, and target runtime acceptance remain NOT RUN. The ignored cc-nagi source remains absent; the safe ./nagi dev launcher routes DF-01 commands through nagi-bootstrap. See docs/first_party/integration/contract-matrix.md. The updated integration state validated through ./nagi dev verify; ./nagi dev status and ./nagi dev resume also completed successfully while cc-nagi remained absent. After the prior pushed host-integration checkpoint, ./nagi fetch successfully materialized the ignored, source-lock-pinned cc-nagi and other pinned inputs. The root nagi-history test then passed all 41 tests. The full ./nagi test is blocked on this arm64 macOS host because user/libnagi contains x86_64 inline registers compiled for aarch64; ./nagi fmt reports check-only differences in fetched Servo sources. No tracked source, M17 state, or source branch was changed. Details are recorded in docs/first_party/integration/contract-matrix.md. The post-fetch state with the arm64 HOST_ENV blocker also passes ./nagi dev verify/status/resume.",
+    "commit_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
+    "verified_at": "2026-09-26T08:50:00Z",
+    "normal_state": "The host-only first-party integration is locally verified. Activity/Wayback history API Clippy findings and developer-state assertions tied to an obsolete active stream were repaired without changing authority, provenance, restore semantics, or milestone gates. First-party suites, package Clippy checks, root workspace Clippy, UEFI Activity/Wayback library check, and integrated bilingual host preview passed. The full ./nagi test remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi; cargo fmt --all -- --check reports only fetched Servo checkout differences. Source CI run 36230579035 is in progress with Ubuntu passing and Windows bootstrap still running. Target app launch/runtime remains NOT RUN. M17 remains BLOCKED and M18 remains NOT STARTED.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -52,7 +52,11 @@
       "git diff --check",
       "./nagi dev verify",
       "./nagi dev status",
-      "./nagi dev resume"
+      "./nagi dev resume",
+      "cargo clippy -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings"
     ],
     "tests": [
       {
@@ -229,13 +233,58 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The updated checkpoint and HOST_ENV blocker validated; status/resume reported PARTIAL on codex/first-party-integration."
+      },
+      {
+        "name": "Activity/Wayback history Clippy after CI repair",
+        "command": "cargo clippy -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets and features passed warning-free after grouping pin/restore request inputs, using slice membership, and removing the redundant conversion."
+      },
+      {
+        "name": "Activity/Wayback history host suite after CI repair",
+        "command": "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 passed, 0 failed."
+      },
+      {
+        "name": "nagi-cli host suite after state assertion repair",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "68 unit tests and 20 CLI integration tests passed; assertions no longer assume a fixed active workstream."
+      },
+      {
+        "name": "integration CI host gates after repair",
+        "command": "GitHub Actions Nagi CI run 36230579035",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Ubuntu host job passed, including format, lint, build, test, M0 acceptance, and workstream verification. Windows was still bootstrapping pinned Servo dependencies at checkpoint time; target job had not started."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 36224698245,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36224698245",
+        "head_sha": "a60c513626d099e11607620b9de23c5cc02fe154",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu Clippy found six nagi-history style issues and Windows host tests assumed development-foundation was the active stream; target job skipped. Both host findings are repaired in later commits."
+      },
+      {
+        "run_id": 36230579035,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36230579035",
+        "head_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Ubuntu host job passed all gates. Windows host job was bootstrapping pinned Servo dependencies; target job had not started at the 2026-09-26T08:50Z checkpoint."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T06:44:31Z",
+    "last_checked_at": "2026-09-26T08:50:00Z",
     "activation_requirement": "This stream integrates 0.1 first-party host contracts only; it does not change M17 or authorize 0.2 runtime implementation. Target integration remains separately gated by the Nagi milestone state."
   },
   "blocker": {
@@ -260,7 +309,7 @@
       "Do not hide the architecture failure by weakening tests or stubbing guest syscall behavior."
     ]
   },
-  "next_action": "First rerun ./nagi test on a supported x86_64 development host to complete full root host-workspace verification. Then resume target integration when public Nagi APIs are available for authenticated context, OS capability/object/workspace services, native app launch, Search/Action services, durable Activity/Wayback storage, and target Files snapshot/restore. Keep the already-passing host integration and all source branches unchanged.",
+  "next_action": "Inspect Nagi CI run 36230579035 at the exact source commit. If host gates pass, integrate the host-only first-party changes into codex/integration-next-phase while preserving the root M17 state and reconciling workstream registry ownership. Keep target integration NOT RUN until authenticated context, capability/object/workspace services, native launch, Search/Action dispatch, durable history, and Files snapshot/restore APIs are available; keep M18 gated on an actual M17 pixel checksum and PASS marker.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",

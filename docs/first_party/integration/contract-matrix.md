@@ -236,6 +236,34 @@ Cargo workspace. The implementation checkpoint is commit
   the updated fetch/test state. The workstream remains `PARTIAL`; DF-01 records
   the arm64-only full-workspace compile failure as a `HOST_ENV` blocker.
 
+### Host CI repair checkpoint (2026-09-26)
+
+- Source CI run `36224698245` failed before target execution. Ubuntu Clippy
+  rejected six `nagi-history` style issues; Windows host tests also contained
+  assertions tied to the old `development-foundation` active-stream status.
+- The history implementation now uses a private timeline render request and
+  named `CheckpointPinRequest` / `RestorePlanRequest` inputs for the shared
+  checkpoint and restore APIs. `ObjectRefs::contains` uses slice membership,
+  and the redundant render-error conversion is removed. These are host API
+  input-shape changes only; mutation policy, validation, provenance, ledger
+  capacity, and restore behavior are unchanged.
+- The developer-state unit test now accepts the statuses defined by its
+  schema. The CLI integration test checks that status reports a registered
+  stream and branch rather than assuming one fixed active branch.
+- Local verification after these repairs passed: Activity/Wayback 41 tests
+  and its UEFI library check; `nagi-cli` 68 unit + 20 CLI tests; Files 48;
+  Notes 27; Home/Search 35 library + 1 preview; cross-app integration 11;
+  root-workspace Clippy and all four standalone-package Clippy checks with
+  `-D warnings`; and the bilingual integrated host preview. Changed Rust files
+  pass pinned rustfmt. Full `cargo fmt --all -- --check` still reports
+  differences only in the fetched Servo checkout; no Servo source was edited.
+- Follow-up CI run `36230579035` uses head
+  `6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e`; its result is pending. The
+  earlier full root host test remains unavailable on this arm64 host because
+  `user/libnagi` contains x86_64 syscall-register assembly. Target app launch,
+  persistence, capabilities, Search/Action dispatch, and restore remain
+  **NOT RUN**; the host preview does not advance M17 or M18.
+
 ### Remaining adapters and gates
 
 The host adapters are deliberately process-local and do not claim to be

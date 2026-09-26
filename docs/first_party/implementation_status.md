@@ -339,3 +339,25 @@ not modify or merge into M17 worktrees.
   retaining the first-party integration status as `PARTIAL`.
 - M17 status and worktree were not changed. All four source branches and
   worktrees remain intact.
+
+### Host CI repair checkpoint
+
+- Source run `36224698245` failed in Ubuntu Clippy on six Activity/Wayback
+  issues and in the Windows host suite on an assertion that assumed
+  `development-foundation` remained the active stream. The target job was
+  skipped because both host jobs failed.
+- History inputs are now grouped in typed pin and restore request structs;
+  the developer-state tests follow the workstream status schema and current
+  registered branch. No permissions, provenance validation, target services,
+  restore behavior, or M17 acceptance conditions changed.
+- The repaired commit is `6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e`.
+  Local verification passed for all first-party suites (41 Activity/Wayback,
+  48 Files, 27 Notes, 35+1 Home/Search, 11 cross-app), `nagi-cli` (68 unit +
+  20 CLI), the Activity/Wayback UEFI library check, root workspace Clippy,
+  standalone first-party Clippy, and the integrated host preview. Changed Rust
+  files pass pinned rustfmt. Full workspace format remains blocked by
+  check-only diffs in fetched Servo sources; the full root host suite remains
+  blocked on arm64 by x86_64-only syscall registers in `user/libnagi`.
+- CI run `36230579035` is checking the repair. This workstream remains
+  `PARTIAL`; target launch and runtime integration remain **NOT RUN**. M17 is
+  unchanged and M18 remains gated on M17.
