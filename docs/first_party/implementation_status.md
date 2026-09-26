@@ -73,20 +73,20 @@ not modify or merge into M17 worktrees.
   also contains the committed first-party status preparation checkpoint
   `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85`.
 - **Current checkpoint:** Files domain, view model, typed Action dispatch,
-  capability enforcement, in-memory provider, host sandbox provider, search,
-  hooks, localization, and host preview are implemented. Package verification
-  passes. Nagi target desktop/provider integration is blocked by missing public
-  Files runtime APIs.
+  capability enforcement, in-memory provider, directory-handle-rooted host
+  sandbox provider, search, hooks, localization, and host preview are
+  implemented. Focused package verification passes. Nagi target desktop/provider
+  integration is blocked by missing public Files runtime APIs.
 - **Implemented components:** `apps/nagi-files` contains resource/location and
   operation models; FilesService and a typed FilesActionApi for the 15 stable
   Files action IDs; three-pane navigation/selection/inspector view state; scoped
   capability checks; in-memory orchestration backend; host sandbox backend with
   persistent Trash/tags, identity retention for same-filesystem rename/move,
   copy/restore/conflict handling, explicit one-use permanent-delete confirmation,
-  bounded previews, and static traversal/symlink checks; metadata Search;
+  bounded previews, and capability-rooted traversal/symlink checks; metadata Search;
   Context/Workspace/Activity/Wayback adapter hooks; en-US and ja-JP resources;
   and an interactive Japanese/English host preview.
-- **Verification evidence:** 47 focused tests PASS; package Clippy with
+- **Verification evidence:** 48 focused tests PASS; package Clippy with
   `-D warnings` PASS; package `cargo fmt -- --check` PASS; Japanese host preview
   listing and open smoke PASS in a disposable `/tmp` sandbox. Test/build output
   is isolated under `/tmp/nagi-files-cargo-target`.
@@ -102,14 +102,16 @@ not modify or merge into M17 worktrees.
   | FILES-006 permanent-delete confirmation | `PASS (host/mock)` | User-only, bound, one-use confirmation is required and tested. |
   | FILES-007 Context publish | `PASS (contract)` | Selection/current-location snapshot publishes through a typed boundary; shared Context service is not connected. |
   | FILES-008 Workspace reference | `PASS (mock)` | Adapter tests show add/remove reference does not move the resource; target Workspace service is not connected. |
-  | FILES-009 Wayback restore | `BLOCKED` | Checkpoint request hook exists; no Wayback snapshot/restore runtime is available to connect. |
-  | FILES-010 UI-independent core tests | `PASS` | 47 package tests run without the desktop UI. |
+  | FILES-009 Wayback restore | `PARTIAL` | Typed checkpoint boundary, affected-resource list, transaction ID, and truthful reversible hints are tested; supported-resource snapshot restore needs the unavailable Wayback runtime. |
+  | FILES-010 UI-independent core tests | `PASS` | 48 package tests run without the desktop UI. |
 
 - **Known limitations:** The host backend rejects lexical traversal, selected-root
-  symlinks, checked symlink paths, and reserved metadata aliases. Its std::fs
-  path checks do not defend against a concurrent process replacing a path
-  between validation and use; do not treat the preview as an adversarial
-  production sandbox. The preview is a host terminal UI, not a Nagi GUI app.
+  symlinks, checked symlink paths, and reserved metadata aliases. Operations
+  below the selected root use `cap-std` directory handles; Unix metadata writes
+  and Trash operations also compare the held metadata-directory identity with
+  its current in-root entry. The preview runs with host-user authority and is
+  not an adversarial production sandbox. The preview is a host terminal UI, not
+  a Nagi GUI app.
   M7 currently exposes a root-directory VFS API, while M10 Files remains a
   static desktop panel; neither supplies a general Files provider, app-scoped
   capability service, or shared Action/Activity/Wayback/Search integration.
@@ -119,6 +121,15 @@ not modify or merge into M17 worktrees.
   Future target integration must adapt the typed provider and capability
   contracts to public Nagi runtime APIs; host/mock results are not target
   acceptance.
+- **Failure classification:** No current package test/build failure. The
+  remaining target work is blocked by external runtime/API dependencies:
+  M7's root-only VFS, M10's static Files panel, and missing public Files,
+  Action Registry, Activity, Wayback, and Search provider APIs. Host and mock
+  implementation remains independently runnable.
+- **Next action:** When those public runtime APIs become available, connect the
+  provider and typed action/hook contracts to the Nagi desktop and services,
+  then run target integration acceptance for FILES-001/002/003/009. Keep this
+  work isolated from M17 and the other app workstreams.
 - **Decisions:** Keep this workstream on `codex/app-files`; use typed operations
   and local contracts because shared Resource/Capability/Activity/Wayback/Search
   runtime APIs do not yet exist in this base. Keep target integration separate

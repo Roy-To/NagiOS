@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use cap_std::fs::{Dir, MetadataExt, OpenOptions};
 
 use crate::{
     CancellationToken, EntryAvailability, EntryKind, FileEntry, FileName, FilesError,
@@ -27,11 +29,9 @@ struct StoredTrash {
 /// This preview backend is not a production Nagi capability implementation.
 pub struct SandboxProvider {
     root: PathBuf,
-    trash_root: PathBuf,
-    index_path: PathBuf,
-    temp_index_path: PathBuf,
-    tag_index_path: PathBuf,
-    temp_tag_index_path: PathBuf,
+    root_dir: Dir,
+    internal_dir: Dir,
+    trash_dir: Dir,
     trash: Vec<StoredTrash>,
     next_trash_id: u64,
     tags: BTreeMap<ResourceId, Vec<String>>,
@@ -49,16 +49,25 @@ impl SandboxProvider {
         if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
             return Err(FilesError::new(FilesErrorKind::InvalidLocation));
         }
-        let internal = root.join(INTERNAL_DIR);
-        ensure_internal_directory(&root, &internal)?;
-        let trash_root = internal.join(TRASH_DIR);
-        ensure_internal_directory(&root, &trash_root)?;
-        let index_path = internal.join(INDEX_FILE);
-        let temp_index_path = internal.join(TEMP_INDEX_FILE);
-        let tag_index_path = internal.join(TAG_INDEX_FILE);
-        let temp_tag_index_path = internal.join(TEMP_TAG_INDEX_FILE);
-        let trash = load_trash_index(&root, &trash_root, &index_path)?;
-        let tags = load_tags_index(&root, &tag_index_path)?;
+        let root_dir =
+            Dir::open_ambient_dir(&root, cap_std::ambient_authority()).map_err(map_io_error)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as StdMetadataExt;
+
+            let opened_root_metadata = root_dir.dir_metadata().map_err(map_io_error)?;
+            if opened_root_metadata.dev() != root_metadata.dev()
+                || opened_root_metadata.ino() != root_metadata.ino()
+            {
+                return Err(FilesError::new(FilesErrorKind::Conflict));
+            }
+        }
+        ensure_internal_directory(&root_dir, INTERNAL_DIR)?;
+        let internal_dir = root_dir.open_dir(INTERNAL_DIR).map_err(map_io_error)?;
+        ensure_internal_directory(&internal_dir, TRASH_DIR)?;
+        let trash_dir = internal_dir.open_dir(TRASH_DIR).map_err(map_io_error)?;
+        let trash = load_trash_index(&internal_dir, &trash_dir)?;
+        let tags = load_tags_index(&internal_dir)?;
         let next_trash_id = trash
             .iter()
             .filter_map(|item| item.trash_name.split_once('-')?.0.parse::<u64>().ok())
@@ -67,11 +76,9 @@ impl SandboxProvider {
             .wrapping_add(1);
         Ok(Self {
             root,
-            trash_root,
-            index_path,
-            temp_index_path,
-            tag_index_path,
-            temp_tag_index_path,
+            root_dir,
+            internal_dir,
+            trash_dir,
             trash,
             next_trash_id,
             tags,
@@ -82,7 +89,7 @@ impl SandboxProvider {
         &self.root
     }
 
-    fn checked_public_path(&self, location: &Location) -> Result<PathBuf, FilesError> {
+    fn public_directory(&self, location: &Location) -> Result<Dir, FilesError> {
         if location
             .components()
             .next()
@@ -90,10 +97,9 @@ impl SandboxProvider {
         {
             return Err(FilesError::new(FilesErrorKind::SandboxEscape).at(location.clone()));
         }
-        let mut current = self.root.clone();
+        let mut current = self.root_dir.open_dir(".").map_err(map_io_error)?;
         for part in location.components() {
-            current.push(part);
-            let metadata = fs::symlink_metadata(&current).map_err(|error| {
+            let metadata = current.symlink_metadata(part).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
                     FilesError::new(FilesErrorKind::NotFound).at(location.clone())
                 } else {
@@ -103,20 +109,34 @@ impl SandboxProvider {
             if metadata.file_type().is_symlink() {
                 return Err(FilesError::new(FilesErrorKind::SymlinkNotAllowed).at(location.clone()));
             }
-            let canonical = fs::canonicalize(&current).map_err(map_io_error)?;
-            if !canonical.starts_with(&self.root) {
-                return Err(FilesError::new(FilesErrorKind::SandboxEscape).at(location.clone()));
+            if !metadata.is_dir() {
+                return Err(FilesError::new(FilesErrorKind::NotDirectory).at(location.clone()));
             }
-            current = canonical;
+            current = current
+                .open_dir(part)
+                .map_err(|error| map_io_error(error).at(location.clone()))?;
         }
         Ok(current)
+    }
+
+    fn public_parent(&self, location: &Location) -> Result<(Dir, String), FilesError> {
+        let name = location
+            .file_name()
+            .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
+        if is_internal_component(name) {
+            return Err(FilesError::new(FilesErrorKind::SandboxEscape).at(location.clone()));
+        }
+        let parent = location
+            .parent()
+            .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
+        Ok((self.public_directory(&parent)?, name.to_owned()))
     }
 
     fn checked_destination(
         &self,
         parent: &Location,
         name: &FileName,
-    ) -> Result<(PathBuf, Location), FilesError> {
+    ) -> Result<(Dir, Location), FilesError> {
         if parent
             .components()
             .next()
@@ -125,30 +145,26 @@ impl SandboxProvider {
         {
             return Err(FilesError::new(FilesErrorKind::SandboxEscape));
         }
-        let parent_path = self.checked_public_path(parent)?;
-        let parent_metadata = fs::symlink_metadata(&parent_path).map_err(map_io_error)?;
-        if !parent_metadata.is_dir() {
-            return Err(FilesError::new(FilesErrorKind::NotDirectory).at(parent.clone()));
-        }
+        let parent_dir = self.public_directory(parent)?;
         let target_location = parent.join(name);
-        let target = parent_path.join(name.as_str());
-        match fs::symlink_metadata(&target) {
+        match parent_dir.symlink_metadata(name.as_str()) {
             Ok(_) => Err(FilesError::new(FilesErrorKind::Conflict).at(target_location)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok((target, target_location))
+                Ok((parent_dir, target_location))
             }
             Err(error) => Err(map_io_error(error).at(target_location)),
         }
     }
 
-    fn entry_from_path(
+    fn entry_from_directory(
         &self,
-        location: &Location,
-        path: &Path,
+        parent_location: &Location,
+        parent: &Dir,
         name: &FileName,
     ) -> Result<FileEntry, FilesError> {
-        let metadata =
-            fs::symlink_metadata(path).map_err(|error| map_io_error(error).at(location.clone()))?;
+        let metadata = parent
+            .symlink_metadata(name.as_str())
+            .map_err(|error| map_io_error(error).at(parent_location.join(name)))?;
         let file_type = metadata.file_type();
         let kind = if file_type.is_symlink() {
             EntryKind::Symlink
@@ -159,16 +175,23 @@ impl SandboxProvider {
         } else {
             EntryKind::Unsupported
         };
-        let id = resource_id(path, &metadata);
+        let absolute_path = self.root.join(parent_location.as_str()).join(name.as_str());
+        let id = resource_id(&absolute_path, &metadata);
         Ok(FileEntry {
             id,
             name: name.clone(),
-            location: location.clone(),
+            location: parent_location.clone(),
             kind,
             size_bytes: (kind == EntryKind::File || kind == EntryKind::Symlink)
                 .then_some(metadata.len()),
-            created_at: metadata.created().ok().map(system_time_seconds),
-            modified_at: metadata.modified().ok().map(system_time_seconds),
+            created_at: metadata
+                .created()
+                .ok()
+                .map(|time| system_time_seconds(time.into_std())),
+            modified_at: metadata
+                .modified()
+                .ok()
+                .map(|time| system_time_seconds(time.into_std())),
             tags: self.tags.get(&id).cloned().unwrap_or_default(),
             availability: if metadata.permissions().readonly() {
                 EntryAvailability::ReadOnly
@@ -178,33 +201,38 @@ impl SandboxProvider {
         })
     }
 
-    fn next_trash_name(&mut self) -> String {
+    fn next_trash_name(&mut self) -> Result<String, FilesError> {
         loop {
             let id = self.next_trash_id;
             self.next_trash_id = self.next_trash_id.wrapping_add(1).max(1);
             let name = format!("{id}-{}", system_time_seconds(SystemTime::now()));
-            if !self.trash_root.join(&name).exists() {
-                return name;
+            match self.trash_dir.symlink_metadata(&name) {
+                Ok(_) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(name),
+                Err(error) => return Err(map_io_error(error)),
             }
         }
     }
 
     fn persist_index(&self, items: &[StoredTrash]) -> Result<(), FilesError> {
         self.verify_internal_storage()?;
-        match fs::symlink_metadata(&self.temp_index_path) {
+        match self.internal_dir.symlink_metadata(TEMP_INDEX_FILE) {
             Ok(metadata) if metadata.is_file() || metadata.file_type().is_symlink() => {
                 // Removing a symlink removes the link itself; create_new below
                 // then refuses a raced replacement rather than following it.
-                fs::remove_file(&self.temp_index_path).map_err(map_io_error)?;
+                self.internal_dir
+                    .remove_file(TEMP_INDEX_FILE)
+                    .map_err(map_io_error)?;
             }
             Ok(_) => return Err(FilesError::new(FilesErrorKind::CorruptMetadata)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(map_io_error(error)),
         }
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&self.temp_index_path)
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        let mut file = self
+            .internal_dir
+            .open_with(TEMP_INDEX_FILE, &options)
             .map_err(map_io_error)?;
         for item in items {
             let original = hex_encode(item.entry.original_location.as_str().as_bytes());
@@ -222,24 +250,29 @@ impl SandboxProvider {
             .map_err(map_io_error)?;
         }
         file.sync_all().map_err(map_io_error)?;
-        fs::rename(&self.temp_index_path, &self.index_path).map_err(map_io_error)?;
+        self.internal_dir
+            .rename(TEMP_INDEX_FILE, &self.internal_dir, INDEX_FILE)
+            .map_err(map_io_error)?;
         Ok(())
     }
 
     fn persist_tags(&self) -> Result<(), FilesError> {
         self.verify_internal_storage()?;
-        match fs::symlink_metadata(&self.temp_tag_index_path) {
+        match self.internal_dir.symlink_metadata(TEMP_TAG_INDEX_FILE) {
             Ok(metadata) if metadata.is_file() || metadata.file_type().is_symlink() => {
-                fs::remove_file(&self.temp_tag_index_path).map_err(map_io_error)?;
+                self.internal_dir
+                    .remove_file(TEMP_TAG_INDEX_FILE)
+                    .map_err(map_io_error)?;
             }
             Ok(_) => return Err(FilesError::new(FilesErrorKind::CorruptMetadata)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(map_io_error(error)),
         }
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&self.temp_tag_index_path)
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        let mut file = self
+            .internal_dir
+            .open_with(TEMP_TAG_INDEX_FILE, &options)
             .map_err(map_io_error)?;
         for (id, tags) in &self.tags {
             let encoded = tags
@@ -250,20 +283,39 @@ impl SandboxProvider {
             writeln!(file, "{id}\t{encoded}").map_err(map_io_error)?;
         }
         file.sync_all().map_err(map_io_error)?;
-        fs::rename(&self.temp_tag_index_path, &self.tag_index_path).map_err(map_io_error)?;
+        self.internal_dir
+            .rename(TEMP_TAG_INDEX_FILE, &self.internal_dir, TAG_INDEX_FILE)
+            .map_err(map_io_error)?;
         Ok(())
     }
 
     fn verify_internal_storage(&self) -> Result<(), FilesError> {
-        for path in [&self.root.join(INTERNAL_DIR), &self.trash_root] {
-            let metadata = fs::symlink_metadata(path).map_err(map_io_error)?;
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                return Err(FilesError::new(FilesErrorKind::SymlinkNotAllowed));
-            }
-            let canonical = fs::canonicalize(path).map_err(map_io_error)?;
-            if !canonical.starts_with(&self.root) {
-                return Err(FilesError::new(FilesErrorKind::SandboxEscape));
-            }
+        let internal_path = self.root.join(INTERNAL_DIR);
+        let internal_metadata = self
+            .root_dir
+            .symlink_metadata(INTERNAL_DIR)
+            .map_err(map_io_error)?;
+        let internal_handle_metadata = self.internal_dir.dir_metadata().map_err(map_io_error)?;
+        if internal_metadata.file_type().is_symlink()
+            || !internal_metadata.is_dir()
+            || resource_id(&internal_path, &internal_metadata)
+                != resource_id(&internal_path, &internal_handle_metadata)
+        {
+            return Err(FilesError::new(FilesErrorKind::SandboxEscape));
+        }
+
+        let trash_path = internal_path.join(TRASH_DIR);
+        let trash_metadata = self
+            .internal_dir
+            .symlink_metadata(TRASH_DIR)
+            .map_err(map_io_error)?;
+        let trash_handle_metadata = self.trash_dir.dir_metadata().map_err(map_io_error)?;
+        if trash_metadata.file_type().is_symlink()
+            || !trash_metadata.is_dir()
+            || resource_id(&trash_path, &trash_metadata)
+                != resource_id(&trash_path, &trash_handle_metadata)
+        {
+            return Err(FilesError::new(FilesErrorKind::SandboxEscape));
         }
         Ok(())
     }
@@ -275,12 +327,9 @@ impl FilesystemProvider for SandboxProvider {
     }
 
     fn list(&self, location: &Location) -> Result<Vec<FileEntry>, FilesError> {
-        let path = self.checked_public_path(location)?;
-        if !fs::metadata(&path).map_err(map_io_error)?.is_dir() {
-            return Err(FilesError::new(FilesErrorKind::NotDirectory).at(location.clone()));
-        }
+        let directory = self.public_directory(location)?;
         let mut entries = Vec::new();
-        for child in fs::read_dir(path).map_err(map_io_error)? {
+        for child in directory.entries().map_err(map_io_error)? {
             let child = child.map_err(map_io_error)?;
             let file_name = child
                 .file_name()
@@ -292,12 +341,12 @@ impl FilesystemProvider for SandboxProvider {
             let name = FileName::parse(&file_name)?;
             let child_location = location.join(&name);
             entries.push(
-                self.entry_from_path(location, &child.path(), &name)
-                    .map_err(|e| {
-                        if e.location.is_some() {
-                            e
+                self.entry_from_directory(location, &directory, &name)
+                    .map_err(|error| {
+                        if error.location.is_some() {
+                            error
                         } else {
-                            e.at(child_location)
+                            error.at(child_location)
                         }
                     })?,
             );
@@ -316,21 +365,17 @@ impl FilesystemProvider for SandboxProvider {
     }
 
     fn metadata(&self, location: &Location) -> Result<FileEntry, FilesError> {
-        let path = self.checked_public_path(location)?;
-        let name = FileName::parse(
-            location
-                .file_name()
-                .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?,
-        )?;
-        let parent = location
+        let (parent, name) = self.public_parent(location)?;
+        let name = FileName::parse(&name)?;
+        let parent_location = location
             .parent()
             .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
-        self.entry_from_path(&parent, &path, &name)
+        self.entry_from_directory(&parent_location, &parent, &name)
     }
 
     fn read_file(&self, location: &Location, max_bytes: usize) -> Result<Vec<u8>, FilesError> {
-        let path = self.checked_public_path(location)?;
-        let metadata = fs::symlink_metadata(&path).map_err(map_io_error)?;
+        let (parent, name) = self.public_parent(location)?;
+        let metadata = parent.symlink_metadata(&name).map_err(map_io_error)?;
         if metadata.file_type().is_symlink() {
             return Err(FilesError::new(FilesErrorKind::SymlinkNotAllowed).at(location.clone()));
         }
@@ -340,7 +385,14 @@ impl FilesystemProvider for SandboxProvider {
         if metadata.len() > max_bytes as u64 {
             return Err(FilesError::new(FilesErrorKind::FileTooLarge).at(location.clone()));
         }
-        let file = File::open(path).map_err(map_io_error)?;
+        let file = parent.open(&name).map_err(map_io_error)?;
+        let opened = file.metadata().map_err(map_io_error)?;
+        let absolute_path = self.root.join(location.as_str());
+        if !opened.is_file()
+            || resource_id(&absolute_path, &opened) != resource_id(&absolute_path, &metadata)
+        {
+            return Err(FilesError::new(FilesErrorKind::Conflict).at(location.clone()));
+        }
         let mut contents = Vec::new();
         file.take(max_bytes.saturating_add(1) as u64)
             .read_to_end(&mut contents)
@@ -378,21 +430,30 @@ impl FilesystemProvider for SandboxProvider {
         parent: &Location,
         name: &FileName,
     ) -> Result<FileEntry, FilesError> {
-        let (target, target_location) = self.checked_destination(parent, name)?;
-        fs::create_dir(&target).map_err(|error| map_io_error(error).at(target_location.clone()))?;
-        self.entry_from_path(parent, &target, name)
+        let (parent_dir, target_location) = self.checked_destination(parent, name)?;
+        parent_dir
+            .create_dir(name.as_str())
+            .map_err(|error| map_io_error(error).at(target_location))?;
+        self.entry_from_directory(parent, &parent_dir, name)
     }
 
     fn rename(&mut self, source: &Location, name: &FileName) -> Result<FileEntry, FilesError> {
-        let source_path = self.checked_public_path(source)?;
         if source.is_root() {
             return Err(FilesError::new(FilesErrorKind::InvalidLocation));
         }
+        let (source_parent, source_name) = self.public_parent(source)?;
+        let source_metadata = source_parent
+            .symlink_metadata(&source_name)
+            .map_err(map_io_error)?;
+        if source_metadata.file_type().is_symlink() {
+            return Err(FilesError::new(FilesErrorKind::SymlinkNotAllowed).at(source.clone()));
+        }
         let parent = source.parent().expect("non-root location has parent");
-        let (target, target_location) = self.checked_destination(&parent, name)?;
-        fs::rename(&source_path, &target)
-            .map_err(|error| map_io_error(error).at(target_location.clone()))?;
-        self.entry_from_path(&parent, &target, name)
+        let (target_parent, target_location) = self.checked_destination(&parent, name)?;
+        source_parent
+            .rename(&source_name, &target_parent, name.as_str())
+            .map_err(|error| map_io_error(error).at(target_location))?;
+        self.entry_from_directory(&parent, &target_parent, name)
     }
 
     fn copy(
@@ -402,15 +463,23 @@ impl FilesystemProvider for SandboxProvider {
         name: &FileName,
         cancellation: &CancellationToken,
     ) -> Result<FileEntry, FilesError> {
-        let source_path = self.checked_public_path(source)?;
-        let source_metadata = fs::symlink_metadata(&source_path).map_err(map_io_error)?;
+        let (source_parent, source_name) = self.public_parent(source)?;
+        let source_metadata = source_parent
+            .symlink_metadata(&source_name)
+            .map_err(map_io_error)?;
         if source_metadata.file_type().is_symlink() {
             return Err(FilesError::new(FilesErrorKind::SymlinkNotAllowed).at(source.clone()));
         }
-        let (target, target_location) = self.checked_destination(destination, name)?;
-        match copy_tree(&source_path, &target, cancellation) {
-            Ok(()) => self.entry_from_path(destination, &target, name),
-            Err(error) => match remove_tree(&target) {
+        let (target_parent, target_location) = self.checked_destination(destination, name)?;
+        match copy_tree(
+            &source_parent,
+            &source_name,
+            &target_parent,
+            name.as_str(),
+            cancellation,
+        ) {
+            Ok(()) => self.entry_from_directory(destination, &target_parent, name),
+            Err(error) => match remove_tree(&target_parent, name.as_str()) {
                 Ok(()) => Err(error.at(target_location)),
                 Err(_) => Err(FilesError::new(FilesErrorKind::PartialFailure).at(target_location)),
             },
@@ -423,20 +492,32 @@ impl FilesystemProvider for SandboxProvider {
         destination: &Location,
         name: &FileName,
     ) -> Result<FileEntry, FilesError> {
-        let source_path = self.checked_public_path(source)?;
+        let (source_parent, source_name) = self.public_parent(source)?;
+        let source_metadata = source_parent
+            .symlink_metadata(&source_name)
+            .map_err(map_io_error)?;
+        if source_metadata.file_type().is_symlink() {
+            return Err(FilesError::new(FilesErrorKind::SymlinkNotAllowed).at(source.clone()));
+        }
         if source.is_root()
             || destination.join(name) == *source
             || destination.join(name).is_within(source)
         {
             return Err(FilesError::new(FilesErrorKind::DestinationInsideSource));
         }
-        let (target, target_location) = self.checked_destination(destination, name)?;
-        match fs::rename(&source_path, &target) {
-            Ok(()) => self.entry_from_path(destination, &target, name),
+        let (target_parent, target_location) = self.checked_destination(destination, name)?;
+        match source_parent.rename(&source_name, &target_parent, name.as_str()) {
+            Ok(()) => self.entry_from_directory(destination, &target_parent, name),
             Err(error) if is_cross_device(&error) => {
-                match copy_tree(&source_path, &target, &CancellationToken::new()) {
+                match copy_tree(
+                    &source_parent,
+                    &source_name,
+                    &target_parent,
+                    name.as_str(),
+                    &CancellationToken::new(),
+                ) {
                     Ok(()) => {
-                        if remove_tree(&source_path).is_err() {
+                        if remove_tree(&source_parent, &source_name).is_err() {
                             // Keep the complete destination if source removal
                             // partially fails; deleting both copies could lose
                             // data. Surface the partial move for user review.
@@ -444,10 +525,10 @@ impl FilesystemProvider for SandboxProvider {
                                 FilesError::new(FilesErrorKind::PartialFailure).at(source.clone())
                             );
                         }
-                        self.entry_from_path(destination, &target, name)
+                        self.entry_from_directory(destination, &target_parent, name)
                     }
                     Err(copy_error) => {
-                        if remove_tree(&target).is_err() {
+                        if remove_tree(&target_parent, name.as_str()).is_err() {
                             Err(FilesError::new(FilesErrorKind::PartialFailure).at(target_location))
                         } else {
                             Err(copy_error.at(target_location))
@@ -464,15 +545,16 @@ impl FilesystemProvider for SandboxProvider {
             return Err(FilesError::new(FilesErrorKind::InvalidLocation));
         }
         self.verify_internal_storage()?;
-        let source_path = self.checked_public_path(source)?;
-        let metadata = fs::symlink_metadata(&source_path).map_err(map_io_error)?;
+        let (source_parent, source_name) = self.public_parent(source)?;
+        let metadata = source_parent
+            .symlink_metadata(&source_name)
+            .map_err(map_io_error)?;
         if metadata.file_type().is_symlink() || !metadata.is_file() && !metadata.is_dir() {
             return Err(FilesError::new(FilesErrorKind::UnsupportedEntry).at(source.clone()));
         }
         let entry = self.metadata(source)?;
         let deleted_at = system_time_seconds(SystemTime::now());
-        let trash_name = self.next_trash_name();
-        let destination = self.trash_root.join(&trash_name);
+        let trash_name = self.next_trash_name()?;
         let stored = StoredTrash {
             entry: TrashEntry {
                 id: entry.id,
@@ -481,14 +563,19 @@ impl FilesystemProvider for SandboxProvider {
                 size_bytes: entry.size_bytes,
                 deleted_at,
             },
-            trash_name,
+            trash_name: trash_name.clone(),
         };
-        fs::rename(&source_path, &destination)
+        source_parent
+            .rename(&source_name, &self.trash_dir, &trash_name)
             .map_err(|error| map_io_error(error).at(source.clone()))?;
         let mut next = self.trash.clone();
         next.push(stored.clone());
         if let Err(error) = self.persist_index(&next) {
-            if fs::rename(&destination, &source_path).is_err() {
+            if self
+                .trash_dir
+                .rename(&trash_name, &source_parent, &source_name)
+                .is_err()
+            {
                 return Err(FilesError::new(FilesErrorKind::PartialFailure).at(source.clone()));
             }
             return Err(error.at(source.clone()));
@@ -510,14 +597,18 @@ impl FilesystemProvider for SandboxProvider {
             .position(|item| item.entry.id == id)
             .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
         let item = self.trash[index].clone();
-        let source_path = self.trash_root.join(&item.trash_name);
-        let destination = self.checked_restore_destination(&item.entry.original_location)?;
-        fs::rename(&source_path, &destination)
+        let (destination_parent, destination_name) =
+            self.checked_restore_destination(&item.entry.original_location)?;
+        self.trash_dir
+            .rename(&item.trash_name, &destination_parent, &destination_name)
             .map_err(|error| map_io_error(error).at(item.entry.original_location.clone()))?;
         let mut next = self.trash.clone();
         next.remove(index);
         if let Err(error) = self.persist_index(&next) {
-            if fs::rename(&destination, &source_path).is_err() {
+            if destination_parent
+                .rename(&destination_name, &self.trash_dir, &item.trash_name)
+                .is_err()
+            {
                 return Err(FilesError::new(FilesErrorKind::PartialFailure)
                     .at(item.entry.original_location));
             }
@@ -535,8 +626,7 @@ impl FilesystemProvider for SandboxProvider {
             .position(|item| item.entry.id == id)
             .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
         let item = self.trash[index].clone();
-        let target = self.trash_root.join(&item.trash_name);
-        remove_tree(&target).map_err(map_io_error)?;
+        remove_tree(&self.trash_dir, &item.trash_name).map_err(map_io_error)?;
         let mut next = self.trash.clone();
         next.remove(index);
         self.trash = next;
@@ -551,7 +641,10 @@ impl FilesystemProvider for SandboxProvider {
 }
 
 impl SandboxProvider {
-    fn checked_restore_destination(&self, location: &Location) -> Result<PathBuf, FilesError> {
+    fn checked_restore_destination(
+        &self,
+        location: &Location,
+    ) -> Result<(Dir, String), FilesError> {
         if location.is_root()
             || location
                 .components()
@@ -563,14 +656,15 @@ impl SandboxProvider {
         let parent = location
             .parent()
             .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
-        let parent_path = self.checked_public_path(&parent)?;
+        let parent_dir = self.public_directory(&parent)?;
         let name = location
             .file_name()
             .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
-        let destination = parent_path.join(name);
-        match fs::symlink_metadata(&destination) {
+        match parent_dir.symlink_metadata(name) {
             Ok(_) => Err(FilesError::new(FilesErrorKind::Conflict).at(location.clone())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(destination),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok((parent_dir, name.to_owned()))
+            }
             Err(error) => Err(map_io_error(error).at(location.clone())),
         }
     }
@@ -580,32 +674,21 @@ fn is_internal_component(value: &str) -> bool {
     value.eq_ignore_ascii_case(INTERNAL_DIR)
 }
 
-fn ensure_internal_directory(root: &Path, directory: &Path) -> Result<(), FilesError> {
-    match fs::symlink_metadata(directory) {
+fn ensure_internal_directory(parent: &Dir, name: &str) -> Result<(), FilesError> {
+    match parent.symlink_metadata(name) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
             Err(FilesError::new(FilesErrorKind::SymlinkNotAllowed))
         }
-        Ok(_) => {
-            let canonical = fs::canonicalize(directory).map_err(map_io_error)?;
-            if canonical.starts_with(root) {
-                Ok(())
-            } else {
-                Err(FilesError::new(FilesErrorKind::SandboxEscape))
-            }
-        }
+        Ok(_) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir(directory).map_err(map_io_error)
+            parent.create_dir(name).map_err(map_io_error)
         }
         Err(error) => Err(map_io_error(error)),
     }
 }
 
-fn load_trash_index(
-    root: &Path,
-    trash_root: &Path,
-    index_path: &Path,
-) -> Result<Vec<StoredTrash>, FilesError> {
-    let index_metadata = match fs::symlink_metadata(index_path) {
+fn load_trash_index(internal: &Dir, trash: &Dir) -> Result<Vec<StoredTrash>, FilesError> {
+    let index_metadata = match internal.symlink_metadata(INDEX_FILE) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(map_io_error(error)),
@@ -613,13 +696,7 @@ fn load_trash_index(
     if index_metadata.file_type().is_symlink() || !index_metadata.is_file() {
         return Err(FilesError::new(FilesErrorKind::CorruptMetadata));
     }
-    if !fs::canonicalize(index_path)
-        .map_err(map_io_error)?
-        .starts_with(root)
-    {
-        return Err(FilesError::new(FilesErrorKind::SandboxEscape));
-    }
-    let contents = fs::read_to_string(index_path).map_err(map_io_error)?;
+    let contents = internal.read_to_string(INDEX_FILE).map_err(map_io_error)?;
     let mut items = Vec::new();
     let mut seen_ids = BTreeSet::new();
     let mut seen_names = BTreeSet::new();
@@ -662,8 +739,7 @@ fn load_trash_index(
         if !valid_trash_name(&trash_name) || !seen_names.insert(trash_name.clone()) {
             return Err(FilesError::new(FilesErrorKind::CorruptMetadata));
         }
-        let trash_path = trash_root.join(&trash_name);
-        let metadata = match fs::symlink_metadata(&trash_path) {
+        let metadata = match trash.symlink_metadata(&trash_name) {
             Ok(metadata) => metadata,
             // A crash after confirmed permanent deletion but before the index
             // update leaves a stale manifest row; omit the missing object.
@@ -672,13 +748,6 @@ fn load_trash_index(
         };
         if metadata.file_type().is_symlink() || !metadata.is_file() && !metadata.is_dir() {
             return Err(FilesError::new(FilesErrorKind::CorruptMetadata));
-        }
-        if !trash_path
-            .canonicalize()
-            .map_err(map_io_error)?
-            .starts_with(root)
-        {
-            return Err(FilesError::new(FilesErrorKind::SandboxEscape));
         }
         items.push(StoredTrash {
             entry: TrashEntry {
@@ -694,11 +763,8 @@ fn load_trash_index(
     Ok(items)
 }
 
-fn load_tags_index(
-    root: &Path,
-    index_path: &Path,
-) -> Result<BTreeMap<ResourceId, Vec<String>>, FilesError> {
-    let metadata = match fs::symlink_metadata(index_path) {
+fn load_tags_index(internal: &Dir) -> Result<BTreeMap<ResourceId, Vec<String>>, FilesError> {
+    let metadata = match internal.symlink_metadata(TAG_INDEX_FILE) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
         Err(error) => return Err(map_io_error(error)),
@@ -706,13 +772,9 @@ fn load_tags_index(
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(FilesError::new(FilesErrorKind::CorruptMetadata));
     }
-    if !fs::canonicalize(index_path)
-        .map_err(map_io_error)?
-        .starts_with(root)
-    {
-        return Err(FilesError::new(FilesErrorKind::SandboxEscape));
-    }
-    let contents = fs::read_to_string(index_path).map_err(map_io_error)?;
+    let contents = internal
+        .read_to_string(TAG_INDEX_FILE)
+        .map_err(map_io_error)?;
     let mut tags_by_id = BTreeMap::new();
     for line in contents.lines() {
         let (id, encoded_tags) = line
@@ -744,58 +806,105 @@ fn load_tags_index(
 }
 
 fn copy_tree(
-    source: &Path,
-    destination: &Path,
+    source_parent: &Dir,
+    source_name: &str,
+    destination_parent: &Dir,
+    destination_name: &str,
     cancellation: &CancellationToken,
 ) -> Result<(), FilesError> {
     if cancellation.is_cancelled() {
         return Err(FilesError::new(FilesErrorKind::Cancelled));
     }
-    let metadata = fs::symlink_metadata(source).map_err(map_io_error)?;
+    let metadata = source_parent
+        .symlink_metadata(source_name)
+        .map_err(map_io_error)?;
     if metadata.file_type().is_symlink() {
         return Err(FilesError::new(FilesErrorKind::SymlinkNotAllowed));
     }
     if metadata.is_file() {
-        fs::copy(source, destination).map_err(map_io_error)?;
+        let mut source_file = source_parent.open(source_name).map_err(map_io_error)?;
+        let opened_metadata = source_file.metadata().map_err(map_io_error)?;
+        if !opened_metadata.is_file()
+            || resource_id(Path::new(source_name), &metadata)
+                != resource_id(Path::new(source_name), &opened_metadata)
+        {
+            return Err(FilesError::new(FilesErrorKind::Conflict));
+        }
+        let mut options = OpenOptions::new();
+        options.create_new(true).write(true);
+        let mut destination_file = destination_parent
+            .open_with(destination_name, &options)
+            .map_err(map_io_error)?;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            if cancellation.is_cancelled() {
+                return Err(FilesError::new(FilesErrorKind::Cancelled));
+            }
+            let read = source_file.read(&mut buffer).map_err(map_io_error)?;
+            if read == 0 {
+                break;
+            }
+            destination_file
+                .write_all(&buffer[..read])
+                .map_err(map_io_error)?;
+        }
         return Ok(());
     }
     if !metadata.is_dir() {
         return Err(FilesError::new(FilesErrorKind::UnsupportedEntry));
     }
-    fs::create_dir(destination).map_err(map_io_error)?;
-    for entry in fs::read_dir(source).map_err(map_io_error)? {
+    destination_parent
+        .create_dir(destination_name)
+        .map_err(map_io_error)?;
+    let source_directory = source_parent.open_dir(source_name).map_err(map_io_error)?;
+    let opened_metadata = source_directory.dir_metadata().map_err(map_io_error)?;
+    if resource_id(Path::new(source_name), &metadata)
+        != resource_id(Path::new(source_name), &opened_metadata)
+    {
+        return Err(FilesError::new(FilesErrorKind::Conflict));
+    }
+    let destination_directory = destination_parent
+        .open_dir(destination_name)
+        .map_err(map_io_error)?;
+    for entry in source_directory.entries().map_err(map_io_error)? {
         if cancellation.is_cancelled() {
             return Err(FilesError::new(FilesErrorKind::Cancelled));
         }
         let entry = entry.map_err(map_io_error)?;
-        let child_destination = destination.join(entry.file_name());
-        copy_tree(&entry.path(), &child_destination, cancellation)?;
+        let child_name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| FilesError::new(FilesErrorKind::InvalidName))?;
+        FileName::parse(&child_name)?;
+        copy_tree(
+            &source_directory,
+            &child_name,
+            &destination_directory,
+            &child_name,
+            cancellation,
+        )?;
     }
     Ok(())
 }
 
-fn remove_tree(path: &Path) -> std::io::Result<()> {
-    let metadata = match fs::symlink_metadata(path) {
+fn remove_tree(parent: &Dir, name: &str) -> std::io::Result<()> {
+    let metadata = match parent.symlink_metadata(name) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
     };
     if metadata.file_type().is_symlink() || metadata.is_file() {
-        fs::remove_file(path)
+        parent.remove_file(name)
     } else if metadata.is_dir() {
-        for child in fs::read_dir(path)? {
-            remove_tree(&child?.path())?;
-        }
-        fs::remove_dir(path)
+        parent.remove_dir_all(name)
     } else {
         Err(std::io::Error::other("unsupported filesystem entry"))
     }
 }
 
-fn resource_id(_path: &Path, metadata: &fs::Metadata) -> ResourceId {
+fn resource_id(_path: &Path, metadata: &cap_std::fs::Metadata) -> ResourceId {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
         ResourceId((u128::from(metadata.dev()) << 64) | u128::from(metadata.ino()))
     }
     #[cfg(not(unix))]

@@ -44,9 +44,10 @@ acceptance.
 - Give every provider opaque resource IDs and relative locations. Keep host
   paths sandbox-relative; reject parent traversal, absolute paths, reserved
   internal metadata paths, selected-root symlinks, and checked symlink paths.
-  Host path validation does not prevent a concurrent process replacing a path
-  between the check and the filesystem operation; the preview must not be
-  treated as a production adversarial sandbox.
+  The host backend uses `cap-std` directory handles for operations below the
+  selected root and checks held metadata-directory identity on Unix. The
+  preview still runs with the host user's authority and is not an adversarial
+  production sandbox.
 - Route mutation through an operation coordinator. Each operation carries an
   intent, precondition, transaction ID, cancellation handle, and reversible
   classification. Permanent deletion requires a one-use confirmation token.

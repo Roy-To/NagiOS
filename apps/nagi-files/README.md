@@ -50,12 +50,16 @@ that take an item index. `help` prints the interactive syntax.
 - Agent actions require an Activity sink to accept a `Started` record before
   the provider can mutate data. User actions remain available without Activity.
 - The host sandbox reserves one internal `.nagi-files` directory for persistent
-  Trash and tag metadata. It hides that directory from user enumeration,
-  rejects path traversal and symlinks in traversed paths, and never follows a
-  symlink during recursive copy. It rejects a symlink as the selected root and
-  blocks case-insensitive aliases of its reserved metadata path. Path checks
-  use the host filesystem API and do not defend against a concurrent process
-  replacing a checked path between validation and use.
+  Trash and tag metadata. Public filesystem operations traverse
+  `cap-std::fs::Dir` handles opened from the selected root, so path resolution
+  remains within that directory tree. It rejects path traversal, selected-root
+  symlinks, static symlink paths, and case-insensitive aliases of its reserved
+  metadata path; recursive copy never follows a symlink. On Unix, it also checks
+  the opened root against the selected path at startup, and checks the held
+  metadata-directory handles against their in-sandbox entries before metadata
+  writes and Trash operations. This is a host preview backend, not isolation
+  from a hostile process running as the same OS user or a production Nagi
+  capability implementation.
 - Search returns filename, location, kind, size, modified-time, and tag
   metadata. It checks read permission per returned resource and skips denied
   resources without revealing their names.

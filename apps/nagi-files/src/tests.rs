@@ -1400,6 +1400,33 @@ fn sandbox_symlink_at_internal_storage_boundary_fails_closed() {
 }
 
 #[test]
+#[cfg(unix)]
+fn sandbox_trash_handle_fails_closed_if_internal_store_is_moved_outside_root() {
+    let temp = TempSandbox::new();
+    let outside = TempSandbox::new();
+    fs::write(temp.path().join("discard.txt"), b"discard me").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let trashed = provider
+        .trash(&Location::parse("discard.txt").unwrap())
+        .unwrap();
+    let moved_store = outside.path().join("moved-store");
+    fs::rename(temp.path().join(".nagi-files"), &moved_store).unwrap();
+    fs::create_dir(temp.path().join(".nagi-files")).unwrap();
+    fs::create_dir(temp.path().join(".nagi-files/trash")).unwrap();
+
+    assert_eq!(
+        provider.permanently_delete(trashed.id).unwrap_err().kind,
+        FilesErrorKind::SandboxEscape
+    );
+    assert!(moved_store
+        .join("trash")
+        .read_dir()
+        .unwrap()
+        .next()
+        .is_some());
+}
+
+#[test]
 fn sandbox_rejects_corrupt_trash_manifest_paths() {
     let temp = TempSandbox::new();
     fs::create_dir(temp.path().join(".nagi-files")).unwrap();
