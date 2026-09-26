@@ -3467,6 +3467,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-localization"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-model"
 version = "0.1.0"
 

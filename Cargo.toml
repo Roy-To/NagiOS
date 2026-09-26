@@ -6,6 +6,7 @@ members = [
     "crates/nagi-bootinfo",
     "crates/nagi-abi",
     "crates/nagi-model",
+    "crates/nagi-localization",
     "kernel",
     "user/libnagi",
     "user/nagi-net",
