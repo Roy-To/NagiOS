@@ -23,7 +23,7 @@ workstream extends the shared UI foundation and does not revise M10's result.
 | First-party integration guidance and M10 adapter | PASS | Architecture guide and M10 semantic palette adapter compile in target image build |
 | Focused host verification | PASS | `cargo test -p nagi-ui --locked`: 27 passed; Clippy and formatting passed |
 | Nagi target and M10 guest verification | BLOCKED | `nagi-ui` target check passed; QEMU guest stopped at M5 `invalid-elf` before UI startup |
-| Commit and push | IN_PROGRESS | Final diff review and push pending |
+| Commit and push | PASS | Implementation commit `69de514` and this evidence update are published on `origin/codex/ws-ui-design-system` |
 
 ## Repository boundaries
 
