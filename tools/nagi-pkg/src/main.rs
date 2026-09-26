@@ -5,12 +5,15 @@ use std::path::PathBuf;
 use ed25519_dalek::{Signer, SigningKey};
 use nagi_package::{build_xapp, PackageView, MAX_PACKAGE_BYTES, SIGNATURE_BYTES};
 
+mod app_manifest;
+
 fn main() {
     let mut args = env::args().skip(1);
     let command = args.next().unwrap_or_else(|| usage("missing command"));
     match command.as_str() {
         "build-hello" => build_hello(&mut args, false),
         "build-signed-hello" => build_hello(&mut args, true),
+        "manifest" => manifest_command(&mut args),
         "info" => {
             let path = PathBuf::from(args.next().unwrap_or_else(|| usage("missing package path")));
             let bytes = fs::read(&path).unwrap_or_else(|error| panic!("read package: {error}"));
@@ -28,9 +31,34 @@ fn main() {
 }
 
 fn usage(message: &str) -> ! {
-    eprintln!("{message}\nusage: nagi-pkg build-hello <napp> [output] | build-signed-hello <napp> [output] | info <package>");
+    eprintln!("{message}\nusage: nagi-pkg build-hello <napp> [output] | build-signed-hello <napp> [output] | info <package> | manifest validate <manifest.json>");
     std::process::exit(2)
 }
+
+fn manifest_command(args: &mut impl Iterator<Item = String>) {
+    if args.next().as_deref() != Some("validate") {
+        usage("manifest requires the `validate` subcommand");
+    }
+    let path = PathBuf::from(
+        args.next()
+            .unwrap_or_else(|| usage("missing manifest path")),
+    );
+    if args.next().is_some() {
+        usage("too many manifest arguments");
+    }
+    let manifest = app_manifest::load_manifest(&path)
+        .unwrap_or_else(|error| usage(&format!("invalid manifest: {error}")));
+    println!(
+        "PASS nagi-pkg manifest validate: {} AppId={} sdk={}.{}",
+        path.display(),
+        manifest.app_id.0,
+        manifest.sdk_contract_version.major,
+        manifest.sdk_contract_version.minor
+    );
+}
+
+#[cfg(test)]
+mod contract_tests;
 
 fn build_hello(args: &mut impl Iterator<Item = String>, signed: bool) {
     let executable_path = args

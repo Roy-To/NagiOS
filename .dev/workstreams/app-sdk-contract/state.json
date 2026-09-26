@@ -1,0 +1,62 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "app-sdk-contract",
+  "current_milestone": "App SDK / First-Party App Contract Foundation",
+  "current_checkpoint": "host-contract-implementation-ready-for-commit-verification",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "4f704cf0e6a1fd780e240f3e62058439e81e4368",
+    "verified_at": "2026-09-25T09:19:27Z",
+    "normal_state": "This recorded commit verifies the inherited DF-01 baseline only. App SDK implementation has been added and is being verified in the worktree; commit-bound test evidence is pending. The 0.1 release gate remains M17 BLOCKED; no runtime integration is authorized.",
+    "commands": [],
+    "tests": [],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and .dev/workstreams/development-foundation/state.json",
+    "last_checked_at": "2026-09-26T02:09:11Z",
+    "activation_requirement": "Host-side contract preparation only. Do not connect to runtime until Nagi 0.1 M30 is PASS and an explicit 0.2 integration checkpoint exists."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": []
+  },
+  "next_action": "Commit the scoped implementation snapshot; rerun focused SDK/loader/package tests, fmt, Clippy, schema validation, and DF verification against its commit; then bind final state and handoff to that evidence without changing out-of-scope runtime or third-party files.",
+  "acceptance_criteria": [
+    "Dedicated codex/0.2-app-sdk-contract branch and isolated worktree.",
+    "App manifest v1 schema and host loader cover identity, publisher, entrypoint, locales, resources, intents, requested capabilities, optional services, and state compatibility.",
+    "App identity remains stable and independent from display names, locale, filesystem location, and execution identity.",
+    "Host-side app registration rejects duplicate identifiers and numeric AppId collisions; a fixture registers before launch.",
+    "Lifecycle state and events are distinct; invalid transitions and abnormal termination are represented.",
+    "State backend contract covers app namespace, versions, load/save/reset, missing/corrupt data, and migrations.",
+    "Intent and deep-link contract validates declarations, payload metadata, source/target and correlation identity.",
+    "Transport-independent IPC v1 envelope supports request/response/event/error, correlation and request IDs, ordering metadata, and unsupported-version errors.",
+    "Common error model and capability handoff boundary do not duplicate policy or grant authority.",
+    "Localization handles en-US and ja-JP as first-class locales with en-US fallback and unknown-locale behavior.",
+    "Manifest schema, SDK contract, IPC protocol, and persisted-state versions are independent and documented.",
+    "At least three SDK-owned first-party-like fixtures pass manifest, unit, and integration coverage.",
+    "Schema validation, focused fmt, Clippy, tests, relevant package regression tests, and ./nagi dev verify pass.",
+    "App SDK architecture, runtime adapter points, and first-party adoption guidance are documented.",
+    "No runtime app-host integration, M17/M18-M30 change, first-party app change, Capability implementation, or Wayback implementation.",
+    "Workstream state and handoff reflect actual evidence; final commit is pushed and worktree is clean."
+  ],
+  "deferred": [
+    "Runtime app-host binding, lifecycle delivery, and process execution until M30 PASS and explicit 0.2 integration checkpoint.",
+    "Concrete IPC transport, persistent filesystem/VFS backend, Capability policy engine, and compositor/window surface integration remain owned by their respective runtime/platform workstreams.",
+    "Migration of the existing M16 package parser and adoption by real first-party apps require a later compatibility/integration checkpoint."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 workstream registry, durable state, resume, and verification commands",
+      "version": "1",
+      "status": "PASS"
+    }
+  ]
+}

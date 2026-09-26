@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "sdkContractVersion": { "major": 1, "minor": 0 },
+  "id": "com.nagi.sdk-fixture.search",
+  "version": "0.1.0",
+  "origin": "first-party",
+  "publisherId": "com.nagi",
+  "displayName": { "en-US": "Search Fixture", "ja-JP": "検索例" },
+  "supportedLocales": ["en-US", "ja-JP"],
+  "entrypoint": { "kind": "portable", "target": "programs/search.wasm" },
+  "resources": [],
+  "intents": [
+    { "id": "search.query", "version": 1, "payloadType": "nagi.search-query@1" }
+  ],
+  "requestedCapabilities": [],
+  "backgroundServices": [],
+  "stateCompatibility": { "currentVersion": 1, "minimumReadableVersion": 1 }
+}

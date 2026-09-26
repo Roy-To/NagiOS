@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.dev/schemas/app-manifest-v1.schema.json",
+  "title": "Nagi application manifest contract v1",
+  "description": "Structural host-side App SDK contract metadata. AppManifestContract semantic validation additionally checks collection uniqueness and cross-field rules. It does not grant capabilities or define a runtime host.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sdkContractVersion",
+    "id",
+    "version",
+    "origin",
+    "displayName",
+    "supportedLocales",
+    "entrypoint",
+    "resources",
+    "intents",
+    "requestedCapabilities",
+    "stateCompatibility"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "sdkContractVersion": { "$ref": "#/$defs/contractVersion" },
+    "id": { "$ref": "#/$defs/appId" },
+    "version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$" },
+    "origin": { "enum": ["first-party", "third-party"] },
+    "publisherId": { "$ref": "#/$defs/appId" },
+    "displayName": { "$ref": "#/$defs/displayName" },
+    "supportedLocales": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "contains": { "const": "en-US" },
+      "items": { "$ref": "#/$defs/localeTag" }
+    },
+    "icon": { "$ref": "#/$defs/resourceUri" },
+    "entrypoint": { "$ref": "#/$defs/entrypoint" },
+    "resources": { "type": "array", "items": { "$ref": "#/$defs/resource" } },
+    "intents": { "type": "array", "items": { "$ref": "#/$defs/intent" } },
+    "requestedCapabilities": { "type": "array", "items": { "$ref": "#/$defs/capabilityRequest" } },
+    "backgroundServices": { "type": "array", "items": { "$ref": "#/$defs/backgroundService" } },
+    "stateCompatibility": { "$ref": "#/$defs/stateCompatibility" },
+    "extensions": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9-]+)+$" },
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "origin": { "const": "first-party" } }, "required": ["origin"] },
+      "then": { "required": ["publisherId"] }
+    },
+    {
+      "if": { "properties": { "supportedLocales": { "contains": { "const": "ja-JP" } } }, "required": ["supportedLocales"] },
+      "then": { "properties": { "displayName": { "required": ["ja-JP"] } } }
+    },
+    {
+      "if": { "properties": { "displayName": { "required": ["ja-JP"] } }, "required": ["displayName"] },
+      "then": { "properties": { "supportedLocales": { "contains": { "const": "ja-JP" } } } }
+    }
+  ],
+  "$defs": {
+    "appId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*(?:\\.[a-z0-9]+(?:-[a-z0-9]+)*)+$" },
+    "localeTag": { "type": "string", "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$" },
+    "symbol": { "type": "string", "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "resourceUri": {
+      "type": "string",
+      "pattern": "^appres://(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+    },
+    "contractVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "minor": { "type": "integer", "minimum": 0, "maximum": 65535 }
+      }
+    },
+    "displayName": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["en-US"],
+      "properties": {
+        "en-US": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "ja-JP": { "type": "string", "minLength": 1, "pattern": "\\S" }
+      }
+    },
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "enum": ["native", "portable"] },
+        "target": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$",
+          "not": { "pattern": "(?:^|/)\\.{1,2}(?:/|$)" }
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "uri"],
+      "properties": {
+        "id": { "$ref": "#/$defs/symbol" },
+        "uri": { "$ref": "#/$defs/resourceUri" },
+        "mediaType": { "type": "string", "pattern": "^[a-zA-Z0-9.+-]+/[a-zA-Z0-9.+-]+$" }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "payloadType"],
+      "properties": {
+        "id": { "$ref": "#/$defs/symbol" },
+        "version": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "payloadType": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}@[0-9]+$" },
+        "routeId": { "$ref": "#/$defs/symbol" }
+      }
+    },
+    "capabilityRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/symbol" },
+        "purposeKey": { "$ref": "#/$defs/symbol" }
+      }
+    },
+    "backgroundService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "entrypoint", "activation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/symbol" },
+        "entrypoint": { "$ref": "#/$defs/entrypoint/properties/target" },
+        "activation": { "enum": ["deferred", "on-demand", "system-event"] }
+      }
+    },
+    "stateCompatibility": {
+      "description": "Structural limits only. The typed semantic validator additionally requires minimumReadableVersion to be no greater than currentVersion; JSON Schema has no portable sibling-property comparison.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentVersion", "minimumReadableVersion"],
+      "properties": {
+        "currentVersion": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "minimumReadableVersion": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+      }
+    }
+  }
+}
