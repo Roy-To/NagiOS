@@ -746,6 +746,33 @@ fn host_preview_is_confined_to_object_derived_regular_entries() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn host_backend_rejects_symlinked_revision_files() {
+    let sandbox = TempDirectory::new();
+    let store = HostPreviewStore::open(sandbox.path()).unwrap();
+    let saved = store
+        .commit(&NoteDocument::new(ObjectId(88), "note", Timestamp(1)), 0)
+        .unwrap();
+    let note_dir = sandbox.path().join(format!("{:016x}", saved.id.0));
+    let revision_path = note_dir.join("rev-00000000000000000001.md");
+    let outside = TempDirectory::new();
+    let outside_file = outside.path().join("outside.md");
+    fs::write(&outside_file, "outside sandbox").unwrap();
+    fs::remove_file(&revision_path).unwrap();
+    std::os::unix::fs::symlink(&outside_file, &revision_path).unwrap();
+
+    assert!(matches!(
+        store.load(saved.id),
+        Err(StoreError::SandboxViolation(_))
+    ));
+    assert!(matches!(
+        store.load_revision(saved.id, saved.revision),
+        Err(StoreError::SandboxViolation(_))
+    ));
+    assert_eq!(fs::read_to_string(outside_file).unwrap(), "outside sandbox");
+}
+
 #[test]
 fn localization_catalogs_cover_required_ui_and_fallback_never_exposes_keys() {
     assert!(Localizer::catalog_complete(Locale::EnUs));

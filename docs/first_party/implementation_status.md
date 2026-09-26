@@ -284,12 +284,13 @@ not modify or merge into M17 worktrees.
   at the typed Notes Activity boundary, and `NOTES-009` passes with local
   immutable revision restore; shared Activity/Wayback service connections
   remain pending.
-- **Tests run / acceptance tests passed:** 27 focused integration tests pass
+- **Tests run / acceptance tests passed:** 28 focused integration tests pass
   with pinned `nightly-2025-08-01` on `aarch64-apple-darwin`; all-target Cargo
   check and warning-free all-target Clippy pass; terminal host preview
   quick-create/save/close/reopen/show smoke passes across two processes. The
-  initial root `./nagi dev status`
-  command cannot load the absent `third_party/cc-nagi/Cargo.toml`; this is an
+  host store rejects symlinked revision files on latest and historical reads.
+  The initial root `./nagi dev status` command cannot load the absent
+  `third_party/cc-nagi/Cargo.toml`; this is an
   unrelated workspace/dependency issue. No target runtime test has run.
 - **Known limitations:** There is no Notes native desktop surface in the
   repository's available UI framework; the runnable UI is a host terminal

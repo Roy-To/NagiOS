@@ -111,9 +111,10 @@ untracked `libtarget_check.rlib`; it has been left untouched.
   `c1353ffe4d9be9699e6d6ed778661b675a329cb1`.
 - The shared status file merged automatically; Notes is still in its
   standalone package/workspace and keeps its own lockfile.
-- Focused Notes acceptance suite: **27 passed**. This exercised host stores,
+- Focused Notes acceptance suite: **28 passed**. This exercised host stores,
   authorization-policy failures, Activity redaction/failure handling,
-  revisions/restore-as-copy, localization, and host preview path confinement.
+  revisions/restore-as-copy, localization, and host preview path confinement,
+  including rejection of symlinked revision files.
 - Notes already uses canonical `ObjectId` and `WorkspaceId`. Its direct
   methods can bypass `NotesActionExecutor`, so an integrated UI/provider must
   not turn Home's UI grant projection into authority. Search indexing must
