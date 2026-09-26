@@ -2,7 +2,8 @@
 
 - Workstream: `wayback-activity-ledger`
 - Branch: `codex/0.2-wayback-ledger`
-- HEAD: `d52edd3ab2fe29cc32bde92720476a622f2688d3`
+- Last verified implementation commit: `d52edd3ab2fe29cc32bde92720476a622f2688d3`
+- Registry/state/handoff checkpoint: `6af4849f4d1b1cd9b2c01ddf2421608d9f15b62c` (push pending)
 - Base: `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9` (DF-01)
 - Status: `IN_PROGRESS` — host-side implementation and local acceptance pass; registry/state handoff checkpoint, push, and CI review remain.
 

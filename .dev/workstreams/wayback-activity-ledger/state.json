@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "wayback-activity-ledger",
   "current_milestone": "Wayback / AI Activity Ledger Foundation",
-  "current_checkpoint": "Host-side implementation and local acceptance pass at d52edd3; registry/state handoff checkpoint and remote verification pending.",
+  "current_checkpoint": "Host-side implementation acceptance passes at d52edd3; registry/state/handoff checkpoint committed as 6af4849; push and CI review pending.",
   "status": "IN_PROGRESS",
   "last_verified": {
     "commit_sha": "d52edd3ab2fe29cc32bde92720476a622f2688d3",
-    "verified_at": "2026-09-26T03:04:11Z",
-    "normal_state": "The host-side Wayback foundation is committed at d52edd3 and passes its focused acceptance harness. Registry/state/handoff finalization, push, and CI inspection are still in progress. The workstream remains separate from the independently tracked M17 status.",
+    "verified_at": "2026-09-26T03:06:27Z",
+    "normal_state": "The host-side Wayback foundation is committed at d52edd3 and passes its focused acceptance harness. Registry/state/handoff is committed at 6af4849. The dedicated branch push and CI inspection remain in progress. M17 is separately tracked.",
     "commands": [
       "./nagi dev status",
       "./nagi dev resume",
@@ -43,7 +43,7 @@
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
-    "last_checked_at": "2026-09-26T03:04:11Z",
+    "last_checked_at": "2026-09-26T03:06:27Z",
     "activation_requirement": "Only host-side contracts and reference planning are in scope here. Filesystem/runtime hooks, restore execution, and user-facing product adoption require 0.1 M30 PASS and an explicit 0.2 integration checkpoint."
   },
   "blocker": {
@@ -65,7 +65,7 @@
       "Do not rebase, merge, cherry-pick, force-push, or change another branch/worktree."
     ]
   },
-  "next_action": "Commit the registry/state/handoff checkpoint, push codex/0.2-wayback-ledger normally, inspect branch CI, then record remote HEAD and final CI classification.",
+  "next_action": "Push codex/0.2-wayback-ledger to origin with a normal push, inspect branch CI, then record remote HEAD and final CI classification.",
   "acceptance_criteria": [
     "[x] Dedicated codex/0.2-wayback-ledger branch and NagiOS-0.2-wayback worktree from latest DF-01.",
     "[x] DF-01 registration, ownership paths, dependency, state, gate, resume, verify, and handoff are accurate.",
