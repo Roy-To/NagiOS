@@ -67,3 +67,22 @@ unchanged.
 
 The Home/Search source worktree also contains an unrelated, pre-existing
 untracked `libtarget_check.rlib`; it has been left untouched.
+
+## Activity + Wayback merge checkpoint
+
+- Merge commit: `600e76b3ef464ed65f6392dac138f32cd5cd2ce2`.
+- Source SHA preserved as a merge parent: `ad532b5fb4c20ca8a467d41e7e72e26054bbc602`.
+- Merge result: clean; no code conflicts. The source Activity implementation
+  continues to use canonical `nagi_model` IDs and keeps M15 `HistoryService`
+  separate.
+- Focused suite: **41 passed** in an isolated copy of `nagi-history` plus
+  `nagi-model`; the copy avoids the root workspace's required ignored source
+  paths. Root `cargo test -p nagi-history --lib --locked --offline` was also
+  attempted and stopped before compilation because `third_party/cc-nagi` had
+  not been materialized.
+- `x86_64-unknown-uefi` library check: **PASS**. This is compile evidence only,
+  not target execution.
+- `activity_wayback_preview` example: **PASS**; output labels the in-memory
+  host sandbox and explicitly says it is not Nagi target restore.
+- Nagi target persistence, event bridge, capability service and restore:
+  **NOT RUN**.

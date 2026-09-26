@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "contract-audit-and-dev-bootstrap-verified",
+  "current_checkpoint": "activity-wayback-merged-focused-host-passed",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "10e1c98a4859f9f10233a791582e9993170a749c",
-    "verified_at": "2026-09-26T03:09:27Z",
-    "normal_state": "Integration base and source contracts are recorded in docs/first_party/integration/contract-matrix.md. The clean dev CLI bootstrap fix passed the dispatch regression test and ./nagi dev verify/status/resume while third_party/cc-nagi/Cargo.toml remained absent. No source branch has been merged yet.",
+    "commit_sha": "600e76b3ef464ed65f6392dac138f32cd5cd2ce2",
+    "verified_at": "2026-09-26T03:14:52Z",
+    "normal_state": "Activity + Wayback source SHA ad532b5fb4c20ca8a467d41e7e72e26054bbc602 is preserved as a merge parent. Its isolated host suite (41 tests), UEFI library check, and host sandbox preview passed. Root workspace Cargo test is still unavailable until ./nagi fetch materializes ignored pinned sources. Nagi target runtime remains NOT RUN. Details: docs/first_party/integration/contract-matrix.md.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -21,6 +21,10 @@
       "./nagi dev status",
       "./nagi dev resume",
       "test ! -e third_party/cc-nagi/Cargo.toml",
+      "cargo test -p nagi-history --lib --locked --offline",
+      "isolated nagi-history + nagi-model: cargo test --lib --offline",
+      "isolated nagi-history: cargo check --lib --no-default-features --target x86_64-unknown-uefi --offline",
+      "isolated nagi-history: cargo run --example activity_wayback_preview --features sandbox --offline",
       "git diff --check"
     ],
     "tests": [
@@ -44,6 +48,34 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Both commands reported codex/first-party-integration and its current checkpoint without requiring generated third-party sources."
+      },
+      {
+        "name": "root workspace Activity tests before third-party fetch",
+        "command": "cargo test -p nagi-history --lib --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Cargo stopped before compilation: third_party/cc-nagi/Cargo.toml was absent. The standalone ./nagi dev path is fixed; app tests used an isolated package copy pending ./nagi fetch."
+      },
+      {
+        "name": "Activity and Wayback focused host suite",
+        "command": "isolated nagi-history + nagi-model: cargo test --lib --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 passed, 0 failed. This was a host test in an isolated copy, not target runtime execution."
+      },
+      {
+        "name": "Activity and Wayback UEFI library check",
+        "command": "isolated nagi-history: cargo check --lib --no-default-features --target x86_64-unknown-uefi --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both nagi-model and nagi-history compiled for x86_64-unknown-uefi; no guest runtime was executed."
+      },
+      {
+        "name": "Activity and Wayback integrated host example",
+        "command": "isolated nagi-history: cargo run --example activity_wayback_preview --features sandbox --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The in-memory preview showed compare, restore plan, reversible restore, Activity timeline, and checkpoints, labeled as host-only."
       }
     ],
     "ci_runs": []
@@ -68,7 +100,7 @@
       "Do not force push, reset hard, or modify third_party implementation sources."
     ]
   },
-  "next_action": "Merge Activity + Wayback as the first audited source branch, resolve only the shared first-party status file semantically, and run its focused host checks.",
+  "next_action": "Merge Files, preserve its standalone package boundary, and run the focused package suite plus sandbox checks. Then integrate its Activity and checkpoint hooks using explicit adapters.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
