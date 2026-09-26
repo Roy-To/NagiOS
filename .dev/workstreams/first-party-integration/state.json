@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "host-ci-repair-local-verified-ci-pending",
+  "current_checkpoint": "files-confirmations-and-windows-resource-identity-host-verified-ci-pending",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
-    "verified_at": "2026-09-26T08:50:00Z",
-    "normal_state": "The host-only first-party integration is locally verified. Activity/Wayback history API Clippy findings and developer-state assertions tied to an obsolete active stream were repaired without changing authority, provenance, restore semantics, or milestone gates. First-party suites, package Clippy checks, root workspace Clippy, UEFI Activity/Wayback library check, and integrated bilingual host preview passed. The full ./nagi test remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi; cargo fmt --all -- --check reports only fetched Servo checkout differences. Source CI run 36230579035 is in progress with Ubuntu passing and Windows bootstrap still running. Target app launch/runtime remains NOT RUN. M17 remains BLOCKED and M18 remains NOT STARTED.",
+    "commit_sha": "deb8a89006b8b312c927dfb3eddafce31cc76da5",
+    "verified_at": "2026-09-26T15:18:35Z",
+    "normal_state": "Files permanent-delete challenges are capped at 64, and users can cancel one-use challenges. Windows sandbox ResourceIds now use cap-std volume serial number and file index where available; path hashing remains only as a fallback when stable identity metadata is unavailable. The Files package passes 51 tests on the macOS host, Clippy and formatting pass, and Windows-target test code cross-checks and passes Clippy with warnings denied. The move/restart/Trash/restore regression has not been executed on an actual Windows host. Source commit deb8a89006b8b312c927dfb3eddafce31cc76da5 is pushed. CI run 36251469538 is queued; the prior source run 36251022723 has passed Ubuntu and Windows host jobs while the independent M17 target job continues. M17 source/state are unchanged. The full ./nagi test remains blocked on this arm64 macOS host by x86_64 inline syscall registers in user/libnagi; that does not block the standalone first-party host suites.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -56,7 +56,12 @@
       "cargo clippy -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
       "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
       "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
-      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings"
+      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo check --tests --manifest-path apps/nagi-files/Cargo.toml --target x86_64-pc-windows-gnu --locked --offline",
+      "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --target x86_64-pc-windows-gnu --locked --offline -- -D warnings",
+      "cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check",
+      "gh run list --branch codex/first-party-integration --limit 5 --json databaseId,headSha,status,conclusion,displayTitle,createdAt,url"
     ],
     "tests": [
       {
@@ -261,6 +266,41 @@
         "outcome": "IN_PROGRESS",
         "exit_code": null,
         "evidence": "Ubuntu host job passed, including format, lint, build, test, M0 acceptance, and workstream verification. Windows was still bootstrapping pinned Servo dependencies at checkpoint time; target job had not started."
+      },
+      {
+        "name": "Files host regression suite after Windows identity change",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 51 package tests passed on macOS, including Unix same-filesystem move, tags, restart, Trash and restore, plus platform-independent Windows identity composition cases."
+      },
+      {
+        "name": "Files Windows-target compile of package tests",
+        "command": "cargo check --tests --manifest-path apps/nagi-files/Cargo.toml --target x86_64-pc-windows-gnu --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The Windows implementation and regression-test code type-checked for x86_64-pc-windows-gnu. This is cross-compilation evidence, not execution on Windows."
+      },
+      {
+        "name": "Files Windows-target Clippy",
+        "command": "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --target x86_64-pc-windows-gnu --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All Windows-target package and test targets passed Clippy with warnings denied."
+      },
+      {
+        "name": "Files package Clippy and formatting",
+        "command": "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings; cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Host package Clippy, rustfmt check and diff whitespace check passed."
+      },
+      {
+        "name": "Current first-party source CI",
+        "command": "GitHub Actions run 36251469538",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Run 36251469538 is queued for source commit deb8a89006b8b312c927dfb3eddafce31cc76da5."
       }
     ],
     "ci_runs": [
@@ -276,15 +316,39 @@
         "run_id": 36230579035,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36230579035",
         "head_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host jobs passed after the recorded source fixes. The independent M17 first-web-pixel target acceptance failed; it does not establish a first-party host failure."
+      },
+      {
+        "run_id": 36231127467,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231127467",
+        "head_sha": "efa1c372d0599370bc0b8833e6f4b0c1b8f6917e",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu host and Windows host jobs passed. M17 first-web-pixel QEMU acceptance failed after storage/context setup with no pixel checksum or guest PASS marker; outside first-party host scope."
+      },
+      {
+        "run_id": 36251022723,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36251022723",
+        "head_sha": "386120471d675d4832764392b2777bd33eb916dc",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Ubuntu host job passed all gates. Windows host job was bootstrapping pinned Servo dependencies; target job had not started at the 2026-09-26T08:50Z checkpoint."
+        "summary": "Ubuntu and Windows host jobs passed. The separate M17 target job is still running; host-side first-party checks are green."
+      },
+      {
+        "run_id": 36251469538,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36251469538",
+        "head_sha": "deb8a89006b8b312c927dfb3eddafce31cc76da5",
+        "status": "QUEUED",
+        "conclusion": null,
+        "summary": "CI for Windows ResourceId source commit deb8a89006b8b312c927dfb3eddafce31cc76da5 is queued."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T08:50:00Z",
+    "last_checked_at": "2026-09-26T15:18:35Z",
     "activation_requirement": "This stream integrates 0.1 first-party host contracts only; it does not change M17 or authorize 0.2 runtime implementation. Target integration remains separately gated by the Nagi milestone state."
   },
   "blocker": {
@@ -309,7 +373,7 @@
       "Do not hide the architecture failure by weakening tests or stubbing guest syscall behavior."
     ]
   },
-  "next_action": "Inspect Nagi CI run 36230579035 at the exact source commit. If host gates pass, integrate the host-only first-party changes into codex/integration-next-phase while preserving the root M17 state and reconciling workstream registry ownership. Keep target integration NOT RUN until authenticated context, capability/object/workspace services, native launch, Search/Action dispatch, durable history, and Files snapshot/restore APIs are available; keep M18 gated on an actual M17 pixel checksum and PASS marker.",
+  "next_action": "Harden Files confirmation challenge consumption so a challenge issued by one FilesService cannot remove another service instance’s pending challenge when both have the same nonce. Add regression tests for cross-service cancel and confirm mismatch, run the package test/Clippy/format checks on the host and Windows target, then update state, commit, push and inspect CI. Keep the Windows runtime regression explicitly pending until a Windows execution environment is available.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
