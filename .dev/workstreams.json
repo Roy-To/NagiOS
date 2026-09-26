@@ -130,6 +130,18 @@
       "forbidden_paths": ["kernel/**", "user/**", "third_party/**", ".github/workflows/**"],
       "activation_gate": "Nagi 0.1 M30 PASS; update only documented accepted contracts and decisions.",
       "merge_boundary": "0.2 integration branch after contract owners review; do not duplicate normative specifications."
+    },
+    {
+      "id": "wayback-activity-ledger",
+      "owner": "Codex Wayback / AI Activity Ledger",
+      "owner_branch": "codex/0.2-wayback-ledger",
+      "recommended_worktree": "../NagiOS-0.2-wayback",
+      "state_file": ".dev/workstreams/wayback-activity-ledger/state.json",
+      "dependencies": ["development-foundation"],
+      "allowed_paths": [".dev/workstreams.json", ".dev/workstreams/wayback-activity-ledger/**", "crates/nagi-wayback/**", "docs/0.2/wayback/**", "schemas/wayback/**", "tests/wayback/**"],
+      "forbidden_paths": ["kernel/**", "loader/**", "user/**", "sdk/**", "crates/nagi-model/**", "third_party/**", ".github/workflows/**", "docs/implementation_status.md", "docs/first_party/**"],
+      "activation_gate": "This stream is host-side contract/reference work only; filesystem/runtime integration, restore execution, and user-facing product adoption remain gated on 0.1 M30 PASS plus an explicit 0.2 integration checkpoint.",
+      "merge_boundary": "Dedicated 0.2 integration branch after M30 PASS and an explicit 0.2 integration checkpoint; never merge to main without explicit user direction."
     }
   ]
 }
