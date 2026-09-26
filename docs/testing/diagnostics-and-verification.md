@@ -32,7 +32,9 @@ failure class, source location, bounded structured fields, error chain, and
 recovery hint. Human and JSON sinks serialize the same safe event view. Every
 field carries a privacy class. `SENSITIVE` and `SECRET` values are redacted;
 secret-looking field names and common inline credential forms are redacted as
-well. Dynamic values belong in classified fields, not message templates.
+well, including JSON-style quoted fields and colon- or equals-delimited
+credentials. Dynamic values belong in classified fields, not message
+templates.
 
 Failure classes use DF-01's accepted stable vocabulary:
 `SOURCE`, `BUILD`, `LINK`, `ABI`, `RUNTIME`, `BOOT`, `DEVICE`, `STORAGE`,
@@ -41,9 +43,11 @@ Failure classes use DF-01's accepted stable vocabulary:
 
 Reports are versioned by
 [`diagnostic-report.schema.json`](diagnostic-report.schema.json). The runtime
-validator also enforces unique check IDs and requires the overall outcome to
-match the executed check evidence. A malformed report cannot be accepted as
-`PASS` by deserialization.
+validator compiles this schema as JSON Schema Draft 2020-12 and validates a
+generated bundle before reporting the contract check as `PASS`. It also
+enforces unique check IDs and requires the overall outcome to match the
+executed check evidence. A malformed report cannot be accepted as `PASS` by
+deserialization.
 
 ## Fatal-event boundary
 

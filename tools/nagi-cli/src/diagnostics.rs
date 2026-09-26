@@ -566,48 +566,39 @@ fn is_secret_key(key: &str) -> bool {
 fn redact_inline_secrets(value: &str) -> String {
     let mut output = String::new();
     let mut cursor = 0;
+    let mut search_from = 0;
     let lower = value.to_ascii_lowercase();
     while cursor < value.len() {
-        let tail = &lower[cursor..];
         let marker = [
-            "authorization:",
-            "authorization=",
-            "password=",
-            "passwd=",
-            "token=",
-            "secret=",
-            "api_key=",
-            "api-key=",
-            "cookie=",
+            "authorization",
+            "password",
+            "passwd",
+            "token",
+            "secret",
+            "api_key",
+            "api-key",
+            "cookie",
         ]
         .iter()
-        .filter_map(|marker| tail.find(marker).map(|offset| (offset, *marker)))
+        .filter_map(|marker| {
+            lower[search_from..]
+                .find(marker)
+                .map(|offset| (search_from + offset, *marker))
+        })
         .min_by_key(|(offset, _)| *offset);
-        let Some((offset, marker)) = marker else {
+        let Some((start, marker)) = marker else {
             output.push_str(&value[cursor..]);
             break;
         };
-        let start = cursor + offset;
-        output.push_str(&value[cursor..start + marker.len()]);
-        let mut value_start = start + marker.len();
-        while value[value_start..]
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_whitespace())
-        {
-            value_start += value[value_start..].chars().next().unwrap().len_utf8();
-        }
-        if marker.starts_with("authorization") && lower[value_start..].starts_with("bearer ") {
-            value_start += "bearer ".len();
-        }
-        let value_end = value[value_start..]
-            .find(|character: char| {
-                character.is_whitespace() || character == ',' || character == ';'
-            })
-            .map(|offset| value_start + offset)
-            .unwrap_or(value.len());
+        let Some((prefix_end, value_end)) = inline_secret_bounds(value, &lower, start, marker)
+        else {
+            search_from = start + marker.len();
+            continue;
+        };
+        output.push_str(&value[cursor..prefix_end]);
         output.push_str(REDACTED);
         cursor = value_end;
+        search_from = cursor;
     }
     let single_line = output
         .chars()
@@ -620,6 +611,75 @@ fn redact_inline_secrets(value: &str) -> String {
         })
         .collect::<String>();
     bounded_text(&single_line, MAX_MESSAGE_BYTES)
+}
+
+fn inline_secret_bounds(
+    value: &str,
+    lower: &str,
+    start: usize,
+    marker: &str,
+) -> Option<(usize, usize)> {
+    let mut separator = start + marker.len();
+    if matches!(value.as_bytes().get(separator), Some(b'"' | b'\'')) {
+        separator += 1;
+    }
+    separator = skip_whitespace(value, separator);
+    if !matches!(value.as_bytes().get(separator), Some(b':' | b'=')) {
+        return None;
+    }
+    let separator_end = separator + 1;
+    let mut secret_start = skip_whitespace(value, separator_end);
+
+    if marker == "authorization"
+        && lower[secret_start..].starts_with("bearer")
+        && value[secret_start + "bearer".len()..]
+            .chars()
+            .next()
+            .is_some_and(char::is_whitespace)
+    {
+        secret_start = skip_whitespace(value, secret_start + "bearer".len());
+        if let Some(value_end) = unquoted_secret_end(value, secret_start) {
+            return Some((separator_end, value_end));
+        }
+    }
+
+    if let Some(quote @ (b'"' | b'\'')) = value.as_bytes().get(secret_start).copied() {
+        let content_start = secret_start + 1;
+        let mut escaped = false;
+        for (offset, character) in value[content_start..].char_indices() {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character as u32 == u32::from(quote) {
+                return Some((content_start, content_start + offset));
+            }
+        }
+        return Some((content_start, value.len()));
+    }
+
+    unquoted_secret_end(value, secret_start).map(|value_end| (secret_start, value_end))
+}
+
+fn skip_whitespace(value: &str, mut offset: usize) -> usize {
+    while value[offset..]
+        .chars()
+        .next()
+        .is_some_and(char::is_whitespace)
+    {
+        offset += value[offset..].chars().next().unwrap().len_utf8();
+    }
+    offset
+}
+
+fn unquoted_secret_end(value: &str, start: usize) -> Option<usize> {
+    let end = value[start..]
+        .find(|character: char| {
+            character.is_whitespace() || matches!(character, ',' | ';' | '}' | ']')
+        })
+        .map(|offset| start + offset)
+        .unwrap_or(value.len());
+    Some(end)
 }
 
 fn validate_identifier(value: &str, uppercase: bool, label: &str) -> Result<(), DiagnosticError> {
@@ -866,6 +926,7 @@ impl VerificationCheckResult {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new(
         id: impl Into<String>,
         scope: impl Into<String>,
@@ -1232,7 +1293,7 @@ impl<S: CrashSink> CrashCapture<S> {
         Self {
             sink,
             recent: Vec::new(),
-            capacity: capacity.max(1).min(MAX_FIELD_COUNT),
+            capacity: capacity.clamp(1, MAX_FIELD_COUNT),
         }
     }
 
@@ -1465,6 +1526,36 @@ mod tests {
         assert!(!rendered.contains("top-secret"));
         assert!(!rendered.contains("bearer-secret"));
         assert!(!rendered.contains("private text"));
+    }
+
+    #[test]
+    fn inline_redaction_covers_json_and_colon_delimited_credentials() {
+        let event = DiagnosticEvent::new(
+            Severity::Warn,
+            "network",
+            "NETWORK.AUTH_FAILED",
+            r#"request {"password":"json secret", "nested":{"token": "json-token"}} password: plain-secret api-key = api-secret authorization: Bearer auth-secret safe=value"#,
+        )
+        .unwrap();
+
+        let rendered = event.render_human();
+        assert!(rendered.contains(r#"{"password":"[REDACTED]", "nested":{"token": "[REDACTED]"}}"#));
+        assert!(rendered.contains("password: [REDACTED]"));
+        assert!(rendered.contains("api-key = [REDACTED]"));
+        assert!(rendered.contains("authorization:[REDACTED]"));
+        assert!(rendered.contains("safe=value"));
+        for secret in [
+            "json secret",
+            "json-token",
+            "plain-secret",
+            "api-secret",
+            "auth-secret",
+        ] {
+            assert!(
+                !rendered.contains(secret),
+                "leaked `{secret}` in {rendered}"
+            );
+        }
     }
 
     #[test]

@@ -705,6 +705,20 @@ fn check_diagnostics_contract(root: &Path) -> VerificationCheckResult {
     let schema_matches = schema["properties"]["schema_version"]["const"] == 1
         && schema["$defs"]["verificationReport"]["properties"]["schema_version"]["const"] == 1
         && schema["$defs"]["safeDiagnosticEvent"]["properties"]["schema_version"]["const"] == 1;
+    let validator = match compile_diagnostics_schema(&schema) {
+        Ok(validator) => validator,
+        Err(error) => {
+            return VerificationCheckResult::fail(
+                "diagnostics-report-schema",
+                "diagnostics",
+                "Diagnostics report schema",
+                EvidenceKind::Host,
+                FailureClass::Source,
+                format!("report schema is invalid Draft 2020-12: {error}"),
+                vec!["docs/testing/diagnostic-report.schema.json".into()],
+            );
+        }
+    };
     let event_round_trip = DiagnosticEvent::new(
         Severity::Info,
         "diagnostics",
@@ -714,13 +728,41 @@ fn check_diagnostics_contract(root: &Path) -> VerificationCheckResult {
     .and_then(|event| event.to_json())
     .and_then(|json| DiagnosticEvent::from_json(&json).map(|_| ()))
     .is_ok();
-    if schema_matches && event_round_trip {
+    let sample_event = DiagnosticEvent::new(
+        Severity::Info,
+        "diagnostics",
+        "DIAGNOSTICS.SCHEMA_CHECK",
+        "schema contract self-check",
+    )
+    .and_then(|event| event.to_json())
+    .and_then(|json| {
+        serde_json::from_str::<crate::diagnostics::SafeDiagnosticEvent>(&json)
+            .map_err(|error| crate::diagnostics::DiagnosticError(error.to_string()))
+    });
+    let sample_bundle = sample_event.map(|event| DiagnosticsBundle {
+        schema_version: DIAGNOSTIC_BUNDLE_SCHEMA_VERSION,
+        generated_at_unix_ms: 0,
+        source_commit: None,
+        host_os: std::env::consts::OS.into(),
+        host_arch: std::env::consts::ARCH.into(),
+        verification: VerificationReport::new(Vec::new(), None, None, 0),
+        events: vec![event],
+    });
+    let sample_validates = sample_bundle
+        .and_then(|bundle| bundle.to_json())
+        .and_then(|json| {
+            serde_json::from_str::<serde_json::Value>(&json)
+                .map_err(|error| crate::diagnostics::DiagnosticError(error.to_string()))
+        })
+        .map(|instance| validator.validate(&instance).is_ok())
+        .unwrap_or(false);
+    if schema_matches && event_round_trip && sample_validates {
         VerificationCheckResult::pass(
             "diagnostics-report-schema",
             "diagnostics",
             "Diagnostics report schema",
             EvidenceKind::Host,
-            "versioned bundle schema parses and event serialization round-trips",
+            "Draft 2020-12 validates a generated report bundle and event serialization round-trips",
             vec!["docs/testing/diagnostic-report.schema.json".into()],
         )
     } else {
@@ -734,6 +776,12 @@ fn check_diagnostics_contract(root: &Path) -> VerificationCheckResult {
             vec!["docs/testing/diagnostic-report.schema.json".into()],
         )
     }
+}
+
+fn compile_diagnostics_schema(schema: &serde_json::Value) -> Result<jsonschema::Validator, String> {
+    jsonschema::draft202012::options()
+        .build(schema)
+        .map_err(|error| error.to_string())
 }
 
 fn check_workstream_state_boundary(root: &Path) -> VerificationCheckResult {
@@ -3449,7 +3497,42 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{last_serial_lines, m17_trace_excerpt};
+    use super::{compile_diagnostics_schema, last_serial_lines, m17_trace_excerpt};
+
+    #[test]
+    fn diagnostics_schema_accepts_valid_bundle_and_rejects_invalid_boundaries() {
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../docs/testing/diagnostic-report.schema.json"
+        ))
+        .expect("diagnostics schema is valid JSON");
+        let validator = compile_diagnostics_schema(&schema).expect("Draft 2020-12 schema compiles");
+        let valid = serde_json::json!({
+            "schema_version": 1,
+            "generated_at_unix_ms": 0,
+            "source_commit": null,
+            "host_os": "macos",
+            "host_arch": "aarch64",
+            "verification": {
+                "schema_version": 1,
+                "generated_at_unix_ms": 0,
+                "source_commit": null,
+                "requested_scope": null,
+                "outcome": "PASS",
+                "checks": []
+            },
+            "events": []
+        });
+
+        assert!(validator.validate(&valid).is_ok());
+
+        let mut unknown_property = valid.clone();
+        unknown_property["password"] = serde_json::json!("must not be accepted");
+        assert!(validator.validate(&unknown_property).is_err());
+
+        let mut invalid_boundary = valid;
+        invalid_boundary["generated_at_unix_ms"] = serde_json::json!(-1);
+        assert!(validator.validate(&invalid_boundary).is_err());
+    }
 
     #[test]
     fn serial_log_excerpt_keeps_the_last_lines_in_order() {

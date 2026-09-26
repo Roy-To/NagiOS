@@ -4362,7 +4362,7 @@ Evidence from this checkout:
 - `./target/debug/nagi diagnostics --scope diagnostics --json` and `./target/debug/nagi verify --scope diagnostics --json` — PASS, host evidence.
 - `./target/debug/nagi smoke --host-only --json` — PASS, host checks pass; DF-01 workstream-state check is explicitly `SKIPPED` because `.dev/workstreams.json` is absent from this checkout.
 - `./target/debug/nagi smoke --vm --json` — FAIL, classified as `VM` / `ACCEPTANCE`: QEMU did not exit within the existing 30-second M1/M7 acceptance window. Retrying with the pinned nightly toolchain on `PATH` passed the earlier Cargo channel mismatch and reached QEMU, but hit the same timeout. This is an existing guest boot acceptance boundary; no M17 or guest implementation was changed here.
-- `cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings` — BLOCKED by the host linker toolchain: `xcrun` attempted to load an x86_64 `libxcrun.dylib`, while the installed Command Line Tools library contains arm64/arm64e slices. Explicit nightly `RUSTC`/`RUSTDOC`, Homebrew clang, and `SDKROOT` did not resolve it. The full Cargo test suite above did link and pass.
+- `cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings` — this initial invocation used the Homebrew x86_64 toolchain and failed when `xcrun` could not load an x86_64 `libxcrun.dylib` from the arm64 Command Line Tools. A follow-up invocation with the pinned aarch64 nightly toolchain on `PATH` passes, as recorded below.
 - `git diff --check` — PASS. The report command smoke results above were produced from the host executable and are not target-test evidence.
 
 DF-01 state files were inspected in the separate DF-01 worktree, but this
@@ -4370,5 +4370,39 @@ branch does not contain that registry or its validator. The diagnostics API
 provides the scoped `HealthCheck` seam; `workstreams` currently reports
 `SKIPPED` and does not duplicate or modify DF-01 state handling. Registering
 the owner-provided validator after integration remains outstanding. The VM
-smoke timeout and unavailable host Clippy linker also remain unresolved, so
-this workstream is not marked `PASS`.
+smoke timeout remains unresolved, so this workstream is not marked `PASS`.
+
+### Diagnostics host-side continuation (2026-09-26)
+
+The isolated diagnostics branch now redacts quoted JSON and colon/equal
+credential fields, compiles `diagnostic-report.schema.json` as Draft 2020-12,
+and validates a generated diagnostics bundle before passing the schema health
+check. The standalone bootstrap package declares the shared CLI dependencies
+so `./nagi fetch` works from this checkout. The bootstrap and CLI lockfiles
+were updated reproducibly by Cargo.
+
+Using the repository-pinned aarch64 nightly toolchain:
+
+- `cargo test -p nagi-cli --all-targets --locked --offline` — PASS, 83 unit
+  tests and 22 CLI integration tests.
+- `cargo fmt --manifest-path tools/nagi-cli/Cargo.toml -- --check` — PASS.
+- `./nagi fmt` — FAIL because `cargo fmt --all -- --check` reports formatting
+  differences in fetched upstream Servo files under `third_party/servo`; no
+  third-party files were changed. The owned CLI package formatting check above
+  passes.
+- `cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings`
+  and standalone bootstrap Clippy — PASS. The pinned libc dependency still
+  emits three existing `target_os = "nagi"` check-cfg warnings.
+- `cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked
+  --offline` and `./nagi fetch` — PASS; pinned host sources validated.
+- `nagi diagnostics --scope diagnostics --json`, `nagi verify --scope
+  diagnostics --json`, and `nagi smoke --host-only --json` — PASS. The
+  diagnostics schema check reports Draft 2020-12 validation; the workstream
+  registry check is `SKIPPED` because this source branch has no DF-01 registry.
+- `./nagi test` — FAIL outside this stream: the full workspace test build
+  attempts to assemble `libnagi`'s x86-64 syscall registers for this aarch64
+  host. Focused diagnostics and CLI integration tests above pass.
+- `nagi smoke --vm --json` — FAIL, M1/M7 QEMU boot acceptance did not exit
+  within 30 seconds. QEMU also reported that this host has no audio driver.
+  This is separate from M17 first-web-pixel evidence; no M17 source or
+  acceptance logic was changed.
