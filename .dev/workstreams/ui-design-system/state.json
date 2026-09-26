@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "ui-design-system",
   "current_milestone": "UI-DESIGN-SYSTEM",
-  "current_checkpoint": "shared-ui-host-contracts-verified-target-preview-blocked-before-ui",
+  "current_checkpoint": "shared-ui-host-contracts-integrated-root-ci-running",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "53b2dbe562c9dcab926bbcaec9300afdef7d30cc",
-    "verified_at": "2026-09-26T08:57:01Z",
-    "normal_state": "The shared nagi-ui no_std contract, its M10 semantic-color adapter, documentation, and root package registration are being integrated on codex/integration-next-phase. Focused host tests, Clippy, formatting, and the UEFI library check passed with the pinned arm64 Rust toolchain. The source branch CI passed Ubuntu and Windows host jobs and built the Nagi target, then failed only at M17 first-web-pixel acceptance; no pixel checksum or M17 PASS marker was produced. The separate M10 desktop preview built its target image but QEMU stopped at the existing M5 invalid-elf check before the UI started. Official M10 historical status is unchanged. M17 remains BLOCKED and M18 remains NOT STARTED.",
+    "commit_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+    "verified_at": "2026-09-26T09:12:26Z",
+    "normal_state": "The no_std nagi-ui design system is merged and registered on codex/integration-next-phase at 94dbf8708af743469678cf5f662bc4a6dd892a45. UI 27 tests, warning-free Clippy, formatting, UEFI library check, root workspace Clippy, and root M0 host acceptance pass. Source UI CI #36216784905 passed both host jobs and built target components, but failed at the M17 pixel acceptance without a checksum. Merged root CI #36231902947 has both host jobs running. The distinct M10 UI preview remains blocked before UI startup by the M5 empty-PT_TLS invalid-elf loader failure; historical M10 status is unchanged. M17 remains BLOCKED and M18 NOT STARTED.",
     "commands": [
       "cargo fmt --package nagi-ui --package nagi-init -- --check",
       "cargo test -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
@@ -54,6 +54,20 @@
         "outcome": "FAIL",
         "exit_code": null,
         "evidence": "The target image built, but QEMU stopped in the existing M5 ELF loader with invalid-elf because of an empty PT_TLS header before nagi-init/UI startup. This does not revise M10 historical PASS and is not a UI PASS."
+      },
+      {
+        "name": "Merged root UI package tests",
+        "command": "cargo test -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 contract tests passed after integration; example target compiled."
+      },
+      {
+        "name": "Merged root development CLI Clippy",
+        "command": "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Root workspace including nagi-ui and nagi-init passed with warnings denied."
       }
     ],
     "ci_runs": [
@@ -64,12 +78,20 @@
         "status": "COMPLETED",
         "conclusion": "failure",
         "summary": "Ubuntu and Windows host jobs passed; Nagi target dependencies, kernel, user init, and UEFI loader built. Only the unchanged M17 first-web-pixel acceptance failed; no guest pixel checksum or M17 PASS marker."
+      },
+      {
+        "run_id": 36231902947,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231902947",
+        "head_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Merged root UI design system plus first-party host adapter checkpoint; Ubuntu and Windows host jobs are in progress."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
-    "last_checked_at": "2026-09-26T08:57:01Z",
+    "last_checked_at": "2026-09-26T09:12:26Z",
     "activation_requirement": "The shared UI host foundation is independent of the 0.2 runtime gate. Any 0.2 product/runtime adoption remains NOT STARTED until Nagi 0.1 M30 PASS and an explicit integration checkpoint; this workstream does not change M17 or M18."
   },
   "blocker": {
@@ -90,7 +112,7 @@
       "Do not change M17 BLOCKED or start M18 based on host/UI library checks."
     ]
   },
-  "next_action": "Run root integration CI for the merged UI code, confirm host package and target image builds, and keep M10 UI guest verification blocked until its owning M5 loader fix allows desktop startup. Add target rendering/input acceptance when the guest reaches the actual UI. Continue to keep 0.2 runtime adoption behind M30 PASS and an explicit checkpoint.",
+  "next_action": "Inspect root CI run 36231902947. Keep target UI visual/input acceptance blocked until the owning M5 loader issue is repaired and the guest reaches the actual desktop. Keep 0.2 runtime adoption gated on M30 PASS and an explicit checkpoint.",
   "acceptance_criteria": [
     "Semantic light/dark roles and typography, spacing, density, radius, elevation, and motion tokens are defined and tested.",
     "Reusable deterministic component, focus, dialog, and Command Palette state contracts are available without drawing pixels or executing app actions.",

@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "host-ci-repair-local-verified-ci-pending",
+  "current_checkpoint": "first-party-host-integration-merged-root-ci-running",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
-    "verified_at": "2026-09-26T08:50:00Z",
-    "normal_state": "The host-only first-party integration is locally verified. Activity/Wayback history API Clippy findings and developer-state assertions tied to an obsolete active stream were repaired without changing authority, provenance, restore semantics, or milestone gates. First-party suites, package Clippy checks, root workspace Clippy, UEFI Activity/Wayback library check, and integrated bilingual host preview passed. The full ./nagi test remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi; cargo fmt --all -- --check reports only fetched Servo checkout differences. Source CI run 36230579035 is in progress with Ubuntu passing and Windows bootstrap still running. Target app launch/runtime remains NOT RUN. M17 remains BLOCKED and M18 remains NOT STARTED.",
+    "commit_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+    "verified_at": "2026-09-26T09:12:26Z",
+    "normal_state": "The host-only first-party adapters are merged on codex/integration-next-phase at 94dbf8708af743469678cf5f662bc4a6dd892a45. Local verification passed Activity/Wayback 41, Files 48, Notes 27, Home/Search 35+1, cross-app 11, nagi-cli 102+26, package Clippy, root workspace Clippy, formatting, state verification, and the bilingual in-memory preview. Source CI #36230579035 passed Ubuntu and Windows host gates and is still running the independent M17 target acceptance; root merged CI #36231902947 has Ubuntu and Windows host jobs in progress. The full standard ./nagi test remains HOST_ENV-blocked on arm64 macOS by x86_64-only syscall registers in user/libnagi. Target app launch, durable storage, target capability services, and target Action dispatch remain NOT RUN. M17 stays BLOCKED and M18 NOT STARTED.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -56,7 +56,15 @@
       "cargo clippy -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
       "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
       "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
-      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings"
+      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+      "cargo test --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-notes/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-home-search/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path user/nagi-notes/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path user/nagi-home-search/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path tests/first-party-integration/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings"
     ],
     "tests": [
       {
@@ -261,6 +269,34 @@
         "outcome": "IN_PROGRESS",
         "exit_code": null,
         "evidence": "Ubuntu host job passed, including format, lint, build, test, M0 acceptance, and workstream verification. Windows was still bootstrapping pinned Servo dependencies at checkpoint time; target job had not started."
+      },
+      {
+        "name": "Merged cross-app host integration",
+        "command": "cargo test --manifest-path tests/first-party-integration/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "11 tests passed after the branch was merged into the root integration tree."
+      },
+      {
+        "name": "Merged root CLI and workstream assertions",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "102 unit tests and 26 CLI integration tests passed after conflict resolution."
+      },
+      {
+        "name": "Merged root M0 acceptance",
+        "command": "./nagi test --acceptance --host-only --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0 doctor and launcher passed; target cases remained NOT RUN."
+      },
+      {
+        "name": "Merged root workstream registry verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validated."
       }
     ],
     "ci_runs": [
@@ -278,13 +314,29 @@
         "head_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Ubuntu host job passed all gates. Windows host job was bootstrapping pinned Servo dependencies; target job had not started at the 2026-09-26T08:50Z checkpoint."
+        "summary": "Ubuntu and Windows host jobs passed; the M17 target job is still running."
+      },
+      {
+        "run_id": 36231127467,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231127467",
+        "head_sha": "efa1c372d0599370bc0b8833e6f4b0c1b8f6917e",
+        "status": "QUEUED",
+        "conclusion": null,
+        "summary": "Documentation/state checkpoint queued on the first-party branch."
+      },
+      {
+        "run_id": 36231902947,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231902947",
+        "head_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Merged root integration CI has Ubuntu and Windows host jobs running; target job waits for host completion."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T08:50:00Z",
+    "last_checked_at": "2026-09-26T09:12:26Z",
     "activation_requirement": "This stream integrates 0.1 first-party host contracts only; it does not change M17 or authorize 0.2 runtime implementation. Target integration remains separately gated by the Nagi milestone state."
   },
   "blocker": {
@@ -309,7 +361,7 @@
       "Do not hide the architecture failure by weakening tests or stubbing guest syscall behavior."
     ]
   },
-  "next_action": "Inspect Nagi CI run 36230579035 at the exact source commit. If host gates pass, integrate the host-only first-party changes into codex/integration-next-phase while preserving the root M17 state and reconciling workstream registry ownership. Keep target integration NOT RUN until authenticated context, capability/object/workspace services, native launch, Search/Action dispatch, durable history, and Files snapshot/restore APIs are available; keep M18 gated on an actual M17 pixel checksum and PASS marker.",
+  "next_action": "Inspect source target run 36230579035 and merged root run 36231902947. Keep the host integration PARTIAL. Resume target app/runtime work only after authenticated context, capability/object/workspace services, native app launch, Search/Action dispatch, durable history, and Files snapshot/restore APIs are available; M18 remains gated on real M17 pixel evidence.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",

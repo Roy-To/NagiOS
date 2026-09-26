@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "acceptance-runner-and-diagnostics-host-foundations-integrated-m17-ci-pending",
+  "current_checkpoint": "first-party-ui-host-integration-merged-root-ci-running",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "1d3d6749638e33e8406f2d705a2082a0e68e1637",
-    "verified_at": "2026-09-26T08:24:42Z",
-    "normal_state": "On codex/integration-next-phase, integrated development foundation, capability/permission, App SDK contracts, Wayback host ledger, localization, model-manager host contract, diagnostics, and centralized acceptance tooling. Diagnostics remains PARTIAL due an inherited optional VM smoke timeout; the host health check now invokes the authoritative DF-01 validator. Acceptance tooling is PARTIAL pending public CI: the CLI and bootstrap suites pass, both M0 host wrappers pass, x86_64 nagi-net tests and Clippy pass, and the CI runner preserves the existing M17 wrapper/checksum/marker gate. A native arm64 nagi-net test attempt fails in libnagi's x86-64 syscall inline assembly; no host escape or source weakening was added. Mainline M17 remains BLOCKED: CI #233 showed a 512-byte allocation failure after Servo construction and no pixel checksum or marker. Runs #36228221098 and #36228898043 have passed Ubuntu/Windows host jobs and remain in M17 target QEMU acceptance; neither includes the acceptance-runner merge. M18 remains NOT STARTED. No models, inference, target crash store, production runtime hooks, or first-party runtime paths were activated; dirty UI/Home/Search and M17 diagnosis worktrees remain untouched.",
+    "commit_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+    "verified_at": "2026-09-26T09:12:26Z",
+    "normal_state": "On codex/integration-next-phase at 94dbf8708af743469678cf5f662bc4a6dd892a45, the shared UI design system and first-party host integration are merged. Notes, Files, Activity/Wayback, and Home/Search use the memory-only host adapter; target application launch, durable target storage, and target Action dispatch remain NOT RUN. Local verification passed nagi-cli (102 unit + 26 CLI), nagi-history (41), Files (48), Notes (27), Home/Search (35 + 1), cross-app integration (11), UI (27), root workspace Clippy, four standalone package Clippy checks, formatting, M0 host acceptance, and the bilingual integrated memory-only preview. DF-01 validation passed for 18 registered workstreams and 11 state files. CI #36230579035 has both host jobs passing and its M17 target job running; merged-root run #36231902947 has Ubuntu and Windows host jobs in progress. M17 remains BLOCKED without a real guest pixel checksum and acceptance marker; M18 remains NOT STARTED. 0.2 runtime/product work remains gated on M30 PASS and an explicit integration checkpoint.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -51,7 +51,27 @@
       "./nagi test --acceptance --list",
       "./nagi test --acceptance --host-only --ci",
       "python3 -m unittest discover -s tests -p 'test_*.py' -v",
-      "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'"
+      "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'",
+      "git merge --no-ff --no-commit codex/ws-ui-design-system",
+      "git merge --no-ff --no-commit codex/first-party-integration",
+      "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-notes/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-home-search/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path tests/first-party-integration/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path user/nagi-notes/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path user/nagi-home-search/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path tests/first-party-integration/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo fmt --package nagi-history --package nagi-cli --package nagi-ui --package nagi-init -- --check",
+      "cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check",
+      "cargo fmt --manifest-path user/nagi-notes/Cargo.toml -- --check",
+      "cargo fmt --manifest-path user/nagi-home-search/Cargo.toml -- --check",
+      "cargo fmt --manifest-path tests/first-party-integration/Cargo.toml -- --check",
+      "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --locked --offline --config build.target=\"aarch64-apple-darwin\""
     ],
     "tests": [
       {
@@ -319,6 +339,90 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "DF-01 validation passed for 16 registered workstreams and 9 state files on codex/integration-next-phase at commit 1d3d6749638e33e8406f2d705a2082a0e68e1637."
+      },
+      {
+        "name": "Merged root M0 host acceptance",
+        "command": "./nagi test --acceptance --host-only --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0-DOCTOR and M0-LAUNCHER passed; the report marked 19 target cases NOT RUN."
+      },
+      {
+        "name": "Merged nagi-cli suite after DF-01 test reconciliation",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "102 unit tests and 26 CLI integration tests passed, including status-agnostic state and registered-branch assertions."
+      },
+      {
+        "name": "Merged Activity/Wayback history suite",
+        "command": "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 tests passed."
+      },
+      {
+        "name": "Merged Files host suite",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "48 tests passed."
+      },
+      {
+        "name": "Merged Notes host suite",
+        "command": "cargo test --manifest-path user/nagi-notes/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 acceptance tests passed."
+      },
+      {
+        "name": "Merged Home/Search host suite",
+        "command": "cargo test --manifest-path user/nagi-home-search/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "35 library tests and 1 preview test passed."
+      },
+      {
+        "name": "Merged cross-app integration suite",
+        "command": "cargo test --manifest-path tests/first-party-integration/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "11 integration tests passed."
+      },
+      {
+        "name": "Merged shared UI host suite",
+        "command": "cargo test -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 UI contract tests passed; the example target compiled."
+      },
+      {
+        "name": "Root and standalone Clippy with warnings denied",
+        "command": "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings; standalone Files, Notes, Home/Search, and cross-app Clippy",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Root workspace and all four standalone packages passed with warnings denied."
+      },
+      {
+        "name": "Merged Rust formatting checks",
+        "command": "cargo fmt --package nagi-history --package nagi-cli --package nagi-ui --package nagi-init -- --check; standalone Files, Notes, Home/Search, and cross-app cargo fmt checks",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All modified packages passed the pinned formatter."
+      },
+      {
+        "name": "Integrated first-party host preview",
+        "command": "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The en-US and ja-JP Home/Search, Activity, Wayback, and Files flows ran with in-memory providers; output explicitly says target NOT RUN."
+      },
+      {
+        "name": "Target application/runtime acceptance after host integration",
+        "command": "Nagi target app launch, durable storage, and target Action dispatch",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Not executed; host preview and host service adapters do not establish target runtime behavior."
       }
     ],
     "ci_runs": [
@@ -328,7 +432,7 @@
         "head_sha": "e06ff39976704a0219cd3485703d6ca3ff4b8ebc",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Diagnostics integration run: Ubuntu and Windows host jobs passed; nagi-target remains in the existing M17 QEMU acceptance. This head predates the acceptance-runner merge."
+        "summary": "Earlier pre-acceptance-runner root checkpoint; host jobs passed and its M17 target acceptance remained in progress at the latest check."
       },
       {
         "run_id": 35975771855,
@@ -342,9 +446,9 @@
         "run_id": 36228221098,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36228221098",
         "head_sha": "626c37dd75461c64a12044a0f7b7f781f01611ee",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Pre-diagnostics integration checkpoint including the aligned allocation fix: Ubuntu and Windows host jobs passed; nagi-target is still running the M17 QEMU first-web-pixel acceptance. This run does not include the diagnostics merge commit."
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Host jobs passed; the M17 target acceptance failed before producing a first-web-pixel checksum or marker."
       },
       {
         "run_id": 36215571919,
@@ -398,9 +502,9 @@
         "run_id": 36225995143,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36225995143",
         "head_sha": "a64f7b70db4fe3ce9b065942b28a4efd4ff6f317",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Pre-aligned-allocation integration checkpoint: Ubuntu and Windows host jobs passed; target job had reached M17 first-web-pixel QEMU acceptance. This run does not include commit 55be56d."
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host jobs passed; the M17 first-web-pixel target acceptance failed without a pixel checksum or marker."
       },
       {
         "run_id": 36215320154,
@@ -417,12 +521,60 @@
         "status": "COMPLETED",
         "conclusion": "FAILURE",
         "summary": "Model Runtime source branch: Ubuntu host passed; Windows failed the newline-sensitive malformed-manifest fixture; target M17 acceptance failed independently after builds through UEFI. The CRLF regression is fixed in the integration tree."
+      },
+      {
+        "run_id": 36229744643,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36229744643",
+        "head_sha": "b50580eb812d1f1957cf77d8b8e70e784c5a803d",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu host passed; Windows M0 acceptance incorrectly ran the target image build as a host success check, so target acceptance was skipped."
+      },
+      {
+        "run_id": 36230920602,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36230920602",
+        "head_sha": "bb9d7b43a4ec9ba058453d39e671641d75732e1c",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu host passed; Windows M0 PowerShell acceptance failed during repository-root resolution before invoking the launcher; target was skipped."
+      },
+      {
+        "run_id": 36231599750,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231599750",
+        "head_sha": "b0db7134164606fb6240260daf1390cd4f3f0ad4",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Superseded by the pushed first-party integration merge before its host jobs completed; not a verification result."
+      },
+      {
+        "run_id": 36230579035,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36230579035",
+        "head_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "First-party source head 6cc3255: Ubuntu and Windows host jobs passed; the independent M17 target job is still running."
+      },
+      {
+        "run_id": 36231127467,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231127467",
+        "head_sha": "efa1c372d0599370bc0b8833e6f4b0c1b8f6917e",
+        "status": "QUEUED",
+        "conclusion": null,
+        "summary": "First-party documentation/state checkpoint head efa1c37 is queued behind the earlier branch run."
+      },
+      {
+        "run_id": 36231902947,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231902947",
+        "head_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Merged root head 94dbf87: Ubuntu and Windows host jobs are running; target job is gated on host completion."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T08:24:42Z",
+    "last_checked_at": "2026-09-26T09:12:26Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -438,7 +590,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Push the acceptance-runner integration and inspect its Ubuntu/Windows host acceptance plus target M17 artifacts. Continue reviewing the clean first-party preview branch while Actions runs. Keep M17 BLOCKED without a real guest pixel checksum and marker, and keep target/runtime app paths behind the documented gate.",
+  "next_action": "Inspect root Nagi CI run 36231902947 at head 94dbf87 after the Ubuntu and Windows host jobs finish, then inspect its target artifact. Keep M17 BLOCKED unless the guest produces the real first-web-pixel checksum and PASS marker; keep M18 NOT STARTED and all 0.2 runtime/product work gated on M30 PASS plus an explicit release checkpoint. While CI runs, audit remaining clean host-only workstream candidates without touching dirty sibling worktrees.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",

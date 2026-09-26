@@ -3062,6 +3062,35 @@ full host workspace test was attempted but cannot compile x86-only `libnagi`
 inline assembly on this Apple Silicon host. Neither the M10 QEMU result nor the
 full-workspace host test is recorded as PASS.
 
+# 3G. First-party and shared UI host integration checkpoint (2026-09-26)
+
+**State:** host-side integration is verified locally; target app/runtime
+integration remains **NOT RUN**. This checkpoint does not change any official
+milestone status or release gate.
+
+The `codex/integration-next-phase` branch now contains the registered
+`nagi-ui` shared design-system crate and first-party host adapters for Notes,
+Files, Activity/Wayback, and Home/Search. The cross-app preview uses in-memory
+providers and labels itself `target NOT RUN`; it does not establish target
+storage, capability-service, launch, Action-dispatch, or renderer behavior.
+
+Local verification at commit `94dbf8708af743469678cf5f662bc4a6dd892a45`
+passed: `nagi-cli` (102 unit + 26 CLI tests), Activity/Wayback (41), Files
+(48), Notes (27), Home/Search (35 + 1 preview), cross-app integration (11),
+and `nagi-ui` (27). Root workspace and standalone first-party Clippy checks
+passed with warnings denied. Formatting, DF-01 validation (18 registered
+workstreams and 11 state files), M0 host acceptance, and the bilingual
+memory-only integration preview passed.
+
+First-party source CI run `36230579035` passed both host jobs; its target job
+is still running the unchanged M17 first-web-pixel acceptance. Merged-root CI
+run `36231902947` has both host jobs in progress. M17 remains `BLOCKED` until
+the real guest produces its pixel checksum and acceptance marker; M18 remains
+`NOT STARTED`. The UI-specific M10 guest preview remains blocked before UI
+startup by the existing M5 `invalid-elf` / empty `PT_TLS` failure. No kernel
+or loader changes were made. Nagi 0.2 runtime/product work remains gated on
+M30 PASS and an explicit release checkpoint.
+
 # 4. Current milestone detail
 
 ## M0 遯ｶ繝ｻRepository / Toolchain / CI
