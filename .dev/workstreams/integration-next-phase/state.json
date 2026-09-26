@@ -1,0 +1,82 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "integration-next-phase",
+  "current_milestone": "INTEGRATION",
+  "current_checkpoint": "parallel-branch-inventory",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "1993a4582952d3c1176ceff4434ac07a11a02881",
+    "verified_at": "2026-09-26T06:48:04Z",
+    "normal_state": "Created the dedicated integration branch from current main. The base commit's Ubuntu and Windows host CI jobs passed in Actions run 36223836342; its M17 target job is still running. Branch audits are in progress and no workstream changes have yet been verified on this integration branch.",
+    "commands": [
+      "git status --short --branch",
+      "git worktree list --porcelain",
+      "git branch -avv",
+      "gh run view 36223836342 --json number,status,conclusion,headSha,url,jobs"
+    ],
+    "tests": [
+      {
+        "name": "Ubuntu host CI",
+        "command": "GitHub Actions run 36223836342, job ubuntu-host",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Format, host Clippy/build/test, and M0 doctor/launcher acceptance passed at base commit 1993a4582952d3c1176ceff4434ac07a11a02881."
+      },
+      {
+        "name": "Windows launcher CI",
+        "command": "GitHub Actions run 36223836342, job windows-launcher",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Host build/test and Windows launcher checks passed at base commit 1993a4582952d3c1176ceff4434ac07a11a02881."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36223836342,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36223836342",
+        "head_sha": "1993a4582952d3c1176ceff4434ac07a11a02881",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Ubuntu and Windows host jobs passed; the target job is building Nagi user init and M17 first-web-pixel acceptance has not started."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T06:48:04Z",
+    "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not modify active parallel worktrees or include their uncommitted changes.",
+      "Do not mark M17 complete without the real guest pixel checksum and acceptance marker.",
+      "Do not merge this integration branch to main without explicit user direction."
+    ]
+  },
+  "next_action": "Finish the read-only branch audit, integrate only eligible clean and reviewable work, run focused host acceptance, update each affected workstream state with evidence, and push the integration branch.",
+  "acceptance_criteria": [
+    "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
+    "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
+    "The DF-01 registry and state validator plus developer CLI tests pass on this branch.",
+    "No 0.2 production runtime or guest authority path is activated before M30 PASS and an explicit release boundary."
+  ],
+  "deferred": [
+    "M17 target acceptance pending Actions run 36223836342.",
+    "Nagi 0.1 M18-M30 and any 0.2 production runtime work until their documented activation gates pass."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "Use DF-01 schemas, registry ownership, evidence format, and read-only resume/verify/diagnose CLI contract.",
+      "version": "nagi-dev-v1",
+      "status": "PASS"
+    }
+  ]
+}

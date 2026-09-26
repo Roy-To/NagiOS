@@ -1,0 +1,288 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "development-foundation",
+  "current_milestone": "DF-01",
+  "current_checkpoint": "DF-01-complete-m17-gate-preserved",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "4f704cf0e6a1fd780e240f3e62058439e81e4368",
+    "verified_at": "2026-09-25T09:19:27Z",
+    "normal_state": "DF-01 development foundation acceptance passed on codex/0.2-development-foundation: focused CLI tests, schema/state verification, shell and workflow checks passed; Ubuntu and Windows host CI both passed, including the clean-checkout developer-state command. Target dependency checks, Mesa, package, kernel, user-init, and UEFI builds passed. Feature-branch CI #36117826259 then reached the unchanged 0.1 M17 gate and failed there after the 120-second QEMU timeout at GL context creation. Its diagnostic report classified GRAPHICS and retained seven logs, two image hashes, and a runner resource snapshot in GitHub artifact m17-diagnostics-36117826259 (artifact ID 10857594909). Mainline is now c41d313d98b3d9dfa3c7f8421453e8f2890149dc, four commits ahead of the foundation base, with CI #36120900543 in progress on the latest M17 trace-routing repair; host jobs passed and its M17 QEMU step is running. The original main checkout is clean at c41d313. No rebase or merge was performed. M17 remains BLOCKED; M18–M30 remain NOT STARTED.",
+    "commands": [
+      "git status --short --branch",
+      "git rev-parse HEAD",
+      "git worktree list --porcelain",
+      "git ls-remote origin refs/heads/main",
+      "gh run list --repo RT-NISH/NagiOS --limit 8",
+      "gh run view 36106455335 --repo RT-NISH/NagiOS --job 107979978355 --log",
+      "gh run view 36114799741 --repo RT-NISH/NagiOS --json databaseId,headSha,conclusion,jobs,url",
+      "gh run view 36114799741 --repo RT-NISH/NagiOS --job 108006242159 --log",
+      "gh run view 36114799741 --repo RT-NISH/NagiOS --job 108006242271 --log",
+      "gh run view 36115897284 --repo RT-NISH/NagiOS --log-failed",
+      "gh run view 36120900543 --repo RT-NISH/NagiOS --json status,conclusion,headSha,jobs,url",
+      "git status --short --branch (original main checkout, read-only audit)",
+      "git ls-remote origin refs/heads/main",
+      "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path tools/nagi-cli/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo fmt --manifest-path tools/nagi-cli/Cargo.toml -- --check",
+      "sh -n nagi",
+      "sh -n tests/acceptance/m17_servo_first_web_pixel.sh",
+      "ruby -e require yaml; YAML.load_file(.github/workflows/ci.yml)",
+      "python jsonschema Draft202012Validator validates registry and state documents",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev diagnose --stage m17-first-web-pixel-acceptance --exit-code 4 --log /tmp/nagi-m17-ci184.log --artifact tools/nagi-cli/Cargo.toml",
+      "gh run download 36117826259 --repo RT-NISH/NagiOS --dir <diagnostic workspace>",
+      "Inspect m17-diagnostics-36117826259-attempt-1-32271.json and m17-runner-resources.log",
+      "git status --short --branch (foundation and original main worktrees)"
+    ],
+    "tests": [
+      {
+        "name": "original checkout cleanliness",
+        "command": "git status --short --branch",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The original main worktree is clean at 5b2d23541cab881facb5e9ada9503fd28608644b; the foundation checkout is isolated at 4f704cf and other existing worktrees remain unchanged."
+      },
+      {
+        "name": "origin main synchronization",
+        "command": "git ls-remote origin refs/heads/main",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "remote refs/heads/main equals the original checkout HEAD"
+      },
+      {
+        "name": "Latest mainline M17 run 36120900543",
+        "command": "GitHub Actions run 36120900543, nagi-target / M17 first web pixel acceptance",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Mainline head c41d313d98b3d9dfa3c7f8421453e8f2890149dc adds guest-console Servo trace routing. Ubuntu and Windows host jobs passed; the target M17 acceptance step started at 2026-09-25T10:22:08Z and has no result yet."
+      },
+      {
+        "name": "Foundation branch CI run 36117826259",
+        "command": "GitHub Actions run 36117826259, all jobs",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Ubuntu and Windows host jobs passed, including developer-state verification. Target source, dependency boundary, Mesa, M16 package, kernel, user-init, and UEFI passed. Overall CI failed only at the unchanged M17 acceptance: QEMU timed out after 120 seconds at GL context creation, with no pixel checksum or pass marker."
+      },
+      {
+        "name": "M17 diagnostic artifact 36117826259",
+        "command": "gh run download 36117826259 --repo RT-NISH/NagiOS --dir <diagnostic workspace>; inspect diagnostic JSON and runner resource log",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Artifact ID 10857594909 (`m17-diagnostics-36117826259`, 26,788 bytes) downloaded successfully. JSON records source commit 18b364dc01c6a95bbda492f36c8dd0586f12ca8d, source_worktree_dirty=true, process exit 4, timeout termination, suggested class GRAPHICS, 14 unique error lines, 0 undefined symbols, seven hashed logs, and two hashed image artifacts. The artifact also contains runner memory, swap, disk, and kernel data."
+      },
+      {
+        "name": "Nagi 0.1 M17 target CI run 187",
+        "command": "GitHub Actions run 36115897284, nagi-target / M17 first web pixel acceptance",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "Ubuntu and Windows host checks and all target builds passed, including user-init and UEFI. M17 QEMU timed out after 120 seconds at `Nagi M17 trace: GL context creation started`; persistence and Surface acquisition passed, but no pixel checksum or guest PASS marker appeared. The current mainline workflow published no diagnostic artifact."
+      },
+      {
+        "name": "Nagi 0.1 M17 target CI run 184",
+        "command": "GitHub Actions run 36106455335, nagi-target / M17 first web pixel acceptance",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "target build/link and two-boot persistent read passed; surface was acquired; guest stopped after GL context creation started and QEMU timed out at 120 seconds without a pixel checksum"
+      },
+      {
+        "name": "Nagi 0.1 host and target CI run 183",
+        "command": "GitHub Actions run 36099071216",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "host jobs, Mesa, package, kernel, real Servo init link and UEFI passed; M17 QEMU acceptance stalled after GL context start and produced no pixel evidence"
+      },
+      {
+        "name": "initial CLI integration test fixture",
+        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "One new CLI integration assertion invoked dev without its required subcommand. The test was corrected to use dev status; the final committed run passes all 20 integration tests."
+      },
+      {
+        "name": "initial doctest toolchain alignment",
+        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Homebrew rustdoc 1.86 was mixed with pinned Rust 1.90 artifacts. The launcher now selects pinned Cargo, rustc, and rustdoc; final tests pass with the pinned toolchain."
+      },
+      {
+        "name": "initial RFC3339 validation Clippy attempt",
+        "command": "cargo clippy --manifest-path tools/nagi-cli/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Clippy rejected manual modulo leap-year checks. Replaced them with is_multiple_of and reran the same command successfully."
+      },
+      {
+        "name": "Nagi CLI unit and integration tests on implementation commit",
+        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "On 4f704cf0e6a1fd780e240f3e62058439e81e4368: 68 unit tests, 20 integration tests, and 0 doctests passed."
+      },
+      {
+        "name": "Nagi bootstrap entry-point tests on implementation commit",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "On 4f704cf0e6a1fd780e240f3e62058439e81e4368: 68 shared library unit tests passed; binary and doctest targets contained 0 tests."
+      },
+      {
+        "name": "Nagi CLI Clippy",
+        "command": "cargo clippy --manifest-path tools/nagi-cli/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Clippy passed with -D warnings; only the existing third_party/libc-servo unexpected target_os=nagi configuration warnings were emitted by the dependency."
+      },
+      {
+        "name": "format and shell syntax",
+        "command": "cargo fmt --manifest-path tools/nagi-cli/Cargo.toml -- --check; sh -n nagi; sh -n tests/acceptance/m17_servo_first_web_pixel.sh; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Rust formatting, both POSIX shell syntax checks, and whitespace validation passed."
+      },
+      {
+        "name": "workflow YAML syntax",
+        "command": "ruby -e require yaml; YAML.load_file(.github/workflows/ci.yml)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Ruby Psych parsed the updated workflow. actionlint and PowerShell are not installed locally; Windows launcher verification is part of CI."
+      },
+      {
+        "name": "Draft 2020-12 workstream JSON Schema validation",
+        "command": "python jsonschema Draft202012Validator.check_schema and FormatChecker for .dev/workstreams.json and active state",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both schemas passed schema checks and validated the registry and active state."
+      },
+      {
+        "name": "developer state command and clean checkout",
+        "command": "./nagi dev verify; ./nagi dev status; git status --short --branch",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "At checkpoint 4f704cf, 9 registry entries and the active state validated; status identified the workstream, branch, HEAD, and current dirty-state accurately."
+      },
+      {
+        "name": "M17 diagnostic smoke test",
+        "command": "./nagi dev diagnose --stage m17-first-web-pixel-acceptance --exit-code 4 --log /tmp/nagi-m17-ci184.log --artifact tools/nagi-cli/Cargo.toml --output /tmp/nagi-m17-ci184-final2.diagnostics.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Preserved process exit code 4, suggested GRAPHICS despite an earlier linker warning, inventoried 14 unique error lines and 1 undefined symbol, and recorded artifact length/SHA-256. This was a diagnostics smoke test, not M17 acceptance."
+      },
+      {
+        "name": "original main worktree preservation",
+        "command": "git status --short --branch (original main checkout)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Original checkout is clean at main commit 5b2d235; the foundation branch made no changes there or in other existing worktrees."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36120900543,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36120900543",
+        "head_sha": "c41d313d98b3d9dfa3c7f8421453e8f2890149dc",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Mainline c41d313 routes Servo trace checkpoints through the guest console. Ubuntu and Windows host jobs passed. Target M17 first-web-pixel acceptance started at 10:22:08 UTC; result pending."
+      },
+      {
+        "run_id": 36117826259,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36117826259",
+        "head_sha": "18b364dc01c6a95bbda492f36c8dd0586f12ca8d",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed, including developer-state validation. Target dependency boundary, Mesa, M16 package, kernel, user-init, and UEFI passed. M17 acceptance failed with exit 4 after the 120-second QEMU timeout at GL context creation; persistent read and Surface acquisition passed but no pixel was accepted. Diagnostic report suggested GRAPHICS (14 unique errors, 0 undefined symbols, 7 logs); uploaded artifact `m17-diagnostics-36117826259`, ID 10857594909, contains two image hashes and runner resources."
+      },
+      {
+        "run_id": 36115897284,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36115897284",
+        "head_sha": "5b2d23541cab881facb5e9ada9503fd28608644b",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu and Windows host jobs and all target build steps passed, including user-init and UEFI. M17 QEMU exited 4 after a 120-second timeout at GL context creation; persistent storage and Surface acquisition passed, but no pixel checksum or PASS marker appeared. Mainline CI did not publish diagnostic artifacts."
+      },
+      {
+        "run_id": 36114799741,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36114799741",
+        "head_sha": "30b2494e556ce27a21e85975da75a3112c436510",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Pinned Servo bootstrap passed on Ubuntu and target. Ubuntu format passed. Windows host build, Ubuntu locked Clippy, and target feature-boundary verification failed because the root Cargo.lock lacked servo-paint-api -> libc; Mesa and M17 QEMU were skipped. Main commit 5b2d235 adds the missing lock edge; public CI #187 is verifying that repair."
+      },
+      {
+        "run_id": 36113604201,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36113604201",
+        "head_sha": "d69d6c8ca01b35b5e500b15be3ddcf4f9d20c6a7",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu, Windows, and target Servo bootstrap failed because the direct servo-paint-api -> libc dependency had not yet been added to Servo pinned Cargo.lock; patch 0009 fixed that for CI #186."
+      },
+      {
+        "run_id": 36106455335,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36106455335",
+        "head_sha": "56707103565192957507b177c35373422908588e",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu and Windows jobs passed. Target build/link and persistent storage passed; the guest acquired its Surface, then QEMU timed out after `GL context creation started`. No pixel checksum or pass marker was produced."
+      },
+      {
+        "run_id": 36099071216,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36099071216",
+        "head_sha": "4995909db69ea2fa8234662a8d45977b28ecb4fc",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "M17 two-boot persistence checks passed, then software GL context setup timed out after 120 seconds; no Servo pixel was accepted."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md",
+    "last_checked_at": "2026-09-25T10:33:11Z",
+    "activation_requirement": "Read the authoritative 0.1 status and require M30 PASS plus an explicit 0.2 integration checkpoint before any 0.2 runtime/product work starts."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not modify, reset, clean, rebase, merge, or cherry-pick into the original NagiOS main checkout or any other active worktree.",
+      "Do not delete or regenerate existing Servo/Mesa outputs as part of this foundation work.",
+      "Do not change 0.1 runtime code, M17 acceptance assertions, or start M18-M30."
+    ]
+  },
+  "next_action": "DF-01 is complete. Check mainline CI run 36120900543 and update the 0.1 status with its result. Keep Nagi 0.1 M18–M30 NOT STARTED until M17 passes; resume 0.2 runtime/product work only after M30 is PASS and an explicit 0.2 integration checkpoint establishes the release-line boundary.",
+  "acceptance_criteria": [
+    "A clean clone can identify its current 0.2 workstream, current Git HEAD, last verified SHA, blocker, and exact next action from tracked state.",
+    "The registry/state validator rejects missing fields, invalid status or failure classes, duplicate IDs/branches, unsafe state paths, and missing dependencies.",
+    "The diagnostic command retains raw logs, inventories every undefined symbol and error line, records process status, and hashes logs/artifacts.",
+    "Existing 0.1 M17 acceptance criteria and runtime sources remain unchanged.",
+    "A single target run is not canceled by a newer push; cheap host jobs can cancel stale runs; CI diagnostic logs are retained when available.",
+    "Focused CLI tests, shell syntax checks, JSON/schema checks, and clean-worktree verification pass."
+  ],
+  "deferred": [
+    "M18-M30 implementation until Nagi 0.1 is complete.",
+    "0.2 runtime implementation until M30 PASS and an explicit integration gate.",
+    "Cache keys, target build/acceptance separation, and binary artifact reuse until artifact fingerprints and transfer costs are measured."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "ci-acceptance",
+      "contract": "Acceptance semantics remain authoritative; diagnostics and cancellation policy may improve without changing PASS conditions.",
+      "version": "0.1-acceptance-preserved",
+      "status": "INTEGRATION_OWNED"
+    },
+    {
+      "workstream_id": "developer-tooling",
+      "contract": "The foundation seeds read-only state/resume/verification and explicit-output diagnostic commands.",
+      "version": "nagi-dev-v1",
+      "status": "IN_PROGRESS"
+    }
+  ]
+}

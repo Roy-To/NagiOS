@@ -3,8 +3,22 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cargo_path=$(command -v cargo || true)
+rustup_path=$(command -v rustup || true)
+if [ -n "$rustup_path" ]; then
+    toolchain=$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$script_dir/rust-toolchain.toml")
+    if [ -n "$toolchain" ]; then
+        pinned_cargo=$("$rustup_path" which cargo --toolchain "$toolchain" 2>/dev/null || true)
+        pinned_rustc=$("$rustup_path" which rustc --toolchain "$toolchain" 2>/dev/null || true)
+        pinned_rustdoc=$("$rustup_path" which rustdoc --toolchain "$toolchain" 2>/dev/null || true)
+        if [ -n "$pinned_cargo" ] && [ -n "$pinned_rustc" ] && [ -n "$pinned_rustdoc" ]; then
+            cargo_path=$pinned_cargo
+            export RUSTC=$pinned_rustc
+            export RUSTDOC=$pinned_rustdoc
+        fi
+    fi
+fi
 if [ -z "$cargo_path" ]; then
-    printf '%s\n' 'FAIL cannot start nagi: Cargo was not found; install rust-toolchain.toml' >&2
+    printf '%s\n' 'FAIL cannot start nagi: Cargo was not found; install the toolchain from rust-toolchain.toml' >&2
     exit 4
 fi
 if [ -x "/c/Program Files/LLVM/bin/lld-link.exe" ]; then

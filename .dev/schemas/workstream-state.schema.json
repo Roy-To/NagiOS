@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.invalid/schemas/workstream-state.schema.json",
+  "title": "Nagi workstream durable state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_ref", "schema_version", "workstream_id", "current_milestone", "current_checkpoint",
+    "status", "last_verified", "release_line_gate", "blocker", "next_action",
+    "acceptance_criteria", "deferred", "cross_workstream_dependencies"
+  ],
+  "properties": {
+    "schema_ref": {"type": "string", "minLength": 1},
+    "schema_version": {"const": 1},
+    "workstream_id": {"type": "string", "minLength": 1},
+    "current_milestone": {"type": "string", "minLength": 1},
+    "current_checkpoint": {"type": "string", "minLength": 1},
+    "status": {"$ref": "#/$defs/status"},
+    "last_verified": {"$ref": "#/$defs/lastVerified"},
+    "release_line_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "last_checked_at", "activation_requirement"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1},
+        "last_checked_at": {"type": "string", "format": "date-time"},
+        "activation_requirement": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "blocker": {"$ref": "#/$defs/blocker"},
+    "next_action": {"type": "string", "minLength": 1},
+    "acceptance_criteria": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "deferred": {"type": "array", "items": {"type": "string"}},
+    "cross_workstream_dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}}
+  },
+  "$defs": {
+    "status": {"enum": ["NOT_STARTED", "IN_PROGRESS", "PASS", "PARTIAL", "BLOCKED", "DEFERRED"]},
+    "failureClass": {"enum": ["SOURCE", "BUILD", "LINK", "ABI", "RUNTIME", "BOOT", "DEVICE", "STORAGE", "GRAPHICS", "NETWORK", "MODEL", "PERMISSION", "ACCEPTANCE", "CI_INFRA", "HOST_ENV", "UNKNOWN"]},
+    "outcome": {"enum": ["PASS", "FAIL", "IN_PROGRESS", "NOT_RUN"]},
+    "lastVerified": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_sha", "verified_at", "normal_state", "commands", "tests", "ci_runs"],
+      "properties": {
+        "commit_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "verified_at": {"type": "string", "format": "date-time"},
+        "normal_state": {"type": "string", "minLength": 1},
+        "commands": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "tests": {"type": "array", "items": {"$ref": "#/$defs/test"}},
+        "ci_runs": {"type": "array", "items": {"$ref": "#/$defs/ciRun"}}
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "command", "outcome", "exit_code", "evidence"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "command": {"type": "string", "minLength": 1},
+        "outcome": {"$ref": "#/$defs/outcome"},
+        "exit_code": {"type": ["integer", "null"]},
+        "evidence": {"type": "string", "minLength": 1}
+      }
+    },
+    "ciRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "url", "head_sha", "status", "conclusion", "summary"],
+      "properties": {
+        "run_id": {"type": "integer", "minimum": 1},
+        "url": {"type": "string", "format": "uri"},
+        "head_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "status": {"enum": ["QUEUED", "IN_PROGRESS", "COMPLETED"]},
+        "conclusion": {"type": ["string", "null"]},
+        "summary": {"type": "string", "minLength": 1}
+      }
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "class", "summary", "reproduction_commands", "failure_log_summary", "attempted_fixes", "do_not_try"],
+      "properties": {
+        "active": {"type": "boolean"},
+        "class": {"anyOf": [{"$ref": "#/$defs/failureClass"}, {"type": "null"}]},
+        "summary": {"type": ["string", "null"]},
+        "reproduction_commands": {"type": "array", "items": {"type": "string"}},
+        "failure_log_summary": {"type": ["string", "null"]},
+        "attempted_fixes": {"type": "array", "items": {"type": "string"}},
+        "do_not_try": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workstream_id", "contract", "version", "status"],
+      "properties": {
+        "workstream_id": {"type": "string", "minLength": 1},
+        "contract": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

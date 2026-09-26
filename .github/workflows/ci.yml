@@ -2,17 +2,22 @@ name: Nagi CI
 
 on:
   push:
+    paths-ignore:
+      - '.dev/workstreams/**/state.json'
+      - 'docs/implementation_status.md'
   pull_request:
-
-concurrency:
-  group: nagi-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    paths-ignore:
+      - '.dev/workstreams/**/state.json'
+      - 'docs/implementation_status.md'
 
 permissions:
   contents: read
 
 jobs:
   ubuntu-host:
+    concurrency:
+      group: nagi-ci-ubuntu-host-${{ github.ref }}
+      cancel-in-progress: true
     timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
@@ -46,7 +51,12 @@ jobs:
         run: ./tests/acceptance/m0_doctor.sh
       - name: M0 launcher acceptance
         run: ./tests/acceptance/m0_launcher.sh
+      - name: Verify development workstream state
+        run: ./nagi dev verify
   windows-launcher:
+    concurrency:
+      group: nagi-ci-windows-launcher-${{ github.ref }}
+      cancel-in-progress: true
     timeout-minutes: 30
     runs-on: windows-2022
     steps:
@@ -93,7 +103,17 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\tests\acceptance\m0_launcher.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify development workstream state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\nagi.ps1 dev verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   nagi-target:
+    needs: [ubuntu-host, windows-launcher]
+    concurrency:
+      group: nagi-ci-target-${{ github.ref }}
+      cancel-in-progress: false
     timeout-minutes: 90
     runs-on: ubuntu-24.04
     steps:
@@ -235,3 +255,22 @@ jobs:
         run: |
           source out/mesa-venv/bin/activate
           sh tests/acceptance/m17_servo_first_web_pixel.sh
+      - name: Capture target runner resource state
+        if: always()
+        run: |
+          mkdir -p out/logs
+          {
+            date -u
+            uname -a
+            free -h
+            df -h .
+            cat /proc/meminfo
+          } > out/logs/m17-runner-resources.log 2>&1
+      - name: Upload M17 diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: m17-diagnostics-${{ github.run_id }}
+          path: out/logs/m17-*
+          if-no-files-found: error
+          retention-days: 30

@@ -11,6 +11,28 @@ $cargoPath = $null
 if ($null -ne $cargoCommand) {
     $cargoPath = $cargoCommand.Source
 }
+$rustupCommand = Get-Command rustup -ErrorAction SilentlyContinue
+if ($null -ne $rustupCommand) {
+    $toolchainText = Get-Content -LiteralPath (Join-Path $repositoryRoot 'rust-toolchain.toml') -Raw
+    $toolchainMatch = [regex]::Match($toolchainText, '(?m)^\s*channel\s*=\s*"([^"]+)"')
+    if ($toolchainMatch.Success) {
+        $toolchain = $toolchainMatch.Groups[1].Value
+        $pinnedCargo = & $rustupCommand.Source which cargo --toolchain $toolchain 2>$null
+        $cargoStatus = $LASTEXITCODE
+        $pinnedRustc = & $rustupCommand.Source which rustc --toolchain $toolchain 2>$null
+        $rustcStatus = $LASTEXITCODE
+        $pinnedRustdoc = & $rustupCommand.Source which rustdoc --toolchain $toolchain 2>$null
+        $rustdocStatus = $LASTEXITCODE
+        if ($cargoStatus -eq 0 -and $rustcStatus -eq 0 -and $rustdocStatus -eq 0 -and
+            -not [string]::IsNullOrWhiteSpace([string] $pinnedCargo) -and
+            -not [string]::IsNullOrWhiteSpace([string] $pinnedRustc) -and
+            -not [string]::IsNullOrWhiteSpace([string] $pinnedRustdoc)) {
+            $cargoPath = [string] $pinnedCargo
+            $env:RUSTC = [string] $pinnedRustc
+            $env:RUSTDOC = [string] $pinnedRustdoc
+        }
+    }
+}
 if ([string]::IsNullOrWhiteSpace($cargoPath)) {
     $userCargoPath = Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe'
     if (Test-Path -LiteralPath $userCargoPath) {
@@ -18,7 +40,7 @@ if ([string]::IsNullOrWhiteSpace($cargoPath)) {
     }
 }
 if ([string]::IsNullOrWhiteSpace($cargoPath)) {
-    Write-Error 'Cargo was not found. Install the pinned Rust toolchain from rust-toolchain.toml.'
+    Write-Error 'Cargo was not found. Install the Rust toolchain from rust-toolchain.toml.'
     exit 4
 }
 

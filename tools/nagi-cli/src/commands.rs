@@ -51,6 +51,7 @@ pub enum Command {
     Clean,
     Fmt,
     Lint,
+    Dev,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +115,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
         "lint" => Command::Lint,
+        "dev" => Command::Dev,
         other => {
             return Err(CliError::new(
                 format!("unknown command `{other}`"),
@@ -126,6 +128,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         Command::Doctor => {
             args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--allow-missing")
         }
+        Command::Dev => args.len() >= 2,
         Command::Help
         | Command::Fetch
         | Command::Build
@@ -226,6 +229,17 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M15 => execute_m15(root, probe),
         Command::M16 => execute_m16(root, probe),
         Command::M17 => execute_m17(root, probe),
+        Command::Dev => execute_dev(&args[1..], root),
+    }
+}
+
+fn execute_dev(args: &[String], root: &Path) -> CommandResult {
+    match crate::development::execute(args, root) {
+        Ok(lines) => CommandResult {
+            exit_code: EXIT_SUCCESS,
+            lines,
+        },
+        Err(error) => failure(error.exit_code(), error.to_string()),
     }
 }
 
@@ -2775,7 +2789,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, dev status|resume|verify|diagnose, test, clean, fmt, lint"
                 .into(),
         ],
     }
