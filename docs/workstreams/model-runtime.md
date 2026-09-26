@@ -37,7 +37,8 @@ The accepted generative/decision architecture remains authoritative:
    descriptive profile without a digest cannot be selected or installed.
 3. The registry accepts one manifest at a time and records artifact,
    backend, and resource incompatibility as structured availability. A bad
-   manifest cannot mutate already registered entries.
+   manifest cannot mutate already registered entries. Unregister removes only
+   inactive entries and fails closed during loading or active transitions.
 4. Selection filters on requested capability, optional role, context and
    available resources. A compatible user preference wins, then a separately
    supplied role default, then a stable model-ID order. The registry does not
@@ -123,14 +124,16 @@ and exposes read-only accessors for consumers.
 
 Verification on the dedicated worktree:
 
-- `cargo test --locked -p nagi-model-manager --all-targets` — PASS: 26 unit
-  tests, 2 manifest/schema tests, and 1 external Store API test.
+- `cargo test --locked -p nagi-model-manager --all-targets` — PASS: 28 unit
+  tests, 2 manifest/schema tests, and 1 external Store API test (31 total).
 - `cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check` —
   PASS.
 - `cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings` —
   PASS.
 - Focused Windows-line-ending and split-backend regressions each failed before
   their fix and pass afterward.
+- Unregister tests pass for unloaded/failed/disabled entries and verify that
+  loading/ready/busy/unloading entries remain registered.
 - The local Nagi-target `cargo check` was attempted but could not start because
   this worktree lacks the prepared `out/rust-src/library/Cargo.toml`; this is a
   generated host setup input, not a package compile error. The source-branch CI
