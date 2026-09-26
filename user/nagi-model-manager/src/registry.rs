@@ -222,6 +222,21 @@ impl ModelRegistry {
             .find(|entry| &entry.manifest.model_id == model_id)
     }
 
+    pub fn unregister(&mut self, model_id: &ModelId) -> Result<ModelEntry, RegistryError> {
+        let index = self
+            .entries
+            .iter()
+            .position(|entry| &entry.manifest.model_id == model_id)
+            .ok_or(RegistryError::ModelNotFound)?;
+        if !matches!(
+            self.entries[index].lifecycle,
+            LifecycleState::Unloaded | LifecycleState::Failed | LifecycleState::Disabled
+        ) {
+            return Err(RegistryError::InvalidLifecycleTransition);
+        }
+        Ok(self.entries.remove(index))
+    }
+
     pub fn discover<A: ArtifactCatalog>(
         &mut self,
         manifest: ModelManifest,
@@ -665,5 +680,95 @@ mod tests {
             .transition_lifecycle(&id, LifecycleState::Ready)
             .unwrap();
         assert!(registry.get(&id).unwrap().is_selectable());
+    }
+
+    #[test]
+    fn unregisters_inactive_entries_and_allows_the_model_id_to_be_registered_again() {
+        let mut registry = ModelRegistry::new();
+        let model = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
+        let id = model.model_id.clone();
+        assert_eq!(registry.unregister(&id), Err(RegistryError::ModelNotFound));
+        registry
+            .discover(model, &PresentArtifact, &[backend()], budget(), "x86_64")
+            .unwrap();
+
+        let removed = registry.unregister(&id).unwrap();
+        assert_eq!(removed.manifest.model_id, id);
+        assert_eq!(removed.lifecycle, LifecycleState::Unloaded);
+        assert!(registry.get(&id).is_none());
+
+        let model = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
+        registry
+            .discover(model, &PresentArtifact, &[backend()], budget(), "x86_64")
+            .unwrap();
+        registry
+            .transition_lifecycle(&id, LifecycleState::Loading)
+            .unwrap();
+        registry
+            .transition_lifecycle(&id, LifecycleState::Failed)
+            .unwrap();
+        assert_eq!(
+            registry.unregister(&id).unwrap().lifecycle,
+            LifecycleState::Failed
+        );
+
+        let model = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
+        registry
+            .discover(model, &PresentArtifact, &[backend()], budget(), "x86_64")
+            .unwrap();
+        registry
+            .transition_lifecycle(&id, LifecycleState::Loading)
+            .unwrap();
+        registry
+            .transition_lifecycle(&id, LifecycleState::Failed)
+            .unwrap();
+        registry
+            .transition_lifecycle(&id, LifecycleState::Disabled)
+            .unwrap();
+        assert_eq!(
+            registry.unregister(&id).unwrap().lifecycle,
+            LifecycleState::Disabled
+        );
+    }
+
+    #[test]
+    fn refuses_to_unregister_models_with_active_or_transitional_lifecycles() {
+        for lifecycle in [
+            LifecycleState::Loading,
+            LifecycleState::Ready,
+            LifecycleState::Busy,
+            LifecycleState::Unloading,
+        ] {
+            let mut registry = ModelRegistry::new();
+            let model = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
+            let id = model.model_id.clone();
+            registry
+                .discover(model, &PresentArtifact, &[backend()], budget(), "x86_64")
+                .unwrap();
+            registry
+                .transition_lifecycle(&id, LifecycleState::Loading)
+                .unwrap();
+            if lifecycle != LifecycleState::Loading {
+                registry
+                    .transition_lifecycle(&id, LifecycleState::Ready)
+                    .unwrap();
+                match lifecycle {
+                    LifecycleState::Busy => registry
+                        .transition_lifecycle(&id, LifecycleState::Busy)
+                        .unwrap(),
+                    LifecycleState::Unloading => registry
+                        .transition_lifecycle(&id, LifecycleState::Unloading)
+                        .unwrap(),
+                    _ => {}
+                }
+            }
+
+            assert_eq!(
+                registry.unregister(&id),
+                Err(RegistryError::InvalidLifecycleTransition),
+                "must retain model in {lifecycle:?}"
+            );
+            assert_eq!(registry.get(&id).unwrap().lifecycle, lifecycle);
+        }
     }
 }

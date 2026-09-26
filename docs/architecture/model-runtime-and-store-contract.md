@@ -41,8 +41,11 @@ No third-party license text is copied into the fixtures.
 `ModelRegistry::discover` validates one manifest at a time and records a
 structured availability reason: missing artifact, missing or mismatched
 integrity, unsupported runtime/backend, resource incompatibility, or available. A
-rejected manifest leaves prior entries untouched. `LifecycleState` separately
-tracks loading, ready, busy, unloading, failed, and disabled transitions.
+rejected manifest leaves prior entries untouched. `ModelRegistry::unregister`
+removes only unloaded, failed, or disabled entries; it rejects loading, ready,
+busy, and unloading entries so a live or transitional model is not detached.
+`LifecycleState` separately tracks loading, ready, busy, unloading, failed,
+and disabled transitions.
 
 Selection requires a declared capability and can add a role, minimum context,
 current RAM/storage/CPU/GPU budget, target architecture, and offline-only
