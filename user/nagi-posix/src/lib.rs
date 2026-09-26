@@ -5,6 +5,8 @@ pub mod errno;
 pub mod fs;
 pub mod net;
 pub mod process;
+#[cfg(any(target_os = "nagi", test))]
+mod threads;
 
 #[cfg(target_os = "nagi")]
 mod abi;

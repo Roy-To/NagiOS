@@ -10,17 +10,17 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 pub use nagi_abi::{
-    DisplayInfo, InputEvent, MemoryInfo, ProcessInfo, BLOCK_SECTOR_SIZE, INPUT_EVENT_ABS,
-    INPUT_EVENT_KEY, INPUT_EVENT_REL, INPUT_KEY_LEFT, INPUT_REL_X, INPUT_REL_Y, MAX_AUDIO_BUFFER,
-    MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_NET_FRAME_SIZE, MAX_PROCESS_NAME,
-    MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE,
-    SURFACE_BYTES, SURFACE_HEIGHT, SURFACE_WIDTH, SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY,
-    SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE,
-    SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO,
-    SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_NET_RECEIVE,
-    SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE,
-    SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ,
-    SYS_TIME_REALTIME,
+    DisplayInfo, InputEvent, MemoryInfo, ProcessInfo, BLOCK_SECTOR_SIZE,
+    BOOTSTRAP_USER_THREAD_COUNT, INPUT_EVENT_ABS, INPUT_EVENT_KEY, INPUT_EVENT_REL, INPUT_KEY_LEFT,
+    INPUT_REL_X, INPUT_REL_Y, MAX_AUDIO_BUFFER, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ,
+    MAX_NET_FRAME_SIZE, MAX_PROCESS_NAME, MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888, PROT_EXEC,
+    PROT_NONE, PROT_READ, PROT_WRITE, SURFACE_BYTES, SURFACE_HEIGHT, SURFACE_WIDTH,
+    SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE,
+    SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ,
+    SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT,
+    SYS_MEMORY_UNMAP, SYS_NET_RECEIVE, SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO,
+    SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN,
+    SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
 };
 
 #[cfg(target_os = "nagi")]
@@ -533,6 +533,11 @@ pub fn sleep_ns(duration: u64) -> bool {
 }
 
 #[inline]
+pub fn thread_yield() -> bool {
+    sleep_ns(0)
+}
+
+#[inline]
 pub fn mmap_anonymous(length: usize, protection: u64) -> Option<*mut u8> {
     let mut result = SYS_MEMORY_MAP;
     unsafe {
@@ -602,15 +607,36 @@ pub fn mprotect(address: *mut u8, length: usize, protection: u64) -> bool {
     result == 0
 }
 
-/// Create the single bounded native child thread supported by the bootstrap
-/// process bridge. The entry point and stack remain inside the caller's
-/// already-mapped Nagi address space; no host thread or host callback is used.
+/// Create a bounded native child thread in the current Nagi process. The
+/// entry point and stack remain inside its mapped address space; creation
+/// enqueues the child without yielding to a host thread or runtime.
 #[inline]
 pub fn thread_create(
     entry: usize,
     argument: usize,
     stack: *mut u8,
     stack_size: usize,
+) -> Option<u64> {
+    thread_create_with_flags(entry, argument, stack, stack_size, 0)
+}
+
+#[inline]
+pub fn thread_create_detached(
+    entry: usize,
+    argument: usize,
+    stack: *mut u8,
+    stack_size: usize,
+) -> Option<u64> {
+    thread_create_with_flags(entry, argument, stack, stack_size, THREAD_CREATE_DETACHED)
+}
+
+#[inline]
+fn thread_create_with_flags(
+    entry: usize,
+    argument: usize,
+    stack: *mut u8,
+    stack_size: usize,
+    flags: u64,
 ) -> Option<u64> {
     let mut result = SYS_THREAD_CREATE;
     unsafe {
@@ -621,6 +647,7 @@ pub fn thread_create(
             in("rsi") argument as u64,
             in("rdx") stack as u64,
             in("r10") stack_size as u64,
+            in("r8") flags,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
@@ -631,7 +658,25 @@ pub fn thread_create(
 
 #[inline]
 pub fn thread_join(thread: u64) -> Option<u64> {
+    let mut exit_code = 0_u64;
     let mut result = SYS_THREAD_JOIN;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") thread,
+            in("rsi") core::ptr::addr_of_mut!(exit_code),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    (result == 0).then_some(exit_code)
+}
+
+#[inline]
+pub fn thread_detach(thread: u64) -> bool {
+    let mut result = SYS_THREAD_DETACH;
     unsafe {
         asm!(
             "syscall",
@@ -642,7 +687,7 @@ pub fn thread_join(thread: u64) -> Option<u64> {
             options(nostack),
         );
     }
-    (result != u64::MAX).then_some(result)
+    result == 0
 }
 
 #[inline]
@@ -727,6 +772,9 @@ mod tests {
         assert_eq!(SYS_THREAD_JOIN, 21);
         assert_eq!(SYS_THREAD_EXIT, 22);
         assert_eq!(SYS_THREAD_SELF, 23);
+        assert_eq!(SYS_THREAD_DETACH, 29);
+        assert_eq!(THREAD_CREATE_DETACHED, 1);
+        assert_eq!(BOOTSTRAP_USER_THREAD_COUNT, 16);
         assert_eq!(nagi_abi::SYS_AUDIO_PLAY, 24);
         assert_eq!(nagi_abi::SYS_AUDIO_CAPTURE, 25);
         assert_eq!(SYS_RANDOM_GET, 26);

@@ -409,6 +409,14 @@ pub fn initialize(
     }) {
         return Err(SmpError::ApTimeout);
     }
+    // Ring-3 M17 threads run on the BSP with IF clear. Keep the shared guest
+    // clock advancing from one interrupt-enabled AP instead of summing timer
+    // events from every online CPU.
+    if let Some(timekeeper) = (0..MAX_CPUS).find(|&index| {
+        index != topology.bsp_index() && CPU_ONLINE[index].load(Ordering::Acquire) == 1
+    }) {
+        interrupts::set_timer_timekeeper(apic_ids[timekeeper]);
+    }
     Ok(())
 }
 

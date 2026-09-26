@@ -26,7 +26,7 @@ pub const USER_STACK_BASE: u64 = USER_IMAGE_LIMIT;
 pub const USER_STACK_PAGES: usize = PAGE_TABLE_ENTRIES;
 pub const USER_STACK_LIMIT: u64 = USER_STACK_BASE + USER_STACK_PAGES as u64 * PAGE_SIZE;
 pub const USER_TLS_BASE: u64 = USER_IMAGE_LIMIT + 0x0040_0000;
-pub const USER_TLS_THREAD_SLOT_COUNT: usize = 2;
+pub const USER_TLS_THREAD_SLOT_COUNT: usize = nagi_abi::BOOTSTRAP_USER_THREAD_COUNT;
 pub const USER_TLS_PAGES_PER_THREAD: usize = 2;
 pub const USER_TLS_PAGE_COUNT: usize = USER_TLS_THREAD_SLOT_COUNT * USER_TLS_PAGES_PER_THREAD;
 pub const USER_TLS_CONTROL_BASE: u64 = USER_TLS_BASE + PAGE_SIZE;
@@ -47,7 +47,7 @@ const MAX_INIT_IMAGE_SIZE: usize = 128 * 1024 * 1024;
 #[cfg(test)]
 const MAX_TEST_IMAGE_PAGES: usize = 256;
 const MAX_IDENTITY_MAPPED_ADDRESS: u64 = 1 << 32;
-const MAX_MMAP_REGIONS: usize = 4;
+const MAX_MMAP_REGIONS: usize = 64;
 const IA32_EFER: u32 = 0xC000_0080;
 const IA32_FS_BASE: u32 = 0xC000_0100;
 const EFER_NXE: u64 = 1 << 11;
@@ -395,12 +395,22 @@ pub fn munmap_user(address: u64, length: u64) -> bool {
     true
 }
 
-/// Restore the one native child slot's static TLS from the initial ELF image.
-/// The slot is reused after `thread_exit`, so it must not inherit the previous
-/// child's modified thread-local data or control-page state.
-pub fn reset_child_tls() {
+pub const fn user_tls_control_base(thread_id: usize) -> Option<u64> {
+    if thread_id >= USER_TLS_THREAD_SLOT_COUNT {
+        return None;
+    }
+    Some(USER_TLS_BASE + (thread_id as u64 * USER_TLS_PAGES_PER_THREAD as u64 + 1) * PAGE_SIZE)
+}
+
+/// Restore one reusable thread slot's static TLS from the initial ELF image.
+/// A thread never inherits the previous owner's data or control-page state.
+pub fn reset_user_thread_tls(thread_id: usize) -> bool {
+    if thread_id == 0 || thread_id >= USER_TLS_THREAD_SLOT_COUNT {
+        return false;
+    }
     let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
-    reset_child_tls_pages(storage);
+    reset_thread_tls_pages(storage, thread_id);
+    true
 }
 
 pub fn mprotect_user(address: u64, length: u64, protection: u64) -> bool {
@@ -1047,13 +1057,20 @@ fn initialize_tls(
     Ok(())
 }
 
-fn reset_child_tls_pages(storage: &mut BootstrapStorage) {
-    storage.tls_pages[2]
+fn reset_thread_tls_pages(storage: &mut BootstrapStorage, thread_id: usize) {
+    let first_page = thread_id * USER_TLS_PAGES_PER_THREAD;
+    storage.tls_pages[first_page]
         .0
         .copy_from_slice(&storage.tls_initial_page.0);
-    storage.tls_pages[3].0.fill(0);
-    storage.tls_pages[3].0[..core::mem::size_of::<u64>()]
-        .copy_from_slice(&USER_TLS_CHILD_CONTROL_BASE.to_le_bytes());
+    storage.tls_pages[first_page + 1].0.fill(0);
+    storage.tls_pages[first_page + 1].0[..core::mem::size_of::<u64>()]
+        .copy_from_slice(&user_tls_control_base(thread_id).unwrap().to_le_bytes());
+}
+
+fn reset_child_tls_pages(storage: &mut BootstrapStorage) {
+    for thread_id in 1..USER_TLS_THREAD_SLOT_COUNT {
+        reset_thread_tls_pages(storage, thread_id);
+    }
 }
 
 fn image_pages(plan: &UserLoadPlan) -> usize {
@@ -1474,10 +1491,11 @@ mod tests {
 
     use super::{
         build_address_space, efer_with_nxe, find_mmap_start_page, image_range_is_mapped,
-        mapped_range, mmap_page_flags, reset_child_tls_pages, validate_mmap_request,
-        BootstrapStorage, MmapRegion, UserProcessError, MAX_MMAP_REGIONS, USER_MMAP_BASE,
-        USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES, USER_SURFACE_LIMIT,
-        USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT,
+        mapped_range, mmap_page_flags, reset_child_tls_pages, user_tls_control_base,
+        validate_mmap_request, BootstrapStorage, MmapRegion, UserProcessError, MAX_MMAP_REGIONS,
+        USER_MMAP_BASE, USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES,
+        USER_SURFACE_LIMIT, USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE,
+        USER_TLS_LIMIT, USER_TLS_PAGE_COUNT, USER_TLS_THREAD_SLOT_COUNT,
     };
 
     fn boxed_storage() -> Box<BootstrapStorage> {
@@ -1502,6 +1520,19 @@ mod tests {
     fn bootstrap_mmap_window_reserves_128_mib_after_the_surface_region() {
         assert_eq!(USER_MMAP_PAGES as u64 * PAGE_SIZE, 128 * 1024 * 1024);
         assert!(USER_SURFACE_LIMIT <= USER_MMAP_BASE);
+    }
+
+    #[test]
+    fn bootstrap_threads_have_distinct_tls_control_pages() {
+        assert_eq!(USER_TLS_THREAD_SLOT_COUNT, 16);
+        assert_eq!(user_tls_control_base(0), Some(USER_TLS_CONTROL_BASE));
+        assert_eq!(user_tls_control_base(1), Some(USER_TLS_CHILD_CONTROL_BASE));
+        assert_eq!(
+            user_tls_control_base(15),
+            Some(USER_TLS_BASE + 31 * PAGE_SIZE)
+        );
+        assert_eq!(user_tls_control_base(USER_TLS_THREAD_SLOT_COUNT), None);
+        assert_eq!(MAX_MMAP_REGIONS, 64);
     }
 
     #[test]
@@ -1656,10 +1687,9 @@ mod tests {
         assert!(storage.tls_pages[3].0[core::mem::size_of::<u64>()..]
             .iter()
             .all(|byte| *byte == 0));
-        assert!(storage.tls_pt.raw_entry(0).is_some());
-        assert!(storage.tls_pt.raw_entry(1).is_some());
-        assert!(storage.tls_pt.raw_entry(2).is_some());
-        assert!(storage.tls_pt.raw_entry(3).is_some());
+        for page in 0..USER_TLS_PAGE_COUNT {
+            assert!(storage.tls_pt.raw_entry(page).is_some());
+        }
     }
 
     #[test]
@@ -1682,6 +1712,8 @@ mod tests {
         let tls_start = PAGE_SIZE as usize - 16;
         storage.tls_pages[2].0[tls_start..tls_start + 4].fill(0xff);
         storage.tls_pages[3].0.fill(0xff);
+        storage.tls_pages[30].0[tls_start..tls_start + 4].fill(0xff);
+        storage.tls_pages[31].0.fill(0xff);
         reset_child_tls_pages(&mut storage);
 
         assert_eq!(
@@ -1698,6 +1730,14 @@ mod tests {
         assert!(storage.tls_pages[3].0[core::mem::size_of::<u64>()..]
             .iter()
             .all(|byte| *byte == 0));
+        assert_eq!(
+            &storage.tls_pages[30].0[tls_start..tls_start + 4],
+            &[0x11, 0x22, 0x33, 0x44]
+        );
+        assert_eq!(
+            &storage.tls_pages[31].0[..core::mem::size_of::<u64>()],
+            &(USER_TLS_BASE + 31 * PAGE_SIZE).to_le_bytes()
+        );
     }
 
     #[test]

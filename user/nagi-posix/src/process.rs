@@ -42,6 +42,8 @@ unsafe impl Sync for NativeSpawnRecord {}
 static mut NATIVE_SPAWN_RECORD: Option<NativeSpawnRecord> = None;
 #[cfg(target_os = "nagi")]
 static mut NATIVE_SPAWN_STACK: *mut u8 = core::ptr::null_mut();
+#[cfg(target_os = "nagi")]
+static mut NATIVE_SPAWN_THREAD: Option<u64> = None;
 
 #[cfg(target_os = "nagi")]
 extern "C" fn native_spawn_trampoline(record: *mut core::ffi::c_void) -> ! {
@@ -62,6 +64,10 @@ pub fn posix_spawn(_program: &[u8], _arguments: &[&[u8]]) -> Result<u64, SpawnEr
 
 #[cfg(target_os = "nagi")]
 pub unsafe fn native_spawn(request: &NagiSpawnRequest) -> Result<u64, SpawnError> {
+    let active_spawn = unsafe { NATIVE_SPAWN_THREAD };
+    if active_spawn.is_some() {
+        return Err(SpawnError::InvalidRequest);
+    }
     if request.entry == 0 {
         return Err(SpawnError::InvalidRequest);
     }
@@ -72,7 +78,9 @@ pub unsafe fn native_spawn(request: &NagiSpawnRequest) -> Result<u64, SpawnError
         return Err(SpawnError::InvalidRequest);
     };
     let entry = core::mem::transmute::<usize, NativeSpawnEntry>(entry.get());
-    let stack = crate::nagi_posix_mmap(4 * 4096, 3);
+    let stack_protection = (libnagi::PROT_READ | libnagi::PROT_WRITE) as i32;
+    let stack_size = crate::threads::DEFAULT_STACK_SIZE;
+    let stack = crate::nagi_posix_mmap(stack_size, stack_protection);
     if stack.is_null() {
         return Err(SpawnError::InvalidRequest);
     }
@@ -86,27 +94,32 @@ pub unsafe fn native_spawn(request: &NagiSpawnRequest) -> Result<u64, SpawnError
         native_spawn_trampoline as usize,
         record as usize,
         stack,
-        4 * 4096,
+        stack_size,
     ) else {
-        let _ = crate::nagi_posix_munmap(stack, 4 * 4096);
+        let _ = crate::nagi_posix_munmap(stack, stack_size);
         NATIVE_SPAWN_RECORD = None;
         return Err(SpawnError::InvalidRequest);
     };
     NATIVE_SPAWN_STACK = stack;
+    NATIVE_SPAWN_THREAD = Some(thread);
     Ok(thread)
 }
 
 #[cfg(target_os = "nagi")]
 pub unsafe fn native_wait(thread: u64) -> Result<u64, SpawnError> {
+    if NATIVE_SPAWN_THREAD != Some(thread) {
+        return Err(SpawnError::InvalidRequest);
+    }
     let Some(result) = libnagi::thread_join(thread) else {
         return Err(SpawnError::InvalidRequest);
     };
     if !NATIVE_SPAWN_STACK.is_null() {
         let stack = NATIVE_SPAWN_STACK;
         NATIVE_SPAWN_STACK = core::ptr::null_mut();
-        let _ = crate::nagi_posix_munmap(stack, 4 * 4096);
+        let _ = crate::nagi_posix_munmap(stack, crate::threads::DEFAULT_STACK_SIZE);
     }
     NATIVE_SPAWN_RECORD = None;
+    NATIVE_SPAWN_THREAD = None;
     Ok(result)
 }
 

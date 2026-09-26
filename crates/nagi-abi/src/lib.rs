@@ -28,6 +28,15 @@ pub const SYS_AUDIO_CAPTURE: u64 = 25;
 pub const SYS_RANDOM_GET: u64 = 26;
 pub const SYS_MEMORY_MAP_AT: u64 = 27;
 pub const SYS_BLOCK_FLUSH: u64 = 28;
+pub const SYS_THREAD_DETACH: u64 = 29;
+
+/// Optional `SYS_THREAD_CREATE` flag for a child that should be detached
+/// before it can be scheduled.
+pub const THREAD_CREATE_DETACHED: u64 = 1;
+
+/// Capacity of the bounded, cooperative M17 bootstrap thread pool. ID zero is
+/// the initial user-init thread; all remaining IDs are reusable child slots.
+pub const BOOTSTRAP_USER_THREAD_COUNT: usize = 16;
 
 // POSIX-compatible protection bits used by the Nagi user-space mapping ABI.
 // They intentionally match the standard mmap contract so relibc and Servo

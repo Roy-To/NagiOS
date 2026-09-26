@@ -1,6 +1,6 @@
 use core::arch::{asm, global_asm};
 use core::ptr;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use super::{outb, serial_write};
 
@@ -37,6 +37,9 @@ static SYSCALL_GDT: [u64; 5] = [
 
 static TIMER_TICKS: AtomicU64 = AtomicU64::new(0);
 static APIC_BASE: AtomicU64 = AtomicU64::new(DEFAULT_APIC_BASE);
+static TIMER_TIMEKEEPER_APIC_ID: AtomicU32 = AtomicU32::new(u32::MAX);
+static BSP_APIC_ID: AtomicU32 = AtomicU32::new(u32::MAX);
+static BSP_TIMER_LAST_COUNT: AtomicU64 = AtomicU64::new(0);
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -161,6 +164,13 @@ pub unsafe fn initialize() {
     load_idt();
     mask_pic();
     initialize_apic_timer();
+    let bsp_apic_id = local_apic_id();
+    BSP_APIC_ID.store(bsp_apic_id, Ordering::Release);
+    TIMER_TIMEKEEPER_APIC_ID.store(bsp_apic_id, Ordering::Release);
+    BSP_TIMER_LAST_COUNT.store(
+        u64::from(unsafe { apic_read(APIC_TIMER_CURRENT_COUNT) }),
+        Ordering::Release,
+    );
     asm!("sti", options(nomem, nostack, preserves_flags));
 }
 
@@ -235,28 +245,74 @@ unsafe fn initialize_apic_timer() {
 }
 
 pub fn timer_ticks() -> u64 {
+    let timekeeper = TIMER_TIMEKEEPER_APIC_ID.load(Ordering::Acquire);
+    if timekeeper == local_apic_id()
+        && timekeeper == BSP_APIC_ID.load(Ordering::Acquire)
+        && !interrupts_enabled()
+    {
+        account_bsp_timer_wrap();
+    }
     TIMER_TICKS.load(Ordering::Relaxed)
 }
 
-/// Wait for periodic local-APIC timer periods without entering an interrupt
-/// handler from the syscall trampoline. The syscall path masks interrupts and
-/// has its own fixed stack; polling the guest timer counter keeps this low-level
-/// wait safe while remaining entirely inside Nagi hardware state.
+fn interrupts_enabled() -> bool {
+    let rflags: u64;
+    unsafe {
+        asm!(
+            "pushfq",
+            "pop {}",
+            out(reg) rflags,
+            options(nomem, preserves_flags),
+        );
+    }
+    rflags & (1 << 9) != 0
+}
+
+/// Select the sole APIC timer that advances the guest's coarse clock. The BSP
+/// owns it during early boot; after SMP startup an interrupt-enabled AP can
+/// keep time while the BSP executes ring 3 with interrupts masked.
+pub fn set_timer_timekeeper(apic_id: u32) {
+    TIMER_TIMEKEEPER_APIC_ID.store(apic_id, Ordering::Release);
+}
+
+fn is_timer_timekeeper(timekeeper_apic_id: u32, interrupting_apic_id: u32) -> bool {
+    timekeeper_apic_id == interrupting_apic_id
+}
+
+/// Poll the local timer counter only while the BSP is the timekeeper. This is
+/// the single-CPU fallback for the cooperative user scheduler, where ring-3
+/// interrupts remain disabled. The CAS prevents a timer ISR and a syscall
+/// boundary from counting the same reload twice.
+fn account_bsp_timer_wrap() {
+    let current = u64::from(unsafe { apic_read(APIC_TIMER_CURRENT_COUNT) });
+    loop {
+        let previous = BSP_TIMER_LAST_COUNT.load(Ordering::Acquire);
+        if current == previous {
+            return;
+        }
+        if BSP_TIMER_LAST_COUNT
+            .compare_exchange(previous, current, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            if current > previous {
+                TIMER_TICKS.fetch_add(1, Ordering::AcqRel);
+            }
+            return;
+        }
+    }
+}
+
+/// Wait for the single designated APIC timekeeper to advance the shared guest
+/// clock. On a single-CPU fallback, `timer_ticks` polls the BSP counter while
+/// the syscall trampoline keeps interrupts masked.
 pub fn wait_for_timer_ticks(periods: u64) {
     if periods == 0 {
         return;
     }
-    let mut previous = unsafe { apic_read(APIC_TIMER_CURRENT_COUNT) };
-    let mut elapsed = 0;
-    while elapsed < periods {
-        let current = unsafe { apic_read(APIC_TIMER_CURRENT_COUNT) };
-        if current > previous {
-            elapsed += 1;
-        }
-        previous = current;
+    let target = timer_ticks().saturating_add(periods);
+    while timer_ticks() < target {
         core::hint::spin_loop();
     }
-    TIMER_TICKS.fetch_add(periods, Ordering::AcqRel);
 }
 
 pub fn set_local_apic_base(address: u64) -> bool {
@@ -272,10 +328,38 @@ pub fn idt_base() -> u64 {
 }
 
 extern "C" fn timer_interrupt(frame: *mut u64) -> *mut u64 {
-    TIMER_TICKS.fetch_add(1, Ordering::Relaxed);
-    let next = super::smp::timer_preempt(frame, local_apic_id());
+    let apic_id = local_apic_id();
+    let timekeeper = TIMER_TIMEKEEPER_APIC_ID.load(Ordering::Acquire);
+    if is_timer_timekeeper(timekeeper, apic_id) {
+        if apic_id == BSP_APIC_ID.load(Ordering::Acquire) {
+            // Keep the BSP counter baseline in sync while interrupts are
+            // active. Cooperative ring-3 calls poll it only while IF is clear.
+            BSP_TIMER_LAST_COUNT.store(
+                u64::from(unsafe { apic_read(APIC_TIMER_CURRENT_COUNT) }),
+                Ordering::Release,
+            );
+            TIMER_TICKS.fetch_add(1, Ordering::AcqRel);
+        } else {
+            // The selected AP is interrupt-enabled after SMP startup, so each
+            // of its periodic timer interrupts advances exactly one tick.
+            TIMER_TICKS.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+    let next = super::smp::timer_preempt(frame, apic_id);
     unsafe { apic_write(APIC_EOI, 0) };
     next
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_timer_timekeeper;
+
+    #[test]
+    fn only_the_designated_apic_advances_guest_time() {
+        assert!(is_timer_timekeeper(0x23, 0x23));
+        assert!(!is_timer_timekeeper(0x23, 0x07));
+        assert!(!is_timer_timekeeper(u32::MAX, 0x23));
+    }
 }
 
 extern "C" fn page_fault_interrupt(error_code: u64, frame: *mut u64) -> bool {

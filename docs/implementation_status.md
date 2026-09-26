@@ -19,27 +19,71 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI run #237 (Actions run ID 36228589557, head c54af8a)
-passed Ubuntu host, Windows launcher, target builds, UEFI, persistent storage,
-and Mesa GL context creation. It advanced beyond the previous 512-byte
-allocation failure, then Servo panicked while spawning its memory-profiler
-thread with EAGAIN. The log does not distinguish a joinable child already
-occupying the bounded POSIX adapter, a failed child-stack mmap, or a kernel
-thread-syscall rejection. Source inspection also found that the 128 MiB
-bootstrap mmap window tracks only four regions. The current diagnostic
-follow-up reports those rejection paths without changing behavior; use its
-next public QEMU run to select the correct repair. M17 remains BLOCKED; M18
-remains NOT STARTED.
+milestone. The local continuation implements ADR 0029's bounded cooperative
+user-thread pool and POSIX pthread integration. Formatting, focused kernel
+checks/builds, POSIX target checks, and diff validation pass. The full Nagi
+user-init link and authoritative QEMU acceptance still require public target
+CI; until it produces the real first-web-pixel checksum and pass marker, M17
+remains `BLOCKED` and M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run 36228589557 (#237, head
-c54af8a046bd510f63aa5f88e2ecbe66dc737101) passed both host jobs and all target
-build steps through UEFI. QEMU created the Mesa GL context and began Servo
-construction. third_party/servo/components/profile/mem.rs:48 then panicked
-with Thread spawning failed: Os { code: 11, kind: WouldBlock }; no first-web-
-pixel checksum or PASS marker was produced. The over-aligned allocator
-advanced past the former 512-byte OOM. M17 remains BLOCKED; M18 remains NOT
-STARTED.
+**Last known repair checkpoint:** public CI run 36232073962 (#238, head
+18ee17af21a2dcf567497832a7e261e0d5f201c1) passed both host jobs and all target
+build steps through UEFI. QEMU created the Mesa GL context, then Servo's
+memory-profiler thread creation was rejected with the exact kernel trace
+`SYS_THREAD_CREATE rejected: child slot occupied`. The real acceptance
+produced no first-web-pixel checksum or PASS marker. ADR 0029 records the
+bounded multi-thread bootstrap needed to continue. M17 remains BLOCKED; M18
+remains NOT STARTED.
+
+### Target evidence from CI Actions run #238 (2026-09-26)
+
+Actions run 36232073962 (#238, head
+18ee17af21a2dcf567497832a7e261e0d5f201c1) passed Ubuntu host checks, the
+Windows launcher job, Mesa Softpipe, package, kernel, user-init, and UEFI
+builds. The real QEMU acceptance completed persistent storage and Mesa/EGL
+context creation. Immediately after `Servo construction started`, the kernel
+reported `SYS_THREAD_CREATE rejected: child slot occupied`, followed by
+Servo's `Thread spawning failed` panic at
+third_party/servo/components/profile/mem.rs:48. This rules out child-stack
+mmap failure and the thread-create validation branches. No first-web-pixel
+checksum or PASS marker was produced. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+### Local continuation: bounded bootstrap user threads (2026-09-26)
+
+Implemented ADR 0029 in the local branch based on the #238 diagnosis. The
+kernel now has a fixed 16-thread cooperative pool, per-thread saved register
+and FPU contexts, reusable static TLS pages, detached-thread support, join and
+sleep blocking, and bounded round-robin switching at syscall boundaries.
+POSIX now maps thread IDs and TLS without aliasing, honors detach and stack
+attributes, supports caller-owned mapped stacks, and retains failed stack
+unmaps for retry. The guest remains a single process and ring-3 interrupts
+remain disabled pending a TSS-backed interrupt path.
+
+Local verification on 2026-09-26:
+
+- The CI package formatting command passed.
+- `cargo check -p nagi-kernel --lib --tests --target
+  x86_64-unknown-linux-gnu --locked` passed, with an unused-import warning in
+  test-only syscall imports.
+- The release `x86_64-unknown-nagi` kernel build passed.
+- `cargo check -p nagi-posix --tests --target
+  x86_64-unknown-linux-gnu --locked` passed.
+- The `x86_64-unknown-nagi-user` POSIX target check passed, with existing
+  visibility/dead-code warnings.
+- Standalone scheduler and thread-helper harnesses passed 9 and 2 tests,
+  respectively.
+- `git diff --check` passed.
+
+The POSIX test suite was not executed on this Apple-Silicon host: its
+`libnagi` syscall assembly uses x86 registers, so a native AArch64 test build
+cannot compile it. The x86 test source check passed, and public Ubuntu CI must
+run the executable host tests. The complete `nagi-init --features m17-servo`
+link was also unavailable locally because `out/rust-src/library` and
+`out/m17-mesa/mesa-build` are absent. Public `nagi-target` CI remains required
+to verify integration and the real QEMU first pixel. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 ### Target evidence from CI Actions run #237 (2026-09-26)
 
@@ -69,8 +113,10 @@ source checking for `x86_64-unknown-linux-gnu`, the Nagi target POSIX library
 check, CI-equivalent workspace Clippy for `x86_64-unknown-linux-gnu`, and
 `git diff --check`. Host-side kernel/POSIX test binaries are not run on this
 Apple-Silicon Mac because the user syscall code uses x86 registers. The next
-public QEMU run must identify which branch returns `EAGAIN`; M17 remains
-`BLOCKED` and M18 remains `NOT STARTED`.
+public QEMU run confirmed that the single-child bootstrap bridge cannot host
+the threads Servo creates. ADR 0029 supersedes the two-slot limit for M17 with
+a bounded cooperative user-thread scheduler; implementation and target
+verification are pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #204 (2026-09-26)
 

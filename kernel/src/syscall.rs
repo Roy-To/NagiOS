@@ -10,7 +10,7 @@ use nagi_kernel::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
 #[cfg(not(test))]
 use nagi_kernel::user_process::{
     USER_MMAP_BASE, USER_MMAP_LIMIT, USER_STACK_BASE, USER_STACK_LIMIT, USER_TLS_BASE,
-    USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT,
+    USER_TLS_LIMIT,
 };
 
 #[cfg(not(test))]
@@ -20,7 +20,7 @@ use core::arch::{asm, global_asm};
 use super::{halt_forever, interrupts, serial_log_read, serial_read_byte, serial_write};
 
 #[cfg(not(test))]
-use core::sync::atomic::{AtomicU8, Ordering};
+use nagi_kernel::scheduler::{BootstrapUserThreads, JoinOutcome};
 
 pub use nagi_abi::{
     BLOCK_SECTOR_SIZE, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_RANDOM_BYTES,
@@ -28,8 +28,8 @@ pub use nagi_abi::{
     SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ,
     SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT,
     SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE,
-    SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ,
-    SYS_TIME_REALTIME,
+    SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP,
+    SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
 };
 
 #[cfg(not(test))]
@@ -149,23 +149,18 @@ impl UserThreadContext {
 }
 
 #[cfg(not(test))]
-const THREAD_EMPTY: u8 = 0;
+const MIN_NATIVE_THREAD_STACK: u64 = 4096;
 #[cfg(not(test))]
-const THREAD_ACTIVE: u8 = 1;
-#[cfg(not(test))]
-const THREAD_DONE: u8 = 2;
-#[cfg(not(test))]
-const MAX_NATIVE_THREAD_STACK: u64 = 4 * 4096;
+const MAX_NATIVE_THREAD_STACK: u64 = 2 * 1024 * 1024;
 
 #[cfg(not(test))]
-static NAGI_THREAD_STATE: AtomicU8 = AtomicU8::new(THREAD_EMPTY);
+static mut NAGI_USER_THREADS: BootstrapUserThreads = BootstrapUserThreads::new();
 #[cfg(not(test))]
-static NAGI_CURRENT_THREAD: AtomicU8 = AtomicU8::new(0);
+static mut NAGI_THREAD_JOIN_OUT: [u64; nagi_abi::BOOTSTRAP_USER_THREAD_COUNT] =
+    [0; nagi_abi::BOOTSTRAP_USER_THREAD_COUNT];
 #[cfg(not(test))]
-static mut NAGI_THREAD_EXIT_CODE: u64 = 0;
-#[cfg(not(test))]
-static mut NAGI_THREAD_CONTEXTS: [UserThreadContext; 2] =
-    [UserThreadContext::empty(), UserThreadContext::empty()];
+static mut NAGI_THREAD_CONTEXTS: [UserThreadContext; nagi_abi::BOOTSTRAP_USER_THREAD_COUNT] =
+    [const { UserThreadContext::empty() }; nagi_abi::BOOTSTRAP_USER_THREAD_COUNT];
 #[cfg(not(test))]
 #[no_mangle]
 static mut NAGI_SYSCALL_NEXT_CONTEXT: u64 = 0;
@@ -359,15 +354,16 @@ extern "sysv64" fn dispatch(frame: &SyscallFrame) -> u64 {
         SYS_NET_RECEIVE => net_receive(frame.arg1, frame.arg2, frame.arg3),
         SYS_TIME_READ => time_read(),
         SYS_TIME_REALTIME => time_realtime(),
-        SYS_THREAD_SLEEP => thread_sleep(frame.arg1),
+        SYS_THREAD_SLEEP => thread_sleep(frame.arg1, frame),
         SYS_MEMORY_MAP => memory_map(frame.arg1, frame.arg2),
         SYS_MEMORY_MAP_AT => memory_map_at(frame.arg1, frame.arg2, frame.arg3),
         SYS_MEMORY_UNMAP => memory_unmap(frame.arg1, frame.arg2),
         SYS_MEMORY_PROTECT => memory_protect(frame.arg1, frame.arg2, frame.arg3),
         SYS_THREAD_CREATE => thread_create(frame),
-        SYS_THREAD_JOIN => thread_join(frame.arg1, frame),
+        SYS_THREAD_JOIN => thread_join(frame.arg1, frame.arg2, frame),
         SYS_THREAD_EXIT => thread_exit(frame.arg1),
-        SYS_THREAD_SELF => u64::from(NAGI_CURRENT_THREAD.load(Ordering::Acquire)),
+        SYS_THREAD_SELF => u64::from(current_user_thread()),
+        SYS_THREAD_DETACH => thread_detach(frame.arg1),
         SYS_AUDIO_PLAY => audio_play(frame.arg1, frame.arg2, frame.arg3, frame.arg4),
         SYS_AUDIO_CAPTURE => audio_capture(frame.arg1, frame.arg2, frame.arg3, frame.arg4),
         SYS_RANDOM_GET => random_get(frame.arg1, frame.arg2),
@@ -647,13 +643,123 @@ fn time_realtime() -> u64 {
 }
 
 #[cfg(not(test))]
-fn thread_sleep(duration_ns: u64) -> u64 {
+fn current_user_thread() -> u8 {
+    unsafe { (&*core::ptr::addr_of!(NAGI_USER_THREADS)).current() }
+}
+
+#[cfg(not(test))]
+fn thread_table() -> &'static mut BootstrapUserThreads {
+    unsafe { &mut *core::ptr::addr_of_mut!(NAGI_USER_THREADS) }
+}
+
+#[cfg(not(test))]
+fn thread_contexts() -> &'static mut [UserThreadContext; nagi_abi::BOOTSTRAP_USER_THREAD_COUNT] {
+    unsafe { &mut *core::ptr::addr_of_mut!(NAGI_THREAD_CONTEXTS) }
+}
+
+#[cfg(not(test))]
+fn switch_to_thread(thread: u8) {
+    unsafe {
+        NAGI_SYSCALL_NEXT_CONTEXT =
+            core::ptr::addr_of_mut!(NAGI_THREAD_CONTEXTS[thread as usize]) as u64;
+    }
+}
+
+#[cfg(not(test))]
+fn save_current_thread_context(frame: &SyscallFrame, result: u64) {
+    let thread = current_user_thread() as usize;
+    let context = &mut thread_contexts()[thread];
+    context.rax = result;
+    context.user_fs_base = nagi_kernel::user_process::user_tls_control_base(thread).unwrap_or(0);
+    context.rbx = frame.rbx;
+    context.rcx = frame.user_rip;
+    context.rdx = frame.arg3;
+    context.rsi = frame.arg2;
+    context.rdi = frame.arg1;
+    context.rbp = frame.rbp;
+    context.r8 = frame.arg5;
+    context.r9 = frame.arg6;
+    context.r10 = frame.arg4;
+    context.r11 = frame.user_rflags;
+    context.r12 = frame.r12;
+    context.r13 = frame.r13;
+    context.r14 = frame.r14;
+    context.r15 = frame.r15;
+    context.user_rip = frame.user_rip;
+    context.user_rflags = frame.user_rflags & !(1 << 9);
+    context.user_rsp = unsafe { NAGI_SYSCALL_USER_RSP };
+    let source = unsafe { (frame as *const SyscallFrame).cast::<u8>().sub(520) };
+    unsafe { core::ptr::copy_nonoverlapping(source, context.fpu.as_mut_ptr(), 512) };
+}
+
+#[cfg(not(test))]
+fn wait_until_runnable(abort_deadlocked_join: bool) -> Option<u8> {
+    loop {
+        let now = interrupts::timer_ticks();
+        if let Some(thread) = thread_table().select_runnable(now) {
+            return Some(thread);
+        }
+        if let Some(ticks) = thread_table().ticks_until_wake(now) {
+            interrupts::wait_for_timer_ticks(ticks.max(1));
+            continue;
+        }
+        if abort_deadlocked_join {
+            let current = thread_table().abort_blocked_join()?;
+            thread_contexts()[current as usize].rax = u64::MAX;
+            unsafe { NAGI_THREAD_JOIN_OUT[current as usize] = 0 };
+            return Some(current);
+        }
+        return None;
+    }
+}
+
+#[cfg(not(test))]
+fn write_thread_exit_code(address: u64, exit_code: u64) -> bool {
+    if !valid_thread_exit_code_address(address) {
+        return false;
+    }
+    unsafe { (address as *mut u64).write_volatile(exit_code) };
+    true
+}
+
+#[cfg(not(test))]
+fn valid_thread_exit_code_address(address: u64) -> bool {
+    address.is_multiple_of(core::mem::align_of::<u64>() as u64)
+        && nagi_kernel::user_process::is_user_writable_range_mapped(
+            address,
+            core::mem::size_of::<u64>(),
+        )
+}
+
+#[cfg(not(test))]
+fn thread_yield(frame: &SyscallFrame) -> u64 {
+    save_current_thread_context(frame, 0);
+    let Some(next) = thread_table().yield_current(interrupts::timer_ticks()) else {
+        return u64::MAX;
+    };
+    switch_to_thread(next);
+    0
+}
+
+#[cfg(not(test))]
+fn thread_sleep(duration_ns: u64, frame: &SyscallFrame) -> u64 {
     if duration_ns == 0 {
+        return thread_yield(frame);
+    }
+    save_current_thread_context(frame, 0);
+    let now = interrupts::timer_ticks();
+    let sleep_ticks = duration_ns.div_ceil(10_000_000).max(1);
+    let wake_at = now.saturating_add(sleep_ticks);
+    if let Some(next) = thread_table().sleep_current(wake_at, now) {
+        switch_to_thread(next);
         return 0;
     }
-    let ticks = duration_ns.div_ceil(10_000_000);
-    interrupts::wait_for_timer_ticks(ticks);
-    0
+    if let Some(next) = wait_until_runnable(false) {
+        switch_to_thread(next);
+        0
+    } else {
+        halt_forever()
+    }
 }
 
 #[cfg(not(test))]
@@ -696,137 +802,135 @@ fn thread_create_rejected(message: &'static [u8]) -> u64 {
 
 #[cfg(not(test))]
 fn thread_create(frame: &SyscallFrame) -> u64 {
-    if NAGI_CURRENT_THREAD.load(Ordering::Acquire) != 0 {
+    if frame.arg5 & !THREAD_CREATE_DETACHED != 0 {
         return thread_create_rejected(
-            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: caller is child thread\r\n",
-        );
-    }
-    if NAGI_THREAD_STATE
-        .compare_exchange(
-            THREAD_EMPTY,
-            THREAD_ACTIVE,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        )
-        .is_err()
-    {
-        return thread_create_rejected(
-            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: child slot occupied\r\n",
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: unknown flags\r\n",
         );
     }
     let Some(stack_end) = frame.arg3.checked_add(frame.arg4) else {
-        NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
         return thread_create_rejected(
             b"Nagi M17 trace: SYS_THREAD_CREATE rejected: stack range overflow\r\n",
         );
     };
     if !nagi_kernel::user_process::is_user_executable_range_mapped(frame.arg1, 1) {
-        NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
         return thread_create_rejected(
             b"Nagi M17 trace: SYS_THREAD_CREATE rejected: entry is not executable\r\n",
         );
     }
     if frame.arg3 < USER_MMAP_BASE || stack_end > USER_MMAP_LIMIT {
-        NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
         return thread_create_rejected(
             b"Nagi M17 trace: SYS_THREAD_CREATE rejected: stack outside mmap window\r\n",
         );
     }
     if frame.arg4 == 0
+        || frame.arg4 < MIN_NATIVE_THREAD_STACK
         || frame.arg4 > MAX_NATIVE_THREAD_STACK
         || !frame.arg3.is_multiple_of(4096)
         || !frame.arg4.is_multiple_of(4096)
     {
-        NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
         return thread_create_rejected(
             b"Nagi M17 trace: SYS_THREAD_CREATE rejected: invalid stack size or alignment\r\n",
         );
     }
     if !nagi_kernel::user_process::is_user_writable_range_mapped(frame.arg3, frame.arg4 as usize) {
-        NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
         return thread_create_rejected(
             b"Nagi M17 trace: SYS_THREAD_CREATE rejected: stack is not writable\r\n",
         );
     }
-    nagi_kernel::user_process::reset_child_tls();
-    let context = unsafe { &mut NAGI_THREAD_CONTEXTS[1] };
+    let Some(thread) = thread_table().allocate() else {
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: bootstrap thread pool full\r\n",
+        );
+    };
+    if frame.arg5 & THREAD_CREATE_DETACHED != 0 && !thread_table().detach(thread) {
+        let _ = thread_table().discard_unstarted(thread);
+        return thread_create_rejected(
+            b"Nagi M17 trace: SYS_THREAD_CREATE rejected: detach initialization failed\r\n",
+        );
+    }
+    if !nagi_kernel::user_process::reset_user_thread_tls(thread as usize) {
+        let _ = thread_table().discard_unstarted(thread);
+        return u64::MAX;
+    }
+    let context = &mut thread_contexts()[thread as usize];
     *context = UserThreadContext::empty();
     context.rdi = frame.arg2;
     context.user_rip = frame.arg1;
     context.user_rsp = stack_end - 8;
-    context.user_fs_base = USER_TLS_CHILD_CONTROL_BASE;
-    1
+    context.user_fs_base =
+        nagi_kernel::user_process::user_tls_control_base(thread as usize).unwrap_or(0);
+    u64::from(thread)
 }
 
 #[cfg(not(test))]
-fn save_current_thread_context(frame: &SyscallFrame) {
-    let context = unsafe { &mut NAGI_THREAD_CONTEXTS[0] };
-    context.rax = 0;
-    context.user_fs_base = USER_TLS_CONTROL_BASE;
-    context.rbx = frame.rbx;
-    context.rcx = frame.user_rip;
-    context.rdx = frame.arg3;
-    context.rsi = frame.arg2;
-    context.rdi = frame.arg1;
-    context.rbp = frame.rbp;
-    context.r8 = frame.arg5;
-    context.r9 = frame.arg6;
-    context.r10 = frame.arg4;
-    context.r11 = frame.user_rflags;
-    context.r12 = frame.r12;
-    context.r13 = frame.r13;
-    context.r14 = frame.r14;
-    context.r15 = frame.r15;
-    context.user_rip = frame.user_rip;
-    context.user_rflags = frame.user_rflags;
-    context.user_rsp = unsafe { NAGI_SYSCALL_USER_RSP };
-    let source = unsafe { (frame as *const SyscallFrame).cast::<u8>().sub(520) };
-    unsafe { core::ptr::copy_nonoverlapping(source, context.fpu.as_mut_ptr(), 512) };
-}
-
-#[cfg(not(test))]
-fn thread_join(thread: u64, frame: &SyscallFrame) -> u64 {
-    if thread != 1 || NAGI_CURRENT_THREAD.load(Ordering::Acquire) != 0 {
+fn thread_join(thread: u64, result_address: u64, frame: &SyscallFrame) -> u64 {
+    if !valid_thread_exit_code_address(result_address) {
         return u64::MAX;
     }
-    match NAGI_THREAD_STATE.load(Ordering::Acquire) {
-        THREAD_DONE => {
-            let code = unsafe { NAGI_THREAD_EXIT_CODE };
-            NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
-            code
-        }
-        THREAD_ACTIVE => {
-            save_current_thread_context(frame);
-            NAGI_CURRENT_THREAD.store(1, Ordering::Release);
-            unsafe {
-                NAGI_SYSCALL_NEXT_CONTEXT = core::ptr::addr_of_mut!(NAGI_THREAD_CONTEXTS[1]) as u64;
+    let Ok(target) = u8::try_from(thread) else {
+        return u64::MAX;
+    };
+    let caller = current_user_thread();
+    save_current_thread_context(frame, 0);
+    match thread_table().join_current(target, interrupts::timer_ticks()) {
+        JoinOutcome::Completed(exit_code) => {
+            if write_thread_exit_code(result_address, exit_code) {
+                0
+            } else {
+                u64::MAX
             }
-            0
         }
-        _ => u64::MAX,
+        JoinOutcome::Blocked => {
+            unsafe { NAGI_THREAD_JOIN_OUT[caller as usize] = result_address };
+            let current = thread_table().current();
+            if current != caller {
+                switch_to_thread(current);
+                0
+            } else if let Some(next) = wait_until_runnable(true) {
+                switch_to_thread(next);
+                0
+            } else {
+                u64::MAX
+            }
+        }
+        JoinOutcome::Invalid => u64::MAX,
     }
 }
 
 #[cfg(not(test))]
 fn thread_exit(code: u64) -> u64 {
-    if NAGI_CURRENT_THREAD.load(Ordering::Acquire) != 1
-        || NAGI_THREAD_STATE.load(Ordering::Acquire) != THREAD_ACTIVE
-    {
+    let now = interrupts::timer_ticks();
+    let Some(outcome) = thread_table().exit_current(code, now) else {
         return u64::MAX;
+    };
+    if let Some((joiner, exit_code)) = outcome.woken_joiner {
+        let result_address = unsafe { NAGI_THREAD_JOIN_OUT[joiner as usize] };
+        let joiner_context = &mut thread_contexts()[joiner as usize];
+        joiner_context.rax = if write_thread_exit_code(result_address, exit_code) {
+            0
+        } else {
+            u64::MAX
+        };
+        unsafe { NAGI_THREAD_JOIN_OUT[joiner as usize] = 0 };
     }
-    unsafe { NAGI_THREAD_EXIT_CODE = code };
-    // The parent receives the exit result in its restored RAX register during
-    // this same context switch. There is no second join syscall in the
-    // cooperative bootstrap bridge, so the single child slot is reusable as
-    // soon as the result has been staged in the parent context.
-    NAGI_THREAD_STATE.store(THREAD_EMPTY, Ordering::Release);
-    NAGI_CURRENT_THREAD.store(0, Ordering::Release);
-    unsafe {
-        let parent = &mut NAGI_THREAD_CONTEXTS[0];
-        parent.rax = code;
-        NAGI_SYSCALL_NEXT_CONTEXT = core::ptr::addr_of_mut!(NAGI_THREAD_CONTEXTS[0]) as u64;
+    let next = outcome
+        .next_thread
+        .or_else(|| wait_until_runnable(false))
+        .unwrap_or_else(|| halt_forever());
+    switch_to_thread(next);
+    u64::MAX
+}
+
+#[cfg(not(test))]
+fn thread_detach(thread: u64) -> u64 {
+    let Ok(thread) = u8::try_from(thread) else {
+        return u64::MAX;
+    };
+    if thread_table().detach(thread) {
+        0
+    } else {
+        u64::MAX
     }
-    0
 }
 
 #[cfg(not(test))]
