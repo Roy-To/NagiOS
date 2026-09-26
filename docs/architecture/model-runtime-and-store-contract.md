@@ -24,13 +24,17 @@ local model with no verified SHA-256 is descriptive metadata only: the registry
 marks it `MissingIntegrity`, the Store rejects install intent, and the runtime
 refuses to load it.
 
-The three files under `user/nagi-model-manager/tests/fixtures/` are schema
-conformance examples for Qwen3 4B, Granite 4.2 3B, and Gemma 3 1B. They do not
-describe downloadable packages: context/resource values and provider-term
-references are illustrative, and source, file size, and integrity are unset.
-Before any model can be distributed, replace those placeholders with the exact
-model revision, filename, hash, authoritative license/terms reference, and
-required notices. No third-party license text is copied into the fixtures.
+The three files under `user/nagi-model-manager/tests/fixtures/` are typed
+manifest examples for Qwen3 4B, Granite 4.2 3B, and Gemma 3 1B. The current
+contract test checks the schema document's JSON syntax and selected version,
+required-field, and closed-object declarations, then checks that each example
+passes the strict typed parser; it does not run a Draft 2020-12 JSON Schema
+evaluator. The examples do not describe downloadable packages:
+context/resource values and provider-term references are illustrative, and
+source, file size, and integrity are unset. Before any model can be
+distributed, replace those placeholders with the exact model revision,
+filename, hash, authoritative license/terms reference, and required notices.
+No third-party license text is copied into the fixtures.
 
 ## Discovery and selection
 
