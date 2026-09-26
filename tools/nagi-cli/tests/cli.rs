@@ -202,10 +202,15 @@ fn dev_status_resume_and_verify_read_the_registered_workstream() {
         .expect("workstreams array")
         .iter()
         .find(|entry| entry["owner_branch"].as_str() == Some(branch));
+    let status = nagi_cli::development::execute(&["status".into()], root)
+        .expect("registered workstream status");
+    assert!(status
+        .iter()
+        .any(|line| line.starts_with("Workstream: ") && line.contains(" (")));
+    assert!(status.iter().any(|line| line.starts_with("Branch: ")));
+    assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
 
     if let Some(workstream) = active_workstream {
-        let status = nagi_cli::development::execute(&["status".into()], root)
-            .expect("registered workstream status");
         assert!(status
             .iter()
             .any(|line| { line.contains(workstream["id"].as_str().expect("workstream ID")) }));

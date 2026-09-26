@@ -1,10 +1,20 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
+pub mod activity;
+pub mod transaction;
+pub mod view;
+pub mod wayback;
+
 pub const MAX_RECORDS: usize = 16;
 pub const MAX_SNAPSHOT_BYTES: usize = 1024;
 pub const MAX_NAME_BYTES: usize = 32;
 
-pub use nagi_model::{AppId, AppSessionId, NodeId, ObjectId, SurfaceId, WorkspaceId};
+pub use nagi_model::{
+    AppId, AppSessionId, NodeId, ObjectId, SurfaceId, TransactionId, WorkspaceId,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ActivityContext {

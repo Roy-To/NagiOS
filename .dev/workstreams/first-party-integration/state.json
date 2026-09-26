@@ -1,0 +1,330 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "first-party-integration",
+  "current_milestone": "M-APP-INTEGRATION",
+  "current_checkpoint": "host-ci-repair-local-verified-ci-pending",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
+    "verified_at": "2026-09-26T08:50:00Z",
+    "normal_state": "The host-only first-party integration is locally verified. Activity/Wayback history API Clippy findings and developer-state assertions tied to an obsolete active stream were repaired without changing authority, provenance, restore semantics, or milestone gates. First-party suites, package Clippy checks, root workspace Clippy, UEFI Activity/Wayback library check, and integrated bilingual host preview passed. The full ./nagi test remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi; cargo fmt --all -- --check reports only fetched Servo checkout differences. Source CI run 36230579035 is in progress with Ubuntu passing and Windows bootstrap still running. Target app launch/runtime remains NOT RUN. M17 remains BLOCKED and M18 remains NOT STARTED.",
+    "commands": [
+      "git worktree list --porcelain",
+      "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
+      "git ls-remote origin refs/heads/codex/app-home-search refs/heads/codex/app-notes refs/heads/codex/app-activity-wayback refs/heads/codex/app-files",
+      "git diff --name-only be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85..<source-branch>",
+      "inspect .dev schemas, Nagi specifications, source status, and provider contracts",
+      "sh -n nagi",
+      "sh tests/development/nagi_dispatch.sh",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume",
+      "test ! -e third_party/cc-nagi/Cargo.toml",
+      "cargo test -p nagi-history --lib --locked --offline",
+      "isolated nagi-history + nagi-model: cargo test --lib --offline",
+      "isolated nagi-history: cargo check --lib --no-default-features --target x86_64-unknown-uefi --offline",
+      "isolated nagi-history: cargo run --example activity_wayback_preview --features sandbox --offline",
+      "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-notes/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-home-search/Cargo.toml --locked --offline --all-targets --config build.target=\"aarch64-apple-darwin\"",
+      "git diff --check",
+      "cargo test --manifest-path tests/first-party-integration/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+      "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path apps/nagi-files/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-home-search/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-notes/Cargo.toml --offline --locked",
+      "isolated nagi-history host suite: cargo test --lib --offline",
+      "PATH=<nightly-2025-08-01-aarch64-apple-darwin>/bin:$PATH cargo clippy --all-targets --offline --locked -- -D warnings (integration, Files, Home/Search)",
+      "nightly-2025-08-01-aarch64-apple-darwin/bin/rustfmt --edition 2021 --check (changed Rust files)",
+      "git diff --check",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume",
+      "test ! -e third_party/cc-nagi/Cargo.toml",
+      "sh -n nagi",
+      "git diff --check",
+      "./nagi fetch",
+      "cargo test -p nagi-history --lib --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "PATH=<nightly-2025-08-01-aarch64-apple-darwin>/bin:$PATH RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin ./nagi test",
+      "PATH=<nightly-2025-08-01-aarch64-apple-darwin>/bin:$PATH RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin ./nagi fmt",
+      "git status --short",
+      "git diff --check",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume",
+      "cargo clippy -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings"
+    ],
+    "tests": [
+      {
+        "name": "launcher routes dev through standalone bootstrap",
+        "command": "sh tests/development/nagi_dispatch.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The wrapper selected tools/nagi-bootstrap/Cargo.toml and nagi-bootstrap for dev verify; a normal build still selected the root Cargo.toml and nagi-cli."
+      },
+      {
+        "name": "DF-01 state verification before cc-nagi materialization",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "10 registered workstreams and both existing state files validated from the standalone bootstrap while third_party/cc-nagi/Cargo.toml was absent."
+      },
+      {
+        "name": "DF-01 status and resume before cc-nagi materialization",
+        "command": "./nagi dev status && ./nagi dev resume",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both commands reported codex/first-party-integration and its current checkpoint without requiring generated third-party sources."
+      },
+      {
+        "name": "root workspace Activity tests before third-party fetch",
+        "command": "cargo test -p nagi-history --lib --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Cargo stopped before compilation: third_party/cc-nagi/Cargo.toml was absent. The standalone ./nagi dev path is fixed; app tests used an isolated package copy pending ./nagi fetch."
+      },
+      {
+        "name": "Activity and Wayback focused host suite",
+        "command": "isolated nagi-history + nagi-model: cargo test --lib --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 passed, 0 failed. This was a host test in an isolated copy, not target runtime execution."
+      },
+      {
+        "name": "Activity and Wayback UEFI library check",
+        "command": "isolated nagi-history: cargo check --lib --no-default-features --target x86_64-unknown-uefi --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both nagi-model and nagi-history compiled for x86_64-unknown-uefi; no guest runtime was executed."
+      },
+      {
+        "name": "Activity and Wayback integrated host example",
+        "command": "isolated nagi-history: cargo run --example activity_wayback_preview --features sandbox --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The in-memory preview showed compare, restore plan, reversible restore, Activity timeline, and checkpoints, labeled as host-only."
+      },
+      {
+        "name": "Files focused host suite",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "48 passed, 0 failed, using the package's standalone lockfile and temporary test sandboxes. The host suite does not establish target filesystem or capability integration."
+      },
+      {
+        "name": "Notes focused acceptance suite",
+        "command": "cargo test --manifest-path user/nagi-notes/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 passed, 0 failed. Host storage/preview and local revision tests ran on the host; target storage and capability integration remain unrun."
+      },
+      {
+        "name": "Home and Search focused host suites",
+        "command": "cargo test --manifest-path user/nagi-home-search/Cargo.toml --locked --offline --all-targets",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "34 library tests and 1 preview test passed. Fixture providers remain in use in the independent package; the cross-app real-provider integration has not run yet."
+      },
+      {
+        "name": "cross-app real-provider host integration",
+        "command": "cargo test --manifest-path tests/first-party-integration/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "11 passed. Real Notes and Files providers, shared Activity and Wayback, typed actions, canonical IDs, capability/privacy checks, Agent fail-closed behavior, and en-US/ja-JP flows."
+      },
+      {
+        "name": "integrated memory-only host preview",
+        "command": "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Home showed Notes/Files in English and Japanese; real Notes/Files searches returned typed actions; Activity and Wayback returned typed event/checkpoint actions; file rename produced a checkpoint; folder checkpoint absence was reported truthfully. Output explicitly said target NOT RUN."
+      },
+      {
+        "name": "Files package regression after snapshot hook integration",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "48 passed, 0 failed."
+      },
+      {
+        "name": "Home/Search package regression after typed history action integration",
+        "command": "cargo test --manifest-path user/nagi-home-search/Cargo.toml --offline --locked --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "35 library tests and 1 preview test passed."
+      },
+      {
+        "name": "integration, Files, and Home/Search warning-free Clippy",
+        "command": "cargo clippy --all-targets --offline --locked -- --deny warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All three packages passed after PATH was set to the pinned arm64 Rust toolchain so cargo-clippy/clippy-driver matched the selected target."
+      },
+      {
+        "name": "changed Rust source formatting",
+        "command": "rustfmt --edition 2021 --check (changed Rust files)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All modified Rust files passed the pinned toolchain rustfmt check."
+      },
+      {
+        "name": "DF-01 development state validation at integration checkpoint",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "10 registered workstreams and both state files validated at integration code commit 36bf5ba4ad0b1d87060a451c49aaafd66b124a81."
+      },
+      {
+        "name": "DF-01 status and resume with missing cc-nagi source",
+        "command": "./nagi dev status; ./nagi dev resume",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both commands reported first-party-integration / real-provider-cross-app-host-integration-verified through nagi-bootstrap while third_party/cc-nagi/Cargo.toml was absent."
+      },
+      {
+        "name": "cc-nagi absence and launcher syntax",
+        "command": "test ! -e third_party/cc-nagi/Cargo.toml; sh -n nagi",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Confirmed no placeholder or fetched cc-nagi crate was present; the source-lock/fetch path remains the canonical materialization workflow. The launcher shell syntax check passed."
+      },
+      {
+        "name": "pinned third-party source materialization",
+        "command": "./nagi fetch",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The standalone bootstrap validated and materialized pinned cc-nagi, Servo, Mesa/Softpipe, Surfman, tempfile, mozjs_sys and related Cargo sources. Generated trees are ignored fetch inputs; none was edited."
+      },
+      {
+        "name": "root Activity and Wayback suite after fetch",
+        "command": "cargo test -p nagi-history --lib --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 passed, 0 failed in the root workspace after cc-nagi was materialized."
+      },
+      {
+        "name": "standard full root host workspace test",
+        "command": "./nagi test",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The arm64 macOS host compile stopped in user/libnagi because x86_64 inline registers (rax, rdi, rsi, rcx, r11 and related) are invalid on aarch64-apple-darwin. No M17, ABI, or third-party source changes were made."
+      },
+      {
+        "name": "standard root formatting check",
+        "command": "./nagi fmt",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Check-only rustfmt reported differences in the fetched pinned Servo checkout with the installed formatter; no Servo source was modified."
+      },
+      {
+        "name": "tracked worktree after fetch and root checks",
+        "command": "git status --short; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No tracked or untracked source changes were created by fetch, the failing root commands, or their generated build outputs."
+      },
+      {
+        "name": "DF-01 state validation after fetch and root-suite findings",
+        "command": "./nagi dev verify; ./nagi dev status; ./nagi dev resume",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The updated checkpoint and HOST_ENV blocker validated; status/resume reported PARTIAL on codex/first-party-integration."
+      },
+      {
+        "name": "Activity/Wayback history Clippy after CI repair",
+        "command": "cargo clippy -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets and features passed warning-free after grouping pin/restore request inputs, using slice membership, and removing the redundant conversion."
+      },
+      {
+        "name": "Activity/Wayback history host suite after CI repair",
+        "command": "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 passed, 0 failed."
+      },
+      {
+        "name": "nagi-cli host suite after state assertion repair",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "68 unit tests and 20 CLI integration tests passed; assertions no longer assume a fixed active workstream."
+      },
+      {
+        "name": "integration CI host gates after repair",
+        "command": "GitHub Actions Nagi CI run 36230579035",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Ubuntu host job passed, including format, lint, build, test, M0 acceptance, and workstream verification. Windows was still bootstrapping pinned Servo dependencies at checkpoint time; target job had not started."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36224698245,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36224698245",
+        "head_sha": "a60c513626d099e11607620b9de23c5cc02fe154",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu Clippy found six nagi-history style issues and Windows host tests assumed development-foundation was the active stream; target job skipped. Both host findings are repaired in later commits."
+      },
+      {
+        "run_id": 36230579035,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36230579035",
+        "head_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Ubuntu host job passed all gates. Windows host job was bootstrapping pinned Servo dependencies; target job had not started at the 2026-09-26T08:50Z checkpoint."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T08:50:00Z",
+    "activation_requirement": "This stream integrates 0.1 first-party host contracts only; it does not change M17 or authorize 0.2 runtime implementation. Target integration remains separately gated by the Nagi milestone state."
+  },
+  "blocker": {
+    "active": true,
+    "class": "HOST_ENV",
+    "summary": "The full standard ./nagi test workspace cannot compile on this arm64 macOS host because user/libnagi uses x86_64 inline syscall registers. Standalone first-party suites and the root nagi-history suite pass. This blocks only the full host workspace check, not the completed host integration.",
+    "reproduction_commands": [
+      "./nagi test"
+    ],
+    "failure_log_summary": "Compilation fails in user/libnagi/src/lib.rs with invalid register errors for rax, rdi, rsi, rcx, r11, rdx, and r10 under aarch64-apple-darwin.",
+    "attempted_fixes": [
+      "./nagi fetch materialized the pinned cc-nagi source; the root nagi-history suite then passed 41 tests.",
+      "Retried the complete ./nagi test using the pinned arm64 toolchain; it still failed at the x86_64 syscall register ABI in user/libnagi.",
+      "Kept first-party integration and package suites isolated and passing; did not alter ABI code, M17, or tests."
+    ],
+    "do_not_try": [
+      "Do not edit or commit in M17 worktrees or branches.",
+      "Do not modify docs/implementation_status.md or other M17 state.",
+      "Do not commit to main or source branches.",
+      "Do not rewrite or delete source branches/worktrees.",
+      "Do not force push, reset hard, or modify third_party implementation sources.",
+      "Do not hide the architecture failure by weakening tests or stubbing guest syscall behavior."
+    ]
+  },
+  "next_action": "Inspect Nagi CI run 36230579035 at the exact source commit. If host gates pass, integrate the host-only first-party changes into codex/integration-next-phase while preserving the root M17 state and reconciling workstream registry ownership. Keep target integration NOT RUN until authenticated context, capability/object/workspace services, native launch, Search/Action dispatch, durable history, and Files snapshot/restore APIs are available; keep M18 gated on an actual M17 pixel checksum and PASS marker.",
+  "acceptance_criteria": [
+    "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
+    "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
+    "Notes, Files, and Activity host providers connect to Home/Search with permission-filtered typed results where supported.",
+    "Notes/Files semantic operations are visible through the shared host Activity and Wayback contracts where valid provenance is available.",
+    "English and Japanese host flows and sandbox isolation are checked.",
+    "Host/mock outcomes are not reported as Nagi target PASS; M17 state and sources remain unchanged."
+  ],
+  "deferred": [
+    "Full root host workspace test on a supported x86_64 development host; current arm64 host cannot compile user/libnagi x86_64 inline register operands.",
+    "Native target app launch and target Action dispatch.",
+    "Authenticated target context and OS capability, ObjectId, and Workspace services.",
+    "Target Search provider service and durable Activity/Wayback storage.",
+    "Target Notes storage and target Files provider, snapshot, and restore services.",
+    "Target runtime acceptance; host and memory preview results are not target PASS."
+  ],
+  "cross_workstream_dependencies": []
+}
