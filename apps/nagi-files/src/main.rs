@@ -487,6 +487,7 @@ fn localized_error(locale: Locale, error: &FilesError) -> String {
         FilesErrorKind::Conflict | FilesErrorKind::AlreadyExists => "files.error.conflict",
         FilesErrorKind::SandboxEscape => "files.error.sandbox_escape",
         FilesErrorKind::SymlinkNotAllowed => "files.error.symlink",
+        FilesErrorKind::ConfirmationLimitReached => "files.error.confirmation_limit",
         FilesErrorKind::Cancelled => "files.error.cancelled",
         FilesErrorKind::ActivityUnavailable | FilesErrorKind::ActivityFailure => {
             "files.error.activity_unavailable"
@@ -502,4 +503,24 @@ fn localized_error(locale: Locale, error: &FilesError) -> String {
     localization::text(locale, key)
         .unwrap_or("The operation failed.")
         .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{localized_error, Locale};
+    use nagi_files::{FilesError, FilesErrorKind};
+
+    #[test]
+    fn confirmation_limit_error_has_english_and_japanese_messages() {
+        let error = FilesError::new(FilesErrorKind::ConfirmationLimitReached);
+
+        assert_eq!(
+            localized_error(Locale::EnUs, &error),
+            "Too many permanent-delete confirmations are pending. Cancel or complete one before trying again."
+        );
+        assert_eq!(
+            localized_error(Locale::JaJp, &error),
+            "完全削除の確認が保留中の上限に達しました。既存の確認を取り消すか完了してから、もう一度お試しください。"
+        );
+    }
 }

@@ -176,7 +176,8 @@ not modify or merge into M17 worktrees.
   bounded previews, and capability-rooted traversal/symlink checks; metadata Search;
   Context/Workspace/Activity/Wayback adapter hooks; en-US and ja-JP resources;
   and an interactive Japanese/English host preview.
-- **Verification evidence:** 52 focused tests PASS; package Clippy with
+- **Verification evidence:** 53 focused tests PASS (52 library tests and one
+  CLI localization test); package Clippy with
   `-D warnings` PASS; package `cargo fmt -- --check` PASS; Japanese host preview
   listing and open smoke PASS in a disposable `/tmp` sandbox. Test/build output
   is isolated under `/tmp/nagi-files-cargo-target`.
@@ -189,11 +190,11 @@ not modify or merge into M17 worktrees.
   | FILES-003 Agent Activity | `PARTIAL` | Activity adapter contract and mock tests pass; agent mutations fail closed when Activity is unavailable; no target ledger connection. |
   | FILES-004 Resource ID retention | `PASS (Unix host); Windows compile verified` | Same-filesystem rename/move preserve IDs in Unix and memory providers. Windows IDs now use volume serial/file index metadata when available; the existing move/restart/Trash/restore test is type-checked on Windows but has not been executed on a Windows host. Unsupported metadata falls back to a path-derived ID. Copy receives a new ID. |
   | FILES-005 Trash restore | `PASS (host/mock)` | Persistent host Trash and memory Trash restore/conflict tests pass. |
-  | FILES-006 permanent-delete confirmation | `PASS (host/mock)` | User-only, bound, one-use challenges are bounded to 64 pending entries; explicit cancellation releases a slot, replay is rejected, and a mismatched challenge cannot consume another service instance's pending slot. |
+  | FILES-006 permanent-delete confirmation | `PASS (host/mock)` | User-only, bound, one-use challenges are bounded to 64 pending entries; explicit cancellation releases a slot, replay is rejected, mismatched challenges preserve other pending slots, and the limit error has en-US/ja-JP text. |
   | FILES-007 Context publish | `PASS (contract)` | Selection/current-location snapshot publishes through a typed boundary; shared Context service is not connected. |
   | FILES-008 Workspace reference | `PASS (mock)` | Adapter tests show add/remove reference does not move the resource; target Workspace service is not connected. |
   | FILES-009 Wayback restore | `PARTIAL` | Typed checkpoint boundary, affected-resource list, transaction ID, and truthful reversible hints are tested; supported-resource snapshot restore needs the unavailable Wayback runtime. |
-  | FILES-010 UI-independent core tests | `PASS` | 52 package tests run without the desktop UI. |
+  | FILES-010 UI-independent core tests | `PASS` | 53 package tests run without the desktop UI (52 library and one preview CLI test). |
 
 - **Known limitations:** The host backend rejects lexical traversal, selected-root
   symlinks, checked symlink paths, and reserved metadata aliases. Operations
