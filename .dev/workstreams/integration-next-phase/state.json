@@ -6,29 +6,50 @@
   "current_checkpoint": "parallel-branch-inventory",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "1993a4582952d3c1176ceff4434ac07a11a02881",
-    "verified_at": "2026-09-26T06:48:04Z",
-    "normal_state": "Created the dedicated integration branch from current main. The base commit's Ubuntu and Windows host CI jobs passed in Actions run 36223836342; its M17 target job is still running. Branch audits are in progress and no workstream changes have yet been verified on this integration branch.",
+    "commit_sha": "d4dadb617214b9cbaaabb23da9a6b6ab7d7bd2a4",
+    "verified_at": "2026-09-26T06:57:10Z",
+    "normal_state": "Forward-ported DF-01 onto current main while preserving the current M17 status and runtime changes. Removed the stale fixture status expectation, made the CLI status test work on registered and unregistered branches, constrained state-file reads to the canonical repository root, rejected diagnostics with no readable logs, and remove partial reports after write errors. The focused developer CLI and registry checks pass. Actions run 36223836342 passed both host jobs and is still running the target build; DF-01 run 36117826259 passed both host jobs and failed only at the separate M17 QEMU gate. More branch integration remains in progress.",
     "commands": [
       "git status --short --branch",
       "git worktree list --porcelain",
       "git branch -avv",
-      "gh run view 36223836342 --json number,status,conclusion,headSha,url,jobs"
+      "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline --lib development::tests",
+      "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
+      "./nagi dev status",
+      "./nagi dev verify",
+      "cargo fmt --all -- --check",
+      "sh -n nagi",
+      "sh -n tests/acceptance/m17_servo_first_web_pixel.sh",
+      "git diff --check"
     ],
     "tests": [
       {
-        "name": "Ubuntu host CI",
-        "command": "GitHub Actions run 36223836342, job ubuntu-host",
+        "name": "Developer tooling library tests",
+        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline --lib development::tests",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Format, host Clippy/build/test, and M0 doctor/launcher acceptance passed at base commit 1993a4582952d3c1176ceff4434ac07a11a02881."
+        "evidence": "All 12 development-module tests passed, including state symlink containment and missing-log diagnostic regressions."
       },
       {
-        "name": "Windows launcher CI",
-        "command": "GitHub Actions run 36223836342, job windows-launcher",
+        "name": "Nagi CLI unit and integration tests",
+        "command": "cargo test --manifest-path tools/nagi-cli/Cargo.toml --locked --offline",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Host build/test and Windows launcher checks passed at base commit 1993a4582952d3c1176ceff4434ac07a11a02881."
+        "evidence": "84 library tests and 20 CLI integration tests passed."
+      },
+      {
+        "name": "Workstream state verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "10 registered workstreams and both present state files validated on codex/integration-next-phase at d4dadb617214b9cbaaabb23da9a6b6ab7d7bd2a4."
+      },
+      {
+        "name": "Formatting, shell syntax, and diff whitespace",
+        "command": "cargo fmt --all -- --check; sh -n nagi; sh -n tests/acceptance/m17_servo_first_web_pixel.sh; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All focused syntax, formatting, and whitespace checks passed."
       }
     ],
     "ci_runs": [
@@ -39,12 +60,20 @@
         "status": "IN_PROGRESS",
         "conclusion": null,
         "summary": "Ubuntu and Windows host jobs passed; the target job is building Nagi user init and M17 first-web-pixel acceptance has not started."
+      },
+      {
+        "run_id": 36117826259,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36117826259",
+        "head_sha": "18b364dc01c6a95bbda492f36c8dd0586f12ca8d",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed DF-01 verification. The target build completed, then the unchanged M17 QEMU acceptance timed out before a web pixel."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T06:48:04Z",
+    "last_checked_at": "2026-09-26T06:57:10Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -60,7 +89,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Finish the read-only branch audit, integrate only eligible clean and reviewable work, run focused host acceptance, update each affected workstream state with evidence, and push the integration branch.",
+  "next_action": "Continue with the capability, Wayback/model, localization, and host-first app foundations in dependency order; reconcile the App SDK capability ID contract and workstream registration proposals before merging, then run combined host acceptance and record CI.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
