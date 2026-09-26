@@ -1,0 +1,121 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "diagnostics",
+  "current_milestone": "Developer Tooling / Diagnostics",
+  "current_checkpoint": "host-diagnostics-and-workstream-validation-integrated",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "3aed2e25ecf3c5984bfa16ef998358cf839fa427",
+    "verified_at": "2026-09-26T08:07:35Z",
+    "normal_state": "Integrated the local structured diagnostics, verification report, privacy redaction, bounded crash capture seam, CLI commands, and DF-01 workstream health check on codex/integration-next-phase. 95 nagi-cli unit tests and 24 CLI integration tests pass; CLI and standalone bootstrap Clippy pass with warnings denied; both CLI and bootstrap lockfiles verify. Diagnostics, scoped verify, and host smoke produce passing host evidence. Workstream remains PARTIAL because the pre-integration --vm smoke attempt timed out in the existing M1/M7 QEMU guest boot check; it is separate from the strict M17 first-web-pixel gate. No target crash persistence or runtime authority was added.",
+    "commands": [
+      "cargo test -p nagi-cli --locked --offline",
+      "cargo fmt --all -- --check",
+      "cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+      "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo build -p nagi-cli --locked --offline",
+      "target/debug/nagi diagnostics --scope diagnostics --json",
+      "target/debug/nagi verify --scope workstreams --json",
+      "target/debug/nagi smoke --host-only --json",
+      "./nagi dev verify",
+      "python3 -m json.tool docs/testing/diagnostic-report.schema.json >/dev/null",
+      "git diff --check; git diff --cached --check"
+    ],
+    "tests": [
+      {
+        "name": "Diagnostics and CLI test suite",
+        "command": "cargo test -p nagi-cli --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "95 unit tests and 24 CLI integration tests passed, including privacy redaction, event/report validation, CLI parsing, and registered DF-01 state validation."
+      },
+      {
+        "name": "Diagnostics formatting and Clippy",
+        "command": "cargo fmt --all -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting and CLI Clippy passed. Three existing target_os=nagi configuration warnings were emitted by the libc dependency."
+      },
+      {
+        "name": "Standalone bootstrap dependency checks",
+        "command": "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline; cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The standalone bootstrap package compiles and passes Clippy after adding its direct serde dependency for the shared CLI library."
+      },
+      {
+        "name": "Host diagnostics and DF-01 health check",
+        "command": "target/debug/nagi diagnostics --scope diagnostics --json; target/debug/nagi verify --scope workstreams --json; target/debug/nagi smoke --host-only --json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Diagnostics and scoped verification returned PASS; host smoke returned PASS and ran ./nagi dev verify, validating 16 registered workstreams and 8 state files."
+      },
+      {
+        "name": "VM smoke guest boot (inherited pre-integration result)",
+        "command": "./target/debug/nagi smoke --vm --json",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "The QEMU guest boot check did not exit within the existing 30-second M1/M7 acceptance window. This is not M17 first-web-pixel evidence and no M17 PASS is claimed."
+      },
+      {
+        "name": "Diagnostics source-branch Actions",
+        "command": "gh run view 36215571919 --repo RT-NISH/NagiOS",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Run 36215571919 failed compiling nagi-bootstrap because the separate package omitted dependencies required by the shared CLI library. This integration adds the missing direct dependency and verifies the package locally."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36215571919,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215571919",
+        "head_sha": "84afe087a0b5c88db7f5fd05a7db11fa64741eb8",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Source branch CI failed at the standalone bootstrap build due to missing direct dependencies for the shared diagnostics CLI library; fixed in the integration branch and checked locally."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/0.2/DEVELOPMENT_ARCHITECTURE.md and docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T08:07:35Z",
+    "activation_requirement": "This checkpoint provides host-side diagnostics contracts only. Guest crash persistence, target event collection, or production diagnostics service integration require Nagi 0.1 M30 PASS and an explicit release boundary."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not treat --vm smoke as evidence for the strict M17 first-web-pixel gate.",
+      "Do not add target crash persistence or guest event collection before its release gate.",
+      "Do not upload local diagnostics reports unless the user explicitly selects an output path."
+    ]
+  },
+  "next_action": "Inspect the integrated branch CI result. Keep the diagnostics contract host-local and resolve any CI failure without changing the existing guest acceptance criteria; retain PARTIAL while the inherited VM smoke timeout remains.",
+  "acceptance_criteria": [
+    "Versioned structured events and reports enforce bounds, safe redaction, unique check IDs, and outcome derivation.",
+    "Registered health checks are scoped, continue after individual failures, and classify host versus VM evidence.",
+    "Diagnostics, verify, and host smoke commands pass with reports written only to an explicit output path.",
+    "When DF-01 is present, the workstreams health check reuses the authoritative nagi dev verify validator; when absent, it reports SKIPPED.",
+    "Crash capture remains a bounded portable contract and does not claim target persistence.",
+    "No diagnostics result changes M17 or any later milestone status without that milestone's acceptance evidence."
+  ],
+  "deferred": [
+    "Target crash persistence and guest event collection until the relevant runtime boundary and release gate are available.",
+    "VM smoke success remains tied to the existing M1/M7 QEMU guest boot acceptance; it does not imply M17 first-web-pixel success.",
+    "Full JSON Schema validation with an installed schema validator was not run; syntax and implementation contract checks pass."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "Reuse the DF-01 registry and state validator through nagi dev verify, and align failure classes to the accepted durable-state vocabulary.",
+      "version": "nagi-dev-v1",
+      "status": "PASS"
+    }
+  ]
+}

@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "model-runtime-host-foundation-and-m17-aligned-allocation-fix",
+  "current_checkpoint": "diagnostics-host-integration-and-m17-aligned-allocation-ci-pending",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "55be56d7169d697a69d9167288ec0e4b523df610",
-    "verified_at": "2026-09-26T07:51:38Z",
-    "normal_state": "On codex/integration-next-phase, integrated development-foundation, capability/permission, App SDK contracts, Wayback host ledger, shared localization, and the Model Runtime/Model Store host foundation. The Model Runtime is PARTIAL: its 25 unit and 2 manifest/schema tests, format, Clippy, Nagi user-target library compile, and CRLF regression pass; the source Windows CI failure is recorded and fixed. No model weights, download, production inference, or runtime hook was added. The latest mainline M17 CI run #233 (36223836342) completed with FAILURE after target builds through UEFI; QEMU reached Servo construction, then hit a 512-byte Rust allocation failure without ordinary POSIX heap failure diagnostics. M17 remains BLOCKED and M18 remains NOT STARTED. The likely over-aligned allocation path is now handled by a bounded Nagi POSIX allocator path. Seven focused nagi-posix tests pass on x86_64 macOS, x86_64-target Clippy passes with warnings denied, and the Nagi user-target compile passes. The existing integration CI #36225995143 has both host jobs green and was at M17 QEMU acceptance before the aligned-allocation fix; it is not evidence for that fix. Dirty first-party UI/Home/Search and M17 diagnosis worktrees remain untouched.",
+    "commit_sha": "3aed2e25ecf3c5984bfa16ef998358cf839fa427",
+    "verified_at": "2026-09-26T08:07:35Z",
+    "normal_state": "On codex/integration-next-phase, integrated development-foundation, capability/permission, App SDK contracts, Wayback host ledger, shared localization, Model Runtime/Model Store host contracts, and host diagnostics. Diagnostics is PARTIAL: its local event/report contract, DF-01 health check, CLI/bootstrap builds, tests, format, Clippy, and host smoke pass; the inherited optional VM smoke timed out in the existing M1/M7 guest boot acceptance. No target crash store, model weights/inference, or production runtime hook was added. The Model Runtime remains PARTIAL and M17 remains BLOCKED; M18 remains NOT STARTED. Mainline #233 showed target builds through UEFI followed by Servo construction allocation failure without a real pixel checksum or M17 PASS marker. The aligned POSIX allocation repair is on this integration branch and its public QEMU verification is pending in run #36228221098: Ubuntu and Windows host jobs passed, while nagi-target is still running the M17 acceptance. Dirty first-party UI/Home/Search and M17 diagnosis worktrees remain untouched.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -36,7 +36,15 @@
       "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
       "cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
       "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
-      "git diff --check"
+      "git diff --check",
+      "cargo test -p nagi-cli --locked --offline",
+      "cargo fmt --all -- --check",
+      "cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+      "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "target/debug/nagi diagnostics --scope diagnostics --json",
+      "target/debug/nagi verify --scope workstreams --json",
+      "target/debug/nagi smoke --host-only --json"
     ],
     "tests": [
       {
@@ -227,9 +235,46 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Nagi target compile succeeded. It emitted five pre-existing interface/dead-code warnings outside the changed alignment path."
+      },
+      {
+        "name": "Diagnostics and CLI host suite, formatting, and lint",
+        "command": "cargo test -p nagi-cli --locked --offline; cargo fmt --all -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "95 nagi-cli unit tests and 24 CLI integration tests passed; formatting and Clippy with warnings denied passed. Three existing target_os=nagi warnings came from the libc dependency."
+      },
+      {
+        "name": "Standalone bootstrap checks for shared diagnostics library",
+        "command": "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline; cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The bootstrap package compiled and passed Clippy with warnings denied after adding its direct serde dependency and updating its lockfile."
+      },
+      {
+        "name": "Diagnostics CLI and workstream health checks",
+        "command": "target/debug/nagi diagnostics --scope diagnostics --json; target/debug/nagi verify --scope workstreams --json; target/debug/nagi smoke --host-only --json; ./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Diagnostics, scoped workstream verification, and host smoke returned PASS. DF-01 validation passed for 16 registered workstreams and 8 state files."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 36228221098,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36228221098",
+        "head_sha": "626c37dd75461c64a12044a0f7b7f781f01611ee",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Pre-diagnostics integration checkpoint including the aligned allocation fix: Ubuntu and Windows host jobs passed; nagi-target is still running the M17 QEMU first-web-pixel acceptance. This run does not include the diagnostics merge commit."
+      },
+      {
+        "run_id": 36215571919,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215571919",
+        "head_sha": "84afe087a0b5c88db7f5fd05a7db11fa64741eb8",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Diagnostics source branch failed compiling nagi-bootstrap because the separate package omitted direct dependencies required by the shared CLI library. The integration branch adds serde and updates the standalone lockfile; local bootstrap check and Clippy pass."
+      },
       {
         "run_id": 36223836342,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36223836342",
@@ -298,7 +343,7 @@
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T07:51:38Z",
+    "last_checked_at": "2026-09-26T08:07:35Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -314,7 +359,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Push the aligned POSIX allocation repair for public M17 QEMU verification. Then integrate the clean diagnostics and acceptance-CI foundations after focused checks, review the clean first-party host integration without activating target product paths, and record exact CI outcomes.",
+  "next_action": "Push the diagnostics integration and inspect its Actions run while preserving M17 BLOCKED until real guest pixel evidence appears. Then integrate the clean acceptance-CI branch with the existing strict M17 script unchanged, review and integrate the clean first-party host preview as PARTIAL, and record exact CI results. Keep target/runtime app and diagnostics activation behind their documented gates.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -355,6 +400,12 @@
       "contract": "First-class en-US/ja-JP catalogs, canonical locale IDs, deterministic fallback, independent system-language and region inputs, and host formatting.",
       "version": "localization-contract-v1",
       "status": "PASS for host foundation and Nagi-target library compilation; production consumer integration remains with its owning milestone."
+    },
+    {
+      "workstream_id": "diagnostics",
+      "contract": "Local structured events, scoped verification reports, bounded/redacted crash capture, and a workstreams health check that reuses nagi dev verify when DF-01 state is available.",
+      "version": "diagnostics-contract-v1",
+      "status": "PARTIAL for host foundation; optional VM smoke timed out in the existing M1/M7 acceptance, and target persistence remains deferred."
     }
   ]
 }
