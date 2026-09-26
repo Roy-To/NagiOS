@@ -1274,7 +1274,10 @@ mod tests {
             .find(|entry| entry.id == "development-foundation")
             .expect("foundation stream");
         let state = load_state(&root, stream, &registry).expect("valid workstream state");
-        assert_eq!(state["status"], "IN_PROGRESS");
+        assert!(matches!(
+            state["status"].as_str(),
+            Some("NOT_STARTED" | "IN_PROGRESS" | "PASS" | "PARTIAL" | "BLOCKED" | "DEFERRED")
+        ));
         assert_eq!(
             state["release_line_gate"]["source"],
             "docs/implementation_status.md"

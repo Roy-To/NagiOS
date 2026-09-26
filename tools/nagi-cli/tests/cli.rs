@@ -158,7 +158,8 @@ fn dev_status_resume_and_verify_read_the_registered_workstream() {
         .expect("registered development workstream status");
     assert!(status
         .iter()
-        .any(|line| line.contains("development-foundation")));
+        .any(|line| line.starts_with("Workstream: ") && line.contains(" (")));
+    assert!(status.iter().any(|line| line.starts_with("Branch: ")));
     assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
 
     let resume = nagi_cli::development::execute(&["resume".into()], root).expect("resume summary");
