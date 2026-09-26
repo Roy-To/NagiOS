@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "first-party-integration",
   "current_milestone": "M-APP-INTEGRATION",
-  "current_checkpoint": "files-confirmations-and-windows-resource-identity-host-verified-ci-pending",
+  "current_checkpoint": "files-case-insensitive-scoped-deny-alias-verified-ci-running",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "deb8a89006b8b312c927dfb3eddafce31cc76da5",
-    "verified_at": "2026-09-26T15:18:35Z",
-    "normal_state": "Files permanent-delete challenges are capped at 64, and users can cancel one-use challenges. Windows sandbox ResourceIds now use cap-std volume serial number and file index where available; path hashing remains only as a fallback when stable identity metadata is unavailable. The Files package passes 51 tests on the macOS host, Clippy and formatting pass, and Windows-target test code cross-checks and passes Clippy with warnings denied. The move/restart/Trash/restore regression has not been executed on an actual Windows host. Source commit deb8a89006b8b312c927dfb3eddafce31cc76da5 is pushed. CI run 36251469538 is queued; the prior source run 36251022723 has passed Ubuntu and Windows host jobs while the independent M17 target job continues. M17 source/state are unchanged. The full ./nagi test remains blocked on this arm64 macOS host by x86_64 inline syscall registers in user/libnagi; that does not block the standalone first-party host suites.",
+    "commit_sha": "ea9e214117ce524df85fc02722f74356267b98c2",
+    "verified_at": "2026-09-26T15:50:42Z",
+    "normal_state": "Files SandboxProvider now resolves existing case-insensitive path aliases to their actual directory-entry spelling before FilesService scoped capability checks; ambiguous identity resolution fails closed. Commit ea9e214117ce524df85fc02722f74356267b98c2 is pushed. The macOS case-alias scoped-deny regression and full Files package suite pass (53 library tests plus one CLI test), as do host Clippy, Windows-target test compilation and Clippy, formatting, and diff checks. Windows filesystem runtime behavior remains unverified. CI 36253354096 is running for the pushed source commit; prior CI 36251974907 passed Ubuntu and Windows host jobs while its independent M17 target job remains pending. M30 remains NOT STARTED, so no 0.2 runtime integration was begun. The full ./nagi test suite remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -61,7 +61,19 @@
       "cargo check --tests --manifest-path apps/nagi-files/Cargo.toml --target x86_64-pc-windows-gnu --locked --offline",
       "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --target x86_64-pc-windows-gnu --locked --offline -- -D warnings",
       "cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check",
-      "gh run list --branch codex/first-party-integration --limit 5 --json databaseId,headSha,status,conclusion,displayTitle,createdAt,url"
+      "gh run list --branch codex/first-party-integration --limit 5 --json databaseId,headSha,status,conclusion,displayTitle,createdAt,url",
+      "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\" mismatched_cross_service_confirmations_do_not_consume_pending_challenges",
+      "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\" confirmation_limit_error_has_english_and_japanese_messages",
+      "gh run list --branch codex/first-party-integration --limit 6 --json databaseId,headSha,status,conclusion,displayTitle,createdAt,url",
+      "sandbox_case_insensitive_path_alias_keeps_scoped_deny_effective before canonical authorization (macOS host reproduction)",
+      "pinned nightly arm64 cargo test --manifest-path apps/nagi-files/Cargo.toml sandbox_case_insensitive_path_alias_keeps_scoped_deny_effective --offline (RUSTC and RUSTDOC set to matching toolchain)",
+      "pinned nightly arm64 cargo test --manifest-path apps/nagi-files/Cargo.toml --offline (RUSTC and RUSTDOC set to matching toolchain)",
+      "pinned nightly arm64 cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --offline -- -D warnings",
+      "pinned nightly arm64 cargo check --manifest-path apps/nagi-files/Cargo.toml --tests --target x86_64-pc-windows-gnu --offline",
+      "pinned nightly arm64 cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --target x86_64-pc-windows-gnu --offline -- -D warnings",
+      "pinned nightly arm64 cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check; git diff --check",
+      "gh run view 36251974907 --json status,conclusion,headSha,jobs",
+      "gh run list --branch codex/first-party-integration --limit 5 --json databaseId,headSha,status,conclusion,createdAt,url,displayTitle"
     ],
     "tests": [
       {
@@ -301,6 +313,118 @@
         "outcome": "IN_PROGRESS",
         "exit_code": null,
         "evidence": "Run 36251469538 is queued for source commit deb8a89006b8b312c927dfb3eddafce31cc76da5."
+      },
+      {
+        "name": "Cross-service confirmation mismatch reproduction before fix",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\" mismatched_cross_service_confirmations_do_not_consume_pending_challenges",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Before the fix, canceling a challenge from another FilesService returned InvalidConfirmation but removed the local pending entry; its legitimate challenge then failed at tests.rs:793."
+      },
+      {
+        "name": "Cross-service confirmation mismatch regression after fix",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\" mismatched_cross_service_confirmations_do_not_consume_pending_challenges",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The same-nonce challenge issued by another service is rejected without consuming local pending state for both cancel and confirm paths."
+      },
+      {
+        "name": "Files bilingual confirmation-cap error",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\" confirmation_limit_error_has_english_and_japanese_messages",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Before adding the error key the message incorrectly said the location was invalid; the new test now verifies the dedicated en-US and ja-JP messages."
+      },
+      {
+        "name": "Files package host suite",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "52 library tests and one preview CLI localization test passed (53 total)."
+      },
+      {
+        "name": "Files host Clippy and formatting",
+        "command": "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings; cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Host package Clippy, rustfmt and git whitespace checks passed."
+      },
+      {
+        "name": "Files Windows-target Clippy",
+        "command": "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --target x86_64-pc-windows-gnu --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Windows-target library, binary and test code pass Clippy with warnings denied. This cross-compiles tests but does not execute Windows filesystem behavior."
+      },
+      {
+        "name": "Files Windows move/tag runtime regression",
+        "command": "sandbox_tags_survive_restart_move_and_trash_restore_without_sidecars on Windows",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "No Windows execution host or Wine is available. Existing regression remains documented; Windows compile checks pass."
+      },
+      {
+        "name": "Current first-party source CI",
+        "command": "GitHub Actions run 36251974907",
+        "outcome": "IN_PROGRESS",
+        "exit_code": null,
+        "evidence": "Run 36251974907 is queued for source commit 8d795f5ce5e1eadb96cbf49a5ec0b315fa93296d."
+      },
+      {
+        "name": "Case-insensitive scoped-deny alias reproduction before fix",
+        "command": "sandbox_case_insensitive_path_alias_keeps_scoped_deny_effective on macOS before provider-aware canonical authorization",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The lowercase alias private/secret.txt returned the classified file bytes despite a Read deny on Private and a broader root Read allow."
+      },
+      {
+        "name": "Case-insensitive scoped-deny alias regression after fix",
+        "command": "pinned nightly arm64 cargo test --manifest-path apps/nagi-files/Cargo.toml sandbox_case_insensitive_path_alias_keeps_scoped_deny_effective --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The existing alias resolves to its actual Private spelling before capability evaluation; the scoped Read deny returns PermissionDenied."
+      },
+      {
+        "name": "Files package host regression suite after canonical path authorization",
+        "command": "pinned nightly arm64 cargo test --manifest-path apps/nagi-files/Cargo.toml --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "53 library tests and one preview CLI test passed; doctests passed with zero tests."
+      },
+      {
+        "name": "Files Windows-target Clippy initial alias implementation",
+        "command": "pinned nightly arm64 cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --target x86_64-pc-windows-gnu --offline -- -D warnings",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Windows cfg reported clippy::manual_map in stable_resource_id; replaced the manual match with Option::map and reran successfully."
+      },
+      {
+        "name": "Files host Clippy after canonical path authorization",
+        "command": "pinned nightly arm64 cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All host package and test targets passed Clippy with warnings denied."
+      },
+      {
+        "name": "Files Windows-target test compilation after canonical path authorization",
+        "command": "pinned nightly arm64 cargo check --manifest-path apps/nagi-files/Cargo.toml --tests --target x86_64-pc-windows-gnu --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Windows package and regression-test code type-checked; this does not execute filesystem behavior on Windows."
+      },
+      {
+        "name": "Files Windows-target Clippy after canonical path authorization",
+        "command": "pinned nightly arm64 cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --target x86_64-pc-windows-gnu --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Windows package and test targets passed Clippy with warnings denied after the Option::map correction."
+      },
+      {
+        "name": "Files formatting and diff whitespace after canonical path authorization",
+        "command": "pinned nightly arm64 cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Changed package sources passed rustfmt check and the diff had no whitespace errors."
       }
     ],
     "ci_runs": [
@@ -334,21 +458,45 @@
         "head_sha": "386120471d675d4832764392b2777bd33eb916dc",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Ubuntu and Windows host jobs passed. The separate M17 target job is still running; host-side first-party checks are green."
+        "summary": "Ubuntu and Windows host jobs passed. The separate M17 target job is still running; this is not a first-party host failure."
       },
       {
         "run_id": 36251469538,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36251469538",
         "head_sha": "deb8a89006b8b312c927dfb3eddafce31cc76da5",
-        "status": "QUEUED",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Ubuntu host passed; Windows launcher was cancelled during dependency bootstrap and the M17 target job was skipped after a newer source push. Standalone Windows-target cargo check and Clippy passed locally."
+      },
+      {
+        "run_id": 36251770169,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36251770169",
+        "head_sha": "5a8222e606d6775bed79a7058c6580a456dc9dbe",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Ubuntu host, Windows launcher, and target jobs were cancelled/skipped after the subsequent localization source push; local package host and Windows-target checks passed."
+      },
+      {
+        "run_id": 36251974907,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36251974907",
+        "head_sha": "8d795f5ce5e1eadb96cbf49a5ec0b315fa93296d",
+        "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "CI for Windows ResourceId source commit deb8a89006b8b312c927dfb3eddafce31cc76da5 is queued."
+        "summary": "Ubuntu host and Windows launcher jobs passed. The separate M17 target job is still pending; this run does not indicate a first-party host failure."
+      },
+      {
+        "run_id": 36253354096,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36253354096",
+        "head_sha": "ea9e214117ce524df85fc02722f74356267b98c2",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "CI is running for the pushed Files canonical-path authorization commit; host and M17 job results are not yet available."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T15:18:35Z",
+    "last_checked_at": "2026-09-26T15:50:42Z",
     "activation_requirement": "This stream integrates 0.1 first-party host contracts only; it does not change M17 or authorize 0.2 runtime implementation. Target integration remains separately gated by the Nagi milestone state."
   },
   "blocker": {
@@ -373,7 +521,7 @@
       "Do not hide the architecture failure by weakening tests or stubbing guest syscall behavior."
     ]
   },
-  "next_action": "Harden Files confirmation challenge consumption so a challenge issued by one FilesService cannot remove another service instance’s pending challenge when both have the same nonce. Add regression tests for cross-service cancel and confirm mismatch, run the package test/Clippy/format checks on the host and Windows target, then update state, commit, push and inspect CI. Keep the Windows runtime regression explicitly pending until a Windows execution environment is available.",
+  "next_action": "Audit the Files authorization-to-I/O boundary for a reproducible scoped-access bypass caused by concurrent host path replacement. Add a failing regression before a targeted fix, then rerun the Files host suite, host and Windows-target Clippy, formatting, state verification, commit, push, and CI inspection. Keep M17 ownership separate, Windows runtime checks explicitly pending, and 0.2 runtime integration closed until M30 PASS plus an explicit integration checkpoint.",
   "acceptance_criteria": [
     "All four requested source commits are preserved as merge ancestors on codex/first-party-integration.",
     "Canonical ObjectId, WorkspaceId, TransactionId, Search, Action, Capability, Activity, Checkpoint, App Registry, persistence, localization, and Cargo boundaries are documented and adapted without strengthening authority.",
