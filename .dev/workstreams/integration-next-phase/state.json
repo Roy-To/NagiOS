@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "localization-foundation-integrated",
+  "current_checkpoint": "model-runtime-host-foundation-and-m17-aligned-allocation-fix",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "b264b0907130a8602d0038a630e5d51449ad83d9",
-    "verified_at": "2026-09-26T07:19:46Z",
-    "normal_state": "Integrated Capability/Permission, App SDK, Wayback, and shared Localization host foundations on codex/integration-next-phase. Localization is now a root workspace package with its format check included in CI; current-tree checks pass for all 26 localization tests, formatting, Clippy with warnings denied, catalog validation (2 locales/14 messages), and a Nagi user-target library compile. The prior mainline docs/implementation_status.md and M17 status were preserved. Existing M17 remains BLOCKED and M18 remains NOT STARTED. Wayback’s full host harness and the capability/SDK focused checks pass. Localization source CI run 36215320154 passed Ubuntu/Windows host jobs and target builds through UEFI, then failed only at the independent M17 first-web-pixel QEMU acceptance. Integration branch run 36225995143 is still attached to the earlier a64f7b7 checkpoint and is not yet evidence for the subsequent merges.",
+    "commit_sha": "55be56d7169d697a69d9167288ec0e4b523df610",
+    "verified_at": "2026-09-26T07:51:38Z",
+    "normal_state": "On codex/integration-next-phase, integrated development-foundation, capability/permission, App SDK contracts, Wayback host ledger, shared localization, and the Model Runtime/Model Store host foundation. The Model Runtime is PARTIAL: its 25 unit and 2 manifest/schema tests, format, Clippy, Nagi user-target library compile, and CRLF regression pass; the source Windows CI failure is recorded and fixed. No model weights, download, production inference, or runtime hook was added. The latest mainline M17 CI run #233 (36223836342) completed with FAILURE after target builds through UEFI; QEMU reached Servo construction, then hit a 512-byte Rust allocation failure without ordinary POSIX heap failure diagnostics. M17 remains BLOCKED and M18 remains NOT STARTED. The likely over-aligned allocation path is now handled by a bounded Nagi POSIX allocator path. Seven focused nagi-posix tests pass on x86_64 macOS, x86_64-target Clippy passes with warnings denied, and the Nagi user-target compile passes. The existing integration CI #36225995143 has both host jobs green and was at M17 QEMU acceptance before the aligned-allocation fix; it is not evidence for that fix. Dirty first-party UI/Home/Search and M17 diagnosis worktrees remain untouched.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -31,7 +31,12 @@
       "cargo test --locked -p nagi-localization",
       "cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
       "cargo run --locked -p nagi-localization --bin localization-check",
-      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort"
+      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "cargo fmt --manifest-path user/nagi-posix/Cargo.toml -- --check",
+      "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
+      "cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "git diff --check"
     ],
     "tests": [
       {
@@ -159,6 +164,69 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "14 registered workstreams and 6 state files validated after adding the durable localization record."
+      },
+      {
+        "name": "Model Runtime host tests",
+        "command": "cargo test --locked -p nagi-model-manager",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 25 unit tests and 2 manifest/schema contract tests passed; doc-tests contain 0 tests."
+      },
+      {
+        "name": "Model Runtime formatting and Clippy",
+        "command": "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check; cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Package formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "Model Runtime Nagi user-target compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The no_std model manager library compiles for Nagi x86_64 user target; no inference or M20 acceptance is claimed."
+      },
+      {
+        "name": "CRLF malformed-manifest regression before fix",
+        "command": "cargo test -p nagi-model-manager --locked rejects_unknown_fields_and_malformed_json",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "With explicit CRLF fixture bytes and the old newline-sensitive replacement, the required source field remained and malformed JSON parsed successfully; this reproduced Windows CI."
+      },
+      {
+        "name": "CRLF malformed-manifest regression after fix",
+        "command": "cargo test -p nagi-model-manager --locked rejects_unknown_fields_and_malformed_json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The field is removed by content from CRLF input and the parser rejects the missing field."
+      },
+      {
+        "name": "Model Runtime source-branch CI",
+        "command": "gh run view 36215549131 --repo RT-NISH/NagiOS",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Ubuntu host checks passed; Windows failed the CRLF-sensitive fixture, now fixed. The target job independently failed at M17 QEMU acceptance after builds through UEFI."
+      },
+      {
+        "name": "M17 aligned POSIX allocation tests",
+        "command": "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 7 nagi-posix tests passed, including 16/64/4096-byte alignment layout, metadata/payload bounds, and invalid/overflow arithmetic."
+      },
+      {
+        "name": "M17 POSIX format and Clippy",
+        "command": "cargo fmt --manifest-path user/nagi-posix/Cargo.toml -- --check; cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "M17 POSIX Nagi user-target compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Nagi target compile succeeded. It emitted five pre-existing interface/dead-code warnings outside the changed alignment path."
       }
     ],
     "ci_runs": [
@@ -166,9 +234,9 @@
         "run_id": 36223836342,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36223836342",
         "head_sha": "1993a4582952d3c1176ceff4434ac07a11a02881",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Ubuntu and Windows host jobs passed; the target job is building Nagi user init and M17 first-web-pixel acceptance has not started."
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Mainline run #233: Ubuntu and Windows host jobs passed and target builds reached UEFI. QEMU reached Servo construction, then failed a 512-byte allocation and timed out at 120 seconds; no heap mapping/no-free-block diagnostic, pixel checksum, or M17 PASS marker."
       },
       {
         "run_id": 36117826259,
@@ -208,7 +276,7 @@
         "head_sha": "a64f7b70db4fe3ce9b065942b28a4efd4ff6f317",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Integration branch push check: Ubuntu and Windows are still bootstrapping pinned Servo dependencies; later host and target jobs have not run yet."
+        "summary": "Pre-aligned-allocation integration checkpoint: Ubuntu and Windows host jobs passed; target job had reached M17 first-web-pixel QEMU acceptance. This run does not include commit 55be56d."
       },
       {
         "run_id": 36215320154,
@@ -217,12 +285,20 @@
         "status": "COMPLETED",
         "conclusion": "failure",
         "summary": "Localization source branch: Ubuntu and Windows host jobs and target builds through UEFI passed; only the unrelated M17 first-web-pixel QEMU acceptance failed."
+      },
+      {
+        "run_id": 36215549131,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215549131",
+        "head_sha": "21dbe1e4a3277fa336e73616018994e80847caa7",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Model Runtime source branch: Ubuntu host passed; Windows failed the newline-sensitive malformed-manifest fixture; target M17 acceptance failed independently after builds through UEFI. The CRLF regression is fixed in the integration tree."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T07:19:46Z",
+    "last_checked_at": "2026-09-26T07:51:38Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -238,7 +314,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Integrate the Model Runtime / Model Store host foundation selectively. Preserve the root milestone status, enforce the default Granite 4.2 3B architecture without adding a production inference backend, and record whether its workspace and host checks fit the current gate. Then reconcile diagnostics, acceptance, and first-party integration.",
+  "next_action": "Push the aligned POSIX allocation repair for public M17 QEMU verification. Then integrate the clean diagnostics and acceptance-CI foundations after focused checks, review the clean first-party host integration without activating target product paths, and record exact CI outcomes.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
@@ -246,8 +322,8 @@
     "No 0.2 production runtime or guest authority path is activated before M30 PASS and an explicit release boundary."
   ],
   "deferred": [
-    "M17 target acceptance pending Actions run 36223836342.",
-    "Nagi 0.1 M18-M30 and any 0.2 production runtime work until their documented activation gates pass."
+    "M17 first-web-pixel QEMU verification of commit 55be56d7169d697a69d9167288ec0e4b523df610.",
+    "Nagi 0.1 M18-M30 and any 0.2 production runtime or product activation until their documented gates pass."
   ],
   "cross_workstream_dependencies": [
     {
