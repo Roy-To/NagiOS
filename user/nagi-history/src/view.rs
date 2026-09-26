@@ -1089,12 +1089,12 @@ mod tests {
     use super::*;
     use crate::activity::{
         ActionGroupId, ActivityDraft, ActivityLedger, ActivityQuery, ActorId, ActorKind, DeviceId,
-        InverseKind, MetadataKey, MetadataValue, PrivacyClass, Reversibility, RevisionId,
-        TransactionId, UndoDescriptor,
+        InverseKind, MetadataKey, MetadataValue, PrivacyClass, Provenance, Reversibility,
+        RevisionId, TransactionId, UndoDescriptor,
     };
     use crate::wayback::{
-        CheckpointObject, CheckpointOrigin, CheckpointReason, CheckpointScope, CheckpointStore,
-        CheckpointValidity, SnapshotBackendRef,
+        CheckpointMutationPolicy, CheckpointObject, CheckpointOrigin, CheckpointReason,
+        CheckpointScope, CheckpointStore, CheckpointValidity, SnapshotBackendRef,
     };
     use crate::{ActivityContext, AppId, AppSessionId, NodeId, WorkspaceId};
 
@@ -1302,9 +1302,32 @@ mod tests {
             SnapshotBackendRef(11),
         )
         .with_object(CheckpointObject::new(ObjectId(17), RevisionId(3)))
-        .unwrap()
-        .pinned();
-        store.create(draft, &mut activity).unwrap();
+        .unwrap();
+        let (checkpoint_id, _) = store.create(draft, &mut activity).unwrap();
+        struct AllowPin;
+        impl CheckpointMutationPolicy for AllowPin {
+            fn can_change_pin(
+                &self,
+                _actor: Actor,
+                _checkpoint: &CheckpointRecord,
+                _pinned: bool,
+            ) -> bool {
+                true
+            }
+        }
+        store
+            .set_pinned(
+                checkpoint_id,
+                true,
+                time(31),
+                USER,
+                Provenance::Direct {
+                    originating_intent: None,
+                },
+                &AllowPin,
+                &mut activity,
+            )
+            .unwrap();
         let mut output = [0; 128];
         let length = render_checkpoint_timeline(
             &store,

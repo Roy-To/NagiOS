@@ -45,8 +45,9 @@ not modify or merge into M17 worktrees.
     only diff provider, audited pin/unpin, restore preview/confirmation,
     partial restore accounting, restore-as-copy ObjectId results, and restore
     Activity records. Checkpoint and revision drafts materialize records with
-    persisted IDs for durable adapters; checkpoint drafts also rehydrate pin
-    state, and `RevisionWriteStore` completes the revision mutation contract.
+    persisted IDs for durable adapters; providers can rehydrate read-only pin
+    state on returned records, while user pin changes require the policy-gated
+    store API. `RevisionWriteStore` completes the revision mutation contract.
     Checkpoint validity remains trusted-provider metadata and cannot be changed
     on a public record copy. In-place restore captures and records the
     pre-restore state as an automatic recovery checkpoint before applying the

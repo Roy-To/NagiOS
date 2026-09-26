@@ -88,7 +88,6 @@ pub struct CheckpointDraft {
     objects: [Option<CheckpointObject>; MAX_CHECKPOINT_OBJECTS],
     object_count: u8,
     transaction_id: Option<TransactionId>,
-    pinned: bool,
 }
 
 impl CheckpointDraft {
@@ -115,7 +114,6 @@ impl CheckpointDraft {
             objects: [None; MAX_CHECKPOINT_OBJECTS],
             object_count: 0,
             transaction_id: None,
-            pinned: false,
         }
     }
 
@@ -168,10 +166,6 @@ impl CheckpointDraft {
 
     pub const fn transaction_id(self) -> Option<TransactionId> {
         self.transaction_id
-    }
-
-    pub const fn is_pinned(self) -> bool {
-        self.pinned
     }
 
     pub const fn object_count(self) -> usize {
@@ -227,7 +221,7 @@ impl CheckpointDraft {
             object_count: draft.object_count,
             transaction_id: draft.transaction_id,
             validity: CheckpointValidity::Available,
-            pinned: draft.pinned,
+            pinned: false,
         })
     }
 
@@ -238,19 +232,6 @@ impl CheckpointDraft {
 
     pub const fn with_transaction(mut self, transaction_id: TransactionId) -> Self {
         self.transaction_id = Some(transaction_id);
-        self
-    }
-
-    pub const fn pinned(mut self) -> Self {
-        self.pinned = true;
-        self
-    }
-
-    /// Set the persisted pin state while rebuilding a draft from adapter data.
-    /// Durable providers must still route user changes through
-    /// `CheckpointWriteStore::set_checkpoint_pin` and its mutation policy.
-    pub const fn with_pinned_state(mut self, pinned: bool) -> Self {
-        self.pinned = pinned;
         self
     }
 
@@ -298,6 +279,14 @@ pub struct CheckpointRecord {
 }
 
 impl CheckpointRecord {
+    /// Rebuild a read record with the pin state owned by a durable provider.
+    /// This changes only the returned value; persisted user pin changes must
+    /// still use the store mutation method and its authorization policy.
+    pub const fn with_pinned_state(mut self, pinned: bool) -> Self {
+        self.pinned = pinned;
+        self
+    }
+
     pub const fn id(&self) -> CheckpointId {
         self.id
     }
@@ -2667,6 +2656,19 @@ pub mod sandbox {
             }
         }
 
+        struct AllowCheckpointPin;
+
+        impl CheckpointMutationPolicy for AllowCheckpointPin {
+            fn can_change_pin(
+                &self,
+                _actor: Actor,
+                _checkpoint: &CheckpointRecord,
+                _pinned: bool,
+            ) -> bool {
+                true
+            }
+        }
+
         fn add_checkpoint(
             sandbox: &mut InMemoryRestoreSandbox,
             store: &mut CheckpointStore,
@@ -2699,10 +2701,23 @@ pub mod sandbox {
                     .with_object(CheckpointObject::new(object_id, RevisionId(1)))
                     .unwrap();
             }
+            let id = store.create(draft, activity).unwrap().0;
             if pinned {
-                draft = draft.pinned();
+                store
+                    .set_pinned(
+                        id,
+                        true,
+                        time(seconds),
+                        USER,
+                        Provenance::Direct {
+                            originating_intent: None,
+                        },
+                        &AllowCheckpointPin,
+                        activity,
+                    )
+                    .unwrap();
             }
-            store.create(draft, activity).unwrap().0
+            id
         }
 
         fn build_plan(
@@ -2780,24 +2795,16 @@ pub mod sandbox {
             .unwrap()
             .with_transaction(TransactionId(9));
             let checkpoint_id = CheckpointId::new(44).unwrap();
-            let record = draft
-                .with_pinned_state(true)
-                .into_record(checkpoint_id)
-                .unwrap();
+            let record = draft.into_record(checkpoint_id).unwrap();
             assert_eq!(record.id(), checkpoint_id);
             assert_eq!(record.backend_ref(), SnapshotBackendRef(5));
             assert_eq!(record.transaction_id(), Some(TransactionId(9)));
-            assert!(record.is_pinned());
+            assert!(!record.is_pinned());
+            assert!(record.with_pinned_state(true).is_pinned());
             assert_eq!(
                 record.object(ObjectId(7)).unwrap().revision_id(),
                 RevisionId(8)
             );
-            assert!(!draft
-                .with_pinned_state(false)
-                .into_record(checkpoint_id)
-                .unwrap()
-                .is_pinned());
-
             let event = draft
                 .creation_activity(checkpoint_id)
                 .unwrap()
@@ -3065,8 +3072,8 @@ pub mod sandbox {
         fn pinned_checkpoints_survive_bounded_retention() {
             let mut store = CheckpointStore::new();
             let mut activity = ActivityLedger::new();
-            let make_draft = |id: u64, pinned: bool, seconds: i64| {
-                let draft = CheckpointDraft::new(
+            let make_draft = |id: u64, seconds: i64| {
+                CheckpointDraft::new(
                     time(seconds),
                     USER,
                     CONTEXT,
@@ -3076,23 +3083,25 @@ pub mod sandbox {
                     SnapshotBackendRef(id),
                 )
                 .with_object(CheckpointObject::new(ObjectId(1), RevisionId(id)))
-                .unwrap();
-                if pinned {
-                    draft.pinned()
-                } else {
-                    draft
-                }
-            };
-            let pinned = store
-                .create(make_draft(1, true, 0), &mut activity)
                 .unwrap()
-                .0;
+            };
+            let pinned = store.create(make_draft(1, 0), &mut activity).unwrap().0;
+            store
+                .set_pinned(
+                    pinned,
+                    true,
+                    time(0),
+                    USER,
+                    Provenance::Direct {
+                        originating_intent: None,
+                    },
+                    &AllowCheckpointPin,
+                    &mut activity,
+                )
+                .unwrap();
             for index in 1..=MAX_CHECKPOINTS {
                 store
-                    .create(
-                        make_draft(index as u64 + 1, false, index as i64),
-                        &mut activity,
-                    )
+                    .create(make_draft(index as u64 + 1, index as i64), &mut activity)
                     .unwrap();
             }
             assert_eq!(store.len(), MAX_CHECKPOINTS);
