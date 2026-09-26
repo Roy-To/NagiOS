@@ -3456,6 +3456,7 @@ dependencies = [
  "nagi-pal",
  "nagi-posix",
  "nagi-sdk",
+ "nagi-ui",
  "relibc",
 ]
 
@@ -3536,6 +3537,10 @@ dependencies = [
  "libnagi",
  "nagi-abi",
 ]
+
+[[package]]
+name = "nagi-ui"
+version = "0.1.0"
 
 [[package]]
 name = "new_debug_unreachable"

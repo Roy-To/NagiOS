@@ -37,7 +37,7 @@ jobs:
         run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
       - name: Format
         run: |
-          cargo fmt --package nagi-cli --package nagi-idl --package nagi-bootinfo --package nagi-abi --package nagi-model --package nagi-localization --package nagi-model-manager --package nagi-kernel --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-servo-adapter --package nagi-init --package nagi-package --package nagi-sdk -- --check
+          cargo fmt --package nagi-cli --package nagi-idl --package nagi-bootinfo --package nagi-abi --package nagi-model --package nagi-localization --package nagi-model-manager --package nagi-kernel --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-servo-adapter --package nagi-init --package nagi-ui --package nagi-package --package nagi-sdk -- --check
           cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check
           cargo fmt --manifest-path loader/Cargo.toml -- --check
           rustfmt --check user/nagi-albert/src/lib.rs

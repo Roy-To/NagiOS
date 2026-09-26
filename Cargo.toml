@@ -16,6 +16,7 @@ members = [
     "user/nagi-history",
     "user/nagi-package",
     "user/nagi-model-manager",
+    "user/nagi-ui",
     "user/nagi-servo",
     "user/nagi-init",
 ]

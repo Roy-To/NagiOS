@@ -41,7 +41,9 @@
       "owner_branch": "codex/ws-diagnostics",
       "recommended_worktree": "../nagi-diagnostics",
       "state_file": ".dev/workstreams/diagnostics/state.json",
-      "dependencies": ["development-foundation"],
+      "dependencies": [
+        "development-foundation"
+      ],
       "allowed_paths": [
         "Cargo.lock",
         "docs/implementation_status.md",
@@ -70,7 +72,9 @@
       "owner_branch": "codex/integration-next-phase",
       "recommended_worktree": ".",
       "state_file": ".dev/workstreams/integration-next-phase/state.json",
-      "dependencies": ["development-foundation"],
+      "dependencies": [
+        "development-foundation"
+      ],
       "allowed_paths": [
         ".dev/**",
         ".github/workflows/**",
@@ -104,7 +108,9 @@
       "owner_branch": "codex/0.2-capability-permissions",
       "recommended_worktree": "../NagiOS-0.2-capability",
       "state_file": ".dev/workstreams/capability-permissions/state.json",
-      "dependencies": ["development-foundation"],
+      "dependencies": [
+        "development-foundation"
+      ],
       "allowed_paths": [
         "crates/nagi-capability/**",
         ".dev/workstreams/capability-permissions/**"
@@ -133,8 +139,17 @@
       "recommended_worktree": "../NagiOS-0.2-os-core",
       "state_file": ".dev/workstreams/os-core/state.json",
       "dependencies": [],
-      "allowed_paths": ["kernel/**", "crates/nagi-bootinfo/**", "crates/nagi-abi/**"],
-      "forbidden_paths": [".github/workflows/**", "Cargo.lock", "docs/implementation_status.md", "third_party/**"],
+      "allowed_paths": [
+        "kernel/**",
+        "crates/nagi-bootinfo/**",
+        "crates/nagi-abi/**"
+      ],
+      "forbidden_paths": [
+        ".github/workflows/**",
+        "Cargo.lock",
+        "docs/implementation_status.md",
+        "third_party/**"
+      ],
       "activation_gate": "Nagi 0.1 M30 PASS; integration owner assigns a bounded milestone and ABI contract.",
       "merge_boundary": "0.2 integration branch after kernel and ABI acceptance; no direct main merge."
     },
@@ -144,9 +159,21 @@
       "owner_branch": "codex/0.2-platform-apis",
       "recommended_worktree": "../NagiOS-0.2-platform-apis",
       "state_file": ".dev/workstreams/platform-apis/state.json",
-      "dependencies": ["os-core"],
-      "allowed_paths": ["crates/nagi-model/**", "idl/**", "user/libnagi/**", "user/nagi-history/**"],
-      "forbidden_paths": [".github/workflows/**", "Cargo.lock", "docs/implementation_status.md", "third_party/**"],
+      "dependencies": [
+        "os-core"
+      ],
+      "allowed_paths": [
+        "crates/nagi-model/**",
+        "idl/**",
+        "user/libnagi/**",
+        "user/nagi-history/**"
+      ],
+      "forbidden_paths": [
+        ".github/workflows/**",
+        "Cargo.lock",
+        "docs/implementation_status.md",
+        "third_party/**"
+      ],
       "activation_gate": "Nagi 0.1 M30 PASS; versioned authority, object, Action, Context, Workspace, and Activity contracts are agreed.",
       "merge_boundary": "0.2 integration branch after interface compatibility and negative permission tests pass."
     },
@@ -156,9 +183,22 @@
       "owner_branch": "codex/0.2-first-party-apps",
       "recommended_worktree": "../NagiOS-0.2-first-party-apps",
       "state_file": ".dev/workstreams/first-party-apps/state.json",
-      "dependencies": ["platform-apis", "sdk"],
-      "allowed_paths": ["user/apps/**", "tests/first-party/**", "docs/first-party/**"],
-      "forbidden_paths": ["kernel/**", "idl/**", ".github/workflows/**", "Cargo.lock", "third_party/**"],
+      "dependencies": [
+        "platform-apis",
+        "sdk"
+      ],
+      "allowed_paths": [
+        "user/apps/**",
+        "tests/first-party/**",
+        "docs/first-party/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "idl/**",
+        ".github/workflows/**",
+        "Cargo.lock",
+        "third_party/**"
+      ],
       "activation_gate": "Nagi 0.1 M30 PASS; shared platform contracts and app fixtures are versioned.",
       "merge_boundary": "0.2 integration branch after app-specific and cross-app acceptance."
     },
@@ -168,9 +208,20 @@
       "owner_branch": "codex/0.2-ai-runtime",
       "recommended_worktree": "../NagiOS-0.2-ai-runtime",
       "state_file": ".dev/workstreams/ai-runtime/state.json",
-      "dependencies": ["platform-apis"],
-      "allowed_paths": ["user/nagi-ai/**", "user/nagi-model-manager/**", "tests/ai/**"],
-      "forbidden_paths": ["kernel/**", "third_party/**", ".github/workflows/**", "Cargo.lock"],
+      "dependencies": [
+        "platform-apis"
+      ],
+      "allowed_paths": [
+        "user/nagi-ai/**",
+        "user/nagi-model-manager/**",
+        "tests/ai/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "third_party/**",
+        ".github/workflows/**",
+        "Cargo.lock"
+      ],
       "activation_gate": "Nagi 0.1 M30 PASS; provider-neutral request/result and deterministic action-policy contracts are versioned.",
       "merge_boundary": "0.2 integration branch after offline/failure/permission acceptance; Jev is never a required service."
     },
@@ -180,9 +231,21 @@
       "owner_branch": "codex/0.2-sdk",
       "recommended_worktree": "../NagiOS-0.2-sdk",
       "state_file": ".dev/workstreams/sdk/state.json",
-      "dependencies": ["platform-apis"],
-      "allowed_paths": ["sdk/**", "samples/**", "tools/nagi-pkg/**"],
-      "forbidden_paths": ["kernel/**", "idl/**", ".github/workflows/**", "Cargo.lock", "third_party/**"],
+      "dependencies": [
+        "platform-apis"
+      ],
+      "allowed_paths": [
+        "sdk/**",
+        "samples/**",
+        "tools/nagi-pkg/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "idl/**",
+        ".github/workflows/**",
+        "Cargo.lock",
+        "third_party/**"
+      ],
       "activation_gate": "Nagi 0.1 M30 PASS; public manifest, capability, and generated-binding contracts are versioned.",
       "merge_boundary": "0.2 integration branch after out-of-tree sample, install, isolation, and migration checks."
     },
@@ -193,8 +256,17 @@
       "recommended_worktree": "../NagiOS-0.2-developer-tooling",
       "state_file": ".dev/workstreams/developer-tooling/state.json",
       "dependencies": [],
-      "allowed_paths": ["tools/nagi-cli/**", "tools/nagi-dev/**", "docs/0.2/**"],
-      "forbidden_paths": ["kernel/**", "user/**", "third_party/**", ".github/workflows/**"],
+      "allowed_paths": [
+        "tools/nagi-cli/**",
+        "tools/nagi-dev/**",
+        "docs/0.2/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "user/**",
+        "third_party/**",
+        ".github/workflows/**"
+      ],
       "activation_gate": "Nagi 0.1 M30 PASS for product-facing developer tooling; this foundation's read-only resume/diagnostic helpers are available earlier.",
       "merge_boundary": "0.2 integration branch after host-tool unit tests and clean-checkout verification."
     },
@@ -204,7 +276,9 @@
       "owner_branch": "codex/parallel-acceptance-ci",
       "recommended_worktree": "../NagiOS-0.2-ci-acceptance",
       "state_file": ".dev/workstreams/ci-acceptance/state.json",
-      "dependencies": ["developer-tooling"],
+      "dependencies": [
+        "developer-tooling"
+      ],
       "allowed_paths": [
         ".github/workflows/**",
         "Cargo.lock",
@@ -240,9 +314,20 @@
       "owner_branch": "codex/0.2-documentation",
       "recommended_worktree": "../NagiOS-0.2-documentation",
       "state_file": ".dev/workstreams/documentation/state.json",
-      "dependencies": ["platform-apis"],
-      "allowed_paths": ["docs/0.2/**", "docs/architecture/**", "docs/decisions/**"],
-      "forbidden_paths": ["kernel/**", "user/**", "third_party/**", ".github/workflows/**"],
+      "dependencies": [
+        "platform-apis"
+      ],
+      "allowed_paths": [
+        "docs/0.2/**",
+        "docs/architecture/**",
+        "docs/decisions/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "user/**",
+        "third_party/**",
+        ".github/workflows/**"
+      ],
       "activation_gate": "Nagi 0.1 M30 PASS; update only documented accepted contracts and decisions.",
       "merge_boundary": "0.2 integration branch after contract owners review; do not duplicate normative specifications."
     },
@@ -252,7 +337,10 @@
       "owner_branch": "codex/0.2-app-sdk-contract",
       "recommended_worktree": "../NagiOS-0.2-app-sdk",
       "state_file": ".dev/workstreams/app-sdk-contract/state.json",
-      "dependencies": ["development-foundation", "capability-permissions"],
+      "dependencies": [
+        "development-foundation",
+        "capability-permissions"
+      ],
       "allowed_paths": [
         "sdk/**",
         "tools/nagi-pkg/**",
@@ -279,7 +367,9 @@
       "owner_branch": "codex/0.2-wayback-ledger",
       "recommended_worktree": "../NagiOS-0.2-wayback",
       "state_file": ".dev/workstreams/wayback-activity-ledger/state.json",
-      "dependencies": ["development-foundation"],
+      "dependencies": [
+        "development-foundation"
+      ],
       "allowed_paths": [
         ".dev/workstreams/wayback-activity-ledger/**",
         "crates/nagi-wayback/**",
@@ -309,7 +399,9 @@
       "owner_branch": "codex/ws-localization-i18n",
       "recommended_worktree": "../../.codex/worktrees/nagi-localization-i18n",
       "state_file": ".dev/workstreams/localization-i18n/state.json",
-      "dependencies": ["development-foundation"],
+      "dependencies": [
+        "development-foundation"
+      ],
       "allowed_paths": [
         "crates/nagi-localization/**",
         "docs/architecture/language-architecture.md",
@@ -337,7 +429,9 @@
       "owner_branch": "codex/ws-model-runtime",
       "recommended_worktree": "../../.codex/worktrees/nagi-model-runtime/NagiOS",
       "state_file": ".dev/workstreams/model-runtime/state.json",
-      "dependencies": ["development-foundation"],
+      "dependencies": [
+        "development-foundation"
+      ],
       "allowed_paths": [
         "user/nagi-model-manager/**",
         "docs/architecture/README.md",
@@ -359,6 +453,37 @@
       ],
       "activation_gate": "Host-side model metadata, registry, store lifecycle, and provider contracts only. M20 remains NOT STARTED until earlier milestones pass and a real local Granite response is accepted; 0.2 production runtime integration requires M30 PASS and an explicit integration checkpoint.",
       "merge_boundary": "Host contracts may integrate on codex/integration-next-phase. Do not activate inference, model weights, or runtime services before the milestone and release gates; never merge directly to main."
+    },
+    {
+      "id": "ui-design-system",
+      "owner": "Codex integration owner",
+      "owner_branch": "codex/ws-ui-design-system",
+      "recommended_worktree": "/Users/tozawa/.codex/worktrees/nagi-ui-design-system",
+      "state_file": ".dev/workstreams/ui-design-system/state.json",
+      "dependencies": [],
+      "allowed_paths": [
+        "user/nagi-ui/**",
+        "user/nagi-init/Cargo.toml",
+        "user/nagi-init/src/desktop.rs",
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/ci.yml",
+        "docs/architecture/ui-design-system.md",
+        "docs/architecture/README.md",
+        "docs/superpowers/specs/2026-09-26-ui-design-system-design.md",
+        "docs/workstreams/ui-design-system.md",
+        "docs/implementation_status.md",
+        ".dev/workstreams/ui-design-system/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "third_party/**",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "The shared UI contract and host-only adapters may integrate before M30. Target visual/runtime acceptance must be independently verified; 0.2 product/runtime adoption requires Nagi 0.1 M30 PASS and an explicit integration checkpoint.",
+      "merge_boundary": "Host-side UI foundation may integrate on codex/integration-next-phase. Do not claim M10 guest UI acceptance while the M5 ELF loader prevents desktop startup; do not merge directly to main."
     }
   ]
 }

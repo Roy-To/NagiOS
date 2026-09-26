@@ -3039,6 +3039,29 @@ third-party, model-download, CI-runtime, QEMU, acceptance-test, or
 `third_party/servo/` directory remains untouched and is not treated as M17
 acceptance evidence.
 
+# 3F. UI Design System parallel workstream
+
+**State:** `BLOCKED` for guest integration verification; independent UI
+implementation and focused tests pass. This is a separate shared-foundation
+workstream and does not revise the historical M10 milestone result above.
+
+The new `user/nagi-ui` `no_std` crate provides semantic light/dark tokens,
+logical layout and surface contracts, deterministic control/focus/dialog and
+Command Palette state, localization/layout adapters, and accessibility
+metadata. M10 now maps its preview desktop colors through those semantic roles.
+See `docs/architecture/ui-design-system.md` and
+`docs/workstreams/ui-design-system.md` for API and acceptance evidence.
+
+Host unit tests (27/27), focused Clippy, formatting, the public contract gallery,
+and a Nagi x86-64 `core` target check passed. The M10 target image built, but
+QEMU stopped before the UI: `out/logs/m10-first-boot.log` reports M5
+`invalid-elf`. The built ELF contains an empty `PT_TLS` program header, and
+`kernel/src/user_elf.rs::validate_tls_segment` rejects its zero memory size.
+The kernel/loader is owned by another workstream and was left unchanged. The
+full host workspace test was attempted but cannot compile x86-only `libnagi`
+inline assembly on this Apple Silicon host. Neither the M10 QEMU result nor the
+full-workspace host test is recorded as PASS.
+
 # 4. Current milestone detail
 
 ## M0 遯ｶ繝ｻRepository / Toolchain / CI

@@ -1,0 +1,108 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "ui-design-system",
+  "current_milestone": "UI-DESIGN-SYSTEM",
+  "current_checkpoint": "shared-ui-host-contracts-verified-target-preview-blocked-before-ui",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "53b2dbe562c9dcab926bbcaec9300afdef7d30cc",
+    "verified_at": "2026-09-26T08:57:01Z",
+    "normal_state": "The shared nagi-ui no_std contract, its M10 semantic-color adapter, documentation, and root package registration are being integrated on codex/integration-next-phase. Focused host tests, Clippy, formatting, and the UEFI library check passed with the pinned arm64 Rust toolchain. The source branch CI passed Ubuntu and Windows host jobs and built the Nagi target, then failed only at M17 first-web-pixel acceptance; no pixel checksum or M17 PASS marker was produced. The separate M10 desktop preview built its target image but QEMU stopped at the existing M5 invalid-elf check before the UI started. Official M10 historical status is unchanged. M17 remains BLOCKED and M18 remains NOT STARTED.",
+    "commands": [
+      "cargo fmt --package nagi-ui --package nagi-init -- --check",
+      "cargo test -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo clippy -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo check -p nagi-ui --lib --no-default-features --target x86_64-unknown-uefi --locked --offline",
+      "./nagi desktop",
+      "GitHub Actions Nagi CI run 36216784905",
+      "./nagi dev verify",
+      "git diff --check"
+    ],
+    "tests": [
+      {
+        "name": "nagi-ui focused host suite",
+        "command": "cargo test -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 unit tests passed; the component gallery example target compiled with zero example tests."
+      },
+      {
+        "name": "nagi-ui warning-free Clippy",
+        "command": "cargo clippy -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All package targets passed with warnings denied."
+      },
+      {
+        "name": "nagi-ui and M10 formatting",
+        "command": "cargo fmt --package nagi-ui --package nagi-init -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both modified packages pass the pinned formatter check."
+      },
+      {
+        "name": "nagi-ui UEFI library compile",
+        "command": "cargo check -p nagi-ui --lib --no-default-features --target x86_64-unknown-uefi --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The backend-neutral no_std crate compiles for x86_64-unknown-uefi."
+      },
+      {
+        "name": "M10 desktop QEMU preview",
+        "command": "./nagi desktop",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "The target image built, but QEMU stopped in the existing M5 ELF loader with invalid-elf because of an empty PT_TLS header before nagi-init/UI startup. This does not revise M10 historical PASS and is not a UI PASS."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36216784905,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36216784905",
+        "head_sha": "53b2dbe562c9dcab926bbcaec9300afdef7d30cc",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host jobs passed; Nagi target dependencies, kernel, user init, and UEFI loader built. Only the unchanged M17 first-web-pixel acceptance failed; no guest pixel checksum or M17 PASS marker."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
+    "last_checked_at": "2026-09-26T08:57:01Z",
+    "activation_requirement": "The shared UI host foundation is independent of the 0.2 runtime gate. Any 0.2 product/runtime adoption remains NOT STARTED until Nagi 0.1 M30 PASS and an explicit integration checkpoint; this workstream does not change M17 or M18."
+  },
+  "blocker": {
+    "active": true,
+    "class": "BOOT",
+    "summary": "The existing M5 ELF loader rejects the empty PT_TLS header in the target nagi-init image, so the M10 desktop UI does not start in QEMU and target visual/input behavior cannot be verified.",
+    "reproduction_commands": [
+      "./nagi desktop"
+    ],
+    "failure_log_summary": "The prior target preview reports M5 invalid-elf; llvm-readelf shows PT_TLS with zero virtual address, file size, memory size, and alignment. kernel/src/user_elf.rs::validate_tls_segment rejects memory_size == 0.",
+    "attempted_fixes": [
+      "Built the M10 target image; QEMU still stopped before desktop startup at the M5 ELF loader.",
+      "Verified nagi-ui compiles for x86_64-unknown-uefi and passed its host state-contract suite; these checks do not exercise the guest UI."
+    ],
+    "do_not_try": [
+      "Do not change kernel/** or loader/** as part of the UI workstream; the PT_TLS issue belongs to their owner.",
+      "Do not change historical M10 PASS, mark target UI acceptance PASS, or claim a pixel checksum without guest evidence.",
+      "Do not change M17 BLOCKED or start M18 based on host/UI library checks."
+    ]
+  },
+  "next_action": "Run root integration CI for the merged UI code, confirm host package and target image builds, and keep M10 UI guest verification blocked until its owning M5 loader fix allows desktop startup. Add target rendering/input acceptance when the guest reaches the actual UI. Continue to keep 0.2 runtime adoption behind M30 PASS and an explicit checkpoint.",
+  "acceptance_criteria": [
+    "Semantic light/dark roles and typography, spacing, density, radius, elevation, and motion tokens are defined and tested.",
+    "Reusable deterministic component, focus, dialog, and Command Palette state contracts are available without drawing pixels or executing app actions.",
+    "Localization sizing and accessibility metadata remain adapter contracts and do not invent localization, assistive-technology, compositor, or kernel services.",
+    "The no_std UI crate compiles for the Nagi user target and is registered in the root Cargo workspace.",
+    "Host tests, Clippy, and formatting pass.",
+    "Target desktop rendering/input behavior is recorded only after the guest actually reaches the UI."
+  ],
+  "deferred": [
+    "Guest target desktop rendering and input acceptance after the M5 ELF loader reaches M10 user init.",
+    "Runtime theme and reduced-motion settings from system services, shared localization service wiring, renderer drawing, and actual assistive-technology delivery.",
+    "0.2 application/runtime adoption until M30 PASS and explicit integration checkpoint."
+  ],
+  "cross_workstream_dependencies": []
+}
