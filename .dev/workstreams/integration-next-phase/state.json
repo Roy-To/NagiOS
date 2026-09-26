@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "windows-m0-launcher-path-repair-ci-running",
+  "current_checkpoint": "windows-m0-locked-executable-repair-ci-running",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "9fc3f10d36b70862a219de24b21a043974a3e1a9",
-    "verified_at": "2026-09-26T09:30:23Z",
-    "normal_state": "At 9fc3f10, the UI foundation and first-party host adapters remain integrated; target app launch, durable target storage, and target Action dispatch remain NOT RUN. Prior focused host suites, Clippy, formatting, bilingual memory-only preview, and DF-01 validation remain recorded as passing. Root #36231902947 passed Ubuntu but Windows failed M0 PowerShell script-root resolution. First repair 83faf55 used $PSCommandPath but CI #36232534175 showed its extended \\\\?\\ path retained .. segments, so Test-Path could not resolve nagi.ps1; Ubuntu passed and the target was skipped. Repair 9fc3f10 now walks DirectoryInfo.Parent twice and removes the dot segments. Local M0 acceptance passed via the Linux shell wrapper; this host has no pwsh, so Windows verification is pending #36232966992. First-party target #36230579035 remains in M17 acceptance; #36231127467 host jobs passed and its target is pending. Read-only reviews deferred unregistered branches 59d7e10 (parallel capability-core) and 4943fd8 (parallel Wayback ledger) for duplicate/incompatible contracts, no remote CI, and Wayback ownership/authorization violations. M17 remains BLOCKED without a real guest pixel checksum and marker; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS and an explicit release checkpoint.",
+    "commit_sha": "0dca4156265fa0ddb03a478b1122365e58431311",
+    "verified_at": "2026-09-26T09:42:14Z",
+    "normal_state": "The shared UI foundation and first-party host adapters remain integrated. The M0 PowerShell acceptance root resolution now succeeds on Windows, but root run #36232966992 then failed when nested cargo attempted to replace the running test runner at target/debug/nagi.exe (Access denied). Commit 3d2001c isolates the nested launcher builds with a temporary CARGO_TARGET_DIR and restores/removes it afterward; root run #36233551349 is checking that repair. The current host passes focused CLI tests (103 unit + 26 integration), formatting, Clippy, M0 Linux shell acceptance, and DF-01 validation; the latest PowerShell change is not yet verified on Windows. First-party target run #36230579035 remains at M17 first-web-pixel acceptance. The unregistered parallel capability and Wayback branches remain deferred after compatibility/security review. M17 remains BLOCKED without real guest pixel checksum and marker, M18 remains NOT STARTED, and 0.2 runtime/product work remains gated on M30 PASS plus an explicit release checkpoint.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -80,7 +80,10 @@
       "gh run view 36232534175 --json status,conclusion,jobs,url",
       "gh run view 36232534175 --log-failed",
       "gh run download 36232534175 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362325-windows",
-      "gh run view 36232966992 --json status,conclusion,jobs,url"
+      "gh run view 36232966992 --json status,conclusion,jobs,url",
+      "gh run view 36232966992 --log-failed",
+      "gh run download 36232966992 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362329-windows",
+      "gh run view 36233551349 --json status,conclusion,jobs,url"
     ],
     "tests": [
       {
@@ -450,9 +453,16 @@
       {
         "name": "Windows M0 PowerShell acceptance after parent-directory path repair",
         "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Run 36232966992 confirmed path resolution reached the launcher; nested cargo then failed to remove the active target/debug/nagi.exe (Access denied). Commit 3d2001c isolates nested Cargo output; next Windows run is pending."
+      },
+      {
+        "name": "Windows M0 PowerShell acceptance with isolated Cargo target",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
         "outcome": "IN_PROGRESS",
         "exit_code": null,
-        "evidence": "Run 36232966992 is checking the committed DirectoryInfo.Parent-based root resolution; this macOS host has no pwsh."
+        "evidence": "Root run 36233551349 is testing the temporary CARGO_TARGET_DIR approach; local host has no pwsh."
       }
     ],
     "ci_runs": [
@@ -612,15 +622,23 @@
         "run_id": 36232966992,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36232966992",
         "head_sha": "9fc3f10d36b70862a219de24b21a043974a3e1a9",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu passed. Windows script-root resolution succeeded, but M0 acceptance failed when nested cargo tried to replace the active target/debug/nagi.exe (Access denied); target was skipped. Commit 3d2001c isolates nested builds under a temporary CARGO_TARGET_DIR."
+      },
+      {
+        "run_id": 36233551349,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36233551349",
+        "head_sha": "3d2001c58f64cd5a3f63751224c2fb21ee325e40",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Second Windows M0 path fix uses DirectoryInfo.Parent traversal to avoid \\?\\ extended-path dot segments. Ubuntu and Windows host jobs are running; target is gated."
+        "summary": "Checks temporary Cargo target isolation for nested Windows launcher invocations; Ubuntu and Windows jobs are running, target is gated."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T09:30:23Z",
+    "last_checked_at": "2026-09-26T09:42:14Z",
     "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
   },
   "blocker": {
@@ -636,7 +654,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Inspect root CI run 36232966992. If Windows and Ubuntu host jobs pass, inspect the M17 target artifact for a real guest pixel checksum and acceptance marker; keep M17 BLOCKED otherwise and M18 NOT STARTED. Continue host-only work under the existing M30 plus explicit release-checkpoint gate. Keep the unregistered parallel capability and Wayback branches deferred unless their contracts and ownership/security boundaries are reconciled.",
+  "next_action": "Inspect root CI run 36233551349 for Windows M0 acceptance. If both host jobs pass, inspect the M17 target artifact for a real guest pixel checksum and acceptance marker; otherwise repair only from the retained artifact. Keep M17 BLOCKED/M18 NOT STARTED and all 0.2 runtime/product work gated on M30 PASS plus an explicit release checkpoint.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",

@@ -3090,9 +3090,13 @@ commit `83faf55`, used `$PSCommandPath`, but run `36232534175` showed that the
 Windows `\\?\` extended path retained `..` segments and `Test-Path` could not
 resolve the launcher. Commit `9fc3f10` now derives the repository root by
 walking the script directory's parent directories, removing those segments.
+Run `36232966992` confirmed this path resolution but then exposed a Windows
+file-lock failure: nested Cargo could not replace the running
+`target/debug/nagi.exe`. Commit `3d2001c` gives the nested launcher checks an
+isolated temporary `CARGO_TARGET_DIR` and restores the environment afterward.
 The local M0 host run passed through the Linux shell wrapper; this macOS host
 has no `pwsh`, so that does not verify the Windows script. Root run
-`36232966992` is checking the second repair. M17 remains `BLOCKED` until the
+`36233551349` is checking the isolated build. M17 remains `BLOCKED` until the
 real guest produces its pixel checksum and acceptance marker; M18 remains
 `NOT STARTED`. The UI-specific M10 guest preview remains blocked before UI
 startup by the existing M5 `invalid-elf` / empty `PT_TLS` failure. No kernel
