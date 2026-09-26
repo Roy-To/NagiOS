@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "owner-thread-scheduler-ci-failed-root-trace-active",
+  "current_checkpoint": "active-ci-status-visibility-verified",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "4c453969ebd303b7a9ec40803f3b4f61b17d8d75",
-    "verified_at": "2026-09-26T11:43:22Z",
-    "normal_state": "Root code commit 4c45396 fixes the acceptance-stage misclassification seen in run 36235660277; the nagi-cli suite passes (107 unit and 26 integration tests), formatting and warning-denied Clippy pass. Run 36235660277 itself failed M17 after Servo profile pthread_create EAGAIN (11), a 120-second QEMU timeout, and no pixel checksum/PASS marker. The detailed owner-branch run 36232073962 at 18ee17a confirms the failure: SYS_THREAD_CREATE rejected because the single child slot was occupied after its 16 KiB stack had been mapped. The root bounded trace run 36236310925 remains active in Build Nagi user init; it has not produced QEMU evidence yet. The separate M17 owner scheduler commit 71fd5c3 with 16 cooperative thread slots failed public run 36237832887: its target timed out at Servo construction with no pixel marker, and both host jobs failed the old source assertion expecting the former direct TLS assignment. The owner worktree is dirty in docs and one commit ahead at 4d79bbe, a local test assertion update not on the remote CI head; it is preserved and untouched. Root classifier CI #36239110612 passed host jobs and its target remains queued behind #36236310925. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS plus an explicit release checkpoint. The app, SDK, capability-permissions, development-foundation, Wayback-ledger, diagnostics, localization, model-runtime, UI, and acceptance source branches had no missing integration-safe source commits in the earlier audit. The separate parallel capability and Wayback core changes remain deferred for conflicting ownership/authorization. Other dirty M17 and first-party worktrees remain untouched.",
+    "commit_sha": "faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1",
+    "verified_at": "2026-09-26T11:50:16Z",
+    "normal_state": "Integration code commit faeeb22 fixes dev status so every queued/in-progress CI run is shown before completed runs. The nagi-cli suite passes (108 unit and 26 integration tests), formatting and warning-denied Clippy pass, and DF-01 verification passes. Run 36228898043 is now confirmed COMPLETED FAILURE: its target reached Servo construction, pthread_create returned EAGAIN, and M17 produced no checksum or PASS marker. Run 36236310925 remains in progress building Nagi user init; run 36239110612 remains pending at the target job. Run 36240025711 is validating faeeb22; both host jobs are currently in progress and its target job has not appeared. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS and an explicit release checkpoint.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -118,7 +118,8 @@
       "gh run view 36237832887 --job 108392749643 --log-failed",
       "git show --stat --oneline 71fd5c3",
       "git show --format= --no-ext-diff 4d79bbe -- tools/nagi-cli/src/mesa.rs",
-      "git -C /Users/tozawa/.codex/worktrees/m17-allocator-diagnosis/NagiOS status --short --branch"
+      "git -C /Users/tozawa/.codex/worktrees/m17-allocator-diagnosis/NagiOS status --short --branch",
+      "cargo test -p nagi-cli --locked --offline --config 'build.target=\"aarch64-apple-darwin\"' status_keeps_active_ci_runs_visible_ahead_of_newer_completed_runs"
     ],
     "tests": [
       {
@@ -673,6 +674,27 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "18 registered workstreams and 11 state files validate on integration head c759fa4 before this status-only checkpoint."
+      },
+      {
+        "name": "Active CI run visibility regression and full CLI suite",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 108 library tests and 26 CLI integration tests passed, including the regression that keeps queued and in-progress runs visible ahead of newer completed runs."
+      },
+      {
+        "name": "CLI formatting and warning-denied Clippy",
+        "command": "cargo fmt --package nagi-cli -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "DF-01 state verification after active-CI summary fix",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validated with faeeb22 as the current integration code commit."
       }
     ],
     "ci_runs": [
@@ -680,9 +702,9 @@
         "run_id": 36228898043,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36228898043",
         "head_sha": "e06ff39976704a0219cd3485703d6ca3ff4b8ebc",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Earlier pre-acceptance-runner root checkpoint; host jobs passed and its M17 target acceptance remained in progress at the latest check."
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed. Target Servo construction reached pthread_create EAGAIN; M17 acceptance exited 4 with no real pixel checksum or guest PASS marker."
       },
       {
         "run_id": 35975771855,
@@ -891,6 +913,14 @@
         "status": "COMPLETED",
         "conclusion": "FAILURE",
         "summary": "Owner scheduler branch public CI failed: both host jobs hit a stale direct-TLS source assertion, and the target QEMU timed out at Servo construction without checksum/PASS marker. Local owner test adjustment 4d79bbe is unpushed and not CI-verified."
+      },
+      {
+        "run_id": 36240025711,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36240025711",
+        "head_sha": "faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Both host jobs are in progress for the active-CI status visibility fix; the target job has not appeared in the current run job listing."
       }
     ]
   },
@@ -912,7 +942,7 @@
       "Do not merge this integration branch to main without explicit user direction."
     ]
   },
-  "next_action": "Observe root trace run 36236310925 through M17 QEMU acceptance and inspect classifier CI run 36239110612 when its target slot opens. The owner-branch run 36232073962 already confirms the original rejection was SYS_THREAD_CREATE child-slot occupied with a mapped 16 KiB stack. Owner scheduler commit 71fd5c3 did not pass its public run 36237832887: QEMU timed out at Servo construction without pixel evidence, and both host jobs failed a stale TLS source assertion. Do not integrate or modify the owner kernel work; its local test adjustment 4d79bbe is unpushed and not CI-verified. Keep M17 BLOCKED until the real guest checksum and acceptance marker appear, M18 NOT STARTED, and 0.2 runtime/product gated on M30 PASS plus explicit release checkpoint.",
+  "next_action": "Monitor root trace run 36236310925 through M17 QEMU acceptance and inspect classifier run 36239110612 when its target slot opens. Track run 36240025711 for host completion and target scheduling. Run 36228898043 is confirmed failed during Servo construction with pthread_create EAGAIN and no pixel evidence. Do not integrate or modify the owner kernel work; its local test adjustment 4d79bbe is unpushed and not CI-verified. Keep M17 BLOCKED until the real guest checksum and acceptance marker appear, M18 NOT STARTED, and 0.2 runtime/product gated on M30 PASS plus an explicit release checkpoint.",
   "acceptance_criteria": [
     "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
     "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
