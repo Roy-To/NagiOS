@@ -22,24 +22,30 @@ Repository instructions:
 milestone. CI #204 confirmed Mesa patch `0030` detected the bad EGL TLS cookie,
 reset the state, completed EGL make-current, and reached Surfman's GL function
 loading start marker. Rust std then panicked because `__nagi_std_random_fill`
-returned -1.
-CI #204 did not contain the new `SYS_RANDOM_GET` failure trace, so the rejected
-user buffer versus guest VirtIO RNG error is still unknown. Source audit found
-the VirtIO transitional RNG PCI ID was wrong: `0x1003` is the console, while
-the entropy device is `0x1005`. The scanner now recognizes the correct ID and
-has a regression check. CI #205 is still running the previous revision; the
-next target run must verify the corrected device discovery and entropy request.
-No Servo frame or pixel checksum has been produced. M17 remains BLOCKED; M18
-remains NOT STARTED.
+returned -1. Kernel diagnostics and source audit then identified the concrete
+cause: the guest RNG scanner used transitional PCI ID `0x1003` (VirtIO console)
+instead of `0x1005` (VirtIO entropy). The scanner now recognizes `0x1005` and
+modern ID `0x1044`, with a regression check. CI #205 (Actions run ID
+`36219851280`, head `d4ce627`) was canceled during `Build Nagi user init` after
+the next push; it produced no QEMU acceptance evidence. Actions run #232
+(`36220293827`, head `35efaf6`) passed both host jobs and all target builds.
+Its QEMU run passed persistence, initialized EGL/Softpipe, and created the GL
+context. Servo construction then failed on a 512-byte allocation from the
+fixed 8 MiB POSIX heap and QEMU timed out after 120 seconds. The working
+hypothesis is that the bootstrap heap is too small for Servo initialization.
+Local follow-up under ADR 0027 expands the bounded heap to 64 MiB and its mmap
+backing window to 128 MiB while preserving the guest-only allocation path. The
+change still needs public QEMU verification. No Servo frame or pixel checksum
+has yet been produced. M17 remains BLOCKED; M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36216371334` (#204, head
-`e674668c04061c9abfaf944f609b5f29bf108310`) passed target builds through UEFI
-loader. QEMU timed out after 120 seconds after EGL make-current returned and
-Surfman began loading GL functions; Rust std panicked on guest random failure.
-The Ubuntu host lint job separately failed on a Clippy `filter_next` warning,
-now corrected locally. No frame or pixel checksum was produced. Public target
-CI remains authoritative for M17; M18 remains NOT STARTED.
+**Last known repair checkpoint:** public CI run `36220293827` (Actions run
+#232, head `35efaf661fa3bd4c2e7fb207b9e03e11d4cc4b38`) passed both host jobs and
+all target build steps through UEFI. QEMU accepted persistent storage and
+reached `Servo construction started`, then reported `memory allocation of 512
+bytes failed`; the guest did not exit and QEMU timed out at 120 seconds. No
+pixel result is available. Public target CI remains authoritative for M17;
+M18 remains NOT STARTED.
 
 ### Target evidence from CI run #204 (2026-09-26)
 
@@ -109,9 +115,49 @@ transitional ID `0x1005`; the scanner now accepts `0x1005` and modern ID
 The Nagi kernel release target build and x86_64 host-workspace Clippy also
 pass. The kernel test binary could not be linked on this Mac because the
 installed linker cannot link an x86_64 Linux test harness; the actual Nagi
-target build succeeded. CI #205 predates the ID correction, so the fixed guest
-RNG path still requires public target verification. M17 remains `BLOCKED`; M18
-remains `NOT STARTED`.
+target build succeeded. CI #205 predates the ID correction and was canceled
+before QEMU acceptance. Actions run #232 now builds the corrected revision and
+is the first public QEMU verification of the fixed guest RNG path. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+### Target evidence from CI Actions run #232 (2026-09-26)
+
+Actions run `36220293827` uses head
+`35efaf661fa3bd4c2e7fb207b9e03e11d4cc4b38`. Ubuntu host and Windows launcher
+jobs passed. The target job passed Servo/Mesa bootstrap, the M17 dependency
+boundary, Mesa Softpipe archive, package, kernel, user-init, and UEFI builds.
+The QEMU acceptance passed its persistent-storage check, created the Mesa
+Softpipe GL context and swap chain, and entered Servo construction. The guest
+then reported `memory allocation of 512 bytes failed`, redirected `abort()`
+to `mozalloc_abort`, and did not exit within the 120-second QEMU bound. No
+first-web-pixel checksum or PASS marker was produced. The prior random failure
+did not recur before this later failure; the fixed RNG path has advanced beyond
+the previous stopping point but still needs continued runtime verification.
+Source inspection found that all Rust/C++ user allocations share a single
+8 MiB POSIX heap, while the bootstrap mmap window is 16 MiB. The local
+follow-up under ADR 0027 enlarges this finite guest-owned allocation budget;
+public QEMU verification is still required. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+### Local continuation after CI Actions run #232 (2026-09-26)
+
+ADR 0027 expands the POSIX heap from 8 MiB to 64 MiB and the kernel's bounded
+bootstrap mmap window from 16 MiB to 128 MiB. The first-fit mmap search now
+checks the four registered regions directly instead of using a per-page stack
+bitmap; this keeps the 128 MiB window within the 16 KiB syscall stack. A
+failure in `nagi_posix_malloc` now reports whether the heap mapping was
+unavailable or the mapped allocator returned no block.
+
+Local checks passed: `cargo fmt --all -- --check`, `git diff --check`,
+`cargo check -p nagi-kernel --tests --target x86_64-unknown-linux-gnu --locked`,
+the Nagi release kernel build, `cargo check -p nagi-posix --tests --target
+x86_64-unknown-linux-gnu --locked`, the Nagi-target `nagi-posix` library check,
+and the CI-equivalent workspace Clippy command. The POSIX and kernel unit test
+sources compile for x86_64, but their test binaries cannot be run on this
+Apple-Silicon host because the kernel and syscall crates use x86-only inline
+assembly. The next public target run must verify that the expanded heap carries
+Servo through construction to the real frame checksum. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #202 (2026-09-26)
 

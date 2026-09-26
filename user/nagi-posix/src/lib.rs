@@ -74,8 +74,8 @@ use errno::{set_errno, EBADF, EINVAL, ENOSYS};
 #[cfg(target_os = "nagi")]
 use nagi_pal::time::{Clock, GuestClock};
 
-#[cfg(target_os = "nagi")]
-const POSIX_HEAP_SIZE: usize = 8 * 1024 * 1024;
+#[cfg(any(target_os = "nagi", test))]
+const POSIX_HEAP_SIZE: usize = 64 * 1024 * 1024;
 #[cfg(target_os = "nagi")]
 const BLOCK_HEADER_SIZE: usize = 16;
 #[cfg(target_os = "nagi")]
@@ -285,12 +285,27 @@ pub extern "C" fn nagi_posix_malloc(size: usize) -> *mut u8 {
     #[cfg(target_os = "nagi")]
     {
         acquire_heap_lock();
-        let result = unsafe { initialize_heap().and_then(|_| allocate_from_heap(size)) };
+        let (heap_ready, result) = unsafe {
+            let heap_ready = initialize_heap().is_some();
+            let result = if heap_ready {
+                allocate_from_heap(size)
+            } else {
+                None
+            };
+            (heap_ready, result)
+        };
         release_heap_lock();
-        result.unwrap_or_else(|| {
-            set_errno(ENOMEM);
-            ptr::null_mut()
-        })
+        if let Some(pointer) = result {
+            return pointer;
+        }
+        let diagnostic = if heap_ready {
+            b"Nagi M17 trace: POSIX allocator returned no block\r\n" as &[u8]
+        } else {
+            b"Nagi M17 trace: POSIX heap mapping unavailable\r\n"
+        };
+        let _ = libnagi::console_write(diagnostic);
+        set_errno(ENOMEM);
+        ptr::null_mut()
     }
     #[cfg(not(target_os = "nagi"))]
     {
@@ -535,9 +550,14 @@ pub extern "C" fn nagi_posix_sleep_ns(duration: u64) -> i32 {
 mod tests {
     use super::{
         nagi_posix_malloc, nagi_posix_mmap, nagi_posix_mprotect, nagi_posix_munmap,
-        nagi_posix_poll, nagi_posix_write,
+        nagi_posix_poll, nagi_posix_write, POSIX_HEAP_SIZE,
     };
     use crate::errno::{errno, EINVAL, ENOSYS};
+
+    #[test]
+    fn servo_posix_heap_budget_is_64_mib() {
+        assert_eq!(POSIX_HEAP_SIZE, 64 * 1024 * 1024);
+    }
 
     #[test]
     fn invalid_c_arguments_fail_closed() {

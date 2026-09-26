@@ -34,7 +34,7 @@ pub const USER_TLS_CHILD_BASE: u64 = USER_TLS_BASE + USER_TLS_PAGES_PER_THREAD a
 pub const USER_TLS_CHILD_CONTROL_BASE: u64 = USER_TLS_CHILD_BASE + PAGE_SIZE;
 pub const USER_TLS_LIMIT: u64 = USER_TLS_BASE + USER_TLS_PAGE_COUNT as u64 * PAGE_SIZE;
 pub const USER_MMAP_BASE: u64 = USER_IMAGE_LIMIT + 0x0080_0000;
-const USER_MMAP_PAGE_TABLES: usize = 8;
+const USER_MMAP_PAGE_TABLES: usize = 64;
 pub const USER_MMAP_PAGES: usize = PAGE_TABLE_ENTRIES * USER_MMAP_PAGE_TABLES;
 pub const USER_MMAP_LIMIT: u64 = USER_MMAP_BASE + USER_MMAP_PAGES as u64 * PAGE_SIZE;
 pub const USER_SURFACE_LIMIT: u64 = USER_SURFACE_BASE + SURFACE_PAGE_COUNT as u64 * PAGE_SIZE;
@@ -315,14 +315,7 @@ pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
     let page_count = validate_mmap_request(length, protection)?;
     let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
     let slot = storage.mmap_regions.iter().position(Option::is_none)?;
-    let mut used = [false; USER_MMAP_PAGES];
-    for region in storage.mmap_regions.iter().flatten() {
-        for page in region.start_page..region.start_page + region.page_count {
-            used[page] = true;
-        }
-    }
-    let start_page = (0..=USER_MMAP_PAGES - page_count)
-        .find(|start| (0..page_count).all(|offset| !used[*start + offset]))?;
+    let start_page = find_mmap_start_page(&storage.mmap_regions, page_count)?;
     for page in start_page..start_page + page_count {
         storage.mmap_pages[page].0.fill(0);
     }
@@ -335,6 +328,26 @@ pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
         protection: protection as u8,
     });
     Some(USER_MMAP_BASE + start_page as u64 * PAGE_SIZE)
+}
+
+fn find_mmap_start_page(
+    regions: &[Option<MmapRegion>; MAX_MMAP_REGIONS],
+    page_count: usize,
+) -> Option<usize> {
+    if page_count == 0 || page_count > USER_MMAP_PAGES {
+        return None;
+    }
+    for start_page in 0..=USER_MMAP_PAGES - page_count {
+        let end_page = start_page + page_count;
+        let fits = regions.iter().flatten().all(|region| {
+            let region_end = region.start_page + region.page_count;
+            end_page <= region.start_page || region_end <= start_page
+        });
+        if fits {
+            return Some(start_page);
+        }
+    }
+    None
 }
 
 /// Re-map an existing Nagi-owned range at its exact guest address.
@@ -1460,10 +1473,11 @@ mod tests {
     };
 
     use super::{
-        build_address_space, efer_with_nxe, image_range_is_mapped, mapped_range, mmap_page_flags,
-        reset_child_tls_pages, validate_mmap_request, BootstrapStorage, UserProcessError,
-        USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES, USER_TLS_BASE,
-        USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT,
+        build_address_space, efer_with_nxe, find_mmap_start_page, image_range_is_mapped,
+        mapped_range, mmap_page_flags, reset_child_tls_pages, validate_mmap_request,
+        BootstrapStorage, MmapRegion, UserProcessError, MAX_MMAP_REGIONS, USER_MMAP_BASE,
+        USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES, USER_SURFACE_LIMIT,
+        USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT,
     };
 
     fn boxed_storage() -> Box<BootstrapStorage> {
@@ -1482,6 +1496,32 @@ mod tests {
         assert_eq!(USER_STACK_PAGES, PAGE_TABLE_ENTRIES);
         assert_eq!(USER_STACK_LIMIT - USER_STACK_BASE, 2 * 1024 * 1024);
         assert!(USER_STACK_LIMIT <= USER_TLS_BASE);
+    }
+
+    #[test]
+    fn bootstrap_mmap_window_reserves_128_mib_after_the_surface_region() {
+        assert_eq!(USER_MMAP_PAGES as u64 * PAGE_SIZE, 128 * 1024 * 1024);
+        assert!(USER_SURFACE_LIMIT <= USER_MMAP_BASE);
+    }
+
+    #[test]
+    fn mmap_first_fit_uses_registered_regions_without_page_scratch_space() {
+        let mut regions = [None; MAX_MMAP_REGIONS];
+        regions[0] = Some(MmapRegion {
+            start_page: 0,
+            page_count: 4,
+            protection: PROT_READ as u8,
+        });
+        regions[1] = Some(MmapRegion {
+            start_page: 8,
+            page_count: 4,
+            protection: PROT_READ as u8,
+        });
+
+        assert_eq!(find_mmap_start_page(&regions, 4), Some(4));
+        assert_eq!(find_mmap_start_page(&regions, 5), Some(12));
+        assert_eq!(find_mmap_start_page(&regions, 0), None);
+        assert_eq!(find_mmap_start_page(&regions, USER_MMAP_PAGES + 1), None);
     }
 
     fn plan(memory_size: u64) -> UserLoadPlan {
