@@ -1,0 +1,19 @@
+[package]
+name = "nagi-home-search"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Keep this previewable contract package isolated until the integration owner
+# adds it to the Nagi workspace manifest and shared lockfile.
+[workspace]
+resolver = "2"
+
+[dependencies]
+nagi-model = { path = "../../crates/nagi-model" }
+nagi-package = { path = "../nagi-package" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
