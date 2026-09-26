@@ -249,6 +249,34 @@
       ],
       "activation_gate": "Host-side contract/reference work only. Filesystem/runtime integration, restore execution, and user-facing product adoption require Nagi 0.1 M30 PASS plus an explicit 0.2 integration checkpoint.",
       "merge_boundary": "Host-side contracts may integrate on codex/integration-next-phase after focused checks; runtime and product adoption remain gated, and this branch must never merge directly to main."
+    },
+    {
+      "id": "localization-i18n",
+      "owner": "Codex Localization / i18n workstream",
+      "owner_branch": "codex/ws-localization-i18n",
+      "recommended_worktree": "../../.codex/worktrees/nagi-localization-i18n",
+      "state_file": ".dev/workstreams/localization-i18n/state.json",
+      "dependencies": ["development-foundation"],
+      "allowed_paths": [
+        "crates/nagi-localization/**",
+        "docs/architecture/language-architecture.md",
+        "docs/guides/localization.md",
+        "docs/workstreams/localization-i18n/**",
+        ".dev/workstreams/localization-i18n/**"
+      ],
+      "forbidden_paths": [
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/**",
+        "docs/implementation_status.md",
+        "kernel/**",
+        "loader/**",
+        "third_party/**",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "Catalog and host-library contracts may be prepared before M30; production Settings, input, Albert, UI, or first-party service integration must follow its owning milestone and the explicit release boundary.",
+      "merge_boundary": "Host localization foundation is integrated on codex/integration-next-phase; no direct main merge or production service activation."
     }
   ]
 }
