@@ -7,8 +7,8 @@
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "1554246e9a45df27d6b04ee16593eaa3925b9aa9",
-    "verified_at": "2026-09-26T17:19:01Z",
-    "normal_state": "The first-party workstream remains PARTIAL because public target app/runtime services are unavailable. At source SHA 1554246e9a45df27d6b04ee16593eaa3925b9aa9, Files passes 65 library tests plus one CLI test, Notes passes 28 acceptance tests, and the real-provider cross-app suite passes 11 tests. Files now binds FileEntry/checkpoint reads to ResourceId, rechecks source identity and rights after Activity/checkpoint callbacks, and validates stored Trash payload identity during restore, deletion, and recovery. Notes now has a regression proving latest and historical reads reject symlinked revision files. Host/Windows Clippy, Windows test compilation, formatting, diff checks, and development-state validation pass. CI run 36257986412 passed Ubuntu host jobs but its Windows dependency bootstrap was cancelled by the follow-up push. Latest run 36258272684 for this source SHA is in progress: Ubuntu passed through M0 doctor acceptance with launcher acceptance running, while Windows is bootstrapping pinned Servo dependencies. Older run 36253354096 passed Ubuntu and Windows host jobs but failed its separate M17 target acceptance, outside this workstream. The full ./nagi test remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi. M30 remains NOT STARTED; no 0.2 runtime integration was started.",
+    "verified_at": "2026-09-26T17:27:11Z",
+    "normal_state": "The first-party workstream remains PARTIAL because public target app/runtime services are unavailable. At source SHA 1554246e9a45df27d6b04ee16593eaa3925b9aa9, Files passes 65 library tests plus one CLI test, Notes passes 28 acceptance tests, and the real-provider cross-app suite passes 11 tests. Files now binds FileEntry/checkpoint reads to ResourceId, rechecks source identity and rights after Activity/checkpoint callbacks, and validates stored Trash payload identity during restore, deletion, and recovery. Notes now has a regression proving latest and historical reads reject symlinked revision files. Host/Windows Clippy, Windows test compilation, formatting, diff checks, and development-state validation pass. Latest CI run 36258622017 on state commit 67312610d4d4294e1e7e4983f1670d4d935ef4ae passed both Ubuntu and Windows host jobs, including host build/test and state validation; its separate nagi-target job remains pending and is outside first-party host scope. Source CI run 36258272684 was cancelled by the metadata checkpoint push; 36257986412 was also cancelled after Ubuntu passed, so the completed 36258622017 host results are authoritative. Older run 36253354096 passed Ubuntu and Windows host jobs but failed its separate M17 target acceptance, outside this workstream. The full ./nagi test remains blocked on arm64 macOS by x86_64 syscall-register assembly in user/libnagi. M30 remains NOT STARTED; no 0.2 runtime integration was started.",
     "commands": [
       "git worktree list --porcelain",
       "git merge-base --octopus codex/app-home-search codex/app-notes codex/app-activity-wayback codex/app-files",
@@ -93,7 +93,8 @@
       "gh run view 36258272684 --json status,conclusion,headSha,jobs",
       "gh run view 36253354096 --json status,conclusion,headSha,jobs",
       "gh run view 36257986412 --json status,conclusion,headSha,jobs (final status)",
-      "gh run view 36258272684 --json status,conclusion,headSha,jobs (latest observed status)"
+      "gh run view 36258272684 --json status,conclusion,headSha,jobs (latest observed status)",
+      "gh run view 36258622017 --json status,conclusion,headSha,jobs (both host jobs passed; target pending)"
     ],
     "tests": [
       {
@@ -594,15 +595,23 @@
         "run_id": 36258272684,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36258272684",
         "head_sha": "1554246e9a45df27d6b04ee16593eaa3925b9aa9",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "This source-head run was cancelled by the following state checkpoint push while Ubuntu had passed through M0 doctor acceptance and Windows was bootstrapping dependencies. Latest run 36258622017 completed both host jobs successfully for the same source plus state checkpoint."
+      },
+      {
+        "run_id": 36258622017,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36258622017",
+        "head_sha": "67312610d4d4294e1e7e4983f1670d4d935ef4ae",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Latest source HEAD is running. Ubuntu passed through M0 doctor acceptance with launcher acceptance in progress; Windows is bootstrapping pinned Servo dependencies. No failure has been reported and no M17 target job ran on this branch."
+        "summary": "Ubuntu and Windows host jobs both completed successfully, including build/test, launcher checks, and state validation. The separate nagi-target job is pending; it is outside first-party host scope and no M17 sources were changed."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T17:19:01Z",
+    "last_checked_at": "2026-09-26T17:27:11Z",
     "activation_requirement": "Nagi OS 0.1 M30 PASS and an explicit release/integration checkpoint are required before any 0.2 runtime integration. This stream integrates 0.1 first-party host contracts only and does not change M17."
   },
   "blocker": {
