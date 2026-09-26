@@ -603,7 +603,9 @@ mod tests {
         assert!(linker_script.contains(". = ALIGN(SIZEOF(.tdata) == 0 ? 4096 : 1);"));
         assert!(process_source.contains("reset_child_tls_pages(storage)"));
         assert!(process_source.contains("tls_initial_page"));
-        assert!(syscall_source.contains("context.user_fs_base = USER_TLS_CHILD_CONTROL_BASE"));
+        assert!(process_source
+            .contains("pub const fn user_tls_control_base(thread_id: usize) -> Option<u64>"));
+        assert!(syscall_source.contains("user_tls_control_base(thread as usize).unwrap_or(0)"));
         assert!(syscall_source.contains(
             "fs_base_offset = const core::mem::offset_of!(UserThreadContext, user_fs_base)"
         ));
