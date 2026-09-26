@@ -127,3 +127,19 @@ untracked `libtarget_check.rlib`; it has been left untouched.
   Notes restore through the app so the restore creates a new revision/event.
 - Nagi target Notes storage/capabilities and authenticated Agent provenance:
   **NOT RUN**.
+
+## Home + Search merge checkpoint
+
+- Merge commit: `a35a978537e7de47c414fe1105386cec909ab997`.
+- Source SHA preserved as a merge parent:
+  `3968b42d10e6e05d387ea658638c5165e91d3e04`.
+- All four source branch heads are now ancestors of the integration branch.
+  The sole overlapping source path, `docs/first_party/implementation_status.md`,
+  merged automatically because each branch changed a different app section.
+- Focused Home/Search suite: **34 library tests + 1 preview test passed**.
+- The merged Home/Search coordinator still uses fixture Notes, Files, and
+  Activity providers. This is a source merge checkpoint, not cross-app
+  provider integration. Its existing `TypedAction` has no typed Activity
+  event/checkpoint destinations and has no dispatcher.
+- Nagi target App Registry, Search provider service and Action dispatcher:
+  **NOT RUN**.
