@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "model_id": "qwen.qwen3-4b",
+  "display_name": "Qwen3 4B",
+  "provider": {
+    "provider_id": "alibaba",
+    "display_name": "Alibaba",
+    "family": "qwen3"
+  },
+  "version": "3",
+  "variant": "4b",
+  "runtime_api_version": "nagi.ai/1",
+  "execution": "local",
+  "artifact": {
+    "format": "gguf",
+    "reference": {
+      "kind": "model_store",
+      "artifact_id": "qwen.qwen3-4b"
+    },
+    "size_bytes": null,
+    "integrity": null
+  },
+  "capabilities": ["text.generate", "structured.generate"],
+  "modalities": ["text"],
+  "context": {
+    "max_input_tokens": 4096,
+    "max_output_tokens": 1024
+  },
+  "resources": {
+    "minimum_ram_bytes": 2147483648,
+    "recommended_ram_bytes": 4294967296,
+    "minimum_storage_bytes": 2147483648,
+    "minimum_cpu_cores": 1,
+    "gpu_required": false
+  },
+  "supported_backends": ["llama_cpp"],
+  "roles": ["standard"],
+  "compatibility": {
+    "architectures": ["x86_64"],
+    "minimum_os_version": null
+  },
+  "license": {
+    "identifier": "provider-terms:qwen3",
+    "terms_reference": "provider-terms:alibaba.qwen3",
+    "acknowledgement_required": false,
+    "notices": [
+      {
+        "notice_id": "model-notice",
+        "reference": "provider-notice:alibaba.qwen3",
+        "required": true
+      }
+    ]
+  },
+  "source": null
+}

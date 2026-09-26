@@ -3467,6 +3467,15 @@ name = "nagi-model"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-model-manager"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-net"
 version = "0.1.0"
 dependencies = [

@@ -1344,7 +1344,7 @@ Use only these statuses:
 | M17 | Servo Bootstrap | BLOCKED | CI #183 (`36099071216`) confirms the read-only ESP repair: both QEMU boots pass the M7 persistent-read gate. The real target Servo init and UEFI loader build, then the second boot hangs after entering software GL context initialization. Nagi-only Softpipe selection and EGL/Servo stage logs are the next repair; first-pixel checksum acceptance remains pending. M18 remains forbidden until formal PASS. See ADRs 0019–0025. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
-| M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
+| M20 | AI Runtime / Granite | NOT STARTED | The separate Model Runtime foundation branch adds a user-space manifest/registry/provider/Store contract, documented in `docs/workstreams/model-runtime.md`; no production backend, model weights, target inference, or real Granite response acceptance is claimed. M20 remains NOT STARTED while M17 is BLOCKED. |
 | M21 | Planner / Validator / Executor | NOT STARTED | 遯ｶ繝ｻ|
 | M22 | AI Safety / Undo Integration | NOT STARTED | 遯ｶ繝ｻ|
 | M23 | Nagi Bar / Context / Albert AI | NOT STARTED | 遯ｶ繝ｻ|
