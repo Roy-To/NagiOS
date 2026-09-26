@@ -4639,3 +4639,26 @@ acceptance suite passes 7 tests, and the host acceptance run passes both M0
 cases. Public CI for this integrated runner is pending. The runner itself does
 not turn filtered or missing evidence into a pass; no milestone status is
 inferred from host acceptance.
+
+## Human CLI terminal-control escaping checkpoint (2026-09-26)
+
+Commit 7bd2afab365ccc1c450ec2e370ba15d9cc915ddc hardens human-readable
+developer output against terminal-control injection from repository state and
+diagnostic metadata. Status/resume lines, the verify summary, diagnostic
+console summaries, and diagnostics-bundle host/commit headers now escape
+control characters before display. JSON report output remains serialized by
+the JSON encoder.
+
+Three regression tests cover hostile workstream state, diagnostics-bundle
+headers, and diagnostic stage/output-path summaries. The complete nagi-cli
+suite passes (106 unit tests and 26 CLI integration tests), as do formatting,
+Clippy with warnings denied, `./nagi dev verify` (18 registered workstreams;
+11 state files), and `git diff --check`. The test build still reports three
+existing `target_os = "nagi"` configuration warnings from the vendored libc
+dependency. No guest, kernel, loader, or third-party source changed.
+
+The already-running Actions run 36233551349 was built from parent commit
+3d2001c58f64cd5a3f63751224c2fb21ee325e40, before this host CLI change. Its
+Ubuntu and Windows host jobs passed; the target job is still running the real
+M17 first-web-pixel acceptance. This host fix does not provide M17 pixel
+evidence. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

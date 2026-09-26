@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "integration-next-phase",
   "current_milestone": "INTEGRATION",
-  "current_checkpoint": "root-host-gates-pass-m17-target-running",
+  "current_checkpoint": "root-host-cli-control-escaping-verified-m17-target-running",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "3d2001c58f64cd5a3f63751224c2fb21ee325e40",
-    "verified_at": "2026-09-26T09:49:10Z",
-    "normal_state": "On code commit 3d2001c, root CI #36233551349 passed both Ubuntu and Windows host jobs. The retained Windows acceptance report records M0-LAUNCHER PASS (1 pass, 0 fail, 20 target cases NOT RUN), and the PowerShell wrapper completed the nested launcher checks using an isolated temporary CARGO_TARGET_DIR. The public target job has started the unchanged M17 first-web-pixel acceptance and remains IN_PROGRESS; this is not M17 evidence until the real guest emits its checksum and PASS marker. First-party target #36230579035 remains at the M17 pixel step. Focused CLI checks (103 unit + 26 integration), format, Clippy, Linux-shell M0, and DF-01 validation pass. The parallel capability-core and Wayback branches remain deferred after contract/security review. M18 stays NOT STARTED and 0.2 runtime/product remains gated on M30 PASS plus an explicit release checkpoint.",
+    "commit_sha": "7bd2afab365ccc1c450ec2e370ba15d9cc915ddc",
+    "verified_at": "2026-09-26T10:12:56Z",
+    "normal_state": "On code commit 7bd2afab, human developer CLI output now escapes terminal control characters from workstream state, diagnostic summaries, and diagnostics-bundle headers. The nagi-cli suite passes (106 unit + 26 integration tests), three focused regression tests pass, format and warning-denied Clippy pass, and ./nagi dev verify validates 18 registered workstreams and 11 state files. Public CI #36233551349 is from parent commit 3d2001c: Ubuntu and Windows host jobs passed; its target job is still running the real M17 first-web-pixel acceptance. That run is not evidence for the CLI code commit and has not produced M17 pixel evidence. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS plus explicit release checkpoint.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
       "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
@@ -88,7 +88,9 @@
       "cargo test -p nagi-cli --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
       "cargo clippy -p nagi-cli --all-targets --locked --offline --config 'build.target=\"x86_64-apple-darwin\"' -- -D warnings",
       "gh run view 36233551349 --json status,conclusion,jobs,url",
-      "gh run download 36233551349 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362335-windows"
+      "gh run download 36233551349 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362335-windows",
+      "cargo test -p nagi-cli --locked --offline --config build.target=\"aarch64-apple-darwin\" terminal_controls",
+      "cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings"
     ],
     "tests": [
       {
@@ -503,6 +505,48 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Ubuntu host and Windows launcher jobs both completed successfully. The target job is still running the M17 acceptance; overall workflow is IN_PROGRESS."
+      },
+      {
+        "name": "Terminal-control output regressions",
+        "command": "cargo test -p nagi-cli --locked --offline --config build.target=\"aarch64-apple-darwin\" terminal_controls",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "3 focused tests pass: workstream status/resume, diagnostic console summary, and diagnostics-bundle human header contain no raw terminal control characters."
+      },
+      {
+        "name": "nagi-cli unit and integration suite",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "106 unit tests and 26 CLI integration tests pass."
+      },
+      {
+        "name": "nagi-cli formatting",
+        "command": "cargo fmt --package nagi-cli -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Rust formatting check passes."
+      },
+      {
+        "name": "nagi-cli Clippy",
+        "command": "cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets pass Clippy with warnings denied."
+      },
+      {
+        "name": "DF-01 development state validator",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on code commit 7bd2afab."
+      },
+      {
+        "name": "Git whitespace validation",
+        "command": "git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No whitespace errors in the source change."
       }
     ],
     "ci_runs": [
