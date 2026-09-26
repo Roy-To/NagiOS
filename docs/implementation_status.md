@@ -19,23 +19,52 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #202 passed target builds through UEFI loader, then timed out
-inside EGL context binding. `_EGLThreadInfo::CurrentContext` was
-`0x400002b78ca0`; reading that object's `Binding` produced
-`0x8d48080844110f00`, and the last marker was immediately before Mesa cleared
-the previous binding. The 64-line failure tail cannot establish whether the
-old pointer is stale TLS or valid earlier EGL state. The failure report now
-includes a bounded excerpt of M17 trace markers from the whole serial log, so
-the next run can show earlier EGL/TLS events. The real guest VirtIO RNG backend
-is linked, but #202 stopped before its runtime path. No Servo-pixel evidence
-has been produced. M17 remains BLOCKED; M18 remains NOT STARTED.
+milestone. CI #203 passed target builds through UEFI, then timed out inside
+the first observed EGL context bind. Its full trace excerpt contains one
+`eglMakeCurrent` path and no TLS zero-initialization marker; the first bind
+reported a non-null previous context and an invalid-looking owner value. The
+underlying writer is unproven. Mesa patch `0030` adds a Nagi-only TLS
+initialization cookie and resets unverified EGL thread state before use. CI
+must show whether the cookie mismatch is present and whether EGL binding then
+returns. The real guest VirtIO RNG backend is linked but still lacks runtime
+verification. No Servo-pixel evidence has been produced. M17 remains BLOCKED;
+M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run `36208851031` (#202, head
-`306d68f6c17f6a700c5f0112cf5a263c58ca9130`) passed host jobs and all target
+**Last known repair checkpoint:** public CI run `36212259814` (#203, head
+`c1506888655123d819ec75be66891f0cd5477533`) passed host jobs and all target
 builds through UEFI loader. QEMU timed out after 120 seconds during EGL thread
-context binding. No frame or pixel checksum was produced. Public target CI
-remains authoritative for M17; M18 remains NOT STARTED.
+context binding. The failure output preserves bounded M17 markers from the
+serial log. No frame or pixel checksum was produced. Public target CI remains
+authoritative for M17; M18 remains NOT STARTED.
+
+### Target evidence from CI run #203 (2026-09-26)
+
+Run `36212259814` (#203, head
+`c1506888655123d819ec75be66891f0cd5477533`) passed both host jobs and all
+target builds through the UEFI loader. The real two-boot QEMU acceptance timed
+out after 120 seconds, status 4, during EGL thread context binding. The
+bounded full-log trace excerpt contains exactly one public `eglMakeCurrent`
+path and no `thread-info zero initialization started` or
+`thread-info initialized` marker. At that first observed bind,
+`_EGLThreadInfo::CurrentContext` was `0x400002b92640`, while reading its
+`Binding` yielded `0x8d48080844110f00`; the final marker was
+`thread previous-context clear started`. This is consistent with EGL seeing
+preexisting invalid TLS state, but does not identify who wrote it or prove that
+the attempted clear caused the timeout. The acceptance still produced no
+Servo frame, pixel checksum, or RNG runtime evidence. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
+
+### Local continuation after CI run #203 (2026-09-26)
+
+Mesa patch `0030` adds a Nagi-only initialization cookie to `_EGLThreadInfo`.
+`_eglGetCurrentThread` now clears and initializes the state if either `inited`
+is false or the cookie does not match, records a mismatch before the reset,
+then writes the cookie before marking the state initialized. Other targets
+retain Mesa's original `!inited` condition. This is a targeted recovery
+experiment for #203's unexplained preexisting state, not a proven root-cause
+fix. Public target CI must show whether the cookie mismatches and whether the
+real EGL/Servo path advances. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI run #202 (2026-09-26)
 

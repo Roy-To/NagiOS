@@ -184,6 +184,13 @@ trace added for CI #201. That diagnostic repeated on every EGL TLS lookup and
 crowded the bounded serial log; one-time TLS initialization and context-owner
 checkpoints remain available.
 
+`0030-nagi-validate-egl-thread-info-cookie.patch` adds a Nagi-only integrity
+cookie to EGL's TLS state. `_eglGetCurrentThread` reinitializes the state when
+either the existing `inited` flag is false or its cookie is invalid, and logs
+the mismatched pre-reset state. This tests the #203 hypothesis that the first
+observed EGL lookup sees an already-set `inited` flag with stale TLS contents;
+it does not establish the underlying writer or change other targets.
+
 The intended guest build is a static, cross-compiled Meson build with
 `-Dgallium-drivers=softpipe`, `-Dplatforms=nagi`,
 `-Degl-native-platform=surfaceless`, LLVM disabled, and zlib/zstd/shader-cache

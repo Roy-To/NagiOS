@@ -124,6 +124,20 @@ excerpt of trace markers from the full serial log, including earlier EGL and
 TLS events. The run stopped before requesting runtime entropy, so the VirtIO
 RNG backend is linked but not yet runtime verified.
 
+CI #203 (`36212259814`) passed both host jobs and all target builds through
+UEFI, then timed out in the real QEMU acceptance during the first observed EGL
+context bind. The bounded full-log trace contains one public
+`eglMakeCurrent` path and no EGL TLS zero-initialization markers. At that bind,
+`CurrentContext=0x400002b92640`; reading the previous context's `Binding`
+returned `0x8d48080844110f00`. This supports a hypothesis that EGL first saw
+preexisting invalid thread state, but it does not prove the writer or that the
+owner-field access caused the timeout. Mesa patch `0030` adds a Nagi-only
+initialization cookie so `_eglGetCurrentThread` reinitializes state whose
+existing `inited` flag is true but whose cookie is invalid. The mismatch trace
+is retained to test this hypothesis. The experiment preserves EGL's ordinary
+binding path and does not relax M17 acceptance; target CI must show whether the
+cookie check fires and whether the real path advances.
+
 ## Decision
 
 Under `__NAGI__`, EGL initialization sets `ForceSoftware` and clears `Zink` so
@@ -245,5 +259,11 @@ instruction in the constructor body; other targets retain a no-op helper.
   QEMU failure output, preserving both the earliest and latest markers while
   keeping the existing serial tail. This improves diagnosis without changing
   the EGL path or first-pixel acceptance criteria.
+- CI #203 supplied that full trace: it showed one public make-current and no
+  TLS zero-initialization marker before the invalid-looking previous-context
+  value. Patch `0030` adds a Nagi-only TLS initialization cookie and resets the
+  state if `inited` is set without a valid cookie. This is a diagnostic repair
+  experiment; the cookie mismatch and recovery still require target evidence,
+  and the underlying memory writer is unknown.
 - M17 remains `BLOCKED` until real Servo content is rendered, presented to the
   Nagi surface, and produces a nonzero pixel checksum. M18 remains `NOT STARTED`.

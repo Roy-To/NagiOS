@@ -1409,6 +1409,53 @@ mod tests {
     }
 
     #[test]
+    fn m17_nagi_egl_tls_cookie_reinitializes_unverified_state() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/mesa-patches/0030-nagi-validate-egl-thread-info-cookie.patch"),
+        )
+        .expect("Nagi EGL TLS cookie patch");
+
+        for required in [
+            "uint64_t NagiInitCookie",
+            "EGL_CURRENT_NAGI_THREAD_INFO_COOKIE",
+            "current->NagiInitCookie !=",
+            "thread-info init cookie mismatch",
+            "current->NagiInitCookie = EGL_CURRENT_NAGI_THREAD_INFO_COOKIE",
+            "#else",
+        ] {
+            assert!(
+                patch.contains(required),
+                "missing TLS cookie logic: {required}"
+            );
+        }
+
+        let guard = patch
+            .find("if (unlikely(!current->inited ||")
+            .expect("Nagi TLS cookie guard");
+        let mismatch_trace = patch
+            .find("thread-info init cookie mismatch")
+            .expect("TLS cookie mismatch trace");
+        let non_nagi_guard = patch.find("#else").expect("non-Nagi branch");
+        let set_cookie = patch
+            .find("current->NagiInitCookie = EGL_CURRENT_NAGI_THREAD_INFO_COOKIE")
+            .expect("TLS cookie assignment");
+
+        assert!(guard < mismatch_trace);
+        assert!(mismatch_trace < non_nagi_guard);
+        assert!(non_nagi_guard < set_cookie);
+        assert!(patch.contains("#ifdef __NAGI__"));
+        assert!(patch
+            .lines()
+            .filter(|line| line.starts_with('-') && !line.starts_with("---"))
+            .next()
+            .is_none());
+    }
+
+    #[test]
     fn m17_posix_thread_abi_covers_servo_runtime_symbols() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

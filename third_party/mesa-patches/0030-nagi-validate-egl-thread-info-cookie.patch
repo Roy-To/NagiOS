@@ -1,0 +1,36 @@
+diff --git a/src/egl/main/eglcurrent.c b/src/egl/main/eglcurrent.c
+index 2a1a01d7aee..cab4afa36c9 100644
+--- a/src/egl/main/eglcurrent.c
++++ b/src/egl/main/eglcurrent.c
+@@ -42,0 +43 @@
++#define EGL_CURRENT_NAGI_THREAD_INFO_COOKIE UINT64_C(0x4e41474945474c54)
+@@ -74,0 +76,10 @@ _eglGetCurrentThread(void)
++#ifdef __NAGI__
++   if (unlikely(!current->inited ||
++                current->NagiInitCookie !=
++                   EGL_CURRENT_NAGI_THREAD_INFO_COOKIE)) {
++      if (unlikely(current->NagiInitCookie !=
++                   EGL_CURRENT_NAGI_THREAD_INFO_COOKIE)) {
++         EGL_CURRENT_NAGI_TRACE_STATE("thread-info init cookie mismatch",
++                                      current, current->CurrentContext);
++      }
++#else
+@@ -75,0 +87 @@ _eglGetCurrentThread(void)
++#endif
+@@ -79,0 +92,3 @@ _eglGetCurrentThread(void)
++#ifdef __NAGI__
++      current->NagiInitCookie = EGL_CURRENT_NAGI_THREAD_INFO_COOKIE;
++#endif
+diff --git a/src/egl/main/eglcurrent.h b/src/egl/main/eglcurrent.h
+index e0f6f7b6b12..2321e346728 100644
+--- a/src/egl/main/eglcurrent.h
++++ b/src/egl/main/eglcurrent.h
+@@ -31,0 +32,3 @@
++#ifdef __NAGI__
++#include <stdint.h>
++#endif
+@@ -60,0 +64,4 @@ struct _egl_thread_info {
++#ifdef __NAGI__
++   /* Set only after _eglGetCurrentThread initializes this TLS record. */
++   uint64_t NagiInitCookie;
++#endif
