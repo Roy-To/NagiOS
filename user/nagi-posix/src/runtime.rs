@@ -22,6 +22,7 @@ const POLLHUP: i16 = 0x0010;
 
 #[derive(Clone, Copy)]
 enum FdEntry {
+    Random,
     File {
         handle: FileHandle,
         offset: usize,
@@ -76,6 +77,7 @@ pub enum RuntimeError {
     InvalidFd,
     Storage(StorageError),
     Network(NetError),
+    EntropyUnavailable,
     NotConnected,
     Shutdown,
     WouldBlock,
@@ -134,6 +136,10 @@ pub fn http_get(
 }
 
 pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeError> {
+    if name == b"/dev/urandom" {
+        return allocate_descriptor(FdEntry::Random);
+    }
+
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
     let handle = match volume.open_path(name) {
@@ -148,6 +154,10 @@ pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeErr
     }
     drop(filesystem);
 
+    allocate_descriptor(FdEntry::File { handle, offset: 0 })
+}
+
+fn allocate_descriptor(entry: FdEntry) -> Result<i32, RuntimeError> {
     let mut descriptors = FILE_DESCRIPTORS.lock();
     let Some((index, slot)) = descriptors
         .iter_mut()
@@ -157,7 +167,7 @@ pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeErr
     else {
         return Err(RuntimeError::Storage(StorageError::Capacity));
     };
-    *slot = Some(FdEntry::File { handle, offset: 0 });
+    *slot = Some(entry);
     Ok(index as i32)
 }
 
@@ -285,7 +295,7 @@ pub fn dup2(old_fd: i32, new_fd: i32) -> Result<i32, RuntimeError> {
     if old_fd == new_fd {
         return Ok(new_fd);
     }
-    if !matches!(source, FdEntry::File { .. }) {
+    if !matches!(source, FdEntry::File { .. } | FdEntry::Random) {
         return Err(RuntimeError::Unsupported);
     }
     if descriptor(new_fd).is_ok() {
@@ -560,6 +570,13 @@ fn close_pipe_endpoint(pipe_index: usize, reader: bool) {
 
 pub fn read(fd: i32, destination: &mut [u8]) -> Result<usize, RuntimeError> {
     match descriptor(fd)? {
+        FdEntry::Random => {
+            if fill_random(destination) {
+                Ok(destination.len())
+            } else {
+                Err(RuntimeError::EntropyUnavailable)
+            }
+        }
         FdEntry::File { handle, offset } => {
             let count = read_at(fd, offset, destination)?;
             update_offset(fd, handle, offset + count)?;
@@ -643,6 +660,7 @@ pub fn readiness(fd: i32, requested: i16) -> Result<i16, RuntimeError> {
         return Ok(requested & 0x0004);
     }
     match descriptor(fd)? {
+        FdEntry::Random => Ok(requested & POLLIN),
         FdEntry::File { handle, offset } => {
             let mut ready = requested & 0x0004;
             if requested & 0x0001 != 0 && offset < file_size(handle)? {
@@ -725,6 +743,7 @@ fn pipe_write_readiness(pipe_index: usize, requested: i16) -> Result<i16, Runtim
 
 pub fn write(fd: i32, bytes: &[u8]) -> Result<usize, RuntimeError> {
     match descriptor(fd)? {
+        FdEntry::Random => Err(RuntimeError::InvalidFd),
         FdEntry::File { handle, offset } => {
             if offset != 0 || bytes.len() > BLOCK_SIZE {
                 return Err(RuntimeError::Storage(StorageError::FileTooLarge));
@@ -933,6 +952,7 @@ pub fn map_error(error: RuntimeError) -> i32 {
     match error {
         RuntimeError::NotInitialized => 38,
         RuntimeError::InvalidFd => 9,
+        RuntimeError::EntropyUnavailable => 5,
         RuntimeError::Storage(StorageError::NotFound) => 2,
         RuntimeError::Storage(StorageError::AlreadyExists) => 17,
         RuntimeError::Storage(StorageError::NameTooLong) => 36,
@@ -955,4 +975,16 @@ pub fn map_error(error: RuntimeError) -> i32 {
         RuntimeError::Network(_) => 5,
         RuntimeError::Storage(_) => 5,
     }
+}
+
+#[cfg(target_os = "nagi")]
+fn fill_random(bytes: &mut [u8]) -> bool {
+    libnagi::random_fill(bytes)
+}
+
+// Host builds type-check the POSIX adapter but never supply guest entropy.
+// Returning failure keeps this compatibility path fail-closed off-target.
+#[cfg(not(target_os = "nagi"))]
+fn fill_random(_bytes: &mut [u8]) -> bool {
+    false
 }

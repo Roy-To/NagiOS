@@ -19,27 +19,57 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Actions run 36292384786 (run #287, head `63b2cc5`) passed target
-builds and reached Servo constellation/TLS prewarm in QEMU, then panicked
-because Servo's bundled resource reader was not registered. ADR 0032 records
-the confirmed `inventory 0.3.24` Nagi ELF-constructor omission. The Nagi-owned
-vendored patch, guest embedded-resource preflight, acceptance marker, and
-source-contract test are implemented and locally verified. Push this repair
-for a public `nagi-target` build and QEMU acceptance; require the resource
-marker, real Servo/WebView startup, first-web-pixel checksum, and M17 PASS.
-M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+milestone. Actions run 36295909293 (run #288, head `8018045`) passed both host
+jobs, target dependency validation, Mesa Softpipe, M16 package, kernel,
+`nagi-init` link, and UEFI loader. QEMU passed the embedded Servo resource
+reader preflight, then stopped during TLS prewarm because AWS-LC could not
+open `/dev/urandom`. The confirmed consumer is AWS-LC's `urandom.c`; Nagi's
+POSIX adapter currently resolves that path through persistent VFS and has no
+random-device descriptor. The current repair adds a POSIX `/dev/urandom`
+descriptor backed by `libnagi::random_fill` and `SYS_RANDOM_GET`, with entropy
+failures propagated as `EIO`. Require the real TLS prewarm, Servo/WebView
+startup, first-web-pixel checksum, and M17 PASS in the next authoritative
+QEMU run. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** Actions run 36292384786 (run #287, head
-`63b2cc504e8c0ffb0f27581dd506970ef0577da7`) passed Ubuntu and Windows host
-jobs, target dependency validation, Mesa Softpipe, M16 package, kernel,
-user-init link, and UEFI loader. QEMU verified that 32 bootstrap slots carry
-Servo through storage startup and constellation creation. At TLS prewarm,
-`inventory::iter::<ResourceReader>` was empty and Servo panicked with `No
-resource reader registered`. The pinned default-resource crate and all 11
-embedded files were linked; the cause is that inventory 0.3.24 omitted
-`target_os = "nagi"` from its ELF `.init_array` constructor cfg. No
-first-web-pixel checksum or PASS marker was produced.
+**Last known repair checkpoint:** Actions run 36295909293 (run #288, head
+`8018045`) passed the complete target build through UEFI and confirmed that
+the inventory constructor patch registers Servo's real embedded resource
+reader. QEMU then reached `Servo::new TLS prewarm started`. AWS-LC's
+`init_try_urandom_once()` called `open("/dev/urandom", O_RDONLY)`, which the
+Nagi POSIX VFS reported as missing; AWS-LC printed `failed to open
+/dev/urandom: Unknown error` and aborted. This is a separate consumer from
+the already-patched Rust std and MozJS entropy routes. No Servo construction,
+WebView, checksum, or M17 PASS marker was produced.
+
+### M17 POSIX entropy device after Actions run 36295909293 (2026-09-27)
+
+Pinned-source inspection identifies the exact error emitter as AWS-LC
+0.45.0's `aws-lc/crypto/rand_extra/urandom.c`. Servo's TLS prewarm calls
+`aws_lc_rs::secure_random.fill()`, which reaches AWS-LC's generic POSIX
+provider. The custom Nagi target does not define AWS-LC's Linux raw
+`getrandom` path, so AWS-LC opens `/dev/urandom`; Nagi's POSIX adapter sends
+that path to the persistent VFS, which correctly reports it absent. The
+displayed `Unknown error` comes from relibc's current errno text table and
+does not indicate a failed VirtIO RNG request.
+
+The repair exposes `/dev/urandom` as a stateless POSIX descriptor. Reads use
+`libnagi::random_fill`, which calls the existing kernel `SYS_RANDOM_GET`
+backed by the guest VirtIO RNG. The descriptor does not require a filesystem
+mount or persistent file. If the guest entropy request fails, the read returns
+`EIO`; it supplies no host or deterministic bytes. M17 remains `BLOCKED` until
+the authoritative QEMU run completes TLS prewarm, Servo and WebView startup,
+and the real first-web-pixel checksum and PASS marker. M18 remains
+`NOT STARTED`.
+
+Local verification: the complete `nagi-cli` suite passes (82 library tests,
+18 integration tests), including a source-contract test for the POSIX device
+route. The custom-target `cargo check -p nagi-posix --lib
+--target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc
+--locked --offline` passes with five pre-existing warnings in unrelated POSIX
+declarations. `rustfmt --check` on the changed Rust files and `git diff
+--check` pass. The full image, UEFI, and QEMU acceptance still require public
+target CI.
 
 ### M17 storage-thread filesystem repair after Actions run 36284231289 (2026-09-27)
 

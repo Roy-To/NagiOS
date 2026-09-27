@@ -2917,6 +2917,33 @@ mod tests {
     }
 
     #[test]
+    fn m17_posix_urandom_device_uses_guest_virtio_rng() {
+        let runtime = include_str!("../../../user/nagi-posix/src/runtime.rs");
+        let libnagi = include_str!("../../../user/libnagi/src/lib.rs");
+        let open_start = runtime.find("pub fn open(").expect("POSIX runtime open");
+        let open_end = runtime[open_start..]
+            .find("\nfn allocate_descriptor(")
+            .map(|offset| open_start + offset)
+            .expect("descriptor allocation helper");
+        let open = &runtime[open_start..open_end];
+        let device = open
+            .find("if name == b\"/dev/urandom\"")
+            .expect("virtual urandom path");
+        let vfs = open
+            .find("let mut filesystem = FILESYSTEM.lock();")
+            .expect("persistent VFS path");
+        assert!(device < vfs, "urandom must not require a VFS mount");
+        assert!(open.contains("allocate_descriptor(FdEntry::Random)"));
+
+        assert!(runtime.contains("FdEntry::Random => {"));
+        assert!(runtime.contains("libnagi::random_fill(bytes)"));
+        assert!(runtime.contains("RuntimeError::EntropyUnavailable => 5"));
+        assert!(runtime.contains("FdEntry::Random => Ok(requested & POLLIN)"));
+        assert!(libnagi.contains("let mut result = SYS_RANDOM_GET;"));
+        assert!(libnagi.contains("pub fn random_fill(bytes: &mut [u8]) -> bool"));
+    }
+
+    #[test]
     fn m17_guest_rng_scans_the_transitional_entropy_device_id() {
         let random = include_str!("../../../kernel/src/random.rs");
 
