@@ -115,6 +115,15 @@ mod guest {
     }
 
     pub fn run_first_web_pixel(display_capability: u64) -> ! {
+        libnagi::console_write(b"Nagi M17 trace: Servo resource reader preflight started\r\n");
+        let domain_list = servo::resources::read_bytes(servo::resources::Resource::DomainList);
+        if domain_list.is_empty() {
+            libnagi::console_write(b"Nagi M17 first web pixel FAIL Servo resources\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M17 trace: Servo resource reader registered\r\n");
+        drop(domain_list);
+
         libnagi::console_write(b"Nagi M17 trace: Surface acquisition started\r\n");
         let Some(surface) = NagiSurface::acquire(display_capability) else {
             libnagi::console_write(b"Nagi M17 first web pixel FAIL surface\r\n");

@@ -19,28 +19,27 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Actions run 36289243570 (run #286, head `f99faa4`) verified the
-capability-backed POSIX mount, guest `/tmp`, resource threads, and storage
-thread startup, then exhausted the 16-slot pool in Servo storage startup.
-ADR 0031 now sets 32 total slots. The implementation, capacity tests, and
-format correction are locally verified; the next public `nagi-target` run
-must show the real first-web-pixel checksum and PASS marker. M17 remains
-`BLOCKED`; M18 remains `NOT STARTED`.
+milestone. Actions run 36292384786 (run #287, head `63b2cc5`) passed target
+builds and reached Servo constellation/TLS prewarm in QEMU, then panicked
+because Servo's bundled resource reader was not registered. ADR 0032 records
+the confirmed `inventory 0.3.24` Nagi ELF-constructor omission. The Nagi-owned
+vendored patch, guest embedded-resource preflight, acceptance marker, and
+source-contract test are implemented and locally verified. Push this repair
+for a public `nagi-target` build and QEMU acceptance; require the resource
+marker, real Servo/WebView startup, first-web-pixel checksum, and M17 PASS.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** Actions run 36289243570 (run #286, head
-`f99faa4ae73b7ef35710b7c16b13753be42f7992`) passed target dependencies, Mesa
-Softpipe, M16 package, kernel, user-init link, and UEFI loader. Windows host
-build/tests passed. Ubuntu host stopped at `Format`; its exact formatter
-differences were corrected locally and the complete CI formatting commands
-now pass. QEMU verified persistent storage, POSIX filesystem initialization,
-`/tmp`, constructor completion, TypeIdSet insertion, `JS_Init`, GL context
-creation, ResourceManager threads, and the start of Servo storage threads.
-It then rejected the next child with
-`SYS_THREAD_CREATE rejected: bootstrap thread pool full`; Servo panicked with
-`WouldBlock` at `third_party/servo/components/storage/cache_storage.rs:239`.
-No first-web-pixel checksum or PASS marker was produced. M17 remains
-`BLOCKED`; M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** Actions run 36292384786 (run #287, head
+`63b2cc504e8c0ffb0f27581dd506970ef0577da7`) passed Ubuntu and Windows host
+jobs, target dependency validation, Mesa Softpipe, M16 package, kernel,
+user-init link, and UEFI loader. QEMU verified that 32 bootstrap slots carry
+Servo through storage startup and constellation creation. At TLS prewarm,
+`inventory::iter::<ResourceReader>` was empty and Servo panicked with `No
+resource reader registered`. The pinned default-resource crate and all 11
+embedded files were linked; the cause is that inventory 0.3.24 omitted
+`target_os = "nagi"` from its ELF `.init_array` constructor cfg. No
+first-web-pixel checksum or PASS marker was produced.
 
 ### M17 storage-thread filesystem repair after Actions run 36284231289 (2026-09-27)
 
@@ -1724,7 +1723,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | CI #183 (`36099071216`) confirms the read-only ESP repair: both QEMU boots pass the M7 persistent-read gate. The real target Servo init and UEFI loader build, then the second boot hangs after entering software GL context initialization. Nagi-only Softpipe selection and EGL/Servo stage logs are the next repair; first-pixel checksum acceptance remains pending. M18 remains forbidden until formal PASS. See ADRs 0019–0025. |
+| M17 | Servo Bootstrap | BLOCKED | CI #287 (`36292384786`, head `63b2cc5`) passed all target builds and reached Servo constellation/TLS prewarm in real QEMU, then exposed missing `inventory 0.3.24` ELF constructor support for `target_os = "nagi"`. ADR 0032 records the exact-source patch and guest preflight now under verification; no first-pixel checksum or M17 PASS yet. M18 remains forbidden until formal PASS. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -5033,3 +5032,45 @@ The regression test was run red before patch 0014 existed and now passes. All
 generated Servo checkout. Formatting and diff checks pass after the final
 formatting correction. Public Ubuntu CI must verify resource-thread creation
 and the next guest stage. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### M17 bundled-resource registration after CI run #287 (2026-09-27)
+
+Public CI run #287 (`36292384786`, head
+`63b2cc504e8c0ffb0f27581dd506970ef0577da7`) passed the Ubuntu and Windows host
+jobs, the target dependency boundary, Mesa Softpipe, M16 package, kernel,
+real user-init link, and UEFI loader. QEMU advanced beyond the 32-slot worker
+pool, completed Servo storage startup and constellation creation, then
+panicked during TLS prewarm with `No resource reader registered`. No real
+first-web-pixel checksum or PASS marker was produced.
+
+The pinned target graph contains `servo-default-resources` and its 11 embedded
+resource files. Servo's `DefaultResourceReader` registers through
+`inventory::submit!`; the locked `inventory 0.3.24` macro assigned that
+constructor to `.init_array` for known ELF operating systems but omitted
+Nagi's custom `target_os`. Nagi already retains and executes `.init_array`
+before the application entry, so ADR 0032 records the narrow correction:
+vendor the exact locked crate, add Nagi to its ELF constructor list, and read
+Servo's real embedded domain list before constructing Servo. No resource
+bytes, host paths, or rendering behavior are substituted.
+
+Local verification on 2026-09-27:
+
+- The vendored source archive hash matches Cargo.lock and `sources.lock`:
+  `a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b`.
+- The tracked patch applies to a pristine 0.3.24 extraction and produces the
+  same patched `src/lib.rs` as the vendored tree.
+- `cargo tree --locked --offline --package nagi-init --features m17-servo
+  --target targets/x86_64-unknown-nagi-user.json --invert inventory` resolves
+  inventory from `third_party/inventory-nagi` throughout Servo.
+- All 81 `nagi-cli` library tests and 18 CLI integration tests pass using the
+  pinned Rust compiler explicitly; the new resource-registration source
+  contract is included.
+- Focused formatting, `nagi-cli` Clippy with warnings denied, the acceptance
+  script syntax, and `git diff --check` pass. This worktree lacks the generated
+  Rust std, Mesa, and package inputs for a local Nagi-target image build;
+  public Ubuntu CI must validate the new guest code and constructor link
+  before QEMU can test the preflight.
+
+M17 remains `BLOCKED` until public target CI reports the real resource-reader
+marker, Servo/WebView startup, a nonzero first-web-pixel checksum, and the M17
+PASS marker. M18 remains `NOT STARTED`.

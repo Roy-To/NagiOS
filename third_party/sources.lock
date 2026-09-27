@@ -159,3 +159,13 @@ source_hash = "sha256:a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e07
 license = "MIT OR Apache-2.0"
 vendored_path = "third_party/cc-nagi"
 nagi_patch = "third_party/cc-nagi-patches"
+
+[sources.inventory_nagi]
+component = "inventory-nagi"
+version = "0.3.24"
+repository = "https://crates.io/crates/inventory/0.3.24"
+registry_archive = "https://static.crates.io/crates/inventory/inventory-0.3.24.crate"
+source_hash = "sha256:a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b"
+license = "MIT OR Apache-2.0"
+vendored_path = "third_party/inventory-nagi"
+nagi_patch = "third_party/inventory-nagi-patches"

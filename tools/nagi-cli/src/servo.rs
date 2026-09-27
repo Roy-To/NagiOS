@@ -852,6 +852,60 @@ mod tests {
     }
 
     #[test]
+    fn inventory_nagi_patch_enables_servo_bundled_resource_registration() {
+        use crate::registry_source::{validate_source_lock, RegistrySourceSpec};
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let source_spec = RegistrySourceSpec {
+            section: "sources.inventory_nagi",
+            component: "inventory-nagi",
+            package: "inventory",
+            version: "0.3.24",
+            repository: "https://crates.io/crates/inventory/0.3.24",
+            registry_archive: "https://static.crates.io/crates/inventory/inventory-0.3.24.crate",
+            source_hash: "sha256:a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b",
+            license: "MIT OR Apache-2.0",
+            vendored_path: "third_party/inventory-nagi",
+            patch_path: "third_party/inventory-nagi-patches",
+        };
+        validate_source_lock(root, &source_spec).expect("pinned inventory source lock");
+
+        let workspace_manifest =
+            fs::read_to_string(root.join("Cargo.toml")).expect("workspace Cargo.toml");
+        assert!(
+            workspace_manifest.contains("inventory = { path = \"third_party/inventory-nagi\" }")
+        );
+
+        let patch = fs::read_to_string(
+            root.join("third_party/inventory-nagi-patches/0001-nagi-target-init-array.patch"),
+        )
+        .expect("inventory Nagi patch");
+        assert!(patch.contains("+                        target_os = \"nagi\","));
+        assert!(patch.contains("link_section = \".init_array\","));
+
+        let embedder = fs::read_to_string(root.join("user/nagi-albert/src/lib.rs"))
+            .expect("Albert embedder source");
+        let resource_read = embedder
+            .find("servo::resources::read_bytes")
+            .expect("guest preflight reads a Servo resource");
+        let registered_marker = embedder
+            .find("Servo resource reader registered")
+            .expect("guest reports a successful resource read");
+        let servo_construction = embedder
+            .find("ServoBuilder::default()")
+            .expect("guest constructs the real Servo embedder");
+        assert!(embedder.contains("if domain_list.is_empty()"));
+        assert!(resource_read < registered_marker && registered_marker < servo_construction);
+        let acceptance =
+            fs::read_to_string(root.join("tests/acceptance/m17_servo_first_web_pixel.sh"))
+                .expect("M17 first web pixel acceptance");
+        assert!(acceptance.contains("Nagi M17 trace: Servo resource reader registered"));
+    }
+
+    #[test]
     fn servo_patch_boundary_traces_m17_javascript_engine_initialization() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

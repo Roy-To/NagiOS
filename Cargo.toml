@@ -32,6 +32,7 @@ cc = { path = "third_party/cc-nagi" }
 libc = { path = "third_party/libc-servo" }
 freetype-sys = { path = "third_party/freetype-sys" }
 hyper-util = { path = "third_party/hyper-util-servo" }
+inventory = { path = "third_party/inventory-nagi" }
 mio = { path = "third_party/mio-servo" }
 socket2 = { path = "third_party/socket2-servo" }
 tempfile = { path = "third_party/tempfile-nagi" }
