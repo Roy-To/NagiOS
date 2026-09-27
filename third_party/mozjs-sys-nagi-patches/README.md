@@ -171,3 +171,13 @@ traces helper-state locking, internal helper-pool setup, worker creation, and
 worker entry into the existing thread loop. These Nagi-only markers preserve
 the initialization policy and call order; other targets compile them to
 no-ops.
+
+Patch `0020` follows CI #296, where helper-thread initialization completed but
+`GCRuntime::init` did not return. It adds Nagi-only checkpoints around the
+initializer-state and system-page-size assertions, Arena static and lookup-table
+checks, GC thread-context setup, helper-thread count updates, marker storage,
+the background-allocation lock, nursery setup, marker and sweep-action setup,
+atoms-zone allocation and initialization, zones-vector reserve, and probe
+initialization. The atoms-zone allocation and initialization checks split the
+original combined failure condition without changing its behavior. All other
+markers bracket existing operations; non-Nagi builds compile them to no-ops.

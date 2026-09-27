@@ -19,32 +19,52 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI #295 (`36320499660`, head `d9279f7`) passed host checks,
+milestone. Public CI #296 (`36324708375`, head `8cd7103`) passed host checks,
 Mesa, package, kernel, `nagi-init`, and UEFI builds, but real QEMU timed out
-after the 120-second guest bound (exit code 4). The expanded trace confirms
-engine-handle lookup, `RustRuntime` entry, JSRuntime/JSContext allocation, and
-JSContext initialization all return; the last marker is
-`SpiderMonkey JSRuntime initialization started`, before `JSRuntime::init`
-returns. The next Nagi-only mozjs patch traces helper-thread startup and the
-remaining major `JSRuntime::init` stages. Tracked patch 0019 applies to a freshly
-regenerated pinned mozjs source checkout, and all 87 `nagi-cli` library tests,
-18 CLI integration tests, formatting, Clippy with warnings denied, and diff
-checks pass. The next public target run must validate C++ compilation and
-identify the stalled operation. Keep M17 `BLOCKED` until authoritative QEMU
-produces the real first-web-pixel checksum and M17 PASS. M18 remains
-`NOT STARTED`.
+after the 120-second guest bound (exit code 4). The trace confirms SpiderMonkey
+helper-thread initialization returned and reaches `SpiderMonkey GC runtime
+initialization started`; no inner `GCRuntime::init` stage returned before the
+timeout. Nagi-owned mozjs patch 0020 adds Nagi-only checkpoints through GC
+initialization, and its source-contract test passes locally. The next public
+target run must verify the patch compiles and identify the stalled GC operation.
+Keep M17 `BLOCKED` until authoritative QEMU produces the real first-web-pixel
+checksum and M17 PASS. M18 remains `NOT STARTED`.
 
-**Last updated:** 2026-09-27
-**Last known repair checkpoint:** Public CI #295 (`36320499660`, head
-`d9279f741cd721bd303e87550d664fffc21d45eb`) passed the Windows launcher and
+**Last updated:** 2026-09-28
+**Last known repair checkpoint:** Public CI #296 (`36324708375`, head
+`8cd7103ffa5a4e1ccdf7b78280695912e3194953`) passed the Windows launcher and
 Ubuntu host jobs, target dependency validation, Mesa Softpipe, the M16 package,
 kernel, real `nagi-init` link, and UEFI loader. The real QEMU acceptance timed
-out after 120 seconds (exit code 4). Its trace confirms that the engine handle,
-per-thread Rust runtime, JSRuntime/JSContext allocation, and JSContext
-initialization return, then stops inside `JSRuntime::init`. Tracked mozjs patch
-0019 adds Nagi-only traces around helper-thread setup and the remaining runtime
-initialization stages. M17 remains `BLOCKED` pending the first real web-pixel
+out after 120 seconds (exit code 4). The runtime trace shows helper-thread
+initialization completed and GC runtime initialization began, but emitted no
+inner GC-stage marker. Patch 0020 now brackets those stages; local focused,
+full-suite, formatting, lint, diff, and fresh-fetch checks pass. The regenerated
+pinned mozjs source contains patch 0020 in the ordered patch set. The next
+public target run must verify its target C++ compilation and show the last
+completed GC stage. M17 remains `BLOCKED` pending the first real web-pixel
 checksum and PASS marker.
+
+### M17 GC initialization diagnostic after Actions run #296 (2026-09-28)
+
+Run #296 (`36324708375`, head `8cd7103ffa5a4e1ccdf7b78280695912e3194953`)
+compiled the updated SpiderMonkey patches into the real `nagi-init` target link
+and produced the UEFI loader. The authoritative QEMU acceptance timed out at
+120 seconds (exit code 4). Its trace shows helper-thread initialization
+returned, then `GCRuntime::init` began without reaching its first inner-stage
+checkpoint. This narrows the stall to the GC runtime initializer's entry,
+preconditions, or first traced operation.
+
+Mozjs patch `0020-nagi-m17-gc-runtime-init-traces.patch` adds guest-only
+checkpoints around GC initialization preconditions, thread-context setup,
+helper-thread count update, marker-vector resize, background-allocation locking,
+nursery setup, marker and sweep-action setup, atoms-zone setup, zone-vector
+reserve, and probe initialization. Its focused source-contract test passed after first failing
+against the absent patch. `./nagi fetch` regenerated the pinned mozjs source
+using the complete tracked patch order, and `git apply --reverse --check`
+confirmed patch 0020 is present. Local validation passes: all 88 `nagi-cli`
+library tests, all 18 CLI integration tests, package formatting, Clippy with
+warnings denied, and `git diff --check`. Public target compilation and the next
+real QEMU trace are pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 host Clippy correction and diagnostic run #36309977725 (2026-09-27)
 

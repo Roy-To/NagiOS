@@ -552,6 +552,56 @@ mod tests {
     }
 
     #[test]
+    fn mozjs_m17_gc_runtime_patch_traces_initialization_stages() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch =
+            std::fs::read_to_string(root.join(
+                "third_party/mozjs-sys-nagi-patches/0020-nagi-m17-gc-runtime-init-traces.patch",
+            ))
+            .expect("mozjs M17 GC runtime initialization trace patch");
+        for stage in [
+            "SpiderMonkey GC runtime initialization entered",
+            "SpiderMonkey GC initialization-state assertion started",
+            "SpiderMonkey GC initialization-state assertion completed",
+            "SpiderMonkey GC system-page-size assertion started",
+            "SpiderMonkey GC system-page-size assertion completed",
+            "SpiderMonkey GC arena static assertions started",
+            "SpiderMonkey GC arena static assertions completed",
+            "SpiderMonkey GC arena lookup-table checks started",
+            "SpiderMonkey GC arena lookup-table checks completed",
+            "SpiderMonkey GC thread-context initialization started",
+            "SpiderMonkey GC thread-context initialization completed",
+            "SpiderMonkey GC helper-thread count update started",
+            "SpiderMonkey GC helper-thread count update completed",
+            "SpiderMonkey GC marker vector resize started",
+            "SpiderMonkey GC marker vector resize completed",
+            "SpiderMonkey GC background-allocation lock acquisition started",
+            "SpiderMonkey GC background-allocation lock acquisition completed",
+            "SpiderMonkey GC nursery initialization started",
+            "SpiderMonkey GC nursery initialization completed",
+            "SpiderMonkey GC marker initialization started",
+            "SpiderMonkey GC marker initialization completed",
+            "SpiderMonkey GC sweep-action initialization started",
+            "SpiderMonkey GC sweep-action initialization completed",
+            "SpiderMonkey GC atoms-zone allocation started",
+            "SpiderMonkey GC atoms-zone initialization started",
+            "SpiderMonkey GC atoms-zone initialization completed",
+            "SpiderMonkey GC zones-vector reserve started",
+            "SpiderMonkey GC runtime initialization completed",
+        ] {
+            assert!(
+                patch.contains(stage),
+                "missing SpiderMonkey GC runtime trace stage: {stage}"
+            );
+        }
+        assert!(patch.contains("#if defined(__NAGI__)"));
+        assert!(patch.contains("nagi_m17_console_trace(trace_stage"));
+    }
+
+    #[test]
     fn nagi_init_rescans_real_mozjs_archives_in_m17_link() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
