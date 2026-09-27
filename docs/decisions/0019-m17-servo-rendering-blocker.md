@@ -2857,3 +2857,36 @@ upstream address-width threshold and allocator. Patch
 source-contract test guards the Nagi-only branch. The next public QEMU run must
 verify that the standard aligned-page path returns and nursery initialization
 continues. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## GC chunk alignment diagnosis after CI run #299 (2026-09-28)
+
+Public CI run #299 (`36337350178`, head
+`ee07235c390320a6aa687204dc72319d54284ee9`) passed host checks, the target
+dependency boundary, Mesa Softpipe, the M16 package, kernel, the real
+`nagi-init` link, and UEFI loader. The real QEMU acceptance timed out after its
+120-second guest bound and produced no first-web-pixel checksum or M17 PASS
+marker.
+
+The guest selected the Nagi aligned-page fallback and completed its first GC
+base mapping, then stopped after
+`SpiderMonkey GC initial chunk-alignment attempt started`. It did not emit the
+matching completion marker for `TryToAlignChunk`. Existing traces cannot tell
+whether the non-returning operation is the exact-address hint mmap, cleanup of
+a mismatched mapping, a directional partial unmap, or the replacement mapping.
+
+Nagi's non-fixed mmap chooses the first available range even when a caller
+provides a hint. Exact-address mapping remains restricted to an existing
+Nagi-owned reservation, and the bootstrap `munmap` path validates a complete
+registered mapping. These contracts differ from the assumptions made by
+SpiderMonkey's generic chunk-alignment helper, but the available trace does not
+yet establish which call causes the timeout. Do not change those VM contracts
+or relax the acceptance gate based on this evidence alone.
+
+Patch `0023-nagi-m17-alignment-traces.patch` adds Nagi-only start/completion
+markers around the internal hint mmap, mismatched-hint unmap, both directional
+unmaps, and the fallback replacement mmap. The trace is enabled only for GC
+chunk-sized alignment and leaves the original mapping calls, order, and
+decisions intact. A source-contract test guards the patch. The next
+authoritative QEMU run must identify the exact non-returning operation before a
+behavioral VM or allocator fix is selected. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.

@@ -1,0 +1,77 @@
+diff --git a/mozjs/js/src/gc/Memory.cpp b/mozjs/js/src/gc/Memory.cpp
+--- a/mozjs/js/src/gc/Memory.cpp
++++ b/mozjs/js/src/gc/Memory.cpp
+@@ -321 +321,2 @@
+-static inline void* MapMemoryAt(void* desired, size_t length) {
++static inline void* MapMemoryAt(void* desired, size_t length,
++                                bool traceM17GCChunk = false) {
+@@ -324,0 +326,3 @@
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC exact-hint mmap started");
++  }
+@@ -325,0 +330,3 @@
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC exact-hint mmap completed");
++  }
+@@ -332,0 +340,3 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC mismatched-hint unmap started");
++    }
+@@ -333,0 +344,3 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC mismatched-hint unmap completed");
++    }
+@@ -976,0 +990,8 @@
++#if defined(__NAGI__)
++  const bool traceM17GCChunk = length == ChunkSize && alignment == ChunkSize;
++#else
++  constexpr bool traceM17GCChunk = false;
++#endif
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC chunk alignment entered");
++  }
+@@ -988 +1009,11 @@
+-      if (MapMemoryAt(regionEnd, offsetUpper)) {
++      if (traceM17GCChunk) {
++        NAGI_M17_TRACE("SpiderMonkey GC upward hint mapping started");
++      }
++      void* upperMapping = MapMemoryAt(regionEnd, offsetUpper, traceM17GCChunk);
++      if (traceM17GCChunk) {
++        NAGI_M17_TRACE("SpiderMonkey GC upward hint mapping completed");
++      }
++      if (upperMapping) {
++        if (traceM17GCChunk) {
++          NAGI_M17_TRACE("SpiderMonkey GC upward prefix unmap started");
++        }
+@@ -989,0 +1021,3 @@
++        if (traceM17GCChunk) {
++          NAGI_M17_TRACE("SpiderMonkey GC upward prefix unmap completed");
++        }
+@@ -1000 +1034,14 @@
+-      if (lowerStart && MapMemoryAt(lowerStart, offsetLower)) {
++      void* lowerMapping = nullptr;
++      if (lowerStart) {
++        if (traceM17GCChunk) {
++          NAGI_M17_TRACE("SpiderMonkey GC lower hint mapping started");
++        }
++        lowerMapping = MapMemoryAt(lowerStart, offsetLower, traceM17GCChunk);
++        if (traceM17GCChunk) {
++          NAGI_M17_TRACE("SpiderMonkey GC lower hint mapping completed");
++        }
++      }
++      if (lowerStart && lowerMapping) {
++        if (traceM17GCChunk) {
++          NAGI_M17_TRACE("SpiderMonkey GC lower tail unmap started");
++        }
+@@ -1001,0 +1049,3 @@
++        if (traceM17GCChunk) {
++          NAGI_M17_TRACE("SpiderMonkey GC lower tail unmap completed");
++        }
+@@ -1020,0 +1071,3 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC replacement mapping started");
++    }
+@@ -1021,0 +1075,3 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC replacement mapping completed");
++    }

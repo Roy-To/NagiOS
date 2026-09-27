@@ -200,3 +200,9 @@ retries cannot select distinct Nagi arena addresses. The Nagi target therefore
 uses SpiderMonkey's existing aligned-page fallback through the real guest mmap
 interface. Other target allocators and Nagi's kernel mapping authority are
 unchanged.
+
+Patch `0023` follows CI #299, where the Nagi fallback reached its base mapping
+but did not return from the first `TryToAlignChunk` call. The patch adds
+Nagi-only checkpoints around exact-hint mmap, mismatched-hint cleanup, each
+alignment direction's unmap, and replacement mapping. It preserves the mapping
+calls, order, and success decisions; non-Nagi trace flags remain false.

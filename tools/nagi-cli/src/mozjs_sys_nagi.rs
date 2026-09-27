@@ -791,4 +791,81 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn mozjs_m17_alignment_trace_patch_brackets_mapping_operations() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0023-nagi-m17-alignment-traces.patch"),
+        )
+        .expect("MozJS Nagi M17 alignment trace patch");
+
+        for contract in [
+            "diff --git a/mozjs/js/src/gc/Memory.cpp",
+            "#if defined(__NAGI__)",
+            "bool traceM17GCChunk = false",
+            "constexpr bool traceM17GCChunk = false;",
+            "length == ChunkSize && alignment == ChunkSize",
+            "MapMemoryAt(regionEnd, offsetUpper, traceM17GCChunk)",
+            "MapMemoryAt(lowerStart, offsetLower, traceM17GCChunk)",
+            "SpiderMonkey GC exact-hint mmap started",
+            "SpiderMonkey GC exact-hint mmap completed",
+            "SpiderMonkey GC mismatched-hint unmap started",
+            "SpiderMonkey GC mismatched-hint unmap completed",
+            "SpiderMonkey GC chunk alignment entered",
+            "SpiderMonkey GC upward hint mapping started",
+            "SpiderMonkey GC upward hint mapping completed",
+            "SpiderMonkey GC upward prefix unmap started",
+            "SpiderMonkey GC upward prefix unmap completed",
+            "SpiderMonkey GC lower hint mapping started",
+            "SpiderMonkey GC lower hint mapping completed",
+            "SpiderMonkey GC lower tail unmap started",
+            "SpiderMonkey GC lower tail unmap completed",
+            "SpiderMonkey GC replacement mapping started",
+            "SpiderMonkey GC replacement mapping completed",
+        ] {
+            assert!(
+                patch.contains(contract),
+                "missing MozJS Nagi M17 alignment trace contract: {contract}"
+            );
+        }
+
+        for (start, complete) in [
+            (
+                "SpiderMonkey GC exact-hint mmap started",
+                "SpiderMonkey GC exact-hint mmap completed",
+            ),
+            (
+                "SpiderMonkey GC mismatched-hint unmap started",
+                "SpiderMonkey GC mismatched-hint unmap completed",
+            ),
+            (
+                "SpiderMonkey GC upward hint mapping started",
+                "SpiderMonkey GC upward hint mapping completed",
+            ),
+            (
+                "SpiderMonkey GC upward prefix unmap started",
+                "SpiderMonkey GC upward prefix unmap completed",
+            ),
+            (
+                "SpiderMonkey GC lower hint mapping started",
+                "SpiderMonkey GC lower hint mapping completed",
+            ),
+            (
+                "SpiderMonkey GC lower tail unmap started",
+                "SpiderMonkey GC lower tail unmap completed",
+            ),
+            (
+                "SpiderMonkey GC replacement mapping started",
+                "SpiderMonkey GC replacement mapping completed",
+            ),
+        ] {
+            let started = patch.find(start).expect("alignment start marker");
+            let completed = patch.find(complete).expect("alignment completion marker");
+            assert!(started < completed, "misordered trace pair: {start}");
+        }
+    }
 }
