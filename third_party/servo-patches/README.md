@@ -63,3 +63,9 @@ existing WebPKI verifier for `target_os = "nagi"`. It uses the pinned
 certificate store. Rustls certificate-chain and hostname verification remain
 enabled, and Servo's explicit certificate override path remains additive.
 Other target verifier selection is unchanged.
+
+The ordered patch `0015-nagi-m17-navigation-traces.patch` adds Nagi-only
+checkpoints from Servo's `NewWebView` message through top-level browsing
+context setup, event-loop creation, and `Pipeline::spawn`. It narrows a guest
+navigation stall without changing the message flow or pipeline behavior;
+other targets compile a no-op trace helper.

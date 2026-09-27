@@ -852,6 +852,33 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_traces_m17_navigation_pipeline_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0015-nagi-m17-navigation-traces.patch"),
+        )
+        .expect("M17 navigation and pipeline trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "Constellation received NewWebView",
+            "Constellation NewWebView handler started",
+            "Constellation NewWebView pipeline creation started",
+            "Constellation NewWebView pipeline creation returned",
+            "Constellation pipeline event loop setup started",
+            "Constellation pipeline event loop setup completed",
+            "Constellation Pipeline::spawn started",
+            "Constellation Pipeline::spawn returned",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
     fn inventory_nagi_patch_enables_servo_bundled_resource_registration() {
         use crate::registry_source::{validate_source_lock, RegistrySourceSpec};
 

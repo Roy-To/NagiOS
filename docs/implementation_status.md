@@ -26,26 +26,30 @@ in both POSIX normalization and kernel validation. Actions run #36303942619
 accepts Servo's 8 MiB stacks, constructs Servo and WebView, and starts the
 event loop, but no WebView load-status or frame callback, first-pixel checksum,
 or PASS marker appears before the 120-second timeout (exit code 4). The next
-diagnostic run #36309977725 (head `3e9e789`) passed the Windows launcher job and
-its target job has passed Mesa, package, and kernel builds; the `nagi-init`
-build is still running. Ubuntu host Clippy failed on an unused POSIX stack
-constant; the local correction removes the redundant alias and reads the
-shared `nagi-abi` minimum directly. The full host lint is not reproducible on
-this ARM64 Mac because `libnagi` uses x86-64 syscall registers, so Ubuntu CI
-must verify the correction. Keep M17 `BLOCKED` until the diagnostic QEMU run
-and a follow-up authoritative run produce the unmodified first-web-pixel
+diagnostic run #36309977725 (head `3e9e789`) passed target user-init and UEFI
+builds but QEMU again timed out after 120 seconds (exit code 4). The trace now
+confirms that the first `Servo::spin_event_loop` call returns; it shows no
+Constellation navigation result, WebView URL/load-status notification, frame
+callback, checksum, or PASS. All Mesa/EGL context setup, Servo construction,
+WebView construction, and the initial event-loop dispatch completed. Ubuntu
+host Clippy failed on an unused POSIX stack constant; local commit `de347dd`
+removes that redundant alias and reads the shared `nagi-abi` minimum directly.
+The full host lint is not reproducible on this ARM64 Mac because `libnagi` uses
+x86-64 syscall registers, so Ubuntu CI must verify the correction. The next
+Nagi-owned Servo patch traces `NewWebView` receipt through Constellation's
+browsing-context, event-loop, and pipeline-spawn boundaries. Keep M17
+`BLOCKED` until authoritative QEMU produces the unmodified first-web-pixel
 checksum and M17 PASS. M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** Actions run #36309977725 (`3e9e789`) has
-passed the Windows launcher job and the target build through the kernel. Its
-`nagi-init` build remains in progress; no result from its UEFI or QEMU stages
-is available yet. Its Ubuntu host job stopped at Clippy because the POSIX
-minimum-stack alias is only used in target-gated code. The alias has been
-removed locally and the ABI validator now refers to the shared minimum
-constant. The preceding target checkpoint is run #36303942619 (`732fc6c`):
-QEMU constructed Servo and WebView and entered the event loop, then timed out
-after 120 seconds without load status, frame callback, checksum, or PASS.
+**Last known repair checkpoint:** Actions run #36309977725 (`3e9e789`) passed
+target Mesa, package, kernel, user-init, and UEFI builds. Its QEMU acceptance
+timed out after 120 seconds (exit code 4). The guest completed EGL/Softpipe
+context creation, Servo and WebView construction, and the first event-loop
+dispatch. No Constellation navigation, URL/load-status notification, frame
+callback, checksum, or PASS marker followed. The Ubuntu host job stopped at
+Clippy because the POSIX minimum-stack alias is only used in target-gated code;
+local commit `de347dd` removes it and reads the shared ABI constant directly.
 
 ### M17 host Clippy correction and diagnostic run #36309977725 (2026-09-27)
 
@@ -58,16 +62,40 @@ removes the redundant alias and compares against
 `libnagi::BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE` directly. This preserves the
 same lower bound and keeps `nagi-abi` as the shared source of truth.
 
-The target job has passed Servo bootstrap, the dependency feature boundary,
-Mesa Softpipe archive, M16 package, and kernel build. At this update its
-`Build Nagi user init` step remains in progress; UEFI and real QEMU results
-are pending. A fresh Mac host Clippy attempt is not a valid substitute:
+The target job passed Servo bootstrap, the dependency feature boundary, Mesa
+Softpipe archive, M16 package, kernel, user-init, and UEFI builds. The real
+QEMU acceptance then timed out after 120 seconds (exit code 4). Its diagnostic
+excerpt ends at `Servo first event-loop dispatch returned`; no WebView URL or
+load-status callback, first frame callback, checksum, or PASS marker appears.
+A fresh Mac host Clippy attempt is not a valid substitute:
 `libnagi`'s inline x86-64 syscall registers are unavailable to the ARM64 Mac
 host target. Local checks after the repair pass for the custom Nagi POSIX
 target, the standalone thread-helper harness (3 tests), formatting, and
-`git diff --check`. The next action is to finish collecting this target run's
-UEFI/QEMU result, then rerun public host Clippy on the corrected commit. M17
-remains `BLOCKED`; M18 remains `NOT STARTED`.
+`git diff --check`. The corrected host lint remains pending public Ubuntu CI.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### M17 Constellation navigation diagnostic after run #36309977725 (2026-09-27)
+
+The #363099 trace moves the stop beyond graphics initialization and Servo
+construction: `SoftwareRenderingContext::new`, Mesa context setup, Servo,
+WebView, and the first `spin_event_loop` dispatch all return. The guest emits
+no URL-change, load-status, or frame-ready callback before the unchanged
+120-second QEMU timeout. This does not yet prove whether the Constellation
+worker received the `NewWebView` message or where initial pipeline setup
+stops.
+
+Nagi-owned Servo patch `0015-nagi-m17-navigation-traces.patch` now places
+Nagi-only markers at `NewWebView` receipt, top-level browsing-context setup,
+pipeline event-loop setup, and `Pipeline::spawn`. It does not alter navigation
+or scheduling behavior. A focused `nagi-cli` source-contract test was first
+run against the absent patch and failed as expected; after adding the patch it
+passes. The patch applies cleanly to the pinned generated Servo checkout,
+and `./nagi fetch` with the pinned nightly regenerated the Servo/MozJS caches
+and validated the updated patch set. The full `nagi-cli` library suite passes
+(83 tests), including the new contract test; package formatting and
+`git diff --check` pass. Public target CI must verify the target compilation
+and use the new runtime trace to locate navigation startup. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 Servo ScriptThread stack bound after Actions runs #289 and #363039 (2026-09-27)
 
