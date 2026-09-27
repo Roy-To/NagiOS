@@ -1,6 +1,6 @@
 pub const THREAD_SLOTS: usize = libnagi::BOOTSTRAP_USER_THREAD_COUNT;
-pub const MIN_STACK_SIZE: usize = 4096;
-pub const DEFAULT_STACK_SIZE: usize = 2 * 1024 * 1024;
+pub const MIN_STACK_SIZE: usize = libnagi::BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE;
+pub const DEFAULT_STACK_SIZE: usize = libnagi::BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE;
 
 pub fn thread_id_index(thread_id: u64) -> Option<usize> {
     let index = usize::try_from(thread_id).ok()?;
@@ -8,16 +8,7 @@ pub fn thread_id_index(thread_id: u64) -> Option<usize> {
 }
 
 pub fn rounded_stack_size(requested: usize) -> Option<usize> {
-    let size = if requested == 0 {
-        DEFAULT_STACK_SIZE
-    } else {
-        requested
-    };
-    if !(MIN_STACK_SIZE..=DEFAULT_STACK_SIZE).contains(&size) {
-        return None;
-    }
-    let rounded = size.checked_add(4095)? & !4095;
-    (rounded <= DEFAULT_STACK_SIZE).then_some(rounded)
+    libnagi::round_bootstrap_user_thread_stack_size(requested)
 }
 
 #[cfg(test)]
@@ -46,7 +37,19 @@ mod tests {
             Some(DEFAULT_STACK_SIZE)
         );
         assert_eq!(rounded_stack_size(1), None);
-        assert_eq!(rounded_stack_size(DEFAULT_STACK_SIZE + 1), None);
+        assert_eq!(
+            rounded_stack_size(DEFAULT_STACK_SIZE + 1),
+            Some(DEFAULT_STACK_SIZE + 4096)
+        );
         assert_eq!(rounded_stack_size(usize::MAX), None);
+    }
+
+    #[test]
+    fn stack_sizes_accept_servo_script_thread_requirement() {
+        let max_stack_size = libnagi::BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE;
+        assert_eq!(max_stack_size, 8 * 1024 * 1024);
+        assert_eq!(rounded_stack_size(max_stack_size), Some(max_stack_size));
+        assert_eq!(rounded_stack_size(max_stack_size - 1), Some(max_stack_size));
+        assert_eq!(rounded_stack_size(max_stack_size + 1), None);
     }
 }

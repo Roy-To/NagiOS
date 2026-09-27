@@ -19,28 +19,53 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Actions run 36295909293 (run #288, head `8018045`) passed both host
-jobs, target dependency validation, Mesa Softpipe, M16 package, kernel,
-`nagi-init` link, and UEFI loader. QEMU passed the embedded Servo resource
-reader preflight, then stopped during TLS prewarm because AWS-LC could not
-open `/dev/urandom`. The confirmed consumer is AWS-LC's `urandom.c`; Nagi's
-POSIX adapter currently resolves that path through persistent VFS and has no
-random-device descriptor. The current repair adds a POSIX `/dev/urandom`
-descriptor backed by `libnagi::random_fill` and `SYS_RANDOM_GET`, with entropy
-failures propagated as `EIO`. Require the real TLS prewarm, Servo/WebView
-startup, first-web-pixel checksum, and M17 PASS in the next authoritative
-QEMU run. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+milestone. The ADR 0034 repair now shares stack bounds through `nagi-abi`,
+keeps the 2 MiB default, and accepts up to Servo's source-defined 8 MiB stack
+in both POSIX normalization and kernel validation. Local ABI tests (2), POSIX
+thread-helper tests (3), the Nagi-target kernel check, the Nagi-target POSIX
+check, and affected-package formatting all pass. Push the repair and run the
+authoritative target CI; QEMU must create Servo's script worker and produce the
+real first-web-pixel checksum and M17 PASS. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** Actions run 36295909293 (run #288, head
-`8018045`) passed the complete target build through UEFI and confirmed that
-the inventory constructor patch registers Servo's real embedded resource
-reader. QEMU then reached `Servo::new TLS prewarm started`. AWS-LC's
-`init_try_urandom_once()` called `open("/dev/urandom", O_RDONLY)`, which the
-Nagi POSIX VFS reported as missing; AWS-LC printed `failed to open
-/dev/urandom: Unknown error` and aborted. This is a separate consumer from
-the already-patched Rust std and MozJS entropy routes. No Servo construction,
-WebView, checksum, or M17 PASS marker was produced.
+**Last known repair checkpoint:** Actions run #289 (`36299606900`, head
+`c14cd2f59a978c6f64fc8c8a0db6ac680aa4ad1f`) passed the complete target build
+through UEFI. In QEMU, the POSIX `/dev/urandom` device allowed AWS-LC TLS
+prewarm to finish; Servo and WebView were constructed. The next Servo worker
+requested its source-defined 8 MiB stack. Rust std's page-rounded
+`pthread_attr_setstacksize` retry still returned `EINVAL` because both POSIX
+and `SYS_THREAD_CREATE` had a 2 MiB maximum. The 120-second QEMU acceptance
+timed out with exit code 4 before any first-web-pixel checksum or PASS marker.
+
+### M17 Servo ScriptThread stack bound after Actions run #289 (2026-09-27)
+
+The run #289 serial tail shows `Servo::new TLS prewarm completed`, `Servo
+constructed`, and `WebView constructed` before the `Constellation` worker
+panics at pinned Rust std `library/std/src/sys/pal/unix/thread.rs:80`. That
+line asserts the result of the second `pthread_attr_setstacksize` call. The
+first call returned `EINVAL`; Rust std rounds the request to a page boundary
+and retries. The requested size is already aligned, so the retry reaches the
+same rejection.
+
+Pinned Servo source specifies `.stack_size(8 * 1024 * 1024)` for each
+`ScriptThread`. Nagi's POSIX stack normalizer accepted at most 2 MiB, and the
+kernel independently rejected `SYS_THREAD_CREATE` stacks above 2 MiB. ADR
+0034 keeps the 2 MiB default but extends the per-thread maximum to the pinned
+Servo requirement of 8 MiB. `nagi-abi` now defines this shared bound for POSIX
+normalization and kernel validation. The existing mmap window, stack mapping
+checks, thread-pool bound, and first-pixel acceptance remain in force.
+
+Local verification passes: `nagi-abi` host tests (2), a standalone harness
+that compiles the actual POSIX thread helper (3), `cargo check` for the custom
+Nagi kernel target, and `cargo check` for the custom POSIX target. The POSIX
+target check reports five existing warnings in unrelated declarations; the
+new unused stack-limit warning is gone. The affected-package nightly rustfmt
+check and `git diff --check` also pass. Full POSIX package tests cannot run on
+this ARM64 Mac because `libnagi` contains x86-64 syscall-register assembly.
+Public target CI must verify script-worker creation and continue through the
+real first-web-pixel checksum. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
 
 ### M17 POSIX entropy device after Actions run 36295909293 (2026-09-27)
 

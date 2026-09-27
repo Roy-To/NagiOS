@@ -38,6 +38,39 @@ pub const THREAD_CREATE_DETACHED: u64 = 1;
 /// the initial user-init thread; all remaining IDs are reusable child slots.
 pub const BOOTSTRAP_USER_THREAD_COUNT: usize = 32;
 
+/// Page granularity for M17 bootstrap user-thread stack mappings.
+pub const BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE: usize = 4096;
+/// Smallest stack accepted by the M17 bootstrap thread ABI.
+pub const BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE: usize = BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE;
+/// Default stack for M17 bootstrap threads without an explicit request.
+pub const BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE: usize = 2 * 1024 * 1024;
+/// Largest individual stack accepted by the M17 bootstrap ABI. The pinned
+/// Servo ScriptThread explicitly requests this 8 MiB stack.
+pub const BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE: usize = 8 * 1024 * 1024;
+
+/// Round an M17 bootstrap thread stack request to guest page granularity.
+/// A request of zero selects the unchanged 2 MiB default.
+pub fn round_bootstrap_user_thread_stack_size(requested: usize) -> Option<usize> {
+    let size = if requested == 0 {
+        BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE
+    } else {
+        requested
+    };
+    if size < BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE || size > BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE {
+        return None;
+    }
+    let rounded = size.checked_add(BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE - 1)?
+        & !(BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE - 1);
+    (rounded <= BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE).then_some(rounded)
+}
+
+/// Validate the page-aligned size passed to `SYS_THREAD_CREATE`.
+pub const fn is_valid_bootstrap_user_thread_stack_size(size: usize) -> bool {
+    size >= BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE
+        && size <= BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE
+        && size % BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE == 0
+}
+
 // POSIX-compatible protection bits used by the Nagi user-space mapping ABI.
 // They intentionally match the standard mmap contract so relibc and Servo
 // can use the same values without a host syscall translation.
@@ -70,6 +103,59 @@ pub const INPUT_EVENT_ABS: u16 = 3;
 pub const INPUT_KEY_LEFT: u16 = 0x110;
 pub const INPUT_REL_X: u16 = 0;
 pub const INPUT_REL_Y: u16 = 1;
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        is_valid_bootstrap_user_thread_stack_size, round_bootstrap_user_thread_stack_size,
+        BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE, BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE,
+        BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE,
+    };
+
+    #[test]
+    fn bootstrap_thread_stack_rounding_preserves_default_and_servo_limit() {
+        assert_eq!(BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE, 2 * 1024 * 1024);
+        assert_eq!(BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE, 8 * 1024 * 1024);
+        assert_eq!(
+            round_bootstrap_user_thread_stack_size(0),
+            Some(2 * 1024 * 1024)
+        );
+        assert_eq!(
+            round_bootstrap_user_thread_stack_size(BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE),
+            Some(BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE)
+        );
+        assert_eq!(
+            round_bootstrap_user_thread_stack_size(BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE - 1),
+            Some(BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE)
+        );
+        assert_eq!(
+            round_bootstrap_user_thread_stack_size(BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE + 1),
+            None
+        );
+        assert_eq!(round_bootstrap_user_thread_stack_size(usize::MAX), None);
+        assert_eq!(round_bootstrap_user_thread_stack_size(1), None);
+    }
+
+    #[test]
+    fn kernel_thread_stack_contract_requires_aligned_bounded_sizes() {
+        assert!(is_valid_bootstrap_user_thread_stack_size(
+            BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE
+        ));
+        assert!(is_valid_bootstrap_user_thread_stack_size(
+            BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE
+        ));
+        assert!(is_valid_bootstrap_user_thread_stack_size(
+            BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE
+        ));
+        assert!(!is_valid_bootstrap_user_thread_stack_size(0));
+        assert!(!is_valid_bootstrap_user_thread_stack_size(
+            BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE + 4096
+        ));
+        assert!(!is_valid_bootstrap_user_thread_stack_size(
+            BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE - 1
+        ));
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

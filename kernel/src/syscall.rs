@@ -22,6 +22,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use super::{halt_forever, interrupts, serial_log_read, serial_read_byte, serial_write};
 
 #[cfg(not(test))]
+use nagi_abi::{is_valid_bootstrap_user_thread_stack_size, BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE};
+#[cfg(not(test))]
 use nagi_kernel::scheduler::{BootstrapUserThreads, JoinOutcome};
 
 pub use nagi_abi::{
@@ -149,11 +151,6 @@ impl UserThreadContext {
         }
     }
 }
-
-#[cfg(not(test))]
-const MIN_NATIVE_THREAD_STACK: u64 = 4096;
-#[cfg(not(test))]
-const MAX_NATIVE_THREAD_STACK: u64 = 2 * 1024 * 1024;
 
 #[cfg(not(test))]
 static mut NAGI_USER_THREADS: BootstrapUserThreads = BootstrapUserThreads::new();
@@ -949,11 +946,10 @@ fn thread_create(frame: &SyscallFrame) -> u64 {
             b"Nagi M17 trace: SYS_THREAD_CREATE rejected: stack outside mmap window\r\n",
         );
     }
-    if frame.arg4 == 0
-        || frame.arg4 < MIN_NATIVE_THREAD_STACK
-        || frame.arg4 > MAX_NATIVE_THREAD_STACK
-        || !frame.arg3.is_multiple_of(4096)
-        || !frame.arg4.is_multiple_of(4096)
+    if !is_valid_bootstrap_user_thread_stack_size(frame.arg4 as usize)
+        || !frame
+            .arg3
+            .is_multiple_of(BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE as u64)
     {
         return thread_create_rejected(
             b"Nagi M17 trace: SYS_THREAD_CREATE rejected: invalid stack size or alignment\r\n",
