@@ -19,19 +19,50 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI #301 (`36347429584`, head
-`8818a37382979fc211bf178a1feff5bf1aab7e59`) passed both host jobs and all
-target builds through UEFI. The real QEMU trace confirms that partial GC
-`munmap` now completes and two GC chunks initialize, then a later 1 MiB GC
-chunk `mmap` is rejected during debugger-global creation. Reason-coded mapper
-diagnostics are now implemented locally; the next public target run must
-identify the failure branch and report free reservation slots and contiguous
-space. Repair only that measured cause. M17 remains BLOCKED until authoritative
-QEMU emits the real nonzero first-web-pixel checksum and M17 PASS. M18 remains
-NOT STARTED.
+milestone. Public CI #302 (`36351615434`, head
+`fb9ba58f3c0f01b13335a894edd33a1999a92da5`) passed both host jobs and all
+target builds through UEFI, but real QEMU exhausted the 128 MiB bootstrap mmap
+window during Servo/SpiderMonkey startup: a 1 MiB request had only four pages
+free and four contiguous pages, while 32 reservation identities remained.
+ADR 0036 and the local kernel change expand the finite window and backing to
+256 MiB without changing reservation, ownership, or acceptance rules. Local
+verification passes 112 kernel tests, the x86_64 Linux kernel-test check, and
+the release Nagi kernel build. Push the reviewed repair for public target CI;
+M17 remains BLOCKED until authoritative QEMU emits the real nonzero
+first-web-pixel checksum and M17 PASS. M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-28
-**Last known repair checkpoint:** Public CI #301 verifies the partial-range VM change through the real SpiderMonkey GC alignment sequence. Reason-coded mmap failure reporting is implemented without changing mapping policy. Local verification passes 111/111 kernel tests on x86_64 macOS via Rosetta 2, the x86_64 Linux test configuration, and the release Nagi kernel build. Public target CI must supply the resource diagnosis before changing the existing 64-reservation or 128 MiB bounds. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** Public CI #302 measured the exact exhaustion condition: `request_pages=256`, `free_reservation_slots=32`, `free_pages=4`, and `largest_free_run_pages=4`. ADR 0036 increases the statically backed bootstrap mmap window from 128 MiB to 256 MiB while retaining the 64-reservation bound and real QEMU acceptance. Local verification passes 112/112 kernel tests on x86_64 macOS via Rosetta 2, the x86_64 Linux test configuration, and the release Nagi kernel build. Public target CI must validate the larger kernel BSS and continue to the real first-web-pixel marker. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### M17 bootstrap mmap capacity after Actions run #302 (2026-09-28)
+
+Run #302 (`36351615434`, head
+`fb9ba58f3c0f01b13335a894edd33a1999a92da5`) passed the Windows launcher and
+Ubuntu host jobs, target dependency boundary, Mesa Softpipe, M16 package,
+kernel, real `nagi-init` link, and UEFI loader. Real QEMU created the Softpipe
+GL context, initialized multiple SpiderMonkey GC chunks, and entered
+`ScriptThread debugger global creation`. It then rejected a 1 MiB GC mapping
+four times with `no contiguous range`, `free_reservation_slots=32`,
+`free_pages=4`, and `largest_free_run_pages=4`. The guest asserted because
+`JS_NewGlobalObject` received a null context and did not exit before the
+unchanged 120-second bound (acceptance exit code 4). No pixel checksum or M17
+PASS marker was produced.
+
+The statistics distinguish exhaustion of the 128 MiB mmap/backing capacity
+from reservation-table exhaustion. ADR 0036 expands both the finite window and
+the statically backed pages to 256 MiB for the official 8 GiB reference QEMU
+machine. The 64 reservation identities, page ownership, partial-range VM
+semantics, and acceptance gate remain unchanged. The fixed backing store adds
+128 MiB to kernel BSS; replacing it with the general physical-frame VM service
+is outside this M17 repair.
+
+The kernel boundary tests assert the 256 MiB extent and verify the final page
+is accepted while a range crossing `USER_MMAP_LIMIT` is rejected. Local
+verification passes all 112 kernel unit tests on x86_64 macOS via Rosetta 2,
+`cargo check -p nagi-kernel --lib --tests --target x86_64-unknown-linux-gnu
+--locked`, the release `x86_64-unknown-nagi` kernel build, formatting, and diff
+checks. The larger BSS and real QEMU behavior await the next public target CI.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 GC mmap rejection diagnostics after Actions run #301 (2026-09-28)
 

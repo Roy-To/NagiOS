@@ -34,7 +34,7 @@ pub const USER_TLS_CHILD_BASE: u64 = USER_TLS_BASE + USER_TLS_PAGES_PER_THREAD a
 pub const USER_TLS_CHILD_CONTROL_BASE: u64 = USER_TLS_CHILD_BASE + PAGE_SIZE;
 pub const USER_TLS_LIMIT: u64 = USER_TLS_BASE + USER_TLS_PAGE_COUNT as u64 * PAGE_SIZE;
 pub const USER_MMAP_BASE: u64 = USER_IMAGE_LIMIT + 0x0080_0000;
-const USER_MMAP_PAGE_TABLES: usize = 64;
+const USER_MMAP_PAGE_TABLES: usize = 128;
 pub const USER_MMAP_PAGES: usize = PAGE_TABLE_ENTRIES * USER_MMAP_PAGE_TABLES;
 pub const USER_MMAP_LIMIT: u64 = USER_MMAP_BASE + USER_MMAP_PAGES as u64 * PAGE_SIZE;
 pub const USER_SURFACE_LIMIT: u64 = USER_SURFACE_BASE + SURFACE_PAGE_COUNT as u64 * PAGE_SIZE;
@@ -1763,12 +1763,12 @@ mod tests {
 
     use super::{
         build_address_space, efer_with_nxe, find_exact_mmap_fragment_owner, find_mmap_start_page,
-        image_range_is_mapped, mapped_range, mmap_page_flags, mmap_range_is_owned,
+        image_range_is_mapped, mapped_range, mmap_page_flags, mmap_range, mmap_range_is_owned,
         mmap_user_in_storage, mprotect_mmap_range, munmap_mmap_range, register_mmap_reservation,
         release_mmap_range_owners, remap_mmap_pages, reset_child_tls_pages, user_tls_control_base,
         validate_mmap_request, BootstrapStorage, MmapReservation, MmapUserFailureKind,
-        UserProcessError, MAX_MMAP_RESERVATIONS, USER_MMAP_BASE, USER_MMAP_PAGES, USER_STACK_BASE,
-        USER_STACK_LIMIT, USER_STACK_PAGES, USER_SURFACE_LIMIT, USER_TLS_BASE,
+        UserProcessError, MAX_MMAP_RESERVATIONS, USER_MMAP_BASE, USER_MMAP_LIMIT, USER_MMAP_PAGES,
+        USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES, USER_SURFACE_LIMIT, USER_TLS_BASE,
         USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT, USER_TLS_PAGE_COUNT,
         USER_TLS_THREAD_SLOT_COUNT,
     };
@@ -1792,9 +1792,26 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_mmap_window_reserves_128_mib_after_the_surface_region() {
-        assert_eq!(USER_MMAP_PAGES as u64 * PAGE_SIZE, 128 * 1024 * 1024);
+    fn bootstrap_mmap_window_reserves_256_mib_after_the_surface_region() {
+        assert_eq!(USER_MMAP_PAGES as u64 * PAGE_SIZE, 256 * 1024 * 1024);
         assert!(USER_SURFACE_LIMIT <= USER_MMAP_BASE);
+        assert_eq!(USER_MMAP_LIMIT - USER_MMAP_BASE, 256 * 1024 * 1024);
+    }
+
+    #[test]
+    fn mmap_range_accepts_the_256_mib_window_end_and_rejects_crossing_it() {
+        assert_eq!(
+            mmap_range(USER_MMAP_BASE, 256 * 1024 * 1024, PROT_READ),
+            Some((0, USER_MMAP_PAGES))
+        );
+        assert_eq!(
+            mmap_range(USER_MMAP_LIMIT - PAGE_SIZE, PAGE_SIZE, PROT_READ),
+            Some((USER_MMAP_PAGES - 1, 1))
+        );
+        assert_eq!(
+            mmap_range(USER_MMAP_LIMIT - PAGE_SIZE, 2 * PAGE_SIZE, PROT_READ),
+            None
+        );
     }
 
     #[test]
