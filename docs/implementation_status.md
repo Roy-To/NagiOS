@@ -19,25 +19,63 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #266 verified that `_start` now runs ELF constructors, and
-SpiderMonkey initialization completed. Servo then stopped while initializing
-the platform certificate verifier because Nagi has no host CA store. The
-tracked local repair selects Servo's existing WebPKI verifier for Nagi and
-uses the lock-pinned public roots with normal chain and hostname validation.
-The focused regression test and all 79 `nagi-cli` library tests pass; public
-target CI must verify resource-thread startup and the next guest milestone.
-M17 remains `BLOCKED` until the guest produces its real first-web-pixel
-checksum and PASS marker. M18 remains `NOT STARTED`.
+milestone. Actions run 36284231289 (run #285, head `13fde2f`) verified that
+Servo's resource threads now complete with the pinned WebPKI roots. QEMU then
+aborted as Servo started its storage threads. The M17 entry had not mounted
+the POSIX VFS, and the existing POSIX/VFS path boundary rejected the nested
+paths Servo creates. The current repair mounts the same capability-backed M7
+volume before Servo, ensures the guest `/tmp`, and adds bounded hierarchical
+path operations over real VFS directory inodes. Local VFS tests pass; target
+CI must verify storage-thread startup and continue to the real first-web-pixel
+checksum and PASS marker. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** public CI run 36281382815 (#266, head
-`fdc1b24610fa36ee9651283eaf77f7477820fc9f`) passed both host jobs, target
-dependencies, Mesa Softpipe, M16 package, kernel, user-init link, and UEFI
-loader. QEMU confirmed constructor completion, TypeIdSet insertion, and
-`JS_Init`, then Servo's ResourceManager thread panicked because the Nagi guest
-has no platform CA certificates. The lock-pinned WebPKI verifier selection is
-now recorded as Nagi patch 0014; public target CI must confirm resource-thread
-startup and continue the real first-web-pixel path. M17 remains `BLOCKED`;
+**Last known repair checkpoint:** Actions run 36284231289 (run #285, head
+`13fde2f8683b00492f589fd4db7f090f48e16e81`) passed both host jobs, target
+dependencies, Mesa Softpipe, M16 package, kernel, target user-init link, and
+UEFI loader. QEMU passed constructor completion, M7 persistence, TypeIdSet
+insertion, `JS_Init`, GL context creation, and both ResourceManager thread
+groups. It then aborted immediately after `Servo::new storage threads
+started`; no first-web-pixel checksum or PASS marker was produced. A source
+audit found that the M17 entry never called
+`nagi_posix_initialize_filesystem`, while Servo's storage factory uses
+`tempfile::tempdir()` and `std::fs::create_dir_all()` before spawning its
+thread. The POSIX pathname adapter and VFS were root-only, so this path could
+not work even after mounting. The pending repair mounts the existing guest
+block capability and implements bounded nested path traversal; target CI must
+verify it. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### M17 storage-thread filesystem repair after Actions run 36284231289 (2026-09-27)
+
+The stopped guest trace in Actions run 36284231289 (run #285, head
+`13fde2f8683b00492f589fd4db7f090f48e16e81`) ended at
+`Servo::new storage threads started`. The preceding resource thread groups
+completed, confirming that the pinned WebPKI-root repair advanced past the
+previous blocker. Source inspection found that `ClientStorageThreadFactory`
+unwraps `tempfile::tempdir()` and expects `std::fs::create_dir_all()` to
+succeed before it calls `thread::Builder::spawn`. M17's custom `_start` had
+only run the M7 acceptance's local VFS and never mounted that capability into
+`nagi-posix`; the POSIX adapter rejected interior slashes and the VFS resolved
+only root entries. This matches the abort point.
+
+The current change initializes `nagi-posix` over the same persistent block
+capability after M7 acceptance, ensures `/tmp` exists on that guest volume,
+and implements bounded path traversal through actual directory inodes and
+their `.` / `..` records. POSIX `stat`, file create/open, `mkdir`, `unlink`,
+and `rmdir` now use those paths; the existing root-only directory-stream
+boundary remains explicit until directory descriptors are implemented. No
+host filesystem or synthetic storage is introduced.
+
+Local verification: `libnagi` storage and the complete library suite pass
+(28/28); `nagi-cli` source-contract/library tests pass (80/80), including the
+M17 boot ordering check; `rustfmt --check` on the changed runtime files,
+`git diff --check`, and an actual custom-target `cargo check -p nagi-posix
+--lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc
+--locked --offline` pass. The target check reports five warnings in existing
+POSIX declarations. Running the `nagi-posix` host test binary fails before
+test execution because its existing `.data` errno section is not a valid
+Mach-O section on this ARM64 macOS host. Full M17 image linking, UEFI build,
+and real QEMU acceptance remain for public target CI. M17 remains `BLOCKED`;
 M18 remains `NOT STARTED`.
 
 ### Target evidence from CI Actions run #238 (2026-09-26)

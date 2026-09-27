@@ -9,15 +9,18 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
 
 use crate::errno::{
-    errno, set_errno, EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP,
-    ENOTTY, ERANGE, ETIMEDOUT,
+    EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP, ENOTTY, ERANGE,
+    ETIMEDOUT, errno, set_errno,
 };
-use libnagi::storage::{DirectoryEntry, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH};
+use libnagi::storage::{
+    DirectoryEntry, FileMetadata, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH, MAX_PATH_LENGTH,
+};
 use nagi_pal::time::{Clock, GuestClock};
 
 const TLS_SLOTS: usize = 64;
 const THREAD_SLOTS: usize = crate::threads::THREAD_SLOTS;
 const RETIRED_STACK_SLOTS: usize = 64;
+const PATH_BUFFER_CAPACITY: usize = MAX_PATH_LENGTH + 1;
 const PTHREAD_CREATE_DETACHED: c_int = 0;
 const PTHREAD_CREATE_JOINABLE: c_int = 1;
 const PTHREAD_INHERIT_SCHED: c_int = 1;
@@ -418,6 +421,19 @@ pub unsafe extern "C" fn nagi_posix_initialize_filesystem(capability: u64) -> c_
         0
     } else {
         write_errno_and_fail(5)
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_ensure_directory(path: *const c_char) -> c_int {
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
+    let path = match c_path(path, &mut bytes) {
+        Ok(path) => path,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::ensure_directory(path) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
     }
 }
 
@@ -837,19 +853,15 @@ unsafe fn c_path(path: *const c_char, output: &mut [u8]) -> Result<&[u8], c_int>
     while length < output.len() {
         let byte = path.add(length).read() as u8;
         if byte == 0 {
-            let mut start = 0;
-            while start < length && output[start] == b'/' {
-                start += 1;
-            }
-            if start == length || output[start..length].contains(&b'/') {
+            if length == 0 {
                 return Err(EINVAL);
             }
-            return Ok(&output[start..length]);
+            return Ok(&output[..length]);
         }
         output[length] = byte;
         length += 1;
     }
-    Err(EINVAL)
+    Err(36)
 }
 
 unsafe fn is_root_path(path: *const c_char) -> Result<bool, c_int> {
@@ -898,7 +910,7 @@ pub unsafe extern "C" fn nagi_posix_chroot(path: *const c_char) -> c_int {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_open(path: *const c_char, flags: c_int, _mode: c_int) -> c_int {
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => return write_errno_and_fail(error),
@@ -934,12 +946,17 @@ pub unsafe extern "C" fn nagi_posix_unlinkat(
     if flags & !AT_REMOVEDIR != 0 {
         return write_errno_and_fail(EINVAL);
     }
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => return write_errno_and_fail(error),
     };
-    match crate::runtime::remove(name) {
+    let result = if flags & AT_REMOVEDIR != 0 {
+        crate::runtime::rmdir(name)
+    } else {
+        crate::runtime::remove(name)
+    };
+    match result {
         Ok(()) => 0,
         Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
     }
@@ -952,7 +969,7 @@ pub unsafe extern "C" fn nagi_posix_unlink(path: *const c_char) -> c_int {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_mkdir(path: *const c_char, _mode: c_uint) -> c_int {
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => return write_errno_and_fail(error),
@@ -1015,7 +1032,7 @@ pub unsafe extern "C" fn nagi_posix_fchown(fd: c_int, uid: c_uint, gid: c_uint) 
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_utimes(path: *const c_char, times: *const c_void) -> c_int {
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => return write_errno_and_fail(error),
@@ -1089,7 +1106,6 @@ pub unsafe extern "C" fn nagi_posix_opendir(path: *const c_char) -> *mut c_void 
             return ptr::null_mut();
         }
     }
-
     let mut entries = [DirectoryEntry::empty(); MAX_DIRECTORY_ENTRIES];
     let count = match crate::runtime::list_root(&mut entries) {
         Ok(count) => count,
@@ -1242,6 +1258,13 @@ unsafe fn fill_stat(fd: c_int, output: *mut NagiStat) -> c_int {
         Ok(metadata) => metadata,
         Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
     };
+    fill_stat_metadata(metadata, output)
+}
+
+unsafe fn fill_stat_metadata(metadata: FileMetadata, output: *mut NagiStat) -> c_int {
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
     output.write(NagiStat {
         st_dev: 0,
         st_ino: u64::from(metadata.inode),
@@ -1273,24 +1296,34 @@ pub unsafe extern "C" fn fstat(fd: c_int, output: *mut c_void) -> c_int {
 #[linkage = "weak"]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn stat(path: *const c_char, output: *mut c_void) -> c_int {
-    let fd = nagi_posix_open(path, 0, 0);
-    if fd < 0 {
-        return -1;
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
     }
-    let result = fill_stat(fd, output.cast());
-    let _ = nagi_posix_close(fd);
-    result
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
+    let path = match c_path(path, &mut bytes) {
+        Ok(path) => path,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::metadata_path(path) {
+        Ok(metadata) => fill_stat_metadata(metadata, output.cast()),
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_lstat(path: *const c_char, output: *mut c_void) -> c_int {
-    let fd = nagi_posix_open(path, 0, 0);
-    if fd < 0 {
-        return -1;
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
     }
-    let result = fill_stat(fd, output.cast());
-    let _ = nagi_posix_close(fd);
-    result
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
+    let path = match c_path(path, &mut bytes) {
+        Ok(path) => path,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::metadata_path(path) {
+        Ok(metadata) => fill_stat_metadata(metadata, output.cast()),
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1343,7 +1376,7 @@ pub unsafe extern "C" fn realpath(path: *const c_char, resolved: *mut c_char) ->
         set_errno(EINVAL);
         return ptr::null_mut();
     }
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => {
@@ -1351,6 +1384,11 @@ pub unsafe extern "C" fn realpath(path: *const c_char, resolved: *mut c_char) ->
             return ptr::null_mut();
         }
     };
+    let mut start = 0;
+    while start < name.len() && name[start] == b'/' {
+        start += 1;
+    }
+    let name = &name[start..];
     let mut index = 0;
     resolved.add(index).write(b'/' as c_char);
     index += 1;
@@ -1877,11 +1915,7 @@ pub unsafe extern "C" fn pthread_attr_setguardsize(
     if attributes.is_null() {
         return EINVAL;
     }
-    if guard_size == 0 {
-        0
-    } else {
-        ENOTSUP
-    }
+    if guard_size == 0 { 0 } else { ENOTSUP }
 }
 
 #[unsafe(no_mangle)]
@@ -1958,11 +1992,7 @@ pub unsafe extern "C" fn pthread_attr_setschedpolicy(
     if attributes.is_null() {
         return EINVAL;
     }
-    if policy == SCHED_RR {
-        0
-    } else {
-        ENOTSUP
-    }
+    if policy == SCHED_RR { 0 } else { ENOTSUP }
 }
 
 #[unsafe(no_mangle)]
@@ -2110,10 +2140,10 @@ pub unsafe extern "C" fn pthread_attr_getstack(
 #[cfg(test)]
 mod pthread_attr_tests {
     use super::{
+        NagiPthreadAttr, PTHREAD_CREATE_DETACHED, PTHREAD_CREATE_JOINABLE, SCHED_RR,
         pthread_attr_getdetachstate, pthread_attr_getschedpolicy, pthread_attr_getstack,
         pthread_attr_getstacksize, pthread_attr_init, pthread_attr_setdetachstate,
         pthread_attr_setschedpolicy, pthread_attr_setstack, pthread_attr_setstacksize,
-        NagiPthreadAttr, PTHREAD_CREATE_DETACHED, PTHREAD_CREATE_JOINABLE, SCHED_RR,
     };
     use core::ffi::c_void;
 

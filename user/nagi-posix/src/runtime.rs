@@ -1,7 +1,7 @@
 use core::time::Duration;
 use libnagi::storage::{
-    DirectoryEntry, FileHandle, FileMetadata, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
-    MAX_DIRECTORY_ENTRIES,
+    BLOCK_SIZE, DirectoryEntry, FileHandle, FileMetadata, MAX_DIRECTORY_ENTRIES, StorageError,
+    SyscallBlockDevice, Vfs,
 };
 use nagi_net::{Ipv4Address, NetError, SocketApi, SyscallDevice};
 use nagi_pal::sync::SpinMutex;
@@ -136,10 +136,10 @@ pub fn http_get(
 pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-    let handle = match volume.open(name) {
+    let handle = match volume.open_path(name) {
         Ok(handle) => handle,
         Err(StorageError::NotFound) if create => {
-            volume.create(name).map_err(RuntimeError::Storage)?
+            volume.create_path(name).map_err(RuntimeError::Storage)?
         }
         Err(error) => return Err(RuntimeError::Storage(error)),
     };
@@ -164,13 +164,33 @@ pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeErr
 pub fn remove(name: &[u8]) -> Result<(), RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-    volume.remove(name).map_err(RuntimeError::Storage)
+    volume.remove_path(name).map_err(RuntimeError::Storage)
 }
 
 pub fn mkdir(name: &[u8]) -> Result<(), RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-    volume.mkdir(name).map_err(RuntimeError::Storage)
+    volume.mkdir_path(name).map_err(RuntimeError::Storage)
+}
+
+pub fn ensure_directory(name: &[u8]) -> Result<(), RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume
+        .ensure_directory_path(name)
+        .map_err(RuntimeError::Storage)
+}
+
+pub fn rmdir(name: &[u8]) -> Result<(), RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume.rmdir_path(name).map_err(RuntimeError::Storage)
+}
+
+pub fn metadata_path(name: &[u8]) -> Result<FileMetadata, RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume.metadata_path(name).map_err(RuntimeError::Storage)
 }
 
 pub fn list_root(
@@ -917,7 +937,10 @@ pub fn map_error(error: RuntimeError) -> i32 {
         RuntimeError::Storage(StorageError::AlreadyExists) => 17,
         RuntimeError::Storage(StorageError::NameTooLong) => 36,
         RuntimeError::Storage(StorageError::InvalidName) => 22,
-        RuntimeError::Storage(StorageError::DirectoryFull) => 39,
+        RuntimeError::Storage(StorageError::NotDirectory) => 20,
+        RuntimeError::Storage(StorageError::IsDirectory) => 21,
+        RuntimeError::Storage(StorageError::DirectoryNotEmpty) => 39,
+        RuntimeError::Storage(StorageError::DirectoryFull) => 28,
         RuntimeError::Storage(StorageError::FileTooLarge) => 27,
         RuntimeError::Storage(StorageError::Capacity) => 12,
         RuntimeError::Network(NetError::TcpTimeout) => 11,

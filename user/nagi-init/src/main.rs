@@ -537,6 +537,17 @@ pub extern "C" fn _start(
         }
         drop(volume);
         libnagi::console_write(b"Nagi M17 trace: persistent storage accepted\r\n");
+        libnagi::console_write(b"Nagi M17 trace: POSIX filesystem initialization started\r\n");
+        if unsafe { nagi_posix::nagi_posix_initialize_filesystem(block_capability) } != 0 {
+            libnagi::console_write(b"Nagi M17 first web pixel FAIL POSIX filesystem\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M17 trace: POSIX filesystem initialized\r\n");
+        if unsafe { nagi_posix::nagi_posix_ensure_directory(c"/tmp".as_ptr()) } != 0 {
+            libnagi::console_write(b"Nagi M17 first web pixel FAIL temporary directory\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M17 trace: temporary directory ready\r\n");
         return run_first_web_pixel(display_capability);
     }
 

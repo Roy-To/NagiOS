@@ -4,6 +4,7 @@ pub const SECTOR_SIZE: usize = 512;
 pub const BLOCK_SIZE: usize = 1024;
 pub const MAX_FILE_SIZE: usize = BLOCK_SIZE;
 pub const MAX_NAME_LENGTH: usize = 32;
+pub const MAX_PATH_LENGTH: usize = 256;
 pub const MAX_DIRECTORY_ENTRIES: usize = 8;
 
 const EXT2_MAGIC: u16 = 0xef53;
@@ -31,6 +32,9 @@ pub enum StorageError {
     InvalidName,
     NotFound,
     AlreadyExists,
+    NotDirectory,
+    IsDirectory,
+    DirectoryNotEmpty,
     DirectoryFull,
     InvalidHandle,
     FileTooLarge,
@@ -46,7 +50,7 @@ pub trait BlockDevice {
     ) -> Result<(), StorageError>;
 
     fn write_sector(&mut self, sector: u64, source: &[u8; SECTOR_SIZE])
-        -> Result<(), StorageError>;
+    -> Result<(), StorageError>;
 
     fn flush(&mut self) -> Result<(), StorageError>;
 }
@@ -219,9 +223,91 @@ impl<D: BlockDevice> Vfs<D> {
         self.device
     }
 
+    /// Resolve a bounded path below this volume's process root and ensure its
+    /// final component names a directory. This is used when mounting the
+    /// conventional guest `/tmp` directory; an existing non-directory is an
+    /// error rather than being treated as a successful setup.
+    pub fn ensure_directory_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
+        match self.resolve_path(path) {
+            Ok(inode) => {
+                self.directory_inode(inode)?;
+                Ok(())
+            }
+            Err(StorageError::NotFound) => self.mkdir_path(path),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn create_path(&mut self, path: &[u8]) -> Result<FileHandle, StorageError> {
+        let (parent, name) = self.resolve_parent_path(path, false)?;
+        self.create_in_directory(parent, name)
+    }
+
+    pub fn mkdir_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
+        let (parent, name) = self.resolve_parent_path(path, true)?;
+        self.mkdir_in_directory(parent, name)
+    }
+
+    pub fn open_path(&mut self, path: &[u8]) -> Result<FileHandle, StorageError> {
+        let inode_number = self.resolve_path(path)?;
+        let inode = self.read_inode(inode_number)?;
+        if inode.mode & 0xf000 == 0x4000 {
+            return Err(StorageError::IsDirectory);
+        }
+        if inode.mode & 0xf000 != 0x8000 {
+            return Err(StorageError::InvalidHandle);
+        }
+        self.validate_handle(FileHandle {
+            inode: inode_number,
+            generation: 1,
+        })?;
+        Ok(FileHandle {
+            inode: inode_number,
+            generation: 1,
+        })
+    }
+
+    pub fn metadata_path(&mut self, path: &[u8]) -> Result<FileMetadata, StorageError> {
+        let inode_number = self.resolve_path(path)?;
+        let inode = self.read_inode(inode_number)?;
+        if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
+            return Err(StorageError::InvalidHandle);
+        }
+        Ok(metadata_from_inode(inode_number, inode))
+    }
+
+    /// Remove a regular file by path. Directory removal has a separate POSIX
+    /// operation so `unlink` cannot silently remove a directory.
+    pub fn remove_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
+        self.remove_path_with_kind(path, Some(false), false)
+    }
+
+    pub fn rmdir_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
+        self.remove_path_with_kind(path, Some(true), true)
+    }
+
+    pub fn list_directory_path(
+        &mut self,
+        path: &[u8],
+        entries: &mut [DirectoryEntry],
+    ) -> Result<usize, StorageError> {
+        let inode = self.resolve_path(path)?;
+        self.list_directory_inode(inode, entries)
+    }
+
     pub fn create(&mut self, name: &[u8]) -> Result<FileHandle, StorageError> {
         validate_name(name)?;
-        if self.find_inode(name)?.is_some() {
+        self.create_in_directory(ROOT_INODE, name)
+    }
+
+    fn create_in_directory(
+        &mut self,
+        parent_inode: u32,
+        name: &[u8],
+    ) -> Result<FileHandle, StorageError> {
+        validate_name(name)?;
+        self.directory_inode(parent_inode)?;
+        if self.find_inode_in_directory(parent_inode, name)?.is_some() {
             return Err(StorageError::AlreadyExists);
         }
         let inode = self.allocate_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)?;
@@ -247,7 +333,7 @@ impl<D: BlockDevice> Vfs<D> {
                 direct_block: data_block,
             },
         )?;
-        if let Err(error) = self.add_directory_entry(name, inode, 1) {
+        if let Err(error) = self.add_directory_entry_in_directory(parent_inode, name, inode, 1) {
             self.clear_bit(INODE_BITMAP, inode - 1)?;
             self.clear_bit(BLOCK_BITMAP, data_block)?;
             return Err(error);
@@ -261,7 +347,13 @@ impl<D: BlockDevice> Vfs<D> {
 
     pub fn mkdir(&mut self, name: &[u8]) -> Result<(), StorageError> {
         validate_name(name)?;
-        if self.find_inode(name)?.is_some() {
+        self.mkdir_in_directory(ROOT_INODE, name)
+    }
+
+    fn mkdir_in_directory(&mut self, parent_inode: u32, name: &[u8]) -> Result<(), StorageError> {
+        validate_name(name)?;
+        self.directory_inode(parent_inode)?;
+        if self.find_inode_in_directory(parent_inode, name)?.is_some() {
             return Err(StorageError::AlreadyExists);
         }
         let inode = self.allocate_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)?;
@@ -291,14 +383,14 @@ impl<D: BlockDevice> Vfs<D> {
         let dot = [b'.'];
         let dot_dot = [b'.', b'.'];
         write_directory_record(&mut directory, 0, inode, 12, 1, 2, &dot);
-        write_directory_record(&mut directory, 12, ROOT_INODE, 12, 2, 2, &dot_dot);
+        write_directory_record(&mut directory, 12, parent_inode, 12, 2, 2, &dot_dot);
         write_directory_record(&mut directory, 24, 0, BLOCK_SIZE as u16 - 24, 0, 0, b"");
         if let Err(error) = self.write_block(data_block, &directory) {
             self.clear_bit(INODE_BITMAP, inode - 1)?;
             self.clear_bit(BLOCK_BITMAP, data_block)?;
             return Err(error);
         }
-        if let Err(error) = self.add_directory_entry(name, inode, 2) {
+        if let Err(error) = self.add_directory_entry_in_directory(parent_inode, name, inode, 2) {
             self.clear_bit(INODE_BITMAP, inode - 1)?;
             self.clear_bit(BLOCK_BITMAP, data_block)?;
             return Err(error);
@@ -410,8 +502,17 @@ impl<D: BlockDevice> Vfs<D> {
     }
 
     pub fn list_root(&mut self, entries: &mut [DirectoryEntry]) -> Result<usize, StorageError> {
+        self.list_directory_inode(ROOT_INODE, entries)
+    }
+
+    fn list_directory_inode(
+        &mut self,
+        inode_number: u32,
+        entries: &mut [DirectoryEntry],
+    ) -> Result<usize, StorageError> {
+        let inode = self.directory_inode(inode_number)?;
         let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
+        self.read_block(inode.direct_block, &mut directory)?;
         let mut offset = 0;
         let mut count = 0;
         while offset < BLOCK_SIZE {
@@ -470,17 +571,7 @@ impl<D: BlockDevice> Vfs<D> {
 
     pub fn metadata(&mut self, handle: FileHandle) -> Result<FileMetadata, StorageError> {
         let inode = self.validate_handle(handle)?;
-        Ok(FileMetadata {
-            inode: handle.inode,
-            mode: inode.mode,
-            uid: inode.uid,
-            gid: inode.gid,
-            size: inode.size,
-            atime: inode.atime,
-            ctime: inode.ctime,
-            mtime: inode.mtime,
-            blocks: inode.blocks,
-        })
+        Ok(metadata_from_inode(handle.inode, inode))
     }
 
     pub fn set_mode(&mut self, handle: FileHandle, mode: u16) -> Result<(), StorageError> {
@@ -623,8 +714,17 @@ impl<D: BlockDevice> Vfs<D> {
     }
 
     fn find_inode(&mut self, name: &[u8]) -> Result<Option<u32>, StorageError> {
+        self.find_inode_in_directory(ROOT_INODE, name)
+    }
+
+    fn find_inode_in_directory(
+        &mut self,
+        directory_inode: u32,
+        name: &[u8],
+    ) -> Result<Option<u32>, StorageError> {
+        let directory_inode = self.directory_inode(directory_inode)?;
         let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
+        self.read_block(directory_inode.direct_block, &mut directory)?;
         let mut offset = 0;
         while offset < BLOCK_SIZE {
             let inode = read_u32(&directory, offset);
@@ -645,14 +745,16 @@ impl<D: BlockDevice> Vfs<D> {
         Ok(None)
     }
 
-    fn add_directory_entry(
+    fn add_directory_entry_in_directory(
         &mut self,
+        directory_inode: u32,
         name: &[u8],
         inode: u32,
         file_type: u8,
     ) -> Result<(), StorageError> {
+        let directory_inode = self.directory_inode(directory_inode)?;
         let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
+        self.read_block(directory_inode.direct_block, &mut directory)?;
         let required = align4(8 + name.len());
         let mut offset = 0;
         while offset < BLOCK_SIZE {
@@ -679,7 +781,7 @@ impl<D: BlockDevice> Vfs<D> {
                 write_u8(&mut directory, offset + 6, name.len() as u8);
                 write_u8(&mut directory, offset + 7, file_type);
                 copy_bytes_to_offset(&mut directory, offset + 8, name);
-                return self.write_block(ROOT_DIRECTORY_BLOCK, &directory);
+                return self.write_block(directory_inode.direct_block, &directory);
             }
             offset += record_length;
         }
@@ -687,8 +789,16 @@ impl<D: BlockDevice> Vfs<D> {
     }
 
     fn find_directory_entry(&mut self, name: &[u8]) -> Result<Option<(usize, u32)>, StorageError> {
+        self.find_directory_entry_in_block(ROOT_DIRECTORY_BLOCK, name)
+    }
+
+    fn find_directory_entry_in_block(
+        &mut self,
+        block: u32,
+        name: &[u8],
+    ) -> Result<Option<(usize, u32)>, StorageError> {
         let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
+        self.read_block(block, &mut directory)?;
         let mut offset = 0;
         while offset < BLOCK_SIZE {
             let inode = read_u32(&directory, offset);
@@ -710,6 +820,137 @@ impl<D: BlockDevice> Vfs<D> {
             offset += record_length;
         }
         Ok(None)
+    }
+
+    fn resolve_path(&mut self, path: &[u8]) -> Result<u32, StorageError> {
+        if path.is_empty() || path.len() > MAX_PATH_LENGTH || path.contains(&0) {
+            return Err(if path.len() > MAX_PATH_LENGTH {
+                StorageError::NameTooLong
+            } else {
+                StorageError::InvalidName
+            });
+        }
+
+        let mut current = ROOT_INODE;
+        for component in path.split(|byte| *byte == b'/') {
+            if component.is_empty() {
+                continue;
+            }
+            self.directory_inode(current)?;
+            if component == b"." {
+                continue;
+            }
+            if component == b".." {
+                current = self
+                    .find_inode_in_directory(current, component)?
+                    .ok_or(StorageError::Corrupt)?;
+                continue;
+            }
+            validate_name(component)?;
+            current = self
+                .find_inode_in_directory(current, component)?
+                .ok_or(StorageError::NotFound)?;
+        }
+        if path.last() == Some(&b'/') {
+            self.directory_inode(current)?;
+        }
+        Ok(current)
+    }
+
+    fn resolve_parent_path<'a>(
+        &mut self,
+        path: &'a [u8],
+        allow_trailing_slash: bool,
+    ) -> Result<(u32, &'a [u8]), StorageError> {
+        if path.is_empty() || path.len() > MAX_PATH_LENGTH || path.contains(&0) {
+            return Err(if path.len() > MAX_PATH_LENGTH {
+                StorageError::NameTooLong
+            } else {
+                StorageError::InvalidName
+            });
+        }
+
+        let mut end = path.len();
+        while end > 0 && path[end - 1] == b'/' {
+            end -= 1;
+        }
+        if end == 0 {
+            return Err(StorageError::InvalidName);
+        }
+        if !allow_trailing_slash && end != path.len() {
+            return Err(StorageError::NotDirectory);
+        }
+
+        let trimmed = &path[..end];
+        let separator = trimmed.iter().rposition(|byte| *byte == b'/');
+        let name_start = separator.map_or(0, |index| index + 1);
+        let name = &trimmed[name_start..];
+        validate_name(name)?;
+        if name == b"." || name == b".." {
+            return Err(StorageError::InvalidName);
+        }
+        let parent_path = separator.map_or(&[][..], |index| &trimmed[..index]);
+        let parent = if parent_path.is_empty() {
+            ROOT_INODE
+        } else {
+            self.resolve_path(parent_path)?
+        };
+        self.directory_inode(parent)?;
+        Ok((parent, name))
+    }
+
+    fn remove_path_with_kind(
+        &mut self,
+        path: &[u8],
+        expected_directory: Option<bool>,
+        allow_trailing_slash: bool,
+    ) -> Result<(), StorageError> {
+        let (parent, name) = self.resolve_parent_path(path, allow_trailing_slash)?;
+        let parent_inode = self.directory_inode(parent)?;
+        let (directory_offset, inode_number) = self
+            .find_directory_entry_in_block(parent_inode.direct_block, name)?
+            .ok_or(StorageError::NotFound)?;
+        if inode_number == ROOT_INODE {
+            return Err(StorageError::InvalidName);
+        }
+
+        let inode = self.read_inode(inode_number)?;
+        let is_directory = match inode.mode & 0xf000 {
+            0x4000 => true,
+            0x8000 => false,
+            _ => return Err(StorageError::InvalidHandle),
+        };
+        if let Some(expected_directory) = expected_directory {
+            if expected_directory && !is_directory {
+                return Err(StorageError::NotDirectory);
+            }
+            if !expected_directory && is_directory {
+                return Err(StorageError::IsDirectory);
+            }
+        }
+        if is_directory && !self.directory_is_empty(inode.direct_block)? {
+            return Err(StorageError::DirectoryNotEmpty);
+        }
+
+        let mut directory = [0; BLOCK_SIZE];
+        self.read_block(parent_inode.direct_block, &mut directory)?;
+        write_u32(&mut directory, directory_offset, 0);
+        self.write_block(parent_inode.direct_block, &directory)?;
+        self.clear_bit(INODE_BITMAP, inode_number - 1)?;
+        self.clear_bit(BLOCK_BITMAP, inode.direct_block)?;
+        self.clear_inode(inode_number)?;
+        self.adjust_free_counts(1, 1)
+    }
+
+    fn directory_inode(&mut self, inode_number: u32) -> Result<InodeInfo, StorageError> {
+        let inode = self.read_inode(inode_number)?;
+        if inode.mode & 0xf000 != 0x4000 {
+            return Err(StorageError::NotDirectory);
+        }
+        if inode.direct_block == 0 {
+            return Err(StorageError::Corrupt);
+        }
+        Ok(inode)
     }
 
     fn directory_is_empty(&mut self, block: u32) -> Result<bool, StorageError> {
@@ -882,6 +1123,20 @@ impl<D: BlockDevice> Vfs<D> {
         let second: &[u8; SECTOR_SIZE] = second.try_into().map_err(|_| StorageError::Block)?;
         self.device.write_sector(sector, first)?;
         self.device.write_sector(sector + 1, second)
+    }
+}
+
+fn metadata_from_inode(inode: u32, info: InodeInfo) -> FileMetadata {
+    FileMetadata {
+        inode,
+        mode: info.mode,
+        uid: info.uid,
+        gid: info.gid,
+        size: info.size,
+        atime: info.atime,
+        ctime: info.ctime,
+        mtime: info.mtime,
+        blocks: info.blocks,
     }
 }
 
@@ -1070,8 +1325,8 @@ fn clear_bit_value(bitmap: &mut [u8; BLOCK_SIZE], bit: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        BlockDevice, DirectoryEntry, FileHandle, FileMapping, StorageError, Vfs, BLOCK_SIZE,
-        SECTOR_SIZE,
+        BLOCK_SIZE, BlockDevice, DirectoryEntry, FileHandle, FileMapping, SECTOR_SIZE,
+        StorageError, Vfs,
     };
 
     struct MemoryBlockDevice {
@@ -1219,6 +1474,81 @@ mod tests {
         assert_eq!(&bytes[..length], b"copy me");
         assert_eq!(volume.remove(b"source"), Ok(()));
         assert_eq!(volume.open(b"source"), Err(StorageError::NotFound));
+    }
+
+    #[test]
+    fn resolves_persistent_nested_paths_without_escaping_the_volume_root() {
+        let (mut volume, _) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        volume.ensure_directory_path(b"/tmp").expect("tmp");
+        volume
+            .ensure_directory_path(b"/tmp")
+            .expect("existing tmp directory");
+        volume.mkdir_path(b"/tmp/.tmp1234").expect("temp dir");
+        volume
+            .mkdir_path(b"/tmp/.tmp1234/clientstorage")
+            .expect("client storage");
+        volume
+            .mkdir_path(b"/tmp/.tmp1234/clientstorage/default_v1")
+            .expect("default storage");
+        let state = volume
+            .create_path(b"/tmp/.tmp1234/clientstorage/default_v1/state.sqlite")
+            .expect("nested file");
+        volume.write(state, b"guest storage").expect("write");
+        assert_eq!(
+            volume.ensure_directory_path(b"/tmp/.tmp1234/clientstorage/default_v1/state.sqlite"),
+            Err(StorageError::NotDirectory)
+        );
+
+        let normalized =
+            b"/../../tmp//.tmp1234/clientstorage/./default_v1/../default_v1/state.sqlite";
+        let reopened = volume.open_path(normalized).expect("bounded resolution");
+        let mut contents = [0; 32];
+        let length = volume.read(reopened, &mut contents).expect("read");
+        assert_eq!(&contents[..length], b"guest storage");
+        assert_eq!(
+            volume.open_path(b"/tmp/.tmp1234/clientstorage/default_v1/state.sqlite/child"),
+            Err(StorageError::NotDirectory)
+        );
+        assert_eq!(
+            volume.open_path(b"/tmp/.tmp1234/clientstorage/default_v1/state.sqlite/"),
+            Err(StorageError::NotDirectory)
+        );
+        assert_eq!(
+            volume.remove_path(b"/tmp/.tmp1234/clientstorage/default_v1"),
+            Err(StorageError::IsDirectory)
+        );
+        assert_eq!(
+            volume.rmdir_path(b"/tmp/.tmp1234/clientstorage/default_v1"),
+            Err(StorageError::DirectoryNotEmpty)
+        );
+
+        let mut entries = [DirectoryEntry::empty(); 8];
+        let count = volume
+            .list_directory_path(b"/tmp/.tmp1234/clientstorage/default_v1", &mut entries)
+            .expect("nested listing");
+        assert_eq!(count, 1);
+        assert_eq!(entries[0].name(), b"state.sqlite");
+
+        let device = volume.into_device();
+        let (mut remounted, formatted) = Vfs::mount_or_format(device).expect("remount");
+        assert!(!formatted);
+        let reopened = remounted.open_path(normalized).expect("persisted path");
+        let mut persisted = [0; 32];
+        let length = remounted
+            .read(reopened, &mut persisted)
+            .expect("persisted read");
+        assert_eq!(&persisted[..length], b"guest storage");
+
+        remounted
+            .remove_path(b"/tmp/.tmp1234/clientstorage/default_v1/state.sqlite")
+            .expect("unlink nested file");
+        remounted
+            .rmdir_path(b"/tmp/.tmp1234/clientstorage/default_v1")
+            .expect("remove empty directory");
+        assert_eq!(
+            remounted.open_path(b"/tmp/.tmp1234/clientstorage/default_v1"),
+            Err(StorageError::NotFound)
+        );
     }
 
     #[test]

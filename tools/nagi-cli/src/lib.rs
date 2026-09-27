@@ -6,6 +6,8 @@ pub(crate) mod freetype_sys;
 pub(crate) mod hyper_util_servo;
 pub mod image;
 pub(crate) mod libc_servo;
+#[cfg(test)]
+mod m17_storage_contract_tests;
 pub(crate) mod mesa;
 pub(crate) mod mio_servo;
 pub(crate) mod mozjs_sys_nagi;

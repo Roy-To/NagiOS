@@ -1887,6 +1887,48 @@ header, causing C prototype-scope tags. The next repair adds that standard
 Mesa header before `sw_helper.h`; no rendering or ABI stub is introduced.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+## Servo storage-thread filesystem boundary after Actions run 36284231289 (2026-09-27)
+
+Actions run `36284231289` (run #285, head
+`13fde2f8683b00492f589fd4db7f090f48e16e81`) passed the host jobs, pinned
+Servo bootstrap, target dependency boundary, Mesa Softpipe, M16 package,
+kernel, target user-init link, and UEFI loader. In real QEMU, the M7
+persistent-storage test, SpiderMonkey initialization, EGL context creation,
+and both ResourceManager thread groups completed. The guest then aborted
+immediately after `Servo::new storage threads started`; it produced no
+first-web-pixel checksum or PASS marker.
+
+The source audit found two concrete gaps at that boundary. M17's custom
+`_start` ran M7 acceptance with a local VFS, dropped that mount, and entered
+Servo without calling `nagi_posix_initialize_filesystem`. Servo's storage
+factory creates a temporary directory and nested client-storage directories
+using Rust `std::fs` before spawning the storage thread. The POSIX adapter
+rejected any pathname containing an interior slash, and the M7 VFS looked up
+only root entries. Therefore the current guest runtime could not provide the
+filesystem operations Servo requests.
+
+The pending repair mounts the same capability-backed guest volume into the
+Nagi POSIX runtime after M7 acceptance, verifies or creates `/tmp` on that
+volume, and adds bounded path resolution through real VFS directory inodes
+and `.` / `..` records. POSIX file create/open, metadata, `mkdir`, `unlink`,
+and `rmdir` use the hierarchical path APIs. Directory enumeration remains
+root-only because the POSIX directory stream does not yet own a real
+directory descriptor. This preserves the existing fail-closed descriptor
+boundary and uses no host storage.
+
+Local verification passes for all 28 `libnagi` tests and all 80 `nagi-cli`
+library tests, including the new M17 initialization-order contract. Targeted
+Rust formatting, whitespace checks, and a custom-target
+`cargo check -p nagi-posix --lib --target
+targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --locked
+--offline` pass; that target check reports five warnings on existing POSIX
+declarations. The `nagi-posix` host test binary cannot be linked on this
+ARM64 macOS host because its existing `.data` errno section is not valid in
+Mach-O; this is a host-link limitation, not a target test result. Public
+`nagi-target` CI must build the full M17 image and UEFI loader and verify that
+the storage threads advance to the real first-web-pixel path. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
 ## HashTable add path after CI run #262 (2026-09-27)
 
 Public CI run #262 (`36264391751`, head
