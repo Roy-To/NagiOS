@@ -19,31 +19,65 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI #297 (`36328354764`, head `d39bc09`) passed host checks,
-Mesa, package, kernel, `nagi-init`, and UEFI builds, but real QEMU timed out
-after the 120-second guest bound (exit code 4). The trace confirms the
-`GCRuntime::init` preconditions, thread-context setup, helper-thread count
-update, marker-vector resize, background-allocation lock, and max-bytes setup
-all return, then reaches `SpiderMonkey GC nursery initialization started`.
-The next Nagi-only mozjs patch traces nursery configuration, task and
-StoreBuffer setup, the first chunk allocation, and its aligned mapping path.
-The full local suite passes (89 `nagi-cli` library tests and 18 CLI integration
-tests), as do formatting, Clippy with warnings denied, diff checks, and a fresh
-pinned-source fetch with patches 0020 and 0021 applied.
+milestone. Public CI #298 (`36332858469`, head
+`2e41bb937eda62b1d82ffa079bad4c92990a4231`) passed both host jobs, all target
+builds, and the UEFI loader, but real QEMU timed out after the 120-second guest
+bound (exit code 4). Its trace reached `SpiderMonkey GC scattershot mapping
+started` during the first nursery chunk allocation. Nagi's 128 MiB bootstrap
+mmap arena ignores non-fixed address hints and uses first-fit allocation, so
+SpiderMonkey's large-address scattershot strategy is not appropriate for this
+target. Nagi-only patch 0022 disables that strategy and returns to the existing
+aligned-page allocator. Local verification passes: 90 `nagi-cli` library tests,
+18 CLI integration tests, formatting, Clippy with warnings denied, diff checks,
+fresh pinned-source fetch, and reverse-patch validation. Public target compile
+and QEMU validation of patch 0022 are pending.
 Keep M17 `BLOCKED` until authoritative QEMU produces the real first-web-pixel
 checksum and M17 PASS. M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-28
-**Last known repair checkpoint:** Public CI #297 (`36328354764`, head
-`d39bc0982d1975b6952e89f9a1cc359048b04e55`) passed the Windows launcher and
+**Last known repair checkpoint:** Public CI #298 (`36332858469`, head
+`2e41bb937eda62b1d82ffa079bad4c92990a4231`) passed the Windows launcher and
 Ubuntu host jobs, target dependency validation, Mesa Softpipe, the M16 package,
-kernel, real `nagi-init` link, and UEFI loader. The real QEMU acceptance timed
-out after 120 seconds (exit code 4). Patch 0020 compiled into the target
-and traced GC initialization through the start of nursery initialization.
-Nagi-owned patch 0021 adds checkpoints to that path. Its source-contract test
-passes locally; full-suite, formatting, lint, diff, and fresh-fetch checks also
-pass with the complete ordered patch set. M17 remains `BLOCKED` pending the
+kernel, real `nagi-init` link, and UEFI loader. QEMU acceptance timed out with
+exit code 4; its final SpiderMonkey marker was
+`SpiderMonkey GC scattershot mapping started`. Patch 0022 disables scattershot
+only on Nagi, where non-fixed `mmap` ignores address hints. The source-contract
+test first failed against the missing patch and now passes. All 90 library
+tests, 18 CLI integration tests, formatting, Clippy, diff checks, pinned-source
+fetch, and reverse-patch validation pass. M17 remains `BLOCKED` pending the
 first real web-pixel checksum and PASS marker.
+
+### M17 bounded GC mapping after Actions run #298 (2026-09-28)
+
+Run #298 (`36332858469`, head
+`2e41bb937eda62b1d82ffa079bad4c92990a4231`) passed the Windows launcher and
+Ubuntu host jobs, target dependency boundary, Mesa Softpipe, M16 package,
+kernel, the real `nagi-init` link, and UEFI loader. QEMU acceptance exited 4
+after the 120-second guest bound. The real serial trace advanced through
+`Nursery::init`, its configuration and StoreBuffer setup, and the first GC
+chunk allocation, then stopped after
+`SpiderMonkey GC scattershot mapping started`. No web-pixel checksum or PASS
+marker was produced. The trace does not distinguish a stall in random address
+selection, mapping, or later scattershot alignment retries.
+
+The pinned source selects scattershot allocation whenever its discovered
+address width is at least 43 bits. Nagi's bootstrap ELF starts at 64 TiB, so
+that width describes the canonical address base rather than available random
+allocation space. Nagi exposes a bounded 128 MiB mmap arena; non-fixed mmap
+addresses are hints and the kernel chooses the first free range. The upstream
+scattershot path therefore cannot select from the virtual range it assumes.
+MozJS patch `0022-nagi-m17-bounded-gc-mapping.patch` makes
+`UsingScattershotAllocator()` return false only for Nagi, leaving the existing
+aligned-page allocation path and all other target behavior intact. The next
+authoritative QEMU run must confirm whether that path completes the first GC
+chunk mapping.
+
+The new source-contract test failed before patch 0022 existed and passes with
+the patch. `./nagi fetch` regenerated the pinned checkout, the patch passed a
+reverse-apply check, and verification passes locally: 90 `nagi-cli` library
+tests, 18 CLI integration tests, formatting, Clippy with warnings denied, and
+`git diff --check`. Target compilation and QEMU acceptance with patch 0022 are
+pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 nursery initialization diagnostic after Actions run #297 (2026-09-28)
 

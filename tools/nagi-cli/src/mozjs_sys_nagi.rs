@@ -766,4 +766,29 @@ mod tests {
         assert!(libnagi.contains("inlateout(\"rax\") result"));
         assert!(libnagi.contains("SYS_RANDOM_GET"));
     }
+
+    #[test]
+    fn mozjs_nagi_disables_scattershot_for_bounded_first_fit_mappings() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0022-nagi-m17-bounded-gc-mapping.patch"),
+        )
+        .expect("MozJS Nagi bounded GC mapping patch");
+
+        for contract in [
+            "diff --git a/mozjs/js/src/gc/Memory.cpp",
+            "bool UsingScattershotAllocator()",
+            "#if defined(__NAGI__)",
+            "Nagi's bounded first-fit arena ignores address hints",
+            "return numAddressBits >= MinAddressBitsForRandomAlloc;",
+        ] {
+            assert!(
+                patch.contains(contract),
+                "missing MozJS Nagi bounded-mapping contract: {contract}"
+            );
+        }
+    }
 }

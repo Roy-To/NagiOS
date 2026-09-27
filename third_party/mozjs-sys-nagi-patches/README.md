@@ -190,3 +190,13 @@ StoreBuffer setup, first-chunk initialization, nursery space-vector reserves,
 GC arena-chunk allocation, and the aligned page-mapping path for GC-sized
 chunks. It preserves allocation and mapping decisions; the additional
 checkpoints compile to no-ops outside Nagi.
+
+Patch `0022` follows CI #298, where GC nursery setup reached SpiderMonkey's
+scattershot mapping path and timed out. Nagi's bootstrap process owns a bounded
+128 MiB mmap arena, and its non-fixed mmap contract treats addresses as hints
+while selecting the first free range. SpiderMonkey's scattershot allocator
+assumes a wide available address range and retries random address hints; those
+retries cannot select distinct Nagi arena addresses. The Nagi target therefore
+uses SpiderMonkey's existing aligned-page fallback through the real guest mmap
+interface. Other target allocators and Nagi's kernel mapping authority are
+unchanged.

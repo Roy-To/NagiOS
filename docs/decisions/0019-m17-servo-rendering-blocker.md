@@ -2827,3 +2827,33 @@ ADR 0030 documents the Nagi bootstrap trust-root source. Tracked Servo patch
 chain and hostname validation and excluding host certificate stores. Public
 target CI must verify the resource thread advances past verifier creation.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Nagi GC mapping strategy after CI run #298 (2026-09-28)
+
+Public CI run #298 (`36332858469`, head
+`2e41bb937eda62b1d82ffa079bad4c92990a4231`) passed host checks, the Nagi target
+build and link, and the UEFI loader. QEMU exceeded the 120-second acceptance
+bound with exit code 4. The guest reached the first GC nursery chunk mapping
+and emitted `SpiderMonkey GC scattershot mapping started`, but no later mapping
+checkpoint, web-pixel checksum, or PASS marker was recorded. The trace does not
+show whether execution stopped in random-number acquisition, mmap, or the
+alignment retry loop.
+
+Source inspection found that SpiderMonkey enables its scattershot allocator at
+43 or more discovered address bits. Nagi's bootstrap image starts at 64 TiB,
+while its process mmap allocator owns only a bounded 128 MiB region. The
+non-fixed mmap ABI treats requested addresses as hints and chooses the first
+free range, so the discovered address width is not a measure of available
+random-address space and the scattershot algorithm cannot use hints to choose
+distinct regions in Nagi's allocation arena.
+
+The target-specific decision is to disable scattershot selection only under
+`__NAGI__` and route GC chunks through SpiderMonkey's existing aligned-page
+allocator and Nagi's real mmap interface. This uses the mapping contract Nagi
+actually provides; it does not add a host mapping, enlarge the arena, change
+kernel authority, or weaken the M17 acceptance gate. Other targets retain the
+upstream address-width threshold and allocator. Patch
+`0022-nagi-m17-bounded-gc-mapping.patch` implements this selection, and a
+source-contract test guards the Nagi-only branch. The next public QEMU run must
+verify that the standard aligned-page path returns and nursery initialization
+continues. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
