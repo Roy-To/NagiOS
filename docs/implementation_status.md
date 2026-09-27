@@ -5201,3 +5201,34 @@ Local verification on 2026-09-27:
 M17 remains `BLOCKED` until public target CI reports the real resource-reader
 marker, Servo/WebView startup, a nonzero first-web-pixel checksum, and the M17
 PASS marker. M18 remains `NOT STARTED`.
+
+### Script-thread and about:blank dispatch tracing after CI run #293 (2026-09-27)
+
+Public CI run #293 (`36314057355`, head
+`56ebc809d75dec694dcb95fa528cb312e839c243`) passed the Ubuntu host checks,
+Windows launcher, target dependency boundary, Mesa Softpipe, M16 package,
+kernel, real user-init link, and UEFI loader. The QEMU M17 acceptance again
+timed out after its 120-second guest bound (exit code 4), with no first-web-
+pixel checksum or PASS marker.
+
+The new Constellation trace proves that Servo received `NewWebView`, registered
+the top-level browsing context, created the script event loop, sent
+`SpawnPipeline`, and returned from pipeline creation. The next visible line is
+a generic pthread trampoline trace, which does not identify which Servo worker
+entered or what it did. In the pinned Servo source, `Pipeline::spawn` only sends
+`SpawnPipeline` to the script event-loop channel; successful return does not
+mean that the script thread processed it.
+
+Tracked patch `0016-nagi-m17-script-pipeline-traces.patch` adds Nagi-only
+checkpoints for script-thread entry, per-thread JavaScript runtime and
+debugger-global initialization, script-loop entry, `SpawnPipeline` dispatch,
+and the synchronous `about:blank` response through parser metadata, content,
+and EOF. It does not alter scheduling or load behavior. The source-contract
+test failed before the patch existed, then passed after it was added. All 84
+`nagi-cli` library tests and the focused formatting check pass. The patch
+passes `git apply --check`, and `./nagi fetch` with the pinned Rust toolchain
+regenerated the Servo checkout with the complete ordered patch set. Public
+target CI must validate compilation and provide the next guest boundary.
+
+M17 remains `BLOCKED` pending the real first-web-pixel checksum and PASS
+marker. M18 remains `NOT STARTED`.

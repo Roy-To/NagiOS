@@ -1,0 +1,83 @@
+diff --git a/components/script/event_loop/script_thread.rs b/components/script/event_loop/script_thread.rs
+index 2a28da194..5b8c67ee9 100644
+--- a/components/script/event_loop/script_thread.rs
++++ b/components/script/event_loop/script_thread.rs
+@@ -465,0 +466,19 @@ impl Drop for ScriptMemoryFailsafe<'_> {
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m17_trace(stage: &str) {
++    #[expect(unsafe_code)]
++    unsafe {
++        nagi_m17_console_trace(stage.as_ptr(), stage.len())
++    }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+@@ -481,0 +501 @@ impl ScriptThreadFactory for ScriptThread {
++                nagi_m17_trace("ScriptThread worker entered");
+@@ -490,0 +511 @@ impl ScriptThreadFactory for ScriptThread {
++                nagi_m17_trace("ScriptThread::new started");
+@@ -496,0 +518 @@ impl ScriptThreadFactory for ScriptThread {
++                nagi_m17_trace("ScriptThread::new completed");
+@@ -505,0 +528 @@ impl ScriptThreadFactory for ScriptThread {
++                nagi_m17_trace("ScriptThread memory reporting wrapper started");
+@@ -507 +530,4 @@ impl ScriptThreadFactory for ScriptThread {
+-                    || script_thread.start(&mut cx),
++                    || {
++                        nagi_m17_trace("ScriptThread start callback entered");
++                        script_thread.start(&mut cx)
++                    },
+@@ -511,0 +538 @@ impl ScriptThreadFactory for ScriptThread {
++                nagi_m17_trace("ScriptThread memory reporting wrapper returned");
+@@ -814,0 +842 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread runtime creation started");
+@@ -816,0 +845 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread runtime creation completed");
+@@ -881,0 +911 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread debugger global creation started");
+@@ -895,0 +926 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread debugger global creation completed");
+@@ -897,0 +929 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread debugger global execution completed");
+@@ -986,0 +1019 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread::start entered");
+@@ -1357,0 +1391 @@ impl ScriptThread {
++                    nagi_m17_trace("ScriptThread received SpawnPipeline");
+@@ -2713,0 +2748 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread spawn_pipeline started");
+@@ -2721,0 +2757 @@ impl ScriptThread {
++                nagi_m17_trace("ScriptThread pre_page_load started");
+@@ -2722,0 +2759 @@ impl ScriptThread {
++                nagi_m17_trace("ScriptThread pre_page_load completed");
+@@ -2724,0 +2762 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread spawn_pipeline completed");
+@@ -3957,0 +3996 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread pre_page_load entered");
+@@ -3987,0 +4027 @@ impl ScriptThread {
++            nagi_m17_trace("ScriptThread about:blank response started");
+@@ -3988,0 +4029 @@ impl ScriptThread {
++            nagi_m17_trace("ScriptThread about:blank response completed");
+@@ -4217,0 +4259 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread synchronous page parser creation started");
+@@ -4226,0 +4269 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread synchronous page parser creation completed");
+@@ -4242,0 +4286 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread synchronous response metadata started");
+@@ -4243,0 +4288 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread synchronous response metadata completed");
+@@ -4245,0 +4291 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread synchronous response chunk started");
+@@ -4246,0 +4293,2 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread synchronous response chunk completed");
++        nagi_m17_trace("ScriptThread synchronous response EOF started");
+@@ -4251,0 +4300 @@ impl ScriptThread {
++        nagi_m17_trace("ScriptThread synchronous response EOF completed");

@@ -69,3 +69,10 @@ checkpoints from Servo's `NewWebView` message through top-level browsing
 context setup, event-loop creation, and `Pipeline::spawn`. It narrows a guest
 navigation stall without changing the message flow or pipeline behavior;
 other targets compile a no-op trace helper.
+
+The ordered patch `0016-nagi-m17-script-pipeline-traces.patch` continues those
+checkpoints in the script event loop. It distinguishes script-thread entry,
+per-thread JavaScript runtime and debugger-global initialization, receipt of
+`SpawnPipeline`, and the synchronous `about:blank` parser response stages.
+These Nagi-only traces add no scheduling or page-loading behavior; other
+targets compile a no-op helper.

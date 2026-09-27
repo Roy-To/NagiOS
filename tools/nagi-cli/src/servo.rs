@@ -879,6 +879,36 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_traces_m17_script_pipeline_dispatch_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0016-nagi-m17-script-pipeline-traces.patch"),
+        )
+        .expect("M17 script pipeline trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "ScriptThread worker entered",
+            "ScriptThread::new started",
+            "ScriptThread runtime creation started",
+            "ScriptThread runtime creation completed",
+            "ScriptThread::new completed",
+            "ScriptThread::start entered",
+            "ScriptThread received SpawnPipeline",
+            "ScriptThread spawn_pipeline started",
+            "ScriptThread pre_page_load started",
+            "ScriptThread about:blank response started",
+            "ScriptThread about:blank response completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
     fn inventory_nagi_patch_enables_servo_bundled_resource_registration() {
         use crate::registry_source::{validate_source_lock, RegistrySourceSpec};
 
