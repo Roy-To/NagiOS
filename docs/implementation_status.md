@@ -21,27 +21,31 @@ Repository instructions:
 **Next action:** M16 is PASS and M17 remains the active implementation
 milestone. The ADR 0034 repair now shares stack bounds through `nagi-abi`,
 keeps the 2 MiB default, and accepts up to Servo's source-defined 8 MiB stack
-in both POSIX normalization and kernel validation. The first CI push
-(`#36303605684`, head `7cfb7f1`) passed Format but Ubuntu Clippy rejected the
-shared helper's explicit min/max comparison (`manual_range_contains`). The
-helper now uses `RangeInclusive::contains`; isolated `nagi-abi` Clippy with
-`-D warnings` passes. The target job had not reached kernel/user-init/UEFI/QEMU
-when this lint was fixed, so run the authoritative target CI again on the
-corrected commit. QEMU must create Servo's script worker and produce the real
-first-web-pixel checksum and M17 PASS. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+in both POSIX normalization and kernel validation. Actions run #36303942619
+(head `732fc6c`) passed target kernel, `nagi-init`, and UEFI builds. QEMU now
+accepts Servo's 8 MiB stacks, constructs Servo and WebView, and starts the
+event loop, but no WebView load-status or frame callback, first-pixel checksum,
+or PASS marker appears before the 120-second timeout (exit code 4). Ubuntu
+Clippy also found a manual alignment check (`manual_is_multiple_of`). Its
+suggested `usize::is_multiple_of` API is unstable in a const function on the
+pinned nightly, so the validator remains const with a documented,
+function-scoped Clippy allowance. The pinned Clippy-driver check passes. The
+current diagnostic change logs the first event-loop dispatch, WebView load
+states, and one-time paint/readback/Surface-present boundaries. Re-run
+authoritative CI after the diagnostic target build; keep M17 `BLOCKED` until
+real QEMU produces the unmodified first-web-pixel checksum and M17 PASS. M18
+remains `NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** Actions run #289 (`36299606900`, head
-`c14cd2f59a978c6f64fc8c8a0db6ac680aa4ad1f`) passed the complete target build
-through UEFI. In QEMU, the POSIX `/dev/urandom` device allowed AWS-LC TLS
-prewarm to finish; Servo and WebView were constructed. The next Servo worker
-requested its source-defined 8 MiB stack. Rust std's page-rounded
-`pthread_attr_setstacksize` retry still returned `EINVAL` because both POSIX
-and `SYS_THREAD_CREATE` had a 2 MiB maximum. The 120-second QEMU acceptance
-timed out with exit code 4 before any first-web-pixel checksum or PASS marker.
+**Last known repair checkpoint:** Actions run #36303942619 (`732fc6c`) passed
+the target build through UEFI. The POSIX stack adapter and kernel accepted
+Servo's 8 MiB requests; QEMU constructed Servo and WebView and entered the
+event loop. No load status, frame callback, first-web-pixel checksum, or PASS
+marker appeared before QEMU timed out after 120 seconds (exit code 4). The
+same run's Ubuntu host Clippy step found the remaining alignment modulo check;
+Windows launcher tests passed.
 
-### M17 Servo ScriptThread stack bound after Actions run #289 (2026-09-27)
+### M17 Servo ScriptThread stack bound after Actions runs #289 and #363039 (2026-09-27)
 
 The run #289 serial tail shows `Servo::new TLS prewarm completed`, `Servo
 constructed`, and `WebView constructed` before the `Constellation` worker
@@ -59,16 +63,29 @@ Servo requirement of 8 MiB. `nagi-abi` now defines this shared bound for POSIX
 normalization and kernel validation. The existing mmap window, stack mapping
 checks, thread-pool bound, and first-pixel acceptance remain in force.
 
+The 8 MiB bound advances beyond the previous panic: run #363039 passed target
+kernel, user-init link, and UEFI loader stages. Its QEMU trace shows Servo's
+worker trampolines running, `Servo constructed`, `WebView constructed`, and
+`Servo event loop started`. It shows neither the prior `pthread_attr_setstacksize`
+assertion nor a bootstrap thread-slot rejection. The host-side `nagi m17`
+command nevertheless timed out after 120 seconds because it did not observe
+the unchanged checksum/PASS marker. The captured trace contains no WebView
+load-state or frame-ready callback. The next diagnostic adds one-time markers
+after the first `spin_event_loop` dispatch and around WebView load, paint,
+readback, guest Surface copy, and present.
+
 Local verification passes: `nagi-abi` host tests (2), a standalone harness
 that compiles the actual POSIX thread helper (3), `cargo check` for the custom
 Nagi kernel target, and `cargo check` for the custom POSIX target. The POSIX
 target check reports five existing warnings in unrelated declarations; the
 new unused stack-limit warning is gone. The affected-package nightly rustfmt
-check and `git diff --check` also pass. Full POSIX package tests cannot run on
-this ARM64 Mac because `libnagi` contains x86-64 syscall-register assembly.
-Public target CI must verify script-worker creation and continue through the
-real first-web-pixel checksum. M17 remains `BLOCKED`; M18 remains
-`NOT STARTED`.
+check, pinned Clippy-driver check for `nagi-abi`, and `git diff --check` pass.
+The `manual_is_multiple_of` lint is narrowly allowed on the const ABI
+validator because the pinned compiler does not permit that method in const
+context. Full POSIX package tests cannot run on this ARM64 Mac because
+`libnagi` contains x86-64 syscall-register assembly. Public target
+CI must verify that the page load reaches the real first-web-pixel checksum.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 POSIX entropy device after Actions run 36295909293 (2026-09-27)
 

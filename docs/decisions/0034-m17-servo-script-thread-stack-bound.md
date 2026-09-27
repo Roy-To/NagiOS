@@ -68,3 +68,16 @@ as `manual_range_contains`. The helper now uses an inclusive range check, and
 isolated `cargo clippy -p nagi-abi --all-targets --locked -- -D warnings`
 passes. The target job had not reached kernel, user-init, UEFI, or QEMU before
 the lint correction; a new CI run must validate the corrected commit.
+
+Follow-up run #36303942619 (head `732fc6c`) passed target kernel, `nagi-init`,
+and UEFI builds. QEMU accepted the 8 MiB child stacks, constructed Servo and
+WebView, and entered the event loop, but produced no load-state/frame-ready
+callback or first-pixel marker before the 120-second timeout. That run's host
+Clippy also flags the const ABI alignment check as `manual_is_multiple_of`;
+the suggested `usize::is_multiple_of` is unstable in const context on the
+pinned nightly, so this validator keeps its modulo expression with a narrow
+documented lint allowance. The pinned Clippy-driver check passes. The current
+guest diagnostic adds one-time event-loop, WebView load-state, frame callback,
+readback, copy, and present markers to identify the next runtime stop point.
+Public target CI remains required for the unchanged first-web-pixel checksum
+and M17 PASS marker.

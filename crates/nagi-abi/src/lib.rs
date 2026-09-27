@@ -67,6 +67,9 @@ pub fn round_bootstrap_user_thread_stack_size(requested: usize) -> Option<usize>
 }
 
 /// Validate the page-aligned size passed to `SYS_THREAD_CREATE`.
+// Keep this const-compatible with pinned nightly-2025-08-01, where
+// `usize::is_multiple_of` is still an unstable const API.
+#[allow(clippy::manual_is_multiple_of)]
 pub const fn is_valid_bootstrap_user_thread_stack_size(size: usize) -> bool {
     size >= BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE
         && size <= BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE

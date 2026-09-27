@@ -7,15 +7,15 @@
 
 #[cfg(target_os = "nagi")]
 mod guest {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
     use std::sync::Arc;
 
     use dpi::PhysicalSize;
     use nagi_servo_adapter::{EventLoopSignal, NagiSurface};
     use servo::{
-        DeviceIntPoint, DeviceIntRect, DeviceIntSize, EventLoopWaker, RenderingContext, Servo,
-        ServoBuilder, SoftwareRenderingContext, WebView, WebViewBuilder, WebViewDelegate,
+        DeviceIntPoint, DeviceIntRect, DeviceIntSize, EventLoopWaker, LoadStatus, RenderingContext,
+        Servo, ServoBuilder, SoftwareRenderingContext, WebView, WebViewBuilder, WebViewDelegate,
     };
     use url::Url;
 
@@ -39,6 +39,13 @@ mod guest {
         }
     }
 
+    fn trace_stage(stage: &'static [u8]) {
+        if !stage.is_empty() && stage.len() <= 128 {
+            // SAFETY: `stage` is a valid static slice for the duration of the call.
+            unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) };
+        }
+    }
+
     const WIDTH: u32 = 320;
     const HEIGHT: u32 = 200;
     const FIRST_WEB_PAGE: &str = "data:text/html,%3C!doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bbackground%3A%2320384d%3Bcolor%3A%23f7f3e8%3Bfont%3A24px%20sans-serif%3Bdisplay%3Agrid%3Bplace-items%3Acenter%22%3ENagi%20M17%3C%2Fbody%3E";
@@ -59,6 +66,7 @@ mod guest {
     struct FirstPixelDelegate {
         context: Rc<SoftwareRenderingContext>,
         surface: RefCell<NagiSurface>,
+        frame_diagnostics_emitted: Cell<bool>,
     }
 
     impl FirstPixelDelegate {
@@ -94,23 +102,67 @@ mod guest {
 
     impl WebViewDelegate for FirstPixelDelegate {
         fn notify_new_frame_ready(&self, webview: WebView) {
+            let trace_first = !self.frame_diagnostics_emitted.replace(true);
+            if trace_first {
+                trace_stage(b"first web frame callback entered");
+            }
             webview.paint();
+            if trace_first {
+                trace_stage(b"first web frame paint returned");
+            }
             let Some(image) = self.context.read_to_image(Self::frame_rectangle()) else {
+                if trace_first {
+                    trace_stage(b"first web frame readback unavailable");
+                }
                 return;
             };
+            if trace_first {
+                trace_stage(b"first web frame readback returned");
+            }
             let frame = image.as_raw();
             let checksum = Self::checksum(frame);
             if checksum == 0 {
+                if trace_first {
+                    trace_stage(b"first web frame checksum was zero");
+                }
                 return;
             }
             let mut surface = self.surface.borrow_mut();
             if surface
                 .copy_rgba_frame(frame, WIDTH, HEIGHT, WIDTH as usize * 4)
-                .is_ok()
-                && surface.present()
+                .is_err()
             {
-                Self::report(checksum);
+                if trace_first {
+                    trace_stage(b"first web frame surface copy rejected");
+                }
+                return;
             }
+            if trace_first {
+                trace_stage(b"first web frame copied to surface");
+            }
+            if !surface.present() {
+                if trace_first {
+                    trace_stage(b"first web frame surface present failed");
+                }
+                return;
+            }
+            if trace_first {
+                trace_stage(b"first web frame surface present completed");
+            }
+            Self::report(checksum);
+        }
+
+        fn notify_url_changed(&self, _webview: WebView, _url: Url) {
+            trace_stage(b"WebView URL changed");
+        }
+
+        fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
+            let stage = match status {
+                LoadStatus::Started => b"WebView load status started" as &'static [u8],
+                LoadStatus::HeadParsed => b"WebView load status head parsed",
+                LoadStatus::Complete => b"WebView load status complete",
+            };
+            trace_stage(stage);
         }
     }
 
@@ -154,6 +206,7 @@ mod guest {
         let delegate = Rc::new(FirstPixelDelegate {
             context: context.clone(),
             surface: RefCell::new(surface),
+            frame_diagnostics_emitted: Cell::new(false),
         });
         let url = Url::parse(FIRST_WEB_PAGE).expect("the bundled M17 data URL is valid");
         libnagi::console_write(b"Nagi M17 trace: WebView construction started\r\n");
@@ -163,10 +216,15 @@ mod guest {
             .build();
         libnagi::console_write(b"Nagi M17 trace: WebView constructed\r\n");
         libnagi::console_write(b"Nagi M17 trace: Servo event loop started\r\n");
+        let mut first_spin = true;
         loop {
             // The pinned Servo embedder owns shutdown handling and exposes
             // `spin_event_loop` as a unit-returning heartbeat.
             servo.spin_event_loop();
+            if first_spin {
+                trace_stage(b"Servo first event-loop dispatch returned");
+                first_spin = false;
+            }
             if !signal.take() {
                 std::thread::yield_now();
             }
