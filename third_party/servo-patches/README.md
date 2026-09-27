@@ -56,3 +56,10 @@ JIT decision, proxy-handler setup, generated static binding registration,
 memory reporter initialization, platform initialization, and engine setup
 construction. This narrows a JavaScript bootstrap stall without changing the
 initialization order or operations; other targets compile a no-op helper.
+
+The ordered patch `0014-nagi-m17-webpki-root-verifier.patch` selects Servo's
+existing WebPKI verifier for `target_os = "nagi"`. It uses the pinned
+`webpki-roots` set as the guest bootstrap system roots because Nagi has no host
+certificate store. Rustls certificate-chain and hostname verification remain
+enabled, and Servo's explicit certificate override path remains additive.
+Other target verifier selection is unchanged.

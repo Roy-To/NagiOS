@@ -736,6 +736,30 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_uses_locked_webpki_roots_on_nagi() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0014-nagi-m17-webpki-root-verifier.patch"),
+        )
+        .expect("Nagi WebPKI root verifier patch");
+        assert!(patch.contains("cfg!(target_os = \"nagi\")"));
+        assert!(patch.contains("locked WebPKI roots are the"));
+
+        let lock = fs::read_to_string(root.join("Cargo.lock")).expect("workspace lockfile");
+        let roots = lock
+            .split("[[package]]")
+            .find(|package| package.contains("name = \"webpki-roots\""))
+            .expect("locked WebPKI root package");
+        assert!(roots.contains("version = \"1.0.9\""));
+        assert!(roots.contains(
+            "checksum = \"7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a\""
+        ));
+    }
+
+    #[test]
     fn servo_patch_boundary_defines_nagi_navigator_platform() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

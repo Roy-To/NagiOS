@@ -2768,3 +2768,20 @@ smoke link retained both arrays and hidden bounds, sorted priority entries
 Focused formatting, acceptance shell syntax, and `git diff --check` pass. The
 complete Nagi target link and guest acceptance remain pending public Ubuntu
 CI. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Constructor repair verification after CI run #266 (2026-09-27)
+
+Public CI run `36281382815` (`fdc1b24610fa36ee9651283eaf77f7477820fc9f`)
+confirmed that the user ELF constructor arrays execute before `user entry
+reached`. The guest passed its M7 persistent-storage acceptance, SpiderMonkey
+TypeIdSet insertion, and `JS_Init`. Servo then started `ResourceManager`, whose
+thread panicked because the Nagi guest has no platform CA certificates. This
+confirms the constructor change advanced startup and identifies TLS verifier
+initialization as the next blocker; no first-web-pixel checksum or PASS marker
+was emitted.
+
+ADR 0030 documents the Nagi bootstrap trust-root source. Tracked Servo patch
+0014 chooses the pinned WebPKI root verifier for Nagi, retaining normal TLS
+chain and hostname validation and excluding host certificate stores. Public
+target CI must verify the resource thread advances past verifier creation.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

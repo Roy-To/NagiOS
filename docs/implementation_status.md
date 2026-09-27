@@ -19,27 +19,26 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. CI #265 exposed an invalid SpiderMonkey TypeIdSet primary-slot
-address. The startup audit found that Nagi's custom `_start` retained and ran
-neither ELF preinit nor init arrays. The local repair now retains both arrays
-in the user ELF and runs them before application initialization. Focused host
-tests, a real LLD link smoke check, formatting, and shell syntax checks pass.
-Public target CI must verify the user-init link and real QEMU behavior; M17
-remains `BLOCKED` until the guest produces its real first-web-pixel checksum
-and PASS marker. M18 remains `NOT STARTED`.
+milestone. CI #266 verified that `_start` now runs ELF constructors, and
+SpiderMonkey initialization completed. Servo then stopped while initializing
+the platform certificate verifier because Nagi has no host CA store. The
+tracked local repair selects Servo's existing WebPKI verifier for Nagi and
+uses the lock-pinned public roots with normal chain and hostname validation.
+The focused regression test and all 79 `nagi-cli` library tests pass; public
+target CI must verify resource-thread startup and the next guest milestone.
+M17 remains `BLOCKED` until the guest produces its real first-web-pixel
+checksum and PASS marker. M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** public CI run 36276918474 (#265, head
-`aba9ec447ceb9a6674d3c234b3d8ab620167138c`) passed both host jobs, target
+**Last known repair checkpoint:** public CI run 36281382815 (#266, head
+`fdc1b24610fa36ee9651283eaf77f7477820fc9f`) passed both host jobs, target
 dependencies, Mesa Softpipe, M16 package, kernel, user-init link, and UEFI
-loader. QEMU then timed out in the first-web-pixel acceptance (exit 4). The
-TypeIdSet trace reported capacity `1`, primary index `0x6fb3b68c`, and a
-key-hash address `0x1beceda30` bytes beyond the table base, then stopped at the
-load. The constructor-dispatch gap is a concrete startup defect and a likely
-cause of the invalid statically initialized hash-table state; CI #265 alone
-does not prove it is the only cause. The next target run must verify the new
-constructor markers and show whether TypeIdSet initialization proceeds.
-M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+loader. QEMU confirmed constructor completion, TypeIdSet insertion, and
+`JS_Init`, then Servo's ResourceManager thread panicked because the Nagi guest
+has no platform CA certificates. The lock-pinned WebPKI verifier selection is
+now recorded as Nagi patch 0014; public target CI must confirm resource-thread
+startup and continue the real first-web-pixel path. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
 
 ### Target evidence from CI Actions run #238 (2026-09-26)
 
@@ -4928,3 +4927,29 @@ Local verification on 2026-09-27:
 - The full target `nagi-init` link and authoritative QEMU acceptance still
   require public Ubuntu CI. M17 remains `BLOCKED`; M18 remains
   `NOT STARTED`.
+
+### Nagi TLS roots and Servo resource startup after CI run #266 (2026-09-27)
+
+Public CI run #266 (`36281382815`, head
+`fdc1b24610fa36ee9651283eaf77f7477820fc9f`) verified the constructor repair.
+The guest completed `ELF constructors completed`, `user entry reached`, M7
+persistent-storage acceptance, SpiderMonkey TypeIdSet insertion, and
+`JS_Init`. `Servo::new` then started resource threads, but the ResourceManager
+thread panicked while initializing `rustls-platform-verifier`:
+`No CA certificates were loaded from the system`. No real first-web-pixel
+checksum or PASS marker was produced.
+
+The target has no host OS certificate store, and the guest must not read one.
+ADR 0030 records the bootstrap policy: Nagi uses Servo's existing Rustls
+WebPKI verifier with the lock-pinned `webpki-roots` 1.0.9 public root set.
+Certificate-chain and hostname verification stay enabled; Servo's explicit
+certificate override remains additive. No enterprise or user-root UI is
+claimed by this bootstrap choice. Tracked Servo patch 0014 makes only the Nagi
+target selection and comment; all other targets retain the existing verifier
+selection.
+
+The regression test was run red before patch 0014 existed and now passes. All
+79 `nagi-cli` library tests pass, and the patch applies cleanly to the pinned
+generated Servo checkout. Formatting and diff checks pass after the final
+formatting correction. Public Ubuntu CI must verify resource-thread creation
+and the next guest stage. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
