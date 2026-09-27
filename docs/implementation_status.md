@@ -19,37 +19,32 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. The ADR 0034 repair now shares stack bounds through `nagi-abi`,
-keeps the 2 MiB default, and accepts up to Servo's source-defined 8 MiB stack
-in both POSIX normalization and kernel validation. Actions run #36303942619
-(head `732fc6c`) passed target kernel, `nagi-init`, and UEFI builds. QEMU now
-accepts Servo's 8 MiB stacks, constructs Servo and WebView, and starts the
-event loop, but no WebView load-status or frame callback, first-pixel checksum,
-or PASS marker appears before the 120-second timeout (exit code 4). The next
-diagnostic run #36309977725 (head `3e9e789`) passed target user-init and UEFI
-builds but QEMU again timed out after 120 seconds (exit code 4). The trace now
-confirms that the first `Servo::spin_event_loop` call returns; it shows no
-Constellation navigation result, WebView URL/load-status notification, frame
-callback, checksum, or PASS. All Mesa/EGL context setup, Servo construction,
-WebView construction, and the initial event-loop dispatch completed. Ubuntu
-host Clippy failed on an unused POSIX stack constant; local commit `de347dd`
-removes that redundant alias and reads the shared `nagi-abi` minimum directly.
-The full host lint is not reproducible on this ARM64 Mac because `libnagi` uses
-x86-64 syscall registers, so Ubuntu CI must verify the correction. The next
-Nagi-owned Servo patch traces `NewWebView` receipt through Constellation's
-browsing-context, event-loop, and pipeline-spawn boundaries. Keep M17
-`BLOCKED` until authoritative QEMU produces the unmodified first-web-pixel
-checksum and M17 PASS. M18 remains `NOT STARTED`.
+milestone. Public CI #295 (`36320499660`, head `d9279f7`) passed host checks,
+Mesa, package, kernel, `nagi-init`, and UEFI builds, but real QEMU timed out
+after the 120-second guest bound (exit code 4). The expanded trace confirms
+engine-handle lookup, `RustRuntime` entry, JSRuntime/JSContext allocation, and
+JSContext initialization all return; the last marker is
+`SpiderMonkey JSRuntime initialization started`, before `JSRuntime::init`
+returns. The next Nagi-only mozjs patch traces helper-thread startup and the
+remaining major `JSRuntime::init` stages. Tracked patch 0019 applies to a freshly
+regenerated pinned mozjs source checkout, and all 87 `nagi-cli` library tests,
+18 CLI integration tests, formatting, Clippy with warnings denied, and diff
+checks pass. The next public target run must validate C++ compilation and
+identify the stalled operation. Keep M17 `BLOCKED` until authoritative QEMU
+produces the real first-web-pixel checksum and M17 PASS. M18 remains
+`NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** Actions run #36309977725 (`3e9e789`) passed
-target Mesa, package, kernel, user-init, and UEFI builds. Its QEMU acceptance
-timed out after 120 seconds (exit code 4). The guest completed EGL/Softpipe
-context creation, Servo and WebView construction, and the first event-loop
-dispatch. No Constellation navigation, URL/load-status notification, frame
-callback, checksum, or PASS marker followed. The Ubuntu host job stopped at
-Clippy because the POSIX minimum-stack alias is only used in target-gated code;
-local commit `de347dd` removes it and reads the shared ABI constant directly.
+**Last known repair checkpoint:** Public CI #295 (`36320499660`, head
+`d9279f741cd721bd303e87550d664fffc21d45eb`) passed the Windows launcher and
+Ubuntu host jobs, target dependency validation, Mesa Softpipe, the M16 package,
+kernel, real `nagi-init` link, and UEFI loader. The real QEMU acceptance timed
+out after 120 seconds (exit code 4). Its trace confirms that the engine handle,
+per-thread Rust runtime, JSRuntime/JSContext allocation, and JSContext
+initialization return, then stops inside `JSRuntime::init`. Tracked mozjs patch
+0019 adds Nagi-only traces around helper-thread setup and the remaining runtime
+initialization stages. M17 remains `BLOCKED` pending the first real web-pixel
+checksum and PASS marker.
 
 ### M17 host Clippy correction and diagnostic run #36309977725 (2026-09-27)
 
@@ -5265,6 +5260,38 @@ check, `nagi-cli` Clippy with warnings denied, and `git diff --check`. A fresh
 mozjs-sys from their locked sources and applied the complete ordered patch
 sets. Public CI must validate the target build and provide the next guest
 trace boundary.
+
+M17 remains `BLOCKED` pending a real first-web-pixel checksum and PASS marker.
+M18 remains `NOT STARTED`.
+
+### SpiderMonkey JSRuntime and helper-thread initialization after CI run #295 (2026-09-27)
+
+Public CI run #295 (`36320499660`, head
+`d9279f741cd721bd303e87550d664fffc21d45eb`) passed the Windows launcher and
+Ubuntu host jobs, target dependency validation, Mesa Softpipe, the M16 package,
+kernel, real `nagi-init` link, and UEFI loader. The real QEMU acceptance timed
+out after the 120-second guest bound (exit code 4); no first-web-pixel checksum
+or PASS marker was produced.
+
+The guest trace reaches the script worker, Servo's per-thread JavaScript
+runtime, SpiderMonkey engine-handle acquisition, `RustRuntime::new`, native
+`JS_NewContext`, JSRuntime/JSContext allocation, and JSContext initialization.
+`JSRuntime::init` is entered but its completion marker is absent. The trace has
+not yet identified which operation inside that function is stalled.
+
+Tracked mozjs-sys patch `0019-nagi-m17-js-runtime-init-traces.patch` now
+brackets helper-thread policy and initialization, GC and number-state setup,
+time-zone reset, and set-prop cache allocation. It also brackets the helper
+state lock, internal pool provisioning, worker creation, and worker entry into
+the existing wait loop. The diagnostic markers are Nagi-only and preserve the
+normal runtime policy and call order. Its source-contract test was added first
+and failed while the patch file was absent; it passes with the patch present.
+All 87 `nagi-cli` library tests and 18 CLI integration tests pass, as do
+formatting, Clippy with warnings denied, and `git diff --check`. `./nagi fetch`
+passed using the pinned Rust toolchain and regenerated mozjs with the complete
+ordered patches; reverse-apply validation confirms patch 0019 is present in
+that clean source checkout. Public CI must now validate target C++ compilation
+and provide the next QEMU trace boundary.
 
 M17 remains `BLOCKED` pending a real first-web-pixel checksum and PASS marker.
 M18 remains `NOT STARTED`.

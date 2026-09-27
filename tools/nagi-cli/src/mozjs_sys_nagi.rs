@@ -505,6 +505,53 @@ mod tests {
     }
 
     #[test]
+    fn mozjs_m17_js_runtime_patch_traces_runtime_and_helper_initialization() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch =
+            std::fs::read_to_string(root.join(
+                "third_party/mozjs-sys-nagi-patches/0019-nagi-m17-js-runtime-init-traces.patch",
+            ))
+            .expect("mozjs M17 JSRuntime initialization trace patch");
+        for stage in [
+            "SpiderMonkey JSRuntime init entered",
+            "SpiderMonkey JSRuntime extra-thread policy checked",
+            "SpiderMonkey JSRuntime helper-thread initialization started",
+            "SpiderMonkey JSRuntime helper-thread initialization completed",
+            "SpiderMonkey JSRuntime GC initialization started",
+            "SpiderMonkey JSRuntime GC initialization completed",
+            "SpiderMonkey JSRuntime number-state initialization started",
+            "SpiderMonkey JSRuntime number-state initialization completed",
+            "SpiderMonkey JSRuntime time-zone reset started",
+            "SpiderMonkey JSRuntime time-zone reset completed",
+            "SpiderMonkey JSRuntime set-prop cache allocation started",
+            "SpiderMonkey JSRuntime set-prop cache allocation completed",
+            "SpiderMonkey helper-thread state initialization entered",
+            "SpiderMonkey helper-thread lock acquisition started",
+            "SpiderMonkey helper-thread lock acquisition completed",
+            "SpiderMonkey internal helper-pool initialization started",
+            "SpiderMonkey internal helper-pool initialization completed",
+            "SpiderMonkey helper-thread count initialization started",
+            "SpiderMonkey helper-thread count initialization completed",
+            "SpiderMonkey helper-thread pool allocation started",
+            "SpiderMonkey helper-thread pool allocation completed",
+            "SpiderMonkey helper-thread creation started",
+            "SpiderMonkey helper-thread creation completed",
+            "SpiderMonkey helper-thread main entered",
+            "SpiderMonkey helper-thread main lock acquisition completed",
+        ] {
+            assert!(
+                patch.contains(stage),
+                "missing SpiderMonkey runtime trace stage: {stage}"
+            );
+        }
+        assert!(patch.contains("#if defined(__NAGI__)"));
+        assert!(patch.contains("nagi_m17_console_trace(trace_stage"));
+    }
+
+    #[test]
     fn nagi_init_rescans_real_mozjs_archives_in_m17_link() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

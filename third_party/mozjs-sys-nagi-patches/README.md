@@ -162,3 +162,12 @@ SpiderMonkey's `JS_NewContext` dispatch, `JSRuntime` and `JSContext` allocation,
 context initialization, and runtime initialization. The Nagi-only checkpoints
 do not alter allocation, initialization order, or runtime policy; other targets
 compile them to no-ops.
+
+Patch `0019` follows CI #295, where SpiderMonkey allocated and initialized the
+per-thread `JSContext` but did not return from `JSRuntime::init`. It brackets
+the runtime's helper-thread policy and startup, GC initialization, number-state
+initialization, time-zone reset, and megamorphic cache allocation. It also
+traces helper-state locking, internal helper-pool setup, worker creation, and
+worker entry into the existing thread loop. These Nagi-only markers preserve
+the initialization policy and call order; other targets compile them to
+no-ops.
