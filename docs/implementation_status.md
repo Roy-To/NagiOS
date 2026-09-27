@@ -21,11 +21,14 @@ Repository instructions:
 **Next action:** M16 is PASS and M17 remains the active implementation
 milestone. The ADR 0034 repair now shares stack bounds through `nagi-abi`,
 keeps the 2 MiB default, and accepts up to Servo's source-defined 8 MiB stack
-in both POSIX normalization and kernel validation. Local ABI tests (2), POSIX
-thread-helper tests (3), the Nagi-target kernel check, the Nagi-target POSIX
-check, and affected-package formatting all pass. Push the repair and run the
-authoritative target CI; QEMU must create Servo's script worker and produce the
-real first-web-pixel checksum and M17 PASS. M17 remains `BLOCKED`; M18 remains
+in both POSIX normalization and kernel validation. The first CI push
+(`#36303605684`, head `7cfb7f1`) passed Format but Ubuntu Clippy rejected the
+shared helper's explicit min/max comparison (`manual_range_contains`). The
+helper now uses `RangeInclusive::contains`; isolated `nagi-abi` Clippy with
+`-D warnings` passes. The target job had not reached kernel/user-init/UEFI/QEMU
+when this lint was fixed, so run the authoritative target CI again on the
+corrected commit. QEMU must create Servo's script worker and produce the real
+first-web-pixel checksum and M17 PASS. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
 
 **Last updated:** 2026-09-27

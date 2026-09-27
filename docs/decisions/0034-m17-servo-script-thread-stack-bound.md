@@ -61,3 +61,10 @@ development has been removed. Full POSIX package tests cannot run on the ARM64
 Mac because `libnagi` contains x86-64 syscall-register assembly. Public target
 CI remains required to prove that Servo's real `ScriptThread` is created and
 that QEMU reaches the unmodified first-web-pixel checksum and M17 PASS marker.
+
+The first CI run for this repair (`36303605684`, head `7cfb7f1`) passed Format
+but its Ubuntu host Clippy step rejected the helper's manual min/max comparison
+as `manual_range_contains`. The helper now uses an inclusive range check, and
+isolated `cargo clippy -p nagi-abi --all-targets --locked -- -D warnings`
+passes. The target job had not reached kernel, user-init, UEFI, or QEMU before
+the lint correction; a new CI run must validate the corrected commit.

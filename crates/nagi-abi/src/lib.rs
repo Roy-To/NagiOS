@@ -56,7 +56,9 @@ pub fn round_bootstrap_user_thread_stack_size(requested: usize) -> Option<usize>
     } else {
         requested
     };
-    if size < BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE || size > BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE {
+    if !(BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE..=BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE)
+        .contains(&size)
+    {
         return None;
     }
     let rounded = size.checked_add(BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE - 1)?
