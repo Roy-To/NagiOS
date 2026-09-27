@@ -25,25 +25,49 @@ in both POSIX normalization and kernel validation. Actions run #36303942619
 (head `732fc6c`) passed target kernel, `nagi-init`, and UEFI builds. QEMU now
 accepts Servo's 8 MiB stacks, constructs Servo and WebView, and starts the
 event loop, but no WebView load-status or frame callback, first-pixel checksum,
-or PASS marker appears before the 120-second timeout (exit code 4). Ubuntu
-Clippy also found a manual alignment check (`manual_is_multiple_of`). Its
-suggested `usize::is_multiple_of` API is unstable in a const function on the
-pinned nightly, so the validator remains const with a documented,
-function-scoped Clippy allowance. The pinned Clippy-driver check passes. The
-current diagnostic change logs the first event-loop dispatch, WebView load
-states, and one-time paint/readback/Surface-present boundaries. Re-run
-authoritative CI after the diagnostic target build; keep M17 `BLOCKED` until
-real QEMU produces the unmodified first-web-pixel checksum and M17 PASS. M18
-remains `NOT STARTED`.
+or PASS marker appears before the 120-second timeout (exit code 4). The next
+diagnostic run #36309977725 (head `3e9e789`) passed the Windows launcher job and
+its target job has passed Mesa, package, and kernel builds; the `nagi-init`
+build is still running. Ubuntu host Clippy failed on an unused POSIX stack
+constant; the local correction removes the redundant alias and reads the
+shared `nagi-abi` minimum directly. The full host lint is not reproducible on
+this ARM64 Mac because `libnagi` uses x86-64 syscall registers, so Ubuntu CI
+must verify the correction. Keep M17 `BLOCKED` until the diagnostic QEMU run
+and a follow-up authoritative run produce the unmodified first-web-pixel
+checksum and M17 PASS. M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** Actions run #36303942619 (`732fc6c`) passed
-the target build through UEFI. The POSIX stack adapter and kernel accepted
-Servo's 8 MiB requests; QEMU constructed Servo and WebView and entered the
-event loop. No load status, frame callback, first-web-pixel checksum, or PASS
-marker appeared before QEMU timed out after 120 seconds (exit code 4). The
-same run's Ubuntu host Clippy step found the remaining alignment modulo check;
-Windows launcher tests passed.
+**Last known repair checkpoint:** Actions run #36309977725 (`3e9e789`) has
+passed the Windows launcher job and the target build through the kernel. Its
+`nagi-init` build remains in progress; no result from its UEFI or QEMU stages
+is available yet. Its Ubuntu host job stopped at Clippy because the POSIX
+minimum-stack alias is only used in target-gated code. The alias has been
+removed locally and the ABI validator now refers to the shared minimum
+constant. The preceding target checkpoint is run #36303942619 (`732fc6c`):
+QEMU constructed Servo and WebView and entered the event loop, then timed out
+after 120 seconds without load status, frame callback, checksum, or PASS.
+
+### M17 host Clippy correction and diagnostic run #36309977725 (2026-09-27)
+
+Actions run #36309977725 (`3e9e789594a8826a3adc203953feedccbc4a74aa`) passed
+the Windows launcher job. Ubuntu host Clippy stopped before build and tests
+because `user/nagi-posix/src/threads.rs` exported `MIN_STACK_SIZE` only for
+the target-gated POSIX attribute setter; the host test build excludes that
+setter and therefore reported the constant as dead code. The local repair
+removes the redundant alias and compares against
+`libnagi::BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE` directly. This preserves the
+same lower bound and keeps `nagi-abi` as the shared source of truth.
+
+The target job has passed Servo bootstrap, the dependency feature boundary,
+Mesa Softpipe archive, M16 package, and kernel build. At this update its
+`Build Nagi user init` step remains in progress; UEFI and real QEMU results
+are pending. A fresh Mac host Clippy attempt is not a valid substitute:
+`libnagi`'s inline x86-64 syscall registers are unavailable to the ARM64 Mac
+host target. Local checks after the repair pass for the custom Nagi POSIX
+target, the standalone thread-helper harness (3 tests), formatting, and
+`git diff --check`. The next action is to finish collecting this target run's
+UEFI/QEMU result, then rerun public host Clippy on the corrected commit. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 Servo ScriptThread stack bound after Actions runs #289 and #363039 (2026-09-27)
 

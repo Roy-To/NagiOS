@@ -1,5 +1,4 @@
 pub const THREAD_SLOTS: usize = libnagi::BOOTSTRAP_USER_THREAD_COUNT;
-pub const MIN_STACK_SIZE: usize = libnagi::BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE;
 pub const DEFAULT_STACK_SIZE: usize = libnagi::BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE;
 
 pub fn thread_id_index(thread_id: u64) -> Option<usize> {

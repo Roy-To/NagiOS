@@ -1831,7 +1831,7 @@ pub unsafe extern "C" fn pthread_attr_setstacksize(
     if attributes.is_null() {
         return EINVAL;
     }
-    if stack_size < crate::threads::MIN_STACK_SIZE
+    if stack_size < libnagi::BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE
         || crate::threads::rounded_stack_size(stack_size).is_none()
     {
         return EINVAL;
