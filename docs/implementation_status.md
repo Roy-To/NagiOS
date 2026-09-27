@@ -19,25 +19,27 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. The local continuation implements ADR 0029's bounded cooperative
-user-thread pool and POSIX pthread integration. Formatting, focused kernel
-checks/builds, POSIX target checks, and diff validation pass. The full Nagi
-user-init link and authoritative QEMU acceptance still require public target
-CI; until it produces the real first-web-pixel checksum and pass marker, M17
-remains `BLOCKED` and M18 remains `NOT STARTED`.
+milestone. CI #265 exposed an invalid SpiderMonkey TypeIdSet primary-slot
+address. The startup audit found that Nagi's custom `_start` retained and ran
+neither ELF preinit nor init arrays. The local repair now retains both arrays
+in the user ELF and runs them before application initialization. Focused host
+tests, a real LLD link smoke check, formatting, and shell syntax checks pass.
+Public target CI must verify the user-init link and real QEMU behavior; M17
+remains `BLOCKED` until the guest produces its real first-web-pixel checksum
+and PASS marker. M18 remains `NOT STARTED`.
 
-**Last updated:** 2026-09-26
-**Last known repair checkpoint:** public CI run 36237832887 (#252, head
-`71fd5c33b53e97251ca4dc0f4569c8944887eb10`) passed the Nagi kernel,
-user-init, and UEFI builds. The real QEMU acceptance reached
-`Servo construction started` after EGL context creation, then timed out after
-120 seconds without a `Servo constructed` trace or first-web-pixel checksum.
-The log did not establish whether a child thread was created, selected, or
-entered its POSIX start routine. Local commit `4d79bbe` repairs the two host
-jobs' stale fixed-TLS-address assertion. Bounded scheduler, sleep-tick,
-trampoline, Servo-construction, and worker traces now identify the next QEMU
-stop point. M17 remains
-`BLOCKED`; M18 remains `NOT STARTED`.
+**Last updated:** 2026-09-27
+**Last known repair checkpoint:** public CI run 36276918474 (#265, head
+`aba9ec447ceb9a6674d3c234b3d8ab620167138c`) passed both host jobs, target
+dependencies, Mesa Softpipe, M16 package, kernel, user-init link, and UEFI
+loader. QEMU then timed out in the first-web-pixel acceptance (exit 4). The
+TypeIdSet trace reported capacity `1`, primary index `0x6fb3b68c`, and a
+key-hash address `0x1beceda30` bytes beyond the table base, then stopped at the
+load. The constructor-dispatch gap is a concrete startup defect and a likely
+cause of the invalid statically initialized hash-table state; CI #265 alone
+does not prove it is the only cause. The next target run must verify the new
+constructor markers and show whether TypeIdSet initialization proceeds.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI Actions run #238 (2026-09-26)
 
@@ -4886,3 +4888,43 @@ bracket slot initialization, `createTable`, `changeTableSize`,
 non-returning stage. Non-Nagi builds retain the original `SystemAllocPolicy`,
 and other HashTable instantiations compile the hooks away. No hash-table
 behavior is altered. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### Current M17 continuation after CI run #265 (2026-09-27)
+
+Public CI run #265 (`36276918474`, head
+`aba9ec447ceb9a6674d3c234b3d8ab620167138c`) passed both host jobs, target
+dependencies, Mesa Softpipe, the M16 package, kernel, real `nagi-init` link,
+and UEFI loader. The M17 QEMU acceptance timed out after 120 seconds (exit
+code 4), without a first-web-pixel checksum or PASS marker.
+
+The guest completed HashSet table creation and primary-slot calculation, then
+stopped at the primary slot's key-hash load. The trace reported capacity
+`1`, index `0x6fb3b68c`, table base `0x0000400020d53db0`, and key-hash address
+`0x00004001dfa417e0`. The address difference is exactly `index * 4`, placing
+the read far outside a one-entry table. A startup audit found that the custom
+Nagi `_start` bypasses the generic relibc CRT startup, while the user linker
+script did not retain or expose constructor arrays. The kernel hands control
+directly to the ELF entry and does not run user constructors. This establishes
+a missing process-initialization step; the invalid hash-table state makes it a
+likely cause, but the next guest run must verify that constructor dispatch
+resolves the failure.
+
+The user linker now retains sorted `.preinit_array` and `.init_array` input
+sections and exports hidden array bounds. Nagi user `_start` walks preinit
+constructors before init constructors, before entering the capability-aware
+application body. The M17 guest trace reports constructor completion before
+`user entry reached`; the shell acceptance asserts that ordering. The
+source-contract regression test was first observed failing before the fix and
+passes after it.
+
+Local verification on 2026-09-27:
+
+- All 78 `nagi-cli` library tests passed using the installed stable compiler.
+- An LLD `--gc-sections` smoke link retained the constructor arrays and their
+  hidden bounds; the output placed preinit before init and sorted init
+  priorities `00050`, `00100`, and `00200` before the default-priority entry.
+- Focused Rust formatting, `sh -n` for the M17 acceptance script, and
+  `git diff --check` passed.
+- The full target `nagi-init` link and authoritative QEMU acceptance still
+  require public Ubuntu CI. M17 remains `BLOCKED`; M18 remains
+  `NOT STARTED`.

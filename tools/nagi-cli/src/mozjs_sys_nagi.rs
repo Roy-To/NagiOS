@@ -34,6 +34,104 @@ mod tests {
     }
 
     #[test]
+    fn nagi_init_runs_retained_elf_constructor_arrays_before_its_body() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let linker = std::fs::read_to_string(root.join("user/nagi-init/linker.ld"))
+            .expect("Nagi user linker script");
+        for symbol in [
+            "PROVIDE_HIDDEN(__preinit_array_start = .);",
+            "PROVIDE_HIDDEN(__preinit_array_end = .);",
+            "PROVIDE_HIDDEN(__init_array_start = .);",
+            "PROVIDE_HIDDEN(__init_array_end = .);",
+            "KEEP(*(SORT_BY_INIT_PRIORITY(.preinit_array.*)))",
+            "KEEP(*(.preinit_array))",
+            "KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*)))",
+            "KEEP(*(.init_array))",
+        ] {
+            assert!(
+                linker.contains(symbol),
+                "Nagi user linker script must retain constructor boundary: {symbol}"
+            );
+        }
+        let preinit = linker
+            .find(".preinit_array ALIGN(8)")
+            .expect("preinit array output section");
+        let init = linker
+            .find(".init_array ALIGN(8)")
+            .expect("init array output section");
+        assert!(preinit < init, "preinit array must precede init array");
+
+        let main = std::fs::read_to_string(root.join("user/nagi-init/src/main.rs"))
+            .expect("Nagi user entrypoint");
+        for symbol in [
+            "__preinit_array_start",
+            "__preinit_array_end",
+            "__init_array_start",
+            "__init_array_end",
+        ] {
+            assert!(
+                main.contains(symbol),
+                "Nagi process startup must walk {symbol}"
+            );
+        }
+        for declaration in [
+            "static __preinit_array_start: u8;",
+            "static __preinit_array_end: u8;",
+            "static __init_array_start: u8;",
+            "static __init_array_end: u8;",
+        ] {
+            assert!(
+                main.contains(declaration),
+                "ELF array boundary must be declared as an address marker: {declaration}"
+            );
+        }
+        assert!(
+            main.contains("(cursor as *const extern \"C\" fn()).read()"),
+            "ELF initializer entries must be read from their linker-defined address"
+        );
+        assert!(
+            main.contains("cursor += core::mem::size_of::<extern \"C\" fn()>();"),
+            "ELF initializer iteration must advance by one function pointer"
+        );
+        let initializer_runner = main
+            .find("unsafe fn run_elf_initializers()")
+            .expect("user-space ELF initializer runner");
+        let entry = main
+            .find("pub extern \"C\" fn _start(")
+            .expect("capability-aware Nagi entrypoint");
+        let runner = &main[initializer_runner..entry];
+        let preinit_walk = runner
+            .find("addr_of!(__preinit_array_start)")
+            .expect("preinit array walk");
+        let init_walk = runner
+            .find("addr_of!(__init_array_start)")
+            .expect("init array walk");
+        assert!(preinit_walk < init_walk, "preinit array must run first");
+
+        let entry_body = &main[entry..];
+        let initializers = entry_body
+            .find("run_elf_initializers()")
+            .expect("entrypoint must run ELF initializers");
+        let first_body_marker = entry_body
+            .find("Nagi M17 trace: user entry reached")
+            .expect("first M17 entry marker");
+        let constructors_completed = entry_body
+            .find("Nagi M17 trace: ELF constructors completed")
+            .expect("M17 constructor completion marker");
+        assert!(
+            initializers < first_body_marker,
+            "ELF constructors must run before the capability-aware entry body"
+        );
+        assert!(
+            initializers < constructors_completed && constructors_completed < first_body_marker,
+            "M17 must report completed ELF constructors before its entry marker"
+        );
+    }
+
+    #[test]
     fn mozjs_configure_uses_supported_freestanding_triplet() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

@@ -482,6 +482,32 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
 }
 
 #[cfg(target_os = "nagi")]
+unsafe fn run_elf_initializers() {
+    unsafe extern "C" {
+        static __preinit_array_start: u8;
+        static __preinit_array_end: u8;
+        static __init_array_start: u8;
+        static __init_array_end: u8;
+    }
+
+    let run_array = |mut cursor: usize, end: usize| {
+        while cursor < end {
+            let constructor = unsafe { (cursor as *const extern "C" fn()).read() };
+            constructor();
+            cursor += core::mem::size_of::<extern "C" fn()>();
+        }
+    };
+
+    let preinit_start = core::ptr::addr_of!(__preinit_array_start) as usize;
+    let preinit_end = core::ptr::addr_of!(__preinit_array_end) as usize;
+    run_array(preinit_start, preinit_end);
+
+    let init_start = core::ptr::addr_of!(__init_array_start) as usize;
+    let init_end = core::ptr::addr_of!(__init_array_end) as usize;
+    run_array(init_start, init_end);
+}
+
+#[cfg(target_os = "nagi")]
 #[no_mangle]
 pub extern "C" fn _start(
     block_capability: u64,
@@ -490,11 +516,14 @@ pub extern "C" fn _start(
     net_capability: u64,
     audio_capability: u64,
 ) -> ! {
+    unsafe { run_elf_initializers() };
+
     #[cfg(all(feature = "m13-std", not(feature = "m17-servo")))]
     return m13_std::run(block_capability, net_capability);
 
     #[cfg(feature = "m17-servo")]
     {
+        libnagi::console_write(b"Nagi M17 trace: ELF constructors completed\r\n");
         libnagi::console_write(b"Nagi M17 trace: user entry reached\r\n");
         let Some((exit_code, volume)) = run_m7_storage_acceptance(block_capability) else {
             libnagi::console_write(static_message!(

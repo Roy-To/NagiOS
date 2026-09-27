@@ -2731,3 +2731,40 @@ patch series to the SHA-256-verified registry archive pass. Local C++ build
 verification remains pending because the host linker invokes `xcrun` as
 x86_64, which cannot load the installed arm64/arm64e-only `libxcrun`; public
 target CI remains authoritative for this patch's compile and guest trace.
+
+## ELF constructor startup repair after CI run #265 (2026-09-27)
+
+Public CI run #265 (`36276918474`, head
+`aba9ec447ceb9a6674d3c234b3d8ab620167138c`) passed target dependencies, Mesa
+Softpipe, M16 package, kernel, the real `nagi-init` link, and UEFI loader. The
+M17 guest acceptance timed out at the TypeIdSet primary liveness read. It
+reported capacity `1`, index `0x6fb3b68c`, table base
+`0x0000400020d53db0`, and key-hash address `0x00004001dfa417e0`; the address
+is `index * 4` beyond the table base and outside the reported capacity. No
+first-web-pixel checksum or PASS marker was produced.
+
+The startup audit found that the kernel transfers directly to the ELF entry,
+the user linker script had no retained preinit/init arrays or boundary
+symbols, the Nagi-specific `_start` did not dispatch constructors, and
+relibc's generic init-array path is excluded for `target_os = "nagi"`. Thus
+global C/C++ objects linked into the target were not guaranteed to be
+initialized. This is a confirmed runtime startup gap and a plausible cause of
+the invalid statically initialized HashTable state; the QEMU result must
+verify that this repair resolves the observed state.
+
+The user linker now retains sorted `.preinit_array` and `.init_array`
+sections, defines hidden bounds, and places them in the writable data load.
+Before entering the capability-aware user body, `_start` walks each array in
+order and invokes its function pointers. The implementation reads entries by
+their linker-defined integer addresses, avoiding Rust pointer arithmetic
+outside the single-object extern boundary declarations. M17 serial output
+marks constructor completion before `user entry reached`, and the acceptance
+script checks that ordering.
+
+The source-contract test was observed failing before the implementation and
+passes after. All 78 `nagi-cli` library tests pass. An LLD `--gc-sections`
+smoke link retained both arrays and hidden bounds, sorted priority entries
+`00050`, `00100`, and `00200`, and placed the default-priority entry last.
+Focused formatting, acceptance shell syntax, and `git diff --check` pass. The
+complete Nagi target link and guest acceptance remain pending public Ubuntu
+CI. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.

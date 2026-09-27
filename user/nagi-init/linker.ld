@@ -47,6 +47,25 @@ SECTIONS
         *(.ldata .ldata.*)
     } :data
 
+    /* The user entry is a Nagi-specific capability ABI rather than a CRT
+     * entrypoint. Keep the ELF constructor arrays so _start can run process
+     * initialization before entering application code. */
+    .preinit_array ALIGN(8) :
+    {
+        PROVIDE_HIDDEN(__preinit_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.preinit_array.*)))
+        KEEP(*(.preinit_array))
+        PROVIDE_HIDDEN(__preinit_array_end = .);
+    } :data
+
+    .init_array ALIGN(8) :
+    {
+        PROVIDE_HIDDEN(__init_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*)))
+        KEEP(*(.init_array))
+        PROVIDE_HIDDEN(__init_array_end = .);
+    } :data
+
     .bss ALIGN(4096) (NOLOAD) :
     {
         *(.bss .bss.* .lbss*)
