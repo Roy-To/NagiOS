@@ -76,3 +76,8 @@ per-thread JavaScript runtime and debugger-global initialization, receipt of
 `SpawnPipeline`, and the synchronous `about:blank` parser response stages.
 These Nagi-only traces add no scheduling or page-loading behavior; other
 targets compile a no-op helper.
+
+The ordered patch `0017-nagi-m17-js-runtime-traces.patch` splits Servo's
+per-thread JavaScript runtime creation into engine-handle acquisition,
+SpiderMonkey Rust runtime construction, and JSContext retrieval checkpoints.
+It is diagnostic only, and other targets compile a no-op helper.

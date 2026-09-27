@@ -5232,3 +5232,39 @@ target CI must validate compilation and provide the next guest boundary.
 
 M17 remains `BLOCKED` pending the real first-web-pixel checksum and PASS
 marker. M18 remains `NOT STARTED`.
+
+### SpiderMonkey per-thread context creation tracing after CI run #294 (2026-09-27)
+
+Public CI run #294 (`36317441144`, head
+`ec0006164ecc234a295359c442864c1c17d5e304`) passed both host jobs, Servo
+source bootstrap, target dependency validation, Mesa Softpipe, the M16 package,
+kernel, real user-init link, and UEFI loader. Its two QEMU acceptance boots
+timed out after the 120-second guest bound (exit code 4); neither produced a
+first-web-pixel checksum or PASS marker.
+
+The new script-thread trace confirms that the worker starts and enters
+`ScriptThread::new`, but `ScriptThread runtime creation started` has no matching
+completion marker. In the pinned Servo source this call enters
+`script_runtime::Runtime::new`, whose non-parent path acquires the shared
+SpiderMonkey engine handle and constructs a per-thread `RustRuntime`. The run
+therefore narrows the stall to that runtime-construction call; it does not yet
+identify whether the engine-handle lookup, `JS_NewContext`, or its initialization
+is responsible.
+
+Tracked Servo patch `0017-nagi-m17-js-runtime-traces.patch` brackets engine
+handle acquisition, `RustRuntime::new`, and JSContext retrieval. Tracked
+mozjs-sys patch `0018-nagi-m17-js-context-traces.patch` brackets the native
+`JS_NewContext` path through `JSRuntime`/`JSContext` allocation and
+initialization. Both patches add Nagi-only diagnostics and preserve the
+existing initialization path. Their source-contract tests were added first
+and failed because the patch files were absent; both patch files now pass
+`git apply --check` against the pinned generated sources. All 86 `nagi-cli`
+library tests and 18 CLI integration tests pass, as do the focused format
+check, `nagi-cli` Clippy with warnings denied, and `git diff --check`. A fresh
+`./nagi fetch` with the pinned Rust toolchain regenerated both Servo and
+mozjs-sys from their locked sources and applied the complete ordered patch
+sets. Public CI must validate the target build and provide the next guest
+trace boundary.
+
+M17 remains `BLOCKED` pending a real first-web-pixel checksum and PASS marker.
+M18 remains `NOT STARTED`.

@@ -909,6 +909,31 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_traces_m17_rust_runtime_creation_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0017-nagi-m17-js-runtime-traces.patch"),
+        )
+        .expect("M17 Rust runtime trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "Servo JS engine handle acquisition started",
+            "Servo JS engine handle acquisition completed",
+            "Servo RustRuntime::new started",
+            "Servo RustRuntime::new completed",
+            "Servo RustRuntime::cx started",
+            "Servo RustRuntime::cx completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
     fn inventory_nagi_patch_enables_servo_bundled_resource_registration() {
         use crate::registry_source::{validate_source_lock, RegistrySourceSpec};
 

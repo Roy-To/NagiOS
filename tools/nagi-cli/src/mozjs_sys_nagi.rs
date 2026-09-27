@@ -470,6 +470,41 @@ mod tests {
     }
 
     #[test]
+    fn mozjs_m17_js_context_patch_traces_context_creation_stages() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0018-nagi-m17-js-context-traces.patch"),
+        )
+        .expect("mozjs M17 JSContext creation trace patch");
+        for stage in [
+            "SpiderMonkey JS_NewContext entered",
+            "SpiderMonkey JS_NewContext dispatch started",
+            "SpiderMonkey js::NewContext entered",
+            "SpiderMonkey JSRuntime allocation started",
+            "SpiderMonkey JSRuntime allocation completed",
+            "SpiderMonkey JSContext allocation started",
+            "SpiderMonkey JSContext allocation completed",
+            "SpiderMonkey JSContext initialization started",
+            "SpiderMonkey JSContext initialization completed",
+            "SpiderMonkey JSRuntime initialization started",
+            "SpiderMonkey JSRuntime initialization completed",
+            "SpiderMonkey js::NewContext returned",
+            "SpiderMonkey JS_NewContext returned",
+        ] {
+            assert!(
+                patch.contains(stage),
+                "missing JSContext trace stage: {stage}"
+            );
+        }
+        assert!(patch.contains("#if defined(__NAGI__)"));
+        assert!(patch.contains("NAGI_M17_TRACE(stage)"));
+        assert!(patch.contains("nagi_m17_console_trace(trace_stage"));
+    }
+
+    #[test]
     fn nagi_init_rescans_real_mozjs_archives_in_m17_link() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

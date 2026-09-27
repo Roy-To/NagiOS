@@ -1,0 +1,70 @@
+diff --git a/mozjs/js/src/jsapi.cpp b/mozjs/js/src/jsapi.cpp
+--- a/mozjs/js/src/jsapi.cpp
++++ b/mozjs/js/src/jsapi.cpp
+@@ -22,0 +23,12 @@
++
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -392,0 +405 @@
++  NAGI_M17_TRACE("SpiderMonkey JS_NewContext entered");
+@@ -404 +417,5 @@
+-  return NewContext(maxbytes, parentRuntime);
++  NAGI_M17_TRACE("SpiderMonkey JS_NewContext dispatch started");
++  JSContext* cx = NewContext(maxbytes, parentRuntime);
++  NAGI_M17_TRACE("SpiderMonkey JS_NewContext dispatch completed");
++  NAGI_M17_TRACE("SpiderMonkey JS_NewContext returned");
++  return cx;
+diff --git a/mozjs/js/src/vm/JSContext.cpp b/mozjs/js/src/vm/JSContext.cpp
+--- a/mozjs/js/src/vm/JSContext.cpp
++++ b/mozjs/js/src/vm/JSContext.cpp
+@@ -71,0 +72,12 @@
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
++
+@@ -166,0 +179 @@
++  NAGI_M17_TRACE("SpiderMonkey js::NewContext entered");
+@@ -175,0 +189 @@
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime allocation started");
+@@ -176,0 +191 @@
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime allocation completed");
+@@ -177,0 +193 @@
++    NAGI_M17_TRACE("SpiderMonkey JSRuntime allocation failed");
+@@ -180,0 +197 @@
++  NAGI_M17_TRACE("SpiderMonkey JSContext allocation started");
+@@ -181,0 +199 @@
++  NAGI_M17_TRACE("SpiderMonkey JSContext allocation completed");
+@@ -182,0 +201 @@
++    NAGI_M17_TRACE("SpiderMonkey JSContext allocation failed");
+@@ -186,0 +206 @@
++  NAGI_M17_TRACE("SpiderMonkey JSContext initialization started");
+@@ -187,0 +208 @@
++    NAGI_M17_TRACE("SpiderMonkey JSContext initialization failed");
+@@ -192 +213,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey JSContext initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime initialization started");
+@@ -193,0 +217 @@
++    NAGI_M17_TRACE("SpiderMonkey JSRuntime initialization failed");
+@@ -198,0 +223 @@
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime initialization completed");
+@@ -203,0 +229 @@
++  NAGI_M17_TRACE("SpiderMonkey js::NewContext returned");

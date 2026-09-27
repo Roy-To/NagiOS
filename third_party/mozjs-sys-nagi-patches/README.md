@@ -154,3 +154,11 @@ The `nagi-cli` source-contract test guards the message-buffer declarations,
 and the complete ordered patch series was applied to the SHA-256-verified
 registry source archive. Target compilation and the next real guest trace
 remain pending public CI.
+
+Patch `0018` follows CI #294, where the Nagi script thread entered Servo's
+per-thread `Runtime::new` but did not return. It brackets the Nagi Rust engine
+handle and runtime-construction calls at the Servo boundary, then traces
+SpiderMonkey's `JS_NewContext` dispatch, `JSRuntime` and `JSContext` allocation,
+context initialization, and runtime initialization. The Nagi-only checkpoints
+do not alter allocation, initialization order, or runtime policy; other targets
+compile them to no-ops.
