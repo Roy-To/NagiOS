@@ -4,6 +4,11 @@ Status: accepted for M17 bootstrap
 Date: 2026-09-26
 Milestone: M17 — Servo Bootstrap
 
+Capacity note (2026-09-27): Actions run 36289243570 showed that 16 total
+slots are insufficient for pinned Servo startup. ADR 0031 supersedes only the
+pool-size value below and increases it to 32 total slots; the cooperative
+scheduler and other constraints in this ADR remain in force.
+
 ## Context
 
 Public CI run 36232073962 (#238, head

@@ -9,8 +9,8 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
 
 use crate::errno::{
-    EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP, ENOTTY, ERANGE,
-    ETIMEDOUT, errno, set_errno,
+    errno, set_errno, EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP,
+    ENOTTY, ERANGE, ETIMEDOUT,
 };
 use libnagi::storage::{
     DirectoryEntry, FileMetadata, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH, MAX_PATH_LENGTH,
@@ -1915,7 +1915,11 @@ pub unsafe extern "C" fn pthread_attr_setguardsize(
     if attributes.is_null() {
         return EINVAL;
     }
-    if guard_size == 0 { 0 } else { ENOTSUP }
+    if guard_size == 0 {
+        0
+    } else {
+        ENOTSUP
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1992,7 +1996,11 @@ pub unsafe extern "C" fn pthread_attr_setschedpolicy(
     if attributes.is_null() {
         return EINVAL;
     }
-    if policy == SCHED_RR { 0 } else { ENOTSUP }
+    if policy == SCHED_RR {
+        0
+    } else {
+        ENOTSUP
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -2140,10 +2148,10 @@ pub unsafe extern "C" fn pthread_attr_getstack(
 #[cfg(test)]
 mod pthread_attr_tests {
     use super::{
-        NagiPthreadAttr, PTHREAD_CREATE_DETACHED, PTHREAD_CREATE_JOINABLE, SCHED_RR,
         pthread_attr_getdetachstate, pthread_attr_getschedpolicy, pthread_attr_getstack,
         pthread_attr_getstacksize, pthread_attr_init, pthread_attr_setdetachstate,
         pthread_attr_setschedpolicy, pthread_attr_setstack, pthread_attr_setstacksize,
+        NagiPthreadAttr, PTHREAD_CREATE_DETACHED, PTHREAD_CREATE_JOINABLE, SCHED_RR,
     };
     use core::ffi::c_void;
 
@@ -2244,7 +2252,7 @@ fn trace_pthread_create_failure(message: &'static [u8]) {
 
 #[cfg(target_os = "nagi")]
 fn trace_pthread_stage(counter: &AtomicUsize, stage: &'static [u8]) {
-    const MAX_STAGE_TRACES: usize = 16;
+    const MAX_STAGE_TRACES: usize = 32;
     if counter.fetch_add(1, Ordering::Relaxed) >= MAX_STAGE_TRACES {
         return;
     }

@@ -781,7 +781,7 @@ mod tests {
         assert_eq!(SYS_THREAD_SELF, 23);
         assert_eq!(SYS_THREAD_DETACH, 29);
         assert_eq!(THREAD_CREATE_DETACHED, 1);
-        assert_eq!(BOOTSTRAP_USER_THREAD_COUNT, 16);
+        assert_eq!(BOOTSTRAP_USER_THREAD_COUNT, 32);
         assert_eq!(nagi_abi::SYS_AUDIO_PLAY, 24);
         assert_eq!(nagi_abi::SYS_AUDIO_CAPTURE, 25);
         assert_eq!(SYS_RANDOM_GET, 26);

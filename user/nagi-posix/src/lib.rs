@@ -75,7 +75,7 @@ use core::sync::atomic::AtomicBool;
 #[cfg(any(target_os = "nagi", test))]
 use core::sync::atomic::{AtomicUsize, Ordering};
 use errno::ENOMEM;
-use errno::{EBADF, EINVAL, ENOSYS, set_errno};
+use errno::{set_errno, EBADF, EINVAL, ENOSYS};
 #[cfg(target_os = "nagi")]
 use nagi_pal::time::{Clock, GuestClock};
 
@@ -754,13 +754,13 @@ pub extern "C" fn nagi_posix_sleep_ns(duration: u64) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        POSIX_HEAP_SIZE, aligned_allocation_info, aligned_allocation_payload_size,
-        aligned_allocation_user_address, allocate_from_heap_in, nagi_posix_malloc,
-        nagi_posix_malloc_aligned, nagi_posix_mmap, nagi_posix_mprotect, nagi_posix_munmap,
-        nagi_posix_poll, nagi_posix_write, posix_alignment_is_valid, release_to_heap_in,
-        write_aligned_allocation_header,
+        aligned_allocation_info, aligned_allocation_payload_size, aligned_allocation_user_address,
+        allocate_from_heap_in, nagi_posix_malloc, nagi_posix_malloc_aligned, nagi_posix_mmap,
+        nagi_posix_mprotect, nagi_posix_munmap, nagi_posix_poll, nagi_posix_write,
+        posix_alignment_is_valid, release_to_heap_in, write_aligned_allocation_header,
+        POSIX_HEAP_SIZE,
     };
-    use crate::errno::{EINVAL, ENOSYS, errno};
+    use crate::errno::{errno, EINVAL, ENOSYS};
     use core::sync::atomic::AtomicUsize;
 
     #[repr(C, align(4096))]

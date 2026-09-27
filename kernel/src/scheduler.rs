@@ -265,8 +265,8 @@ impl BootstrapUserThreads {
 #[cfg(test)]
 mod tests {
     use super::{
-        wake_transition, BootstrapUserThreads, JoinOutcome, UserThreadState, BLOCKED, DONE,
-        RUNNABLE, RUNNING,
+        wake_transition, BootstrapUserThreads, JoinOutcome, UserThreadState, BLOCKED,
+        BOOTSTRAP_USER_THREAD_COUNT, DONE, RUNNABLE, RUNNING,
     };
 
     #[test]
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn allocation_is_bounded_and_reuses_released_slots() {
         let mut threads = BootstrapUserThreads::new();
-        let mut ids = [0_u8; 15];
+        let mut ids = [0_u8; BOOTSTRAP_USER_THREAD_COUNT - 1];
         for id in &mut ids {
             *id = threads.allocate().unwrap();
         }

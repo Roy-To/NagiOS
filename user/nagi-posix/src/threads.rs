@@ -28,6 +28,10 @@ mod tests {
     fn thread_ids_are_bounded_without_aliasing() {
         assert_eq!(thread_id_index(0), Some(0));
         assert_eq!(thread_id_index(15), Some(15));
+        assert_eq!(
+            thread_id_index((THREAD_SLOTS - 1) as u64),
+            Some(THREAD_SLOTS - 1)
+        );
         assert_eq!(thread_id_index(THREAD_SLOTS as u64), None);
         assert_eq!(thread_id_index(u64::MAX), None);
     }

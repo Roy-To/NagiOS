@@ -50,7 +50,7 @@ pub trait BlockDevice {
     ) -> Result<(), StorageError>;
 
     fn write_sector(&mut self, sector: u64, source: &[u8; SECTOR_SIZE])
-    -> Result<(), StorageError>;
+        -> Result<(), StorageError>;
 
     fn flush(&mut self) -> Result<(), StorageError>;
 }
@@ -1325,8 +1325,8 @@ fn clear_bit_value(bitmap: &mut [u8; BLOCK_SIZE], bit: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        BLOCK_SIZE, BlockDevice, DirectoryEntry, FileHandle, FileMapping, SECTOR_SIZE,
-        StorageError, Vfs,
+        BlockDevice, DirectoryEntry, FileHandle, FileMapping, StorageError, Vfs, BLOCK_SIZE,
+        SECTOR_SIZE,
     };
 
     struct MemoryBlockDevice {

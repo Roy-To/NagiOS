@@ -36,7 +36,7 @@ pub const THREAD_CREATE_DETACHED: u64 = 1;
 
 /// Capacity of the bounded, cooperative M17 bootstrap thread pool. ID zero is
 /// the initial user-init thread; all remaining IDs are reusable child slots.
-pub const BOOTSTRAP_USER_THREAD_COUNT: usize = 16;
+pub const BOOTSTRAP_USER_THREAD_COUNT: usize = 32;
 
 // POSIX-compatible protection bits used by the Nagi user-space mapping ABI.
 // They intentionally match the standard mmap contract so relibc and Servo

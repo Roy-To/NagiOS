@@ -1,7 +1,7 @@
 use core::time::Duration;
 use libnagi::storage::{
-    BLOCK_SIZE, DirectoryEntry, FileHandle, FileMetadata, MAX_DIRECTORY_ENTRIES, StorageError,
-    SyscallBlockDevice, Vfs,
+    DirectoryEntry, FileHandle, FileMetadata, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
+    MAX_DIRECTORY_ENTRIES,
 };
 use nagi_net::{Ipv4Address, NetError, SocketApi, SyscallDevice};
 use nagi_pal::sync::SpinMutex;

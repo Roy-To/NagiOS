@@ -1524,14 +1524,26 @@ mod tests {
 
     #[test]
     fn bootstrap_threads_have_distinct_tls_control_pages() {
-        assert_eq!(USER_TLS_THREAD_SLOT_COUNT, 16);
+        assert_eq!(USER_TLS_THREAD_SLOT_COUNT, 32);
         assert_eq!(user_tls_control_base(0), Some(USER_TLS_CONTROL_BASE));
         assert_eq!(user_tls_control_base(1), Some(USER_TLS_CHILD_CONTROL_BASE));
-        assert_eq!(
-            user_tls_control_base(15),
-            Some(USER_TLS_BASE + 31 * PAGE_SIZE)
-        );
+        for thread_id in 0..USER_TLS_THREAD_SLOT_COUNT {
+            let control_base = user_tls_control_base(thread_id).expect("in-range TLS slot");
+            assert_eq!(
+                control_base,
+                USER_TLS_BASE + (thread_id as u64 * 2 + 1) * PAGE_SIZE
+            );
+            assert!(control_base + PAGE_SIZE <= USER_TLS_LIMIT);
+            for earlier_id in 0..thread_id {
+                assert_ne!(
+                    user_tls_control_base(earlier_id),
+                    Some(control_base),
+                    "TLS control pages must not alias"
+                );
+            }
+        }
         assert_eq!(user_tls_control_base(USER_TLS_THREAD_SLOT_COUNT), None);
+        assert!(USER_TLS_LIMIT <= USER_MMAP_BASE);
         assert_eq!(MAX_MMAP_REGIONS, 64);
     }
 

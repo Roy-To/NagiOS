@@ -19,31 +19,28 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Actions run 36284231289 (run #285, head `13fde2f`) verified that
-Servo's resource threads now complete with the pinned WebPKI roots. QEMU then
-aborted as Servo started its storage threads. The M17 entry had not mounted
-the POSIX VFS, and the existing POSIX/VFS path boundary rejected the nested
-paths Servo creates. The current repair mounts the same capability-backed M7
-volume before Servo, ensures the guest `/tmp`, and adds bounded hierarchical
-path operations over real VFS directory inodes. Local VFS tests pass; target
-CI must verify storage-thread startup and continue to the real first-web-pixel
-checksum and PASS marker. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+milestone. Actions run 36289243570 (run #286, head `f99faa4`) verified the
+capability-backed POSIX mount, guest `/tmp`, resource threads, and storage
+thread startup, then exhausted the 16-slot pool in Servo storage startup.
+ADR 0031 now sets 32 total slots. The implementation, capacity tests, and
+format correction are locally verified; the next public `nagi-target` run
+must show the real first-web-pixel checksum and PASS marker. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-27
-**Last known repair checkpoint:** Actions run 36284231289 (run #285, head
-`13fde2f8683b00492f589fd4db7f090f48e16e81`) passed both host jobs, target
-dependencies, Mesa Softpipe, M16 package, kernel, target user-init link, and
-UEFI loader. QEMU passed constructor completion, M7 persistence, TypeIdSet
-insertion, `JS_Init`, GL context creation, and both ResourceManager thread
-groups. It then aborted immediately after `Servo::new storage threads
-started`; no first-web-pixel checksum or PASS marker was produced. A source
-audit found that the M17 entry never called
-`nagi_posix_initialize_filesystem`, while Servo's storage factory uses
-`tempfile::tempdir()` and `std::fs::create_dir_all()` before spawning its
-thread. The POSIX pathname adapter and VFS were root-only, so this path could
-not work even after mounting. The pending repair mounts the existing guest
-block capability and implements bounded nested path traversal; target CI must
-verify it. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** Actions run 36289243570 (run #286, head
+`f99faa4ae73b7ef35710b7c16b13753be42f7992`) passed target dependencies, Mesa
+Softpipe, M16 package, kernel, user-init link, and UEFI loader. Windows host
+build/tests passed. Ubuntu host stopped at `Format`; its exact formatter
+differences were corrected locally and the complete CI formatting commands
+now pass. QEMU verified persistent storage, POSIX filesystem initialization,
+`/tmp`, constructor completion, TypeIdSet insertion, `JS_Init`, GL context
+creation, ResourceManager threads, and the start of Servo storage threads.
+It then rejected the next child with
+`SYS_THREAD_CREATE rejected: bootstrap thread pool full`; Servo panicked with
+`WouldBlock` at `third_party/servo/components/storage/cache_storage.rs:239`.
+No first-web-pixel checksum or PASS marker was produced. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 storage-thread filesystem repair after Actions run 36284231289 (2026-09-27)
 
@@ -77,6 +74,51 @@ test execution because its existing `.data` errno section is not a valid
 Mach-O section on this ARM64 macOS host. Full M17 image linking, UEFI build,
 and real QEMU acceptance remain for public target CI. M17 remains `BLOCKED`;
 M18 remains `NOT STARTED`.
+
+### M17 bootstrap thread-pool capacity after Actions run 36289243570 (2026-09-27)
+
+Run #286 demonstrates that the POSIX storage repair worked: the real guest
+prints `persistent storage accepted`, `POSIX filesystem initialized`, and
+`temporary directory ready`; Servo then completes its ResourceManager groups
+and starts its storage threads. The failing syscall is now specifically the
+next user-thread allocation. The kernel's fixed pool has 16 total slots
+(initial thread ID 0 plus child IDs 1–15). The guest filled all 15 child slots
+with long-lived Servo workers, then a later `pthread_create` returned EAGAIN;
+the panic was `Thread spawning failed: Os { code: 11, kind: WouldBlock }` at
+`third_party/servo/components/storage/cache_storage.rs:239`.
+
+ADR 0031 supersedes only ADR 0029's 16-slot capacity and sets 32 total slots
+(ID 0 plus 31 children), keeping the cooperative scheduler, per-thread TLS,
+stack checks, 128 MiB mmap window, and 64-region limit. No host thread pool or
+storage/rendering fallback is introduced. The pool's bounded behavior and
+reuse must be covered by tests. The latest run's host `Format` job also failed
+on rustfmt differences in the changed files; the exact CI formatter commands
+pass locally after the format-only correction. Windows build and tests passed.
+
+Verification from run #286: target dependency boundary, Mesa Softpipe, M16
+package, kernel, user-init link, and UEFI loader passed. The guest reached the
+thread-pool exhaustion described above but produced no first-web-pixel
+checksum or M17 PASS marker.
+
+The local implementation now changes the shared ABI count to 32, with the
+kernel scheduler, TLS layout, syscall context arrays, and POSIX thread-index
+tables deriving their bounds from that constant. Scheduler coverage allocates
+all 31 child IDs, checks bounded exhaustion, and verifies slot reuse; a
+standalone host harness compiled from the production scheduler source passed
+9/9 tests; a standalone harness compiled from the production POSIX thread-index
+source passed 2/2 tests using the shared ABI count. The TLS test checks every
+control page for the expected address, range, and non-aliasing. The custom Nagi
+POSIX and kernel target `cargo check` commands pass, and all CI format checks
+plus `git diff --check` pass. The POSIX target check reports five pre-existing
+warnings.
+
+The full host workspace test command could not run on this ARM64 macOS
+checkout: the environment first selected Homebrew's x86-64 `rustc`, and after
+pinning the ARM64 nightly, `libnagi`'s x86-64 syscall-register inline assembly
+does not compile for the ARM64 host. The Windows host build/tests and public
+Ubuntu checks therefore remain necessary. The next `nagi-target` run must
+verify all 32 slots in real QEMU and continue to the first-web-pixel checksum
+and M17 PASS marker. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### Target evidence from CI Actions run #238 (2026-09-26)
 
