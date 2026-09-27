@@ -181,3 +181,12 @@ atoms-zone allocation and initialization, zones-vector reserve, and probe
 initialization. The atoms-zone allocation and initialization checks split the
 original combined failure condition without changing its behavior. All other
 markers bracket existing operations; non-Nagi builds compile them to no-ops.
+
+Patch `0021` follows CI #297, where the GC initializer completed its
+preconditions, thread-context setup, helper-thread count update, marker-vector
+resize, background-allocation lock, and max-bytes setup, then stopped inside
+`Nursery::init`. The patch traces nursery environment configuration, task and
+StoreBuffer setup, first-chunk initialization, nursery space-vector reserves,
+GC arena-chunk allocation, and the aligned page-mapping path for GC-sized
+chunks. It preserves allocation and mapping decisions; the additional
+checkpoints compile to no-ops outside Nagi.

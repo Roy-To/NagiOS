@@ -19,30 +19,54 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI #296 (`36324708375`, head `8cd7103`) passed host checks,
+milestone. Public CI #297 (`36328354764`, head `d39bc09`) passed host checks,
 Mesa, package, kernel, `nagi-init`, and UEFI builds, but real QEMU timed out
-after the 120-second guest bound (exit code 4). The trace confirms SpiderMonkey
-helper-thread initialization returned and reaches `SpiderMonkey GC runtime
-initialization started`; no inner `GCRuntime::init` stage returned before the
-timeout. Nagi-owned mozjs patch 0020 adds Nagi-only checkpoints through GC
-initialization, and its source-contract test passes locally. The next public
-target run must verify the patch compiles and identify the stalled GC operation.
+after the 120-second guest bound (exit code 4). The trace confirms the
+`GCRuntime::init` preconditions, thread-context setup, helper-thread count
+update, marker-vector resize, background-allocation lock, and max-bytes setup
+all return, then reaches `SpiderMonkey GC nursery initialization started`.
+The next Nagi-only mozjs patch traces nursery configuration, task and
+StoreBuffer setup, the first chunk allocation, and its aligned mapping path.
+The full local suite passes (89 `nagi-cli` library tests and 18 CLI integration
+tests), as do formatting, Clippy with warnings denied, diff checks, and a fresh
+pinned-source fetch with patches 0020 and 0021 applied.
 Keep M17 `BLOCKED` until authoritative QEMU produces the real first-web-pixel
 checksum and M17 PASS. M18 remains `NOT STARTED`.
 
 **Last updated:** 2026-09-28
-**Last known repair checkpoint:** Public CI #296 (`36324708375`, head
-`8cd7103ffa5a4e1ccdf7b78280695912e3194953`) passed the Windows launcher and
+**Last known repair checkpoint:** Public CI #297 (`36328354764`, head
+`d39bc0982d1975b6952e89f9a1cc359048b04e55`) passed the Windows launcher and
 Ubuntu host jobs, target dependency validation, Mesa Softpipe, the M16 package,
 kernel, real `nagi-init` link, and UEFI loader. The real QEMU acceptance timed
-out after 120 seconds (exit code 4). The runtime trace shows helper-thread
-initialization completed and GC runtime initialization began, but emitted no
-inner GC-stage marker. Patch 0020 now brackets those stages; local focused,
-full-suite, formatting, lint, diff, and fresh-fetch checks pass. The regenerated
-pinned mozjs source contains patch 0020 in the ordered patch set. The next
-public target run must verify its target C++ compilation and show the last
-completed GC stage. M17 remains `BLOCKED` pending the first real web-pixel
-checksum and PASS marker.
+out after 120 seconds (exit code 4). Patch 0020 compiled into the target
+and traced GC initialization through the start of nursery initialization.
+Nagi-owned patch 0021 adds checkpoints to that path. Its source-contract test
+passes locally; full-suite, formatting, lint, diff, and fresh-fetch checks also
+pass with the complete ordered patch set. M17 remains `BLOCKED` pending the
+first real web-pixel checksum and PASS marker.
+
+### M17 nursery initialization diagnostic after Actions run #297 (2026-09-28)
+
+Run #297 (`36328354764`, head `d39bc0982d1975b6952e89f9a1cc359048b04e55`)
+passed the Windows launcher and Ubuntu host jobs, M17 feature-boundary check,
+Mesa Softpipe build, M16 package, kernel, `nagi-init` target link, and UEFI
+loader. QEMU acceptance exited 4 when the guest did not exit within its
+120-second bound. The serial trace reaches `SpiderMonkey GC max-bytes parameter
+set completed` and `SpiderMonkey GC nursery initialization started`. This
+localizes the stop to entry into `Nursery::init` or its first configuration
+read; no nursery-internal marker existed in that run.
+
+Mozjs patch `0021-nagi-m17-nursery-init-traces.patch` adds Nagi-only checkpoints
+around nursery configuration, task allocation, StoreBuffer enable, first-chunk
+setup, space-vector reservation, arena-chunk acquisition, and GC-sized aligned
+page mapping. A focused source-contract test first failed because the patch was
+absent, then passed after the patch was added. The next target run must validate
+the C++ changes and identify the last completed nursery stage. The complete
+tracked patch sequence regenerated from the pinned mozjs source, both patches
+pass reverse-apply checks, and generated Nursery/Allocator/Memory files match
+the saved patch result. Local validation passes: 89 library tests, 18 CLI
+integration tests, formatting, Clippy with warnings denied, and diff checks.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 GC initialization diagnostic after Actions run #296 (2026-09-28)
 

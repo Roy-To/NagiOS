@@ -602,6 +602,42 @@ mod tests {
     }
 
     #[test]
+    fn mozjs_m17_nursery_patch_traces_initialization_stages() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let patch = std::fs::read_to_string(
+            root.join("third_party/mozjs-sys-nagi-patches/0021-nagi-m17-nursery-init-traces.patch"),
+        )
+        .expect("mozjs M17 nursery initialization trace patch");
+        for stage in [
+            "SpiderMonkey nursery profiling configuration started",
+            "SpiderMonkey nursery report-stats configuration started",
+            "SpiderMonkey nursery pretenuring configuration started",
+            "SpiderMonkey nursery sweep-task allocation started",
+            "SpiderMonkey nursery decommit-task allocation started",
+            "SpiderMonkey nursery StoreBuffer enable started",
+            "SpiderMonkey nursery first-chunk initialization started",
+            "SpiderMonkey nursery initial capacity set started",
+            "SpiderMonkey nursery decommit chunk reservation started",
+            "SpiderMonkey nursery first chunk allocation started",
+            "SpiderMonkey nursery to-space chunk-vector reserve started",
+            "SpiderMonkey nursery GC chunk acquisition started",
+            "SpiderMonkey GC arena chunk allocation started",
+            "SpiderMonkey GC aligned-page mapping started",
+            "SpiderMonkey GC base memory mapping started",
+        ] {
+            assert!(
+                patch.contains(stage),
+                "missing SpiderMonkey nursery trace stage: {stage}"
+            );
+        }
+        assert!(patch.contains("#if defined(__NAGI__)"));
+        assert!(patch.contains("nagi_m17_console_trace(trace_stage"));
+    }
+
+    #[test]
     fn nagi_init_rescans_real_mozjs_archives_in_m17_link() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
