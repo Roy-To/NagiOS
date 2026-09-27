@@ -17,22 +17,51 @@ Repository instructions:
 # 1. Current status
 
 **Current milestone:** `M17 - Servo Bootstrap`
-**Milestone status:** `BLOCKED`
-**Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI #302 (`36351615434`, head
-`fb9ba58f3c0f01b13335a894edd33a1999a92da5`) passed both host jobs and all
-target builds through UEFI, but real QEMU exhausted the 128 MiB bootstrap mmap
-window during Servo/SpiderMonkey startup: a 1 MiB request had only four pages
-free and four contiguous pages, while 32 reservation identities remained.
-ADR 0036 and the local kernel change expand the finite window and backing to
-256 MiB without changing reservation, ownership, or acceptance rules. Local
-verification passes 112 kernel tests, the x86_64 Linux kernel-test check, and
-the release Nagi kernel build. Push the reviewed repair for public target CI;
-M17 remains BLOCKED until authoritative QEMU emits the real nonzero
-first-web-pixel checksum and M17 PASS. M18 remains NOT STARTED.
+**Milestone status:** `PASS`
+**Next action:** M17 passed its formal First Web Pixel acceptance in public
+CI #303 (`36355494134`, head
+`31bf815b7230f2658f654643e6d6c898d9881d77`). The real Servo/Mesa Softpipe
+guest read back a nonzero frame, copied it to the capability-checked Nagi
+Surface, presented it, and emitted the M17 PASS marker. The acceptance also
+verified Servo resource registration and ELF constructors before user entry.
+M18 remains `NOT STARTED`; this continuation is scoped to M17.
 
 **Last updated:** 2026-09-28
-**Last known repair checkpoint:** Public CI #302 measured the exact exhaustion condition: `request_pages=256`, `free_reservation_slots=32`, `free_pages=4`, and `largest_free_run_pages=4`. ADR 0036 increases the statically backed bootstrap mmap window from 128 MiB to 256 MiB while retaining the 64-reservation bound and real QEMU acceptance. Local verification passes 112/112 kernel tests on x86_64 macOS via Rosetta 2, the x86_64 Linux test configuration, and the release Nagi kernel build. Public target CI must validate the larger kernel BSS and continue to the real first-web-pixel marker. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+**Last known checkpoint:** Public CI #303 passed the Windows launcher, Ubuntu host,
+and authoritative Ubuntu `nagi-target` jobs on commit
+`31bf815b7230f2658f654643e6d6c898d9881d77`. The target job built Mesa
+Softpipe, M16 package, kernel, real `nagi-init`, and UEFI loader, then passed
+the real QEMU First Web Pixel acceptance. In the guest, M17 prints PASS only
+after a nonzero checksum is computed from Servo's software-rendered frame,
+the frame is copied to Nagi Surface, and display presentation succeeds. The
+acceptance script also checks the resource-reader marker and constructor
+ordering. GitHub retained the acceptance result, but not the temporary guest
+serial log or numeric checksum. M17 is `PASS`; M18 remains `NOT STARTED`.
+
+### M17 First Web Pixel completion after Actions run #303 (2026-09-28)
+
+Public CI run #303 ([`36355494134`](https://github.com/RT-NISH/NagiOS/actions/runs/36355494134),
+head `31bf815b7230f2658f654643e6d6c898d9881d77`) completed successfully:
+the Windows launcher, Ubuntu host, and authoritative Ubuntu `nagi-target`
+jobs all passed. The target job built the pinned Servo dependency graph,
+Mesa Softpipe, M16 package, kernel, real `nagi-init` link, and UEFI loader,
+then ran the unchanged real-QEMU M17 acceptance successfully.
+
+The guest path constructs Servo's `SoftwareRenderingContext`, loads the
+bundled local HTML page, paints and reads back the first Servo frame, rejects
+a zero checksum, copies the RGBA frame into the capability-checked Nagi
+Surface, and requires successful presentation before printing the checksum
+and `Nagi M17 first web pixel PASS`. The acceptance script additionally
+requires Servo's registered resource reader and verifies ELF constructors
+completed before user entry. CI printed both `PASS M17 first web pixel: real
+Servo/Mesa Softpipe frame reached Nagi Surface and QEMU` and
+`PASS M17 first web pixel acceptance: real Servo guest frame reached Nagi
+Surface and QEMU`. The exact numeric checksum and temporary serial log were
+not retained as GitHub Actions artifacts; the guest and acceptance checks
+require a nonzero checksum before these PASS lines can occur.
+
+This closes M17's formal acceptance, **First Web Pixel on Nagi**. M17 is
+`PASS`; M18 remains `NOT STARTED` in this continuation.
 
 ### M17 bootstrap mmap capacity after Actions run #302 (2026-09-28)
 
@@ -2008,7 +2037,7 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | BLOCKED | CI #287 (`36292384786`, head `63b2cc5`) passed all target builds and reached Servo constellation/TLS prewarm in real QEMU, then exposed missing `inventory 0.3.24` ELF constructor support for `target_os = "nagi"`. ADR 0032 records the exact-source patch and guest preflight now under verification; no first-pixel checksum or M17 PASS yet. M18 remains forbidden until formal PASS. |
+| M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. M18 remains NOT STARTED. |
 | M18 | Albert Browser | NOT STARTED | 遯ｶ繝ｻ|
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
@@ -2025,19 +2054,22 @@ Use only these statuses:
 
 ---
 
-# M17 - Servo Bootstrap (`BLOCKED`)
+# M17 - Servo Bootstrap (`PASS`)
 
-M17 remains `BLOCKED` as a truthful acceptance state; this is not a stop
-condition and is not a first-web-pixel acceptance. The implementation now
-applies sorted tracked Servo, Surfman, and libc patches, records generated
-checkout revisions plus patch/worktree fingerprints, and refuses stale or
-unsafe generated state without overwriting it. The M17 QEMU boot image is
-read-only, and the writable user-storage capability excludes read-only VirtIO
-devices so the first persistent-write gate cannot alter the FAT12 ESP.
+M17's formal First Web Pixel acceptance passed in public CI #303, as recorded
+at the beginning of this section. The dated blocker entries below are the
+historical state at each earlier CI run. The implementation applies sorted
+tracked Servo, Surfman, and libc patches, records generated checkout
+revisions plus patch/worktree fingerprints, and refuses stale or unsafe
+generated state without overwriting it. The M17 QEMU boot image is read-only,
+and the writable user-storage capability excludes read-only VirtIO devices
+so the first persistent-write gate cannot alter the FAT12 ESP.
 
-The blocker inventory was reclassified on 2026-09-20.
+The following blocker inventory was reclassified on 2026-09-20 and is retained
+as historical context. Present-tense wording inside these dated entries
+describes the state at the time; it does not reopen M17 after CI #303 passed.
 
-Internal and actionable in this workstream:
+Internal and actionable during the M17 workstream:
 
 - Servo's target dependency graph needs the pinned local libc 0.2.189 source,
   the Servo workspace boundary, patched `std`, and a complete Nagi user

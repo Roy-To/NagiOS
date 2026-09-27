@@ -60,13 +60,16 @@ the first frame.
 - M17 can request at least one additional full 128 MiB window's worth of
   mapped/reserved capacity before reaching the same bounded failure. The
   reason-coded rejection statistics continue to identify any later limit.
-- M17 remains `BLOCKED` until public target CI reports the real nonzero
-  first-web-pixel checksum and M17 PASS marker. M18 remains `NOT STARTED`.
+- Public CI #303 (`36355494134`, head
+  `31bf815b7230f2658f654643e6d6c898d9881d77`) loaded the larger kernel and
+  passed real-QEMU M17 acceptance. Servo produced a nonzero software-rendered
+  frame checksum, copied the frame to Nagi Surface, and presented it before
+  printing the M17 PASS marker. M17 is `PASS`; M18 remains `NOT STARTED`.
 
 ## Verification
 
-Kernel tests must assert the 256 MiB window, check the last mapped page and
-reject ranges beyond the new limit. Run kernel unit tests, the x86-64 Linux
-kernel test compilation, the release Nagi kernel build, formatting, and diff
-checks. Public Ubuntu target CI remains authoritative for loading the larger
-kernel BSS and for the real M17 QEMU acceptance.
+Kernel tests assert the 256 MiB window, check the last mapped page, and reject
+ranges beyond the new limit. Local verification passed the kernel unit tests,
+the x86-64 Linux kernel-test compilation, the release Nagi kernel build,
+formatting, and diff checks. Public CI #303 then loaded the larger kernel BSS
+and passed the real M17 QEMU first-web-pixel acceptance.
