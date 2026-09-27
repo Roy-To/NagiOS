@@ -8,8 +8,8 @@ use nagi_bootinfo::{BootInfo, BootInfoError};
 
 use crate::display::{self, SURFACE_PAGE_COUNT, USER_SURFACE_BASE};
 use crate::memory::{
-    current_cr3, identity_mapped, PageAllocator, PageTable, PageTableEntry, PAGE_SIZE,
-    PAGE_TABLE_ENTRIES,
+    current_cr3, identity_mapped, invalidate_page, PageAllocator, PageTable, PageTableEntry,
+    PAGE_SIZE, PAGE_TABLE_ENTRIES,
 };
 use crate::user_elf::{
     self, UserElfError, UserLoadPlan, PF_W, PF_X, USER_IMAGE_BASE, USER_IMAGE_LIMIT,
@@ -47,7 +47,7 @@ const MAX_INIT_IMAGE_SIZE: usize = 128 * 1024 * 1024;
 #[cfg(test)]
 const MAX_TEST_IMAGE_PAGES: usize = 256;
 const MAX_IDENTITY_MAPPED_ADDRESS: u64 = 1 << 32;
-const MAX_MMAP_REGIONS: usize = 64;
+const MAX_MMAP_RESERVATIONS: usize = 64;
 const IA32_EFER: u32 = 0xC000_0080;
 const IA32_FS_BASE: u32 = 0xC000_0100;
 const EFER_NXE: u64 = 1 << 11;
@@ -72,10 +72,8 @@ pub struct UserContext {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct MmapRegion {
-    start_page: usize,
-    page_count: usize,
-    protection: u8,
+struct MmapReservation {
+    live_page_count: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -153,7 +151,8 @@ pub(crate) struct BootstrapStorage {
     tls_pages: [PageBytes; USER_TLS_PAGE_COUNT],
     tls_initial_page: PageBytes,
     mmap_pages: [PageBytes; USER_MMAP_PAGES],
-    mmap_regions: [Option<MmapRegion>; MAX_MMAP_REGIONS],
+    mmap_page_owners: [u8; USER_MMAP_PAGES],
+    mmap_reservations: [Option<MmapReservation>; MAX_MMAP_RESERVATIONS],
 }
 
 impl BootstrapStorage {
@@ -174,7 +173,8 @@ impl BootstrapStorage {
             tls_pages: [const { PageBytes::zeroed() }; USER_TLS_PAGE_COUNT],
             tls_initial_page: PageBytes::zeroed(),
             mmap_pages: [const { PageBytes::zeroed() }; USER_MMAP_PAGES],
-            mmap_regions: [None; MAX_MMAP_REGIONS],
+            mmap_page_owners: [0; USER_MMAP_PAGES],
+            mmap_reservations: [None; MAX_MMAP_RESERVATIONS],
         }
     }
 
@@ -206,7 +206,8 @@ impl BootstrapStorage {
         for page in &mut self.mmap_pages {
             page.0.fill(0);
         }
-        self.mmap_regions.fill(None);
+        self.mmap_page_owners.fill(0);
+        self.mmap_reservations.fill(None);
     }
 }
 
@@ -314,40 +315,173 @@ pub fn current_image_pages() -> usize {
 pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
     let page_count = validate_mmap_request(length, protection)?;
     let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
-    let slot = storage.mmap_regions.iter().position(Option::is_none)?;
-    let start_page = find_mmap_start_page(&storage.mmap_regions, page_count)?;
+    let slot = storage.mmap_reservations.iter().position(Option::is_none)?;
+    let start_page = find_mmap_start_page(&storage.mmap_page_owners, page_count)?;
     for page in start_page..start_page + page_count {
         storage.mmap_pages[page].0.fill(0);
     }
     if protection != PROT_NONE && !remap_mmap_pages(storage, start_page, page_count, protection) {
+        unmap_mmap_pages(storage, start_page, page_count);
+        invalidate_mmap_pages(start_page, page_count);
         return None;
     }
-    storage.mmap_regions[slot] = Some(MmapRegion {
+    if !register_mmap_reservation(
+        &mut storage.mmap_page_owners,
+        &mut storage.mmap_reservations,
+        slot,
         start_page,
         page_count,
-        protection: protection as u8,
-    });
+    ) {
+        unmap_mmap_pages(storage, start_page, page_count);
+        invalidate_mmap_pages(start_page, page_count);
+        return None;
+    }
+    invalidate_mmap_pages(start_page, page_count);
     Some(USER_MMAP_BASE + start_page as u64 * PAGE_SIZE)
 }
 
-fn find_mmap_start_page(
-    regions: &[Option<MmapRegion>; MAX_MMAP_REGIONS],
-    page_count: usize,
-) -> Option<usize> {
+fn find_mmap_start_page(page_owners: &[u8; USER_MMAP_PAGES], page_count: usize) -> Option<usize> {
     if page_count == 0 || page_count > USER_MMAP_PAGES {
         return None;
     }
-    for start_page in 0..=USER_MMAP_PAGES - page_count {
-        let end_page = start_page + page_count;
-        let fits = regions.iter().flatten().all(|region| {
-            let region_end = region.start_page + region.page_count;
-            end_page <= region.start_page || region_end <= start_page
-        });
-        if fits {
-            return Some(start_page);
+    let mut run_start = 0;
+    let mut run_length = 0;
+    for (page, owner) in page_owners.iter().enumerate() {
+        if *owner == 0 {
+            if run_length == 0 {
+                run_start = page;
+            }
+            run_length += 1;
+            if run_length == page_count {
+                return Some(run_start);
+            }
+        } else {
+            run_length = 0;
         }
     }
     None
+}
+
+fn register_mmap_reservation(
+    page_owners: &mut [u8; USER_MMAP_PAGES],
+    reservations: &mut [Option<MmapReservation>; MAX_MMAP_RESERVATIONS],
+    slot: usize,
+    start_page: usize,
+    page_count: usize,
+) -> bool {
+    let Some(end_page) = start_page.checked_add(page_count) else {
+        return false;
+    };
+    if page_count == 0
+        || slot >= MAX_MMAP_RESERVATIONS
+        || end_page > USER_MMAP_PAGES
+        || reservations[slot].is_some()
+        || page_owners[start_page..end_page]
+            .iter()
+            .any(|owner| *owner != 0)
+    {
+        return false;
+    }
+
+    let owner = (slot + 1) as u8;
+    page_owners[start_page..end_page].fill(owner);
+    reservations[slot] = Some(MmapReservation {
+        live_page_count: page_count,
+    });
+    true
+}
+
+fn mmap_range_is_owned(
+    page_owners: &[u8; USER_MMAP_PAGES],
+    reservations: &[Option<MmapReservation>; MAX_MMAP_RESERVATIONS],
+    start_page: usize,
+    page_count: usize,
+) -> bool {
+    let Some(end_page) = start_page.checked_add(page_count) else {
+        return false;
+    };
+    if page_count == 0 || end_page > USER_MMAP_PAGES {
+        return false;
+    }
+    page_owners[start_page..end_page].iter().all(|owner| {
+        *owner != 0
+            && reservations
+                .get(usize::from(*owner - 1))
+                .is_some_and(|reservation| {
+                    reservation
+                        .as_ref()
+                        .is_some_and(|reservation| reservation.live_page_count != 0)
+                })
+    })
+}
+
+fn find_exact_mmap_fragment_owner(
+    page_owners: &[u8; USER_MMAP_PAGES],
+    reservations: &[Option<MmapReservation>; MAX_MMAP_RESERVATIONS],
+    start_page: usize,
+    page_count: usize,
+) -> Option<usize> {
+    let end_page = start_page.checked_add(page_count)?;
+    if page_count == 0 || end_page > USER_MMAP_PAGES {
+        return None;
+    }
+    let owner = *page_owners.get(start_page)?;
+    if owner == 0
+        || page_owners[start_page..end_page]
+            .iter()
+            .any(|page_owner| *page_owner != owner)
+        || (start_page > 0 && page_owners[start_page - 1] == owner)
+        || (end_page < USER_MMAP_PAGES && page_owners[end_page] == owner)
+    {
+        return None;
+    }
+    let slot = usize::from(owner - 1);
+    let reservation = reservations.get(slot)?.as_ref()?;
+    (reservation.live_page_count != 0).then_some(slot)
+}
+
+fn release_mmap_range_owners(
+    page_owners: &mut [u8; USER_MMAP_PAGES],
+    reservations: &mut [Option<MmapReservation>; MAX_MMAP_RESERVATIONS],
+    start_page: usize,
+    page_count: usize,
+) -> bool {
+    let Some(end_page) = start_page.checked_add(page_count) else {
+        return false;
+    };
+    if page_count == 0 || end_page > USER_MMAP_PAGES {
+        return false;
+    }
+
+    let mut released_by_slot = [0usize; MAX_MMAP_RESERVATIONS];
+    for owner in &page_owners[start_page..end_page] {
+        if *owner == 0 {
+            return false;
+        }
+        let slot = usize::from(*owner - 1);
+        let Some(Some(reservation)) = reservations.get(slot) else {
+            return false;
+        };
+        released_by_slot[slot] += 1;
+        if released_by_slot[slot] > reservation.live_page_count {
+            return false;
+        }
+    }
+
+    page_owners[start_page..end_page].fill(0);
+    for (slot, released_count) in released_by_slot.into_iter().enumerate() {
+        if released_count == 0 {
+            continue;
+        }
+        let Some(reservation) = reservations[slot].as_mut() else {
+            return false;
+        };
+        reservation.live_page_count -= released_count;
+        if reservation.live_page_count == 0 {
+            reservations[slot] = None;
+        }
+    }
+    true
 }
 
 /// Re-map an existing Nagi-owned range at its exact guest address.
@@ -359,39 +493,54 @@ fn find_mmap_start_page(
 pub fn mmap_user_at(address: u64, length: u64, protection: u64) -> Option<u64> {
     let (start_page, page_count) = mmap_range(address, length, protection)?;
     let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
-    let slot = storage.mmap_regions.iter().position(|region| {
-        region.is_some_and(|region| {
-            region.start_page == start_page && region.page_count == page_count
-        })
-    })?;
+    find_exact_mmap_fragment_owner(
+        &storage.mmap_page_owners,
+        &storage.mmap_reservations,
+        start_page,
+        page_count,
+    )?;
 
     if protection == PROT_NONE {
-        for page in start_page..start_page + page_count {
-            let (table, entry_index) = mmap_page_location(page)?;
-            storage.mmap_pts[table].unmap(entry_index);
-        }
+        unmap_mmap_pages(storage, start_page, page_count);
     } else if !remap_mmap_pages(storage, start_page, page_count, protection) {
+        invalidate_mmap_pages(start_page, page_count);
         return None;
     }
-
-    if let Some(region) = storage.mmap_regions[slot].as_mut() {
-        region.protection = protection as u8;
-    }
+    invalidate_mmap_pages(start_page, page_count);
     Some(address)
 }
 
 pub fn munmap_user(address: u64, length: u64) -> bool {
-    let Some((slot, region)) = find_mmap_region(address, length) else {
+    let Some((start_page, page_count)) = mmap_range(address, length, PROT_READ) else {
         return false;
     };
     let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
-    for page in region.start_page..region.start_page + region.page_count {
-        let Some((table, entry_index)) = mmap_page_location(page) else {
-            return false;
-        };
-        storage.mmap_pts[table].unmap(entry_index);
+    if !munmap_mmap_range(storage, start_page, page_count) {
+        return false;
     }
-    storage.mmap_regions[slot] = None;
+    invalidate_mmap_pages(start_page, page_count);
+    true
+}
+
+fn munmap_mmap_range(storage: &mut BootstrapStorage, start_page: usize, page_count: usize) -> bool {
+    if !mmap_range_is_owned(
+        &storage.mmap_page_owners,
+        &storage.mmap_reservations,
+        start_page,
+        page_count,
+    ) || !(start_page..start_page + page_count).all(|page| mmap_page_location(page).is_some())
+    {
+        return false;
+    }
+    if !release_mmap_range_owners(
+        &mut storage.mmap_page_owners,
+        &mut storage.mmap_reservations,
+        start_page,
+        page_count,
+    ) {
+        return false;
+    }
+    unmap_mmap_pages(storage, start_page, page_count);
     true
 }
 
@@ -414,27 +563,39 @@ pub fn reset_user_thread_tls(thread_id: usize) -> bool {
 }
 
 pub fn mprotect_user(address: u64, length: u64, protection: u64) -> bool {
-    if validate_mmap_request(length, protection).is_none() {
-        return false;
-    }
-    let Some((slot, region)) = find_mmap_region(address, length) else {
+    let Some((start_page, page_count)) = mmap_range(address, length, protection) else {
         return false;
     };
     let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
-    if protection == PROT_NONE {
-        for page in region.start_page..region.start_page + region.page_count {
-            let Some((table, entry_index)) = mmap_page_location(page) else {
-                return false;
-            };
-            storage.mmap_pts[table].unmap(entry_index);
-        }
-    } else if !remap_mmap_pages(storage, region.start_page, region.page_count, protection) {
+    if !mprotect_mmap_range(storage, start_page, page_count, protection) {
+        invalidate_mmap_pages(start_page, page_count);
         return false;
     }
-    if let Some(record) = storage.mmap_regions[slot].as_mut() {
-        record.protection = protection as u8;
-    }
+    invalidate_mmap_pages(start_page, page_count);
     true
+}
+
+fn mprotect_mmap_range(
+    storage: &mut BootstrapStorage,
+    start_page: usize,
+    page_count: usize,
+    protection: u64,
+) -> bool {
+    if !mmap_range_is_owned(
+        &storage.mmap_page_owners,
+        &storage.mmap_reservations,
+        start_page,
+        page_count,
+    ) || !(start_page..start_page + page_count).all(|page| mmap_page_location(page).is_some())
+    {
+        return false;
+    }
+    if protection == PROT_NONE {
+        unmap_mmap_pages(storage, start_page, page_count);
+        true
+    } else {
+        remap_mmap_pages(storage, start_page, page_count, protection)
+    }
 }
 
 fn validate_mmap_request(length: u64, protection: u64) -> Option<usize> {
@@ -509,22 +670,18 @@ fn mmap_page_flags(protection: u64) -> u64 {
     flags
 }
 
-fn find_mmap_region(address: u64, length: u64) -> Option<(usize, MmapRegion)> {
-    if !address.is_multiple_of(PAGE_SIZE) {
-        return None;
+fn unmap_mmap_pages(storage: &mut BootstrapStorage, start_page: usize, page_count: usize) {
+    for page in start_page..start_page + page_count {
+        if let Some((table, entry_index)) = mmap_page_location(page) {
+            storage.mmap_pts[table].unmap(entry_index);
+        }
     }
-    let start_page = usize::try_from(address.checked_sub(USER_MMAP_BASE)? / PAGE_SIZE).ok()?;
-    let page_count = validate_mmap_request(length, PROT_READ)?;
-    let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
-    storage
-        .mmap_regions
-        .iter()
-        .enumerate()
-        .find_map(|(slot, region)| {
-            let region = (*region)?;
-            (region.start_page == start_page && region.page_count == page_count)
-                .then_some((slot, region))
-        })
+}
+
+fn invalidate_mmap_pages(start_page: usize, page_count: usize) {
+    for page in start_page..start_page + page_count {
+        invalidate_page(USER_MMAP_BASE + page as u64 * PAGE_SIZE);
+    }
 }
 
 /// Confirm that each page in a previously range-checked console buffer is a
@@ -1490,12 +1647,14 @@ mod tests {
     };
 
     use super::{
-        build_address_space, efer_with_nxe, find_mmap_start_page, image_range_is_mapped,
-        mapped_range, mmap_page_flags, reset_child_tls_pages, user_tls_control_base,
-        validate_mmap_request, BootstrapStorage, MmapRegion, UserProcessError, MAX_MMAP_REGIONS,
-        USER_MMAP_BASE, USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES,
-        USER_SURFACE_LIMIT, USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE,
-        USER_TLS_LIMIT, USER_TLS_PAGE_COUNT, USER_TLS_THREAD_SLOT_COUNT,
+        build_address_space, efer_with_nxe, find_exact_mmap_fragment_owner, find_mmap_start_page,
+        image_range_is_mapped, mapped_range, mmap_page_flags, mmap_range_is_owned,
+        mprotect_mmap_range, munmap_mmap_range, register_mmap_reservation,
+        release_mmap_range_owners, remap_mmap_pages, reset_child_tls_pages, user_tls_control_base,
+        validate_mmap_request, BootstrapStorage, MmapReservation, UserProcessError,
+        MAX_MMAP_RESERVATIONS, USER_MMAP_BASE, USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT,
+        USER_STACK_PAGES, USER_SURFACE_LIMIT, USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE,
+        USER_TLS_CONTROL_BASE, USER_TLS_LIMIT, USER_TLS_PAGE_COUNT, USER_TLS_THREAD_SLOT_COUNT,
     };
 
     fn boxed_storage() -> Box<BootstrapStorage> {
@@ -1544,27 +1703,302 @@ mod tests {
         }
         assert_eq!(user_tls_control_base(USER_TLS_THREAD_SLOT_COUNT), None);
         assert!(USER_TLS_LIMIT <= USER_MMAP_BASE);
-        assert_eq!(MAX_MMAP_REGIONS, 64);
+        assert_eq!(MAX_MMAP_RESERVATIONS, 64);
     }
 
     #[test]
-    fn mmap_first_fit_uses_registered_regions_without_page_scratch_space() {
-        let mut regions = [None; MAX_MMAP_REGIONS];
-        regions[0] = Some(MmapRegion {
-            start_page: 0,
-            page_count: 4,
-            protection: PROT_READ as u8,
-        });
-        regions[1] = Some(MmapRegion {
-            start_page: 8,
-            page_count: 4,
-            protection: PROT_READ as u8,
-        });
+    fn mmap_first_fit_uses_free_page_ownership() {
+        let mut page_owners = [0; USER_MMAP_PAGES];
+        page_owners[0..4].fill(1);
+        page_owners[8..12].fill(2);
 
-        assert_eq!(find_mmap_start_page(&regions, 4), Some(4));
-        assert_eq!(find_mmap_start_page(&regions, 5), Some(12));
-        assert_eq!(find_mmap_start_page(&regions, 0), None);
-        assert_eq!(find_mmap_start_page(&regions, USER_MMAP_PAGES + 1), None);
+        assert_eq!(find_mmap_start_page(&page_owners, 4), Some(4));
+        assert_eq!(find_mmap_start_page(&page_owners, 5), Some(12));
+        assert_eq!(find_mmap_start_page(&page_owners, 0), None);
+        assert_eq!(
+            find_mmap_start_page(&page_owners, USER_MMAP_PAGES + 1),
+            None
+        );
+    }
+
+    #[test]
+    fn mmap_partial_unmap_keeps_exact_live_fragments_and_reuses_reservation_slot() {
+        let mut page_owners = [0; USER_MMAP_PAGES];
+        let mut reservations = [None; MAX_MMAP_RESERVATIONS];
+        assert!(register_mmap_reservation(
+            &mut page_owners,
+            &mut reservations,
+            0,
+            32,
+            8,
+        ));
+
+        assert!(release_mmap_range_owners(
+            &mut page_owners,
+            &mut reservations,
+            32,
+            2,
+        ));
+        assert_eq!(
+            find_exact_mmap_fragment_owner(&page_owners, &reservations, 34, 6),
+            Some(0)
+        );
+        assert_eq!(
+            find_exact_mmap_fragment_owner(&page_owners, &reservations, 35, 2),
+            None,
+            "MAP_FIXED must cover one entire live fragment"
+        );
+
+        assert!(release_mmap_range_owners(
+            &mut page_owners,
+            &mut reservations,
+            38,
+            2,
+        ));
+        assert!(release_mmap_range_owners(
+            &mut page_owners,
+            &mut reservations,
+            35,
+            1,
+        ));
+        assert_eq!(
+            find_exact_mmap_fragment_owner(&page_owners, &reservations, 34, 1),
+            Some(0)
+        );
+        assert_eq!(
+            find_exact_mmap_fragment_owner(&page_owners, &reservations, 36, 2),
+            Some(0)
+        );
+        assert_eq!(
+            find_exact_mmap_fragment_owner(&page_owners, &reservations, 34, 4),
+            None,
+            "an unmapped hole must divide exact-address fragments"
+        );
+        assert_eq!(
+            reservations[0],
+            Some(MmapReservation { live_page_count: 3 })
+        );
+
+        assert!(release_mmap_range_owners(
+            &mut page_owners,
+            &mut reservations,
+            34,
+            1,
+        ));
+        assert!(release_mmap_range_owners(
+            &mut page_owners,
+            &mut reservations,
+            36,
+            2,
+        ));
+        assert_eq!(reservations[0], None);
+        assert!(page_owners[32..40].iter().all(|owner| *owner == 0));
+
+        assert!(register_mmap_reservation(
+            &mut page_owners,
+            &mut reservations,
+            0,
+            40,
+            1,
+        ));
+        assert!(mmap_range_is_owned(&page_owners, &reservations, 40, 1,));
+        assert!(release_mmap_range_owners(
+            &mut page_owners,
+            &mut reservations,
+            40,
+            1,
+        ));
+        assert_eq!(reservations[0], None);
+    }
+
+    #[test]
+    fn mmap_ranges_span_adjacent_reservations_and_reject_holes_atomically() {
+        let mut page_owners = [0; USER_MMAP_PAGES];
+        let mut reservations = [None; MAX_MMAP_RESERVATIONS];
+        assert!(register_mmap_reservation(
+            &mut page_owners,
+            &mut reservations,
+            0,
+            64,
+            2,
+        ));
+        assert!(register_mmap_reservation(
+            &mut page_owners,
+            &mut reservations,
+            1,
+            66,
+            2,
+        ));
+        assert!(register_mmap_reservation(
+            &mut page_owners,
+            &mut reservations,
+            2,
+            70,
+            1,
+        ));
+
+        assert!(mmap_range_is_owned(&page_owners, &reservations, 64, 4,));
+        assert_eq!(
+            find_exact_mmap_fragment_owner(&page_owners, &reservations, 64, 4),
+            None,
+            "exact remap may not combine adjacent reservation identities"
+        );
+
+        let owners_before = page_owners;
+        let reservations_before = reservations;
+        assert!(!release_mmap_range_owners(
+            &mut page_owners,
+            &mut reservations,
+            64,
+            7,
+        ));
+        assert_eq!(page_owners, owners_before);
+        assert_eq!(reservations, reservations_before);
+
+        assert!(release_mmap_range_owners(
+            &mut page_owners,
+            &mut reservations,
+            64,
+            4,
+        ));
+        assert_eq!(reservations[0], None);
+        assert_eq!(reservations[1], None);
+        assert!(mmap_range_is_owned(&page_owners, &reservations, 70, 1,));
+    }
+
+    #[test]
+    fn mmap_ownership_is_independent_of_present_pte_state() {
+        let mut page_owners = [0; USER_MMAP_PAGES];
+        let mut reservations = [None; MAX_MMAP_RESERVATIONS];
+        assert!(register_mmap_reservation(
+            &mut page_owners,
+            &mut reservations,
+            0,
+            96,
+            3,
+        ));
+        let no_pte_is_required_for_owner_validation = PageTable::empty();
+        assert_eq!(no_pte_is_required_for_owner_validation.raw_entry(0), None);
+        assert!(mmap_range_is_owned(&page_owners, &reservations, 96, 3,));
+        assert_eq!(
+            find_exact_mmap_fragment_owner(&page_owners, &reservations, 96, 3),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn mprotect_preserves_prot_none_ownership_and_spans_adjacent_reservations() {
+        let mut storage = boxed_storage();
+        assert!(register_mmap_reservation(
+            &mut storage.mmap_page_owners,
+            &mut storage.mmap_reservations,
+            0,
+            120,
+            2,
+        ));
+        assert!(register_mmap_reservation(
+            &mut storage.mmap_page_owners,
+            &mut storage.mmap_reservations,
+            1,
+            122,
+            2,
+        ));
+        assert!(remap_mmap_pages(
+            &mut storage,
+            120,
+            4,
+            PROT_READ | PROT_WRITE
+        ));
+        let page_location = |page| super::mmap_page_location(page).expect("mmap page location");
+        assert!(storage.mmap_pts[page_location(120).0]
+            .entry(page_location(120).1)
+            .is_some());
+
+        assert!(mprotect_mmap_range(&mut storage, 121, 2, PROT_NONE));
+        for page in 121..123 {
+            let (table, entry) = page_location(page);
+            assert_eq!(storage.mmap_pts[table].entry(entry), None);
+        }
+        assert!(mmap_range_is_owned(
+            &storage.mmap_page_owners,
+            &storage.mmap_reservations,
+            120,
+            4,
+        ));
+
+        assert!(!mprotect_mmap_range(&mut storage, 120, 5, PROT_READ));
+        for (page, is_mapped) in [(120, true), (121, false), (122, false), (123, true)] {
+            let (table, entry) = page_location(page);
+            assert_eq!(
+                storage.mmap_pts[table].entry(entry).is_some(),
+                is_mapped,
+                "rejected protection change must leave page {page} unchanged"
+            );
+        }
+
+        assert!(mprotect_mmap_range(&mut storage, 120, 4, PROT_READ));
+        for page in 120..124 {
+            let (table, entry) = page_location(page);
+            assert!(storage.mmap_pts[table].entry(entry).is_some());
+        }
+    }
+
+    #[test]
+    fn munmap_spans_adjacent_reservations_and_rejects_holes_without_mutation() {
+        let mut storage = boxed_storage();
+        assert!(register_mmap_reservation(
+            &mut storage.mmap_page_owners,
+            &mut storage.mmap_reservations,
+            0,
+            128,
+            2,
+        ));
+        assert!(register_mmap_reservation(
+            &mut storage.mmap_page_owners,
+            &mut storage.mmap_reservations,
+            1,
+            130,
+            2,
+        ));
+        assert!(remap_mmap_pages(
+            &mut storage,
+            128,
+            4,
+            PROT_READ | PROT_WRITE
+        ));
+
+        assert!(munmap_mmap_range(&mut storage, 129, 2));
+        assert_eq!(
+            storage.mmap_reservations[0],
+            Some(MmapReservation { live_page_count: 1 })
+        );
+        assert_eq!(
+            storage.mmap_reservations[1],
+            Some(MmapReservation { live_page_count: 1 })
+        );
+
+        let page_location = |page| super::mmap_page_location(page).expect("mmap page location");
+        for page in [129, 130] {
+            let (table, entry) = page_location(page);
+            assert_eq!(storage.mmap_pts[table].entry(entry), None);
+        }
+        for page in [128, 131] {
+            let (table, entry) = page_location(page);
+            assert!(storage.mmap_pts[table].entry(entry).is_some());
+        }
+
+        assert!(!munmap_mmap_range(&mut storage, 128, 4));
+        for page in [128, 131] {
+            let (table, entry) = page_location(page);
+            assert!(storage.mmap_pts[table].entry(entry).is_some());
+        }
+        assert_eq!(storage.mmap_page_owners[128], 1);
+        assert_eq!(storage.mmap_page_owners[131], 2);
+
+        assert!(munmap_mmap_range(&mut storage, 128, 1));
+        assert!(munmap_mmap_range(&mut storage, 131, 1));
+        assert_eq!(storage.mmap_reservations[0], None);
+        assert_eq!(storage.mmap_reservations[1], None);
     }
 
     fn plan(memory_size: u64) -> UserLoadPlan {

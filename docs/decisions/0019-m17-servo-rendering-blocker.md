@@ -2890,3 +2890,26 @@ decisions intact. A source-contract test guards the patch. The next
 authoritative QEMU run must identify the exact non-returning operation before a
 behavioral VM or allocator fix is selected. M17 remains `BLOCKED`; M18 remains
 `NOT STARTED`.
+
+## Bootstrap partial mmap continuation after CI run #300 (2026-09-28)
+
+Public CI run #300 (`36341631295`, head
+`06392ccf5acc742cb3b2ba70b09e9cea8e5b2e7a`) passed both host jobs, target
+dependency validation, Mesa Softpipe, the M16 package, kernel, real
+`nagi-init` link, and UEFI loader. QEMU timed out after 120 seconds before
+producing a first-web-pixel checksum or M17 PASS marker. The GC trace completed
+both hint mappings and stopped in the upward prefix `munmap`.
+
+Code inspection confirmed the bootstrap VM only accepted an exact whole-map
+`munmap` and translated a rejected subrange to POSIX `EINVAL`, while
+SpiderMonkey's aligned GC allocator expects partial range operations. ADR 0035
+records the bounded fix: a fixed per-page owner ledger supports atomic
+page-aligned `munmap` and `mprotect` over fragments and adjacent reservations;
+exact-address remaps remain restricted to one live fragment. The implementation
+also invalidates changed translations in the active address space.
+
+Local verification passes all 110 kernel unit tests on the x86_64 macOS target
+under Rosetta 2, x86_64 Linux kernel-test compilation, and the release Nagi
+kernel build. Public target CI and real QEMU remain pending; M17 stays
+`BLOCKED` and M18 remains `NOT STARTED` until the genuine first-web-pixel
+checksum and M17 PASS marker are observed.

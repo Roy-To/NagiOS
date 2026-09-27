@@ -19,32 +19,31 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI #299 (`36337350178`, head
-`ee07235c390320a6aa687204dc72319d54284ee9`) passed both host jobs, target
-dependencies, Mesa Softpipe, the M16 package, kernel, real `nagi-init` link,
-and UEFI loader. Real QEMU timed out after its 120-second bound (exit code 4).
-The guest entered SpiderMonkey's Nagi aligned-page fallback, completed its
-base mapping, then stopped inside the first `TryToAlignChunk` call. No first-web-
-pixel checksum or PASS marker was produced. Patch 0023 adds Nagi-only markers
-around its exact-hint mmap, mismatch cleanup, partial unmaps, and replacement
-mapping to identify the non-returning operation without changing allocator
-decisions. Local verification passes: 91 `nagi-cli` library tests, 18 CLI
-integration tests, formatting, Clippy with warnings denied, diff checks, fresh
-pinned-source fetch, and reverse-patch validation. Public target compile and
-QEMU validation of patch 0023 are pending.
-Keep M17 `BLOCKED` until authoritative QEMU produces the real first-web-pixel
-checksum and M17 PASS. M18 remains `NOT STARTED`.
+milestone. Public CI #300 (`36341631295`, head
+`06392ccf5acc742cb3b2ba70b09e9cea8e5b2e7a`) passed both host jobs and all
+target builds through UEFI, then timed out during real QEMU startup. Trace
+evidence isolated the call to SpiderMonkey's upward prefix `munmap`; the fixed
+whole-region table rejected POSIX subranges. ADR 0035 records the page-owner
+design, implemented in `kernel/src/user_process.rs` with 64 active reservation
+identities and the existing 128 MiB window. Local verification passes all 110
+kernel tests on x86_64 macOS under Rosetta 2, x86_64 Linux test compilation,
+and the release Nagi kernel build. Public CI/QEMU must confirm that
+SpiderMonkey's full GC range sequence completes. M17 remains BLOCKED until
+authoritative QEMU emits the real nonzero first-web-pixel checksum and M17
+PASS. M18 remains NOT STARTED.
 
 **Last updated:** 2026-09-28
-**Last known repair checkpoint:** Public CI #299 (`36337350178`, head
-`ee07235c390320a6aa687204dc72319d54284ee9`) passed both host jobs, all target
-builds through UEFI, and stopped only at the real QEMU acceptance timeout.
-Trace markers confirm patch 0022 selected the Nagi aligned-page fallback and
-completed the initial base mapping; the last marker was
-`SpiderMonkey GC initial chunk-alignment attempt started`. Patch 0023 now adds
-sub-operation checkpoints to the existing allocator path. Its source-contract
-test failed before the patch existed and passes after. The pinned-source fetch
-and reverse-patch check pass. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** Local partial-range VM implementation after public CI #300. Page ownership is now tracked per mmap page; `munmap` and `mprotect` preflight complete ranges and accept owned subranges, including adjacent reservations. Exact-address remapping remains restricted to one full live fragment. PTE changes invalidate the active address-space translations. The kernel test suite passes 110/110 under x86_64 macOS, the x86_64 Linux test configuration checks successfully, and the release Nagi kernel target builds successfully. Public target CI and QEMU acceptance are pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### M17 bootstrap partial mmap ranges after Actions run #300 (2026-09-28)
+
+Run #300 (36341631295, head 06392ccf5acc742cb3b2ba70b09e9cea8e5b2e7a) passed the Windows launcher and Ubuntu host jobs, target dependency boundary, Mesa Softpipe, M16 package, kernel, real nagi-init link, and UEFI loader. QEMU timed out with exit code 4; no first-web-pixel checksum or M17 PASS marker was produced.
+
+The GC trace completed the lower-hint mismatch cleanup and the upward-hint mapping, then stopped at SpiderMonkey GC upward prefix unmap started. The POSIX munmap path maps the kernel's exact-whole-region lookup failure to EINVAL, which conflicts with SpiderMonkey's assertion for failed unmaps. This is a partial-range support gap; the trace does not show that the kernel syscall itself blocks.
+
+ADR 0035 preserves the bounded 128 MiB mmap window and 64 live reservation identities while adding a fixed per-page owner map. The kernel now implements page-aligned partial and adjacent-range `munmap`/`mprotect`, keeps `mmap_user_at` restricted to one exact live reservation fragment, and preserves `PROT_NONE` ownership independently of PTE presence. Tests cover partial splits, adjacent reservations, atomic hole rejection, fragment remapping, protection changes, and slot reuse. Local verification passes all 110 kernel tests, x86_64 Linux test compilation, and the release Nagi kernel build. Public Ubuntu CI must confirm the real GC range sequence and continue to first-web-pixel acceptance.
+
+M17 remains BLOCKED; M18 remains NOT STARTED.
 
 ### M17 aligned-page allocation diagnostic after Actions run #299 (2026-09-28)
 
