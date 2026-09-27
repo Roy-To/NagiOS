@@ -77,6 +77,37 @@ struct MmapReservation {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MmapUserFailureKind {
+    InvalidRequest,
+    ReservationTableFull,
+    NoContiguousRange,
+    PageMappingFailure,
+    ReservationAccountingFailure,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MmapUserFailure {
+    pub kind: MmapUserFailureKind,
+    pub requested_pages: usize,
+    pub protection: u64,
+    pub free_reservation_slots: usize,
+    pub free_pages: usize,
+    pub largest_free_run_pages: usize,
+}
+
+impl MmapUserFailure {
+    pub const fn reason(self) -> &'static [u8] {
+        match self.kind {
+            MmapUserFailureKind::InvalidRequest => b"invalid request",
+            MmapUserFailureKind::ReservationTableFull => b"reservation table full",
+            MmapUserFailureKind::NoContiguousRange => b"no contiguous range",
+            MmapUserFailureKind::PageMappingFailure => b"page mapping failure",
+            MmapUserFailureKind::ReservationAccountingFailure => b"reservation accounting failure",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UserProcessError {
     InvalidBootInfo(BootInfoError),
     ImageTooLarge,
@@ -313,17 +344,55 @@ pub fn current_image_pages() -> usize {
 /// page-table and protection semantics are the same capability boundary used
 /// by the native VMO tests.
 pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
-    let page_count = validate_mmap_request(length, protection)?;
+    mmap_user_with_diagnostics(length, protection).ok()
+}
+
+pub fn mmap_user_with_diagnostics(length: u64, protection: u64) -> Result<u64, MmapUserFailure> {
     let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
-    let slot = storage.mmap_reservations.iter().position(Option::is_none)?;
-    let start_page = find_mmap_start_page(&storage.mmap_page_owners, page_count)?;
+    mmap_user_in_storage(storage, length, protection)
+}
+
+fn mmap_user_in_storage(
+    storage: &mut BootstrapStorage,
+    length: u64,
+    protection: u64,
+) -> Result<u64, MmapUserFailure> {
+    let Some(page_count) = validate_mmap_request(length, protection) else {
+        return Err(mmap_user_failure(
+            MmapUserFailureKind::InvalidRequest,
+            length,
+            protection,
+            None,
+        ));
+    };
+    let Some(slot) = storage.mmap_reservations.iter().position(Option::is_none) else {
+        return Err(mmap_user_failure(
+            MmapUserFailureKind::ReservationTableFull,
+            length,
+            protection,
+            Some(storage),
+        ));
+    };
+    let Some(start_page) = find_mmap_start_page(&storage.mmap_page_owners, page_count) else {
+        return Err(mmap_user_failure(
+            MmapUserFailureKind::NoContiguousRange,
+            length,
+            protection,
+            Some(storage),
+        ));
+    };
     for page in start_page..start_page + page_count {
         storage.mmap_pages[page].0.fill(0);
     }
     if protection != PROT_NONE && !remap_mmap_pages(storage, start_page, page_count, protection) {
         unmap_mmap_pages(storage, start_page, page_count);
         invalidate_mmap_pages(start_page, page_count);
-        return None;
+        return Err(mmap_user_failure(
+            MmapUserFailureKind::PageMappingFailure,
+            length,
+            protection,
+            Some(storage),
+        ));
     }
     if !register_mmap_reservation(
         &mut storage.mmap_page_owners,
@@ -334,10 +403,56 @@ pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
     ) {
         unmap_mmap_pages(storage, start_page, page_count);
         invalidate_mmap_pages(start_page, page_count);
-        return None;
+        return Err(mmap_user_failure(
+            MmapUserFailureKind::ReservationAccountingFailure,
+            length,
+            protection,
+            Some(storage),
+        ));
     }
     invalidate_mmap_pages(start_page, page_count);
-    Some(USER_MMAP_BASE + start_page as u64 * PAGE_SIZE)
+    Ok(USER_MMAP_BASE + start_page as u64 * PAGE_SIZE)
+}
+
+fn mmap_user_failure(
+    kind: MmapUserFailureKind,
+    length: u64,
+    protection: u64,
+    storage: Option<&BootstrapStorage>,
+) -> MmapUserFailure {
+    let requested_pages =
+        usize::try_from(length / PAGE_SIZE + u64::from(!length.is_multiple_of(PAGE_SIZE)))
+            .unwrap_or(usize::MAX);
+    let (free_reservation_slots, free_pages, largest_free_run_pages) = storage
+        .map(|storage| {
+            let free_reservation_slots = storage
+                .mmap_reservations
+                .iter()
+                .filter(|reservation| reservation.is_none())
+                .count();
+            let mut free_pages = 0;
+            let mut largest_free_run_pages = 0;
+            let mut current_free_run_pages = 0;
+            for owner in &storage.mmap_page_owners {
+                if *owner == 0 {
+                    free_pages += 1;
+                    current_free_run_pages += 1;
+                    largest_free_run_pages = largest_free_run_pages.max(current_free_run_pages);
+                } else {
+                    current_free_run_pages = 0;
+                }
+            }
+            (free_reservation_slots, free_pages, largest_free_run_pages)
+        })
+        .unwrap_or_default();
+    MmapUserFailure {
+        kind,
+        requested_pages,
+        protection,
+        free_reservation_slots,
+        free_pages,
+        largest_free_run_pages,
+    }
 }
 
 fn find_mmap_start_page(page_owners: &[u8; USER_MMAP_PAGES], page_count: usize) -> Option<usize> {
@@ -1649,12 +1764,13 @@ mod tests {
     use super::{
         build_address_space, efer_with_nxe, find_exact_mmap_fragment_owner, find_mmap_start_page,
         image_range_is_mapped, mapped_range, mmap_page_flags, mmap_range_is_owned,
-        mprotect_mmap_range, munmap_mmap_range, register_mmap_reservation,
+        mmap_user_in_storage, mprotect_mmap_range, munmap_mmap_range, register_mmap_reservation,
         release_mmap_range_owners, remap_mmap_pages, reset_child_tls_pages, user_tls_control_base,
-        validate_mmap_request, BootstrapStorage, MmapReservation, UserProcessError,
-        MAX_MMAP_RESERVATIONS, USER_MMAP_BASE, USER_MMAP_PAGES, USER_STACK_BASE, USER_STACK_LIMIT,
-        USER_STACK_PAGES, USER_SURFACE_LIMIT, USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE,
-        USER_TLS_CONTROL_BASE, USER_TLS_LIMIT, USER_TLS_PAGE_COUNT, USER_TLS_THREAD_SLOT_COUNT,
+        validate_mmap_request, BootstrapStorage, MmapReservation, MmapUserFailureKind,
+        UserProcessError, MAX_MMAP_RESERVATIONS, USER_MMAP_BASE, USER_MMAP_PAGES, USER_STACK_BASE,
+        USER_STACK_LIMIT, USER_STACK_PAGES, USER_SURFACE_LIMIT, USER_TLS_BASE,
+        USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT, USER_TLS_PAGE_COUNT,
+        USER_TLS_THREAD_SLOT_COUNT,
     };
 
     fn boxed_storage() -> Box<BootstrapStorage> {
@@ -1719,6 +1835,58 @@ mod tests {
             find_mmap_start_page(&page_owners, USER_MMAP_PAGES + 1),
             None
         );
+    }
+
+    #[test]
+    fn mmap_failure_diagnostics_distinguish_reservation_and_address_exhaustion() {
+        let mut storage = boxed_storage();
+        for slot in 0..MAX_MMAP_RESERVATIONS {
+            assert!(register_mmap_reservation(
+                &mut storage.mmap_page_owners,
+                &mut storage.mmap_reservations,
+                slot,
+                slot,
+                1,
+            ));
+        }
+
+        let reservation_error = mmap_user_in_storage(&mut storage, PAGE_SIZE, PROT_READ)
+            .expect_err("all reservation identities are occupied");
+        assert_eq!(
+            reservation_error.kind,
+            MmapUserFailureKind::ReservationTableFull
+        );
+        assert_eq!(reservation_error.requested_pages, 1);
+        assert_eq!(reservation_error.free_reservation_slots, 0);
+        assert_eq!(
+            reservation_error.free_pages,
+            USER_MMAP_PAGES - MAX_MMAP_RESERVATIONS
+        );
+        assert_eq!(
+            reservation_error.largest_free_run_pages,
+            USER_MMAP_PAGES - MAX_MMAP_RESERVATIONS
+        );
+
+        storage.mmap_page_owners.fill(0);
+        storage.mmap_reservations.fill(None);
+        assert!(register_mmap_reservation(
+            &mut storage.mmap_page_owners,
+            &mut storage.mmap_reservations,
+            0,
+            0,
+            USER_MMAP_PAGES,
+        ));
+
+        let address_error = mmap_user_in_storage(&mut storage, PAGE_SIZE, PROT_READ)
+            .expect_err("the mmap window has no free pages");
+        assert_eq!(address_error.kind, MmapUserFailureKind::NoContiguousRange);
+        assert_eq!(address_error.requested_pages, 1);
+        assert_eq!(
+            address_error.free_reservation_slots,
+            MAX_MMAP_RESERVATIONS - 1
+        );
+        assert_eq!(address_error.free_pages, 0);
+        assert_eq!(address_error.largest_free_run_pages, 0);
     }
 
     #[test]

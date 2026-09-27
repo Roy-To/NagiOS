@@ -19,21 +19,52 @@ Repository instructions:
 **Current milestone:** `M17 - Servo Bootstrap`
 **Milestone status:** `BLOCKED`
 **Next action:** M16 is PASS and M17 remains the active implementation
-milestone. Public CI #300 (`36341631295`, head
-`06392ccf5acc742cb3b2ba70b09e9cea8e5b2e7a`) passed both host jobs and all
-target builds through UEFI, then timed out during real QEMU startup. Trace
-evidence isolated the call to SpiderMonkey's upward prefix `munmap`; the fixed
-whole-region table rejected POSIX subranges. ADR 0035 records the page-owner
-design, implemented in `kernel/src/user_process.rs` with 64 active reservation
-identities and the existing 128 MiB window. Local verification passes all 110
-kernel tests on x86_64 macOS under Rosetta 2, x86_64 Linux test compilation,
-and the release Nagi kernel build. Public CI/QEMU must confirm that
-SpiderMonkey's full GC range sequence completes. M17 remains BLOCKED until
-authoritative QEMU emits the real nonzero first-web-pixel checksum and M17
-PASS. M18 remains NOT STARTED.
+milestone. Public CI #301 (`36347429584`, head
+`8818a37382979fc211bf178a1feff5bf1aab7e59`) passed both host jobs and all
+target builds through UEFI. The real QEMU trace confirms that partial GC
+`munmap` now completes and two GC chunks initialize, then a later 1 MiB GC
+chunk `mmap` is rejected during debugger-global creation. Reason-coded mapper
+diagnostics are now implemented locally; the next public target run must
+identify the failure branch and report free reservation slots and contiguous
+space. Repair only that measured cause. M17 remains BLOCKED until authoritative
+QEMU emits the real nonzero first-web-pixel checksum and M17 PASS. M18 remains
+NOT STARTED.
 
 **Last updated:** 2026-09-28
-**Last known repair checkpoint:** Local partial-range VM implementation after public CI #300. Page ownership is now tracked per mmap page; `munmap` and `mprotect` preflight complete ranges and accept owned subranges, including adjacent reservations. Exact-address remapping remains restricted to one full live fragment. PTE changes invalidate the active address-space translations. The kernel test suite passes 110/110 under x86_64 macOS, the x86_64 Linux test configuration checks successfully, and the release Nagi kernel target builds successfully. Public target CI and QEMU acceptance are pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+**Last known repair checkpoint:** Public CI #301 verifies the partial-range VM change through the real SpiderMonkey GC alignment sequence. Reason-coded mmap failure reporting is implemented without changing mapping policy. Local verification passes 111/111 kernel tests on x86_64 macOS via Rosetta 2, the x86_64 Linux test configuration, and the release Nagi kernel build. Public target CI must supply the resource diagnosis before changing the existing 64-reservation or 128 MiB bounds. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+### M17 GC mmap rejection diagnostics after Actions run #301 (2026-09-28)
+
+Run #301 (`36347429584`, head
+`8818a37382979fc211bf178a1feff5bf1aab7e59`) passed the Windows launcher and
+Ubuntu host jobs, target dependency boundary, Mesa Softpipe, M16 package,
+kernel, real `nagi-init` link, and UEFI loader. The QEMU acceptance emitted no
+first-web-pixel checksum or M17 PASS marker and the guest did not exit before
+the 120-second bound (acceptance exit code 4).
+
+The guest trace confirms the partial-unmap fix: the upward prefix `munmap`
+completes, the first GC chunk initializes, and a second GC chunk also
+initializes. During `ScriptThread debugger global creation`, and again in the
+background GC path, a valid 1 MiB chunk allocation reaches `GC base memory
+mapping started` and receives `SYS_MEMORY_MAP rejected`. This is not an
+expected alignment-hint retry: Nagi's `MapAlignedPages` returns immediately
+when this ordinary base mapping fails, and Servo later asserts because
+`JS_NewGlobalObject` returned null. The current generic syscall message cannot
+distinguish invalid requests, exhausted reservation descriptors, lack of a
+contiguous run in the 128 MiB window, PTE mapping failure, or reservation
+registration failure. The 64 live reservation identities are a plausible
+resource limit, but run #301 does not prove that is the cause.
+
+`kernel/src/user_process.rs` now returns a reason-coded failure with the
+requested page count, protection, available reservation slots, total free
+pages, and largest free run. `kernel/src/syscall.rs` emits these fields only
+when `SYS_MEMORY_MAP` fails; successful mapping behavior is unchanged. The new
+kernel regression test distinguishes a full reservation table from an
+exhausted address window. All 111 kernel tests pass on x86_64 macOS via Rosetta
+2, the x86_64 Linux test configuration checks successfully, and the release
+Nagi kernel builds. A new public target run is pending to obtain the guest's
+actual resource measurements. No bound has been changed. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
 
 ### M17 bootstrap partial mmap ranges after Actions run #300 (2026-09-28)
 

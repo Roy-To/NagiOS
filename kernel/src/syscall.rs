@@ -19,7 +19,9 @@ use core::arch::{asm, global_asm};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(not(test))]
-use super::{halt_forever, interrupts, serial_log_read, serial_read_byte, serial_write};
+use super::{
+    halt_forever, interrupts, serial_log_read, serial_read_byte, serial_write, serial_write_decimal,
+};
 
 #[cfg(not(test))]
 use nagi_abi::{is_valid_bootstrap_user_thread_stack_size, BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE};
@@ -888,11 +890,25 @@ fn thread_sleep(duration_ns: u64, frame: &SyscallFrame) -> u64 {
 
 #[cfg(not(test))]
 fn memory_map(length: u64, protection: u64) -> u64 {
-    let Some(address) = nagi_kernel::user_process::mmap_user(length, protection) else {
-        serial_write(b"Nagi M17 trace: SYS_MEMORY_MAP rejected by bootstrap mapper\r\n");
-        return u64::MAX;
-    };
-    address
+    match nagi_kernel::user_process::mmap_user_with_diagnostics(length, protection) {
+        Ok(address) => address,
+        Err(failure) => {
+            serial_write(b"Nagi M17 trace: SYS_MEMORY_MAP rejected: ");
+            serial_write(failure.reason());
+            serial_write(b" request_pages=");
+            serial_write_decimal(failure.requested_pages);
+            serial_write(b" protection=");
+            serial_write_decimal(failure.protection as usize);
+            serial_write(b" free_reservation_slots=");
+            serial_write_decimal(failure.free_reservation_slots);
+            serial_write(b" free_pages=");
+            serial_write_decimal(failure.free_pages);
+            serial_write(b" largest_free_run_pages=");
+            serial_write_decimal(failure.largest_free_run_pages);
+            serial_write(b"\r\n");
+            u64::MAX
+        }
+    }
 }
 
 #[cfg(not(test))]
