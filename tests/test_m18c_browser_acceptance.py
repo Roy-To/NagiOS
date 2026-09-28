@@ -65,7 +65,7 @@ class BrowserFixtureServerTests(unittest.TestCase):
         raised.exception.close()
 
     def test_non_success_responses_are_observable(self):
-        for status in (404, 503):
+        for status in (404, 429, 500, 503):
             with self.subTest(status=status):
                 with self.assertRaises(urllib.error.HTTPError) as raised:
                     urllib.request.urlopen(
