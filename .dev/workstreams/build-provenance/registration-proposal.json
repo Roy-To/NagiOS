@@ -1,0 +1,31 @@
+{
+  "id": "build-provenance",
+  "owner": "Codex build provenance foundation workstream",
+  "owner_branch": "codex/0.2-build-provenance",
+  "recommended_worktree": "../NagiOS-0.2-build-provenance",
+  "state_file": ".dev/workstreams/build-provenance/state.json",
+  "dependencies": [],
+  "allowed_paths": [
+    "tools/nagi-cli/**",
+    "docs/0.2/BUILD_PROVENANCE_ARTIFACT_FINGERPRINT.md",
+    ".dev/workstreams/build-provenance/**"
+  ],
+  "forbidden_paths": [
+    "kernel/**",
+    "loader/**",
+    "third_party/**",
+    "user/nagi-init/**",
+    "user/nagi-albert/**",
+    "user/nagi-posix/**",
+    ".dev/workstreams.json",
+    ".dev/schemas/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    "docs/implementation_status.md",
+    "out/**",
+    "target/**"
+  ],
+  "activation_gate": "Host-side build provenance foundation only. Artifact reuse, Nagi 0.2 runtime/product integration, and changes to existing clean-build or milestone acceptance gates require an explicit integration checkpoint; runtime/product work remains subject to M30 PASS.",
+  "merge_boundary": "Dedicated Nagi 0.2 integration branch only; never merge to main without explicit user direction."
+}

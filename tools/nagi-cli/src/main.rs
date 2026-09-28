@@ -14,8 +14,14 @@ fn main() {
         }
     };
     let args: Vec<String> = env::args().skip(1).collect();
-    let probe = SystemProbe::default();
-    let result = execute(&args, &root, &probe);
+    let result = if args.first().is_some_and(|arg| arg == "dev")
+        && args.get(1).is_some_and(|arg| arg == "fingerprint")
+    {
+        nagi_cli::development::execute_fingerprint_cli(&args[2..], &root)
+    } else {
+        let probe = SystemProbe::default();
+        execute(&args, &root, &probe)
+    };
 
     for line in result.lines {
         println!("{line}");
