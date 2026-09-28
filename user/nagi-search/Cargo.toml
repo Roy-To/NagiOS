@@ -1,0 +1,15 @@
+[package]
+name = "nagi-search"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-model = { path = "../../crates/nagi-model" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
+
+# Keep this package independently buildable while it is prepared outside the
+# main workspace integration boundary.
+[workspace]
