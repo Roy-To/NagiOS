@@ -438,9 +438,10 @@ mod tests {
 
     #[test]
     fn manifest_v1_accepts_profiles_without_additive_runtime_and_resource_classes() {
-        let legacy = VALID
-            .replace("  \"runtime_class\": \"generative_llm\",\n", "")
-            .replace("  \"resource_class\": \"standard\",\n", "");
+        let crlf_input = VALID.replace("\r\n", "\n").replace('\n', "\r\n");
+        let legacy = crlf_input
+            .replace("\"runtime_class\": \"generative_llm\",", "")
+            .replace("\"resource_class\": \"standard\",", "");
         let manifest = ModelManifest::parse_json(legacy.as_bytes()).unwrap();
         assert_eq!(manifest.runtime_class, None);
         assert_eq!(manifest.resource_class, None);
