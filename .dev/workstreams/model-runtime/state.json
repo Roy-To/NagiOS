@@ -6,9 +6,9 @@
   "current_checkpoint": "model-runtime-0.2-foundation-acceptance",
   "status": "PASS",
   "last_verified": {
-    "commit_sha": "686ca8ae703d13baf51320240463c0ae14963be0",
-    "verified_at": "2026-09-28T08:25:57Z",
-    "normal_state": "MODEL-RT-01 Nagi 0.2 Model Runtime Foundation acceptance passes on codex/ws-model-runtime. The pinned arm64 host all-target suite passes 40 tests; focused formatting, warnings-denied Clippy, crate check, and nagi doctor pass. The provider-neutral contract now covers manifest/runtime and resource classes, capability-aware registry selection, deterministic Standard-to-Lite fallback, generation and streaming, cooperative cancellation, typed failures, health/resource reporting, and a metadata-only System One extension point. No production inference, weights, mandatory network dependency, or M20 implementation is included. A local Nagi target check stops in existing libc 0.2.174 declarations missing target_os=nagi types before this crate compiles. Root nagi fmt is blocked by existing Servo format drift; root nagi lint/test fail on existing x86_64 syscall registers under the local arm64 host compiler. These are separately scoped. CI 36248290972 for parent c9c7076 passed Ubuntu host and Windows launcher jobs and failed only M17 first-web-pixel acceptance. M17 is independent. Full Draft 2020-12 schema evaluation is deferred under the shared Cargo.lock ownership restriction and is not a Nagi 0.2 Foundation acceptance item. M20 remains NOT STARTED.",
+    "commit_sha": "b55159a7de475f95ebec2a99b0d91a96a5b9d8d1",
+    "verified_at": "2026-09-28T08:50:05Z",
+    "normal_state": "MODEL-RT-01 Nagi 0.2 Model Runtime Foundation acceptance passes on codex/ws-model-runtime. The pinned arm64 host all-target suite passes 40 tests; focused formatting, warnings-denied Clippy, crate check, and nagi doctor pass. The provider-neutral contract covers manifest/runtime and resource classes, capability-aware registry selection, deterministic Standard-to-Lite fallback, generation and streaming, cooperative cancellation, typed failures, health/resource reporting, and a metadata-only System One extension point. No production inference, weights, mandatory network dependency, or M20 implementation is included. CI run 36397861588 caught a CRLF-sensitive assertion in the new optional manifest class compatibility test on Windows. The test now constructs CRLF input and removes the JSON properties independent of line endings; the focused case and all 40 package tests pass after the fix. CI 36398859291 confirms both Ubuntu host and Windows launcher jobs PASS. Its separate Nagi target job is still progressing through the user-init build; target/M17 acceptance is not part of this Foundation criterion. A local Nagi target package check stops in existing libc 0.2.174 declarations missing target_os=nagi types before this crate compiles. Root nagi fmt is blocked by existing Servo format drift; root nagi lint/test fail on existing x86_64 syscall registers under the local arm64 host compiler. Full Draft 2020-12 schema evaluation is deferred under the shared Cargo.lock ownership restriction and is not a Nagi 0.2 Foundation acceptance item. M20 remains NOT STARTED; M17 is independent.",
     "commands": [
       "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check",
       "cargo test --locked -p nagi-model-manager --all-targets",
@@ -190,6 +190,34 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "No whitespace errors in the reviewed changes."
+      },
+      {
+        "name": "Windows CRLF manifest class compatibility regression before fix",
+        "command": "Windows CI 36397861588 host-compatible workspace test job",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "manifest_v1_accepts_profiles_without_additive_runtime_and_resource_classes left runtime_class present because the test removed a line using an LF-only pattern; fixed by explicit CRLF construction and newline-independent JSON property removal."
+      },
+      {
+        "name": "CRLF-safe manifest class compatibility regression after fix",
+        "command": "cargo test --locked -p nagi-model-manager manifest_v1_accepts_profiles_without_additive_runtime_and_resource_classes",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The regression case now explicitly exercises CRLF JSON input and confirms optional runtime_class/resource_class fields deserialize as absent."
+      },
+      {
+        "name": "Ubuntu host CI after CRLF-safe fix",
+        "command": "GitHub Actions run 36398859291 ubuntu-host job",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Format, lint, host-compatible build/test, M0 doctor, and M0 launcher steps passed on commit b55159a7de475f95ebec2a99b0d91a96a5b9d8d1."
+      },
+      {
+        "name": "Windows host CI after CRLF-safe fix",
+        "command": "GitHub Actions run 36398859291 windows-launcher job",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Host-compatible workspace build/test and all three Windows launcher checks passed on commit b55159a7de475f95ebec2a99b0d91a96a5b9d8d1."
       }
     ],
     "ci_runs": [
@@ -240,12 +268,28 @@
         "status": "COMPLETED",
         "conclusion": "failure",
         "summary": "Ubuntu host and Windows launcher jobs passed. The Nagi target job failed only at M17 first-web-pixel acceptance, separately from Model Runtime Foundation."
+      },
+      {
+        "run_id": 36397861588,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36397861588",
+        "head_sha": "0b3eb86c37e6ecacb564846ac222a46eb46861d2",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Ubuntu host job passed; Windows host test exposed the CRLF-sensitive optional-class test; the workflow was cancelled by the subsequent repair push before target completion."
+      },
+      {
+        "run_id": 36398859291,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36398859291",
+        "head_sha": "b55159a7de475f95ebec2a99b0d91a96a5b9d8d1",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Ubuntu host and Windows launcher jobs passed after the CRLF test repair. The separate Nagi target job is still building user init; no Foundation failure is reported."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/workstreams/model-runtime.md and docs/implementation_status.md",
-    "last_checked_at": "2026-09-28T08:30:18Z",
+    "last_checked_at": "2026-09-28T08:50:05Z",
     "activation_requirement": "This is the Nagi 0.2 provider-neutral Model Runtime Foundation only. Nagi 0.1 M20 remains NOT STARTED until M17-M19 are completed in order and a real local Granite response is accepted; any 0.2 product/runtime activation also requires M30 PASS and an explicit integration checkpoint."
   },
   "blocker": {
@@ -335,14 +379,14 @@
     "workstream_id": "MODEL-RT-01",
     "branch": "codex/ws-model-runtime",
     "base_sha": "c1506888655123d819ec75be66891f0cd5477533",
-    "verified_implementation_head_sha": "686ca8ae703d13baf51320240463c0ae14963be0",
+    "verified_implementation_head_sha": "b55159a7de475f95ebec2a99b0d91a96a5b9d8d1",
     "architecture": "Provider-neutral manifest, registry, runtime/session and local Store contract; deterministic mock only.",
     "mock_backend": "Covers invocation, streaming, cancellation, health, resources, lifecycle, and failure paths; not real inference.",
-    "tests": "40 focused all-target tests pass; package fmt, Clippy with warnings denied, and cargo check pass.",
-    "ci": "Latest observed run 36248290972 passes Ubuntu host and Windows launcher jobs; only separate M17 first-web-pixel target acceptance fails.",
+    "tests": "40 focused all-target tests pass, including the explicit CRLF compatibility regression; package fmt, warnings-denied Clippy, and cargo check pass.",
+    "ci": "Run 36398859291 on b55159a has Ubuntu host and Windows launcher jobs PASS after the CRLF fix; the separate Nagi target job is still running through user-init build. Earlier pre-fix run 36397861588 exposed only the CRLF-sensitive test, which was corrected.",
     "production_integration_boundary": "No production inference, model weights, mandatory network dependency, or M20 completion.",
     "system_one_extension": "Open runtime-class and capability descriptors can be registered/selected; no System One model, DecisionProvider, or jev implementation.",
-    "blockers": "No active Foundation blocker. Separate libc target integration, M17 acceptance, and deferred schema evaluator are recorded above.",
-    "push_status": "The final documentation/state checkpoint is included in the push to origin/codex/ws-model-runtime."
+    "blockers": "No active Foundation blocker. Local libc target integration, separate M17 acceptance, and deferred schema evaluator are recorded above.",
+    "push_status": "Source fix b55159a is pushed to origin/codex/ws-model-runtime; this updated docs/state checkpoint will be pushed on the same branch."
   }
 }

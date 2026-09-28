@@ -195,6 +195,15 @@ Verification on the pinned arm64 nightly toolchain:
   `c9c7076e24b283361abb1f219143d0fa8fd3defd` passed its Ubuntu host and Windows
   launcher jobs. Its Nagi target job failed only at M17 first-web-pixel
   acceptance. M17 remains independently `BLOCKED`.
+- Windows host CI run `36397861588` exposed a CRLF-sensitive string removal in
+  the new backward-compatibility test for optional manifest classes. The test
+  now explicitly builds CRLF input and removes properties without depending on
+  line endings; the focused regression and full 40-test package suite pass
+  after the fix.
+- On implementation commit `b55159a7de475f95ebec2a99b0d91a96a5b9d8d1`, CI run
+  `36398859291` passed both Ubuntu host and Windows launcher jobs, including
+  workspace tests. At this evidence checkpoint, its separate Nagi target job
+  was still building `nagi-init`; that job does not gate MODEL-RT-01.
 - Full Draft 2020-12 schema evaluation remains deferred under the existing
   shared `Cargo.lock` ownership restriction; this check is not an acceptance
   item in the Nagi 0.2 Foundation specification.

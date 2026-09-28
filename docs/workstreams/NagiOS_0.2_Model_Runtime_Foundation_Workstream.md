@@ -456,11 +456,11 @@ production inference自体は、他runtime workstream依存ならfoundation PASS
 - Workstream ID: `MODEL-RT-01`（既存`model-runtime` workstreamの継続）
 - Branch: `codex/ws-model-runtime`（新規branchは作成していない）
 - Base SHA: `c1506888655123d819ec75be66891f0cd5477533`（`origin/main`とのmerge-base）
-- HEAD SHA: `686ca8ae703d13baf51320240463c0ae14963be0`（検証済み実装commit。state/docs checkpoint commitは後続）
+- HEAD SHA: `b55159a7de475f95ebec2a99b0d91a96a5b9d8d1`（CRLF regression修正を含む検証済み実装commit。最終state/docs checkpoint commitは後続）
 - Architecture: provider-neutral manifest、registry、runtime/session、local Store metadata contract
 - Mock backend: invocation、streaming、cancellation、health/resource、lifecycle、failure pathを検証。実inferenceではない
 - Tests: 40 focused all-target tests PASS。package format、warnings-denied Clippy、library check PASS
-- CI: 観測済みrun `36248290972` はUbuntu host/Windows launcher PASS。Nagi target jobは別milestone M17 first-web-pixel acceptanceのみFAIL。push後の今回commitのCIは別途発火
+- CI: 初回run `36397861588` のWindows host testsでCRLFに依存する追加testの削除patternが失敗し、`b55159a`で修正。run `36398859291` はUbuntu hostとWindows launcher jobsがPASS。記録時点で別milestone Nagi target jobは`nagi-init` build中。従来run `36248290972` はM17 first-web-pixel acceptanceでFAIL
 - Production integration boundary: production inference、model weights、real Granite response、M20は未実装・未完了
 - System One extension: runtime-class/capabilityのopen metadataを登録・選択可能。System One model、DecisionProvider、jevの実装なし
 - Blockers: Foundation Acceptance blockerなし。Nagi targetの既存libc型不足、M17 first-web-pixel、Draft 2020-12 evaluatorは別課題/将来integrationとして記録
