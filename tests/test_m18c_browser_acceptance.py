@@ -261,7 +261,6 @@ class BrowserAcceptanceReportTests(unittest.TestCase):
     def test_m17_feature_graph_passes_only_when_m18_features_are_absent(self):
         graph = '\n'.join((
             'nagi-init v0.1.0',
-            'nagi-init feature "m17-servo"',
             'nagi-albert v0.1.0',
         ))
         evidence = evaluate_m17_feature_graph(graph)

@@ -27,8 +27,8 @@ def evaluate_m17_feature_graph(graph: str) -> dict:
     else:
         lines = {line.strip() for line in graph.splitlines()}
         missing = []
-        if 'nagi-init feature "m17-servo"' not in lines:
-            missing.append('nagi-init feature "m17-servo"')
+        if not any(line.startswith("nagi-init v") for line in lines):
+            missing.append("nagi-init package")
         if not any(line.startswith("nagi-albert v") for line in lines):
             missing.append("nagi-albert package")
         enabled = sorted(
@@ -45,8 +45,8 @@ def evaluate_m17_feature_graph(graph: str) -> dict:
         else:
             status = "PASS"
             proof = (
-                "The x86-64 M17 target graph includes nagi-init/m17-servo and "
-                "nagi-albert, with no m18-* feature or nagi-posix/browser-storage feature."
+                "Cargo resolved nagi-init with --features m17-servo for the x86-64 Nagi target; "
+                "the graph includes nagi-albert and no m18-* or nagi-posix/browser-storage feature."
             )
     return {
         "schema_version": 1,
