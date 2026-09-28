@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.invalid/schemas/diagnostic-snapshot.schema.json",
+  "title": "Nagi sanitized diagnostics snapshot and error report contracts",
+  "oneOf": [
+    { "$ref": "#/$defs/diagnosticSnapshot" },
+    { "$ref": "#/$defs/errorReport" }
+  ],
+  "$defs": {
+    "healthStatus": { "enum": ["HEALTHY", "DEGRADED", "UNAVAILABLE", "UNKNOWN"] },
+    "failureClass": {
+      "enum": [
+        "SOURCE", "BUILD", "LINK", "ABI", "RUNTIME", "BOOT", "DEVICE",
+        "STORAGE", "GRAPHICS", "NETWORK", "MODEL", "PERMISSION",
+        "ACCEPTANCE", "CI_INFRA", "HOST_ENV", "UNKNOWN"
+      ]
+    },
+    "severity": { "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"] },
+    "privacyClass": { "enum": ["PUBLIC", "SENSITIVE", "SECRET"] },
+    "buildMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os_version", "build_id", "source_commit"],
+      "properties": {
+        "os_version": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "build_id": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "source_commit": { "type": ["string", "null"], "pattern": "^[0-9a-fA-F]{40}$" }
+      }
+    },
+    "safeField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "privacy"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "value": { "type": "string", "maxLength": 2048 },
+        "privacy": { "$ref": "#/$defs/privacyClass" }
+      }
+    },
+    "safeSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "line"],
+      "properties": {
+        "file": { "type": "string", "maxLength": 384 },
+        "line": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "safeErrorCause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "code", "safe_message"],
+      "properties": {
+        "class": { "$ref": "#/$defs/failureClass" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "safe_message": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "safeEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "timestamp_unix_ms", "severity", "subsystem",
+        "event_code", "message_template", "operation_id", "error_class", "source",
+        "fields", "error_chain", "recovery_hint"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "timestamp_unix_ms": { "type": "integer", "minimum": 0 },
+        "severity": { "$ref": "#/$defs/severity" },
+        "subsystem": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "event_code": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "message_template": { "type": "string", "maxLength": 2048 },
+        "message_id": { "type": ["string", "null"], "maxLength": 96 },
+        "correlation_id": { "type": ["string", "null"], "maxLength": 96 },
+        "session_id": { "type": ["string", "null"], "maxLength": 96 },
+        "component": { "type": ["string", "null"], "maxLength": 96 },
+        "operation_id": { "type": ["string", "null"], "maxLength": 96 },
+        "error_class": { "anyOf": [{ "$ref": "#/$defs/failureClass" }, { "type": "null" }] },
+        "source": { "anyOf": [{ "$ref": "#/$defs/safeSource" }, { "type": "null" }] },
+        "fields": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/safeField" } },
+        "error_chain": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/safeErrorCause" } },
+        "recovery_hint": { "type": ["string", "null"], "maxLength": 2048 }
+      }
+    },
+    "healthRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subsystem", "status", "reason_code", "last_transition_unix_ms", "safe_detail"],
+      "properties": {
+        "subsystem": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "status": { "$ref": "#/$defs/healthStatus" },
+        "reason_code": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "last_transition_unix_ms": { "type": "integer", "minimum": 0 },
+        "safe_detail": { "type": ["string", "null"], "maxLength": 2048 }
+      }
+    },
+    "healthSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall", "healthy", "degraded", "unavailable", "unknown"],
+      "properties": {
+        "overall": { "$ref": "#/$defs/healthStatus" },
+        "healthy": { "type": "integer", "minimum": 0 },
+        "degraded": { "type": "integer", "minimum": 0 },
+        "unavailable": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "diagnosticSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "generated_at_unix_ms", "build", "health_summary",
+        "health", "enabled_components", "environment", "recent_events", "dropped_events"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "generated_at_unix_ms": { "type": "integer", "minimum": 0 },
+        "build": { "anyOf": [{ "$ref": "#/$defs/buildMetadata" }, { "type": "null" }] },
+        "health_summary": { "$ref": "#/$defs/healthSummary" },
+        "health": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/healthRecord" } },
+        "enabled_components": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 96 } },
+        "environment": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/safeField" } },
+        "recent_events": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/safeEvent" } },
+        "dropped_events": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "errorReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "timestamp_unix_ms", "process", "component",
+        "failure_category", "stable_error_code", "correlation_id", "build",
+        "safe_context", "backtrace_reference"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "timestamp_unix_ms": { "type": "integer", "minimum": 0 },
+        "process": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "component": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "failure_category": { "$ref": "#/$defs/failureClass" },
+        "stable_error_code": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "correlation_id": { "type": ["string", "null"], "maxLength": 96 },
+        "build": { "anyOf": [{ "$ref": "#/$defs/buildMetadata" }, { "type": "null" }] },
+        "safe_context": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/safeEvent" } },
+        "backtrace_reference": { "type": ["string", "null"], "maxLength": 96 }
+      }
+    }
+  }
+}

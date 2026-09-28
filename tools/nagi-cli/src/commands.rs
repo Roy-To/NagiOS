@@ -7,9 +7,9 @@ use std::time::Duration;
 use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
 use crate::diagnostics::{
-    ClosureHealthCheck, DiagnosticEvent, DiagnosticsBundle, EvidenceKind, FailureClass,
-    HealthCheckRegistry, OverallStatus, PrivacyClass, Severity, VerificationCheckResult,
-    VerificationReport, DIAGNOSTIC_BUNDLE_SCHEMA_VERSION,
+    BuildMetadata, ClosureHealthCheck, DiagnosticEvent, DiagnosticSnapshot, DiagnosticsBundle,
+    ErrorReport, EvidenceKind, FailureClass, HealthCheckRegistry, OverallStatus, PrivacyClass,
+    Severity, VerificationCheckResult, VerificationReport, DIAGNOSTIC_BUNDLE_SCHEMA_VERSION,
 };
 use crate::doctor::{
     ovmf_pair_is_allowed, run_doctor_with_requirements, CheckState, DoctorPolicy, HostProbe,
@@ -704,7 +704,9 @@ fn check_diagnostics_contract(root: &Path) -> VerificationCheckResult {
     };
     let schema_matches = schema["properties"]["schema_version"]["const"] == 1
         && schema["$defs"]["verificationReport"]["properties"]["schema_version"]["const"] == 1
-        && schema["$defs"]["safeDiagnosticEvent"]["properties"]["schema_version"]["const"] == 1;
+        && schema["$defs"]["safeDiagnosticEvent"]["properties"]["schema_version"]["const"] == 1
+        && schema["$defs"]["safeDiagnosticEvent"]["properties"]["correlation_id"].is_object()
+        && schema["$defs"]["safeDiagnosticEvent"]["properties"]["message_id"].is_object();
     let validator = match compile_diagnostics_schema(&schema) {
         Ok(validator) => validator,
         Err(error) => {
@@ -756,14 +758,49 @@ fn check_diagnostics_contract(root: &Path) -> VerificationCheckResult {
         })
         .map(|instance| validator.validate(&instance).is_ok())
         .unwrap_or(false);
-    if schema_matches && event_round_trip && sample_validates {
+    let snapshot_schema_validates =
+        fs::read_to_string(root.join("docs/testing/diagnostic-snapshot.schema.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|schema| {
+                let validator = compile_diagnostics_schema(&schema).ok()?;
+                let event = DiagnosticEvent::new(
+                    Severity::Error,
+                    "runtime",
+                    "RUNTIME.SELF_CHECK",
+                    "runtime self-check",
+                )
+                .ok()?;
+                let mut snapshot = DiagnosticSnapshot::new(Some(
+                    BuildMetadata::new("0.2.0", "host-check", None).ok()?,
+                ));
+                snapshot.add_event(event.clone());
+                let snapshot_json = snapshot.to_json().ok()?;
+                let snapshot_value: serde_json::Value =
+                    serde_json::from_str(&snapshot_json).ok()?;
+                let error =
+                    ErrorReport::from_event("nagi-cli", "runtime", event, None, None, Vec::new())
+                        .ok()?;
+                let error_json = error.to_json().ok()?;
+                let error_value: serde_json::Value = serde_json::from_str(&error_json).ok()?;
+                Some(
+                    validator.validate(&snapshot_value).is_ok()
+                        && validator.validate(&error_value).is_ok(),
+                )
+            })
+            .unwrap_or(false);
+
+    if schema_matches && event_round_trip && sample_validates && snapshot_schema_validates {
         VerificationCheckResult::pass(
             "diagnostics-report-schema",
             "diagnostics",
             "Diagnostics report schema",
             EvidenceKind::Host,
-            "Draft 2020-12 validates a generated report bundle and event serialization round-trips",
-            vec!["docs/testing/diagnostic-report.schema.json".into()],
+            "Draft 2020-12 validates generated reports, snapshots, and error reports",
+            vec![
+                "docs/testing/diagnostic-report.schema.json".into(),
+                "docs/testing/diagnostic-snapshot.schema.json".into(),
+            ],
         )
     } else {
         VerificationCheckResult::fail(
@@ -772,8 +809,11 @@ fn check_diagnostics_contract(root: &Path) -> VerificationCheckResult {
             "Diagnostics report schema",
             EvidenceKind::Host,
             FailureClass::Source,
-            "schema version or event round-trip contract does not match the implementation",
-            vec!["docs/testing/diagnostic-report.schema.json".into()],
+            "diagnostics schema version or sanitized contract does not match the implementation",
+            vec![
+                "docs/testing/diagnostic-report.schema.json".into(),
+                "docs/testing/diagnostic-snapshot.schema.json".into(),
+            ],
         )
     }
 }
@@ -3497,7 +3537,10 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{compile_diagnostics_schema, last_serial_lines, m17_trace_excerpt};
+    use super::{
+        compile_diagnostics_schema, last_serial_lines, m17_trace_excerpt, DiagnosticEvent,
+        DiagnosticSnapshot, ErrorReport, Severity,
+    };
 
     #[test]
     fn diagnostics_schema_accepts_valid_bundle_and_rejects_invalid_boundaries() {
@@ -3520,10 +3563,33 @@ mod tests {
                 "outcome": "PASS",
                 "checks": []
             },
-            "events": []
+            "events": [{
+                "schema_version": 1,
+                "timestamp_unix_ms": 0,
+                "severity": "INFO",
+                "subsystem": "diagnostics",
+                "event_code": "DIAGNOSTICS.CHECK",
+                "message_template": "ok",
+                "message_id": null,
+                "correlation_id": "corr-1",
+                "session_id": null,
+                "component": null,
+                "operation_id": null,
+                "error_class": null,
+                "source": null,
+                "fields": [],
+                "error_chain": [],
+                "recovery_hint": null
+            }]
         });
 
         assert!(validator.validate(&valid).is_ok());
+
+        let mut legacy_v1 = valid.clone();
+        for key in ["message_id", "correlation_id", "session_id", "component"] {
+            legacy_v1["events"][0].as_object_mut().unwrap().remove(key);
+        }
+        assert!(validator.validate(&legacy_v1).is_ok());
 
         let mut unknown_property = valid.clone();
         unknown_property["password"] = serde_json::json!("must not be accepted");
@@ -3532,6 +3598,32 @@ mod tests {
         let mut invalid_boundary = valid;
         invalid_boundary["generated_at_unix_ms"] = serde_json::json!(-1);
         assert!(validator.validate(&invalid_boundary).is_err());
+    }
+
+    #[test]
+    fn diagnostics_snapshot_schema_accepts_generated_snapshot_and_error_report() {
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../docs/testing/diagnostic-snapshot.schema.json"
+        ))
+        .expect("snapshot schema is valid JSON");
+        let validator = compile_diagnostics_schema(&schema).expect("Draft 2020-12 schema compiles");
+        let event = DiagnosticEvent::new(
+            Severity::Error,
+            "runtime",
+            "RUNTIME.FAILURE",
+            "runtime failure",
+        )
+        .unwrap();
+        let mut snapshot = DiagnosticSnapshot::new(None);
+        snapshot.add_event(event.clone());
+        let snapshot: serde_json::Value =
+            serde_json::from_str(&snapshot.to_json().unwrap()).unwrap();
+        assert!(validator.validate(&snapshot).is_ok());
+
+        let error =
+            ErrorReport::from_event("nagi-init", "runtime", event, None, None, Vec::new()).unwrap();
+        let error: serde_json::Value = serde_json::from_str(&error.to_json().unwrap()).unwrap();
+        assert!(validator.validate(&error).is_ok());
     }
 
     #[test]

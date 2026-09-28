@@ -26,37 +26,67 @@ conditions.
 
 ## Event contract
 
-`tools/nagi-cli/src/diagnostics.rs` defines versioned structured events with
-severity, subsystem and event identifiers, timestamp, optional operation ID,
-failure class, source location, bounded structured fields, error chain, and
-recovery hint. Human and JSON sinks serialize the same safe event view. Every
-field carries a privacy class. `SENSITIVE` and `SECRET` values are redacted;
-secret-looking field names and common inline credential forms are redacted as
-well, including JSON-style quoted fields and colon- or equals-delimited
-credentials. Dynamic values belong in classified fields, not message
-templates.
+`crates/nagi-diagnostics` is the shared, host-testable diagnostics contract
+used by the developer CLI and available to first-party services. Its
+versioned events carry severity, subsystem, stable event code, localization
+message ID, timestamp, correlation/session/operation IDs, component, failure
+class, source location, bounded structured fields, error chain, and recovery
+hint. Event codes identify machine events; message IDs resolve through the
+shared localization catalogs, with English-safe fallback text kept separate.
+
+Fields carry a privacy class. `SENSITIVE` and `SECRET` values are redacted;
+credential-like names, common inline credential forms, and path-like field
+names are redacted as well. Absolute source paths collapse to the filename.
+Buffers store only sanitized event records. Dynamic values belong in
+classified fields, not message templates.
+
+`MemorySink` is a bounded test/recent-event sink. `DevelopmentSink` provides
+human-readable console output. `EventBuffer::record` performs only bounded
+in-memory work; sink flushing is explicit, catches sink failures/panics, and
+retains events that could not be written. It is intended to be drained away
+from critical paths.
 
 Failure classes use DF-01's accepted stable vocabulary:
 `SOURCE`, `BUILD`, `LINK`, `ABI`, `RUNTIME`, `BOOT`, `DEVICE`, `STORAGE`,
 `GRAPHICS`, `NETWORK`, `MODEL`, `PERMISSION`, `ACCEPTANCE`, `CI_INFRA`,
 `HOST_ENV`, and `UNKNOWN`.
 
-Reports are versioned by
-[`diagnostic-report.schema.json`](diagnostic-report.schema.json). The runtime
-validator compiles this schema as JSON Schema Draft 2020-12 and validates a
-generated bundle before reporting the contract check as `PASS`. It also
-enforces unique check IDs and requires the overall outcome to match the
-executed check evidence. A malformed report cannot be accepted as `PASS` by
-deserialization.
+The CLI report schema is
+[`diagnostic-report.schema.json`](diagnostic-report.schema.json). Portable
+developer snapshots and error reports use
+[`diagnostic-snapshot.schema.json`](diagnostic-snapshot.schema.json). The
+runtime validator compiles and exercises both Draft 2020-12 schemas before
+reporting the contract check as `PASS`. It also enforces unique check IDs and
+requires the overall outcome to match the executed check evidence. A malformed
+report cannot be accepted as `PASS` by deserialization.
+
+`HealthRegistry` tracks `HEALTHY`, `DEGRADED`, `UNAVAILABLE`, and `UNKNOWN`
+states per subsystem with stable reason codes and transition timestamps.
+Registration handles make stale owners unable to update a removed/replaced
+record. Its health summary is distinct from the CLI `HealthCheckRegistry`,
+which runs verification procedures.
 
 ## Fatal-event boundary
 
-`CrashCapture` accepts a fatal structured event, attaches a bounded recent
-event context and build/component identifiers, and sends the safe record to a
-caller-provided `CrashSink`. Tests use an in-memory sink. This is a portable
-capture contract, not a Nagi kernel panic handler or durable guest crash store.
-Target persistence can be connected when the target diagnostics/VFS boundary
-is available; the host command does not pretend to provide guest persistence.
+`CrashCapture` accepts a fatal structured event and queues a bounded sanitized
+record with recent context and build/component identifiers. Persistence is
+explicit through `flush_pending`; sink failures and panics are contained and
+records remain available for retry. `ErrorReport` carries process/component,
+failure category, stable error code, correlation, build metadata, safe context,
+and an optional opaque backtrace reference. These are portable contracts, not
+a Nagi kernel panic handler or durable guest crash store. Target persistence
+can be connected when the target diagnostics/VFS boundary is available.
+
+`DiagnosticSnapshot` exposes build metadata, a current health summary and
+records, explicitly enabled components, classified/sanitized environment
+fields, recent safe events, and bounded-drop counts. There is no automatic
+environment capture or report upload.
+
+`ActivityBridge` accepts only typed semantic candidates for AI file changes,
+application launches, and Wayback restores. A caller must explicitly promote
+one of those candidates through an owner-provided sink. Raw diagnostic events
+have no promotion adapter and are not automatically copied to the Activity
+Ledger.
 
 ## DF-01 and other workstreams
 

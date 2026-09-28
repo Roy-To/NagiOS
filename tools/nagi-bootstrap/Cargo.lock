@@ -273,6 +273,15 @@ name = "nagi-bootstrap"
 version = "0.1.0"
 dependencies = [
  "jsonschema",
+ "nagi-diagnostics",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "nagi-diagnostics"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
