@@ -64,12 +64,15 @@ impl PackageRelativePath {
 fn is_windows_device_name(segment: &str) -> bool {
     let stem = segment.split('.').next().unwrap_or(segment);
     let upper = stem.to_ascii_uppercase();
-    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || ["COM", "LPT"].iter().any(|prefix| {
-            upper.strip_prefix(prefix).is_some_and(|suffix| {
-                suffix.len() == 1 && suffix.as_bytes()[0].is_ascii_digit() && suffix != "0"
-            })
+    matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || ["COM", "LPT"].iter().any(|prefix| {
+        upper.strip_prefix(prefix).is_some_and(|suffix| {
+            matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+                || matches!(suffix, "¹" | "²" | "³")
         })
+    })
 }
 
 pub(crate) fn validate_destination_paths<'a>(

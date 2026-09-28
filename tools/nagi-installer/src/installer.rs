@@ -1652,6 +1652,10 @@ mod tests {
             "bin/../../escape",
             "C:/drive",
             "CON.txt",
+            "CONIN$",
+            "CONOUT$.log",
+            "COM¹.txt",
+            "LPT³",
         ] {
             assert!(matches!(
                 PackageSource::from_virtual_files(
