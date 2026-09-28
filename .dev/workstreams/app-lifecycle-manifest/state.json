@@ -1,0 +1,214 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "app-lifecycle-manifest",
+  "current_milestone": "APP-LC-01 — host-side application manifest and lifecycle foundation",
+  "current_checkpoint": "verified-at-04429af7a46a6efafec5cde8dd83cc5bb59e7a8f",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "04429af7a46a6efafec5cde8dd83cc5bb59e7a8f",
+    "verified_at": "2026-09-28T14:43:46Z",
+    "normal_state": "PASS for the local host-side APP-LC-01 foundation at tested source commit 04429af7a46a6efafec5cde8dd83cc5bb59e7a8f on codex/0.2-app-lifecycle-manifest, based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. The dedicated crate, App SDK, nagi-pkg, M16 package regression, schema fixtures, focused formatting/lint/check, ./nagi doctor, and registered DF-01 state verification pass. DF-01 reads current branch/HEAD from Git; this last_verified SHA identifies the source commit tested before this state-only update. The registry does not yet contain this stream, so ./nagi dev status and resume report the branch as unregistered; the schema-valid registration proposal records Integration Owner actions. The first default-toolchain test attempt selected x86_64 Rust on an arm64 host and failed at libxcrun architecture loading; using the repository-pinned arm64 nightly resolved the host invocation. SDK package tests initially lacked the ignored third_party/cc-nagi source path in the fresh worktree; temporary read-only links to existing materialized sources enabled those checks and were removed afterward. No third-party files were edited.",
+    "commands": [
+      "git status --short --branch",
+      "git rev-parse HEAD",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo test --manifest-path crates/nagi-app-lifecycle/Cargo.toml --locked --offline",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo fmt --manifest-path crates/nagi-app-lifecycle/Cargo.toml -- --check",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo clippy --manifest-path crates/nagi-app-lifecycle/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo check --manifest-path crates/nagi-app-lifecycle/Cargo.toml --all-targets --locked --offline",
+      "/tmp/nagi-app-sdk-schema/bin/python crates/nagi-app-lifecycle/schema_validation/validate_fixtures.py",
+      "/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+      "APP-LC-01 registration proposal validated against .dev/schemas/workstreams.schema.json",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo test --manifest-path sdk/rust/Cargo.toml --locked --offline",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked --offline",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo test --manifest-path user/nagi-package/Cargo.toml --locked --offline",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked --offline -- manifest validate crates/nagi-app-lifecycle/fixtures/manifest-minimal.json",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked --offline -- manifest validate crates/nagi-app-lifecycle/fixtures/manifest-rich.json",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH ./nagi dev verify",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH ./nagi dev status",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH ./nagi dev resume",
+      "PATH=/Users/tozawa/.cargo/bin:$PATH ./nagi doctor"
+    ],
+    "tests": [
+      {
+        "name": "APP-LC host contract tests",
+        "command": "cargo test --manifest-path crates/nagi-app-lifecycle/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "11 tests passed: SemVer ordering/build metadata, minimal and rich manifests, required/optional conflicts, duplicate declarations, invalid/unsupported fields, forward compatibility, lifecycle transitions, observations, idempotency rejection, and failure category."
+      },
+      {
+        "name": "APP-LC extension schema and fixture validation",
+        "command": "python crates/nagi-app-lifecycle/schema_validation/validate_fixtures.py",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both full manifest fixtures passed the base and extension Draft 2020-12 schemas; five malformed extension cases were rejected. Cross-list capability contradictions and duplicate service IDs are covered by Rust semantic tests."
+      },
+      {
+        "name": "Focused format check",
+        "command": "cargo fmt --manifest-path crates/nagi-app-lifecycle/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The owned Rust crate is formatted with the repository-pinned nightly rustfmt."
+      },
+      {
+        "name": "Focused warnings-denied Clippy",
+        "command": "cargo clippy --manifest-path crates/nagi-app-lifecycle/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All APP-LC crate targets pass Clippy with warnings denied."
+      },
+      {
+        "name": "Focused all-target package check",
+        "command": "cargo check --manifest-path crates/nagi-app-lifecycle/Cargo.toml --all-targets --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The standalone host crate and its test targets compile against the existing public App SDK types."
+      },
+      {
+        "name": "APP-LC registration proposal schema",
+        "command": "Python jsonschema Draft202012Validator against .dev/schemas/workstreams.schema.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The proposed registry row has valid ownership paths, state path, branch, dependency IDs, activation gate, and merge boundary. The shared registry remains unchanged."
+      },
+      {
+        "name": "App SDK contract regression",
+        "command": "cargo test --manifest-path sdk/rust/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 46 public identity, manifest, capability, lifecycle, state, IPC, intent, and registration tests passed. Temporary read-only links to already materialized Cargo patch sources were removed after testing."
+      },
+      {
+        "name": "nagi-pkg manifest loader regression",
+        "command": "cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 7 existing host loader and contract integration tests passed."
+      },
+      {
+        "name": "M16 package/signing regression",
+        "command": "cargo test --manifest-path user/nagi-package/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 5 package/signing tests passed. Three existing third_party/libc-servo unexpected_cfgs(target_os = nagi) warnings were emitted; no third-party files were changed."
+      },
+      {
+        "name": "App SDK base schema fixtures",
+        "command": "python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The existing App Manifest v1 schema accepted four fixtures and rejected 20 malformed documents."
+      },
+      {
+        "name": "nagi-pkg base manifest fixture validation",
+        "command": "nagi-pkg manifest validate crates/nagi-app-lifecycle/fixtures/manifest-{minimal,rich}.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both fixtures pass the current base manifest parser. That CLI currently ignores extension payload semantics; APP-LC extension semantics are verified by the new library/schema tests and CLI wiring is an Integration Owner proposal."
+      },
+      {
+        "name": "DF-01 registered workstream verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 registered state files validate at source commit 04429af7a46a6efafec5cde8dd83cc5bb59e7a8f. This does not discover the APP-LC local state until the Integration Owner registers its proposal."
+      },
+      {
+        "name": "DF-01 status on the dedicated branch",
+        "command": "./nagi dev status",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "The current branch is not registered in .dev/workstreams.json. Registry ownership is reserved to the Integration Owner; .dev/workstreams/app-lifecycle-manifest/registration-proposal.json is schema-valid."
+      },
+      {
+        "name": "DF-01 resume on the dedicated branch",
+        "command": "./nagi dev resume",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "The current branch is not registered in .dev/workstreams.json. The local state and registration proposal are present; only Integration Owner registry registration remains."
+      },
+      {
+        "name": "Developer environment doctor",
+        "command": "./nagi doctor",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "12 pass, 0 warn, 0 fail. Cargo emitted three existing libc-servo target_os=nagi check-cfg warnings during the host CLI build."
+      },
+      {
+        "name": "Initial host toolchain invocation",
+        "command": "cargo test --manifest-path crates/nagi-app-lifecycle/Cargo.toml --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The default /usr/local Rust selected x86_64-apple-darwin on the arm64 host and could not load the arm64-only libxcrun. Re-running through /Users/tozawa/.cargo/bin selected the repository-pinned nightly arm64 toolchain and all 11 tests passed."
+      },
+      {
+        "name": "Initial App SDK regression setup",
+        "command": "cargo test --manifest-path sdk/rust/Cargo.toml --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The fresh worktree did not materialize ignored third_party/cc-nagi sources required by root Cargo patch resolution. Temporary read-only links to the same locally materialized sources enabled the 46-test rerun; links were removed without modifying their targets."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
+    "last_checked_at": "2026-09-28T14:43:46Z",
+    "activation_requirement": "Host-side APP-LC contract preparation only. Any production runtime binding remains gated on Nagi 0.1 M30 PASS and an explicit 0.2 integration checkpoint."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not modify .dev/workstreams.json, .dev/schemas/**, root Cargo.toml/Cargo.lock, sdk/**, tools/nagi-pkg/**, or CI from this workstream branch; use the registration and integration proposal."
+    ]
+  },
+  "next_action": "Integration Owner: register the schema-valid app-lifecycle-manifest row; add crates/nagi-app-lifecycle to the root workspace and reconcile its isolated lockfile into the root Cargo.lock; wire extension validation into the host manifest loader if CLI validation is required; reuse the App SDK capability-ID validator when it becomes public; review service IDs with SVC-IPC-01 before runtime integration.",
+  "acceptance_criteria": [
+    "PASS: APP-LC-01 is implemented on dedicated branch codex/0.2-app-lifecycle-manifest from base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9.",
+    "PASS: Reuses App SDK AppIdentity/AppId with canonical reverse-domain identity and base validation; valid and invalid identity cases remain covered by 46 SDK tests.",
+    "PASS: AppVersion parses standard SemVer 2.0 and compares precedence deterministically, ignoring build metadata for precedence.",
+    "PASS: Versioned App Manifest v1 plus APP-LC extension v1 schema/model covers display metadata, entrypoint, package version, and minimum Nagi runtime compatibility.",
+    "PASS: Base requestedCapabilities are required declarations; extension optionalCapabilities are validated for bad IDs, duplicates, and required/optional conflicts without granting authority.",
+    "PASS: Required system-service IDs and major/minor contract compatibility are declared and duplicate service dependencies are rejected.",
+    "PASS: Extension validation returns stable structured error categories, identifiers, field paths, and array indexes.",
+    "PASS: Unknown base extensions are left to their owners; APP-LC v1 rejects unknown fields and unsupported versions, while opaque namespaced metadata is preserved.",
+    "PASS: Lifecycle reference adapter delegates legal transitions to the canonical SDK LifecycleMachine.",
+    "PASS: Illegal and repeated transitions are rejected without state mutation; launch, activation, suspend/resume, shutdown, and abnormal failure are covered.",
+    "PASS: Lifecycle observations include AppId, prior/new state, reason, session/node/sequence, and structured abnormal failure.",
+    "PASS: No M18, Servo, Mesa, relibc, first-party app, or runtime implementation files were changed.",
+    "PASS: No permission-grant policy is duplicated; optional capability-ID syntax adapter has a documented convergence point to the SDK public validator.",
+    "PASS: 11 APP-LC tests and deterministic minimal/rich JSON fixtures cover positive, negative, failure, and forward-compatibility cases.",
+    "PASS: Architecture docs include field reference, examples, versioning, lifecycle diagram, adapter boundaries, and future integration guidance.",
+    "PASS: Dedicated DF-01 state and schema-valid registration proposal are recorded under .dev/workstreams/app-lifecycle-manifest/.",
+    "PASS: Owned crate test, fmt, Clippy -D warnings, check, JSON Schema validation, App SDK regression, nagi-pkg regression, M16 package regression, ./nagi dev verify, and ./nagi doctor pass.",
+    "PASS: Root workspace, loader CLI, and registry integration are explicitly proposed for Integration Owner review; no shared ownership file was edited.",
+    "PASS: Source and state commits are pushed on the dedicated branch and the local worktree is clean."
+  ],
+  "deferred": [
+    "Integration Owner registration in .dev/workstreams.json; until that row is merged, DF-01 dev status/resume cannot resolve this branch and dev verify does not discover its state file.",
+    "Integration Owner root Cargo workspace membership/lock consolidation and CI host-job inclusion for the standalone crate.",
+    "Optional tools/nagi-pkg integration to validate APP-LC extension payloads in the CLI; the current CLI validates only base App Manifest v1 fields.",
+    "Capability-ID validation should converge on a public App SDK validator when that API is exposed.",
+    "Runtime process launch, service lookup/IPC, permission resolution, install/update integration, first-party adoption, and GUI integration remain gated on M30 PASS and an explicit 0.2 integration checkpoint."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 workstream state schema, validation, resume, and ownership rules",
+      "version": "1",
+      "status": "PASS"
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "App SDK Contract v1 identity, manifest, capability declarations, and lifecycle machine",
+      "version": "1",
+      "status": "PASS"
+    }
+  ]
+}
