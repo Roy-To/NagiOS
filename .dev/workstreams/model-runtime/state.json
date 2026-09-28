@@ -387,6 +387,6 @@
     "production_integration_boundary": "No production inference, model weights, mandatory network dependency, or M20 completion.",
     "system_one_extension": "Open runtime-class and capability descriptors can be registered/selected; no System One model, DecisionProvider, or jev implementation.",
     "blockers": "No active Foundation blocker. Local libc target integration, separate M17 acceptance, and deferred schema evaluator are recorded above.",
-    "push_status": "Source fix b55159a is pushed to origin/codex/ws-model-runtime; this updated docs/state checkpoint will be pushed on the same branch."
+    "push_status": "The source fix and final documentation/state checkpoint have been pushed to origin/codex/ws-model-runtime."
   }
 }
