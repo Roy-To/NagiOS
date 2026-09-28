@@ -168,7 +168,7 @@
     "DEFERRED TO GATED INTEGRATION: M6 ServiceId name/version and NIPC v1 AppId/payload-type/required-correlation compatibility mapping and paired adapter tests; no silent truncation, version loss, or caller-identity assertion is allowed.",
     "PARTIAL ENVIRONMENT CHECK: ./nagi doctor cannot run because third_party/cc-nagi/Cargo.toml is absent from this clean worktree; the isolated crate is independently verified and no out-of-scope source fetch was attempted.",
     "PARTIAL INTEGRATION CHECK: ./nagi dev status and GitHub Actions runs 36439857022/36442209353 fail because the required DF-01 registry row for this dedicated branch is still integration-owner-owned; a valid proposal is included, and the rest of the owned host contract implementation is complete.",
-    "PASS: Implementation commit 3d04cc39723ea505b6ad473e7ae8f4af4c14fc63 and state/spec checkpoint cd2333598cf2ab0e9f10face14d5ecc15131cd7e were pushed normally and matched origin; final state-only verification will be committed and pushed separately."
+    "PASS: Implementation and state checkpoints were pushed with normal pushes; origin HEAD was verified against local HEAD after the final state push, with no force push."
   ],
   "deferred": [
     "Integration Owner registration in .dev/workstreams.json from registration-proposal.json.",
