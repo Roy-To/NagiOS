@@ -1,0 +1,153 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "update-installation",
+  "current_milestone": "UPD-01 host installation foundation",
+  "current_checkpoint": "Implementation, recovery acceptance, and scoped verification complete",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "ab84fd6116b58646209a38350f1260a62f537f24",
+    "verified_at": "2026-09-28T16:09:21Z",
+    "normal_state": "PASS for the isolated UPD-01 host foundation. Branch codex/0.2-update-installation is based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; implementation and documentation were verified at ab84fd6116b58646209a38350f1260a62f537f24, including the final Windows device-path validation fix. The state and final acceptance update are committed immediately after that tested implementation commit. The shared registry does not yet contain this stream because registry edits are Integration Owner-owned. Latest meaningful failure outside owned scope: ./nagi doctor and the legacy nagi-package regression cannot load the root Cargo graph because this fresh worktree lacks third_party/cc-nagi/Cargo.toml; no third_party files were changed.",
+    "commands": [
+      "cargo test --manifest-path tools/nagi-installer/Cargo.toml --locked --offline",
+      "cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check",
+      "cargo clippy --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo check --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked --offline",
+      "cargo check --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked --offline --target x86_64-pc-windows-gnu",
+      "./nagi dev verify",
+      "Python stdlib structural assertions against .dev/schemas/workstream-state.schema.json and .dev/schemas/workstreams.schema.json",
+      "./nagi doctor",
+      "cargo test --manifest-path user/nagi-package/Cargo.toml --locked --offline"
+    ],
+    "tests": [
+      {
+        "name": "UPD-01 offline unit and transaction tests",
+        "command": "cargo test --manifest-path tools/nagi-installer/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "24 tests passed, 0 failed. Coverage includes unsafe paths, case and prefix conflicts, source mutation, stale plans, SemVer policy, manifest adaptation, inventory isolation, policy deny/error, staging and switch failure injection, interrupted install/uninstall recovery, rollback, symlink containment, orphan cleanup, and user-data preservation."
+      },
+      {
+        "name": "UPD-01 format check",
+        "command": "cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Standalone installer package formatted; check exited 0."
+      },
+      {
+        "name": "UPD-01 warnings-denied Clippy",
+        "command": "cargo clippy --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All installer targets passed Clippy with warnings denied, locked and offline."
+      },
+      {
+        "name": "UPD-01 host package check",
+        "command": "cargo check --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All host targets checked successfully with the pinned repository nightly toolchain."
+      },
+      {
+        "name": "UPD-01 Windows target type check",
+        "command": "cargo check --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked --offline --target x86_64-pc-windows-gnu",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Windows GNU target compiled successfully from the macOS host. This is a cross-target type check, not execution on Windows."
+      },
+      {
+        "name": "DF-01 registered registry/state verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Verified 18 registered workstreams and 11 registered state files at implementation commit ab84fd6116b58646209a38350f1260a62f537f24. UPD-01 remains deliberately unregistered pending Integration Owner review; this run does not claim to validate the new unregistered UPD-01 state."
+      },
+      {
+        "name": "UPD-01 state and registration proposal schema shape",
+        "command": "Python stdlib structural assertions against .dev/schemas/workstream-state.schema.json and .dev/schemas/workstreams.schema.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Checked required/allowed field sets, schema version/status and outcome enums, 40-character SHA, UTC datetime parsing, nested test/dependency/blocker shapes, registry-row fields and ID/branch/state-file patterns. The repository's full dev verify separately validated registered states; UPD-01 remains unregistered until Integration Owner action."
+      },
+      {
+        "name": "Repository doctor",
+        "command": "./nagi doctor",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Root Cargo graph loading failed before doctor execution: patched dependency cc points to missing third_party/cc-nagi/Cargo.toml in this fresh worktree. The missing third_party source is outside UPD-01 ownership."
+      },
+      {
+        "name": "Legacy package regression attempt",
+        "command": "cargo test --manifest-path user/nagi-package/Cargo.toml --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Cargo failed before compiling the regression target because the root patch for cc points to missing third_party/cc-nagi/Cargo.toml. This is the same checkout/bootstrap limitation as ./nagi doctor; no legacy package or third_party files were changed."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "UPD-01 workstream specification sections 3, 20, and 22; docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
+    "last_checked_at": "2026-09-28T16:09:21Z",
+    "activation_requirement": "Host-side reference foundation only. Runtime installation, product adoption, and root integration require Nagi 0.1 M30 PASS and an explicit 0.2 integration checkpoint."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not fetch or edit pinned third_party sources as part of UPD-01.",
+      "Do not change Integration Owner-owned .dev registry/schema, root Cargo workspace/lock, or CI files from this workstream."
+    ]
+  },
+  "next_action": "Integration Owner: review the registration proposal, register update-installation, and wire the standalone package into root workspace and host CI at the approved integration checkpoint. UPD-01 owned implementation and acceptance are complete.",
+  "acceptance_criteria": [
+    "PASS: Safe directory and virtual package source/staging abstraction; no archive format is selected.",
+    "PASS: No permanent duplicate of the App Lifecycle manifest contract.",
+    "PASS: Public SDK manifest adapter validates and projects installer metadata.",
+    "PASS: Versioned deterministic installed-package inventory with relative locations.",
+    "PASS: Explicit read-only install and uninstall plans with stale-plan protection.",
+    "PASS: SemVer upgrade policy; downgrade and equal-precedence reinstall are rejected; malformed versions and unsupported schemas fail closed.",
+    "PASS: Durable transaction state machine rejects illegal transitions.",
+    "PASS: Atomic inventory replacement and immutable package promotion define the active-state switch.",
+    "PASS: Rollback restores the prior inventory and package after interrupted updates.",
+    "PASS: Deterministic crash/interruption recovery handles install and uninstall boundaries and orphan staging.",
+    "PASS: Safe uninstall deactivates inventory, preserves user data, and preserves unknown package-store content.",
+    "PASS: Path traversal, absolute paths, case/prefix conflicts, symlinks, and source escapes are rejected.",
+    "PASS: Structured installer errors expose stable error categories.",
+    "PASS: Capability-delta policy hook reports unchanged, added, and removed requirements without granting them.",
+    "PASS: SBOM, license, provenance, and trust checks have policy adapter hooks without taking ownership of their internals.",
+    "PASS: Failure injection covers staging, active switches, commit, and uninstall cleanup boundaries.",
+    "PASS: Offline deterministic transaction tests pass.",
+    "PASS: Installation, manifest, inventory, commit, recovery, uninstall, policy, and security boundaries are documented.",
+    "PASS: Dedicated workstream state is recorded using the DF-01 state schema shape.",
+    "PASS: Shared registry and root/CI integration proposals are recorded without editing Integration Owner paths.",
+    "PASS: Owned-scope format, warnings-denied Clippy, host check, Windows target check, and tests pass.",
+    "PASS: Implementation and documentation are committed on the dedicated branch; state/acceptance update is committed and pushed with remote HEAD verified."
+  ],
+  "deferred": [
+    "Integration Owner registration and shared registry/state verification of UPD-01, using .dev/workstreams/update-installation/registration-proposal.json.",
+    "Integration Owner root workspace, lockfile reconciliation, and Ubuntu/Windows CI wiring, using .dev/workstreams/update-installation/integration-proposal.md.",
+    "Runtime VFS/package-service adoption and any production installer UI remain outside UPD-01 and require the documented M30 and 0.2 checkpoint gate.",
+    "Native Windows execution was unavailable on this macOS host; only the Windows target type check ran locally.",
+    "Latest non-workstream verification failure: ./nagi doctor and the legacy nagi-package regression cannot load the root Cargo graph because third_party/cc-nagi/Cargo.toml is absent from this fresh worktree; this remains outside UPD-01 ownership."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 durable workstream state schema and shared registry ownership boundary.",
+      "version": "workstream-state schema_version 1",
+      "status": "Required contract is present at base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; ./nagi dev verify passed for the registered workstreams. UPD-01 registration remains an Integration Owner action."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Canonical public nagi_sdk::app_contract::AppManifestContract, schema constant, and validation API.",
+      "version": "nagi-sdk 0.1.0 public contract at base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+      "status": "Available and consumed by AppSdkManifestAdapter; adapter acceptance test passes."
+    }
+  ]
+}

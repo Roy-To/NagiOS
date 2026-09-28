@@ -491,25 +491,25 @@ Final report must include:
 
 ## 25. Acceptance criteria
 
-- [ ] Safe package source/staging abstraction
-- [ ] No permanent duplicate of App Lifecycle manifest contract
-- [ ] Manifest/metadata adapter with clear convergence point
-- [ ] Installed package inventory
-- [ ] Explicit install/update/uninstall plans
-- [ ] Deterministic version/update policy
-- [ ] Transaction state model
-- [ ] Atomic/best-available commit semantics
-- [ ] Rollback implementation
-- [ ] Crash/interruption recovery implementation
-- [ ] Safe uninstall preserving unrelated/user data
-- [ ] Path traversal/escape protection
-- [ ] Structured installer errors
-- [ ] Capability-delta policy hook
-- [ ] SBOM/license/provenance validation hooks
-- [ ] Failure injection tests
-- [ ] Offline deterministic integration tests
-- [ ] Documentation complete
-- [ ] Workstream state complete
-- [ ] Shared integration proposal recorded where needed
-- [ ] Format/lint/check/tests pass for owned scope
-- [ ] Commit and push complete
+- [x] Safe package source/staging abstraction
+- [x] No permanent duplicate of App Lifecycle manifest contract
+- [x] Manifest/metadata adapter with clear convergence point
+- [x] Installed package inventory
+- [x] Explicit install/update/uninstall plans
+- [x] Deterministic version/update policy
+- [x] Transaction state model
+- [x] Atomic/best-available commit semantics
+- [x] Rollback implementation
+- [x] Crash/interruption recovery implementation
+- [x] Safe uninstall preserving unrelated/user data
+- [x] Path traversal/escape protection
+- [x] Structured installer errors
+- [x] Capability-delta policy hook
+- [x] SBOM/license/provenance validation hooks
+- [x] Failure injection tests
+- [x] Offline deterministic integration tests
+- [x] Documentation complete
+- [x] Workstream state complete
+- [x] Shared integration proposal recorded where needed
+- [x] Format/lint/check/tests pass for owned scope
+- [x] Commit and push complete
