@@ -32,8 +32,8 @@ host-testable and the future attachment boundary is documented.
 | Nagi user-target compile | PASS | `cargo check -p nagi-ui --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core --locked --offline` |
 | UEFI compile | PASS | `cargo check -p nagi-ui --lib --no-default-features --target x86_64-unknown-uefi --locked --offline` |
 | M10 QEMU guest UI attachment | BLOCKED | `./nagi desktop` built the target image; guest log stops at M5 `invalid-elf` before `nagi-init`/UI startup. No visual or input result is claimed. |
-| Documentation and state | PASS | Architecture and workstream contracts updated; the integration-owned registry state is updated with the same evidence |
-| Commit, push, clean checkout | PENDING | Record after publishing the verified workstream commit |
+| Documentation and state | PASS | Architecture/workstream docs and the integration-owned registry state record the same acceptance evidence |
+| Commit, push, clean checkout | PASS | Implementation commit `91465588a13e0f9a66afe9c99b75c2fb1a1c394c` is published to `origin/codex/ws-ui-design-system`; the branch checkout is clean |
 
 ## Architecture boundary
 
@@ -63,6 +63,9 @@ drawing, and assistive-technology delivery remain integration points.
   `reason: invalid-elf`; the init ELF has the existing empty `PT_TLS` header
   rejected by `kernel/src/user_elf.rs::validate_tls_segment`. The UI did not
   start. Kernel/loader changes are outside this workstream.
+- Push of implementation commit `91465588a13e0f9a66afe9c99b75c2fb1a1c394c`
+  started GitHub Actions run `36380321571`; its host and target jobs are
+  tracked in the integration-owned state file.
 
 The workstream PASS covers the tested host/target contracts only. The QEMU
 run is retained as a target attachment failure and does not establish desktop
