@@ -1,6 +1,6 @@
 # M19-PREP Semantic Search Workstream Status
 
-**Status:** PARTIAL (first verified implementation checkpoint; no formal M19 status change)
+**Status:** M19-PREP PASS (independent foundation only; no formal M19 status change)
 
 ## Provenance
 
@@ -9,6 +9,8 @@
 - Worktree: `/Users/tozawa/.codex/worktrees/m19prep-semantic-search/NagiOS`
 - Initial HEAD and merge-base: `94e9a027618182b10c0ac2315e94673543f22423`
 - Baseline M17 acceptance execution head: `31bf815b7230f2658f654643e6d6c898d9881d77`
+- Pushed implementation and acceptance checkpoint: `e7a3ab43780d247f8cacc16f94da249c7cfe9d66`
+- Remote branch: `origin/codex/m19prep-semantic-search`
 
 ## Scope and current checkpoint
 
@@ -39,6 +41,9 @@ Bar, Servo, HTTP/HTTPS, Albert UI, and 0.2 runtime activation are excluded.
   results, relation traversal, and missing-versus-denied identity behavior.
 - Phase G — producer fixtures: PASS. Files, page, and Workspace adapters
   produce records that are indexed and searched in host tests.
+- Acceptance review — PASS. All M19-PREP criteria in the attached workstream
+  specification pass on the implementation checkpoint above. `docs/implementation_status.md`
+  is unchanged: formal M18/M19 milestone state is not advanced by this branch.
 
 ## Backend and security assumptions
 
@@ -61,14 +66,30 @@ IDs must be indistinguishable from missing IDs.
 - `/Users/tozawa/.cargo/bin/cargo fmt --manifest-path user/nagi-search/Cargo.toml -- --check` — PASS.
 - `RUSTC=/Users/tozawa/.cargo/bin/rustc /Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check --manifest-path user/nagi-search/Cargo.toml --target targets/x86_64-unknown-nagi-user.json --target-dir user/nagi-search/target-nagi --locked --offline` — PASS; builds the isolated no-std package and `nagi-model` for the Nagi user target.
 - `git diff --check` — PASS.
+- `git diff --cached --check` — PASS before the implementation checkpoint was
+  committed; the committed worktree is clean.
 - A supplementary root-workspace test attempt for `nagi-model`/`nagi-history` could not resolve the fixed-base root patch path `third_party/cc-nagi/Cargo.toml` (not present/materialized at this baseline). The isolated package tests compile the shared model dependency; M15/M16 code was not modified. No QEMU or guest persistence claim is made.
 
-## Exact next actions
+## Target integration boundary and next work after M18
 
-1. Commit and push this verified implementation checkpoint to the dedicated
-   branch.
-2. Complete final acceptance review and update this status to
-   `M19-PREP PASS` only if all criteria remain satisfied.
-3. After M18, integrate a capability-bound service entry point, Files/page
-   producers, and a guest persistence backend without changing formal M19 to
-   PASS until its own milestone acceptance is run.
+This crate remains outside the root workspace and target service graph. The
+Nagi user target `no_std` compile passes, but no service activation, capability
+broker binding, guest persistence, live Files/page producer connection, or
+QEMU acceptance was exercised. Host persistence proves only the reference
+backend. The guest VFS is block-backed and its current file payload limit is
+1 KiB, so the target backend needs bounded chunked/multi-file snapshots or a
+separately reviewed storage change.
+
+After M18 is formally complete, the next work is to:
+
+1. Reconcile this branch's isolated crate and additive shared-ID trait change
+   with the M18-complete base, preserving this fixed-base history and avoiding
+   a blind merge to `main`.
+2. Add the search service entry point to the target user-space service graph
+   and bind `VisibilityFilter` to trusted caller/capability state.
+3. Implement the guest `SnapshotBackend` over approved Nagi storage, including
+   restart/corruption tests that respect the current 1 KiB file limit.
+4. Connect real Files and page/History producers to the existing adapters and
+   verify stable `ObjectId` behavior across rename/update.
+5. Run formal M19 host and target acceptance, then update
+   `docs/implementation_status.md` only from that evidence.
