@@ -6,7 +6,7 @@ pub struct UserId(pub u64);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NodeId(pub u64);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AppId(pub u64);
 
 impl AppId {
@@ -24,7 +24,7 @@ impl AppId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AppSessionId(pub u64);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,10 +33,10 @@ pub struct ExecutionInstanceId(pub u64);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SurfaceId(pub u64);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct WorkspaceId(pub u64);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ObjectId(pub u64);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
