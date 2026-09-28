@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.invalid/schemas/m18c-browser-acceptance-report.schema.json",
+  "title": "M18-C browser acceptance report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workstream_id",
+    "branch",
+    "base_sha",
+    "head_sha",
+    "generated_at",
+    "status",
+    "summary",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "workstream_id": {"const": "m18c-browser-acceptance-reliability"},
+    "branch": {"type": "string"},
+    "base_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "head_sha": {"type": "string", "pattern": "^$|^[a-f0-9]{40}$"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["PASS", "PARTIAL", "FAIL"]},
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "PASS", "FAIL", "SKIP-BLOCKED", "NOT-IMPLEMENTED"],
+      "properties": {
+        "total": {"type": "integer", "minimum": 1},
+        "PASS": {"type": "integer", "minimum": 0},
+        "FAIL": {"type": "integer", "minimum": 0},
+        "SKIP-BLOCKED": {"type": "integer", "minimum": 0},
+        "NOT-IMPLEMENTED": {"type": "integer", "minimum": 0}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "area",
+          "requirement",
+          "status",
+          "owner_workstreams",
+          "reason",
+          "evidence"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "area": {"type": "string", "minLength": 1},
+          "requirement": {"type": "string", "minLength": 1},
+          "status": {"enum": ["PASS", "FAIL", "SKIP-BLOCKED", "NOT-IMPLEMENTED"]},
+          "owner_workstreams": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "reason": {"type": "string"},
+          "evidence": {"type": "string"}
+        }
+      }
+    }
+  }
+}

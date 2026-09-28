@@ -42,6 +42,52 @@ jobs:
         run: cargo build --workspace --exclude nagi-kernel --locked
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: M18-C deterministic fixture tests and host acceptance inventory
+        id: m18c-fixtures
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s tests -p 'test_m18c_browser_acceptance.py' -v
+      - name: M18-C host acceptance report
+        if: always()
+        env:
+          M18C_FIXTURE_TEST_OUTCOME: ${{ steps.m18c-fixtures.outcome }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          mkdir -p out/test-results
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          outcome = os.environ.get("M18C_FIXTURE_TEST_OUTCOME", "unknown")
+          status = "PASS" if outcome == "success" else "FAIL"
+          proof = (
+              "The deterministic local fixture/report unit-test command passed."
+              if status == "PASS"
+              else f"The deterministic fixture/report unit-test step concluded {outcome!r}."
+          )
+          evidence = {"schema_version": 1, "cases": [
+              {"id": "harness.deterministic-fixtures", "status": status, "evidence": proof},
+              {"id": "harness.recovery-fixtures", "status": status,
+               "evidence": proof.replace("local fixture/report", "persistence/recovery fixture")}
+          ]}
+          Path("out/test-results/m18c-browser-acceptance-host-evidence.json").write_text(
+              json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+          python3 tests/browser_acceptance/report.py \
+            --evidence out/test-results/m18c-browser-acceptance-host-evidence.json \
+            --output out/test-results/m18c-browser-acceptance-host.json \
+            --branch "$GITHUB_REF_NAME" \
+            --head-sha "$GITHUB_SHA" \
+            --github-summary
+      - name: Upload M18-C host acceptance report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m18c-browser-acceptance-host-${{ github.run_attempt }}
+          path: out/test-results/m18c-browser-acceptance-host.json
+          if-no-files-found: ignore
       - name: M0 doctor acceptance
         run: ./tests/acceptance/m0_doctor.sh
       - name: M0 launcher acceptance
@@ -149,6 +195,50 @@ jobs:
             echo 'M17 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
             exit 1
           fi
+      - name: M18-C M17 feature-off acceptance and target report
+        id: m18c-target-feature
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 tests/browser_acceptance/feature_gates.py --output out/test-results/m18c-m17-feature-gate.json
+      - name: M18-C target acceptance report
+        if: always()
+        env:
+          M18C_TARGET_FEATURE_OUTCOME: ${{ steps.m18c-target-feature.outcome }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          mkdir -p out/test-results
+          if [ ! -s out/test-results/m18c-m17-feature-gate.json ]; then
+            python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          outcome = os.environ.get("M18C_TARGET_FEATURE_OUTCOME", "unknown")
+          evidence = {"schema_version": 1, "cases": [{
+              "id": "features.m17-excludes-m18",
+              "status": "FAIL",
+              "evidence": f"The target feature-gate step concluded {outcome!r} without producing graph evidence."
+          }]}
+          Path("out/test-results/m18c-m17-feature-gate.json").write_text(
+              json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+          fi
+          python3 tests/browser_acceptance/report.py \
+            --evidence out/test-results/m18c-m17-feature-gate.json \
+            --output out/test-results/m18c-browser-acceptance-target.json \
+            --branch "$GITHUB_REF_NAME" \
+            --head-sha "$GITHUB_SHA" \
+            --github-summary
+      - name: Upload M18-C target acceptance report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m18c-browser-acceptance-target-${{ github.run_attempt }}
+          path: |
+            out/test-results/m18c-m17-feature-gate.json
+            out/test-results/m18c-browser-acceptance-target.json
+          if-no-files-found: ignore
       - name: Build pinned Nagi Mesa Softpipe archive
         run: |
           source out/mesa-venv/bin/activate

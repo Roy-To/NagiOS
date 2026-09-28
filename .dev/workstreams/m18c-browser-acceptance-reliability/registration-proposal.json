@@ -1,0 +1,35 @@
+{
+  "proposal_schema_version": 1,
+  "workstream_id": "m18c-browser-acceptance-reliability",
+  "registration_status": "PENDING_INTEGRATION_OWNER",
+  "reason_not_applied": "The selected M18 integration base 94e9a027618182b10c0ac2315e94673543f22423 predates DF-01. The shared registry is integration-owner-owned, so this branch records the exact row for later registration without creating or editing .dev/workstreams.json.",
+  "registry_entry": {
+    "id": "m18c-browser-acceptance-reliability",
+    "owner": "Codex M18-C Browser Acceptance / Reliability",
+    "owner_branch": "codex/m18c-browser-acceptance-reliability",
+    "recommended_worktree": "../.codex/worktrees/m18c-browser-acceptance-reliability/NagiOS",
+    "state_file": ".dev/workstreams/m18c-browser-acceptance-reliability/state.json",
+    "dependencies": [],
+    "allowed_paths": [
+      ".dev/workstreams/m18c-browser-acceptance-reliability/**",
+      ".github/workflows/ci.yml",
+      "docs/testing/m18c-browser-acceptance-*.schema.json",
+      "docs/workstreams/NagiOS_M18C_Browser_Acceptance_Reliability_Workstream.md",
+      "tests/browser_acceptance/**",
+      "tests/test_m18c_browser_acceptance.py"
+    ],
+    "forbidden_paths": [
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      "docs/implementation_status.md",
+      "kernel/**",
+      "loader/**",
+      "third_party/**",
+      "user/**"
+    ],
+    "activation_gate": "Test and acceptance infrastructure for Nagi 0.1 M18 only; do not change M18-A/M18-B/main production code or M19/0.2 scope.",
+    "merge_boundary": "Integration owner reviews the registration proposal and integrates the M18-C test-only branch at the intended M18 integration point; never merge directly to main."
+  }
+}
