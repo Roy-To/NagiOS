@@ -1,0 +1,128 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "app-lifecycle-supervisor",
+  "current_milestone": "APP-LC-01 App Lifecycle / Supervisor Foundation",
+  "current_checkpoint": "pre-activation-gate-and-registration-review",
+  "status": "NOT_STARTED",
+  "last_verified": {
+    "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+    "verified_at": "2026-09-28T22:16:06Z",
+    "normal_state": "Runtime work remains NOT_STARTED. M17 is BLOCKED and M30 is NOT STARTED; no explicit checkpoint authorizing this supervisor stream was found. The 18-row registry has no supervisor row, and this state is intentionally unregistered pending Integration Owner resolution. The supervisor and Package Manifest workstream documents both request APP-LC-01; the Package Manifest document was not copied, edited, or replaced. State/proposal schema validation passed. ./nagi dev verify passed the existing 18 registered streams and 11 state files but does not include this unregistered state. ./nagi dev status was rejected with exit 4 because this branch is absent from the Integration Owner registry. No runtime source was created.",
+    "commands": [
+      "rg -n '^\\| M(17|18|30) \\|' docs/implementation_status.md && rg -n 'M30 PASS.*explicit.*checkpoint|M17 remains BLOCKED|Nagi 0.2 runtime/product work remains gated' docs/implementation_status.md docs/0.2/WORKSTREAMS.md docs/0.2/DEVELOPMENT_ARCHITECTURE.md .dev/workstreams/integration-next-phase/state.json",
+      "/tmp/nagi-app-sdk-schema/bin/python /tmp/nagi-app-lifecycle-supervisor-validate.py",
+      "./nagi dev verify",
+      "./nagi dev status"
+    ],
+    "tests": [
+      {
+        "name": "Activation gate and workstream ownership audit",
+        "command": "rg -n '^\\| M(17|18|30) \\|' docs/implementation_status.md && rg -n 'M30 PASS.*explicit.*checkpoint|M17 remains BLOCKED|Nagi 0.2 runtime/product work remains gated' docs/implementation_status.md docs/0.2/WORKSTREAMS.md docs/0.2/DEVELOPMENT_ARCHITECTURE.md .dev/workstreams/integration-next-phase/state.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M17 is BLOCKED; M18 and M30 are NOT STARTED. The 0.2 docs and integration state require M30 PASS plus an explicit checkpoint. The only recorded first-party/shared UI checkpoint is host-side and does not authorize app-process supervision."
+      },
+      {
+        "name": "State and registration proposal schema validation",
+        "command": "/tmp/nagi-app-sdk-schema/bin/python /tmp/nagi-app-lifecycle-supervisor-validate.py",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Draft 2020-12 validation passed for state.json and the proposed registry row. Proposal dependencies resolve to registered IDs; the shared registry remains untouched. The check also confirmed 18 registry rows and the APP-LC-01 collision in the current integration checkout."
+      },
+      {
+        "name": "Registered repository state verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 18 registered workstreams, 11 state files validated; branch codex/0.2-app-lifecycle-supervisor at 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. This CLI pass does not include the unregistered supervisor state; the state was separately schema-validated."
+      },
+      {
+        "name": "Supervisor runtime acceptance",
+        "command": "cargo test -p nagi-app-lifecycle-supervisor",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Not run: M30 is NOT STARTED, there is no explicit supervisor integration checkpoint, and no runtime crate was created. Starting runtime implementation is outside the currently open scope."
+      },
+      {
+        "name": "Supervisor branch status lookup (registration boundary)",
+        "command": "./nagi dev status",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "Exact CLI output: FAIL branch `codex/0.2-app-lifecycle-supervisor` is not registered in .dev/workstreams.json; create/assign a workstream before using dev status. This is the expected Integration Owner registration boundary; the focused proposal records the required row and the registry was not edited."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md; docs/0.2/WORKSTREAMS.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md; .dev/workstreams/integration-next-phase/state.json",
+    "last_checked_at": "2026-09-28T22:16:06Z",
+    "activation_requirement": "Keep this runtime stream NOT_STARTED until Nagi 0.1 M30 is PASS and the Integration Owner records an explicit checkpoint authorizing this stream. Resolve the duplicate APP-LC-01 identifier and registration ownership before registering either App Lifecycle specification."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Activation gate is closed (M30 NOT STARTED; no explicit supervisor checkpoint), and APP-LC-01 is duplicated by the existing Package Manifest specification. Registry registration and runtime implementation must wait for Integration Owner resolution.",
+    "reproduction_commands": [
+      "./nagi dev status",
+      "rg -n '^\\| M(17|18|30) \\|' docs/implementation_status.md",
+      "rg -n 'APP-LC-01|app-lifecycle-supervisor' .dev/workstreams.json docs/workstreams/NagiOS_0.2_App_Lifecycle_Package_Manifest_Foundation_Workstream.md docs/workstreams/NagiOS_0.2_App_Lifecycle_Supervisor_Foundation_Workstream.md"
+    ],
+    "failure_log_summary": "./nagi dev status exited 4 with: `branch codex/0.2-app-lifecycle-supervisor is not registered in .dev/workstreams.json; create/assign a workstream before using dev status`. ./nagi dev verify validates the 18 registered rows/11 state files but omits this unregistered state. This confirms the precise registry ownership limitation; no implementation test failed.",
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not edit .dev/workstreams.json or .dev/schemas; those are Integration Owner managed.",
+      "Do not implement runtime behavior before M30 PASS and an explicit integration checkpoint.",
+      "Do not edit or replace the Package Manifest workstream specification to resolve the APP-LC-01 collision."
+    ]
+  },
+  "next_action": "Integration Owner: assign distinct IDs and ownership (or explicitly consolidate the two APP-LC-01 specifications), then register/authorize this workstream only after M30 PASS and a stream-specific integration checkpoint. Until then keep status NOT_STARTED and limit changes to this state/proposal. After activation, consume existing AppId/manifest contracts through adapters and implement only process-supervisor behavior.",
+  "acceptance_criteria": [
+    "[GATED] Integration Owner resolves the duplicate APP-LC-01 identifier and approves this stream's ownership and registry registration.",
+    "[GATED] Nagi 0.1 M30 is PASS and an explicit integration checkpoint authorizes this runtime stream.",
+    "The supervisor API and process lifecycle state machine are documented and typed without redefining AppId or package-manifest ownership.",
+    "Legal and illegal process lifecycle transitions are deterministic and tested.",
+    "Launch success/failure, rollback, stale handles, and distinct app/session/execution/supervisor/process identities are tested.",
+    "Suspend/resume, graceful shutdown deadline, forced termination, repeated termination, and final-exit reporting are tested.",
+    "Normal exit, abnormal exit, bounded restart/backoff, exhaustion, and crash-loop recovery are tested; user termination never auto-restarts.",
+    "Reject, FocusExisting, and AllowMultiple duplicate-launch policies have explicit outcomes and tests.",
+    "Capability principal binding fails closed, is exact to app/execution/process identity, and is renewed/revoked per execution instance.",
+    "Diagnostics events are structured, correlated, privacy-safe, best-effort, and non-blocking.",
+    "Deterministic in-memory backend tests exercise orchestration without claiming guest-process acceptance.",
+    "Existing AppId/manifest, capability, diagnostics, and process contracts are consumed through adapters; no competing contract or kernel ABI is introduced.",
+    "No M18 main, M18-A, M18-B, M18-C, or unrelated workstream implementation/state/worktree is changed.",
+    "Workstream state and any registration proposal follow DF-01 schemas and ownership.",
+    "Focused checks pass; only this workstream's owned files are committed and pushed on its owned branch."
+  ],
+  "deferred": [
+    "All runtime supervisor source and runtime acceptance until both activation gates open.",
+    "Registry mutation and schema changes until explicit Integration Owner approval.",
+    "Kernel/process ABI, user/nagi-init integration, root Cargo workspace, CI, shared IDL, first-party app integration, and M18/browser work."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 registry, durable state schema, ownership, and activation workflow",
+      "version": "1",
+      "status": "PASS; read-only prerequisite"
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Existing AppId, AppSessionId, ExecutionInstanceId, manifest, and app-level lifecycle public contracts",
+      "version": "M16 / host foundation",
+      "status": "PASS for host contracts; no process-supervisor contract"
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "PrincipalId and host-side permission/enforcer boundary for a future exact-instance binder adapter",
+      "version": "host foundation",
+      "status": "PARTIAL; runtime process binding is not available"
+    },
+    {
+      "workstream_id": "diagnostics",
+      "contract": "Host diagnostics conventions and future structured lifecycle event sink adapter",
+      "version": "host foundation",
+      "status": "PARTIAL; no process-supervisor runtime hook is consumed"
+    }
+  ]
+}

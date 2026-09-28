@@ -1,0 +1,66 @@
+{
+  "proposal_status": "PENDING_INTEGRATION_OWNER_REVIEW",
+  "requested_workstream_id": "app-lifecycle-supervisor",
+  "requested_contract_id": "APP-LC-01",
+  "workstream_name": "App Lifecycle / Supervisor Foundation",
+  "registry_row": {
+    "id": "app-lifecycle-supervisor",
+    "owner": "Codex App Lifecycle / Supervisor Foundation workstream (proposed; pending Integration Owner approval)",
+    "owner_branch": "codex/0.2-app-lifecycle-supervisor",
+    "recommended_worktree": "/Users/tozawa/Developer/NagiOS-0.2-app-lifecycle-supervisor",
+    "state_file": ".dev/workstreams/app-lifecycle-supervisor/state.json",
+    "dependencies": [
+      "development-foundation",
+      "app-sdk-contract",
+      "capability-permissions",
+      "diagnostics"
+    ],
+    "allowed_paths": [
+      "crates/nagi-app-lifecycle-supervisor/**",
+      "tests/app-lifecycle-supervisor/**",
+      "docs/workstreams/NagiOS_0.2_App_Lifecycle_Supervisor_Foundation_Workstream.md",
+      ".dev/workstreams/app-lifecycle-supervisor/**"
+    ],
+    "forbidden_paths": [
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      ".github/workflows/**",
+      "idl/**",
+      "schemas/**",
+      "kernel/**",
+      "loader/**",
+      "user/nagi-init/**",
+      "third_party/**",
+      "docs/implementation_status.md",
+      "docs/workstreams/NagiOS_0.2_App_Lifecycle_Package_Manifest_Foundation_Workstream.md",
+      "M18 main / M18-A / M18-B / M18-C workstream implementation, state, and worktree"
+    ],
+    "activation_gate": "Nagi 0.1 M30 PASS and explicit Integration Owner checkpoint specific to this stream; resolve duplicate APP-LC-01 and ownership before registration/activation.",
+    "merge_boundary": "Dedicated 0.2 integration branch after gate and contract acceptance; do not merge to main without explicit user direction."
+  },
+  "integration_owner_decisions_required": [
+    {
+      "decision": "Resolve duplicate contract identifier",
+      "evidence": "docs/workstreams/NagiOS_0.2_App_Lifecycle_Package_Manifest_Foundation_Workstream.md and docs/workstreams/NagiOS_0.2_App_Lifecycle_Supervisor_Foundation_Workstream.md both request APP-LC-01.",
+      "constraint": "The Package Manifest document was not edited, renamed, or replaced. Assign distinct IDs/owners or consolidate explicitly before registering either specification."
+    },
+    {
+      "decision": "Approve registration ownership and activation boundary",
+      "evidence": ".dev/workstreams.json has no app-lifecycle-supervisor row; its state is Integration Owner managed.",
+      "constraint": "This row is a proposal only. Do not add it to the shared registry or mark the stream active from this branch."
+    },
+    {
+      "decision": "Open runtime checkpoint when eligible",
+      "evidence": "docs/implementation_status.md records M30 NOT STARTED and current M17 BLOCKED; the existing 3G first-party/shared UI checkpoint is host-side only.",
+      "constraint": "Do not begin runtime implementation until M30 PASS and an explicit stream-specific integration checkpoint exists."
+    }
+  ],
+  "scope_notes": [
+    "This stream owns process supervision only; it consumes AppId and launch metadata through the existing package/manifest adapter.",
+    "Existing SDK lifecycle events describe app-level lifecycle and graceful callbacks; user/libnagi service::Supervisor manages system services, not application processes.",
+    "Existing AppId, AppSessionId, and ExecutionInstanceId types are not redefined. Process handles and supervisor instance IDs remain separate adapter-owned identities.",
+    "Capability-principal binding, diagnostics, and process execution are adapter boundaries; this proposal does not invent kernel calls or shared ABI."
+  ]
+}
