@@ -1,6 +1,6 @@
 # Model Runtime / Model Store Foundation Workstream
 
-Status: `PARTIAL`
+Status: `PASS` (Nagi 0.2 Model Runtime Foundation scope)
 
 ## Goal and boundaries
 
@@ -10,7 +10,8 @@ metadata. The workstream does not fetch model weights or implement the
 production inference engine. M17, Servo, Capability policy, App SDK, Activity,
 Wayback, and other concurrent workstreams remain separately owned. M20 stays
 `NOT STARTED` until its milestone acceptance, including a real local Granite
-response inside Nagi, is met.
+response inside Nagi, is met. M17's status is independent and does not gate
+this 0.2 Foundation result.
 
 The accepted generative/decision architecture remains authoritative:
 
@@ -146,3 +147,58 @@ a locked validator dependency would also require the shared root `Cargo.lock`,
 which the authoritative workstream registry lists as forbidden; this exact
 schema-validation gap remains deferred until the lockfile boundary is
 authorized. Existing typed parsing and semantic negative tests remain active.
+
+### 2026-09-28 Nagi 0.2 Foundation acceptance
+
+Status: `PASS` for workstream `MODEL-RT-01`. This result covers the provider-
+neutral model descriptor, registry, runtime/session contract, deterministic
+mock backend, lifecycle, capability and role selection, cancellation and
+streaming, health/resource reporting, and the System One extension point. It
+does not claim production inference, model weights, or M20 completion.
+
+- Added optional manifest runtime/resource class IDs and generic backend
+  capability/class declarations. Existing manifest v1 profiles without the
+  additive fields remain accepted.
+- Added provider-neutral generation options, stream sink/response, health and
+  resource reports, and tests for streaming, mid-stream cancellation,
+  unavailable backends, load failure, and repeated load/unload.
+- Registry selection supports a configured Granite default when available and
+  deterministic Standard-to-Lite fallback when the default is missing.
+- System One remains an extension point expressed through open runtime-class
+  and capability IDs. No System One model, DecisionProvider, or `jev` code was
+  added.
+- No weights, generated model caches, mandatory network dependency, or
+  production inference implementation were added.
+
+Verification on the pinned arm64 nightly toolchain:
+
+- `cargo test --locked -p nagi-model-manager --all-targets` — PASS: 37 unit,
+  2 manifest/schema, and 1 Store API test (40 total).
+- `cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check` —
+  PASS.
+- `cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings` —
+  PASS.
+- `cargo check --locked -p nagi-model-manager --lib` — PASS.
+- `./nagi doctor` — PASS: 12 pass, 0 warnings, 0 failures.
+- `git diff --check` — PASS.
+- Nagi user-target package check was attempted with the repo-pinned patched
+  Rust std source. It stops in existing `libc 0.2.174` target declarations
+  (`time_t`, `suseconds_t`, and related types missing for `target_os = "nagi"`)
+  before compiling this crate. This target issue is outside this Foundation
+  acceptance. The Nagi 0.2 specification does not require that target build.
+- Root `./nagi fmt` is blocked by existing Servo formatting drift; root
+  `./nagi lint` and `./nagi test` fail in existing x86_64 syscall assembly
+  under the local arm64 host compiler. The Model Manager's focused format,
+  Clippy, and test checks pass. These unrelated workspace/host failures do not
+  change the Foundation status.
+- Existing CI run `36248290972` for parent commit
+  `c9c7076e24b283361abb1f219143d0fa8fd3defd` passed its Ubuntu host and Windows
+  launcher jobs. Its Nagi target job failed only at M17 first-web-pixel
+  acceptance. M17 remains independently `BLOCKED`.
+- Full Draft 2020-12 schema evaluation remains deferred under the existing
+  shared `Cargo.lock` ownership restriction; this check is not an acceptance
+  item in the Nagi 0.2 Foundation specification.
+
+M20 remains `NOT STARTED`, pending its own milestone sequence and real local
+Granite response acceptance. The remaining runtime work is future production
+integration described in the specification.

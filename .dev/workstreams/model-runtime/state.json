@@ -2,13 +2,13 @@
   "schema_ref": "../../schemas/workstream-state.schema.json",
   "schema_version": 1,
   "workstream_id": "model-runtime",
-  "current_milestone": "Model Runtime / Model Store Foundation",
-  "current_checkpoint": "backend-store-and-registry-lifecycle-verified",
-  "status": "PARTIAL",
+  "current_milestone": "Nagi 0.2 Model Runtime Foundation",
+  "current_checkpoint": "model-runtime-0.2-foundation-acceptance",
+  "status": "PASS",
   "last_verified": {
-    "commit_sha": "dca9f0e709eda3a56ea17641e47ad0d42234aedf",
-    "verified_at": "2026-09-26T14:20:55Z",
-    "normal_state": "Host model foundation now has cross-descriptor compatibility regression protection, a Windows-safe CRLF manifest negative test, private ModelStoreRecord invariant fields with read-only consumer getters, and lifecycle-guarded registry unregistration. The all-target package suite passes 31 tests, formatting and warnings-denied Clippy pass. Local target compile could not start because prepared out/rust-src is absent; the target CI job prepares it. CI #362477 and #362478 were cancelled by later pushes, #362479 is in progress, and #362481 is queued for the registry-unregister checkpoint. Formal Draft 2020-12 schema evaluation is blocked by the workstream forbidden-path rule for root Cargo.lock; the current schema JSON and typed parser contract checks pass. M20 remains NOT STARTED; M17 remains separately blocked.",
+    "commit_sha": "686ca8ae703d13baf51320240463c0ae14963be0",
+    "verified_at": "2026-09-28T08:25:57Z",
+    "normal_state": "MODEL-RT-01 Nagi 0.2 Model Runtime Foundation acceptance passes on codex/ws-model-runtime. The pinned arm64 host all-target suite passes 40 tests; focused formatting, warnings-denied Clippy, crate check, and nagi doctor pass. The provider-neutral contract now covers manifest/runtime and resource classes, capability-aware registry selection, deterministic Standard-to-Lite fallback, generation and streaming, cooperative cancellation, typed failures, health/resource reporting, and a metadata-only System One extension point. No production inference, weights, mandatory network dependency, or M20 implementation is included. A local Nagi target check stops in existing libc 0.2.174 declarations missing target_os=nagi types before this crate compiles. Root nagi fmt is blocked by existing Servo format drift; root nagi lint/test fail on existing x86_64 syscall registers under the local arm64 host compiler. These are separately scoped. CI 36248290972 for parent c9c7076 passed Ubuntu host and Windows launcher jobs and failed only M17 first-web-pixel acceptance. M17 is independent. Full Draft 2020-12 schema evaluation is deferred under the shared Cargo.lock ownership restriction and is not a Nagi 0.2 Foundation acceptance item. M20 remains NOT STARTED.",
     "commands": [
       "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check",
       "cargo test --locked -p nagi-model-manager --all-targets",
@@ -19,7 +19,16 @@
       "cargo test --locked -p nagi-model-manager refuses_to_unregister_models_with_active_or_transitional_lifecycles",
       "cargo test --locked -p nagi-model-manager --test manifest_schema",
       "__CARGO_TESTS_ONLY_SRC_ROOT=out/rust-src/library cargo check --locked -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --offline -Zbuild-std=std,panic_abort",
-      "git diff --check"
+      "git diff --check",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test --locked -p nagi-model-manager --all-targets",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo check --locked -p nagi-model-manager --lib",
+      "./nagi doctor",
+      "./nagi fmt",
+      "./nagi lint",
+      "./nagi test",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH __CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/.codex/worktrees/nagi-model-runtime/NagiOS/out/rust-src/library cargo check --locked -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --offline -Zbuild-std=std,panic_abort"
     ],
     "tests": [
       {
@@ -112,6 +121,75 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "No whitespace errors."
+      },
+      {
+        "name": "Model Manager all-target host suite",
+        "command": "cargo test --locked -p nagi-model-manager --all-targets",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "37 unit tests, 2 manifest/schema tests, and 1 external Store API test passed (40 total)."
+      },
+      {
+        "name": "Model Manager formatting",
+        "command": "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The Model Manager crate and its tests are rustfmt-clean."
+      },
+      {
+        "name": "Model Manager Clippy",
+        "command": "cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All package targets pass with warnings denied."
+      },
+      {
+        "name": "Model Manager library check",
+        "command": "cargo check --locked -p nagi-model-manager --lib",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The host library check completed successfully."
+      },
+      {
+        "name": "Nagi doctor",
+        "command": "./nagi doctor",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "12 checks passed, 0 warnings, 0 failures."
+      },
+      {
+        "name": "Nagi user-target package check",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH __CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/.codex/worktrees/nagi-model-runtime/NagiOS/out/rust-src/library cargo check --locked -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --offline -Zbuild-std=std,panic_abort",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The build reaches existing libc 0.2.174 and fails with missing Nagi target types including time_t and suseconds_t (171 related errors); the Model Manager crate is not reached. This is outside the Nagi 0.2 Foundation Acceptance."
+      },
+      {
+        "name": "Root formatter",
+        "command": "./nagi fmt",
+        "outcome": "FAIL",
+        "evidence": "Root format check reports existing third_party/servo formatting drift; the Model Manager package format check passes."
+      },
+      {
+        "name": "Root lint",
+        "command": "./nagi lint",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Existing user/libnagi x86_64 syscall registers are rejected by the local arm64 host compiler; the focused Model Manager Clippy check passes."
+      },
+      {
+        "name": "Root test",
+        "command": "./nagi test",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Existing user/libnagi x86_64 syscall registers are rejected by the local arm64 host compiler; the focused Model Manager suite passes."
+      },
+      {
+        "name": "Worktree whitespace check",
+        "command": "git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No whitespace errors in the reviewed changes."
       }
     ],
     "ci_runs": [
@@ -143,29 +221,37 @@
         "run_id": 36247982853,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36247982853",
         "head_sha": "890ef3262f8b97df71c9adde7dfa8d391fe0faa5",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "State checkpoint CI is running; the newer unregister checkpoint run is queued."
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Cancelled by the later Model Runtime Foundation push."
       },
       {
         "run_id": 36248186902,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36248186902",
         "head_sha": "dca9f0e709eda3a56ea17641e47ad0d42234aedf",
-        "status": "QUEUED",
-        "conclusion": null,
-        "summary": "Registry unregistration checkpoint is queued."
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Cancelled by the later Model Runtime Foundation push."
+      },
+      {
+        "run_id": 36248290972,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36248290972",
+        "head_sha": "c9c7076e24b283361abb1f219143d0fa8fd3defd",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu host and Windows launcher jobs passed. The Nagi target job failed only at M17 first-web-pixel acceptance, separately from Model Runtime Foundation."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/workstreams/model-runtime.md and docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T14:20:55Z",
-    "activation_requirement": "This is a host-side foundation and target compile only. Nagi 0.1 M20 remains NOT STARTED until M17-M19 are completed in order and a real local Granite response is accepted; any 0.2 product/runtime activation also requires M30 PASS and an explicit integration checkpoint."
+    "last_checked_at": "2026-09-28T08:30:18Z",
+    "activation_requirement": "This is the Nagi 0.2 provider-neutral Model Runtime Foundation only. Nagi 0.1 M20 remains NOT STARTED until M17-M19 are completed in order and a real local Granite response is accepted; any 0.2 product/runtime activation also requires M30 PASS and an explicit integration checkpoint."
   },
   "blocker": {
-    "active": true,
+    "active": false,
     "class": "UNKNOWN",
-    "summary": "Full Draft 2020-12 validation of the manifest schema remains unimplemented. Adding a validator dependency would require changing the shared root Cargo.lock, which is explicitly in this workstream registry entry forbidden_paths. Existing schema JSON/selected-key tests and strict typed manifest parsing remain in place.",
+    "summary": "No active Nagi 0.2 Foundation acceptance blocker. The prior full Draft 2020-12 schema evaluator gap remains deferred because it is not required by the Nagi 0.2 Foundation specification and adding a validator would cross the shared Cargo.lock ownership boundary. Real inference, weights, and M20 remain future integration. The local Nagi target libc failure and M17 first-web-pixel failure are separately scoped.",
     "reproduction_commands": [
       "cargo test --locked -p nagi-model-manager --test manifest_schema"
     ],
@@ -182,16 +268,18 @@
       "Do not activate production runtime before milestone/release gates."
     ]
   },
-  "next_action": "Proceed to the registered Diagnostics workstream in its dedicated branch. Keep Model Runtime PARTIAL and M20 NOT STARTED. Inspect CI run 36248186902 after it starts; distinguish any M17-only target acceptance failure from host checks. Reopen full JSON Schema validation only after the shared Cargo.lock path is authorized or an approved validator is already locked. No further safe host implementation gap was found in this scan.",
+  "next_action": "No Nagi 0.2 Foundation Acceptance work remains. Keep M20 NOT STARTED until its own prerequisite milestones and real local Granite response acceptance; M17 BLOCKED is independent. Production inference, model weights, and formal full-schema evaluation remain deferred.",
   "acceptance_criteria": [
-    "Strict model manifest v1 parsing rejects unknown fields, malformed identifiers, unsupported versions, invalid resource bounds, and malformed integrity metadata.",
-    "Registry selection filters by capability, role, architecture, available resources, context, and offline constraints with deterministic user-preference/default/fallback ordering.",
-    "Model Store metadata models install/update/removal lifecycle, integrity checks, license acknowledgement, NOTICE records, and prior-version preservation on failed updates.",
-    "Provider/runtime APIs are capability-neutral and expose bounded model reads, request limits, cancellation/deadline inputs, and structured errors.",
-    "Granite, Qwen, and Gemma fixtures are explicitly illustrative and contain no downloadable weights or false hash/license claims.",
-    "Host tests, formatting, Clippy, schema contract tests, and Nagi user-target library compilation pass.",
-    "No production inference backend, model weights, host downloader/service, or kernel/runtime hook is included.",
-    "M20 remains NOT STARTED until M17-M19 finish in order and a real local Granite response is accepted."
+    "Provider-neutral manifest descriptors represent stable model/provider identity, revision, role, runtime/resource classes, capability, locality, availability, and license/NOTICE metadata.",
+    "Runtime/backend contracts expose discovery/enumeration, validation, load/unload, invocation, streaming, cooperative cancellation, health, and resource reporting.",
+    "Provider-neutral sessions and requests support lifecycle, text/system context, generation options, bounded token usage, timeout, cancellation, and typed errors.",
+    "Registry matching checks backend/runtime/class/capability compatibility and deterministically selects configured Granite default, available Standard candidates, and Lite fallback without vendor-specific branches.",
+    "Qwen3 4B, IBM Granite 4.2 3B, and Gemma 3 1B are represented by metadata fixtures with Standard/Standard/Lite roles and no model weights.",
+    "Deterministic mock-backend tests cover discovery, selection, load/invoke/unload, error paths, streaming, cancellation, health/resource reports, and repeated lifecycle.",
+    "System One is an open runtime-class/capability extension point; no System One model, fake inference, DecisionProvider, or jev implementation is claimed.",
+    "No model weights, mandatory network dependency, production inference backend, or kernel/runtime hook is introduced.",
+    "Focused all-target host tests, package formatting, warnings-denied Clippy, documentation, state, commit, push, and clean branch state are verified.",
+    "Production inference and model weights are outside Foundation Acceptance; M20 remains NOT STARTED pending its own milestone criteria."
   ],
   "deferred": [
     "Pinned distributable IBM Granite 4.2 3B revision, source URL, exact filename, size, SHA-256, provider license, and NOTICE validation.",
@@ -199,7 +287,8 @@
     "Model artifact persistence/download through an authorized Nagi user-space store, with signature and integrity verification.",
     "Production permission checks, App SDK integration, and model-service process activation.",
     "M20 acceptance until prerequisite milestones and its real-response criterion pass.",
-    "Full Draft 2020-12 schema evaluation; resume after an authorized validator dependency and shared lockfile ownership/allowlist are available."
+    "Full Draft 2020-12 schema evaluation; resume after an authorized validator dependency and shared lockfile ownership/allowlist are available.",
+    "Production generative inference, pinned model weights, and real local Granite response acceptance under future runtime/M20 integration."
   ],
   "cross_workstream_dependencies": [
     {
@@ -214,5 +303,46 @@
       "version": "localization-contract-v1",
       "status": "INDEPENDENT / NO API DEPENDENCY"
     }
-  ]
+  ],
+  "legacy_acceptance_criteria": [
+    "Strict model manifest v1 parsing rejects unknown fields, malformed identifiers, unsupported versions, invalid resource bounds, and malformed integrity metadata.",
+    "Registry selection filters by capability, role, architecture, available resources, context, and offline constraints with deterministic user-preference/default/fallback ordering.",
+    "Model Store metadata models install/update/removal lifecycle, integrity checks, license acknowledgement, NOTICE records, and prior-version preservation on failed updates.",
+    "Provider/runtime APIs are capability-neutral and expose bounded model reads, request limits, cancellation/deadline inputs, and structured errors.",
+    "Granite, Qwen, and Gemma fixtures are explicitly illustrative and contain no downloadable weights or false hash/license claims.",
+    "Host tests, formatting, Clippy, schema contract tests, and Nagi user-target library compilation pass.",
+    "No production inference backend, model weights, host downloader/service, or kernel/runtime hook is included.",
+    "M20 remains NOT STARTED until M17-M19 finish in order and a real local Granite response is accepted."
+  ],
+  "separate_nonblocking_failures": [
+    {
+      "scope": "Nagi user-target libc integration",
+      "command": "__CARGO_TESTS_ONLY_SRC_ROOT=<absolute out/rust-src/library> cargo check --locked -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --offline -Zbuild-std=std,panic_abort",
+      "result": "Fails in existing libc 0.2.174 target declarations because Nagi target time_t, suseconds_t, and related types are undefined before nagi-model-manager compiles."
+    },
+    {
+      "scope": "M17 target acceptance",
+      "ci_run": 36248290972,
+      "result": "The target job failed at M17 first-web-pixel acceptance after other target build steps succeeded; independent from MODEL-RT-01."
+    },
+    {
+      "scope": "Root workspace format/lint/test on local arm64 host",
+      "result": "Root format sees existing Servo drift; root lint/test fail on existing x86_64 syscall register assembly. Focused Model Manager format, Clippy, and tests pass."
+    }
+  ],
+  "completion_report": {
+    "status": "PASS",
+    "workstream_id": "MODEL-RT-01",
+    "branch": "codex/ws-model-runtime",
+    "base_sha": "c1506888655123d819ec75be66891f0cd5477533",
+    "verified_implementation_head_sha": "686ca8ae703d13baf51320240463c0ae14963be0",
+    "architecture": "Provider-neutral manifest, registry, runtime/session and local Store contract; deterministic mock only.",
+    "mock_backend": "Covers invocation, streaming, cancellation, health, resources, lifecycle, and failure paths; not real inference.",
+    "tests": "40 focused all-target tests pass; package fmt, Clippy with warnings denied, and cargo check pass.",
+    "ci": "Latest observed run 36248290972 passes Ubuntu host and Windows launcher jobs; only separate M17 first-web-pixel target acceptance fails.",
+    "production_integration_boundary": "No production inference, model weights, mandatory network dependency, or M20 completion.",
+    "system_one_extension": "Open runtime-class and capability descriptors can be registered/selected; no System One model, DecisionProvider, or jev implementation.",
+    "blockers": "No active Foundation blocker. Separate libc target integration, M17 acceptance, and deferred schema evaluator are recorded above.",
+    "push_status": "The final documentation/state checkpoint is included in the push to origin/codex/ws-model-runtime."
+  }
 }

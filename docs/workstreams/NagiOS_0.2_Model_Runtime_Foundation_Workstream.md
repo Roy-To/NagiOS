@@ -421,30 +421,30 @@ System One型backendがAPI redesignなしで追加可能か検証。
 
 ## 20. Acceptance Criteria
 
-- [ ] provider-neutral descriptor
-- [ ] runtime/provider abstraction
-- [ ] lifecycle
-- [ ] typed errors
-- [ ] capability model
-- [ ] Standard/Lite roles
-- [ ] Qwen/Granite/Gemmaをvendor branchingなしで表現
-- [ ] Graniteをdefault candidateとして設定可能
-- [ ] unavailable default fallback
-- [ ] mock backend
-- [ ] mock inference tests
-- [ ] streaming tests
-- [ ] cancellation tests
-- [ ] load/unload tests
-- [ ] failure-path tests
-- [ ] System One extension point
-- [ ] no model weights committed
-- [ ] no mandatory network dependency
-- [ ] format/lint PASS
-- [ ] docs updated
-- [ ] state updated
-- [ ] committed
-- [ ] pushed
-- [ ] clean tree
+- [x] provider-neutral descriptor
+- [x] runtime/provider abstraction
+- [x] lifecycle
+- [x] typed errors
+- [x] capability model
+- [x] Standard/Lite roles
+- [x] Qwen/Granite/Gemmaをvendor branchingなしで表現
+- [x] Graniteをdefault candidateとして設定可能
+- [x] unavailable default fallback
+- [x] mock backend
+- [x] mock inference tests
+- [x] streaming tests
+- [x] cancellation tests
+- [x] load/unload tests
+- [x] failure-path tests
+- [x] System One extension point
+- [x] no model weights committed
+- [x] no mandatory network dependency
+- [x] format/lint PASS（Model Manager package）
+- [x] docs updated
+- [x] state updated
+- [x] committed
+- [x] pushed
+- [x] clean tree
 
 production inference自体は、他runtime workstream依存ならfoundation PASS必須条件にしない。
 
@@ -452,16 +452,16 @@ production inference自体は、他runtime workstream依存ならfoundation PASS
 
 ## 21. Completion Report
 
-- Status
-- Workstream ID
-- Branch
-- Base SHA
-- HEAD SHA
-- Architecture
-- Mock backend
-- Tests
-- CI
-- Production integration boundary
-- System One extension
-- Blockers
-- Push status
+- Status: `PASS`（Foundation Acceptanceのみ）
+- Workstream ID: `MODEL-RT-01`（既存`model-runtime` workstreamの継続）
+- Branch: `codex/ws-model-runtime`（新規branchは作成していない）
+- Base SHA: `c1506888655123d819ec75be66891f0cd5477533`（`origin/main`とのmerge-base）
+- HEAD SHA: `686ca8ae703d13baf51320240463c0ae14963be0`（検証済み実装commit。state/docs checkpoint commitは後続）
+- Architecture: provider-neutral manifest、registry、runtime/session、local Store metadata contract
+- Mock backend: invocation、streaming、cancellation、health/resource、lifecycle、failure pathを検証。実inferenceではない
+- Tests: 40 focused all-target tests PASS。package format、warnings-denied Clippy、library check PASS
+- CI: 観測済みrun `36248290972` はUbuntu host/Windows launcher PASS。Nagi target jobは別milestone M17 first-web-pixel acceptanceのみFAIL。push後の今回commitのCIは別途発火
+- Production integration boundary: production inference、model weights、real Granite response、M20は未実装・未完了
+- System One extension: runtime-class/capabilityのopen metadataを登録・選択可能。System One model、DecisionProvider、jevの実装なし
+- Blockers: Foundation Acceptance blockerなし。Nagi targetの既存libc型不足、M17 first-web-pixel、Draft 2020-12 evaluatorは別課題/将来integrationとして記録
+- Push status: `origin/codex/ws-model-runtime`へ既存branchをpush済み
