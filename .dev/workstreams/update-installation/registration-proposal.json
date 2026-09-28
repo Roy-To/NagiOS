@@ -1,0 +1,37 @@
+{
+  "id": "update-installation",
+  "owner": "Codex Update / Installation Foundation workstream",
+  "owner_branch": "codex/0.2-update-installation",
+  "recommended_worktree": "/Users/tozawa/.codex/worktrees/update-installation/NagiOS",
+  "state_file": ".dev/workstreams/update-installation/state.json",
+  "dependencies": [
+    "development-foundation",
+    "app-sdk-contract"
+  ],
+  "allowed_paths": [
+    "tools/nagi-installer/**",
+    "docs/workstreams/NagiOS_0.2_Update_Installation_Foundation_Workstream.md",
+    "docs/workstreams/update-installation.md",
+    ".dev/workstreams/update-installation/**"
+  ],
+  "forbidden_paths": [
+    "kernel/**",
+    "loader/**",
+    "user/**",
+    "third_party/**",
+    "out/**",
+    "target/**",
+    ".dev/workstreams.json",
+    ".dev/schemas/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    "docs/implementation_status.md",
+    "crates/nagi-capability/**",
+    "crates/nagi-wayback/**",
+    "user/nagi-albert/**",
+    "user/nagi-servo/**"
+  ],
+  "activation_gate": "Host-side reference foundation only. Runtime installation, product adoption, and root workspace integration require Nagi 0.1 M30 PASS and an explicit 0.2 integration checkpoint.",
+  "merge_boundary": "Dedicated 0.2 integration branch after manifest adapter, transaction recovery, and host checks are reviewed; never merge to main without explicit user direction."
+}
