@@ -413,24 +413,24 @@ Final report must state:
 
 ## 14. Acceptance criteria
 
-- [ ] Typed validated service identity
-- [ ] Versioned service contract model
-- [ ] Request/correlation identity
-- [ ] Transport-neutral request/response boundary
-- [ ] Structured IPC/service errors
-- [ ] Service descriptor
-- [ ] Registration/discovery abstraction
-- [ ] Client abstraction
-- [ ] Provider abstraction
-- [ ] In-process reference transport
-- [ ] Capability/authorization hook without owning policy
-- [ ] Cancellation semantics where repository primitives permit
-- [ ] Version/service/operation failure handling
-- [ ] Deterministic offline contract tests
-- [ ] Example service/client proving the contract
-- [ ] No implementation of unrelated Files/Wayback/Search/Model product behavior
-- [ ] Documentation complete
-- [ ] Workstream state complete
-- [ ] Shared integration proposal recorded if needed
-- [ ] Format/lint/check/tests pass for owned scope
-- [ ] Commit and push complete
+- [x] Typed validated service identity
+- [x] Versioned service contract model
+- [x] Request/correlation identity
+- [x] Transport-neutral request/response boundary
+- [x] Structured IPC/service errors
+- [x] Service descriptor
+- [x] Registration/discovery abstraction
+- [x] Client abstraction
+- [x] Provider abstraction
+- [x] In-process reference transport
+- [x] Capability/authorization hook without owning policy
+- [x] Cancellation semantics where repository primitives permit
+- [x] Version/service/operation failure handling
+- [x] Deterministic offline contract tests
+- [x] Example service/client proving the contract
+- [x] No implementation of unrelated Files/Wayback/Search/Model product behavior
+- [x] Documentation complete
+- [x] Workstream state complete
+- [x] Shared integration proposal recorded if needed
+- [x] Format/lint/check/tests pass for owned scope
+- [x] Commit and push complete

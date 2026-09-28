@@ -1,0 +1,178 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "system-service-ipc",
+  "current_milestone": "SVC-IPC-01",
+  "current_checkpoint": "host-contract-foundation-verified",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "3d04cc39723ea505b6ad473e7ae8f4af4c14fc63",
+    "verified_at": "2026-09-28T14:58:30Z",
+    "normal_state": "SVC-IPC-01 (`system-service-ipc`) is implemented on codex/0.2-system-service-ipc from base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; source HEAD 3d04cc39723ea505b6ad473e7ae8f4af4c14fc63 is the tested implementation commit and was pushed to origin. The standalone host-side crate passes 18 contract tests, format, warnings-denied Clippy, all-target check, and the runnable echo example. Caller identity is established by the transport rather than claimed in RequestEnvelope; request and response payloads are each limited to 1 MiB. Docs defer M6/NIPC compatibility acceptance to the gated integration checkpoint. ./nagi dev verify passes for 18 registered streams and 11 states, but ./nagi dev status and GitHub CI run 36439857022 fail because this branch is not yet registered in the integration-owned .dev/workstreams.json; the exact registration proposal is included and that shared file was not modified. GitHub Ubuntu Format/lint/build pass; both host test jobs fail only at the existing registered-branch CLI test and M0/target checks are skipped. ./nagi doctor also fails because this clean worktree lacks third_party/cc-nagi/Cargo.toml; no local fetch was run because it would bring unrelated third-party/browser sources into scope. Owned paths are crates/nagi-service-contract/**, docs/0.2/system-service-ipc-contract.md, docs/workstreams/NagiOS_0.2_System_Service_IPC_Contract_Foundation_Workstream.md, and .dev/workstreams/system-service-ipc/**. No M18, SDK, target runtime, shared registry/schema/workspace, CI, or product-service files were changed. A preceding default-toolchain attempt selected x86_64 Homebrew Rust on the ARM host; final checks use the pinned aarch64 nightly with matching rustc and rustdoc.",
+    "commands": [
+      "git status --short --branch; git rev-parse HEAD; git ls-remote origin refs/heads/codex/0.2-system-service-ipc",
+      "cargo test --manifest-path crates/nagi-service-contract/Cargo.toml --locked --offline (pinned nightly-2025-08-01 aarch64 toolchain; matching RUSTC/RUSTDOC)",
+      "cargo fmt --manifest-path crates/nagi-service-contract/Cargo.toml -- --check (pinned nightly-2025-08-01 rustfmt)",
+      "cargo clippy --manifest-path crates/nagi-service-contract/Cargo.toml --all-targets --locked --offline -- -D warnings (pinned nightly-2025-08-01 toolchain)",
+      "cargo check --manifest-path crates/nagi-service-contract/Cargo.toml --all-targets --locked --offline (pinned nightly-2025-08-01 toolchain)",
+      "cargo run --manifest-path crates/nagi-service-contract/Cargo.toml --example in_process_echo --locked --offline (pinned nightly-2025-08-01 toolchain)",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi doctor",
+      "Python standard-library schema-subset validation of state.json and registration-proposal.json against both checked-in schemas",
+      "git diff --cached --check",
+      "gh run view 36439857022 --repo RT-NISH/NagiOS --json status,conclusion,headSha,jobs,url",
+      "gh run view 36439857022 --repo RT-NISH/NagiOS --log-failed"
+    ],
+    "tests": [
+      {
+        "name": "SVC-IPC-01 contract and edge-case tests",
+        "command": "cargo test --manifest-path crates/nagi-service-contract/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Pinned nightly-2025-08-01 aarch64 toolchain with matching rustc and rustdoc: all 18 integration tests pass, including identifier and version failures, registry replacement/isolation, auth denial without provider dispatch, bounded request/response payloads, external cancellation of a pending provider, concurrency, and structured errors; unit and doc targets also pass."
+      },
+      {
+        "name": "SVC-IPC-01 formatting",
+        "command": "cargo fmt --manifest-path crates/nagi-service-contract/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The isolated crate passes the pinned nightly-2025-08-01 rustfmt check."
+      },
+      {
+        "name": "SVC-IPC-01 Clippy",
+        "command": "cargo clippy --manifest-path crates/nagi-service-contract/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All crate targets pass Clippy with warnings denied on the pinned nightly-2025-08-01 aarch64 toolchain."
+      },
+      {
+        "name": "SVC-IPC-01 all-target package check",
+        "command": "cargo check --manifest-path crates/nagi-service-contract/Cargo.toml --all-targets --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Library, integration-test, and example targets type-check with the standalone locked dependency graph."
+      },
+      {
+        "name": "SVC-IPC-01 executable echo contract example",
+        "command": "cargo run --manifest-path crates/nagi-service-contract/Cargo.toml --example in_process_echo --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The example exits successfully and prints `hello from the service client`."
+      },
+      {
+        "name": "DF-01 registered-state verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "At source commit 3d04cc39723ea505b6ad473e7ae8f4af4c14fc63, the repository verifier reports 18 registered workstreams and 11 registered state files valid. This dedicated branch-local state is not discoverable until the Integration Owner accepts the registry proposal."
+      },
+      {
+        "name": "Repository doctor on clean managed worktree",
+        "command": "./nagi doctor",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The root Cargo graph cannot load dependency cc from third_party/cc-nagi because that directory/Cargo.toml is absent in this clean worktree. This does not affect the standalone crate checks. No third-party fetch was run because it is outside this workstream and would fetch unrelated sources."
+      },
+      {
+        "name": "Initial default-host Rust toolchain selection",
+        "command": "cargo test --manifest-path crates/nagi-service-contract/Cargo.toml --locked --offline (default PATH)",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The default PATH selected x86_64 Homebrew rustc/rustdoc on the aarch64 macOS host and failed at Apple toolchain architecture selection / mixed rustdoc metadata. Re-running with the pinned nightly-2025-08-01 aarch64 cargo, rustc, rustdoc, and rustfmt passed all focused checks."
+      },
+      {
+        "name": "GitHub Actions Nagi CI",
+        "command": "GitHub Actions run 36439857022 on source commit 3d04cc39723ea505b6ad473e7ae8f4af4c14fc63",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Run 36439857022 completed with failure on immutable head 3d04cc39723ea505b6ad473e7ae8f4af4c14fc63. Ubuntu and Windows host-compatible test jobs each fail only dev_status_resume_and_verify_read_the_registered_workstream: ./nagi dev status returns code 4 because codex/0.2-system-service-ipc is absent from integration-owned .dev/workstreams.json. Ubuntu Format, Clippy, and host build pass; Windows host build passes; Ubuntu nagi-cli unit tests pass 108/108 and CLI integration tests pass 25/26. M0 and target CI are skipped after the host test failure. No files outside the workstream-owned scope were changed."
+      },
+      {
+        "name": "Local DF-01 status for dedicated branch",
+        "command": "./nagi dev status",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "The CLI reports that codex/0.2-system-service-ipc is not registered in .dev/workstreams.json. That registry is integration-owner-owned; the branch-local registration-proposal.json is ready for the owner."
+      },
+      {
+        "name": "Workstream state and registration proposal schema shape",
+        "command": "Python standard-library schema-subset validation against .dev/schemas/workstream-state.schema.json and .dev/schemas/workstreams.schema.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Validated required/allowed fields, types, references, enums, patterns, date-time/URI formats, dependency IDs, and agreement between state workstream_id and proposed registry id. The repository JSON Schema itself was not modified."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36439857022,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36439857022",
+        "head_sha": "3d04cc39723ea505b6ad473e7ae8f4af4c14fc63",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host test jobs fail only the existing dev_status_resume_and_verify_read_the_registered_workstream CLI test because the dedicated branch has no entry in integration-owner-owned .dev/workstreams.json. Ubuntu Format, Clippy, and build pass; Windows build passes. M0/target and state-verification steps are skipped. Integration registration proposal is present."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/0.2/DEVELOPMENT_ARCHITECTURE.md and docs/implementation_status.md",
+    "last_checked_at": "2026-09-28T15:06:46Z",
+    "activation_requirement": "Keep this crate host-side only. Root workspace activation, target transport, and runtime/product integration require Nagi 0.1 M30 PASS and an explicit Nagi 0.2 integration checkpoint."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not change the integration-owned .dev/workstreams.json, .dev/schemas/**, root Cargo.toml/Cargo.lock, or .github/workflows/**; use the registration proposal for shared integration.",
+      "Do not modify kernel, user/libnagi, SDK, M18, Servo, Mesa, relibc, or other workstream/product paths from this branch.",
+      "Do not fetch third_party sources merely to satisfy ./nagi doctor for this host-only crate; use the isolated locked crate commands."
+    ]
+  },
+  "next_action": "Integration Owner: register system-service-ipc using .dev/workstreams/system-service-ipc/registration-proposal.json in .dev/workstreams.json, then rerun ./nagi dev status and host CI. Keep the crate isolated until M30 PASS and an explicit 0.2 gate; then define and test the M6/NIPC service, operation, version, caller, and request/correlation mappings recorded in docs/0.2/system-service-ipc-contract.md.",
+  "acceptance_criteria": [
+    "PASS: Dedicated codex/0.2-system-service-ipc branch/worktree starts from verified base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9 and preserves every other worktree.",
+    "PASS: Canonical typed ServiceId and OperationId validation rejects malformed and path-like values; version matching is explicit and exact.",
+    "PASS: Transport-neutral request/response envelopes preserve request, correlation, trace, service, operation, and version metadata with 1 MiB request and response payload bounds.",
+    "PASS: Caller principal is established by the trusted transport context rather than claimed in RequestEnvelope; authorization receives the configured/authenticated principal.",
+    "PASS: Structured errors cover missing service, version, operation, invalid request, permission, availability, cancellation, provider, serialization, transport, duplicate/stale registration, and oversized response cases.",
+    "PASS: Service descriptors, isolated registration/discovery, deterministic duplicate handling, unregister, stale-handle protection, and registry isolation are implemented.",
+    "PASS: Client, provider, transport, host reference transport, injected authorization policy, fail-closed denial, and cooperative cancellation APIs are implemented.",
+    "PASS: Offline focused suite passes all 18 integration tests, including external cancellation while provider work is pending and no provider invocation after authorization denial.",
+    "PASS: Runnable in-process echo provider/client example returns the submitted payload.",
+    "PASS: Contract and integration-boundary documentation describes capability hooks, transport guarantees, error/payload semantics, identity trust, and the reference adapter limitations.",
+    "PASS: No unrelated service product behavior, target transport, kernel, SDK, M18, Servo/Mesa/relibc, or other workstream implementation was changed.",
+    "PASS: Integration registration proposal is present; shared registry/schema/workspace/CI ownership was respected.",
+    "PASS: Isolated crate format, warnings-denied Clippy, all-target check, focused tests, and example pass on the pinned aarch64 toolchain.",
+    "PASS: DF-01 dev verify validates the existing 18 registered workstreams and 11 registered states.",
+    "DEFERRED TO GATED INTEGRATION: M6 ServiceId name/version and NIPC v1 AppId/payload-type/required-correlation compatibility mapping and paired adapter tests; no silent truncation, version loss, or caller-identity assertion is allowed.",
+    "PARTIAL ENVIRONMENT CHECK: ./nagi doctor cannot run because third_party/cc-nagi/Cargo.toml is absent from this clean worktree; the isolated crate is independently verified and no out-of-scope source fetch was attempted.",
+    "PARTIAL INTEGRATION CHECK: ./nagi dev status and GitHub Actions run 36439857022 fail because the required DF-01 registry row for this dedicated branch is still integration-owner-owned; a valid proposal is included, and the rest of the owned host contract implementation is complete.",
+    "PASS: The implementation checkpoint was pushed normally and its SHA matched origin; the final state/spec checkpoint is also committed and pushed without force."
+  ],
+  "deferred": [
+    "Integration Owner registration in .dev/workstreams.json from registration-proposal.json.",
+    "Root Cargo workspace and shared Cargo.lock integration, only at the approved checkpoint.",
+    "Target transport and NIDL binary serialization, malformed-wire handling, and target-side cancellation/deadline behavior.",
+    "M6 service name/version mapping and NIPC v1 service/operation/AppId/request/correlation adapter with compatibility and authenticated-caller tests.",
+    "CapabilityEnforcer adapter and service-specific resource-scope enforcement after the explicit runtime integration gate.",
+    "Product service implementations (Files, Activity, Wayback, Search, Models, Notifications, package management) remain in their owning workstreams."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 workstream-state schema and path-ownership rules",
+      "version": "workstream-state-v1",
+      "status": "PASS at base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; this branch uses its state schema and preserves integration-owned registry/schema files."
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "Public PrincipalId and CapabilityId contract types from nagi-capability",
+      "version": "nagi-capability-0.2.0",
+      "status": "PASS for shared public identity/requirement types and compile-time integration; evaluator/runtime authorization adapter remains gated and deferred."
+    }
+  ]
+}
