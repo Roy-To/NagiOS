@@ -2,64 +2,87 @@
 
 ## Problem and intended outcome
 
-M10 already has a user-space painter, bitmap font path, and Japanese text
-coverage, but app presentation still uses local color values and local input
-handling. Add a shared Nagi UI contract that first-party applications can use
-without binding the contract to the current renderer or input service.
+First-party apps need one renderer-neutral presentation and interaction
+contract. The existing no-std `nagi-ui` crate provides useful tokens and
+headless state models, but it does not yet make several required behaviors
+explicit: complete typography and focus tokens, text scaling, contained modal
+focus with restoration, select behavior, shell regions, and a sizing policy
+that can reject critical-text truncation.
 
 ## Current behavior
 
-`user/nagi-init/src/ui.rs` owns `Rect`, `Painter`, clipping, and text drawing.
-`user/nagi-init/src/desktop.rs` owns M10-specific geometry, colors, and focus
-handling. The M10 GUI decision keeps widgets in user space; the kernel exposes
-only display and input primitives. `docs/architecture/language-architecture.md`
-requires equal first-class `en-US` and `ja-JP` support and stable message keys.
+`user/nagi-ui` owns semantic palettes, spacing/density/radius/elevation/motion
+values, button/toggle/text-field/dialog/focus/command-palette models,
+localization-aware text measurement, and accessibility metadata. It is
+`no_std`, allocation-free, and does not render pixels or invoke applications.
+M10 has a narrow adapter to the shared color roles. The target desktop preview
+currently stops in the M5 ELF loader before the UI starts.
 
 ## Scope and non-goals
 
-Add a backend-neutral, allocation-free `no_std` crate with semantic tokens,
-shared component state contracts, focus behavior, accessibility metadata, and
-localization-ready text layout policy. Adapt the existing M10 desktop to
-consume semantic theme roles as a narrow first-party integration.
+Extend `user/nagi-ui` with typed visual and interaction semantics for the
+complete first-party UI foundation: typography roles and scalable sizing,
+control/border/focus tokens, structured interaction and feedback state,
+modal focus containment/restoration, select navigation, bounded localized
+text sizing, semantic error states, and an application-shell slot contract.
+Map added component kinds to accessibility roles and test defaults,
+transitions, invalid inputs, keyboard behavior, and English/Japanese text
+fixtures.
 
-Do not change compositor, kernel, display/input ABI, localization catalogs or
-service, application business logic, Servo/M17, or the M10 acceptance path.
-This contract does not claim a full accessibility service or renderer.
+Keep the crate backend-neutral, `no_std`, allocation-free, and free of new
+dependencies. Preserve existing public behavior where possible. Do not add
+renderer code, app-specific workflows, localization catalogs or services,
+assistive-technology delivery, compositor/kernel/runtime changes, or
+production 0.2 adoption. Keep the M10 guest acceptance blocked while its
+loader prerequisite prevents UI startup.
 
 ## Design
 
-- Put public contracts in `user/nagi-ui`; use only `core` and fixed-capacity
-  state so the crate remains usable by the Nagi target and host tests.
-- Resolve colors by semantic role from complete light and dark palettes. Keep
-  spacing, typography, icon size, corner radius, density, and motion values in
-  typed code tokens. Reduced motion resolves transition duration to zero.
-- Model activation, selection, focus traversal, dialog default/cancel/Escape,
-  and Command Palette loading/empty/error/ready states as deterministic state
-  transitions. The palette returns a selected command index; the app owns its
-  execution and authorization.
-- Keep localization outside the crate. Component labels use stable message
-  keys; a caller supplies already resolved UTF-8 text and a text-measurement
-  adapter. Layout policy supports wrapping or truncation after measuring the
-  selected locale, including Japanese expansion.
-- Expose accessibility role, name/description keys, state, focusability, and
-  keyboard operation metadata without depending on an accessibility service.
-- Reuse the existing M10 painter. Map its sample desktop colors to semantic
-  roles; do not move raw Nagi input events or display capabilities into the
-  shared crate.
+- Keep palette, type, spacing, density, corner, elevation, border, control,
+  focus-ring, and motion values as typed semantic tokens. Add secondary body,
+  label, monospace, and code typography roles; system/monospace family is a
+  semantic choice, not a proprietary font requirement. Provide bounded text
+  scale steps and preserve readable line-height for Latin and CJK fixtures.
+- Keep interaction state separate from feedback state so focus/selection and
+  loading/success/warning/error can be represented together without unrelated
+  booleans. Existing button, toggle, and text-field models remain the common
+  Button/IconButton, Checkbox/Radio/Switch, and TextField/SearchField logic.
+- Add a fixed-capacity modal focus scope that only accepts its own enabled
+  targets, wraps Tab/Shift+Tab traversal within the scope, and returns the
+  saved opener target when closed. Keep device events outside the crate.
+- Add a select model that navigates enabled option indices with arrow keys,
+  commits with Enter/Space, and cancels with Escape. It reports indices only;
+  the caller owns option labels, persistence, and actions.
+- Add an application-shell specification with a required localized title and
+  primary content plus optional navigation, sidebar, toolbar, status, overlay,
+  and dialog regions. It describes composition and accessibility labels but
+  does not render or launch applications.
+- Measure already-resolved UTF-8 text through the injected locale/font
+  adapter. Add explicit min/max logical-size constraints. `Reject` overflow
+  returns an error when the adapter reports truncation, so callers can prevent
+  critical information from disappearing silently; wrapping and ellipsis
+  remain explicit caller choices.
+- Extend accessibility role mapping for the new primitives and keep names and
+  descriptions as stable message keys. Pair an invalid input's accessible
+  state with its stable error-message key and reject inconsistent relations.
 
 ## Compatibility and data impact
 
-The change adds a local Rust package and additive public types. It adds no
-syscalls, IPC schema, generated binding, external dependency, catalog, or
-persistent data. Existing M10 event and acceptance behavior remains intact.
-First-party code injects theme, resolved text, input events, and renderer
-adapters at its boundary.
+The change is additive Rust API in the existing local package. It adds no
+syscalls, IPC schemas, generated bindings, external dependency, localization
+catalog, persistent data, or new runtime service. Existing M10 input and
+acceptance behavior stays intact. The repository's workstream branch and
+registered ownership remain authoritative; target visual/input acceptance is
+recorded only when the guest reaches the UI.
 
 ## Verification plan
 
-Run `nagi-ui` unit tests for palette completeness, interaction/focus state,
-disabled activation, dialog actions, text expansion and Japanese UTF-8,
-reduced motion, and palette execution gating. Build the public gallery example,
-run formatting and workspace checks, and run the existing M10 host/target
-verification available in this environment. Keep host tests, Nagi target
-builds, and QEMU acceptance results distinct.
+Run `nagi-ui` host tests for token invariants, type scaling, all interaction
+and feedback states, disabled behavior, focus traversal and modal restoration,
+select keyboard semantics, shell required/optional regions, English/Japanese
+measurement, min/max sizing, reject-on-truncation, accessibility mappings,
+and invalid input. Build the public gallery, run package Clippy and formatting,
+and compile the crate for the Nagi user target. Run repository/workstream
+validation where the environment supports it. Keep host and target compile
+results distinct from QEMU guest UI evidence; do not change M5 ownership to
+clear the guest blocker.

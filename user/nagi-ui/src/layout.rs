@@ -1,5 +1,6 @@
 //! Logical-pixel layout, surface, and passive content contracts.
 
+use crate::interaction::FeedbackState;
 use crate::text::MessageKey;
 use crate::tokens::{spacing, ColorRole, CornerRadius, ElevationRole, SpacingRole};
 
@@ -96,6 +97,7 @@ pub const fn layout_spec(kind: LayoutKind, padding: Insets) -> LayoutSpec {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SurfaceKind {
     WindowContent,
+    Panel,
     Dialog,
     Sheet,
     Popover,
@@ -117,6 +119,13 @@ pub const fn surface_frame(kind: SurfaceKind) -> SurfaceFrame {
             background: ColorRole::Surface,
             border: ColorRole::Border,
             elevation: ElevationRole::Raised,
+            radius: CornerRadius::Medium,
+            padding: Insets::all(SpacingRole::Large),
+        },
+        SurfaceKind::Panel => SurfaceFrame {
+            background: ColorRole::Surface,
+            border: ColorRole::Border,
+            elevation: ElevationRole::Flat,
             radius: CornerRadius::Medium,
             padding: Insets::all(SpacingRole::Large),
         },
@@ -187,6 +196,65 @@ pub struct EmptyStateSpec {
     pub title: MessageKey,
     pub description: MessageKey,
     pub action_label: Option<MessageKey>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ErrorStateSpec {
+    pub title: MessageKey,
+    pub description: MessageKey,
+    pub action_label: Option<MessageKey>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ShellRegionSpec {
+    pub label: MessageKey,
+}
+
+impl ShellRegionSpec {
+    pub const fn new(label: MessageKey) -> Self {
+        Self { label }
+    }
+}
+
+/// Shared first-party composition slots. The app supplies localized labels,
+/// content, and behavior; the renderer decides how each region is presented.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ApplicationShellSpec {
+    pub title: MessageKey,
+    pub navigation: Option<ShellRegionSpec>,
+    pub primary_content: ShellRegionSpec,
+    pub sidebar: Option<ShellRegionSpec>,
+    pub toolbar: Option<ShellRegionSpec>,
+    pub status_area: Option<ShellRegionSpec>,
+    pub overlay: Option<ShellRegionSpec>,
+    pub dialog: Option<ShellRegionSpec>,
+    pub content_state: FeedbackState,
+}
+
+impl ApplicationShellSpec {
+    pub const fn new(title: MessageKey, primary_content: ShellRegionSpec) -> Self {
+        Self {
+            title,
+            navigation: None,
+            primary_content,
+            sidebar: None,
+            toolbar: None,
+            status_area: None,
+            overlay: None,
+            dialog: None,
+            content_state: FeedbackState::Ready,
+        }
+    }
+
+    /// Includes required title/content regions and every configured optional slot.
+    pub const fn visible_region_count(&self) -> u8 {
+        2 + self.navigation.is_some() as u8
+            + self.sidebar.is_some() as u8
+            + self.toolbar.is_some() as u8
+            + self.status_area.is_some() as u8
+            + self.overlay.is_some() as u8
+            + self.dialog.is_some() as u8
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -339,5 +407,37 @@ mod tests {
         assert_eq!(progress_percent(ProgressState::Indeterminate), None);
         assert_eq!(status_color_role(StatusTone::Danger), ColorRole::Danger);
         assert_eq!(divider_orientation(false), DividerOrientation::Horizontal);
+    }
+
+    #[test]
+    fn application_shell_requires_title_and_content_and_names_optional_regions() {
+        let mut shell = ApplicationShellSpec::new(
+            MessageKey::new("files.title"),
+            ShellRegionSpec::new(MessageKey::new("files.content")),
+        );
+        assert_eq!(shell.visible_region_count(), 2);
+        assert_eq!(shell.content_state, FeedbackState::Ready);
+        shell.navigation = Some(ShellRegionSpec::new(MessageKey::new("files.navigation")));
+        shell.sidebar = Some(ShellRegionSpec::new(MessageKey::new("files.locations")));
+        shell.toolbar = Some(ShellRegionSpec::new(MessageKey::new("files.actions")));
+        shell.status_area = Some(ShellRegionSpec::new(MessageKey::new("files.status")));
+        shell.overlay = Some(ShellRegionSpec::new(MessageKey::new("files.overlay")));
+        shell.dialog = Some(ShellRegionSpec::new(MessageKey::new("files.dialog")));
+
+        assert_eq!(shell.title.as_str(), "files.title");
+        assert_eq!(shell.primary_content.label.as_str(), "files.content");
+        assert_eq!(shell.visible_region_count(), 8);
+        assert_eq!(shell.dialog.unwrap().label.as_str(), "files.dialog");
+    }
+
+    #[test]
+    fn error_state_uses_stable_localization_keys() {
+        let error = ErrorStateSpec {
+            title: MessageKey::new("network.error.title"),
+            description: MessageKey::new("network.error.description"),
+            action_label: Some(MessageKey::new("common.retry")),
+        };
+        assert_eq!(error.description.as_str(), "network.error.description");
+        assert_eq!(error.action_label.unwrap().as_str(), "common.retry");
     }
 }

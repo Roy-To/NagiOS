@@ -3032,26 +3032,35 @@ acceptance evidence.
 
 # 3F. UI Design System parallel workstream
 
-**State:** `BLOCKED` for guest integration verification; independent UI
-implementation and focused tests pass. This is a separate shared-foundation
-workstream and does not revise the historical M10 milestone result above.
+**State:** `PASS` for the independent host-side design foundation. Target UI
+attachment remains deferred and blocked before UI startup by the existing M5
+ELF loader; this workstream does not revise the historical M10 milestone.
 
-The new `user/nagi-ui` `no_std` crate provides semantic light/dark tokens,
-logical layout and surface contracts, deterministic control/focus/dialog and
-Command Palette state, localization/layout adapters, and accessibility
-metadata. M10 now maps its preview desktop colors through those semantic roles.
-See `docs/architecture/ui-design-system.md` and
-`docs/workstreams/ui-design-system.md` for API and acceptance evidence.
+The existing `user/nagi-ui` `no_std` crate now defines semantic visual tokens,
+scalable typography, density/control/border/focus treatment, structured
+interaction and feedback state, button/toggle/text-field/select/navigation/
+dialog contracts, modal focus containment and restoration, localization-aware
+min/max sizing, a first-party application-shell contract, and accessibility
+roles with validated input/error relations. M10 continues to consume semantic
+palette roles through its narrow adapter. The crate remains renderer-neutral
+and does not execute app actions or add a system service. See
+`docs/architecture/ui-design-system.md` and
+`docs/workstreams/ui-design-system.md` for its full contract and evidence.
 
-Host unit tests (27/27), focused Clippy, formatting, the public contract gallery,
-and a Nagi x86-64 `core` target check passed. The M10 target image built, but
-QEMU stopped before the UI: `out/logs/m10-first-boot.log` reports M5
-`invalid-elf`. The built ELF contains an empty `PT_TLS` program header, and
-`kernel/src/user_elf.rs::validate_tls_segment` rejects its zero memory size.
-The kernel/loader is owned by another workstream and was left unchanged. The
-full host workspace test was attempted but cannot compile x86-only `libnagi`
-inline assembly on this Apple Silicon host. Neither the M10 QEMU result nor the
-full-workspace host test is recorded as PASS.
+At UI commit `91465588a13e0f9a66afe9c99b75c2fb1a1c394c`, the focused suite
+passed 41 tests; warning-denied Clippy, formatting, the public component
+gallery, UEFI compilation, and the Nagi x86-64 user-target compilation passed.
+The integration-owned workstream state records these checks. `./nagi desktop`
+built the target image, then QEMU serial output stopped at M5
+`Nagi M5 user address space FAIL` / `reason: invalid-elf`, before `nagi-init`
+or UI startup. The existing empty `PT_TLS` header is rejected by
+`kernel/src/user_elf.rs::validate_tls_segment`; kernel/loader ownership was
+left unchanged. This is target attachment evidence only, not desktop rendering
+or input acceptance. The unrelated M17 `BLOCKED` and M18 `NOT STARTED` states
+remain unchanged. CI run `36380321571` was cancelled when the follow-up evidence
+commit was pushed. Run `36380820648` is validating the source workstream branch
+HEAD `9f0e58df297d02459f89cb8b42a5c228e089afff`; the integration-owned state
+tracks its current host and target job status.
 
 # 3G. First-party and shared UI host integration checkpoint (2026-09-26)
 

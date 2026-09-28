@@ -229,6 +229,217 @@ impl<const N: usize> FocusManager<N> {
     }
 }
 
+/// A modal's local tab order. Callers restore the returned opener ID after
+/// closing; background focus targets are never members of this scope.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FocusScope<const N: usize> {
+    manager: FocusManager<N>,
+    restore_target: Option<u16>,
+    active: bool,
+}
+
+impl<const N: usize> FocusScope<N> {
+    pub fn new(
+        targets: [FocusTarget; N],
+        restore_target: Option<u16>,
+        initial_focus: Option<u16>,
+    ) -> Self {
+        let mut manager = FocusManager::new(targets);
+        if !initial_focus.is_some_and(|id| manager.focus(id)) {
+            manager.advance(FocusDirection::Forward);
+        }
+        Self {
+            manager,
+            restore_target,
+            active: true,
+        }
+    }
+
+    pub const fn is_active(self) -> bool {
+        self.active
+    }
+
+    pub const fn focused(&self) -> Option<u16> {
+        self.manager.focused()
+    }
+
+    pub fn focus(&mut self, id: u16) -> bool {
+        self.active && self.manager.focus(id)
+    }
+
+    pub fn handle_tab(&mut self, shift_pressed: bool) -> Option<u16> {
+        if !self.active {
+            return None;
+        }
+        self.manager.advance(if shift_pressed {
+            FocusDirection::Backward
+        } else {
+            FocusDirection::Forward
+        })
+    }
+
+    /// Deactivate the scope and return the ID that the adapter should focus.
+    pub fn close(&mut self) -> Option<u16> {
+        if !self.active {
+            return None;
+        }
+        self.active = false;
+        self.manager.clear();
+        self.restore_target.take()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SelectAction {
+    Opened(Option<usize>),
+    Focused(usize),
+    Selected(usize),
+    Cancelled,
+    Dismissed,
+}
+
+/// Fixed-capacity combo-box/select behavior. Labels and option actions stay in
+/// the app; this model only tracks enabled and selected option indices.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SelectModel<const N: usize> {
+    enabled: [bool; N],
+    selected: Option<usize>,
+    active: Option<usize>,
+    open: bool,
+}
+
+impl<const N: usize> SelectModel<N> {
+    pub const fn new(enabled: [bool; N], selected: Option<usize>) -> Self {
+        let selected = match selected {
+            Some(index) if index < N && enabled[index] => Some(index),
+            _ => None,
+        };
+        Self {
+            enabled,
+            selected,
+            active: selected,
+            open: false,
+        }
+    }
+
+    pub const fn is_open(self) -> bool {
+        self.open
+    }
+
+    pub const fn selected(self) -> Option<usize> {
+        self.selected
+    }
+
+    pub const fn active(self) -> Option<usize> {
+        self.active
+    }
+
+    pub fn set_enabled(&mut self, index: usize, enabled: bool) -> bool {
+        let Some(option) = self.enabled.get_mut(index) else {
+            return false;
+        };
+        *option = enabled;
+        if !enabled {
+            if self.selected == Some(index) {
+                self.selected = None;
+            }
+            if self.active == Some(index) {
+                self.active = self.selected;
+            }
+        }
+        true
+    }
+
+    pub fn handle_key(&mut self, key: crate::interaction::KeyCode) -> Option<SelectAction> {
+        use crate::interaction::KeyCode;
+        if !self.open {
+            return match key {
+                KeyCode::Enter | KeyCode::Space => {
+                    self.open = true;
+                    self.active = self.selected.or_else(|| self.first_enabled());
+                    Some(SelectAction::Opened(self.active))
+                }
+                _ => None,
+            };
+        }
+        match key {
+            KeyCode::ArrowDown | KeyCode::ArrowRight => {
+                self.move_active(true).map(SelectAction::Focused)
+            }
+            KeyCode::ArrowUp | KeyCode::ArrowLeft => {
+                self.move_active(false).map(SelectAction::Focused)
+            }
+            KeyCode::Home => self.first_enabled().map(|index| {
+                self.active = Some(index);
+                SelectAction::Focused(index)
+            }),
+            KeyCode::End => self.last_enabled().map(|index| {
+                self.active = Some(index);
+                SelectAction::Focused(index)
+            }),
+            KeyCode::Enter | KeyCode::Space => self.commit_active(),
+            KeyCode::Escape => {
+                self.open = false;
+                self.active = self.selected;
+                Some(SelectAction::Cancelled)
+            }
+            KeyCode::Tab => {
+                self.open = false;
+                self.active = self.selected;
+                Some(SelectAction::Dismissed)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn choose(&mut self, index: usize) -> Option<SelectAction> {
+        if !self.open || !self.enabled.get(index).copied().unwrap_or(false) {
+            return None;
+        }
+        self.active = Some(index);
+        self.commit_active()
+    }
+
+    fn move_active(&mut self, forward: bool) -> Option<usize> {
+        if N == 0 {
+            return None;
+        }
+        for step in 1..=N {
+            let index = match (forward, self.active) {
+                (true, Some(active)) => (active + step) % N,
+                (false, Some(active)) => (active + N - (step % N)) % N,
+                (true, None) => step - 1,
+                (false, None) => N - step,
+            };
+            if self.enabled[index] {
+                self.active = Some(index);
+                return Some(index);
+            }
+        }
+        self.active = None;
+        None
+    }
+
+    fn first_enabled(&self) -> Option<usize> {
+        self.enabled.iter().position(|enabled| *enabled)
+    }
+
+    fn last_enabled(&self) -> Option<usize> {
+        self.enabled.iter().rposition(|enabled| *enabled)
+    }
+
+    fn commit_active(&mut self) -> Option<SelectAction> {
+        let index = self.active?;
+        if !self.enabled[index] {
+            return None;
+        }
+        self.selected = Some(index);
+        self.active = Some(index);
+        self.open = false;
+        Some(SelectAction::Selected(index))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,5 +523,88 @@ mod tests {
         );
         let mut empty = NavigationModel::<0>::new([], None, NavigationBehavior::ActivateSelection);
         assert_eq!(empty.handle_key(KeyCode::ArrowDown), None);
+    }
+
+    #[test]
+    fn modal_focus_scope_contains_tab_traversal_and_restores_the_opener() {
+        let mut scope = FocusScope::new(
+            [
+                FocusTarget::new(10, true),
+                FocusTarget::new(11, false),
+                FocusTarget::new(12, true),
+            ],
+            Some(99),
+            Some(10),
+        );
+        assert_eq!(scope.focused(), Some(10));
+        assert!(!scope.focus(99));
+        assert_eq!(scope.handle_tab(false), Some(12));
+        assert_eq!(scope.handle_tab(false), Some(10));
+        assert_eq!(scope.handle_tab(true), Some(12));
+        assert_eq!(scope.close(), Some(99));
+        assert_eq!(scope.focused(), None);
+        assert_eq!(scope.close(), None);
+    }
+
+    #[test]
+    fn select_keyboard_navigation_skips_disabled_options_and_escape_preserves_value() {
+        use crate::interaction::KeyCode;
+
+        let mut select = SelectModel::new([true, false, true], Some(0));
+        assert_eq!(
+            select.handle_key(KeyCode::Enter),
+            Some(SelectAction::Opened(Some(0)))
+        );
+        assert_eq!(
+            select.handle_key(KeyCode::ArrowDown),
+            Some(SelectAction::Focused(2))
+        );
+        assert_eq!(
+            select.handle_key(KeyCode::Escape),
+            Some(SelectAction::Cancelled)
+        );
+        assert_eq!(select.selected(), Some(0));
+        assert!(!select.is_open());
+
+        assert_eq!(
+            select.handle_key(KeyCode::Space),
+            Some(SelectAction::Opened(Some(0)))
+        );
+        assert_eq!(
+            select.handle_key(KeyCode::ArrowDown),
+            Some(SelectAction::Focused(2))
+        );
+        assert_eq!(
+            select.handle_key(KeyCode::Enter),
+            Some(SelectAction::Selected(2))
+        );
+        assert_eq!(select.selected(), Some(2));
+    }
+
+    #[test]
+    fn tab_and_reverse_tab_select_open_dialog_scope_order() {
+        let mut scope = FocusScope::new(
+            [FocusTarget::new(20, true), FocusTarget::new(21, true)],
+            Some(5),
+            None,
+        );
+        assert_eq!(scope.handle_tab(true), Some(21));
+        assert_eq!(scope.handle_tab(false), Some(20));
+    }
+
+    #[test]
+    fn select_defaults_reject_disabled_values_and_allow_option_disable() {
+        let mut select = SelectModel::new([true, false], Some(1));
+        assert_eq!(select.selected(), None);
+        assert_eq!(select.active(), None);
+        assert!(select.set_enabled(1, true));
+        assert_eq!(
+            select.handle_key(crate::interaction::KeyCode::Enter),
+            Some(SelectAction::Opened(Some(0)))
+        );
+        assert_eq!(select.choose(1), Some(SelectAction::Selected(1)));
+        assert!(select.set_enabled(1, false));
+        assert_eq!(select.selected(), None);
+        assert!(!select.set_enabled(9, true));
     }
 }

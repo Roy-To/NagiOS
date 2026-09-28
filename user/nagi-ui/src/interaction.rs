@@ -6,6 +6,7 @@ pub enum ComponentKind {
     IconButton,
     TextField,
     SearchField,
+    Select,
     Checkbox,
     Radio,
     Switch,
@@ -14,17 +15,21 @@ pub enum ComponentKind {
     Sidebar,
     Toolbar,
     TabSegment,
+    Tabs,
     Menu,
     MenuItem,
     ContextMenu,
     Dialog,
     Sheet,
     Popover,
+    Panel,
+    ApplicationShell,
     WindowContentFrame,
     SettingsRow,
     SettingsPage,
     ProgressIndicator,
     EmptyState,
+    ErrorState,
     StatusBadge,
     Tooltip,
     Divider,
@@ -40,6 +45,7 @@ pub const COMPONENT_KINDS: &[ComponentKind] = &[
     ComponentKind::IconButton,
     ComponentKind::TextField,
     ComponentKind::SearchField,
+    ComponentKind::Select,
     ComponentKind::Checkbox,
     ComponentKind::Radio,
     ComponentKind::Switch,
@@ -48,17 +54,21 @@ pub const COMPONENT_KINDS: &[ComponentKind] = &[
     ComponentKind::Sidebar,
     ComponentKind::Toolbar,
     ComponentKind::TabSegment,
+    ComponentKind::Tabs,
     ComponentKind::Menu,
     ComponentKind::MenuItem,
     ComponentKind::ContextMenu,
     ComponentKind::Dialog,
     ComponentKind::Sheet,
     ComponentKind::Popover,
+    ComponentKind::Panel,
+    ComponentKind::ApplicationShell,
     ComponentKind::WindowContentFrame,
     ComponentKind::SettingsRow,
     ComponentKind::SettingsPage,
     ComponentKind::ProgressIndicator,
     ComponentKind::EmptyState,
+    ComponentKind::ErrorState,
     ComponentKind::StatusBadge,
     ComponentKind::Tooltip,
     ComponentKind::Divider,
@@ -84,7 +94,9 @@ pub enum ComponentFamily {
 pub const fn component_family(kind: ComponentKind) -> ComponentFamily {
     match kind {
         ComponentKind::Button | ComponentKind::IconButton => ComponentFamily::Action,
-        ComponentKind::TextField | ComponentKind::SearchField => ComponentFamily::Input,
+        ComponentKind::TextField | ComponentKind::SearchField | ComponentKind::Select => {
+            ComponentFamily::Input
+        }
         ComponentKind::Checkbox | ComponentKind::Radio | ComponentKind::Switch => {
             ComponentFamily::Selection
         }
@@ -93,16 +105,20 @@ pub const fn component_family(kind: ComponentKind) -> ComponentFamily {
         | ComponentKind::Sidebar
         | ComponentKind::Toolbar
         | ComponentKind::TabSegment
+        | ComponentKind::Tabs
         | ComponentKind::Menu
         | ComponentKind::MenuItem
         | ComponentKind::ContextMenu => ComponentFamily::Navigation,
         ComponentKind::Dialog
         | ComponentKind::Sheet
         | ComponentKind::Popover
+        | ComponentKind::Panel
+        | ComponentKind::ApplicationShell
         | ComponentKind::WindowContentFrame
         | ComponentKind::ScrollContainer => ComponentFamily::Surface,
         ComponentKind::ProgressIndicator
         | ComponentKind::EmptyState
+        | ComponentKind::ErrorState
         | ComponentKind::StatusBadge
         | ComponentKind::Tooltip
         | ComponentKind::Divider => ComponentFamily::Feedback,
@@ -125,6 +141,42 @@ pub enum InteractionState {
     Invalid,
     Busy,
     Disabled,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FeedbackState {
+    Ready,
+    Loading,
+    Success,
+    Warning,
+    Error,
+}
+
+/// Interaction and feedback are independent semantic axes, so a focused
+/// control may also report a warning without proliferating boolean flags.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ComponentState {
+    pub interaction: InteractionState,
+    pub feedback: FeedbackState,
+}
+
+impl ComponentState {
+    pub const fn new(interaction: InteractionState, feedback: FeedbackState) -> Self {
+        Self {
+            interaction,
+            feedback,
+        }
+    }
+
+    pub const fn ready() -> Self {
+        Self::new(InteractionState::Idle, FeedbackState::Ready)
+    }
+}
+
+impl Default for ComponentState {
+    fn default() -> Self {
+        Self::ready()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -527,15 +579,67 @@ mod tests {
 
     #[test]
     fn every_required_visual_primitive_has_a_public_component_kind() {
-        assert!(COMPONENT_KINDS.contains(&ComponentKind::Button));
-        assert!(COMPONENT_KINDS.contains(&ComponentKind::IconButton));
-        assert!(COMPONENT_KINDS.contains(&ComponentKind::SearchField));
-        assert!(COMPONENT_KINDS.contains(&ComponentKind::Sidebar));
-        assert!(COMPONENT_KINDS.contains(&ComponentKind::MenuItem));
-        assert!(COMPONENT_KINDS.contains(&ComponentKind::CommandPalette));
+        for kind in [
+            ComponentKind::Button,
+            ComponentKind::IconButton,
+            ComponentKind::TextField,
+            ComponentKind::SearchField,
+            ComponentKind::Checkbox,
+            ComponentKind::Radio,
+            ComponentKind::Switch,
+            ComponentKind::Select,
+            ComponentKind::ListItem,
+            ComponentKind::Menu,
+            ComponentKind::ContextMenu,
+            ComponentKind::Tabs,
+            ComponentKind::Toolbar,
+            ComponentKind::ProgressIndicator,
+            ComponentKind::Dialog,
+            ComponentKind::Panel,
+            ComponentKind::Tooltip,
+            ComponentKind::EmptyState,
+            ComponentKind::ErrorState,
+            ComponentKind::ApplicationShell,
+            ComponentKind::CommandPalette,
+        ] {
+            assert!(COMPONENT_KINDS.contains(&kind), "{kind:?}");
+        }
         assert_eq!(
             component_family(ComponentKind::SettingsRow),
             ComponentFamily::Content
         );
+    }
+
+    #[test]
+    fn component_state_separates_interaction_from_feedback() {
+        assert_eq!(ComponentState::default(), ComponentState::ready());
+        assert_eq!(
+            ComponentState::ready(),
+            ComponentState::new(InteractionState::Idle, FeedbackState::Ready)
+        );
+        for feedback in [
+            FeedbackState::Ready,
+            FeedbackState::Loading,
+            FeedbackState::Success,
+            FeedbackState::Warning,
+            FeedbackState::Error,
+        ] {
+            let state = ComponentState::new(InteractionState::Focused, feedback);
+            assert_eq!(state.interaction, InteractionState::Focused);
+            assert_eq!(state.feedback, feedback);
+        }
+        for interaction in [
+            InteractionState::Idle,
+            InteractionState::Hovered,
+            InteractionState::Pressed,
+            InteractionState::Focused,
+            InteractionState::Selected,
+            InteractionState::Disabled,
+        ] {
+            assert_eq!(
+                ComponentState::new(interaction, FeedbackState::Ready).interaction,
+                interaction
+            );
+        }
     }
 }

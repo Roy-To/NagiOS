@@ -194,10 +194,14 @@ pub const fn spacing(role: SpacingRole) -> u8 {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TypeRole {
     Caption,
+    SecondaryBody,
+    Label,
     Body,
     BodyStrong,
     Heading,
     Title,
+    Monospace,
+    Code,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -208,39 +212,103 @@ pub enum FontWeight {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FontFamily {
+    System,
+    Monospace,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TypeTokens {
     pub size_px: u8,
     pub line_height_px: u8,
     pub weight: FontWeight,
+    pub family: FontFamily,
 }
 
 pub const fn typography(role: TypeRole) -> TypeTokens {
     match role {
         TypeRole::Caption => TypeTokens {
             size_px: 12,
-            line_height_px: 16,
+            line_height_px: 18,
             weight: FontWeight::Regular,
+            family: FontFamily::System,
+        },
+        TypeRole::SecondaryBody => TypeTokens {
+            size_px: 14,
+            line_height_px: 21,
+            weight: FontWeight::Regular,
+            family: FontFamily::System,
+        },
+        TypeRole::Label => TypeTokens {
+            size_px: 13,
+            line_height_px: 19,
+            weight: FontWeight::Medium,
+            family: FontFamily::System,
         },
         TypeRole::Body => TypeTokens {
             size_px: 15,
             line_height_px: 22,
             weight: FontWeight::Regular,
+            family: FontFamily::System,
         },
         TypeRole::BodyStrong => TypeTokens {
             size_px: 15,
             line_height_px: 22,
             weight: FontWeight::Semibold,
+            family: FontFamily::System,
         },
         TypeRole::Heading => TypeTokens {
             size_px: 20,
             line_height_px: 28,
             weight: FontWeight::Semibold,
+            family: FontFamily::System,
         },
         TypeRole::Title => TypeTokens {
             size_px: 26,
-            line_height_px: 34,
+            line_height_px: 36,
             weight: FontWeight::Medium,
+            family: FontFamily::System,
         },
+        TypeRole::Monospace | TypeRole::Code => TypeTokens {
+            size_px: 14,
+            line_height_px: 22,
+            weight: FontWeight::Regular,
+            family: FontFamily::Monospace,
+        },
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextScale {
+    Standard,
+    Large,
+    Larger,
+    Largest,
+}
+
+const fn scale_dimension(value: u8, scale: TextScale) -> u8 {
+    let percentage = match scale {
+        TextScale::Standard => 100,
+        TextScale::Large => 125,
+        TextScale::Larger => 150,
+        TextScale::Largest => 200,
+    };
+    let scaled = (value as u16 * percentage).div_ceil(100);
+    if scaled > u8::MAX as u16 {
+        u8::MAX
+    } else {
+        scaled as u8
+    }
+}
+
+/// Apply a bounded user text-scale preference without selecting a font.
+pub const fn scaled_typography(role: TypeRole, scale: TextScale) -> TypeTokens {
+    let base = typography(role);
+    TypeTokens {
+        size_px: scale_dimension(base.size_px, scale),
+        line_height_px: scale_dimension(base.line_height_px, scale),
+        weight: base.weight,
+        family: base.family,
     }
 }
 
@@ -258,6 +326,36 @@ pub const fn corner_radius(role: CornerRadius) -> u8 {
         CornerRadius::Medium => 8,
         CornerRadius::Large => 12,
         CornerRadius::Pill => u8::MAX,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BorderRole {
+    Subtle,
+    Standard,
+    Strong,
+    Focus,
+}
+
+pub const fn border_width_px(role: BorderRole) -> u8 {
+    match role {
+        BorderRole::Subtle | BorderRole::Standard => 1,
+        BorderRole::Strong | BorderRole::Focus => 2,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FocusTreatment {
+    pub color: ColorRole,
+    pub width_px: u8,
+    pub offset_px: u8,
+}
+
+pub const fn focus_treatment() -> FocusTreatment {
+    FocusTreatment {
+        color: ColorRole::Focus,
+        width_px: border_width_px(BorderRole::Focus),
+        offset_px: 2,
     }
 }
 
@@ -295,6 +393,53 @@ pub const fn density_tokens(density: Density) -> DensityTokens {
             item_gap: 6,
             icon_size: 16,
         },
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ControlSize {
+    Small,
+    Standard,
+    Large,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ControlTokens {
+    pub min_width_px: u16,
+    pub min_height_px: u16,
+    pub inline_padding_px: u8,
+    pub icon_gap_px: u8,
+}
+
+pub const fn control_tokens(size: ControlSize, density: Density) -> ControlTokens {
+    let density_tokens = density_tokens(density);
+    let min_height_px = match size {
+        ControlSize::Small => {
+            let smaller = density_tokens.control_min_height.saturating_sub(4);
+            if smaller < 24 {
+                24
+            } else {
+                smaller
+            }
+        }
+        ControlSize::Standard => density_tokens.control_min_height,
+        ControlSize::Large => density_tokens.control_min_height.saturating_add(8),
+    };
+    let min_width_px = match size {
+        ControlSize::Small => 64,
+        ControlSize::Standard => 88,
+        ControlSize::Large => 112,
+    };
+    let inline_padding_px = match size {
+        ControlSize::Small => density_tokens.inline_padding.saturating_sub(4),
+        ControlSize::Standard => density_tokens.inline_padding,
+        ControlSize::Large => density_tokens.inline_padding.saturating_add(4),
+    };
+    ControlTokens {
+        min_width_px,
+        min_height_px: min_height_px as u16,
+        inline_padding_px,
+        icon_gap_px: density_tokens.item_gap,
     }
 }
 
@@ -431,5 +576,56 @@ mod tests {
             assert_eq!(motion_duration_ms(role, MotionPreference::Reduced), 0);
             assert!(motion_duration_ms(role, MotionPreference::Full) > 0);
         }
+    }
+
+    #[test]
+    fn typography_families_and_accessible_scales_are_typed_and_readable() {
+        let roles = [
+            TypeRole::Caption,
+            TypeRole::SecondaryBody,
+            TypeRole::Label,
+            TypeRole::Body,
+            TypeRole::BodyStrong,
+            TypeRole::Heading,
+            TypeRole::Title,
+            TypeRole::Monospace,
+            TypeRole::Code,
+        ];
+        for role in roles {
+            let tokens = typography(role);
+            assert!(tokens.line_height_px >= tokens.size_px + 4, "{role:?}");
+        }
+        assert_eq!(
+            typography(TypeRole::Monospace).family,
+            FontFamily::Monospace
+        );
+        assert_eq!(typography(TypeRole::Code).family, FontFamily::Monospace);
+        assert_eq!(typography(TypeRole::Label).weight, FontWeight::Medium);
+
+        let standard = scaled_typography(TypeRole::Body, TextScale::Standard);
+        let larger = scaled_typography(TypeRole::Body, TextScale::Large);
+        let largest = scaled_typography(TypeRole::Body, TextScale::Largest);
+        assert!(standard.size_px < larger.size_px);
+        assert!(larger.size_px < largest.size_px);
+        assert!(largest.line_height_px >= largest.size_px + 4);
+    }
+
+    #[test]
+    fn control_border_and_focus_tokens_are_semantic_and_density_aware() {
+        let compact = control_tokens(ControlSize::Standard, Density::Compact);
+        let comfortable = control_tokens(ControlSize::Standard, Density::Comfortable);
+        assert_eq!(
+            compact.min_height_px,
+            u16::from(density_tokens(Density::Compact).control_min_height)
+        );
+        assert_eq!(
+            comfortable.min_height_px,
+            u16::from(density_tokens(Density::Comfortable).control_min_height)
+        );
+        assert!(comfortable.min_height_px > compact.min_height_px);
+        assert!(compact.min_width_px > 0);
+        assert!(border_width_px(BorderRole::Focus) >= border_width_px(BorderRole::Subtle));
+        assert_eq!(focus_treatment().color, ColorRole::Focus);
+        assert!(focus_treatment().width_px > 0);
     }
 }
