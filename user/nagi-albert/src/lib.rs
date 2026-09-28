@@ -5,6 +5,22 @@
 //! to guest Mesa/Softpipe. The only output handoff is the existing
 //! capability-checked Nagi Surface.
 
+pub mod address_bar;
+pub mod bookmarks;
+pub mod browser_state;
+pub mod chrome_surface;
+pub mod clipboard;
+pub mod downloads;
+pub mod history;
+pub mod ime;
+pub mod navigation;
+pub mod permissions;
+pub mod persistence;
+pub mod session;
+pub mod tabs;
+pub mod ui;
+pub mod uploads;
+
 #[cfg(target_os = "nagi")]
 mod guest {
     use std::cell::{Cell, RefCell};
@@ -18,6 +34,9 @@ mod guest {
         Servo, ServoBuilder, SoftwareRenderingContext, WebView, WebViewBuilder, WebViewDelegate,
     };
     use url::Url;
+
+    use crate::browser_state::BrowserState;
+    use crate::chrome_surface::render_chrome;
 
     /// Write bounded Servo initialization diagnostics through Nagi's guest console syscall.
     ///
@@ -66,7 +85,11 @@ mod guest {
     struct FirstPixelDelegate {
         context: Rc<SoftwareRenderingContext>,
         surface: RefCell<NagiSurface>,
+        browser_state: RefCell<BrowserState>,
+        composed_frame: RefCell<Vec<u8>>,
+        current_url: RefCell<String>,
         frame_diagnostics_emitted: Cell<bool>,
+        chrome_rendered_emitted: Cell<bool>,
     }
 
     impl FirstPixelDelegate {
@@ -127,9 +150,36 @@ mod guest {
                 }
                 return;
             }
+            let mut composed_frame = self.composed_frame.borrow_mut();
+            if composed_frame.len() != frame.len() {
+                if trace_first {
+                    trace_stage(b"browser chrome frame size mismatch");
+                }
+                return;
+            }
+            composed_frame.copy_from_slice(frame);
+            let mut chrome = crate::ui::view(&self.browser_state.borrow());
+            let current_url = self.current_url.borrow();
+            if !current_url.is_empty() {
+                chrome.address_text = current_url.clone();
+            }
+            if render_chrome(
+                &mut composed_frame,
+                WIDTH,
+                HEIGHT,
+                WIDTH as usize * 4,
+                &chrome,
+            )
+            .is_err()
+            {
+                if trace_first {
+                    trace_stage(b"browser chrome render rejected");
+                }
+                return;
+            }
             let mut surface = self.surface.borrow_mut();
             if surface
-                .copy_rgba_frame(frame, WIDTH, HEIGHT, WIDTH as usize * 4)
+                .copy_rgba_frame(&composed_frame, WIDTH, HEIGHT, WIDTH as usize * 4)
                 .is_err()
             {
                 if trace_first {
@@ -146,13 +196,17 @@ mod guest {
                 }
                 return;
             }
+            if !self.chrome_rendered_emitted.replace(true) {
+                libnagi::console_write(b"Nagi M18B Albert chrome presented\r\n");
+            }
             if trace_first {
                 trace_stage(b"first web frame surface present completed");
             }
             Self::report(checksum);
         }
 
-        fn notify_url_changed(&self, _webview: WebView, _url: Url) {
+        fn notify_url_changed(&self, _webview: WebView, url: Url) {
+            *self.current_url.borrow_mut() = url.to_string();
             trace_stage(b"WebView URL changed");
         }
 
@@ -206,7 +260,11 @@ mod guest {
         let delegate = Rc::new(FirstPixelDelegate {
             context: context.clone(),
             surface: RefCell::new(surface),
+            browser_state: RefCell::new(BrowserState::new()),
+            composed_frame: RefCell::new(vec![0; WIDTH as usize * HEIGHT as usize * 4]),
+            current_url: RefCell::new(String::new()),
             frame_diagnostics_emitted: Cell::new(false),
+            chrome_rendered_emitted: Cell::new(false),
         });
         let url = Url::parse(FIRST_WEB_PAGE).expect("the bundled M17 data URL is valid");
         libnagi::console_write(b"Nagi M17 trace: WebView construction started\r\n");
