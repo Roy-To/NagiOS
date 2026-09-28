@@ -8,7 +8,7 @@
   "last_verified": {
     "commit_sha": "3d04cc39723ea505b6ad473e7ae8f4af4c14fc63",
     "verified_at": "2026-09-28T14:58:30Z",
-    "normal_state": "SVC-IPC-01 (`system-service-ipc`) is implemented on codex/0.2-system-service-ipc from base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; source HEAD 3d04cc39723ea505b6ad473e7ae8f4af4c14fc63 is the tested implementation commit and was pushed to origin. The standalone host-side crate passes 18 contract tests, format, warnings-denied Clippy, all-target check, and the runnable echo example. Caller identity is established by the transport rather than claimed in RequestEnvelope; request and response payloads are each limited to 1 MiB. Docs defer M6/NIPC compatibility acceptance to the gated integration checkpoint. ./nagi dev verify passes for 18 registered streams and 11 states, but ./nagi dev status and GitHub CI run 36439857022 fail because this branch is not yet registered in the integration-owned .dev/workstreams.json; the exact registration proposal is included and that shared file was not modified. GitHub Ubuntu Format/lint/build pass; both host test jobs fail only at the existing registered-branch CLI test and M0/target checks are skipped. ./nagi doctor also fails because this clean worktree lacks third_party/cc-nagi/Cargo.toml; no local fetch was run because it would bring unrelated third-party/browser sources into scope. Owned paths are crates/nagi-service-contract/**, docs/0.2/system-service-ipc-contract.md, docs/workstreams/NagiOS_0.2_System_Service_IPC_Contract_Foundation_Workstream.md, and .dev/workstreams/system-service-ipc/**. No M18, SDK, target runtime, shared registry/schema/workspace, CI, or product-service files were changed. A preceding default-toolchain attempt selected x86_64 Homebrew Rust on the ARM host; final checks use the pinned aarch64 nightly with matching rustc and rustdoc.",
+    "normal_state": "SVC-IPC-01 (`system-service-ipc`) is implemented on codex/0.2-system-service-ipc from base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; source HEAD 3d04cc39723ea505b6ad473e7ae8f4af4c14fc63 is the tested implementation commit and was pushed to origin; current branch HEAD at the state/spec checkpoint was cd2333598cf2ab0e9f10face14d5ecc15131cd7e. The standalone host-side crate passes 18 contract tests, format, warnings-denied Clippy, all-target check, and the runnable echo example. Caller identity is established by the transport rather than claimed in RequestEnvelope; request and response payloads are each limited to 1 MiB. Docs defer M6/NIPC compatibility acceptance to the gated integration checkpoint. ./nagi dev verify passes for 18 registered streams and 11 states, but ./nagi dev status and GitHub CI runs 36439857022 and 36442209353 fail because this branch is not yet registered in the integration-owned .dev/workstreams.json; the exact registration proposal is included and that shared file was not modified. GitHub Ubuntu Format/lint/build pass; both host test jobs fail only at the existing registered-branch CLI test in both runs and M0/target checks are skipped. ./nagi doctor also fails because this clean worktree lacks third_party/cc-nagi/Cargo.toml; no local fetch was run because it would bring unrelated third-party/browser sources into scope. Owned paths are crates/nagi-service-contract/**, docs/0.2/system-service-ipc-contract.md, docs/workstreams/NagiOS_0.2_System_Service_IPC_Contract_Foundation_Workstream.md, and .dev/workstreams/system-service-ipc/**. No M18, SDK, target runtime, shared registry/schema/workspace, CI, or product-service files were changed. A preceding default-toolchain attempt selected x86_64 Homebrew Rust on the ARM host; final checks use the pinned aarch64 nightly with matching rustc and rustdoc.",
     "commands": [
       "git status --short --branch; git rev-parse HEAD; git ls-remote origin refs/heads/codex/0.2-system-service-ipc",
       "cargo test --manifest-path crates/nagi-service-contract/Cargo.toml --locked --offline (pinned nightly-2025-08-01 aarch64 toolchain; matching RUSTC/RUSTDOC)",
@@ -22,7 +22,9 @@
       "Python standard-library schema-subset validation of state.json and registration-proposal.json against both checked-in schemas",
       "git diff --cached --check",
       "gh run view 36439857022 --repo RT-NISH/NagiOS --json status,conclusion,headSha,jobs,url",
-      "gh run view 36439857022 --repo RT-NISH/NagiOS --log-failed"
+      "gh run view 36439857022 --repo RT-NISH/NagiOS --log-failed",
+      "gh run view 36442209353 --repo RT-NISH/NagiOS --json status,conclusion,headSha,jobs,url",
+      "gh run view 36442209353 --repo RT-NISH/NagiOS --log-failed"
     ],
     "tests": [
       {
@@ -101,9 +103,24 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Validated required/allowed fields, types, references, enums, patterns, date-time/URI formats, dependency IDs, and agreement between state workstream_id and proposed registry id. The repository JSON Schema itself was not modified."
+      },
+      {
+        "name": "GitHub Actions Nagi CI on state/spec checkpoint",
+        "command": "GitHub Actions run 36442209353 on commit cd2333598cf2ab0e9f10face14d5ecc15131cd7e",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Run 36442209353 completed with failure on immutable head cd2333598cf2ab0e9f10face14d5ecc15131cd7e. Ubuntu and Windows host-compatible test jobs both fail only dev_status_resume_and_verify_read_the_registered_workstream: the local dev status command returns code 4 because codex/0.2-system-service-ipc is absent from integration-owned .dev/workstreams.json. Both jobs complete host build; Ubuntu Format and Clippy pass. Each CLI integration suite passes 25/26. M0 and target jobs are skipped after host test failure. This repeats the exact registry-ownership failure from run 36439857022; no workstream-owned implementation test failed."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 36442209353,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36442209353",
+        "head_sha": "cd2333598cf2ab0e9f10face14d5ecc15131cd7e",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host test jobs repeat the same unregistered-branch dev_status_resume_and_verify_read_the_registered_workstream failure. Both host builds pass; Ubuntu Format and Clippy pass; each CLI integration suite passes 25/26. M0 and target jobs are skipped. Integration registration proposal is provided."
+      },
       {
         "run_id": 36439857022,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36439857022",
@@ -116,7 +133,7 @@
   },
   "release_line_gate": {
     "source": "docs/0.2/DEVELOPMENT_ARCHITECTURE.md and docs/implementation_status.md",
-    "last_checked_at": "2026-09-28T15:06:46Z",
+    "last_checked_at": "2026-09-28T15:22:37Z",
     "activation_requirement": "Keep this crate host-side only. Root workspace activation, target transport, and runtime/product integration require Nagi 0.1 M30 PASS and an explicit Nagi 0.2 integration checkpoint."
   },
   "blocker": {
@@ -150,8 +167,8 @@
     "PASS: DF-01 dev verify validates the existing 18 registered workstreams and 11 registered states.",
     "DEFERRED TO GATED INTEGRATION: M6 ServiceId name/version and NIPC v1 AppId/payload-type/required-correlation compatibility mapping and paired adapter tests; no silent truncation, version loss, or caller-identity assertion is allowed.",
     "PARTIAL ENVIRONMENT CHECK: ./nagi doctor cannot run because third_party/cc-nagi/Cargo.toml is absent from this clean worktree; the isolated crate is independently verified and no out-of-scope source fetch was attempted.",
-    "PARTIAL INTEGRATION CHECK: ./nagi dev status and GitHub Actions run 36439857022 fail because the required DF-01 registry row for this dedicated branch is still integration-owner-owned; a valid proposal is included, and the rest of the owned host contract implementation is complete.",
-    "PASS: The implementation checkpoint was pushed normally and its SHA matched origin; the final state/spec checkpoint is also committed and pushed without force."
+    "PARTIAL INTEGRATION CHECK: ./nagi dev status and GitHub Actions runs 36439857022/36442209353 fail because the required DF-01 registry row for this dedicated branch is still integration-owner-owned; a valid proposal is included, and the rest of the owned host contract implementation is complete.",
+    "PASS: Implementation commit 3d04cc39723ea505b6ad473e7ae8f4af4c14fc63 and state/spec checkpoint cd2333598cf2ab0e9f10face14d5ecc15131cd7e were pushed normally and matched origin; final state-only verification will be committed and pushed separately."
   ],
   "deferred": [
     "Integration Owner registration in .dev/workstreams.json from registration-proposal.json.",
