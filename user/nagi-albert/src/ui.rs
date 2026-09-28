@@ -4,6 +4,7 @@ use crate::bookmarks::BookmarkId;
 use crate::browser_state::{BrowserState, BrowserStateError, StopRequest};
 use crate::navigation::{NavigationPhase, NavigationRequest};
 use crate::tabs::TabId;
+use core::ops::Range;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TabView {
@@ -20,6 +21,8 @@ pub struct BrowserChromeView {
     pub active_tab: Option<TabId>,
     pub address_text: String,
     pub address_invalid: bool,
+    pub address_focused: bool,
+    pub address_composing: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub loading: bool,
@@ -27,12 +30,23 @@ pub struct BrowserChromeView {
     pub page_status: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BrowserChromeAction {
     NewTab,
     CloseTab(TabId),
     SelectTab(TabId),
     SubmitAddress,
+    FocusAddressBar,
+    BlurAddressBar,
+    SetAddressText(String),
+    InsertAddressText(String),
+    DeleteAddressBackward,
+    UpdateAddressComposition {
+        text: String,
+        selection: Range<usize>,
+    },
+    CommitAddressComposition(String),
+    CancelAddressComposition,
     Back,
     Forward,
     Reload,
@@ -77,6 +91,8 @@ pub fn view(state: &BrowserState) -> BrowserChromeView {
         active_tab: state.active_tab_id(),
         address_text: state.address_bar().text(),
         address_invalid: state.address_bar().is_invalid(),
+        address_focused: state.address_bar().is_focused(),
+        address_composing: state.address_bar().is_composing(),
         can_go_back: active.is_some_and(|tab| tab.can_go_back()),
         can_go_forward: active.is_some_and(|tab| tab.can_go_forward()),
         loading: active.is_some_and(|tab| tab.is_loading()),
@@ -108,6 +124,56 @@ pub fn dispatch(
         BrowserChromeAction::SubmitAddress => state
             .submit_address_bar()
             .map(BrowserChromeOutcome::Navigate),
+        BrowserChromeAction::FocusAddressBar => {
+            state.address_bar_mut().focus();
+            Ok(BrowserChromeOutcome::Changed)
+        }
+        BrowserChromeAction::BlurAddressBar => {
+            state.address_bar_mut().blur();
+            Ok(BrowserChromeOutcome::Changed)
+        }
+        BrowserChromeAction::SetAddressText(text) => {
+            state
+                .address_bar_mut()
+                .set_text(text)
+                .map_err(BrowserStateError::Address)?;
+            Ok(BrowserChromeOutcome::Changed)
+        }
+        BrowserChromeAction::InsertAddressText(text) => {
+            state
+                .address_bar_mut()
+                .insert_text(&text)
+                .map_err(BrowserStateError::Address)?;
+            Ok(BrowserChromeOutcome::Changed)
+        }
+        BrowserChromeAction::DeleteAddressBackward => {
+            state
+                .address_bar_mut()
+                .delete_backward()
+                .map_err(BrowserStateError::Address)?;
+            Ok(BrowserChromeOutcome::Changed)
+        }
+        BrowserChromeAction::UpdateAddressComposition { text, selection } => {
+            state
+                .address_bar_mut()
+                .update_composition(&text, selection)
+                .map_err(BrowserStateError::Address)?;
+            Ok(BrowserChromeOutcome::Changed)
+        }
+        BrowserChromeAction::CommitAddressComposition(text) => {
+            state
+                .address_bar_mut()
+                .commit_composition(&text)
+                .map_err(BrowserStateError::Address)?;
+            Ok(BrowserChromeOutcome::Changed)
+        }
+        BrowserChromeAction::CancelAddressComposition => {
+            state
+                .address_bar_mut()
+                .cancel_composition()
+                .map_err(BrowserStateError::Address)?;
+            Ok(BrowserChromeOutcome::Changed)
+        }
         BrowserChromeAction::Back => {
             let tab = state
                 .active_tab_id()
@@ -181,5 +247,45 @@ mod tests {
             dispatch(&mut state, BrowserChromeAction::SubmitAddress, 1),
             Ok(BrowserChromeOutcome::Navigate(NavigationRequest { .. }))
         ));
+    }
+
+    #[test]
+    fn chrome_input_actions_focus_edit_and_commit_ime_before_navigation() {
+        let mut state = BrowserState::new();
+        dispatch(&mut state, BrowserChromeAction::FocusAddressBar, 1).unwrap();
+        assert!(view(&state).address_focused);
+
+        dispatch(
+            &mut state,
+            BrowserChromeAction::InsertAddressText("https://nagi.example".to_owned()),
+            2,
+        )
+        .unwrap();
+        dispatch(
+            &mut state,
+            BrowserChromeAction::UpdateAddressComposition {
+                text: "日本語".to_owned(),
+                selection: 0..9,
+            },
+            3,
+        )
+        .unwrap();
+        assert!(view(&state).address_composing);
+        assert!(matches!(
+            dispatch(&mut state, BrowserChromeAction::SubmitAddress, 4),
+            Err(BrowserStateError::Address(
+                crate::address_bar::AddressError::CompositionActive
+            ))
+        ));
+
+        dispatch(
+            &mut state,
+            BrowserChromeAction::CommitAddressComposition("日本語".to_owned()),
+            5,
+        )
+        .unwrap();
+        assert!(!view(&state).address_composing);
+        let request = dispatch(&mut state, BrowserChromeAction::SubmitAddress, 6).unwrap();
+        assert!(matches!(request, BrowserChromeOutcome::Navigate(_)));
     }
 }

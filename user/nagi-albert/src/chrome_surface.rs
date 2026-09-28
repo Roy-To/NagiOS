@@ -203,10 +203,10 @@ pub fn render_chrome(
         height,
         stride,
         address,
-        if view.address_invalid {
-            INVALID
-        } else {
-            BORDER
+        match (view.address_invalid, view.address_focused) {
+            (true, _) => INVALID,
+            (false, true) => ACCENT,
+            (false, false) => BORDER,
         },
     );
     draw_text(

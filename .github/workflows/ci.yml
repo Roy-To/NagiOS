@@ -235,3 +235,7 @@ jobs:
         run: |
           source out/mesa-venv/bin/activate
           sh tests/acceptance/m17_servo_first_web_pixel.sh
+      - name: M18-B Albert chrome acceptance
+        env:
+          NAGI_M18B_REUSE_M17_ACCEPTANCE: "1"
+        run: sh tests/acceptance/m18b_albert_ui_browser_state.sh

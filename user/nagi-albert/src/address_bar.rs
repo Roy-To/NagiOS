@@ -74,6 +74,12 @@ impl AddressBar {
         Ok(())
     }
 
+    pub fn delete_backward(&mut self) -> Result<bool, AddressError> {
+        let changed = self.entry.delete_backward().map_err(AddressError::Text)?;
+        self.invalid = false;
+        Ok(changed)
+    }
+
     pub fn update_composition(
         &mut self,
         text: &str,
