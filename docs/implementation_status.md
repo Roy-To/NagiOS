@@ -4406,3 +4406,47 @@ Using the repository-pinned aarch64 nightly toolchain:
   within 30 seconds. QEMU also reported that this host has no audio driver.
   This is separate from M17 first-web-pixel evidence; no M17 source or
   acceptance logic was changed.
+
+## DIAG-01 diagnostics / observability foundation (2026-09-28)
+
+The `DIAG-01` host-testable Diagnostics / Observability Foundation is complete
+on `codex/ws-diagnostics` at implementation commit
+`2e748634272ab27a64fb6b55e02ca458c5e0a00e`. It is isolated in the shared
+`nagi-diagnostics` crate and adds structured event context, bounded sanitized
+sinks and crash capture, service health state/registry, portable error reports,
+sanitized snapshots, and a typed explicit Activity bridge. Raw diagnostics are
+not promoted to Activity. The diagnostics CLI now validates both report and
+snapshot contracts. This workstream does not change M17 or the 0.1 milestone
+status; guest persistence remains behind M30 and an explicit integration gate.
+
+Verification on the pinned aarch64 nightly toolchain:
+
+- `cargo test -p nagi-diagnostics -p nagi-cli --all-targets --locked --offline`
+  — PASS, 72 CLI unit tests, 22 CLI integration tests, and 27 diagnostics tests.
+- Diagnostics, CLI, and standalone bootstrap `cargo fmt -- --check` — PASS.
+- Focused diagnostics/CLI Clippy and standalone bootstrap check/Clippy with
+  `-D warnings` — PASS. The pinned libc dependency emits three existing
+  `target_os = "nagi"` check-cfg warnings.
+- `./nagi fetch` — PASS; pinned host dependencies validated.
+- `nagi diagnostics --scope diagnostics --json`, `nagi verify --scope
+  diagnostics --json`, and `nagi smoke --host-only --json` — PASS. The
+  diagnostics schema check validates generated reports, snapshots, and error
+  reports. The DF-01 registry check is explicitly `SKIPPED` because it is not
+  present on this branch.
+- `./nagi fmt` — FAIL because fetched upstream Servo files under
+  `third_party/servo` have existing rustfmt differences. No fetched source was
+  modified; all owned diagnostics packages pass their scoped format checks.
+- Full host-workspace tests and Clippy remain unavailable on this Apple Silicon
+  host because `user/libnagi` assembles x86-64 syscall registers. The focused
+  diagnostics test/lint checks above pass.
+- Push CI run `36395201986` exposed a Windows-only failure in the absolute
+  source path redaction test: host-native `Path::is_absolute` treated
+  `/Users/...` as relative on Windows. The implementation now recognizes
+  POSIX, drive-rooted, and UNC absolute paths independent of host OS; the
+  regression test covers all three forms and the full focused suite passes.
+- In run `36395201986`, Ubuntu host passed and Windows failed only at the
+  host-compatible workspace test described above. Its independent target job
+  was cancelled when the fix was pushed. Fix commit
+  `2e748634272ab27a64fb6b55e02ca458c5e0a00e` is being retested in CI run
+  `36396121951`; Ubuntu and Windows host jobs passed, and the target job is
+  building Nagi user init. These M17 target checks do not change M17 status.

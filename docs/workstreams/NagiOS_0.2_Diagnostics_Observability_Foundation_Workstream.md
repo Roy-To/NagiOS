@@ -416,46 +416,46 @@ explicit semantic adapterを実装。
 
 ## 22. Acceptance Criteria
 
-- [ ] structured event model
-- [ ] stable event codes
-- [ ] severity
-- [ ] subsystem
-- [ ] correlation
-- [ ] redaction/privacy mechanism
-- [ ] redaction tests
-- [ ] memory/test sink
-- [ ] development sink
-- [ ] safe sink failure
-- [ ] health model
-- [ ] health registry
-- [ ] crash/error report contract
-- [ ] sanitized diagnostic snapshot
-- [ ] localization separated from event identity
-- [ ] explicit Activity Ledger boundary
-- [ ] raw diagnostics not automatically promoted
-- [ ] host tests PASS
-- [ ] format/lint PASS
-- [ ] docs updated
-- [ ] state updated
-- [ ] committed
-- [ ] pushed
-- [ ] working tree clean
+- [x] structured event model
+- [x] stable event codes
+- [x] severity
+- [x] subsystem
+- [x] correlation
+- [x] redaction/privacy mechanism
+- [x] redaction tests
+- [x] memory/test sink
+- [x] development sink
+- [x] safe sink failure
+- [x] health model
+- [x] health registry
+- [x] crash/error report contract
+- [x] sanitized diagnostic snapshot
+- [x] localization separated from event identity
+- [x] explicit Activity Ledger boundary
+- [x] raw diagnostics not automatically promoted
+- [x] host tests PASS
+- [x] format/lint PASS (owned diagnostics/CLI/bootstrap packages)
+- [x] docs updated
+- [x] state updated
+- [x] committed
+- [x] pushed
+- [x] working tree clean
 
 ---
 
 ## 23. Completion Report
 
-- Status
-- Workstream ID
-- Branch
-- Base SHA
-- HEAD SHA
-- Diagnostics architecture
-- Redaction
-- Health
-- Activity Ledger boundary
-- Tests
-- CI
-- Deferred integration
-- Blockers
-- Push status
+- Status: `PASS` for DIAG-01 host-testable foundation
+- Workstream ID: `DIAG-01` (`diagnostics` state registry entry)
+- Branch: `codex/ws-diagnostics`
+- Base SHA: `0bc2ab2f19a915def9bc4af3ce7b42b81be05684`
+- HEAD SHA: `2e748634272ab27a64fb6b55e02ca458c5e0a00e` (verified implementation and cross-platform redaction fix)
+- Diagnostics architecture: shared `nagi-diagnostics` crate provides bounded structured events, sanitized memory/development sinks, buffered crash capture, service health registry, portable `ErrorReport`, and `DiagnosticSnapshot` contracts.
+- Redaction: sensitive/credential fields, inline credential forms, path-like values, and absolute source paths are sanitized; serialized sink paths revalidate safe event data.
+- Health: scoped health states and summaries support transitions, duplicate rejection, removal, and stale handles.
+- Activity Ledger boundary: only explicit typed semantic candidates can cross `ActivityBridge`; raw diagnostics are not automatically promoted and no Activity Ledger implementation was added.
+- Tests: 72 CLI unit tests, 22 CLI integration tests, and 27 diagnostics tests pass. Diagnostics/verify/host-smoke commands and pinned dependency fetch pass.
+- CI: Ubuntu host passed in [run 36395201986](https://github.com/RT-NISH/NagiOS/actions/runs/36395201986). Its Windows workspace test found that host-native path parsing leaked POSIX absolute source paths; this was fixed by commit `2e748634272ab27a64fb6b55e02ca458c5e0a00e` and the full focused suite passed locally. The first run's independent M17 target job was cancelled by the next push. Retest run [36396121951](https://github.com/RT-NISH/NagiOS/actions/runs/36396121951) has Ubuntu and Windows host jobs passed; its target job is building Nagi user init. Neither result changes M17 status.
+- Deferred integration: register the authoritative DF-01 validator when its registry enters this source line; keep guest persistence/collection behind M30 PASS and an explicit integration release gate.
+- Blockers: none for the DIAG-01 acceptance. Repository-wide `./nagi fmt` reports existing fetched Servo formatting differences; full host-workspace test/Clippy commands hit x86-64 `libnagi` assembly on this aarch64 development host. Scoped affected-package format/lint and tests pass.
+- Push status: implementation commit `6705de462704a03e0c059ac92eb942eacd7a39ea` and cross-platform redaction fix `2e748634272ab27a64fb6b55e02ca458c5e0a00e` are pushed to `origin/codex/ws-diagnostics`; final docs/state checkpoint commit will follow.
