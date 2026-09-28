@@ -10,6 +10,7 @@
   "version": "3",
   "variant": "1b",
   "runtime_api_version": "nagi.ai/1",
+  "runtime_class": "generative_llm",
   "execution": "local",
   "artifact": {
     "format": "gguf",
@@ -33,6 +34,7 @@
     "minimum_cpu_cores": 1,
     "gpu_required": false
   },
+  "resource_class": "lite",
   "supported_backends": ["llama_cpp"],
   "roles": ["lite"],
   "compatibility": {

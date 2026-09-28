@@ -33,11 +33,33 @@ fn schema_file_is_valid_json_and_declares_closed_versioned_manifest() {
 #[test]
 fn bundled_model_profiles_are_valid_v1_manifest_examples() {
     let examples = [
-        include_bytes!("fixtures/qwen3-4b.json").as_slice(),
-        include_bytes!("fixtures/granite-4.2-3b.json").as_slice(),
-        include_bytes!("fixtures/gemma-3-1b.json").as_slice(),
+        (
+            include_bytes!("fixtures/qwen3-4b.json").as_slice(),
+            "qwen.qwen3-4b",
+            "standard",
+        ),
+        (
+            include_bytes!("fixtures/granite-4.2-3b.json").as_slice(),
+            "ibm.granite-4.2-3b",
+            "standard",
+        ),
+        (
+            include_bytes!("fixtures/gemma-3-1b.json").as_slice(),
+            "google.gemma-3-1b",
+            "lite",
+        ),
     ];
-    for example in examples {
-        ModelManifest::parse_json(example).expect("manifest profile follows runtime schema");
+    for (example, model_id, resource_class) in examples {
+        let manifest =
+            ModelManifest::parse_json(example).expect("manifest profile follows runtime schema");
+        assert_eq!(manifest.model_id.as_str(), model_id);
+        assert_eq!(
+            manifest.runtime_class.as_ref().unwrap().as_str(),
+            "generative_llm"
+        );
+        assert_eq!(
+            manifest.resource_class.as_ref().unwrap().as_str(),
+            resource_class
+        );
     }
 }

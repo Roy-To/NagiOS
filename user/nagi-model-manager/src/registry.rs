@@ -5,7 +5,7 @@ use core::fmt;
 
 use crate::{
     ArtifactDescriptor, BackendId, CapabilityId, ExecutionScope, FormatId, ManifestError, ModelId,
-    ModelManifest, RoleId,
+    ModelManifest, RoleId, RuntimeClassId,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -14,6 +14,8 @@ pub struct BackendDescriptor {
     pub artifact_formats: Vec<FormatId>,
     pub runtime_api_versions: Vec<String>,
     pub architectures: Vec<String>,
+    pub capabilities: Vec<CapabilityId>,
+    pub runtime_classes: Vec<RuntimeClassId>,
 }
 
 impl BackendDescriptor {
@@ -43,6 +45,15 @@ impl BackendDescriptor {
                     .architectures
                     .iter()
                     .any(|architecture| architecture == target_architecture))
+            && manifest.runtime_class.as_ref().is_none_or(|runtime_class| {
+                self.runtime_classes
+                    .iter()
+                    .any(|supported| supported == runtime_class)
+            })
+            && manifest
+                .capabilities
+                .iter()
+                .any(|capability| self.capabilities.contains(capability))
     }
 }
 
@@ -81,6 +92,7 @@ pub struct ModelEntry {
     pub manifest: ModelManifest,
     pub availability: AvailabilityState,
     pub lifecycle: LifecycleState,
+    pub supported_capabilities: Vec<CapabilityId>,
 }
 
 impl ModelEntry {
@@ -256,10 +268,27 @@ impl ModelRegistry {
             resources,
             target_architecture,
         );
+        let mut supported_capabilities = Vec::new();
+        if availability == AvailabilityState::Available {
+            for backend in backends.iter().filter(|backend| {
+                manifest.supported_backends.contains(&backend.backend_id)
+                    && backend.supports_runtime(&manifest)
+                    && backend.supports_manifest(&manifest, target_architecture)
+            }) {
+                for capability in &backend.capabilities {
+                    if manifest.has_capability(capability)
+                        && !supported_capabilities.contains(capability)
+                    {
+                        supported_capabilities.push(capability.clone());
+                    }
+                }
+            }
+        }
         self.entries.push(ModelEntry {
             manifest,
             availability,
             lifecycle: LifecycleState::Unloaded,
+            supported_capabilities,
         });
         Ok(availability)
     }
@@ -306,7 +335,7 @@ impl ModelRegistry {
             .iter()
             .filter(|entry| {
                 entry.is_selectable()
-                    && entry.manifest.has_capability(request.capability)
+                    && entry.supported_capabilities.contains(request.capability)
                     && request
                         .role
                         .is_none_or(|role| entry.manifest.has_role(role))
@@ -323,7 +352,13 @@ impl ModelRegistry {
                     && (!request.offline_only || entry.manifest.execution == ExecutionScope::Local)
             })
             .collect();
-        compatible.sort_by(|left, right| left.manifest.model_id.cmp(&right.manifest.model_id));
+        compatible.sort_by(|left, right| {
+            let left_priority = selection_role_priority(left, request.role.is_none());
+            let right_priority = selection_role_priority(right, request.role.is_none());
+            left_priority
+                .cmp(&right_priority)
+                .then_with(|| left.manifest.model_id.cmp(&right.manifest.model_id))
+        });
         if compatible.is_empty() {
             return Err(SelectionError::NoCompatibleModel);
         }
@@ -403,6 +438,29 @@ impl ModelRegistry {
     }
 }
 
+fn selection_role_priority(entry: &ModelEntry, use_default_role_order: bool) -> u8 {
+    if !use_default_role_order {
+        return 0;
+    }
+    if entry
+        .manifest
+        .roles
+        .iter()
+        .any(|role| role.as_str() == "standard")
+    {
+        0
+    } else if entry
+        .manifest
+        .roles
+        .iter()
+        .any(|role| role.as_str() == "lite")
+    {
+        1
+    } else {
+        2
+    }
+}
+
 fn resources_fit(manifest: &ModelManifest, resources: ResourceBudget) -> bool {
     manifest.resources.minimum_ram_bytes <= resources.available_ram_bytes
         && manifest.resources.minimum_storage_bytes <= resources.available_storage_bytes
@@ -433,6 +491,23 @@ mod tests {
         }
     }
 
+    struct GraniteMissingArtifact;
+
+    impl ArtifactCatalog for GraniteMissingArtifact {
+        fn inspect(&self, artifact: &ArtifactDescriptor) -> ArtifactStatus {
+            match &artifact.reference {
+                ArtifactReference::ModelStore { artifact_id }
+                    if artifact_id.as_str() == "ibm.granite-4.2-3b" =>
+                {
+                    ArtifactStatus::Missing
+                }
+                ArtifactReference::ModelStore { .. } => ArtifactStatus::Present {
+                    integrity_verified: true,
+                },
+            }
+        }
+    }
+
     fn manifest(json: &str) -> ModelManifest {
         let mut manifest = ModelManifest::parse_json(json.as_bytes()).expect("fixture manifest");
         // Synthetic installed-artifact metadata is only used by registry tests.
@@ -450,6 +525,12 @@ mod tests {
             artifact_formats: vec![FormatId::new("gguf").unwrap()],
             runtime_api_versions: vec![String::from(crate::MODEL_RUNTIME_API_VERSION)],
             architectures: vec![String::from("x86_64")],
+            capabilities: vec![
+                CapabilityId::new("text.generate").unwrap(),
+                CapabilityId::new("text.stream").unwrap(),
+                CapabilityId::new("structured.generate").unwrap(),
+            ],
+            runtime_classes: vec![RuntimeClassId::new("generative_llm").unwrap()],
         }
     }
 
@@ -530,12 +611,16 @@ mod tests {
             artifact_formats: vec![FormatId::new("safetensors").unwrap()],
             runtime_api_versions: vec![String::from(crate::MODEL_RUNTIME_API_VERSION)],
             architectures: vec![String::from("x86_64")],
+            capabilities: backend().capabilities,
+            runtime_classes: backend().runtime_classes,
         };
         let artifact_only = BackendDescriptor {
             backend_id,
             artifact_formats: vec![model.artifact.format.clone()],
             runtime_api_versions: vec![String::from("nagi.ai/99")],
             architectures: vec![String::from("x86_64")],
+            capabilities: backend().capabilities,
+            runtime_classes: backend().runtime_classes,
         };
         let mut registry = ModelRegistry::new();
 
@@ -622,6 +707,99 @@ mod tests {
         let lite_plan = registry.select(&selection).unwrap();
         assert_eq!(lite_plan.selected, gemma);
         assert!(lite_plan.fallbacks.is_empty());
+    }
+
+    #[test]
+    fn unavailable_default_falls_back_to_standard_then_lite_candidates() {
+        let fixtures = [
+            include_str!("../tests/fixtures/granite-4.2-3b.json"),
+            include_str!("../tests/fixtures/qwen3-4b.json"),
+            include_str!("../tests/fixtures/gemma-3-1b.json"),
+        ];
+        let mut registry = ModelRegistry::new();
+        for fixture in fixtures {
+            let model = manifest(fixture);
+            let availability = registry
+                .discover(
+                    model,
+                    &GraniteMissingArtifact,
+                    &[backend()],
+                    budget(),
+                    "x86_64",
+                )
+                .unwrap();
+            assert_eq!(
+                availability,
+                if fixture.contains("ibm.granite-4.2-3b") {
+                    AvailabilityState::MissingArtifact
+                } else {
+                    AvailabilityState::Available
+                }
+            );
+        }
+        let capability = CapabilityId::new("text.generate").unwrap();
+        let granite = ModelId::new("ibm.granite-4.2-3b").unwrap();
+        let qwen = ModelId::new("qwen.qwen3-4b").unwrap();
+        let gemma = ModelId::new("google.gemma-3-1b").unwrap();
+        let defaults = RoleDefaultPolicy::new(vec![RoleDefault {
+            role: RoleId::new("standard").unwrap(),
+            model_id: granite,
+        }])
+        .unwrap();
+        let request = request(&capability).use_role_policy(&defaults);
+        let plan = registry.select(&request).unwrap();
+        assert_eq!(plan.selected, qwen);
+        assert_eq!(plan.fallbacks, vec![gemma]);
+
+        let mut lite_only = ModelRegistry::new();
+        let missing = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
+        lite_only
+            .discover(missing, &MissingArtifact, &[backend()], budget(), "x86_64")
+            .unwrap();
+        let missing = manifest(include_str!("../tests/fixtures/qwen3-4b.json"));
+        lite_only
+            .discover(missing, &MissingArtifact, &[backend()], budget(), "x86_64")
+            .unwrap();
+        let available = manifest(include_str!("../tests/fixtures/gemma-3-1b.json"));
+        lite_only
+            .discover(
+                available,
+                &PresentArtifact,
+                &[backend()],
+                budget(),
+                "x86_64",
+            )
+            .unwrap();
+        assert_eq!(
+            lite_only.select(&request).unwrap().selected.as_str(),
+            "google.gemma-3-1b"
+        );
+    }
+
+    #[test]
+    fn system_one_runtime_class_and_capability_are_open_extension_metadata() {
+        let mut model = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
+        let runtime_class = RuntimeClassId::new("system_one").unwrap();
+        let capability = CapabilityId::new("decision.boolean").unwrap();
+        model.runtime_class = Some(runtime_class.clone());
+        model.capabilities = vec![capability.clone()];
+        let mut backend = backend();
+        backend.runtime_classes = vec![runtime_class];
+        backend.capabilities = vec![capability.clone()];
+
+        let mut registry = ModelRegistry::new();
+        assert_eq!(
+            registry.discover(model, &PresentArtifact, &[backend], budget(), "x86_64"),
+            Ok(AvailabilityState::Available)
+        );
+        assert_eq!(
+            registry
+                .select(&request(&capability))
+                .unwrap()
+                .selected
+                .as_str(),
+            "ibm.granite-4.2-3b"
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@
   "version": "3",
   "variant": "4b",
   "runtime_api_version": "nagi.ai/1",
+  "runtime_class": "generative_llm",
   "execution": "local",
   "artifact": {
     "format": "gguf",
@@ -20,7 +21,7 @@
     "size_bytes": null,
     "integrity": null
   },
-  "capabilities": ["text.generate", "structured.generate"],
+  "capabilities": ["text.generate", "text.stream", "structured.generate"],
   "modalities": ["text"],
   "context": {
     "max_input_tokens": 4096,
@@ -33,6 +34,7 @@
     "minimum_cpu_cores": 1,
     "gpu_required": false
   },
+  "resource_class": "standard",
   "supported_backends": ["llama_cpp"],
   "roles": ["standard"],
   "compatibility": {
