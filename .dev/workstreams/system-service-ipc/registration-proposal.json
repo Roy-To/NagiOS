@@ -1,0 +1,35 @@
+{
+  "id": "system-service-ipc",
+  "owner": "Codex system service IPC workstream",
+  "owner_branch": "codex/0.2-system-service-ipc",
+  "recommended_worktree": "../../.codex/worktrees/system-service-ipc/NagiOS",
+  "state_file": ".dev/workstreams/system-service-ipc/state.json",
+  "dependencies": [
+    "development-foundation",
+    "capability-permissions"
+  ],
+  "allowed_paths": [
+    "crates/nagi-service-contract/**",
+    "docs/0.2/system-service-ipc-contract.md",
+    "docs/workstreams/NagiOS_0.2_System_Service_IPC_Contract_Foundation_Workstream.md",
+    ".dev/workstreams/system-service-ipc/**"
+  ],
+  "forbidden_paths": [
+    "kernel/**",
+    "loader/**",
+    "user/**",
+    "sdk/**",
+    "crates/nagi-capability/**",
+    "third_party/**",
+    "out/**",
+    "target/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    ".dev/workstreams.json",
+    ".dev/schemas/**",
+    "docs/implementation_status.md"
+  ],
+  "activation_gate": "Host-side contract/reference implementation only. Root workspace registration and target/runtime integration require Nagi 0.1 M30 PASS and an explicit Nagi 0.2 integration checkpoint.",
+  "merge_boundary": "Dedicated Nagi 0.2 integration branch only; do not merge to main without explicit user direction."
+}
