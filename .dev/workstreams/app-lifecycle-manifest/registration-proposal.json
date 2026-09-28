@@ -1,0 +1,36 @@
+{
+  "id": "app-lifecycle-manifest",
+  "owner": "Codex APP-LC-01 workstream",
+  "owner_branch": "codex/0.2-app-lifecycle-manifest",
+  "recommended_worktree": "../../.codex/worktrees/app-lifecycle-manifest/NagiOS",
+  "state_file": ".dev/workstreams/app-lifecycle-manifest/state.json",
+  "dependencies": [
+    "development-foundation",
+    "app-sdk-contract"
+  ],
+  "allowed_paths": [
+    "crates/nagi-app-lifecycle/**",
+    ".dev/workstreams/app-lifecycle-manifest/**",
+    "docs/0.2/app-lifecycle/**",
+    "docs/workstreams/NagiOS_0.2_App_Lifecycle_Package_Manifest_Foundation_Workstream.md"
+  ],
+  "forbidden_paths": [
+    "sdk/**",
+    "tools/nagi-pkg/**",
+    "tools/nagi-cli/**",
+    "kernel/**",
+    "loader/**",
+    "user/**",
+    "third_party/**",
+    "out/**",
+    "target/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    ".dev/workstreams.json",
+    ".dev/schemas/**",
+    "docs/implementation_status.md"
+  ],
+  "activation_gate": "Host-side contract foundation only. Root workspace and CLI integration or runtime binding require an Integration Owner checkpoint; runtime binding also requires Nagi 0.1 M30 PASS.",
+  "merge_boundary": "Integrate on codex/integration-next-phase after App SDK v1 and service/capability contract review. Wire extension validation into the host manifest loader and reuse a public App SDK capability-ID validator when available; never merge directly to main."
+}

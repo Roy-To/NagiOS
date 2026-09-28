@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "sdkContractVersion": {"major": 1, "minor": 0},
+  "id": "com.example.notes",
+  "version": "1.2.0",
+  "origin": "third-party",
+  "displayName": {"en-US": "Notes"},
+  "supportedLocales": ["en-US"],
+  "entrypoint": {"kind": "native", "target": "bin/notes.napp"},
+  "resources": [],
+  "intents": [],
+  "requestedCapabilities": [{"id": "storage.read"}],
+  "stateCompatibility": {"currentVersion": 1, "minimumReadableVersion": 1},
+  "extensions": {
+    "org.nagi.app-lifecycle": {
+      "schemaVersion": 1,
+      "minimumNagiVersion": "0.2.0",
+      "optionalCapabilities": ["network.client"],
+      "requiredServices": [
+        {"id": "org.nagi.files", "contractVersion": {"major": 1, "minor": 2}}
+      ],
+      "metadata": {"com.example.notes.channel": "stable"}
+    }
+  }
+}

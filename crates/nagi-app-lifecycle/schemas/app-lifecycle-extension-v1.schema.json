@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.dev/schemas/app-lifecycle-extension-v1.schema.json",
+  "title": "Nagi App Lifecycle extension v1",
+  "description": "Optional namespaced extension to App Manifest v1. The base App SDK schema and semantic validator remain authoritative for base fields.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "minimumNagiVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
+    },
+    "optionalCapabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/capabilityId" }
+    },
+    "requiredServices": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/serviceRequirement" }
+    },
+    "metadata": {
+      "description": "Namespaced data preserved for publisher-specific tooling; core lifecycle readers ignore it.",
+      "type": "object",
+      "propertyNames": {
+        "maxLength": 128,
+        "pattern": "^[a-z0-9-]+(?:\\.[a-z0-9-]+)+$"
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "capabilityId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"
+    },
+    "serviceId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"
+    },
+    "contractVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "minor": { "type": "integer", "minimum": 0, "maximum": 65535 }
+      }
+    },
+    "serviceRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "contractVersion"],
+      "properties": {
+        "id": { "$ref": "#/$defs/serviceId" },
+        "contractVersion": { "$ref": "#/$defs/contractVersion" }
+      }
+    }
+  }
+}

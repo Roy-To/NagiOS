@@ -1,0 +1,12 @@
+[package]
+name = "nagi-app-lifecycle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-sdk = { path = "../../sdk/rust" }
+semver = "1.0"
+serde_json = "1.0"
+
+[workspace]
