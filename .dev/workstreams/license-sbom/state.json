@@ -1,0 +1,128 @@
+{
+  "schema_ref": "schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "license-sbom",
+  "current_milestone": "OSS License / SBOM Foundation",
+  "current_checkpoint": "awaiting-host-workspace-ci",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "9a2234c0a12d34ba61be506e4663431d6aebc806",
+    "verified_at": "2026-09-28T12:01:42Z",
+    "normal_state": "Dedicated worktree /Users/tozawa/.codex/worktrees/license-sbom/NagiOS on codex/0.2-license-sbom. Implementation and filename-detection fix are committed at 9a2234c0a12d34ba61be506e4663431d6aebc806. Offline scan records 822 components, 3 planned model records, 806 unknown licenses for manual review; check reports 0 structural errors. SPDX output contains 823 packages and 2888 relationships. The legal JSON files parse and generated outputs contain no host paths, credential markers, or copied upstream license text. Local root nagi-cli tests need the pinned cc-nagi source checkout; the read-only workstream leaves third_party untouched. CI bootstrap verification is pending after push. Integration proposals are in docs/legal/README.md.",
+    "commands": [
+      "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check",
+      "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- scan --root <repository> --output /tmp/nagi-legal-inventory.json",
+      "SOURCE_DATE_EPOCH=1780272000 cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- sbom --root <repository> --output /tmp/nagi-legal.spdx.json",
+      "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- notice --root <repository> --output /tmp/NOTICE.candidate.md",
+      "SOURCE_DATE_EPOCH=1780272000 cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- check --root <repository>",
+      "python3 JSON shape, JSON parsing, and generated-output privacy assertions",
+      "cargo test -p nagi-cli --locked --offline",
+      "git diff --cached --check"
+    ],
+    "tests": [
+      {
+        "name": "Rust legal unit and acceptance tests",
+        "command": "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "13 unit tests and 17 acceptance tests passed, including offline fixtures, source/license checks, SPDX shape/determinism, NOTICE candidate, path scrubbing, bounds, and diff."
+      },
+      {
+        "name": "Formatting",
+        "command": "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No formatting changes required."
+      },
+      {
+        "name": "Clippy with warnings denied",
+        "command": "cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets checked with no warnings."
+      },
+      {
+        "name": "Repository inventory and structural policy check",
+        "command": "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- check --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Revision 9a2234c0a12d34ba61be506e4663431d6aebc806; 822 components; 806 unknown-license records; 0 structural inventory or SPDX profile errors."
+      },
+      {
+        "name": "SPDX 2.3 generation and output checks",
+        "command": "SOURCE_DATE_EPOCH=1780272000 cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- sbom --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS --output /tmp/nagi-legal.spdx.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "SPDX-2.3; 823 packages; 2888 relationships; licenseListVersion 3.29.0; generated output has no absolute host paths or credential markers."
+      },
+      {
+        "name": "NOTICE candidate generation",
+        "command": "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- notice --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS --output /tmp/NOTICE.candidate.md",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Candidate generated; it records references/review metadata and does not copy the synthetic upstream license-text marker."
+      },
+      {
+        "name": "Legal JSON parsing and privacy validation",
+        "command": "python3 JSON shape, JSON parsing, and generated-output privacy assertions",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 4 docs/legal JSON files parse; inventory/SBOM/NOTICE output contains no /Users or /tmp paths, credential marker, or upstream text marker; nagi-legal does not misclassify src/license.rs as a license file."
+      },
+      {
+        "name": "Existing host tooling tests",
+        "command": "cargo test -p nagi-cli --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Cargo could not read third_party/cc-nagi/Cargo.toml because the pinned source checkout is absent in this local worktree. CI workflow has a pinned Servo source bootstrap step; its result is pending."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": ".dev/workstreams.json integration-owned registry and docs/legal/README.md integration proposal",
+    "last_checked_at": "2026-09-28T12:01:42Z",
+    "activation_requirement": "Host-side compliance tooling only. Do not activate Nagi 0.2 runtime work or alter M18. Integration owner must register the workstream and approve CLI/CI wiring on codex/integration-next-phase."
+  },
+  "blocker": {
+    "active": true,
+    "class": "SOURCE",
+    "summary": "Local root nagi-cli host tests cannot start because the pinned third_party/cc-nagi source checkout is not materialized. Remote CI verification is pending; the workflow bootstrap is expected to provide pinned Servo source dependencies.",
+    "reproduction_commands": [
+      "cargo test -p nagi-cli --locked --offline"
+    ],
+    "failure_log_summary": "failed to load source for dependency cc; unable to update .../third_party/cc-nagi; failed to read third_party/cc-nagi/Cargo.toml: No such file or directory (os error 2); exit 101.",
+    "attempted_fixes": [
+      "Ran the supported root host test command and confirmed the failure occurs before test compilation.",
+      "Inspected .github/workflows/ci.yml and confirmed it bootstraps pinned source dependencies before the host workspace tests.",
+      "Kept third_party and shared Cargo/workflow files unchanged; waiting for CI evidence rather than introducing a placeholder or bypass."
+    ],
+    "do_not_try": [
+      "Do not create a placeholder third_party/cc-nagi checkout or modify root Cargo.toml/Cargo.lock to bypass the pinned source dependency.",
+      "Do not edit or fetch upstream source inside third_party as part of this workstream."
+    ]
+  },
+  "next_action": "Push codex/0.2-license-sbom and inspect the resulting GitHub Actions host workspace run. If bootstrap and existing host tests pass, clear the local source blocker and set status PASS in a state-only commit; if CI fails, isolate and repair only workstream-owned paths where possible.",
+  "acceptance_criteria": [
+    "PASS: stable component inventory and model-license schemas exist; all legal JSON files parse.",
+    "PASS: Rust package inventory uses Cargo lockfiles and stable cargo metadata; lock dependency edges are represented and structural identity errors are surfaced.",
+    "PASS: pinned third-party components and bounded license/NOTICE evidence discovery are implemented and fixture-tested.",
+    "PASS: unknown, malformed, and conflicting license metadata stays explicit and requires review; no identifier is inferred from prose.",
+    "PASS: SPDX 2.3 SBOM is generated with deterministic package/relationship ordering, content-derived namespace, and explicit unknown license values.",
+    "PASS: human report, structural check, NOTICE candidate, and inventory diff commands exist and are fixture-tested.",
+    "PASS: offline fixture tests and host-path/credential leakage assertions pass.",
+    "PASS: standalone legal crate formatting and warning-denied Clippy pass.",
+    "IN PROGRESS: existing root nagi-cli host tests are blocked locally by missing pinned cc-nagi source; remote CI bootstrap/test result is pending.",
+    "PASS: implementation is committed on dedicated branch codex/0.2-license-sbom; final push, remote HEAD, and clean state verification are pending."
+  ],
+  "deferred": [
+    "Manual license and notice review remains for 806 unknown-license records; the scanner does not make legal conclusions.",
+    "The planned Granite 4.2 3B, Qwen3 4B, and Gemma 3 1B records are fixture-only metadata; actual artifact terms, notices, and weights must be verified before bundling.",
+    "Use a full independent SPDX 2.3 validator and legal review before using a release SBOM as a compliance assertion; the current validator enforces the documented focused profile.",
+    "Integration proposal: add the license-sbom row after development-foundation in .dev/workstreams.json, then wire the standalone crate into tools/nagi-cli, root Cargo.lock, and .github/workflows/ci.yml after integration-owner approval. Exact registry fields and CLI/CI commands are in docs/legal/README.md.",
+    "Do not merge this branch to main; review/integrate at the codex/integration-next-phase boundary."
+  ],
+  "cross_workstream_dependencies": []
+}
