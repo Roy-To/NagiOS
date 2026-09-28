@@ -798,10 +798,17 @@ fn is_secret_key(key: &str) -> bool {
 }
 
 fn safe_source_file(file: &str) -> String {
-    let path = Path::new(file);
-    let safe = if path.is_absolute() {
-        path.file_name()
-            .and_then(|name| name.to_str())
+    let bytes = file.as_bytes();
+    let has_windows_drive_root = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\');
+    let is_absolute_path =
+        file.starts_with('/') || file.starts_with('\\') || has_windows_drive_root;
+    let safe = if is_absolute_path {
+        file.trim_end_matches(['/', '\\'])
+            .rsplit(['/', '\\'])
+            .find(|part| !part.is_empty())
             .unwrap_or("[REDACTED_PATH]")
     } else {
         file
@@ -2761,25 +2768,32 @@ mod tests {
 
     #[test]
     fn path_values_and_absolute_source_paths_are_redacted_by_default() {
-        let event = DiagnosticEvent::new(
-            Severity::Info,
-            "filesystem",
-            "FS.OPEN_FAILED",
-            "open failed",
-        )
-        .unwrap()
-        .with_source("/Users/alice/private/documents/notes.txt", 9)
-        .with_field(
-            "document_path",
-            "/Users/alice/private/notes.txt",
-            PrivacyClass::Public,
-        )
-        .unwrap();
-        let json = event.to_json().unwrap();
-        assert!(json.contains("notes.txt"));
-        assert!(json.contains(REDACTED));
-        assert!(!json.contains("/Users/alice"));
-        assert!(!json.contains("private/documents"));
+        for source_path in [
+            "/Users/alice/private/documents/notes.txt",
+            r"C:\Users\alice\private\documents\notes.txt",
+            r"\\server\users\alice\private\documents\notes.txt",
+        ] {
+            let event = DiagnosticEvent::new(
+                Severity::Info,
+                "filesystem",
+                "FS.OPEN_FAILED",
+                "open failed",
+            )
+            .unwrap()
+            .with_source(source_path, 9)
+            .with_field(
+                "document_path",
+                "/Users/alice/private/notes.txt",
+                PrivacyClass::Public,
+            )
+            .unwrap();
+            let json = event.to_json().unwrap();
+            assert!(json.contains("notes.txt"));
+            assert!(json.contains(REDACTED));
+            assert!(!json.contains("alice"), "leaked path in {json}");
+            assert!(!json.contains("private/documents"));
+            assert!(!json.contains(r"private\documents"));
+        }
     }
 
     #[test]
