@@ -1882,7 +1882,9 @@ fn execute_servo_run(root: &Path, probe: &dyn HostProbe, remote_web: bool) -> Co
     let required_markers: &[&str] = if remote_web {
         &[
             "Nagi Kernel started",
+            "Nagi M18A trace: TLS fixture CA installed",
             "Nagi M18A remote navigation fixture identity PASS",
+            "Nagi M18A HTTPS download/upload PASS",
             "Nagi M18A remote web pixel checksum=0x",
             "Nagi M18A remote web pixel PASS",
         ]
@@ -2991,7 +2993,7 @@ mod tests {
             .find("nagi_posix_initialize_network(net_capability)")
             .expect("guest network capability initialization");
         let navigation = remote_branch
-            .find("remote_web::run_remote_web_page(display_capability)")
+            .find("remote_web::run_controlled_fixture(display_capability)")
             .expect("remote Servo entry point");
         assert!(network < navigation);
     }

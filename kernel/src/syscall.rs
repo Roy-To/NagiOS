@@ -16,7 +16,7 @@ use nagi_kernel::user_process::{
 #[cfg(not(test))]
 use core::arch::{asm, global_asm};
 #[cfg(not(test))]
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 #[cfg(not(test))]
 use super::{
@@ -57,6 +57,14 @@ const KERNEL_CODE_SELECTOR: u64 = 0x08;
 const SYSRET_SELECTOR_BASE: u64 = 0x13;
 #[cfg(not(test))]
 const SYSCALL_FMASK: u64 = (1 << 8) | (1 << 9) | (1 << 10) | (1 << 18);
+
+#[cfg(not(test))]
+static REALTIME_EPOCH_NS: AtomicU64 = AtomicU64::new(nagi_bootinfo::REALTIME_UNAVAILABLE_NS);
+
+#[cfg(not(test))]
+pub fn set_realtime_epoch_ns(epoch_ns: u64) {
+    REALTIME_EPOCH_NS.store(epoch_ns, Ordering::Release);
+}
 
 #[cfg(not(test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -756,11 +764,10 @@ fn time_read() -> u64 {
 
 #[cfg(not(test))]
 fn time_realtime() -> u64 {
-    let ticks = interrupts::timer_ticks();
-    let Some(elapsed) = ticks.checked_mul(10_000_000) else {
-        return u64::MAX;
-    };
-    nagi_abi::NAGI_REALTIME_EPOCH_NS.saturating_add(elapsed)
+    nagi_abi::realtime_ns_at_ticks(
+        REALTIME_EPOCH_NS.load(Ordering::Acquire),
+        interrupts::timer_ticks(),
+    )
 }
 
 #[cfg(not(test))]

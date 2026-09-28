@@ -980,16 +980,12 @@ pub fn map_error(error: RuntimeError) -> i32 {
         RuntimeError::Storage(StorageError::DirectoryFull) => 28,
         RuntimeError::Storage(StorageError::FileTooLarge) => 27,
         RuntimeError::Storage(StorageError::Capacity) => 12,
-        RuntimeError::Network(NetError::TcpTimeout) => 11,
-        RuntimeError::Network(NetError::DnsTimeout) => 11,
-        RuntimeError::Network(NetError::ConnectionReset) => 104,
-        RuntimeError::Network(NetError::Unsupported) => 95,
+        RuntimeError::Network(error) => crate::net::network_errno(error),
         RuntimeError::NotConnected => 107,
         RuntimeError::Shutdown => 108,
         RuntimeError::WouldBlock => 11,
         RuntimeError::BrokenPipe => 32,
         RuntimeError::Unsupported => 95,
-        RuntimeError::Network(_) => 5,
         RuntimeError::Storage(_) => 5,
     }
 }

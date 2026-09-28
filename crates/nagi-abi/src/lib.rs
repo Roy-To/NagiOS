@@ -84,11 +84,20 @@ pub const PROT_WRITE: u64 = 0x2;
 pub const PROT_READ: u64 = 0x4;
 pub const PROT_NONE: u64 = 0x0;
 
-/// Nagi 0.1's initial wall-clock contract.  The reference firmware does not
-/// yet pass an RTC value through BootInfo, so realtime is defined as elapsed
-/// nanoseconds from the guest's Nagi epoch.  It is deliberately a guest
-/// clock, never a host clock fallback.
-pub const NAGI_REALTIME_EPOCH_NS: u64 = 0;
+/// Convert an RTC seed and elapsed guest timer ticks into Unix nanoseconds.
+/// The sentinel remains unavailable and arithmetic overflow fails closed.
+pub const fn realtime_ns_at_ticks(epoch_ns: u64, ticks: u64) -> u64 {
+    if epoch_ns == u64::MAX {
+        return u64::MAX;
+    }
+    let Some(elapsed_ns) = ticks.checked_mul(10_000_000) else {
+        return u64::MAX;
+    };
+    match epoch_ns.checked_add(elapsed_ns) {
+        Some(realtime_ns) => realtime_ns,
+        None => u64::MAX,
+    }
+}
 
 pub const BLOCK_SECTOR_SIZE: usize = 512;
 pub const MAX_CONSOLE_WRITE: usize = 256;
@@ -112,9 +121,9 @@ pub const INPUT_REL_Y: u16 = 1;
 #[cfg(test)]
 mod tests {
     use super::{
-        is_valid_bootstrap_user_thread_stack_size, round_bootstrap_user_thread_stack_size,
-        BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE, BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE,
-        BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE,
+        is_valid_bootstrap_user_thread_stack_size, realtime_ns_at_ticks,
+        round_bootstrap_user_thread_stack_size, BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE,
+        BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE, BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE,
     };
 
     #[test]
@@ -159,6 +168,14 @@ mod tests {
         assert!(!is_valid_bootstrap_user_thread_stack_size(
             BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE - 1
         ));
+    }
+
+    #[test]
+    fn realtime_clock_preserves_unavailable_and_fails_closed_on_overflow() {
+        assert_eq!(realtime_ns_at_ticks(u64::MAX, 10), u64::MAX);
+        assert_eq!(realtime_ns_at_ticks(1_000, 3), 30_001_000);
+        assert_eq!(realtime_ns_at_ticks(u64::MAX - 5, 1), u64::MAX);
+        assert_eq!(realtime_ns_at_ticks(0, u64::MAX), u64::MAX);
     }
 }
 

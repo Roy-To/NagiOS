@@ -28,6 +28,8 @@ fi
 
 for marker in \
     'Nagi M18A trace: network capability initialized' \
+    'Nagi M18A trace: TLS fixture CA installed' \
+    'Nagi M18A HTTPS download/upload PASS' \
     'Nagi M18A remote navigation fixture identity PASS' \
     'Nagi M18A remote web pixel checksum=0x' \
     'Nagi M18A remote web pixel PASS'; do

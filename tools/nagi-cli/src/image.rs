@@ -915,6 +915,8 @@ fn spawn_qemu_with_display_mode(
     );
     let mut command = ProcessCommand::new(qemu);
     command.args([
+        "-rtc",
+        "base=utc",
         "-machine",
         "q35",
         "-cpu",

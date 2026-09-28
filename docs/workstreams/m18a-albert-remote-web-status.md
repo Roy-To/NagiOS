@@ -9,14 +9,14 @@
 
 | Requirement | Status | Evidence / remaining work |
 |---|---|---|
-| Preserve the M17 PASS baseline | PARTIAL | Worktree starts at the exact fixed SHA. Re-run M17 acceptance after M18-A changes; the CI job now does so before M18-A. |
-| Servo remote navigation to controlled fixture | PARTIAL | Added opt-in network initialization and a Servo URL runner. Target/QEMU acceptance is pending. |
-| DNS and TCP/socket transport | PARTIAL | Existing `nagi-net` smoltcp DNS/TCP path is capability-scoped. This checkpoint adds POSIX `O_NONBLOCK` retention and bounded TCP try-send/try-receive; concurrent socket support and deterministic end-to-end DNS remain. |
-| HTTP and redirects | PARTIAL | Added a deterministic fixture with a 302 redirect; host tests verify the final downloaded HTML. Servo's target request through the guest stack remains pending. |
-| HTTPS with chain and hostname validation | NOT STARTED | Servo's pinned rustls/WebPKI path and ADR 0030 root policy are present; controlled guest validation coverage is still required. No trust bypass is allowed. |
-| Timeout, reset, DNS, and TLS failure behavior | PARTIAL | TCP pre-connect operations fail closed and existing timeout/reset errors remain. Add deterministic failure tests and precise error propagation. |
-| Download and upload transport | PARTIAL | Fixture host tests cover redirect/download content and POST body echo. Browser transfer through the guest socket boundary remains pending. |
-| Remote page rendered into Nagi Surface | PARTIAL | The M18-A QEMU gate requires fixture page identity, a nonzero Servo frame checksum, and the remote-specific Surface marker; target execution remains pending. |
+| Preserve the M17 PASS baseline | PARTIAL | Worktree starts at the exact fixed SHA. Kernel and UEFI loader release builds pass with BootInfo v3; rerun real M17 QEMU acceptance on the M18-A branch is pending. |
+| Servo remote navigation to controlled fixture | PARTIAL | Added opt-in network initialization and a typed URL request runner. The current QEMU fixture acceptance uses HTTP then HTTPS; final target/QEMU run is pending. |
+| DNS and TCP/socket transport | PARTIAL | Servo's target `getaddrinfo` resolves through the capability-scoped POSIX-to-smoltcp DNS boundary. DNS A-answer/error mapping and DNS egress are tested; the controlled page currently uses the QEMU gateway IP, so browser-originated DNS is not yet demonstrated end-to-end. TCP nonblocking calls remain bounded and fail closed. |
+| HTTP and redirects | PARTIAL | Deterministic fixture tests cover HTTP redirect, POST echo, and attachment download. Guest Servo follows an HTTP-to-HTTPS redirect; QEMU evidence is pending. |
+| HTTPS with chain and hostname validation | PARTIAL | Servo keeps `ignore_certificate_errors = false` and uses pinned WebPKI roots plus an additive guest-installed fixture CA. Host tests accept the fixture DNS/IP SAN and reject an untrusted chain and wrong hostname; guest TLS handshake/QEMU evidence is pending. |
+| Timeout, reset, DNS, and TLS failure behavior | PARTIAL | POSIX maps DNS failure, timeout, reset, and would-block distinctly; tests cover the mapping. Host TLS tests cover untrusted and hostname failures. Deterministic browser-visible guest failure states remain unverified. |
+| Download and upload transport | PARTIAL | HTTPS fixture host tests verify attachment bytes and POST echo. The guest page runs sequential HTTPS fetch upload/download and gates its title on both results; QEMU evidence is pending. |
+| Remote page rendered into Nagi Surface | PARTIAL | The M18-A QEMU gate requires the HTTPS transfer title, fixture identity, nonzero Servo frame checksum, and remote-specific Surface marker; current-source target execution is pending. |
 
 ## Checkpoint 1
 
@@ -56,11 +56,47 @@ Host verification:
   No M18-A target binary or QEMU run was produced locally.
 - GitHub Actions now runs the same M18-A acceptance on Ubuntu after M17; result pending.
 
-## Next actions
+## Checkpoint 3 — verified HTTPS and transfer substrate
 
-1. Run the new Ubuntu M18-A target/QEMU CI acceptance and repair its first
-   target or transport failure without weakening M17 or certificate checks.
-2. Exercise DNS, redirect, HTTP errors, timeout/reset, HTTPS chain and hostname
-   validation, and browser upload/download transport with deterministic tests.
-3. Re-run M17 acceptance, update this status from evidence, and push each
-   verified checkpoint.
+Added a controlled TLS fixture with a private test root kept separate from the
+checked-in server key, a server leaf containing `m18a.test` and `10.0.2.2`
+SANs, and an HTTP-to-HTTPS redirect. The guest installs only this fixture root
+through its own POSIX/VFS path; Servo keeps normal chain/hostname validation
+enabled and retains the pinned WebPKI roots. The page performs a sequential
+HTTPS POST and attachment GET and updates its title only after both responses
+match the expected bytes. Host tests reject untrusted chains and wrong
+hostnames. No development-host certificate store is used.
+
+## Checkpoint 4 — guest realtime seed for TLS validity
+
+Added UEFI RTC sampling before `ExitBootServices`, validated conversion to Unix
+nanoseconds, and BootInfo v3 transport to the kernel's existing realtime
+syscall. Missing, invalid, daylight-adjusted, pre-epoch, or unrepresentable
+times remain unavailable and fail closed. QEMU uses `-rtc base=utc`; no host
+clock or UEFI runtime service is consulted after boot. The architectural
+change is recorded in `docs/decisions/0037-m18a-uefi-realtime-seed-for-tls.md`.
+
+Verification for this checkpoint:
+
+- `cargo test --locked --target x86_64-apple-darwin -p nagi-net -p nagi-posix -p nagi-albert -p nagi-abi -p nagi-bootinfo` — PASS (37 unit/integration tests).
+- `PYTHONDONTWRITEBYTECODE=1 python3 tests/fixtures/m18a/test_server.py` — PASS (10 HTTP/TLS tests).
+- Scoped `cargo clippy ... -- -D warnings` for the five changed Rust packages — PASS.
+- Scoped Rust formatting and `sh -n tests/acceptance/m18a_albert_remote_web.sh` — PASS.
+- Kernel release build for `targets/x86_64-unknown-nagi.json` — PASS.
+- UEFI loader release build for `x86_64-unknown-uefi` — PASS.
+- `git diff --check` — PASS.
+- Servo target init build and current-source QEMU run — pending public Ubuntu CI; the earlier run tests only the HTTP checkpoint and is not evidence for the TLS/RTC changes.
+
+## Exact next action
+
+Push this verified code checkpoint and use its Ubuntu CI target job to build
+M18-A and rerun both real-QEMU M17 and HTTPS remote-page acceptance. Repair any
+target/QEMU failure without weakening certificate checks. Keep M18-A `PARTIAL`
+until the current-source QEMU markers pass and Servo-originated DNS plus
+browser-visible network failure behavior have deterministic evidence.
+
+Shared-file changes are limited to the CI acceptance workflow, `Cargo.lock`,
+the global implementation-status summary, the kernel/loader BootInfo realtime
+contract, and QEMU's deterministic UTC RTC option. These changes are required
+to build and verify the M18-A guest path and are recorded here for M18-B
+integration.

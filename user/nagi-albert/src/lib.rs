@@ -6,7 +6,7 @@
 //! capability-checked Nagi Surface.
 
 #[cfg(target_os = "nagi")]
-mod guest {
+pub(super) mod guest {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
     use std::sync::Arc;
@@ -68,6 +68,7 @@ mod guest {
         surface: RefCell<NagiSurface>,
         frame_diagnostics_emitted: Cell<bool>,
         remote_web: bool,
+        controlled_fixture: bool,
     }
 
     impl FirstPixelDelegate {
@@ -112,6 +113,18 @@ mod guest {
     impl WebViewDelegate for FirstPixelDelegate {
         fn notify_new_frame_ready(&self, webview: WebView) {
             let trace_first = !self.frame_diagnostics_emitted.replace(true);
+            let remote_transfer_verified = if self.controlled_fixture {
+                match webview.page_title().as_deref() {
+                    Some(crate::remote_web::CONTROLLED_FIXTURE_TRANSFER_TITLE) => true,
+                    Some(crate::remote_web::CONTROLLED_FIXTURE_TRANSFER_FAILURE_TITLE) => {
+                        libnagi::console_write(b"Nagi M18A HTTPS download/upload FAIL\r\n");
+                        libnagi::exit(1);
+                    }
+                    _ => false,
+                }
+            } else {
+                true
+            };
             if trace_first {
                 trace_stage(b"first web frame callback entered");
             }
@@ -158,6 +171,15 @@ mod guest {
             if trace_first {
                 trace_stage(b"first web frame surface present completed");
             }
+            if self.controlled_fixture && !remote_transfer_verified {
+                return;
+            }
+            if self.controlled_fixture {
+                libnagi::console_write(b"Nagi M18A remote navigation fixture identity PASS\r\n");
+                libnagi::console_write(b"Nagi M18A HTTPS download/upload PASS\r\n");
+            } else if self.remote_web {
+                libnagi::console_write(b"Nagi M18A remote navigation frame presented\r\n");
+            }
             Self::report(checksum, self.remote_web);
         }
 
@@ -166,18 +188,16 @@ mod guest {
         }
 
         fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
-            if self.remote_web && status == LoadStatus::Complete {
-                if webview.page_title().as_deref()
-                    == Some(crate::remote_web::CONTROLLED_FIXTURE_TITLE)
-                {
-                    libnagi::console_write(
-                        b"Nagi M18A remote navigation fixture identity PASS\r\n",
-                    );
-                } else {
-                    libnagi::console_write(
-                        b"Nagi M18A remote navigation FAIL fixture identity\r\n",
-                    );
-                    libnagi::exit(1);
+            if self.controlled_fixture && status == LoadStatus::Complete {
+                match webview.page_title().as_deref() {
+                    Some(crate::remote_web::CONTROLLED_FIXTURE_TITLE)
+                    | Some(crate::remote_web::CONTROLLED_FIXTURE_TRANSFER_TITLE) => {}
+                    _ => {
+                        libnagi::console_write(
+                            b"Nagi M18A remote navigation FAIL fixture identity\r\n",
+                        );
+                        libnagi::exit(1);
+                    }
                 }
             }
             let stage = match status {
@@ -190,10 +210,23 @@ mod guest {
     }
 
     pub fn run_first_web_pixel(display_capability: u64) -> ! {
-        run_web_page(display_capability, FIRST_WEB_PAGE, false)
+        run_web_page(display_capability, FIRST_WEB_PAGE, false, false)
     }
 
-    pub(super) fn run_web_page(display_capability: u64, page_url: &str, remote_web: bool) -> ! {
+    pub(super) fn run_web_page(
+        display_capability: u64,
+        page_url: &str,
+        remote_web: bool,
+        controlled_fixture: bool,
+    ) -> ! {
+        if controlled_fixture {
+            libnagi::console_write(b"Nagi M18A trace: installing TLS fixture CA\r\n");
+            if !crate::remote_web::install_test_ca() {
+                libnagi::console_write(b"Nagi M18A remote web FAIL fixture CA install\r\n");
+                libnagi::exit(1);
+            }
+            libnagi::console_write(b"Nagi M18A trace: TLS fixture CA installed\r\n");
+        }
         libnagi::console_write(b"Nagi M17 trace: Servo resource reader preflight started\r\n");
         let domain_list = servo::resources::read_bytes(servo::resources::Resource::DomainList);
         if domain_list.is_empty() {
@@ -225,9 +258,17 @@ mod guest {
         libnagi::console_write(b"Nagi M17 trace: GL context created\r\n");
         let signal = Arc::new(EventLoopSignal::new());
         libnagi::console_write(b"Nagi M17 trace: Servo construction started\r\n");
-        let servo = ServoBuilder::default()
-            .event_loop_waker(Box::new(NagiWaker(signal.clone())))
-            .build();
+        let mut servo_builder =
+            ServoBuilder::default().event_loop_waker(Box::new(NagiWaker(signal.clone())));
+        if remote_web {
+            let mut options = servo::Opts::default();
+            options.ignore_certificate_errors = false;
+            if controlled_fixture {
+                options.certificate_path = Some(crate::remote_web::TEST_ROOT_PATH.to_string());
+            }
+            servo_builder = servo_builder.opts(options);
+        }
+        let servo = servo_builder.build();
         servo.setup_logging();
         libnagi::console_write(b"Nagi M17 trace: Servo constructed\r\n");
         let delegate = Rc::new(FirstPixelDelegate {
@@ -235,8 +276,15 @@ mod guest {
             surface: RefCell::new(surface),
             frame_diagnostics_emitted: Cell::new(false),
             remote_web,
+            controlled_fixture,
         });
-        let url = Url::parse(page_url).expect("the configured Nagi page URL is valid");
+        let url = match Url::parse(page_url) {
+            Ok(url) if !remote_web || matches!(url.scheme(), "http" | "https") => url,
+            _ => {
+                libnagi::console_write(b"Nagi M18A remote navigation FAIL invalid URL\r\n");
+                libnagi::exit(1);
+            }
+        };
         libnagi::console_write(b"Nagi M17 trace: WebView construction started\r\n");
         let _webview = WebViewBuilder::new(&servo, context)
             .url(url)
@@ -263,7 +311,6 @@ mod guest {
 #[cfg(target_os = "nagi")]
 pub use guest::run_first_web_pixel;
 
-#[cfg(target_os = "nagi")]
 pub mod remote_web;
 
 #[cfg(not(target_os = "nagi"))]

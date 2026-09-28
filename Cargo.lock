@@ -3405,6 +3405,7 @@ dependencies = [
  "freetype-sys",
  "ipc-channel",
  "libnagi",
+ "nagi-posix",
  "nagi-servo-adapter",
  "servo",
  "url",

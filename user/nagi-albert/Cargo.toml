@@ -10,6 +10,7 @@ nagi-servo-adapter = { path = "../nagi-servo" }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 dpi = "0.1"
+nagi-posix = { path = "../nagi-posix" }
 # Servo's pinned WebRender 0.70 uses its legacy Unix glyph rasterizer on the
 # Nagi target. That dependency is separate from Servo's fonts/bundled_freetype
 # feature, so force the same pinned freetype-sys build to use its vendored

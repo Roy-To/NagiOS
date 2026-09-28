@@ -558,7 +558,7 @@ pub extern "C" fn _start(
                 libnagi::exit(1);
             }
             libnagi::console_write(b"Nagi M18A trace: network capability initialized\r\n");
-            return nagi_albert::remote_web::run_remote_web_page(display_capability);
+            return nagi_albert::remote_web::run_controlled_fixture(display_capability);
         }
         return run_first_web_pixel(display_capability);
     }

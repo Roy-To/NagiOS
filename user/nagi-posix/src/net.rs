@@ -18,6 +18,27 @@ pub(crate) const fn socket_status_flags(nonblocking: bool) -> i32 {
     }
 }
 
+#[cfg(any(target_os = "nagi", test))]
+pub(crate) const fn network_errno(error: NetError) -> i32 {
+    match error {
+        NetError::Device => 5,
+        NetError::BufferTooSmall => 90,
+        NetError::DhcpTimeout
+        | NetError::DnsTimeout
+        | NetError::TcpTimeout
+        | NetError::HttpTimeout
+        | NetError::IcmpTimeout => 110,
+        NetError::DnsUnavailable => 101,
+        NetError::DnsFailure => 113,
+        NetError::Icmp => 113,
+        NetError::RouteTableFull => 105,
+        NetError::WouldBlock => 11,
+        NetError::Malformed | NetError::Checksum => 71,
+        NetError::UnexpectedPeer | NetError::ConnectionReset => 104,
+        NetError::Unsupported => 95,
+    }
+}
+
 pub fn http_get<D: Device>(
     network: &mut Network<D>,
     target: Ipv4Address,
@@ -31,7 +52,8 @@ pub fn http_get<D: Device>(
 
 #[cfg(test)]
 mod tests {
-    use super::{socket_is_nonblocking, socket_status_flags, O_NONBLOCK};
+    use super::{network_errno, socket_is_nonblocking, socket_status_flags, O_NONBLOCK};
+    use nagi_net::NetError;
 
     #[test]
     fn nonblocking_status_flag_round_trips_without_inventing_other_flags() {
@@ -40,5 +62,14 @@ mod tests {
         assert!(socket_is_nonblocking(O_NONBLOCK | 0x20));
         assert_eq!(socket_status_flags(false), 0);
         assert_eq!(socket_status_flags(true), O_NONBLOCK);
+    }
+
+    #[test]
+    fn network_failures_keep_timeout_dns_reset_and_would_block_distinct() {
+        assert_eq!(network_errno(NetError::DnsFailure), 113);
+        assert_eq!(network_errno(NetError::DnsTimeout), 110);
+        assert_eq!(network_errno(NetError::TcpTimeout), 110);
+        assert_eq!(network_errno(NetError::ConnectionReset), 104);
+        assert_eq!(network_errno(NetError::WouldBlock), 11);
     }
 }

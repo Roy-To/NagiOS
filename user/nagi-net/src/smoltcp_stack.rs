@@ -140,6 +140,17 @@ struct NetworkConfig {
     dns: Option<SmolIpv4>,
 }
 
+fn dns_a_result(addresses: &[IpAddress]) -> Result<Ipv4Address, NetError> {
+    addresses
+        .iter()
+        .next()
+        .map(|address| {
+            let IpAddress::Ipv4(address) = address;
+            from_smol_ipv4(*address)
+        })
+        .ok_or(NetError::DnsFailure)
+}
+
 /// User-space network stack backed by smoltcp and Nagi's raw VirtIO capability.
 struct SmoltcpStack<D> {
     device: D,
@@ -201,19 +212,13 @@ impl<D: Device> SmoltcpStack<D> {
                 .get_mut::<dns::Socket>(dns_handle)
                 .get_query_result(query)
             {
-                Ok(addresses) => {
-                    if let Some(address) = addresses.iter().next() {
-                        let IpAddress::Ipv4(address) = address;
-                        return Ok(from_smol_ipv4(*address));
-                    }
-                    return Err(NetError::DnsTimeout);
-                }
+                Ok(addresses) => return dns_a_result(&addresses),
                 Err(dns::GetQueryResultError::Pending) => {
                     if !libnagi::sleep_ns(1_000_000) {
                         return Err(NetError::DnsTimeout);
                     }
                 }
-                Err(dns::GetQueryResultError::Failed) => return Err(NetError::DnsTimeout),
+                Err(dns::GetQueryResultError::Failed) => return Err(NetError::DnsFailure),
             }
         }
         Err(NetError::DnsTimeout)
@@ -385,8 +390,8 @@ impl<D: Device> SmoltcpStack<D> {
     ///
     /// This is the operation used by POSIX sockets after `O_NONBLOCK` has been
     /// set. It never waits for additional TCP send-buffer capacity: callers
-    /// either receive the number of bytes accepted in this poll step or a
-    /// timeout that the POSIX boundary maps to `EAGAIN`.
+    /// either receive the number of bytes accepted in this poll step or
+    /// `WouldBlock` when the send buffer is full.
     pub fn tcp_try_send(&mut self, data: &[u8]) -> Result<usize, NetError> {
         if data.is_empty() {
             return Ok(0);
@@ -402,7 +407,7 @@ impl<D: Device> SmoltcpStack<D> {
             let socket = sockets.get_mut::<tcp::Socket>(handle);
             if !socket.can_send() {
                 return if socket.is_open() {
-                    Err(NetError::TcpTimeout)
+                    Err(NetError::WouldBlock)
                 } else {
                     Err(NetError::ConnectionReset)
                 };
@@ -412,7 +417,7 @@ impl<D: Device> SmoltcpStack<D> {
                 .map_err(|_| NetError::ConnectionReset)?
         };
         if count == 0 {
-            return Err(NetError::TcpTimeout);
+            return Err(NetError::WouldBlock);
         }
         let mut phy = NagiPhyDevice::new(&mut self.device);
         poll_once(interface, &mut phy, sockets, now());
@@ -485,7 +490,7 @@ impl<D: Device> SmoltcpStack<D> {
 
     /// Poll the TCP stream once and receive currently queued bytes without
     /// waiting for a future packet. A still-open stream with no data returns
-    /// `TcpTimeout`; the POSIX socket adapter exposes that as `EAGAIN`.
+    /// `WouldBlock`.
     pub fn tcp_try_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {
         if buffer.is_empty() {
             return Ok(0);
@@ -508,7 +513,7 @@ impl<D: Device> SmoltcpStack<D> {
         if !socket.may_recv() {
             return Ok(0);
         }
-        Err(NetError::TcpTimeout)
+        Err(NetError::WouldBlock)
     }
 
     /// Report readiness for the retained TCP stream without exposing smoltcp
@@ -1038,6 +1043,15 @@ mod tests {
                 .get_query_result(query),
             Err(dns::GetQueryResultError::Pending)
         ));
+    }
+
+    #[test]
+    fn dns_a_answers_distinguish_success_from_missing_records() {
+        assert_eq!(
+            dns_a_result(&[IpAddress::Ipv4(SmolIpv4::new(203, 0, 113, 18))]),
+            Ok(Ipv4Address::new([203, 0, 113, 18]))
+        );
+        assert_eq!(dns_a_result(&[]), Err(NetError::DnsFailure));
     }
 
     #[test]

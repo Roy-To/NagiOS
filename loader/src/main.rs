@@ -4,7 +4,10 @@
 use core::mem;
 use core::ptr;
 
-use nagi_bootinfo::{BootInfo, FramebufferInfo, InitImageInfo, MemoryMapInfo};
+use nagi_bootinfo::{
+    firmware_time_to_unix_ns, BootInfo, FirmwareDateTime, FramebufferInfo, InitImageInfo,
+    MemoryMapInfo, REALTIME_UNAVAILABLE_NS,
+};
 use nagi_loader::elf::{parse, LoadPlan};
 use uefi::boot::{AllocateType, MemoryType};
 use uefi::mem::memory_map::MemoryMap;
@@ -58,6 +61,22 @@ fn main() -> Status {
         return fail(error_message("Nagi Loader: ACPI RSDP unavailable"));
     }
 
+    let realtime_epoch_ns = uefi::runtime::get_time()
+        .map(|time| {
+            firmware_time_to_unix_ns(FirmwareDateTime {
+                year: time.year(),
+                month: time.month(),
+                day: time.day(),
+                hour: time.hour(),
+                minute: time.minute(),
+                second: time.second(),
+                nanosecond: time.nanosecond(),
+                time_zone: time.time_zone(),
+                daylight_flags: time.daylight().bits(),
+            })
+        })
+        .unwrap_or(REALTIME_UNAVAILABLE_NS);
+
     let memory_map = unsafe { boot::exit_boot_services(None) };
     let metadata = memory_map.meta();
     if memory_map.is_empty() {
@@ -77,6 +96,7 @@ fn main() -> Status {
         framebuffer,
         acpi_rsdp,
         init_image,
+        realtime_epoch_ns,
     };
     unsafe {
         ptr::write_volatile(&raw mut BOOT_INFO, boot_info);

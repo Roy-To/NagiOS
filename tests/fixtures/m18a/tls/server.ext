@@ -1,0 +1,10 @@
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @subject_alt_names
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+
+[subject_alt_names]
+IP.1 = 10.0.2.2
+DNS.1 = m18a.test

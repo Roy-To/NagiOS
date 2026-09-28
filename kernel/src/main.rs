@@ -41,6 +41,7 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
             halt_forever();
         }
     };
+    syscall::set_realtime_epoch_ns(boot_info.realtime_epoch_ns);
 
     serial_write(b"Nagi Kernel started\r\n");
     let mut allocator = match unsafe { memory::PageAllocator::from_boot_info(boot_info) } {

@@ -14,7 +14,8 @@ mod abi;
 mod runtime;
 #[cfg(target_os = "nagi")]
 pub use abi::{
-    nagi_posix_ensure_directory, nagi_posix_initialize_filesystem, nagi_posix_initialize_network,
+    nagi_posix_close, nagi_posix_ensure_directory, nagi_posix_initialize_filesystem,
+    nagi_posix_initialize_network, nagi_posix_open, nagi_posix_write_fd,
 };
 
 /// Copy the current guest process name into a C buffer through the kernel's

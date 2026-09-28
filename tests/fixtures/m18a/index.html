@@ -5,6 +5,29 @@
   <title>Nagi M18A Controlled Remote Fixture</title>
 </head>
 <body style="margin:0;background:#315d47;color:#f7f3e8;font:24px sans-serif;display:grid;place-items:center">
-  Nagi M18A remote fixture
+  <main>Nagi M18A remote fixture</main>
+  <script>
+    fetch("/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: "nagi-m18a-upload"
+      }).then(response => response.text()).then(upload =>
+        fetch("/download").then(response => {
+        if (!response.ok || !response.headers.get("Content-Disposition").startsWith("attachment")) {
+          throw new Error("fixture download failed");
+        }
+        return response.text().then(download => [upload, download]);
+      })
+      ).then(([upload, download]) => {
+      if (upload === "upload received: nagi-m18a-upload" && download === "nagi-m18a-download") {
+        document.title = "Nagi M18A Controlled Remote Fixture Transfers PASS";
+        document.querySelector("main").textContent = "Nagi M18A HTTPS download and upload PASS";
+      } else {
+        document.title = "Nagi M18A Controlled Remote Fixture Transfers FAIL";
+      }
+    }).catch(() => {
+      document.title = "Nagi M18A Controlled Remote Fixture Transfers FAIL";
+    });
+  </script>
 </body>
 </html>
