@@ -22,11 +22,12 @@ Repository instructions:
 `94e9a027618182b10c0ac2315e94673543f22423` on branch
 `codex/m18a-albert-remote-web`. M17's formal First Web Pixel acceptance
 passed in public CI #303 (`36355494134`, head
-`31bf815b7230f2658f654643e6d6c898d9881d77`). The first M18-A transport
-checkpoint now retains POSIX socket `O_NONBLOCK` state and exposes bounded
-nonblocking TCP send/receive operations. Controlled remote-page navigation,
-HTTP/HTTPS, TLS validation, redirects, failure handling, and Surface
-acceptance remain incomplete; see
+`31bf815b7230f2658f654643e6d6c898d9881d77`). The M18-A branch now retains
+POSIX socket `O_NONBLOCK` state, exposes bounded nonblocking TCP send/receive
+operations, initializes the guest network capability before Servo, and
+contains a controlled redirected HTTP fixture with a target QEMU acceptance.
+The fixture-backed M18-A run and remaining HTTP/HTTPS/TLS, DNS, failure, and
+transfer checks are pending; see
 `docs/workstreams/m18a-albert-remote-web-status.md`.
 
 **Last updated:** 2026-09-28

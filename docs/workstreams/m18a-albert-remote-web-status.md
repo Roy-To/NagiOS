@@ -9,14 +9,14 @@
 
 | Requirement | Status | Evidence / remaining work |
 |---|---|---|
-| Preserve the M17 PASS baseline | PARTIAL | Worktree starts at the exact fixed SHA. Re-run M17 acceptance after M18-A changes. |
-| Servo remote navigation to controlled fixture | NOT STARTED | Add a dedicated remote-page runner and deterministic fixture, then verify in QEMU. |
+| Preserve the M17 PASS baseline | PARTIAL | Worktree starts at the exact fixed SHA. Re-run M17 acceptance after M18-A changes; the CI job now does so before M18-A. |
+| Servo remote navigation to controlled fixture | PARTIAL | Added opt-in network initialization and a Servo URL runner. Target/QEMU acceptance is pending. |
 | DNS and TCP/socket transport | PARTIAL | Existing `nagi-net` smoltcp DNS/TCP path is capability-scoped. This checkpoint adds POSIX `O_NONBLOCK` retention and bounded TCP try-send/try-receive; concurrent socket support and deterministic end-to-end DNS remain. |
-| HTTP and redirects | NOT STARTED | Replace the current fixed M12 HTTP helper as needed for Servo, and add controlled redirect coverage. |
+| HTTP and redirects | PARTIAL | Added a deterministic fixture with a 302 redirect; host tests verify the final downloaded HTML. Servo's target request through the guest stack remains pending. |
 | HTTPS with chain and hostname validation | NOT STARTED | Servo's pinned rustls/WebPKI path and ADR 0030 root policy are present; controlled guest validation coverage is still required. No trust bypass is allowed. |
 | Timeout, reset, DNS, and TLS failure behavior | PARTIAL | TCP pre-connect operations fail closed and existing timeout/reset errors remain. Add deterministic failure tests and precise error propagation. |
-| Download and upload transport | NOT STARTED | Verify browser request body and response streaming through the guest socket boundary. |
-| Remote page rendered into Nagi Surface | NOT STARTED | M17 verifies local Servo rendering only; M18-A must prove remote content reaches the same Surface. |
+| Download and upload transport | PARTIAL | Fixture host tests cover redirect/download content and POST body echo. Browser transfer through the guest socket boundary remains pending. |
+| Remote page rendered into Nagi Surface | PARTIAL | The M18-A QEMU gate requires fixture page identity, a nonzero Servo frame checksum, and the remote-specific Surface marker; target execution remains pending. |
 
 ## Checkpoint 1
 
@@ -33,14 +33,34 @@ Verification:
 - M17 target build/QEMU acceptance — pending.
 - HTTPS/TLS and controlled remote-page acceptance — pending.
 
+## Checkpoint 2
+
+Added the opt-in `m18a-remote-web` init feature. It reuses the M17 storage and
+Servo bootstrap, initializes the process's network capability, and opens the
+controlled fixture URL through Servo. The fixture redirects to a titled HTML
+page; the embedder requires that page identity before it accepts a nonzero
+frame presented to Nagi Surface. The M17 path keeps its original feature,
+local data page, marker, image, and log names. Added `nagi m18a`, host fixture
+tests for redirected downloads and POST uploads, and an Ubuntu target CI step
+that runs M17 acceptance before M18-A.
+
+Host verification:
+
+- `cargo test --locked -p nagi-cli --tests` — PASS (92 library tests and 18 CLI integration tests).
+- `cargo test --locked --target x86_64-apple-darwin -p nagi-net -p nagi-posix` — PASS (19 unit tests, 1 integration test, doc tests).
+- `python3 tests/fixtures/m18a/test_server.py` — PASS (redirected download and POST body echo).
+- Scoped Rust formatting, shell syntax, Python compilation, and `git diff --check` — PASS.
+- Target/QEMU attempt on macOS stopped in Mesa configure: its ELF link check
+  selected `ld64.lld`, which rejects `--entry=0` and
+  `--unresolved-symbols=ignore-all`; Meson then reports missing `libatomic`.
+  No M18-A target binary or QEMU run was produced locally.
+- GitHub Actions now runs the same M18-A acceptance on Ubuntu after M17; result pending.
+
 ## Next actions
 
-1. Add an opt-in M18-A guest entry that initializes the passed network
-   capability before Servo and navigates to a controlled fixture URL, while
-   leaving the M17 entry path unchanged.
-2. Add a fixture-backed `nagi m18a` QEMU acceptance and require both remote
-   load completion and a nonzero Servo frame presented to Nagi Surface.
-3. Exercise DNS, redirect, HTTP errors, timeout/reset, HTTPS chain and hostname
+1. Run the new Ubuntu M18-A target/QEMU CI acceptance and repair its first
+   target or transport failure without weakening M17 or certificate checks.
+2. Exercise DNS, redirect, HTTP errors, timeout/reset, HTTPS chain and hostname
    validation, and browser upload/download transport with deterministic tests.
-4. Re-run M17 acceptance, update this status from evidence, and push each
+3. Re-run M17 acceptance, update this status from evidence, and push each
    verified checkpoint.

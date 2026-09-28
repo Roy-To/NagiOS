@@ -36,12 +36,15 @@ jobs:
           cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check
           cargo fmt --manifest-path loader/Cargo.toml -- --check
           rustfmt --check user/nagi-albert/src/lib.rs
+          rustfmt --check user/nagi-albert/src/remote_web.rs
       - name: Lint host-compatible workspace
         run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
       - name: Build host-compatible workspace
         run: cargo build --workspace --exclude nagi-kernel --locked
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: M18-A controlled HTTP fixture tests
+        run: python3 tests/fixtures/m18a/test_server.py
       - name: M0 doctor acceptance
         run: ./tests/acceptance/m0_doctor.sh
       - name: M0 launcher acceptance
@@ -149,6 +152,14 @@ jobs:
             echo 'M17 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
             exit 1
           fi
+      - name: Verify M18-A target dependency feature boundary
+        run: |
+          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m18a-remote-web --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p}')
+          printf '%s\n' "$graph"
+          if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
+            echo 'M18-A Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
+            exit 1
+          fi
       - name: Build pinned Nagi Mesa Softpipe archive
         run: |
           source out/mesa-venv/bin/activate
@@ -235,3 +246,10 @@ jobs:
         run: |
           source out/mesa-venv/bin/activate
           sh tests/acceptance/m17_servo_first_web_pixel.sh
+      - name: M18-A remote web acceptance
+        env:
+          NAGI_TARGET_CLANG: clang-19
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
+        run: |
+          source out/mesa-venv/bin/activate
+          sh tests/acceptance/m18a_albert_remote_web.sh

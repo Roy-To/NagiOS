@@ -17,6 +17,7 @@ m14-audio = ["m13-posix"]
 m15-history = ["m14-audio"]
 m16-package = ["m15-history"]
 m17-servo = ["m16-package", "m13-posix", "m13-std", "dep:nagi-albert"]
+m18a-remote-web = ["m17-servo"]
 
 [[bin]]
 name = "nagi-init"

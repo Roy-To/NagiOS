@@ -67,6 +67,7 @@ mod guest {
         context: Rc<SoftwareRenderingContext>,
         surface: RefCell<NagiSurface>,
         frame_diagnostics_emitted: Cell<bool>,
+        remote_web: bool,
     }
 
     impl FirstPixelDelegate {
@@ -83,9 +84,13 @@ mod guest {
             })
         }
 
-        fn report(checksum: u32) {
+        fn report(checksum: u32, remote_web: bool) {
             let mut line = [0_u8; 54];
-            let prefix = b"Nagi M17 first web pixel checksum=0x";
+            let prefix = if remote_web {
+                b"Nagi M18A remote web pixel checksum=0x" as &[u8]
+            } else {
+                b"Nagi M17 first web pixel checksum=0x"
+            };
             line[..prefix.len()].copy_from_slice(prefix);
             let mut value = checksum;
             let mut index = prefix.len() + 8;
@@ -96,7 +101,11 @@ mod guest {
             }
             line[prefix.len() + 8..prefix.len() + 10].copy_from_slice(b"\r\n");
             libnagi::console_write(&line[..prefix.len() + 10]);
-            libnagi::console_write(b"Nagi M17 first web pixel PASS\r\n");
+            if remote_web {
+                libnagi::console_write(b"Nagi M18A remote web pixel PASS\r\n");
+            } else {
+                libnagi::console_write(b"Nagi M17 first web pixel PASS\r\n");
+            }
         }
     }
 
@@ -149,14 +158,28 @@ mod guest {
             if trace_first {
                 trace_stage(b"first web frame surface present completed");
             }
-            Self::report(checksum);
+            Self::report(checksum, self.remote_web);
         }
 
         fn notify_url_changed(&self, _webview: WebView, _url: Url) {
             trace_stage(b"WebView URL changed");
         }
 
-        fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
+        fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
+            if self.remote_web && status == LoadStatus::Complete {
+                if webview.page_title().as_deref()
+                    == Some(crate::remote_web::CONTROLLED_FIXTURE_TITLE)
+                {
+                    libnagi::console_write(
+                        b"Nagi M18A remote navigation fixture identity PASS\r\n",
+                    );
+                } else {
+                    libnagi::console_write(
+                        b"Nagi M18A remote navigation FAIL fixture identity\r\n",
+                    );
+                    libnagi::exit(1);
+                }
+            }
             let stage = match status {
                 LoadStatus::Started => b"WebView load status started" as &'static [u8],
                 LoadStatus::HeadParsed => b"WebView load status head parsed",
@@ -167,6 +190,10 @@ mod guest {
     }
 
     pub fn run_first_web_pixel(display_capability: u64) -> ! {
+        run_web_page(display_capability, FIRST_WEB_PAGE, false)
+    }
+
+    pub(super) fn run_web_page(display_capability: u64, page_url: &str, remote_web: bool) -> ! {
         libnagi::console_write(b"Nagi M17 trace: Servo resource reader preflight started\r\n");
         let domain_list = servo::resources::read_bytes(servo::resources::Resource::DomainList);
         if domain_list.is_empty() {
@@ -207,8 +234,9 @@ mod guest {
             context: context.clone(),
             surface: RefCell::new(surface),
             frame_diagnostics_emitted: Cell::new(false),
+            remote_web,
         });
-        let url = Url::parse(FIRST_WEB_PAGE).expect("the bundled M17 data URL is valid");
+        let url = Url::parse(page_url).expect("the configured Nagi page URL is valid");
         libnagi::console_write(b"Nagi M17 trace: WebView construction started\r\n");
         let _webview = WebViewBuilder::new(&servo, context)
             .url(url)
@@ -234,6 +262,9 @@ mod guest {
 
 #[cfg(target_os = "nagi")]
 pub use guest::run_first_web_pixel;
+
+#[cfg(target_os = "nagi")]
+pub mod remote_web;
 
 #[cfg(not(target_os = "nagi"))]
 pub fn run_first_web_pixel(_display_capability: u64) -> ! {

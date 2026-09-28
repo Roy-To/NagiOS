@@ -47,6 +47,7 @@ pub enum Command {
     M15,
     M16,
     M17,
+    M18A,
     Test,
     Clean,
     Fmt,
@@ -110,6 +111,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m15" => Command::M15,
         "m16" => Command::M16,
         "m17" => Command::M17,
+        "m18a" => Command::M18A,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -143,6 +145,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M15
         | Command::M16
         | Command::M17
+        | Command::M18A
         | Command::Test
         | Command::Clean
         | Command::Fmt
@@ -226,6 +229,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M15 => execute_m15(root, probe),
         Command::M16 => execute_m16(root, probe),
         Command::M17 => execute_m17(root, probe),
+        Command::M18A => execute_m18a(root, probe),
     }
 }
 
@@ -1664,9 +1668,35 @@ fn execute_m16(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    execute_servo_run(root, probe, false)
+}
+
+fn execute_m18a(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let mut fixture = match start_m18a_http_fixture(root) {
+        Ok(child) => child,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18a: {error}")),
+    };
+    let result = execute_servo_run(root, probe, true);
+    let _ = fixture.kill();
+    let _ = fixture.wait();
+    result
+}
+
+fn execute_servo_run(root: &Path, probe: &dyn HostProbe, remote_web: bool) -> CommandResult {
+    let workstream = if remote_web { "m18a" } else { "m17" };
+    let feature = if remote_web {
+        "m18a-remote-web"
+    } else {
+        "m17-servo"
+    };
     let cxx_headers = match resolve_m17_cxx_headers() {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m17: C++ headers: {error}")),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{workstream}: C++ headers: {error}"),
+            )
+        }
     };
 
     let fetch = execute_fetch(root);
@@ -1680,7 +1710,12 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 
     let rust_std_source = match prepare_nagi_rust_std_source(root) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m17: rust std: {error}")),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{workstream}: rust std: {error}"),
+            )
+        }
     };
     let mesa_build = ProcessCommand::new("bash")
         .args(["tools/mesa/build.sh"])
@@ -1692,7 +1727,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m17: Mesa/Softpipe build failed: {}",
+                    "{workstream}: Mesa/Softpipe build failed: {}",
                     command_output(&output)
                 ),
             )
@@ -1700,7 +1735,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m17: cannot start tools/mesa/build.sh through bash: {error}"),
+                format!("{workstream}: cannot start tools/mesa/build.sh through bash: {error}"),
             )
         }
     }
@@ -1713,7 +1748,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "-p",
         "nagi-init",
         "--features",
-        "m17-servo",
+        feature,
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=std,panic_abort",
@@ -1725,7 +1760,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         root,
         &init_args,
         Some(&rust_std_source),
-        "nagi-0.1-m17-servo.img",
+        &format!("nagi-0.1-{workstream}-servo.img"),
         &[
             ("NAGI_M16_PACKAGE", package_path.as_path()),
             ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
@@ -1745,26 +1780,26 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return image_result;
     }
 
-    let host = match resolve_qemu_host(root, probe, "m17") {
+    let host = match resolve_qemu_host(root, probe, workstream) {
         Ok(host) => host,
         Err(error) => return failure(EXIT_CONFIG_ERROR, error),
     };
     let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m17: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{workstream}: {error}")),
     };
     let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m17: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{workstream}: {error}")),
     };
-    let image_path = artifacts.join("nagi-0.1-m17-servo.img");
-    let persistent_disk = artifacts.join("nagi-0.1-m17-user-data.img");
-    let vars_copy = artifacts.join("nagi-0.1-m17-vars.fd");
-    let first_log = logs.join("m17-first-boot.log");
-    let log_path = logs.join("m17-servo.log");
+    let image_path = artifacts.join(format!("nagi-0.1-{workstream}-servo.img"));
+    let persistent_disk = artifacts.join(format!("nagi-0.1-{workstream}-user-data.img"));
+    let vars_copy = artifacts.join(format!("nagi-0.1-{workstream}-vars.fd"));
+    let first_log = logs.join(format!("{workstream}-first-boot.log"));
+    let log_path = logs.join(format!("{workstream}-servo.log"));
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m17: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{workstream}: {error}")),
     };
     let timeout = Duration::from_secs(120);
     if !had_persistent_disk {
@@ -1783,7 +1818,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m17: first boot: {error}\nserial log tail:\n{}",
+                    "{workstream}: first boot: {error}\nserial log tail:\n{}",
                     serial_log_tail(&first_log, 64)
                 ),
             );
@@ -1793,7 +1828,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             Err(error) => {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("m17: cannot read {}: {error}", first_log.display()),
+                    format!("{workstream}: cannot read {}: {error}", first_log.display()),
                 )
             }
         };
@@ -1801,7 +1836,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m17: first boot did not print `{NAGI_WRITE_MARKER}` (log {})",
+                    "{workstream}: first boot did not print `{NAGI_WRITE_MARKER}` (log {})",
                     first_log.display()
                 ),
             );
@@ -1815,7 +1850,11 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         persistent_disk: &persistent_disk,
         vars_copy: &vars_copy,
         serial_log: &log_path,
-        acceptance_marker: "Nagi M17 first web pixel PASS",
+        acceptance_marker: if remote_web {
+            "Nagi M18A remote web pixel PASS"
+        } else {
+            "Nagi M17 first web pixel PASS"
+        },
         timeout,
     };
     let status = match run_qemu_with_read_only_boot_disk(&config) {
@@ -1824,7 +1863,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m17: QEMU: {error}\nM17 trace excerpt:\n{}\nserial log tail:\n{}",
+                    "{workstream}: QEMU: {error}\nM17 trace excerpt:\n{}\nserial log tail:\n{}",
                     serial_log_m17_trace_excerpt(&log_path, 256),
                     serial_log_tail(&log_path, 64),
                 ),
@@ -1836,31 +1875,49 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m17: cannot read {}: {error}", log_path.display()),
+                format!("{workstream}: cannot read {}: {error}", log_path.display()),
             )
         }
     };
-    for marker in [
-        "Nagi Kernel started",
-        "Nagi M17 first web pixel checksum=0x",
-        "Nagi M17 first web pixel PASS",
-    ] {
+    let required_markers: &[&str] = if remote_web {
+        &[
+            "Nagi Kernel started",
+            "Nagi M18A remote navigation fixture identity PASS",
+            "Nagi M18A remote web pixel checksum=0x",
+            "Nagi M18A remote web pixel PASS",
+        ]
+    } else {
+        &[
+            "Nagi Kernel started",
+            "Nagi M17 first web pixel checksum=0x",
+            "Nagi M17 first web pixel PASS",
+        ]
+    };
+    for marker in required_markers {
         if !serial.contains(marker) {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m17: guest did not print `{marker}` (QEMU exit {status}; log {})",
+                    "{workstream}: guest did not print `{marker}` (QEMU exit {status}; log {})",
                     log_path.display()
                 ),
             );
         }
     }
-    CommandResult {
-        exit_code: EXIT_SUCCESS,
-        lines: vec![format!(
+    let success_line = if remote_web {
+        format!(
+            "PASS M18A remote web: real Servo/Mesa Softpipe frame reached Nagi Surface and QEMU (exit {status}; log {})",
+            log_path.display()
+        )
+    } else {
+        format!(
             "PASS M17 first web pixel: real Servo/Mesa Softpipe frame reached Nagi Surface and QEMU (exit {status}; log {})",
             log_path.display()
-        )],
+        )
+    };
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![success_line],
     }
 }
 
@@ -2236,6 +2293,37 @@ fn execute_m16_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             package_log.display()
         )],
     }
+}
+
+fn start_m18a_http_fixture(root: &Path) -> Result<Child, String> {
+    let fixture_script = root
+        .join("tests")
+        .join("fixtures")
+        .join("m18a")
+        .join("server.py");
+    if !fixture_script.is_file() {
+        return Err(format!(
+            "M18-A HTTP fixture is missing: {}",
+            fixture_script.display()
+        ));
+    }
+    for executable in ["python.exe", "python3", "python"] {
+        let result = ProcessCommand::new(executable)
+            .arg(&fixture_script)
+            .args(["--bind", "0.0.0.0", "--port", "18081"])
+            .spawn();
+        if let Ok(mut child) = result {
+            thread::sleep(Duration::from_millis(500));
+            if matches!(child.try_wait(), Ok(None)) {
+                return Ok(child);
+            }
+            let _ = child.wait();
+        }
+    }
+    Err(format!(
+        "cannot start the M18-A HTTP fixture at {}",
+        fixture_script.display()
+    ))
 }
 
 fn start_m13_http_fixture(root: &Path) -> Result<Child, String> {
@@ -2775,7 +2863,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18a, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -2862,24 +2950,50 @@ mod tests {
     #[test]
     fn m17_persistence_and_pixel_boots_keep_the_esp_read_only() {
         let commands = include_str!("commands.rs");
-        let start = commands.find("fn execute_m17(").expect("M17 command");
-        let end = commands[start..]
-            .find("fn execute_m16_sample_build(")
-            .map(|offset| start + offset)
+        let m17_entry = commands
+            .find("fn execute_m17(root: &Path, probe: &dyn HostProbe)")
+            .expect("M17 command");
+        let m17_runner = &commands[m17_entry
+            ..commands
+                .find("fn execute_servo_run(")
+                .expect("shared Servo command runner")];
+        let servo_runner_start = commands
+            .find("fn execute_servo_run(")
+            .expect("shared Servo command runner");
+        let servo_runner_end = commands[servo_runner_start..]
+            .find("fn serial_log_tail(")
+            .map(|offset| servo_runner_start + offset)
             .expect("next command helper");
-        let m17_command = &commands[start..end];
+        let servo_runner = &commands[servo_runner_start..servo_runner_end];
 
         assert_eq!(
-            m17_command
+            servo_runner
                 .matches("run_qemu_with_read_only_boot_disk(")
                 .count(),
             2,
-            "both M17 QEMU boots must protect the ESP"
+            "both M17 and M18A persistence boots must protect the ESP"
         );
         assert!(
-            !m17_command.contains("run_qemu(&"),
+            !servo_runner.contains("run_qemu(&"),
             "M17 must not boot with a writable ESP"
         );
+        assert!(m17_runner.contains("execute_servo_run(root, probe, false)"));
+    }
+
+    #[test]
+    fn m18a_initializes_guest_network_before_remote_servo_navigation() {
+        let init = include_str!("../../../user/nagi-init/src/main.rs");
+        let remote_branch = init
+            .split("#[cfg(feature = \"m18a-remote-web\")]")
+            .nth(1)
+            .expect("M18-A network branch");
+        let network = remote_branch
+            .find("nagi_posix_initialize_network(net_capability)")
+            .expect("guest network capability initialization");
+        let navigation = remote_branch
+            .find("remote_web::run_remote_web_page(display_capability)")
+            .expect("remote Servo entry point");
+        assert!(network < navigation);
     }
 
     #[test]

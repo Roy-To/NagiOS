@@ -548,6 +548,18 @@ pub extern "C" fn _start(
             libnagi::exit(1);
         }
         libnagi::console_write(b"Nagi M17 trace: temporary directory ready\r\n");
+        #[cfg(feature = "m18a-remote-web")]
+        {
+            libnagi::console_write(b"Nagi M18A trace: network initialization started\r\n");
+            if unsafe { nagi_posix::nagi_posix_initialize_network(net_capability) } != 0 {
+                libnagi::console_write(
+                    b"Nagi M18A remote navigation FAIL network initialization\r\n",
+                );
+                libnagi::exit(1);
+            }
+            libnagi::console_write(b"Nagi M18A trace: network capability initialized\r\n");
+            return nagi_albert::remote_web::run_remote_web_page(display_capability);
+        }
         return run_first_web_pixel(display_capability);
     }
 
