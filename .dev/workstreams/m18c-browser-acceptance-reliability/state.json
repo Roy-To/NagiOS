@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "m18c-browser-acceptance-reliability",
   "current_milestone": "M18-C",
-  "current_checkpoint": "m17-feature-gate-parser-fixed-awaiting-hosted-retry",
+  "current_checkpoint": "hosted-ci-pass-guest-acceptance-integration-pending",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "7d0bfa8d534425188dec39e32a19ba247db4284a",
-    "verified_at": "2026-09-28T10:37:28Z",
-    "normal_state": "The latest verified M18-C harness implementation is commit 7d0bfa8d534425188dec39e32a19ba247db4284a on branch codex/m18c-browser-acceptance-reliability, based on exact M18 shared starting point 94e9a027618182b10c0ac2315e94673543f22423. The selected base is the immediate child of the accepted M17 first-web-pixel run head 31bf815b7230f2658f654643e6d6c898d9881d77. The first hosted C run 36409153587 passed host jobs but exposed an M18-C evaluator assumption: Cargo did not emit the requested root feature as a separate tree node. The evaluator now verifies the selected nagi-init package, nagi-albert presence, and absence of M18-only features while its command explicitly requests --features m17-servo. After this correction, all 30 focused tests and positive/negative synthetic graph cases pass locally. The follow-up hosted run is pending push. The local target graph command remains unavailable because cc-nagi is not fetched on this macOS host. No M18 product acceptance is claimed.",
+    "commit_sha": "0633e3532e802f3f852b28173c9e2b65a0990d12",
+    "verified_at": "2026-09-28T11:21:04Z",
+    "normal_state": "The latest verified M18-C code and CI checkpoint is 0633e3532e802f3f852b28173c9e2b65a0990d12 on branch codex/m18c-browser-acceptance-reliability, based on exact M18 shared starting point 94e9a027618182b10c0ac2315e94673543f22423. The accepted M17 first-web-pixel baseline CI head is 31bf815b7230f2658f654643e6d6c898d9881d77 and 94e9a027 is its immediate child. The initial M18-C hosted run exposed a Cargo root-feature display assumption; the targeted fix is covered by synthetic positive/negative graph tests. Follow-up CI run 36410949927 completed successfully across Ubuntu host, Windows launcher, and nagi-target, including M18-C fixture/report tests, actual M17 feature-off graph PASS, target build, and M17 QEMU first-web-pixel PASS. Both acceptance artifacts were uploaded. The host report has 2 PASS and 32 SKIP-BLOCKED; the target report has 1 PASS and 33 SKIP-BLOCKED. Guest-facing M18 functionality remains unverified and no M18 product acceptance is claimed.",
     "commands": [
       "PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning -m unittest discover -s tests -p 'test_m18c_browser_acceptance.py' -v",
       "PYTHONDONTWRITEBYTECODE=1 python3 tests/browser_acceptance/report.py --evidence /tmp/nagi-m18c-commit-evidence.json --output /tmp/nagi-m18c-commit-report.json",
@@ -20,7 +20,9 @@
       "PYTHONPATH=/tmp/nagi-m18c-schema-python python3 /tmp/nagi-m18c-validate-df01-state.py",
       "python3 tests/browser_acceptance/feature_gates.py --graph /tmp/nagi-m18c-feature-graph.txt --output /tmp/nagi-m18c-feature-positive.json",
       "python3 tests/browser_acceptance/feature_gates.py --graph /tmp/nagi-m18c-feature-leak.txt --output /tmp/nagi-m18c-feature-leak.json",
-      "gh run view 36409153587 --job 108884965070 --log-failed"
+      "gh run view 36409153587 --job 108884965070 --log-failed",
+      "gh run view 36410949927 --json status,conclusion,headSha,url,jobs",
+      "gh run download 36410949927 --dir /tmp/nagi-m18c-ci-artifacts-final"
     ],
     "tests": [
       {
@@ -78,6 +80,13 @@
         "outcome": "FAIL",
         "exit_code": 1,
         "evidence": "Host Ubuntu and Windows jobs passed. The target graph command succeeded, but the evaluator incorrectly required `nagi-init feature \"m17-servo\"` as a separate output node; the artifact report recorded that precise FAIL."
+      },
+      {
+        "name": "M18-C hosted CI and Nagi target acceptance after feature-gate correction",
+        "command": "gh run view 36410949927 --json status,conclusion,headSha,url,jobs",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Run 36410949927 at HEAD 0633e3532e802f3f852b28173c9e2b65a0990d12 passed Ubuntu host (format, Clippy with -D warnings, workspace build/tests, 30 M18-C tests and report), Windows launcher, and nagi-target. Actual M17 feature-off gate passed; Nagi user init and UEFI loader built; M17 first-web-pixel QEMU acceptance passed. Host and target JSON reports were uploaded."
       }
     ],
     "ci_runs": [
@@ -111,31 +120,40 @@
         "head_sha": "9cf9d40272fd29b4b8821620907b62f0fa2d3d35",
         "status": "COMPLETED",
         "conclusion": "failure",
-        "summary": "M18-C initial hosted CI: Ubuntu host and Windows jobs passed, including the 30 fixture/report tests and host acceptance artifact. Target Cargo feature graph resolved, but the M18-C checker falsely failed because Cargo does not emit the requested root feature as a separate node. The target report and artifact correctly retained the failure. Fixed in 7d0bfa8; rerun pending."
+        "summary": "M18-C initial hosted CI: Ubuntu host and Windows jobs passed, including the 30 fixture/report tests and host acceptance artifact. Target Cargo feature graph resolved, but the M18-C checker falsely failed because Cargo does not emit the requested root feature as a separate node. The target report and artifact correctly retained the failure. Fixed in 7d0bfa8 and verified by successful rerun 36410949927."
+      },
+      {
+        "run_id": 36410949927,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36410949927",
+        "head_sha": "0633e3532e802f3f852b28173c9e2b65a0990d12",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Follow-up M18-C CI passed Ubuntu host, Windows launcher, and nagi-target. The actual M17 target feature-off acceptance passed, host and target report artifacts uploaded, Nagi user init and UEFI loader built, and M17 first-web-pixel QEMU acceptance passed. Guest-facing M18-C product cases remain blocked on the unintegrated M18 API boundary."
       }
     ]
   },
   "release_line_gate": {
     "source": "AGENTS.md and docs/implementation_status.md",
-    "last_checked_at": "2026-09-28T10:37:28Z",
+    "last_checked_at": "2026-09-28T11:21:04Z",
     "activation_requirement": "Keep M18-C limited to Nagi 0.1 browser acceptance infrastructure. Do not claim M18 acceptance until integrated guest evidence closes the required cases; do not implement M18 main/A/B, M19-PREP, or 0.2 product work."
   },
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "The safe base is the accepted M17 point and contains no integrated M18 browser API, so guest navigation, network, tabs, durable browser state, transfers, clipboard, and IME cannot be driven from this branch without importing other owners' unfinished production work. The first M18-C hosted run exposed and recorded a feature-graph parser bug; a correction has passed focused local tests and awaits hosted retry. The local M17 feature graph remains unavailable because third_party/cc-nagi was not fetched on this macOS host.",
+    "summary": "The safe base is the accepted M17 point and contains no integrated M18 browser API, so guest navigation, network, tabs, durable browser state, transfers, clipboard, and IME cannot be driven from this branch without importing other owners' unfinished production work. The M18-C feature-graph parser defect was fixed and follow-up hosted CI passed the actual target feature gate and M17 QEMU acceptance. Remaining blocker is guest-facing acceptance after the shared M18 API boundary is integrated. Local macOS Cargo graph inspection remains unavailable because third_party/cc-nagi was not fetched.",
     "reproduction_commands": [
       "PYTHONDONTWRITEBYTECODE=1 python3 tests/browser_acceptance/feature_gates.py --output /tmp/nagi-m18c-feature-evidence.json",
       "python3 tests/browser_acceptance/report.py --output /tmp/nagi-m18c-host-report.json"
     ],
-    "failure_log_summary": "Hosted CI run 36409153587 at head 9cf9d40272fd29b4b8821620907b62f0fa2d3d35: `M18-C M17 feature-off acceptance and target report` failed with `M17 graph did not include expected nodes: nagi-init feature \"m17-servo\"`; the actual cargo tree command succeeded. The follow-up target report emitted FAIL and the upload-artifact step succeeded. Root cause: cargo tree does not print the requested root feature as a separate node; corrected by checking the selected nagi-init root package and nagi-albert presence while retaining the explicit --features m17-servo command argument. Local cargo tree still reports `failed to read third_party/cc-nagi/Cargo.toml: No such file or directory`; earlier pinned fetch attempts could not populate the dependency due host toolchain/Apple xcrun architecture errors. Guest product cases remain SKIP-BLOCKED with owners in cases.json. M18-A CI run 36386094625 failed at remote web acceptance; M18-B run 36375495228 passed its current chrome acceptance. The M18 main integration checkout is separate and dirty, so it was not used as a base.",
+    "failure_log_summary": "Hosted CI run 36409153587 at head 9cf9d40272fd29b4b8821620907b62f0fa2d3d35: `M18-C M17 feature-off acceptance and target report` failed with `M17 graph did not include expected nodes: nagi-init feature \"m17-servo\"`; the actual cargo tree command succeeded. Root cause: cargo tree does not print the requested root feature as a separate node; corrected by checking the selected nagi-init root package and nagi-albert presence while retaining the explicit --features m17-servo command argument. Hosted retry 36410949927 passed the feature gate, target build, and M17 QEMU acceptance with all CI jobs green; both M18-C artifacts were uploaded. Local cargo tree still reports `failed to read third_party/cc-nagi/Cargo.toml: No such file or directory`; earlier pinned fetch attempts could not populate the dependency due host toolchain/Apple xcrun architecture errors. Guest product cases remain SKIP-BLOCKED with owners in cases.json. M18-A CI run 36386094625 failed at remote web acceptance; M18-B run 36375495228 passed its current chrome acceptance. The M18 main integration checkout is separate and dirty, so it was not used as a base.",
     "attempted_fixes": [
       "Selected exact base 94e9a027618182b10c0ac2315e94673543f22423, the shared M18 starting point immediately after the accepted M17 run, to avoid importing separate/unfinished M18-A/B product changes.",
       "Added deterministic local HTTP/HTTPS, redirect, timeout, error, transfer, and storage/recovery inputs; all 30 M18-C focused tests pass.",
       "Changed malformed HTTP fixture to an invalid status line after the host HTTP client accepted the original malformed Content-Length case.",
       "Fixed recovery-fixture tests after they exposed missing pathlib import and temporary-directory lifetime errors; the final focused rerun passed.",
       "Attempted local pinned dependency fetch and target feature graph inspection; retained explicit BLOCKED evidence instead of treating the missing graph as a pass.",
-      "Recorded hosted run 36409153587's feature-gate failure; removed the invalid expectation that cargo tree list the root m17-servo feature as an independent node, and added regression coverage for its actual output shape plus explicit leak rejection."
+      "Recorded hosted run 36409153587's feature-gate failure; removed the invalid expectation that cargo tree list the root m17-servo feature as an independent node, and added regression coverage for its actual output shape plus explicit leak rejection.",
+      "Verified the correction in hosted run 36410949927: all jobs passed, actual target M17 feature-off gate passed, and M17 first-web-pixel QEMU acceptance passed."
     ],
     "do_not_try": [
       "Do not copy, cherry-pick, or reimplement M18-A/M18-B/M18 main production code in this workstream.",
@@ -143,7 +161,7 @@
       "Do not merge, rebase, or force-push this branch, and do not widen work into M19-PREP or 0.2."
     ]
   },
-  "next_action": "Push the feature-gate correction and updated state. Inspect the new GitHub CI run by immutable run ID and head SHA; repair any M18-C failures within this workstream and record the exact rerun. Keep guest-facing cases PARTIAL until M18 main/A/B provide an integrated target boundary; attach the registration proposal for the integration owner to review when this branch is integrated.",
+  "next_action": "When the integration owner registers this workstream and the shared M18 build exposes the M18-A/M18-B browser boundaries, run the existing case matrix against Nagi guest behavior, convert only evidence-backed cases from SKIP-BLOCKED to PASS, and record guest failures/recovery results. Until then preserve PARTIAL and keep the registration proposal for integration review; no independent M18-C implementation remains on the selected M17 base.",
   "acceptance_criteria": [
     "A deterministic local HTTP/HTTPS fixture server covers direct pages, redirects, redirect loops, status errors, connection refusal, timeout, malformed responses, TLS verification, download, and upload.",
     "Deterministic state fixture inputs exist for missing, empty, clean multi-tab, truncated, malformed, incompatible-version, partial-record, interrupted-write, and repeated-restore scenarios without defining or implementing the production storage API.",
@@ -159,7 +177,7 @@
     "Tab isolation, history/bookmark/session persistence, corrupted-state recovery, clipboard, IME, and guest file handoff: browser-state/service integration owned by codex/m18b-albert-ui-browser-state and the shared M18 main integration.",
     "Guest download/upload success, cancellation, destination, and exact bytes: transport plus browser file-picker/service integration owned across codex/m18a-albert-remote-web, codex/m18b-albert-ui-browser-state, and codex/m18-main-albert-browser.",
     "M18-on target feature-gate check: requires the shared M18 target feature/build entry point owned by codex/m18-main-albert-browser.",
-    "Actual target feature graph on this macOS checkout: blocked until the pinned cc-nagi source fetch succeeds; M18-C CI should run the same graph after the existing Servo bootstrap on Ubuntu.",
+    "Actual target feature graph on this macOS checkout: local cargo tree remains blocked until pinned cc-nagi fetch succeeds; hosted CI run 36410949927 successfully checked the graph after Servo bootstrap on Ubuntu.",
     "DF-01 shared registry registration: exact row is in registration-proposal.json and awaits integration-owner registration; the selected base predates DF-01 and this branch does not alter the shared registry."
   ],
   "cross_workstream_dependencies": []
