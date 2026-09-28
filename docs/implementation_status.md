@@ -18,17 +18,18 @@ Repository instructions:
 
 **Current milestone:** `M18-A - Albert Remote Web`
 **Milestone status:** `PARTIAL`
-**Next action:** Complete CI run `36379279390` for code checkpoint
-`330f322fbfd1c8fc8e696183fc7f13a019644804` on branch
+**Next action:** Push the current target-build correction and rerun CI on
 `codex/m18a-albert-remote-web`, derived from fixed M17 PASS base
-`94e9a027618182b10c0ac2315e94673543f22423`. The Ubuntu host and Windows
-launcher jobs passed; `nagi-target` is building before real-QEMU M17 and M18-A
-acceptance. M18-A adds POSIX nonblocking socket support, bounded TCP
-send/receive, Servo remote navigation, a controlled HTTP-to-HTTPS redirect
-with guest upload/download, and a UEFI realtime seed for normal TLS validity
-checks. Local host tests and kernel/UEFI-loader release builds pass. Current
-source guest/QEMU proof, browser-originated DNS coverage, and deterministic
-browser-visible network failure evidence remain pending; see
+`94e9a027618182b10c0ac2315e94673543f22423`. CI run `36379279390` passed the
+Ubuntu host and Windows launcher jobs but failed `Build Nagi user init`: the
+target `nagi-albert` module used `pub(super)` at crate root. It has been
+corrected to crate visibility. Loader and real-QEMU M17/M18-A acceptance were
+skipped after that failure. M18-A adds POSIX nonblocking socket support,
+bounded TCP send/receive, Servo remote navigation, a controlled HTTP-to-HTTPS
+redirect with guest upload/download, and a UEFI realtime seed for normal TLS
+validity checks. Local host tests and kernel/UEFI-loader release builds pass.
+Current-source target/QEMU proof, browser-originated DNS coverage, and
+deterministic browser-visible timeout/reset evidence remain pending; see
 `docs/workstreams/m18a-albert-remote-web-status.md`.
 
 **Last updated:** 2026-09-28

@@ -6,7 +6,7 @@
 //! capability-checked Nagi Surface.
 
 #[cfg(target_os = "nagi")]
-pub(super) mod guest {
+pub(crate) mod guest {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
     use std::sync::Arc;

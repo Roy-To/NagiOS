@@ -4,7 +4,8 @@
 **Branch:** `codex/m18a-albert-remote-web`  
 **Required base:** `94e9a027618182b10c0ac2315e94673543f22423`  
 **Latest code checkpoint under test:** `330f322fbfd1c8fc8e696183fc7f13a019644804`
-**Latest CI:** run `36379279390` — Ubuntu host and Windows launcher passed; `nagi-target` is building.
+**Latest local checkpoint:** `6778937fb33ffbe966863160f333114cf052061f` plus an uncommitted target-build correction.
+**Latest CI:** run `36379279390` — Ubuntu host and Windows launcher passed; `nagi-target` failed while building `nagi-albert`, before loader or QEMU acceptance.
 **Scope:** remote browser networking and its user-space runtime path; no M18-B browser chrome or UI.
 
 ## Acceptance status
@@ -89,16 +90,17 @@ Verification for this checkpoint:
 - Kernel release build for `targets/x86_64-unknown-nagi.json` — PASS.
 - UEFI loader release build for `x86_64-unknown-uefi` — PASS.
 - `git diff --check` — PASS.
-- GitHub Actions `36379279390` on `330f322`: Ubuntu host and Windows launcher — PASS; `nagi-target` — in progress.
-- Servo target init build and current-source QEMU run — pending; an earlier run tested only the HTTP checkpoint and is not evidence for the TLS/RTC changes.
+- GitHub Actions `36379279390` on `330f322`: Ubuntu host and Windows launcher — PASS. `nagi-target` failed in `Build Nagi user init` at `user/nagi-albert/src/lib.rs:9`: `pub(super)` is invalid at crate root (`too many leading super keywords`). The UEFI loader and both QEMU acceptance steps were skipped.
+- Corrected the guest module declaration to `pub(crate)` so the sibling remote-web module can use it without exporting the module outside the crate. Focused host tests (37) and scoped Clippy pass after this change; target/QEMU confirmation is pending.
+- An isolated local custom-target `cargo check -p nagi-albert` did not reach the crate: registry `libc` 0.2.174 failed compiling its target bindings. Use the repository's full target build path in CI for acceptance.
 
 ## Exact next action
 
-Complete CI run `36379279390` on code checkpoint `330f322fbfd1c8fc8e696183fc7f13a019644804`.
-The host jobs have passed and the target job is building. Repair any target or
-QEMU failure without weakening certificate checks. The new guest-side
-self-signed endpoint test is unpushed and still needs its own target run. Keep
-M18-A `PARTIAL` until current-source QEMU markers pass and Servo-originated DNS
+Commit the `pub(crate)` correction with this status update, push it with the
+untrusted-certificate probe checkpoint, and rerun the full target job. Repair
+any target or QEMU failure without weakening certificate checks. The new
+guest-side self-signed endpoint test needs current-source QEMU evidence. Keep
+M18-A `PARTIAL` until M17 and M18-A QEMU markers pass and Servo-originated DNS
 plus browser-visible timeout/reset behavior have deterministic evidence.
 
 Shared-file changes are limited to the CI acceptance workflow, `Cargo.lock`,
