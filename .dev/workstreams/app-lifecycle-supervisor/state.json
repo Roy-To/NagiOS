@@ -6,9 +6,9 @@
   "current_checkpoint": "pre-activation-gate-and-registration-review",
   "status": "NOT_STARTED",
   "last_verified": {
-    "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
-    "verified_at": "2026-09-28T22:16:06Z",
-    "normal_state": "Runtime work remains NOT_STARTED. M17 is BLOCKED and M30 is NOT STARTED; no explicit checkpoint authorizing this supervisor stream was found. The 18-row registry has no supervisor row, and this state is intentionally unregistered pending Integration Owner resolution. The supervisor and Package Manifest workstream documents both request APP-LC-01; the Package Manifest document was not copied, edited, or replaced. State/proposal schema validation passed. ./nagi dev verify passed the existing 18 registered streams and 11 state files but does not include this unregistered state. ./nagi dev status was rejected with exit 4 because this branch is absent from the Integration Owner registry. No runtime source was created.",
+    "commit_sha": "bb19bc1645d58f4677209aa0325577c1db5528f3",
+    "verified_at": "2026-09-28T22:17:30Z",
+    "normal_state": "Runtime work remains NOT_STARTED. M17 is BLOCKED and M30 is NOT STARTED; no explicit checkpoint authorizing this supervisor stream was found. The 18-row registry has no supervisor row, and this state is intentionally unregistered pending Integration Owner resolution. The supervisor and Package Manifest workstream documents both request APP-LC-01; the Package Manifest document was not copied, edited, or replaced. At commit bb19bc1645d58f4677209aa0325577c1db5528f3, the state and proposed registry row passed Draft 2020-12 validation; ./nagi dev verify passed 18 registered streams and 11 state files but does not include this unregistered state. ./nagi dev status is rejected with exit 4 because this branch is absent from the Integration Owner registry. No runtime source was created.",
     "commands": [
       "rg -n '^\\| M(17|18|30) \\|' docs/implementation_status.md && rg -n 'M30 PASS.*explicit.*checkpoint|M17 remains BLOCKED|Nagi 0.2 runtime/product work remains gated' docs/implementation_status.md docs/0.2/WORKSTREAMS.md docs/0.2/DEVELOPMENT_ARCHITECTURE.md .dev/workstreams/integration-next-phase/state.json",
       "/tmp/nagi-app-sdk-schema/bin/python /tmp/nagi-app-lifecycle-supervisor-validate.py",
@@ -28,14 +28,14 @@
         "command": "/tmp/nagi-app-sdk-schema/bin/python /tmp/nagi-app-lifecycle-supervisor-validate.py",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Draft 2020-12 validation passed for state.json and the proposed registry row. Proposal dependencies resolve to registered IDs; the shared registry remains untouched. The check also confirmed 18 registry rows and the APP-LC-01 collision in the current integration checkout."
+        "evidence": "At commit bb19bc1645d58f4677209aa0325577c1db5528f3, Draft 2020-12 validation passed for state.json and the proposed registry row. Proposal dependencies resolve to registered IDs; the shared registry remains untouched. The check also confirmed 18 registry rows and the APP-LC-01 collision in the current integration checkout."
       },
       {
         "name": "Registered repository state verification",
         "command": "./nagi dev verify",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "PASS development state: 18 registered workstreams, 11 state files validated; branch codex/0.2-app-lifecycle-supervisor at 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. This CLI pass does not include the unregistered supervisor state; the state was separately schema-validated."
+        "evidence": "PASS development state: 18 registered workstreams, 11 state files validated; branch codex/0.2-app-lifecycle-supervisor at bb19bc1645d58f4677209aa0325577c1db5528f3. This CLI pass does not include the unregistered supervisor state; the state was separately schema-validated."
       },
       {
         "name": "Supervisor runtime acceptance",
@@ -56,7 +56,7 @@
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md; docs/0.2/WORKSTREAMS.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md; .dev/workstreams/integration-next-phase/state.json",
-    "last_checked_at": "2026-09-28T22:16:06Z",
+    "last_checked_at": "2026-09-28T22:17:30Z",
     "activation_requirement": "Keep this runtime stream NOT_STARTED until Nagi 0.1 M30 is PASS and the Integration Owner records an explicit checkpoint authorizing this stream. Resolve the duplicate APP-LC-01 identifier and registration ownership before registering either App Lifecycle specification."
   },
   "blocker": {
