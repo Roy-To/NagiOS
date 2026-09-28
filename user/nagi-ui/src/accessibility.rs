@@ -8,6 +8,7 @@ pub enum AccessibleRole {
     Button,
     TextField,
     SearchBox,
+    ComboBox,
     Checkbox,
     RadioButton,
     Switch,
@@ -16,12 +17,14 @@ pub enum AccessibleRole {
     Navigation,
     Toolbar,
     Tab,
+    TabList,
     Menu,
     MenuItem,
     Dialog,
     Group,
     ProgressIndicator,
     Status,
+    Alert,
     Tooltip,
     Separator,
     ScrollArea,
@@ -88,11 +91,55 @@ pub struct AccessibleNode {
     pub keyboard: KeyboardOperation,
 }
 
+/// Associates a validated input node with the stable message key it exposes
+/// when invalid. The renderer decides how to announce or display the error.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AccessibleField {
+    pub control: AccessibleNode,
+    pub error_message: Option<MessageKey>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccessibleFieldError {
+    NotAnInput,
+    InvalidStateNeedsMessage,
+    ValidStateHasErrorMessage,
+}
+
+impl AccessibleField {
+    pub const fn new(
+        control: AccessibleNode,
+        error_message: Option<MessageKey>,
+    ) -> Result<Self, AccessibleFieldError> {
+        let is_input = matches!(
+            control.role,
+            AccessibleRole::TextField
+                | AccessibleRole::SearchBox
+                | AccessibleRole::ComboBox
+                | AccessibleRole::Checkbox
+                | AccessibleRole::RadioButton
+                | AccessibleRole::Switch
+        );
+        if !is_input {
+            return Err(AccessibleFieldError::NotAnInput);
+        }
+        match (control.state.invalid, error_message) {
+            (true, None) => Err(AccessibleFieldError::InvalidStateNeedsMessage),
+            (false, Some(_)) => Err(AccessibleFieldError::ValidStateHasErrorMessage),
+            _ => Ok(Self {
+                control,
+                error_message,
+            }),
+        }
+    }
+}
+
 pub const fn role_for_component(kind: ComponentKind) -> AccessibleRole {
     match kind {
         ComponentKind::Button | ComponentKind::IconButton => AccessibleRole::Button,
         ComponentKind::TextField => AccessibleRole::TextField,
         ComponentKind::SearchField => AccessibleRole::SearchBox,
+        ComponentKind::Select => AccessibleRole::ComboBox,
         ComponentKind::Checkbox => AccessibleRole::Checkbox,
         ComponentKind::Radio => AccessibleRole::RadioButton,
         ComponentKind::Switch => AccessibleRole::Switch,
@@ -101,6 +148,7 @@ pub const fn role_for_component(kind: ComponentKind) -> AccessibleRole {
         ComponentKind::Sidebar => AccessibleRole::Navigation,
         ComponentKind::Toolbar => AccessibleRole::Toolbar,
         ComponentKind::TabSegment => AccessibleRole::Tab,
+        ComponentKind::Tabs => AccessibleRole::TabList,
         ComponentKind::Menu | ComponentKind::ContextMenu => AccessibleRole::Menu,
         ComponentKind::MenuItem => AccessibleRole::MenuItem,
         ComponentKind::Dialog | ComponentKind::Sheet | ComponentKind::Popover => {
@@ -112,10 +160,12 @@ pub const fn role_for_component(kind: ComponentKind) -> AccessibleRole {
         | ComponentKind::SectionHeader => AccessibleRole::Group,
         ComponentKind::ProgressIndicator => AccessibleRole::ProgressIndicator,
         ComponentKind::EmptyState | ComponentKind::StatusBadge => AccessibleRole::Status,
+        ComponentKind::ErrorState => AccessibleRole::Alert,
         ComponentKind::Tooltip => AccessibleRole::Tooltip,
         ComponentKind::Divider => AccessibleRole::Separator,
         ComponentKind::ScrollContainer => AccessibleRole::ScrollArea,
         ComponentKind::CommandPalette => AccessibleRole::CommandPalette,
+        ComponentKind::Panel | ComponentKind::ApplicationShell => AccessibleRole::Group,
         ComponentKind::CommandResultRow | ComponentKind::ShortcutHint => AccessibleRole::Command,
     }
 }
@@ -156,6 +206,67 @@ mod tests {
         assert_eq!(
             role_for_component(ComponentKind::MenuItem),
             AccessibleRole::MenuItem
+        );
+        assert_eq!(
+            role_for_component(ComponentKind::Select),
+            AccessibleRole::ComboBox
+        );
+        assert_eq!(
+            role_for_component(ComponentKind::Tabs),
+            AccessibleRole::TabList
+        );
+        assert_eq!(
+            role_for_component(ComponentKind::ErrorState),
+            AccessibleRole::Alert
+        );
+    }
+
+    #[test]
+    fn invalid_inputs_require_an_associated_error_message_key() {
+        let mut state = AccessibleState::new();
+        state.invalid = true;
+        let control = AccessibleNode {
+            role: AccessibleRole::TextField,
+            name: MessageKey::new("account.email"),
+            description: None,
+            state,
+            focusable: true,
+            keyboard: KeyboardOperation::EditText,
+        };
+        let relation =
+            AccessibleField::new(control, Some(MessageKey::new("account.email.invalid"))).unwrap();
+        assert_eq!(relation.control.name.as_str(), "account.email");
+        assert_eq!(
+            relation.error_message.unwrap().as_str(),
+            "account.email.invalid"
+        );
+        assert_eq!(
+            AccessibleField::new(control, None),
+            Err(AccessibleFieldError::InvalidStateNeedsMessage)
+        );
+    }
+
+    #[test]
+    fn error_relations_reject_non_inputs_and_errors_on_valid_fields() {
+        let valid = AccessibleNode {
+            role: AccessibleRole::TextField,
+            name: MessageKey::new("search.query"),
+            description: None,
+            state: AccessibleState::new(),
+            focusable: true,
+            keyboard: KeyboardOperation::EditText,
+        };
+        assert_eq!(
+            AccessibleField::new(valid, Some(MessageKey::new("search.error"))),
+            Err(AccessibleFieldError::ValidStateHasErrorMessage)
+        );
+        let button = AccessibleNode {
+            role: AccessibleRole::Button,
+            ..valid
+        };
+        assert_eq!(
+            AccessibleField::new(button, None),
+            Err(AccessibleFieldError::NotAnInput)
         );
     }
 }

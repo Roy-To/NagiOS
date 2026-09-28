@@ -1,65 +1,69 @@
 # UI Design System Workstream
 
-**Workstream:** `ui-design-system`
+**Workstream:** `ui-design-system` (continues existing registration)
 **Branch:** `codex/ws-ui-design-system`
-**Status:** `BLOCKED` — implementation and focused checks pass; M10 QEMU
-integration stops in the existing M5 ELF loader before the UI starts.
-**Baseline:** M10 remains `PASS` per `docs/implementation_status.md`; this
-workstream extends the shared UI foundation and does not revise M10's result.
+**Base SHA:** `c1506888655123d819ec75be66891f0cd5477533`
+**Status:** `PASS` for the independent host-side design foundation.
+**Target UI attachment:** `BLOCKED` before UI startup by the M5 ELF loader.
 **Design:** `docs/superpowers/specs/2026-09-26-ui-design-system-design.md`
+
+This is the existing workstream and branch. The separate `DIAG-01` diagnostics
+workstream is not part of this scope. Nagi 0.1 milestone history, including
+M10's recorded status, is unchanged. The shared UI foundation can pass
+independently of target rendering because its renderer/input interfaces are
+host-testable and the future attachment boundary is documented.
 
 ## Acceptance evidence
 
 | Criterion | State | Evidence |
 |---|---|---|
-| Semantic tokens and light/dark themes | PASS | `nagi-ui` palette roles and completeness tests |
-| Typography, spacing, radius, density, elevation, and motion tokens | PASS | Typed token APIs and unit tests |
-| Reusable component and deterministic state contracts | PASS | 31 component kinds; button, toggle, text field, layout, progress, and status contracts |
-| Keyboard focus and activation behavior | PASS | Focus/navigation traversal, Enter/Space, dialog default/cancel tests |
-| Accessibility metadata hooks | PASS | Role, stable name/description keys, state, focus, and keyboard metadata tests |
-| Localization-ready sizing and Japanese fixture | PASS | Injected resolver/layout adapter and Japanese expansion fixture |
-| Reduced-motion behavior | PASS | Reduced preference resolves all motion durations to zero |
-| Command Palette primitives | PASS | Query/result/section/shortcut, loading/empty/error/ready, selection and execute-gating tests |
-| First-party integration guidance and M10 adapter | PASS | Architecture guide and M10 semantic palette adapter compile in target image build |
-| Focused host verification | PASS | `cargo test -p nagi-ui --locked`: 27 passed; Clippy and formatting passed |
-| Nagi target and M10 guest verification | BLOCKED | `nagi-ui` target check passed; QEMU guest stopped at M5 `invalid-elf` before UI startup |
-| Commit and push | PASS | Implementation commit `69de514` and this evidence update are published on `origin/codex/ws-ui-design-system` |
+| Typed semantic colors, spacing, control size, borders, radius, elevation, icons, focus, motion, and density | PASS | Typed token APIs and invariant tests in `user/nagi-ui/src/tokens.rs` |
+| Typography roles, including body, secondary body, caption, label, heading, title, monospace, and code | PASS | `TypeRole`, generic font-family semantics, CJK-friendly line heights, and token tests |
+| Scalable text and reduced motion | PASS | Bounded `TextScale`; every reduced-motion duration resolves to zero |
+| Structured interaction and feedback states | PASS | `ComponentState` composes normal/hover/pressed/focused/selected/disabled with ready/loading/success/warning/error |
+| Keyboard/focus behavior | PASS | Button/toggle activation, list/tab navigation, Select arrow/Enter/Space/Escape, Tab/Shift+Tab modal containment, and opener restoration tests |
+| Bilingual and localization-aware layout | PASS | Resolved English and Japanese fixtures are measured independently; wrapping and bounded min/max sizing are tested |
+| Critical information is not silently truncated | PASS | `TextOverflow::Reject` errors when the layout adapter reports truncation |
+| Accessibility metadata and input/error relation | PASS | Role/state/keyboard metadata plus `AccessibleField` validation and stable error-key tests |
+| Reusable primitives and application shell contract | PASS | Shared component vocabulary, reusable behavior models, and required title/content plus optional shell-region slots |
+| Focused host suite | PASS | `cargo test -p nagi-ui --all-targets --locked --offline --config 'build.target="aarch64-apple-darwin"'`: 41 passed; gallery target compiled |
+| Warning-free Clippy and formatting | PASS | Package Clippy with `--all-targets -- -D warnings`; `cargo fmt --package nagi-ui -- --check` |
+| Public API gallery | PASS | Gallery exercised button, Command Palette, Select, shell slots, accessible text scale, and Japanese text |
+| Nagi user-target compile | PASS | `cargo check -p nagi-ui --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core --locked --offline` |
+| UEFI compile | PASS | `cargo check -p nagi-ui --lib --no-default-features --target x86_64-unknown-uefi --locked --offline` |
+| M10 QEMU guest UI attachment | BLOCKED | `./nagi desktop` built the target image; guest log stops at M5 `invalid-elf` before `nagi-init`/UI startup. No visual or input result is claimed. |
+| Documentation and state | PASS | Architecture and workstream contracts updated; the integration-owned registry state is updated with the same evidence |
+| Commit, push, clean checkout | PENDING | Record after publishing the verified workstream commit |
 
-## Repository boundaries
+## Architecture boundary
 
-The current checkout has no `.dev/workstreams.json`, `.dev/workstreams/`
-registry/state files, or `docs/0.2/DEVELOPMENT_ARCHITECTURE.md`; no DF-01
-registry integration is available here. No other workstream files are owned by
-this task. The shared crate will not own localization resources, compositor or
-kernel behavior, M17/Servo, or app business logic.
+The reusable API lives in `user/nagi-ui`: a backend-neutral, allocation-free
+`no_std` crate. Applications inject selected appearance/text scale, resolved
+UTF-8 labels, input and rendering adapters, and app-owned actions. The crate
+does not render, execute commands, access capabilities, or create services.
+The M10 adapter remains a narrow consumer of semantic colors. Runtime theme
+settings, localization service wiring, text shaping/font resolution, renderer
+drawing, and assistive-technology delivery remain integration points.
 
 ## Verification log
 
-- Preflight: source `main` was clean at `c1506888655123d819ec75be66891f0cd5477533`.
-- Created isolated worktree `/Users/tozawa/.codex/worktrees/nagi-ui-design-system`
-  on `codex/ws-ui-design-system`.
-- The ordinary `./nagi fetch` initially used the Intel Homebrew Rust 1.86
-  compiler and failed on the existing `unsigned_is_multiple_of` API use. The
-  repository's pinned Rustup nightly, explicit `RUSTC`, and the required
-  feature-gate `RUSTFLAGS` successfully fetched the pinned dependencies.
-- `cargo test -p nagi-ui --locked`: 27 passed; doc tests passed (0 tests).
-- `cargo clippy -p nagi-ui --all-targets --locked -- -D warnings`: passed.
-- `cargo fmt --package nagi-ui --package nagi-init -- --check`: passed.
-- `cargo run --locked -p nagi-ui --example component_gallery`: passed; public
-  API gallery activated a focused button, selected a palette command, and
-  printed the Japanese query `設定を開く`.
-- `cargo check -p nagi-ui --target targets/x86_64-unknown-nagi-user.json
-  -Zbuild-std=core --locked`: passed for the Nagi x86-64 target.
-- `./nagi desktop` built the Nagi target image, then timed out after 45 seconds
-  because the guest stopped before desktop startup. `out/logs/m10-first-boot.log`
-  reports M5 `invalid-elf`. `llvm-readelf -l
-  target/x86_64-unknown-nagi-user/release/nagi-init` shows an empty `PT_TLS`
-  header (zero virtual address, file size, memory size, and alignment);
-  `kernel/src/user_elf.rs::validate_tls_segment` rejects `memory_size == 0`.
-  This kernel/loader boundary belongs to another workstream and was not changed.
-- `cargo test --workspace --exclude nagi-kernel --locked` was attempted on this
-  Apple Silicon host and failed because host compilation of `libnagi` uses
-  x86-64 inline-assembly registers (`rax`, `rdi`, `rsi`, `rcx`, `r11`) that are
-  unavailable on the aarch64 host. This is not claimed as a passing test.
-- `./nagi --help` initially could not resolve the generated `third_party/cc-nagi`
-  source before dependency fetch; the supported bootstrap fetch later completed.
+- Existing branch base was confirmed from Git with
+  `git merge-base codex/ws-ui-design-system origin/main`:
+  `c1506888655123d819ec75be66891f0cd5477533`.
+- The system PATH's Homebrew Cargo/Rust pair ignored the repository's pinned
+  nightly and reported a missing Apple target. Checks were rerun with the
+  installed `nightly-2025-08-01` toolchain; no toolchain or repository config
+  was changed.
+- The first desktop command passed an `RUSTFLAGS` override that masked the
+  repository's `getrandom_backend="custom"` target cfg and failed at
+  `getrandom`. The documented command was rerun without overriding Cargo's
+  target flags.
+- `./nagi desktop` then built the target image and ran QEMU. The serial log
+  `out/logs/m10-desktop.log` reports `Nagi M5 user address space FAIL` and
+  `reason: invalid-elf`; the init ELF has the existing empty `PT_TLS` header
+  rejected by `kernel/src/user_elf.rs::validate_tls_segment`. The UI did not
+  start. Kernel/loader changes are outside this workstream.
+
+The workstream PASS covers the tested host/target contracts only. The QEMU
+run is retained as a target attachment failure and does not establish desktop
+rendering, input handling, M10 acceptance, or any Nagi 0.1 milestone change.
