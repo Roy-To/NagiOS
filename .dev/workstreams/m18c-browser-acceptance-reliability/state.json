@@ -1,0 +1,140 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "m18c-browser-acceptance-reliability",
+  "current_milestone": "M18-C",
+  "current_checkpoint": "acceptance-harness-committed-awaiting-hosted-ci",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "6d8ccc39852a7ae96875f5ff7174584975e7df71",
+    "verified_at": "2026-09-28T10:18:04Z",
+    "normal_state": "The latest verified M18-C harness implementation is commit 6d8ccc39852a7ae96875f5ff7174584975e7df71 on branch codex/m18c-browser-acceptance-reliability, based on exact M18 shared starting point 94e9a027618182b10c0ac2315e94673543f22423. The selected base is the immediate child of the accepted M17 first-web-pixel run head 31bf815b7230f2658f654643e6d6c898d9881d77. M18-C added only acceptance harness, fixtures, schemas, and CI reporting. The focused host suite passed 30 tests including HTTP 404/429/500/503. A current case report records 2 passing harness-fixture rows and 32 SKIP-BLOCKED guest/integration rows. The DF-01 state and registration proposal validate against the current integration checkout schemas; the shared registry was not modified. The local target feature graph could not be inspected because the pinned cc-nagi source is absent; hosted C CI is pending push. No M18 product acceptance is claimed.",
+    "commands": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning -m unittest discover -s tests -p 'test_m18c_browser_acceptance.py' -v",
+      "PYTHONDONTWRITEBYTECODE=1 python3 tests/browser_acceptance/report.py --evidence /tmp/nagi-m18c-commit-evidence.json --output /tmp/nagi-m18c-commit-report.json",
+      "PYTHONDONTWRITEBYTECODE=1 python3 tests/browser_acceptance/feature_gates.py --output /tmp/nagi-m18c-feature-evidence.json",
+      "python3 -m json.tool tests/browser_acceptance/cases.json; python3 -m json.tool docs/testing/m18c-browser-acceptance-evidence.schema.json; python3 -m json.tool docs/testing/m18c-browser-acceptance-report.schema.json",
+      "ruby -ryaml -e 'YAML.parse_file(\".github/workflows/ci.yml\")'",
+      "bash -n /tmp/nagi-m18c-host-report-step.sh; bash -n /tmp/nagi-m18c-target-report-step.sh",
+      "git diff --check",
+      "PYTHONPATH=/tmp/nagi-m18c-schema-python python3 /tmp/nagi-m18c-validate-df01-state.py"
+    ],
+    "tests": [
+      {
+        "name": "M18-C deterministic HTTP/HTTPS, report, and recovery-fixture unit tests",
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning -m unittest discover -s tests -p 'test_m18c_browser_acceptance.py' -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "30 tests passed, including redirects, TLS trust/hostname validation, HTTP 404/429/500/503 status errors, timeout/refusal responses, download/upload fixtures, report PASS/FAIL/BLOCKED behavior, and deterministic missing/corrupt/partial/interrupted-write state fixture materialization."
+      },
+      {
+        "name": "M18-C case-level report with local test and target-gate evidence",
+        "command": "python3 tests/browser_acceptance/report.py --evidence /tmp/nagi-m18c-commit-evidence.json --output /tmp/nagi-m18c-commit-report.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Report generator returned PARTIAL with 2 PASS, 0 FAIL, 32 SKIP-BLOCKED across 34 cases; the unavailable local target graph remained explicitly blocked."
+      },
+      {
+        "name": "CI host/target report shell branches",
+        "command": "Ruby YAML extraction plus bash -n and isolated execution of M18-C host/target report steps for success, failure, and missing-evidence paths",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Host success and failure both wrote JSON reports with matching harness case status. Target success wrote PASS; missing target evidence wrote FAIL and a report artifact."
+      },
+      {
+        "name": "M18-C manifests, schemas, workflow YAML, and Python syntax",
+        "command": "python3 -m json.tool tests/browser_acceptance/cases.json; python3 -m json.tool docs/testing/m18c-browser-acceptance-evidence.schema.json; python3 -m json.tool docs/testing/m18c-browser-acceptance-report.schema.json; ruby -ryaml -e 'YAML.parse_file(\".github/workflows/ci.yml\")'; Python ast.parse over tests/browser_acceptance/*.py and tests/test_m18c_browser_acceptance.py",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "JSON parsing, workflow YAML parsing, and Python AST parsing succeeded."
+      },
+      {
+        "name": "DF-01 state and registration proposal schema validation",
+        "command": "PYTHONPATH=/tmp/nagi-m18c-schema-python python3 /tmp/nagi-m18c-validate-df01-state.py",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Draft 2020-12 validation passed against the current integration checkout's workstream-state and workstreams schemas; the branch did not modify the shared registry."
+      },
+      {
+        "name": "Local M17 target feature graph",
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 tests/browser_acceptance/feature_gates.py --output /tmp/nagi-m18c-feature-evidence.json",
+        "outcome": "NOT_RUN",
+        "exit_code": 2,
+        "evidence": "The script emitted BLOCKED evidence because Cargo could not find third_party/cc-nagi/Cargo.toml. Local pinned dependency fetch was attempted separately; the host Rust version rejected the Servo source first, and pinned-nightly fetch later hit a macOS xcrun ARM64 library mismatch. No target feature graph PASS is claimed locally."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36355494134,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36355494134",
+        "head_sha": "31bf815b7230f2658f654643e6d6c898d9881d77",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Accepted M17 first-web-pixel CI baseline. The selected 94e9a027 base is its immediate child and the shared starting point used by M18 main/A/B."
+      },
+      {
+        "run_id": 36386094625,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36386094625",
+        "head_sha": "98df8012af267a5e2b4a9a9e169be18ed31eb5e7",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "M18-A latest inspected run: Ubuntu and Windows host jobs passed; target job failed at `M18-A remote web acceptance`. This guest transport integration remains owned by codex/m18a-albert-remote-web."
+      },
+      {
+        "run_id": 36375495228,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36375495228",
+        "head_sha": "ee49b812fa69c943c34ca076fe795e6ba92e504f",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "M18-B CI passed host, target build, M17 first-web-pixel, and M18-B chrome acceptance. Durable guest storage and live input/service integration remain outside the M18-C branch."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "AGENTS.md and docs/implementation_status.md",
+    "last_checked_at": "2026-09-28T10:18:04Z",
+    "activation_requirement": "Keep M18-C limited to Nagi 0.1 browser acceptance infrastructure. Do not claim M18 acceptance until integrated guest evidence closes the required cases; do not implement M18 main/A/B, M19-PREP, or 0.2 product work."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "The safe base is the accepted M17 point and contains no integrated M18 browser API, so guest navigation, network, tabs, durable browser state, transfers, clipboard, and IME cannot be driven from this branch without importing other owners' unfinished production work. The current local M17 feature graph is also unavailable because third_party/cc-nagi was not fetched on this macOS host. M18-C hosted CI has not run yet.",
+    "reproduction_commands": [
+      "PYTHONDONTWRITEBYTECODE=1 python3 tests/browser_acceptance/feature_gates.py --output /tmp/nagi-m18c-feature-evidence.json",
+      "python3 tests/browser_acceptance/report.py --output /tmp/nagi-m18c-host-report.json"
+    ],
+    "failure_log_summary": "Local cargo tree reported `failed to read third_party/cc-nagi/Cargo.toml: No such file or directory`; earlier pinned fetch attempts could not populate the dependency due host toolchain/Apple xcrun architecture errors. Guest product cases remain SKIP-BLOCKED with owners in cases.json. M18-A CI run 36386094625 failed at remote web acceptance; M18-B run 36375495228 passed its current chrome acceptance. The M18 main integration checkout is separate and dirty, so it was not used as a base.",
+    "attempted_fixes": [
+      "Selected exact base 94e9a027618182b10c0ac2315e94673543f22423, the shared M18 starting point immediately after the accepted M17 run, to avoid importing separate/unfinished M18-A/B product changes.",
+      "Added deterministic local HTTP/HTTPS, redirect, timeout, error, transfer, and storage/recovery inputs; all 30 M18-C focused tests pass.",
+      "Changed malformed HTTP fixture to an invalid status line after the host HTTP client accepted the original malformed Content-Length case.",
+      "Fixed recovery-fixture tests after they exposed missing pathlib import and temporary-directory lifetime errors; the final focused rerun passed.",
+      "Attempted local pinned dependency fetch and target feature graph inspection; retained explicit BLOCKED evidence instead of treating the missing graph as a pass."
+    ],
+    "do_not_try": [
+      "Do not copy, cherry-pick, or reimplement M18-A/M18-B/M18 main production code in this workstream.",
+      "Do not change the integration-owner shared .dev/workstreams.json registry; use the checked-in registration proposal until the owner registers this branch.",
+      "Do not merge, rebase, or force-push this branch, and do not widen work into M19-PREP or 0.2."
+    ]
+  },
+  "next_action": "Push this branch and inspect its GitHub CI run by immutable run ID and head SHA. Repair any M18-C host/report/feature-gate failures within this workstream. Then record the exact run in this state. Keep guest-facing cases PARTIAL until M18 main/A/B provide an integrated target boundary; attach the registration proposal for the integration owner to review when this branch is integrated.",
+  "acceptance_criteria": [
+    "A deterministic local HTTP/HTTPS fixture server covers direct pages, redirects, redirect loops, status errors, connection refusal, timeout, malformed responses, TLS verification, download, and upload.",
+    "Deterministic state fixture inputs exist for missing, empty, clean multi-tab, truncated, malformed, incompatible-version, partial-record, interrupted-write, and repeated-restore scenarios without defining or implementing the production storage API.",
+    "The 34-case report validates evidence identifiers, statuses, proof, ownership, blocked reasons, and overall PASS/PARTIAL/FAIL rules.",
+    "CI produces host and target acceptance reports and uploads them even when the corresponding focused checks fail or omit evidence.",
+    "The M17 target feature graph must prove M18-only browser features are absent; the M18-on graph remains integration-owned until a shared M18 target entry point exists.",
+    "No M18-A, M18-B, M18 main, M19-PREP, or 0.2 product implementation is added by this workstream.",
+    "All required guest-facing acceptance cases must pass on the integrated M18 implementation before this state can become PASS."
+  ],
+  "deferred": [
+    "Navigation and redirect behavior in Nagi guest: integrated address-bar/navigation boundary owned by codex/m18-main-albert-browser, with transport and cancellation owned by codex/m18a-albert-remote-web.",
+    "HTTP/HTTPS success and failure over the Nagi guest transport: M18-A owner; latest inspected target CI failed at M18-A remote web acceptance.",
+    "Tab isolation, history/bookmark/session persistence, corrupted-state recovery, clipboard, IME, and guest file handoff: browser-state/service integration owned by codex/m18b-albert-ui-browser-state and the shared M18 main integration.",
+    "Guest download/upload success, cancellation, destination, and exact bytes: transport plus browser file-picker/service integration owned across codex/m18a-albert-remote-web, codex/m18b-albert-ui-browser-state, and codex/m18-main-albert-browser.",
+    "M18-on target feature-gate check: requires the shared M18 target feature/build entry point owned by codex/m18-main-albert-browser.",
+    "Actual target feature graph on this macOS checkout: blocked until the pinned cc-nagi source fetch succeeds; M18-C CI should run the same graph after the existing Servo bootstrap on Ubuntu.",
+    "DF-01 shared registry registration: exact row is in registration-proposal.json and awaits integration-owner registration; the selected base predates DF-01 and this branch does not alter the shared registry."
+  ],
+  "cross_workstream_dependencies": []
+}
