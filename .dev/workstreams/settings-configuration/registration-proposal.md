@@ -46,3 +46,9 @@ When activated, implement and test the supplied CFG-01 definition:
 8. Focused tests, formatting, Clippy, failure evidence, state updates, then commit/push on the owned branch.
 
 No registry/schema edit is requested here. The Integration Owner should register the row and any needed validator support in a separate checkpoint, then record the explicit activation decision before runtime work starts.
+
+## Hosted CI registration blocker
+
+Nagi CI run 36492298777 at head f62d2dfc00b1e680b0e03a2477a677b14c791275 failed on both Ubuntu and Windows in Test host-compatible workspace. The existing CLI integration test dev_status_resume_and_verify_read_the_registered_workstream panicked because codex/0.2-settings-configuration is absent from .dev/workstreams.json; 25 of 26 CLI integration tests passed on each host. The nagi-target job was skipped. Logs are available at https://github.com/RT-NISH/NagiOS/actions/runs/36492298777.
+
+This is the exact CLI/registry limitation anticipated by the unregistered-stream branch. Do not change the shared registry or CLI on this workstream branch. Integration Owner action: add the proposed registry row and validation boundary in an integration-owned checkpoint, then rerun CI. The runtime activation gate remains closed independently until M30 PASS and an explicit integration checkpoint.

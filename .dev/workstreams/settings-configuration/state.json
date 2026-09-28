@@ -7,8 +7,8 @@
   "status": "NOT_STARTED",
   "last_verified": {
     "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
-    "verified_at": "2026-09-28T22:23:57Z",
-    "normal_state": "Settings is absent from .dev/workstreams.json and has no implementation crate. Checked status: M17 BLOCKED, M18 NOT STARTED, M30 NOT STARTED. Integration requires M30 PASS and an explicit release-boundary checkpoint. The gate is closed, so only the registration proposal and this state were prepared; no runtime/API implementation was attempted. The proposed state was also accepted by the repository DF-01 validator in an isolated temporary registry fixture (19 registered streams, 1 state file). Direct Python JSON Schema validation was unavailable because jsonschema is not installed; JSON syntax and the repository validator were used without changing the shared registry.",
+    "verified_at": "2026-09-28T22:34:18Z",
+    "normal_state": "Settings is absent from .dev/workstreams.json and has no implementation crate. Checked status: M17 BLOCKED, M18 NOT STARTED, M30 NOT STARTED. Integration requires M30 PASS and an explicit release-boundary checkpoint. The gate is closed, so only the registration proposal and this state were prepared; no runtime/API implementation was attempted. The proposed state was also accepted by the repository DF-01 validator in an isolated temporary registry fixture (19 registered streams, 1 state file). Direct Python JSON Schema validation was unavailable because jsonschema is not installed; JSON syntax and the repository validator were used without changing the shared registry. Hosted CI run 36492298777 at head f62d2dfc00b1e680b0e03a2477a677b14c791275 failed the same existing dev_status_resume_and_verify_read_the_registered_workstream test on Ubuntu and Windows because this branch is not registered. The target job was skipped. The shared registry is Integration Owner-owned, so the exact registration/CI blocker is recorded in the proposal.",
     "commands": [
       "git status --short --branch",
       "git diff --; git diff --cached --",
@@ -23,7 +23,10 @@
       "isolated temporary candidate registry: nagi-bootstrap dev verify",
       "python3 -m json.tool .dev/workstreams/settings-configuration/state.json",
       "cmp docs/workstreams/NagiOS_0.2_Settings_Configuration_Foundation_Workstream.md /Users/tozawa/Developer/NagiOS/docs/workstreams/NagiOS_0.2_Settings_Configuration_Foundation_Workstream.md",
-      "python3 Draft202012Validator availability check"
+      "python3 Draft202012Validator availability check",
+      "gh run view 36492298777 --repo RT-NISH/NagiOS --json status,conclusion,headSha,jobs",
+      "gh run view 36492298777 --repo RT-NISH/NagiOS --job 109163510372 --log-failed",
+      "gh run view 36492298777 --repo RT-NISH/NagiOS --job 109163510176 --log-failed"
     ],
     "tests": [
       {
@@ -69,6 +72,13 @@
         "evidence": "The active Python reported ModuleNotFoundError: No module named jsonschema. The project DF-01 validator was used as the available state contract validator; no package was installed."
       },
       {
+        "name": "hosted CI run 36492298777",
+        "command": "GitHub Actions Nagi CI on codex/0.2-settings-configuration at f62d2dfc00b1e680b0e03a2477a677b14c791275",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Both Ubuntu and Windows host jobs failed in Test host-compatible workspace. The existing CLI integration test dev_status_resume_and_verify_read_the_registered_workstream panicked because codex/0.2-settings-configuration is absent from .dev/workstreams.json. Each host ran 26 CLI tests: 25 passed and this one failed. The nagi-target job was skipped. GitHub run: https://github.com/RT-NISH/NagiOS/actions/runs/36492298777. The registry is Integration Owner-owned; no shared file or CLI code was edited."
+      },
+      {
         "name": "Settings runtime acceptance suite",
         "command": "Not run while activation gate is closed",
         "outcome": "NOT_RUN",
@@ -76,26 +86,37 @@
         "evidence": "Runtime implementation is not authorized before M30 PASS and an explicit integration checkpoint."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 36492298777,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36492298777",
+        "head_sha": "f62d2dfc00b1e680b0e03a2477a677b14c791275",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu and Windows host jobs both failed the existing registered-branch CLI test because codex/0.2-settings-configuration is absent from the Integration Owner-owned .dev/workstreams.json. 25/26 CLI tests passed on each host; nagi-target was skipped. Registration proposal records the required owner action."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md and .dev/workstreams/integration-next-phase/state.json",
-    "last_checked_at": "2026-09-28T22:23:57Z",
+    "last_checked_at": "2026-09-28T22:34:18Z",
     "activation_requirement": "Do not start Settings runtime implementation until Nagi 0.1 M30 is PASS and the Integration Owner records an explicit 0.2 integration checkpoint."
   },
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "Gate closed: M17 BLOCKED; M18 and M30 NOT STARTED; no explicit M30 PASS or 0.2 integration checkpoint. Registration is also pending because Settings is absent from the integration-owned registry.",
+    "summary": "Activation gate is closed: M17 BLOCKED; M18 and M30 NOT STARTED; no explicit M30 PASS or 0.2 integration checkpoint. Registration is pending. CI 36492298777 confirms the existing dev status CLI test rejects the unregistered owned branch on both hosts; the shared registry is Integration Owner-owned.",
     "reproduction_commands": [
       "./nagi dev status",
       "rg -n '^\\| M(17|18|30) \\|' docs/implementation_status.md",
-      "python3 -c 'import json; print([w[\"id\"] for w in json.load(open(\".dev/workstreams.json\"))[\"workstreams\"]])'"
+      "python3 -c 'import json; print([w[\"id\"] for w in json.load(open(\".dev/workstreams.json\"))[\"workstreams\"]])'",
+      "cargo test -p nagi-cli --test cli dev_status_resume_and_verify_read_the_registered_workstream"
     ],
-    "failure_log_summary": "Activation gate evidence is not a build/test failure. ./nagi dev verify passed for the registered branch baseline. A direct Python JSON Schema import was unavailable (ModuleNotFoundError: jsonschema); the repository DF-01 validator passed on an isolated temporary candidate registry. The first temp harness lacked rust-toolchain.toml and third_party/sources.lock and printed a preflight failure; after adding both files, validation passed.",
+    "failure_log_summary": "CI 36492298777 at f62d2dfc00b1e680b0e03a2477a677b14c791275 failed on Ubuntu and Windows in Test host-compatible workspace. Both logs report dev_status_resume_and_verify_read_the_registered_workstream panicking at tools/nagi-cli/tests/cli.rs:206 because codex/0.2-settings-configuration is absent from .dev/workstreams.json (25/26 CLI tests pass on each host). nagi-target was skipped. Integration Owner registration is required; modifying the shared registry or CLI from this branch is prohibited. Earlier state validation harness issues were corrected and the isolated DF-01 validation passed.",
     "attempted_fixes": [
       "The first temporary state-validation harness omitted rust-toolchain.toml and third_party/sources.lock; added those required files and reran the DF-01 validator successfully.",
-      "Python Draft202012Validator was unavailable because jsonschema is not installed; used the repository DF-01 validator against a temporary candidate registry instead, without editing .dev/workstreams.json or .dev/schemas."
+      "Python Draft202012Validator was unavailable because jsonschema is not installed; used the repository DF-01 validator against a temporary candidate registry instead, without editing .dev/workstreams.json or .dev/schemas.",
+      "Inspected both host CI logs and isolated the root cause to an unregistered branch. No Settings-owned code fix can satisfy the existing registered-branch test; registry ownership belongs to Integration Owner, so recorded the row/validator request in the proposal instead of editing shared files."
     ],
     "do_not_try": [
       "Do not implement Settings runtime/API code before M30 PASS and explicit checkpoint.",
@@ -105,7 +126,7 @@
       "Do not edit root Cargo manifests/lockfile, shared CI, or shared IDL/ABI without Integration Owner ownership."
     ]
   },
-  "next_action": "Integration Owner: review .dev/workstreams/settings-configuration/registration-proposal.md, register the stream and state validation in an integration-owned checkpoint, and keep it NOT_STARTED until M30 PASS plus explicit checkpoint are recorded. Then start the first bounded CFG-01 acceptance item on codex/0.2-settings-configuration.",
+  "next_action": "Integration Owner: register settings-configuration and its state path in .dev/workstreams.json, resolve the registered-state validation boundary, and rerun CI on codex/0.2-settings-configuration. Keep CFG-01 NOT_STARTED until M30 PASS plus an explicit 0.2 integration checkpoint are recorded.",
   "acceptance_criteria": [
     "Activation gate: M30 PASS and explicit 0.2 integration checkpoint; NOT MET, runtime work deferred.",
     "Stream registration remains pending Integration Owner proposal review; the state passed the repository DF-01 validator through an isolated candidate registry; shared registry/schema unchanged.",
@@ -115,7 +136,8 @@
     "Versioned export/import, dry run, all-or-nothing application, and sensitive-value separation: deferred until activation.",
     "Bounded change notifications and capability hooks: deferred until activation and dependency review.",
     "Focused acceptance, formatting, and Clippy: deferred until implementation is authorized.",
-    "No M18/browser, localization, UI, vault, app feature, or other workstream files changed."
+    "No M18/browser, localization, UI, vault, app feature, or other workstream files changed.",
+    "Hosted CI: run 36492298777 failed on both hosts because the owned branch is not registered; Integration Owner registration and rerun are pending."
   ],
   "deferred": [
     "All Settings runtime/API implementation and runtime tests until M30 PASS and explicit 0.2 integration checkpoint.",
