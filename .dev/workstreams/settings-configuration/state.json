@@ -1,0 +1,158 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "settings-configuration",
+  "current_milestone": "CFG-01",
+  "current_checkpoint": "activation-gate-audit-and-registration-proposal",
+  "status": "NOT_STARTED",
+  "last_verified": {
+    "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+    "verified_at": "2026-09-28T22:23:57Z",
+    "normal_state": "Settings is absent from .dev/workstreams.json and has no implementation crate. Checked status: M17 BLOCKED, M18 NOT STARTED, M30 NOT STARTED. Integration requires M30 PASS and an explicit release-boundary checkpoint. The gate is closed, so only the registration proposal and this state were prepared; no runtime/API implementation was attempted. The proposed state was also accepted by the repository DF-01 validator in an isolated temporary registry fixture (19 registered streams, 1 state file). Direct Python JSON Schema validation was unavailable because jsonschema is not installed; JSON syntax and the repository validator were used without changing the shared registry.",
+    "commands": [
+      "git status --short --branch",
+      "git diff --; git diff --cached --",
+      "git worktree list --porcelain",
+      "git branch -avv",
+      "git ls-remote --heads origin refs/heads/codex/0.2-settings-configuration",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "rg -n 'M30|M18|M17' docs/implementation_status.md",
+      "rg -n 'SettingKey|ConfigStore|settings-config' .",
+      "inspect tools/nagi-cli/src/config.rs and imports",
+      "isolated temporary candidate registry: nagi-bootstrap dev verify",
+      "python3 -m json.tool .dev/workstreams/settings-configuration/state.json",
+      "cmp docs/workstreams/NagiOS_0.2_Settings_Configuration_Foundation_Workstream.md /Users/tozawa/Developer/NagiOS/docs/workstreams/NagiOS_0.2_Settings_Configuration_Foundation_Workstream.md",
+      "python3 Draft202012Validator availability check"
+    ],
+    "tests": [
+      {
+        "name": "development registry and registered state validation",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Validated 18 registered workstreams and 11 registered state files at 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. Settings is not registered, so this command does not validate its proposed state."
+      },
+      {
+        "name": "Nagi 0.1 and 0.2 activation gate audit",
+        "command": "./nagi dev status; inspect docs/implementation_status.md",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The integration status requires M30 PASS and a release-boundary checkpoint. The 0.1 table records M17 BLOCKED, M18 NOT STARTED, M30 NOT STARTED; no explicit checkpoint was found."
+      },
+      {
+        "name": "initial isolated validation fixture setup",
+        "command": "temporary fixture: nagi-bootstrap dev verify",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "The first fixture omitted rust-toolchain.toml and third_party/sources.lock, so CLI preflight printed FAIL project: cannot read rust-toolchain.toml. Added both required repository files to the fixture and reran successfully; this was a harness setup issue, not a Settings-state failure."
+      },
+      {
+        "name": "proposed Settings state via repository DF-01 validator",
+        "command": "isolated temporary candidate registry: nagi-bootstrap dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "A temporary copy of the registry with a candidate Settings row and this state validated 19 registered workstreams and 1 state file at fixture HEAD 963e617e87ee74d3c37ebabae965cf2431f0bfde. The actual .dev/workstreams.json and schema were not changed."
+      },
+      {
+        "name": "state JSON syntax and source workstream document identity",
+        "command": "python3 -m json.tool .dev/workstreams/settings-configuration/state.json; cmp docs/workstreams/NagiOS_0.2_Settings_Configuration_Foundation_Workstream.md /Users/tozawa/Developer/NagiOS/docs/workstreams/NagiOS_0.2_Settings_Configuration_Foundation_Workstream.md",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The state parses as JSON and the source workstream definition was copied byte-for-byte into the owned branch."
+      },
+      {
+        "name": "direct Python Draft 2020-12 JSON Schema validator availability",
+        "command": "import jsonschema Draft202012Validator and FormatChecker",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "The active Python reported ModuleNotFoundError: No module named jsonschema. The project DF-01 validator was used as the available state contract validator; no package was installed."
+      },
+      {
+        "name": "Settings runtime acceptance suite",
+        "command": "Not run while activation gate is closed",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Runtime implementation is not authorized before M30 PASS and an explicit integration checkpoint."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and .dev/workstreams/integration-next-phase/state.json",
+    "last_checked_at": "2026-09-28T22:23:57Z",
+    "activation_requirement": "Do not start Settings runtime implementation until Nagi 0.1 M30 is PASS and the Integration Owner records an explicit 0.2 integration checkpoint."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Gate closed: M17 BLOCKED; M18 and M30 NOT STARTED; no explicit M30 PASS or 0.2 integration checkpoint. Registration is also pending because Settings is absent from the integration-owned registry.",
+    "reproduction_commands": [
+      "./nagi dev status",
+      "rg -n '^\\| M(17|18|30) \\|' docs/implementation_status.md",
+      "python3 -c 'import json; print([w[\"id\"] for w in json.load(open(\".dev/workstreams.json\"))[\"workstreams\"]])'"
+    ],
+    "failure_log_summary": "Activation gate evidence is not a build/test failure. ./nagi dev verify passed for the registered branch baseline. A direct Python JSON Schema import was unavailable (ModuleNotFoundError: jsonschema); the repository DF-01 validator passed on an isolated temporary candidate registry. The first temp harness lacked rust-toolchain.toml and third_party/sources.lock and printed a preflight failure; after adding both files, validation passed.",
+    "attempted_fixes": [
+      "The first temporary state-validation harness omitted rust-toolchain.toml and third_party/sources.lock; added those required files and reran the DF-01 validator successfully.",
+      "Python Draft202012Validator was unavailable because jsonschema is not installed; used the repository DF-01 validator against a temporary candidate registry instead, without editing .dev/workstreams.json or .dev/schemas."
+    ],
+    "do_not_try": [
+      "Do not implement Settings runtime/API code before M30 PASS and explicit checkpoint.",
+      "Do not edit .dev/workstreams.json or .dev/schemas/**; submit the registration proposal.",
+      "Do not repurpose tools/nagi-cli/src/config.rs.",
+      "Do not modify M18 main, M18-A/B/C, or any other workstream implementation, state, or worktree.",
+      "Do not edit root Cargo manifests/lockfile, shared CI, or shared IDL/ABI without Integration Owner ownership."
+    ]
+  },
+  "next_action": "Integration Owner: review .dev/workstreams/settings-configuration/registration-proposal.md, register the stream and state validation in an integration-owned checkpoint, and keep it NOT_STARTED until M30 PASS plus explicit checkpoint are recorded. Then start the first bounded CFG-01 acceptance item on codex/0.2-settings-configuration.",
+  "acceptance_criteria": [
+    "Activation gate: M30 PASS and explicit 0.2 integration checkpoint; NOT MET, runtime work deferred.",
+    "Stream registration remains pending Integration Owner proposal review; the state passed the repository DF-01 validator through an isolated candidate registry; shared registry/schema unchanged.",
+    "Typed keys, schema validation, defaults, and stable errors: deferred until activation.",
+    "Five-layer precedence, provenance, invalid-value handling, and inherit/reset: deferred until activation.",
+    "Persistence abstraction, migration, atomic updates, and invalid-config recovery: deferred until activation.",
+    "Versioned export/import, dry run, all-or-nothing application, and sensitive-value separation: deferred until activation.",
+    "Bounded change notifications and capability hooks: deferred until activation and dependency review.",
+    "Focused acceptance, formatting, and Clippy: deferred until implementation is authorized.",
+    "No M18/browser, localization, UI, vault, app feature, or other workstream files changed."
+  ],
+  "deferred": [
+    "All Settings runtime/API implementation and runtime tests until M30 PASS and explicit 0.2 integration checkpoint.",
+    "Integration Owner registry/schema/validator changes; this branch supplies a proposal only.",
+    "Root Cargo workspace, CI, shared IDL/ABI registration and integration.",
+    "Durable backend choice, Settings UI, localization behavior, vault implementation, app preferences, and M18/browser behavior."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 durable state schema, validation, and activation gate",
+      "version": "DF-01-v1",
+      "status": "VERIFIED_BASE_CONTRACT"
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "Operation/scope authorization hooks; Settings does not own policy",
+      "version": "PENDING_INTEGRATION_OWNER_CONTRACT_REVIEW",
+      "status": "DEPENDENCY"
+    },
+    {
+      "workstream_id": "diagnostics",
+      "contract": "Optional stable-code sink with redacted metadata",
+      "version": "OPTIONAL_PENDING_REVIEW",
+      "status": "OPTIONAL"
+    },
+    {
+      "workstream_id": "localization-i18n",
+      "contract": "Consume existing localization contracts only; no catalog or language ownership",
+      "version": "CONSUME_ONLY",
+      "status": "BOUNDARY"
+    },
+    {
+      "workstream_id": "integration-next-phase",
+      "contract": "Integration-owned registry/schema and explicit activation checkpoint",
+      "version": "INTEGRATION_OWNER",
+      "status": "REGISTRATION_AND_GATE_REVIEW_REQUIRED"
+    }
+  ]
+}
