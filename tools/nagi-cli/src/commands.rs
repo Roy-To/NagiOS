@@ -1885,6 +1885,7 @@ fn execute_servo_run(root: &Path, probe: &dyn HostProbe, remote_web: bool) -> Co
             "Nagi M18A trace: TLS fixture CA installed",
             "Nagi M18A remote navigation fixture identity PASS",
             "Nagi M18A HTTPS download/upload PASS",
+            "Nagi M18A HTTPS untrusted certificate rejection PASS",
             "Nagi M18A remote web pixel checksum=0x",
             "Nagi M18A remote web pixel PASS",
         ]
@@ -2312,7 +2313,16 @@ fn start_m18a_http_fixture(root: &Path) -> Result<Child, String> {
     for executable in ["python.exe", "python3", "python"] {
         let result = ProcessCommand::new(executable)
             .arg(&fixture_script)
-            .args(["--bind", "0.0.0.0", "--port", "18081"])
+            .args([
+                "--bind",
+                "0.0.0.0",
+                "--port",
+                "18081",
+                "--https-port",
+                "18443",
+                "--untrusted-https-port",
+                "18444",
+            ])
             .spawn();
         if let Ok(mut child) = result {
             thread::sleep(Duration::from_millis(500));

@@ -5,9 +5,9 @@ pub const CONTROLLED_FIXTURE_URL: &str = "http://10.0.2.2:18081/redirect";
 
 /// The fixture title proves the final redirected response reached Servo.
 pub const CONTROLLED_FIXTURE_TITLE: &str = "Nagi M18A Controlled Remote Fixture";
-/// The final title proves the browser completed HTTPS download and upload requests.
-pub const CONTROLLED_FIXTURE_TRANSFER_TITLE: &str =
-    "Nagi M18A Controlled Remote Fixture Transfers PASS";
+/// The final title proves transfers succeeded and an untrusted TLS chain failed closed.
+pub const CONTROLLED_FIXTURE_TLS_FAILURE_TITLE: &str =
+    "Nagi M18A Controlled Remote Fixture TLS Failure PASS";
 /// A failed browser transfer has a distinct title so acceptance fails closed.
 pub const CONTROLLED_FIXTURE_TRANSFER_FAILURE_TITLE: &str =
     "Nagi M18A Controlled Remote Fixture Transfers FAIL";

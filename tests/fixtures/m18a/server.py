@@ -13,6 +13,15 @@ DOWNLOAD_BODY = b"nagi-m18a-download"
 
 class FixtureHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/tls-probe":
+            body = b"untrusted TLS fixture reached"
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == "/download":
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
@@ -60,23 +69,40 @@ def serve(
     bind="0.0.0.0",
     port=18081,
     https_port=18443,
+    untrusted_https_port=18444,
     tls_cert=FIXTURE_ROOT / "tls" / "server.pem",
     tls_key=FIXTURE_ROOT / "tls" / "server-key.pem",
+    untrusted_tls_cert=FIXTURE_ROOT / "tls" / "untrusted-server.pem",
+    untrusted_tls_key=FIXTURE_ROOT / "tls" / "untrusted-server-key.pem",
 ):
     http_server = ThreadingHTTPServer((bind, port), make_handler())
     https_server = ThreadingHTTPServer((bind, https_port), make_handler())
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     tls_context.load_cert_chain(certfile=tls_cert, keyfile=tls_key)
     https_server.socket = tls_context.wrap_socket(https_server.socket, server_side=True)
+    untrusted_https_server = ThreadingHTTPServer((bind, untrusted_https_port), make_handler())
+    untrusted_tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    untrusted_tls_context.load_cert_chain(
+        certfile=untrusted_tls_cert, keyfile=untrusted_tls_key
+    )
+    untrusted_https_server.socket = untrusted_tls_context.wrap_socket(
+        untrusted_https_server.socket, server_side=True
+    )
     try:
         https_thread = Thread(target=https_server.serve_forever, daemon=True)
+        untrusted_https_thread = Thread(
+            target=untrusted_https_server.serve_forever, daemon=True
+        )
         https_thread.start()
+        untrusted_https_thread.start()
         http_server.serve_forever()
     finally:
         http_server.shutdown()
         https_server.shutdown()
+        untrusted_https_server.shutdown()
         http_server.server_close()
         https_server.server_close()
+        untrusted_https_server.server_close()
 
 
 if __name__ == "__main__":
@@ -84,13 +110,27 @@ if __name__ == "__main__":
     parser.add_argument("--bind", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=18081)
     parser.add_argument("--https-port", type=int, default=18443)
+    parser.add_argument("--untrusted-https-port", type=int, default=18444)
     parser.add_argument("--tls-cert", type=Path, default=FIXTURE_ROOT / "tls" / "server.pem")
     parser.add_argument("--tls-key", type=Path, default=FIXTURE_ROOT / "tls" / "server-key.pem")
+    parser.add_argument(
+        "--untrusted-tls-cert",
+        type=Path,
+        default=FIXTURE_ROOT / "tls" / "untrusted-server.pem",
+    )
+    parser.add_argument(
+        "--untrusted-tls-key",
+        type=Path,
+        default=FIXTURE_ROOT / "tls" / "untrusted-server-key.pem",
+    )
     arguments = parser.parse_args()
     serve(
         arguments.bind,
         arguments.port,
         arguments.https_port,
+        arguments.untrusted_https_port,
         arguments.tls_cert,
         arguments.tls_key,
+        arguments.untrusted_tls_cert,
+        arguments.untrusted_tls_key,
     )

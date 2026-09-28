@@ -19,12 +19,16 @@
         return response.text().then(download => [upload, download]);
       })
       ).then(([upload, download]) => {
-      if (upload === "upload received: nagi-m18a-upload" && download === "nagi-m18a-download") {
-        document.title = "Nagi M18A Controlled Remote Fixture Transfers PASS";
-        document.querySelector("main").textContent = "Nagi M18A HTTPS download and upload PASS";
-      } else {
-        document.title = "Nagi M18A Controlled Remote Fixture Transfers FAIL";
+      if (upload !== "upload received: nagi-m18a-upload" || download !== "nagi-m18a-download") {
+        throw new Error("fixture transfer body mismatch");
       }
+      return fetch("https://10.0.2.2:18444/tls-probe", { mode: "cors" }).then(
+        () => { throw new Error("untrusted TLS certificate was accepted"); },
+        () => {
+          document.title = "Nagi M18A Controlled Remote Fixture TLS Failure PASS";
+          document.querySelector("main").textContent = "Nagi M18A HTTPS transfers and TLS rejection PASS";
+        }
+      );
     }).catch(() => {
       document.title = "Nagi M18A Controlled Remote Fixture Transfers FAIL";
     });

@@ -30,6 +30,7 @@ for marker in \
     'Nagi M18A trace: network capability initialized' \
     'Nagi M18A trace: TLS fixture CA installed' \
     'Nagi M18A HTTPS download/upload PASS' \
+    'Nagi M18A HTTPS untrusted certificate rejection PASS' \
     'Nagi M18A remote navigation fixture identity PASS' \
     'Nagi M18A remote web pixel checksum=0x' \
     'Nagi M18A remote web pixel PASS'; do
@@ -44,4 +45,4 @@ if grep -F 'Nagi M17 first web pixel PASS' "$serial_log" >/dev/null; then
     exit 1
 fi
 
-printf '%s\n' 'PASS M18-A acceptance: redirected remote HTTP page rendered by Servo and presented to Nagi Surface'
+printf '%s\n' 'PASS M18-A acceptance: verified transfers and untrusted-TLS rejection reached Nagi Surface'

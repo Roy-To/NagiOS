@@ -3,6 +3,8 @@
 **Status:** `PARTIAL`  
 **Branch:** `codex/m18a-albert-remote-web`  
 **Required base:** `94e9a027618182b10c0ac2315e94673543f22423`  
+**Latest code checkpoint under test:** `330f322fbfd1c8fc8e696183fc7f13a019644804`
+**Latest CI:** run `36379279390` — Ubuntu host and Windows launcher passed; `nagi-target` is building.
 **Scope:** remote browser networking and its user-space runtime path; no M18-B browser chrome or UI.
 
 ## Acceptance status
@@ -13,8 +15,8 @@
 | Servo remote navigation to controlled fixture | PARTIAL | Added opt-in network initialization and a typed URL request runner. The current QEMU fixture acceptance uses HTTP then HTTPS; final target/QEMU run is pending. |
 | DNS and TCP/socket transport | PARTIAL | Servo's target `getaddrinfo` resolves through the capability-scoped POSIX-to-smoltcp DNS boundary. DNS A-answer/error mapping and DNS egress are tested; the controlled page currently uses the QEMU gateway IP, so browser-originated DNS is not yet demonstrated end-to-end. TCP nonblocking calls remain bounded and fail closed. |
 | HTTP and redirects | PARTIAL | Deterministic fixture tests cover HTTP redirect, POST echo, and attachment download. Guest Servo follows an HTTP-to-HTTPS redirect; QEMU evidence is pending. |
-| HTTPS with chain and hostname validation | PARTIAL | Servo keeps `ignore_certificate_errors = false` and uses pinned WebPKI roots plus an additive guest-installed fixture CA. Host tests accept the fixture DNS/IP SAN and reject an untrusted chain and wrong hostname; guest TLS handshake/QEMU evidence is pending. |
-| Timeout, reset, DNS, and TLS failure behavior | PARTIAL | POSIX maps DNS failure, timeout, reset, and would-block distinctly; tests cover the mapping. Host TLS tests cover untrusted and hostname failures. Deterministic browser-visible guest failure states remain unverified. |
+| HTTPS with chain and hostname validation | PARTIAL | Servo keeps `ignore_certificate_errors = false` and uses pinned WebPKI roots plus an additive guest-installed fixture CA. Host tests accept the fixture DNS/IP SAN and reject untrusted chains and wrong hostnames. The controlled page now also probes a self-signed endpoint after transfers; current-source QEMU proof is pending. |
+| Timeout, reset, DNS, and TLS failure behavior | PARTIAL | POSIX maps DNS failure, timeout, reset, and would-block distinctly; tests cover the mapping. Host TLS tests cover untrusted and hostname failures. The current fixture adds a guest-side untrusted-chain rejection marker; browser-visible DNS/timeout/reset failures remain unverified. |
 | Download and upload transport | PARTIAL | HTTPS fixture host tests verify attachment bytes and POST echo. The guest page runs sequential HTTPS fetch upload/download and gates its title on both results; QEMU evidence is pending. |
 | Remote page rendered into Nagi Surface | PARTIAL | The M18-A QEMU gate requires the HTTPS transfer title, fixture identity, nonzero Servo frame checksum, and remote-specific Surface marker; current-source target execution is pending. |
 
@@ -58,14 +60,16 @@ Host verification:
 
 ## Checkpoint 3 — verified HTTPS and transfer substrate
 
-Added a controlled TLS fixture with a private test root kept separate from the
-checked-in server key, a server leaf containing `m18a.test` and `10.0.2.2`
-SANs, and an HTTP-to-HTTPS redirect. The guest installs only this fixture root
-through its own POSIX/VFS path; Servo keeps normal chain/hostname validation
-enabled and retains the pinned WebPKI roots. The page performs a sequential
-HTTPS POST and attachment GET and updates its title only after both responses
-match the expected bytes. Host tests reject untrusted chains and wrong
-hostnames. No development-host certificate store is used.
+Added a controlled TLS fixture with a test CA whose signing key is not
+committed, a dedicated server leaf key containing `m18a.test` and `10.0.2.2`
+SANs, and an HTTP-to-HTTPS redirect. A separate self-signed server endpoint
+has a matching IP SAN but no trusted issuer. The guest installs only the
+fixture root through its own POSIX/VFS path; Servo keeps normal chain/hostname
+validation enabled and retains the pinned WebPKI roots. The page performs a
+sequential HTTPS POST and attachment GET, then requires Servo to reject the
+self-signed endpoint before it marks the run successful. Host tests reject
+untrusted chains and wrong hostnames. No development-host certificate store
+is used.
 
 ## Checkpoint 4 — guest realtime seed for TLS validity
 
@@ -79,21 +83,23 @@ change is recorded in `docs/decisions/0037-m18a-uefi-realtime-seed-for-tls.md`.
 Verification for this checkpoint:
 
 - `cargo test --locked --target x86_64-apple-darwin -p nagi-net -p nagi-posix -p nagi-albert -p nagi-abi -p nagi-bootinfo` — PASS (37 unit/integration tests).
-- `PYTHONDONTWRITEBYTECODE=1 python3 tests/fixtures/m18a/test_server.py` — PASS (10 HTTP/TLS tests).
+- `PYTHONDONTWRITEBYTECODE=1 python3 tests/fixtures/m18a/test_server.py` — PASS (11 HTTP/TLS tests).
 - Scoped `cargo clippy ... -- -D warnings` for the five changed Rust packages — PASS.
 - Scoped Rust formatting and `sh -n tests/acceptance/m18a_albert_remote_web.sh` — PASS.
 - Kernel release build for `targets/x86_64-unknown-nagi.json` — PASS.
 - UEFI loader release build for `x86_64-unknown-uefi` — PASS.
 - `git diff --check` — PASS.
-- Servo target init build and current-source QEMU run — pending public Ubuntu CI; the earlier run tests only the HTTP checkpoint and is not evidence for the TLS/RTC changes.
+- GitHub Actions `36379279390` on `330f322`: Ubuntu host and Windows launcher — PASS; `nagi-target` — in progress.
+- Servo target init build and current-source QEMU run — pending; an earlier run tested only the HTTP checkpoint and is not evidence for the TLS/RTC changes.
 
 ## Exact next action
 
-Push this verified code checkpoint and use its Ubuntu CI target job to build
-M18-A and rerun both real-QEMU M17 and HTTPS remote-page acceptance. Repair any
-target/QEMU failure without weakening certificate checks. Keep M18-A `PARTIAL`
-until the current-source QEMU markers pass and Servo-originated DNS plus
-browser-visible network failure behavior have deterministic evidence.
+Complete CI run `36379279390` on code checkpoint `330f322fbfd1c8fc8e696183fc7f13a019644804`.
+The host jobs have passed and the target job is building. Repair any target or
+QEMU failure without weakening certificate checks. The new guest-side
+self-signed endpoint test is unpushed and still needs its own target run. Keep
+M18-A `PARTIAL` until current-source QEMU markers pass and Servo-originated DNS
+plus browser-visible timeout/reset behavior have deterministic evidence.
 
 Shared-file changes are limited to the CI acceptance workflow, `Cargo.lock`,
 the global implementation-status summary, the kernel/loader BootInfo realtime

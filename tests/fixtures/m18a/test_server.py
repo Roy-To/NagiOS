@@ -15,14 +15,15 @@ TLS_ROOT = FIXTURE_ROOT / "tls"
 
 
 class FixtureTLSServer(ThreadingHTTPServer):
-    def __init__(self):
+    def __init__(self, cert_file=None, key_file=None):
         handler = lambda *args, **kwargs: FixtureHandler(
             *args, directory=str(FIXTURE_ROOT), **kwargs
         )
         super().__init__(("127.0.0.1", 0), handler)
         tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls_context.load_cert_chain(
-            certfile=TLS_ROOT / "server.pem", keyfile=TLS_ROOT / "server-key.pem"
+            certfile=cert_file or TLS_ROOT / "server.pem",
+            keyfile=key_file or TLS_ROOT / "server-key.pem",
         )
         self.socket = tls_context.wrap_socket(self.socket, server_side=True)
 
@@ -63,6 +64,13 @@ class FixtureServerTests(unittest.TestCase):
         self.https_server = FixtureTLSServer()
         self.https_thread = Thread(target=self.https_server.serve_forever, daemon=True)
         self.https_thread.start()
+        self.untrusted_https_server = FixtureTLSServer(
+            TLS_ROOT / "untrusted-server.pem", TLS_ROOT / "untrusted-server-key.pem"
+        )
+        self.untrusted_https_thread = Thread(
+            target=self.untrusted_https_server.serve_forever, daemon=True
+        )
+        self.untrusted_https_thread.start()
 
     def tearDown(self):
         self.server.shutdown()
@@ -71,6 +79,9 @@ class FixtureServerTests(unittest.TestCase):
         self.https_server.shutdown()
         self.https_server.server_close()
         self.https_thread.join(timeout=2)
+        self.untrusted_https_server.shutdown()
+        self.untrusted_https_server.server_close()
+        self.untrusted_https_thread.join(timeout=2)
 
     @staticmethod
     def trusted_test_context():
@@ -140,6 +151,15 @@ class FixtureServerTests(unittest.TestCase):
         context.check_hostname = True
         with self.assertRaises(ssl.SSLCertVerificationError):
             tls_request(self.https_server, "m18a.test", context)
+
+    def test_https_fixture_rejects_self_signed_server_even_with_matching_ip_san(self):
+        with self.assertRaises(ssl.SSLCertVerificationError):
+            tls_request(
+                self.untrusted_https_server,
+                "10.0.2.2",
+                self.trusted_test_context(),
+                path="/tls-probe",
+            )
 
     def test_https_fixture_rejects_wrong_hostname(self):
         with self.assertRaises(ssl.SSLCertVerificationError):

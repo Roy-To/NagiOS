@@ -115,7 +115,7 @@ pub(super) mod guest {
             let trace_first = !self.frame_diagnostics_emitted.replace(true);
             let remote_transfer_verified = if self.controlled_fixture {
                 match webview.page_title().as_deref() {
-                    Some(crate::remote_web::CONTROLLED_FIXTURE_TRANSFER_TITLE) => true,
+                    Some(crate::remote_web::CONTROLLED_FIXTURE_TLS_FAILURE_TITLE) => true,
                     Some(crate::remote_web::CONTROLLED_FIXTURE_TRANSFER_FAILURE_TITLE) => {
                         libnagi::console_write(b"Nagi M18A HTTPS download/upload FAIL\r\n");
                         libnagi::exit(1);
@@ -177,6 +177,7 @@ pub(super) mod guest {
             if self.controlled_fixture {
                 libnagi::console_write(b"Nagi M18A remote navigation fixture identity PASS\r\n");
                 libnagi::console_write(b"Nagi M18A HTTPS download/upload PASS\r\n");
+                libnagi::console_write(b"Nagi M18A HTTPS untrusted certificate rejection PASS\r\n");
             } else if self.remote_web {
                 libnagi::console_write(b"Nagi M18A remote navigation frame presented\r\n");
             }
@@ -191,7 +192,7 @@ pub(super) mod guest {
             if self.controlled_fixture && status == LoadStatus::Complete {
                 match webview.page_title().as_deref() {
                     Some(crate::remote_web::CONTROLLED_FIXTURE_TITLE)
-                    | Some(crate::remote_web::CONTROLLED_FIXTURE_TRANSFER_TITLE) => {}
+                    | Some(crate::remote_web::CONTROLLED_FIXTURE_TLS_FAILURE_TITLE) => {}
                     _ => {
                         libnagi::console_write(
                             b"Nagi M18A remote navigation FAIL fixture identity\r\n",
