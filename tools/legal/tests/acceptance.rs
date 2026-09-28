@@ -5,7 +5,10 @@ use nagi_legal::sbom::{build_spdx_document, validate_spdx_document};
 use nagi_legal::scan::scan_repository;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
 
 struct Fixture {
     root: PathBuf,
@@ -17,8 +20,11 @@ impl Fixture {
             .duration_since(UNIX_EPOCH)
             .expect("clock after epoch")
             .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("nagi-legal-fixture-{}-{stamp}", std::process::id()));
+        let fixture_id = NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "nagi-legal-fixture-{}-{stamp}-{fixture_id}",
+            std::process::id()
+        ));
         fs::create_dir_all(&root).expect("create fixture root");
         let fixture = Self { root };
         fixture.write(

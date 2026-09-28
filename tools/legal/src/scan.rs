@@ -1462,15 +1462,94 @@ fn is_evidence_reference_path(path: &str) -> bool {
 fn is_license_filename(path: &str) -> bool {
     path.rsplit('/').next().is_some_and(|name| {
         let name = name.to_ascii_lowercase();
-        name.starts_with("license") || name.starts_with("licence") || name.starts_with("copying")
+        ["license", "licence", "copying"]
+            .iter()
+            .any(|stem| is_evidence_document_name(&name, stem, true))
     })
 }
 
 fn is_notice_or_attribution_filename(path: &str) -> bool {
     path.rsplit('/').next().is_some_and(|name| {
         let name = name.to_ascii_lowercase();
-        name.starts_with("notice") || name.starts_with("copyright") || name == "patents"
+        ["notice", "copyright", "patents"]
+            .iter()
+            .any(|stem| is_evidence_document_name(&name, stem, false))
     })
+}
+
+fn is_evidence_document_name(name: &str, stem: &str, allow_license_variant: bool) -> bool {
+    let Some(suffix) = name.strip_prefix(stem) else {
+        return false;
+    };
+    if suffix.is_empty() {
+        return true;
+    }
+    if !suffix.starts_with(['-', '_', '.']) {
+        return false;
+    }
+
+    let extension = name.rsplit_once('.').map(|(_, extension)| extension);
+    if extension.is_some_and(is_source_or_metadata_extension) {
+        return false;
+    }
+    if suffix.starts_with('.') {
+        const DOCUMENT_EXTENSIONS: &[&str] = &[
+            "adoc", "htm", "html", "markdown", "md", "pdf", "rst", "rtf", "txt",
+        ];
+        const LICENSE_VARIANTS: &[&str] = &[
+            "agpl",
+            "apache",
+            "bsd",
+            "epl",
+            "gpl",
+            "isc",
+            "lgpl",
+            "lesser",
+            "mit",
+            "mpl",
+            "unlicense",
+            "zlib",
+        ];
+        let dotted_variant = suffix.trim_start_matches('.');
+        return DOCUMENT_EXTENSIONS.contains(&dotted_variant)
+            || (allow_license_variant && LICENSE_VARIANTS.contains(&dotted_variant));
+    }
+    true
+}
+
+fn is_source_or_metadata_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        "bat"
+            | "c"
+            | "cc"
+            | "cmd"
+            | "cpp"
+            | "cs"
+            | "cxx"
+            | "go"
+            | "h"
+            | "hpp"
+            | "java"
+            | "js"
+            | "jsx"
+            | "json"
+            | "kt"
+            | "m"
+            | "mm"
+            | "php"
+            | "pl"
+            | "ps1"
+            | "py"
+            | "rb"
+            | "rs"
+            | "sh"
+            | "swift"
+            | "toml"
+            | "ts"
+            | "tsx"
+            | "xml"
+    )
 }
 
 fn path_has_review_row(path: &str, notice_rows: &BTreeSet<String>) -> bool {
@@ -1804,7 +1883,9 @@ fn sort_evidence(values: &mut Vec<EvidenceRecord>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_lock_dependency, sanitize_url};
+    use super::{
+        is_license_filename, is_notice_or_attribution_filename, parse_lock_dependency, sanitize_url,
+    };
 
     #[test]
     fn lock_dependency_parser_keeps_source_qualifier() {
@@ -1830,5 +1911,42 @@ mod tests {
             sanitize_url("https://user:secret@example.com/repo.git?token=hidden"),
             Some("https://example.com/repo.git".to_owned())
         );
+    }
+
+    #[test]
+    fn license_evidence_requires_a_document_name() {
+        for path in [
+            "third_party/example/LICENSE",
+            "third_party/example/LICENSE-MIT",
+            "third_party/example/LICENSE.md",
+            "third_party/example/COPYING.LESSER",
+            "third_party/example/LICENSE-APACHE-2.0.txt",
+        ] {
+            assert!(
+                is_license_filename(path),
+                "expected license evidence: {path}"
+            );
+        }
+        for path in [
+            "tools/legal/src/license.rs",
+            "third_party/example/licensing.rs",
+            "third_party/example/LICENSES.rs",
+            "third_party/example/LICENSE.json",
+        ] {
+            assert!(!is_license_filename(path), "not a license document: {path}");
+        }
+
+        assert!(is_notice_or_attribution_filename(
+            "third_party/example/NOTICE"
+        ));
+        assert!(is_notice_or_attribution_filename(
+            "third_party/example/COPYRIGHT.md"
+        ));
+        assert!(is_notice_or_attribution_filename(
+            "third_party/example/PATENTS"
+        ));
+        assert!(!is_notice_or_attribution_filename(
+            "tools/legal/src/notice.rs"
+        ));
     }
 }
