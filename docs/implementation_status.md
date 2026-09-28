@@ -16,15 +16,18 @@ Repository instructions:
 
 # 1. Current status
 
-**Current milestone:** `M17 - Servo Bootstrap`
-**Milestone status:** `PASS`
-**Next action:** M17 passed its formal First Web Pixel acceptance in public
-CI #303 (`36355494134`, head
-`31bf815b7230f2658f654643e6d6c898d9881d77`). The real Servo/Mesa Softpipe
-guest read back a nonzero frame, copied it to the capability-checked Nagi
-Surface, presented it, and emitted the M17 PASS marker. The acceptance also
-verified Servo resource registration and ELF constructors before user entry.
-M18 remains `NOT STARTED`; this continuation is scoped to M17.
+**Current milestone:** `M18-A - Albert Remote Web`
+**Milestone status:** `PARTIAL`
+**Next action:** Continue M18-A from the pinned M17 PASS baseline
+`94e9a027618182b10c0ac2315e94673543f22423` on branch
+`codex/m18a-albert-remote-web`. M17's formal First Web Pixel acceptance
+passed in public CI #303 (`36355494134`, head
+`31bf815b7230f2658f654643e6d6c898d9881d77`). The first M18-A transport
+checkpoint now retains POSIX socket `O_NONBLOCK` state and exposes bounded
+nonblocking TCP send/receive operations. Controlled remote-page navigation,
+HTTP/HTTPS, TLS validation, redirects, failure handling, and Surface
+acceptance remain incomplete; see
+`docs/workstreams/m18a-albert-remote-web-status.md`.
 
 **Last updated:** 2026-09-28
 **Last known checkpoint:** Public CI #303 passed the Windows launcher, Ubuntu host,
@@ -36,7 +39,8 @@ after a nonzero checksum is computed from Servo's software-rendered frame,
 the frame is copied to Nagi Surface, and display presentation succeeds. The
 acceptance script also checks the resource-reader marker and constructor
 ordering. GitHub retained the acceptance result, but not the temporary guest
-serial log or numeric checksum. M17 is `PASS`; M18 remains `NOT STARTED`.
+serial log or numeric checksum. M17 is `PASS`; M18-A is `PARTIAL` and M18-B
+remains `NOT STARTED`.
 
 ### M17 First Web Pixel completion after Actions run #303 (2026-09-28)
 

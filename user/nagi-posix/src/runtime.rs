@@ -1,3 +1,4 @@
+use crate::net::{socket_is_nonblocking, socket_status_flags, O_NONBLOCK};
 use core::time::Duration;
 use libnagi::storage::{
     DirectoryEntry, FileHandle, FileMetadata, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
@@ -8,7 +9,6 @@ use nagi_pal::sync::SpinMutex;
 use nagi_pal::time::{Clock, GuestClock};
 
 const PIPE_CAPACITY: usize = 4096;
-const O_NONBLOCK: i32 = 0x0004_0000;
 const O_CLOEXEC: i32 = 0x0100_0000;
 const F_GETFD: i32 = 1;
 const F_SETFD: i32 = 2;
@@ -30,6 +30,7 @@ enum FdEntry {
     Socket {
         connected: bool,
         peer: Option<(Ipv4Address, u16)>,
+        nonblocking: bool,
         read_shutdown: bool,
         write_shutdown: bool,
         nagle_enabled: bool,
@@ -227,6 +228,7 @@ pub fn socket() -> Result<i32, RuntimeError> {
     *slot = Some(FdEntry::Socket {
         connected: false,
         peer: None,
+        nonblocking: false,
         read_shutdown: false,
         write_shutdown: false,
         nagle_enabled: true,
@@ -318,16 +320,21 @@ pub fn fcntl(fd: i32, command: i32, argument: i32) -> Result<i32, RuntimeError> 
             FdEntry::PipeRead { nonblocking, .. } | FdEntry::PipeWrite { nonblocking, .. } => {
                 Ok(if *nonblocking { O_NONBLOCK } else { 0 })
             }
+            FdEntry::Socket { nonblocking, .. } => Ok(socket_status_flags(*nonblocking)),
             _ => Ok(0),
         },
         F_SETFL => {
-            let nonblocking = argument & O_NONBLOCK != 0;
+            let nonblocking = socket_is_nonblocking(argument);
             match entry {
                 FdEntry::PipeRead {
                     nonblocking: current,
                     ..
                 }
                 | FdEntry::PipeWrite {
+                    nonblocking: current,
+                    ..
+                }
+                | FdEntry::Socket {
                     nonblocking: current,
                     ..
                 } => *current = nonblocking,
@@ -590,13 +597,18 @@ pub fn read(fd: i32, destination: &mut [u8]) -> Result<usize, RuntimeError> {
         FdEntry::Socket {
             connected: true,
             read_shutdown: false,
+            nonblocking,
             ..
-        } => NETWORK
-            .lock()
-            .as_mut()
-            .ok_or(RuntimeError::NotInitialized)?
-            .tcp_receive(destination)
-            .map_err(RuntimeError::Network),
+        } => {
+            let mut network = NETWORK.lock();
+            let network = network.as_mut().ok_or(RuntimeError::NotInitialized)?;
+            let result = if nonblocking {
+                network.tcp_try_receive(destination)
+            } else {
+                network.tcp_receive(destination)
+            };
+            result.map_err(RuntimeError::Network)
+        }
         FdEntry::Socket {
             connected: false, ..
         } => Err(RuntimeError::InvalidFd),
@@ -763,13 +775,18 @@ pub fn write(fd: i32, bytes: &[u8]) -> Result<usize, RuntimeError> {
         FdEntry::Socket {
             connected: true,
             write_shutdown: false,
+            nonblocking,
             ..
-        } => NETWORK
-            .lock()
-            .as_mut()
-            .ok_or(RuntimeError::NotInitialized)?
-            .tcp_send(bytes)
-            .map_err(RuntimeError::Network),
+        } => {
+            let mut network = NETWORK.lock();
+            let network = network.as_mut().ok_or(RuntimeError::NotInitialized)?;
+            let result = if nonblocking {
+                network.tcp_try_send(bytes)
+            } else {
+                network.tcp_send(bytes)
+            };
+            result.map_err(RuntimeError::Network)
+        }
         FdEntry::Socket {
             connected: false, ..
         } => Err(RuntimeError::InvalidFd),

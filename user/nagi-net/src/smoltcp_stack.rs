@@ -381,6 +381,44 @@ impl<D: Device> SmoltcpStack<D> {
         Ok(sent)
     }
 
+    /// Make one bounded nonblocking write attempt on the retained stream.
+    ///
+    /// This is the operation used by POSIX sockets after `O_NONBLOCK` has been
+    /// set. It never waits for additional TCP send-buffer capacity: callers
+    /// either receive the number of bytes accepted in this poll step or a
+    /// timeout that the POSIX boundary maps to `EAGAIN`.
+    pub fn tcp_try_send(&mut self, data: &[u8]) -> Result<usize, NetError> {
+        if data.is_empty() {
+            return Ok(0);
+        }
+        let (Some(interface), Some(sockets), Some(handle)) = (
+            self.tcp_interface.as_mut(),
+            self.tcp_sockets.as_mut(),
+            self.tcp_handle,
+        ) else {
+            return Err(NetError::ConnectionReset);
+        };
+        let count = {
+            let socket = sockets.get_mut::<tcp::Socket>(handle);
+            if !socket.can_send() {
+                return if socket.is_open() {
+                    Err(NetError::TcpTimeout)
+                } else {
+                    Err(NetError::ConnectionReset)
+                };
+            }
+            socket
+                .send_slice(data)
+                .map_err(|_| NetError::ConnectionReset)?
+        };
+        if count == 0 {
+            return Err(NetError::TcpTimeout);
+        }
+        let mut phy = NagiPhyDevice::new(&mut self.device);
+        poll_once(interface, &mut phy, sockets, now());
+        Ok(count)
+    }
+
     /// Close only the transmit half of the retained TCP stream. This is the
     /// user-space implementation boundary for POSIX `shutdown(SHUT_WR)`.
     pub fn tcp_shutdown_write(&mut self) -> Result<(), NetError> {
@@ -441,6 +479,34 @@ impl<D: Device> SmoltcpStack<D> {
             if !socket.may_recv() {
                 return Ok(0);
             }
+        }
+        Err(NetError::TcpTimeout)
+    }
+
+    /// Poll the TCP stream once and receive currently queued bytes without
+    /// waiting for a future packet. A still-open stream with no data returns
+    /// `TcpTimeout`; the POSIX socket adapter exposes that as `EAGAIN`.
+    pub fn tcp_try_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        let (Some(interface), Some(sockets), Some(handle)) = (
+            self.tcp_interface.as_mut(),
+            self.tcp_sockets.as_mut(),
+            self.tcp_handle,
+        ) else {
+            return Err(NetError::ConnectionReset);
+        };
+        let mut phy = NagiPhyDevice::new(&mut self.device);
+        poll_once(interface, &mut phy, sockets, now());
+        let socket = sockets.get_mut::<tcp::Socket>(handle);
+        if socket.can_recv() {
+            return socket
+                .recv_slice(buffer)
+                .map_err(|_| NetError::ConnectionReset);
+        }
+        if !socket.may_recv() {
+            return Ok(0);
         }
         Err(NetError::TcpTimeout)
     }
@@ -644,6 +710,10 @@ impl<D: Device> SocketApi<D> {
         self.stack.tcp_send(data)
     }
 
+    pub fn tcp_try_send(&mut self, data: &[u8]) -> Result<usize, NetError> {
+        self.stack.tcp_try_send(data)
+    }
+
     pub fn tcp_shutdown_write(&mut self) -> Result<(), NetError> {
         self.stack.tcp_shutdown_write()
     }
@@ -662,6 +732,10 @@ impl<D: Device> SocketApi<D> {
 
     pub fn tcp_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {
         self.stack.tcp_receive(buffer)
+    }
+
+    pub fn tcp_try_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {
+        self.stack.tcp_try_receive(buffer)
     }
 
     pub fn tcp_ready(&mut self, requested: i16) -> Result<i16, NetError> {
@@ -991,6 +1065,15 @@ mod tests {
         let mut stack = SocketApi::new(RecordingDevice { sent: 0 });
         assert_eq!(
             stack.tcp_send(b"GET / HTTP/1.0\r\n\r\n"),
+            Err(NetError::ConnectionReset)
+        );
+        assert_eq!(
+            stack.tcp_try_send(b"GET / HTTP/1.1\r\n\r\n"),
+            Err(NetError::ConnectionReset)
+        );
+        let mut byte = [0];
+        assert_eq!(
+            stack.tcp_try_receive(&mut byte),
             Err(NetError::ConnectionReset)
         );
         assert_eq!(
