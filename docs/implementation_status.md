@@ -18,18 +18,18 @@ Repository instructions:
 
 **Current milestone:** `M18-A - Albert Remote Web`
 **Milestone status:** `PARTIAL`
-**Next action:** Push the current target-build correction and rerun CI on
-`codex/m18a-albert-remote-web`, derived from fixed M17 PASS base
-`94e9a027618182b10c0ac2315e94673543f22423`. CI run `36379279390` passed the
-Ubuntu host and Windows launcher jobs but failed `Build Nagi user init`: the
-target `nagi-albert` module used `pub(super)` at crate root. It has been
-corrected to crate visibility. Loader and real-QEMU M17/M18-A acceptance were
-skipped after that failure. M18-A adds POSIX nonblocking socket support,
-bounded TCP send/receive, Servo remote navigation, a controlled HTTP-to-HTTPS
-redirect with guest upload/download, and a UEFI realtime seed for normal TLS
-validity checks. Local host tests and kernel/UEFI-loader release builds pass.
-Current-source target/QEMU proof, browser-originated DNS coverage, and
-deterministic browser-visible timeout/reset evidence remain pending; see
+**Next action:** Commit and push the current remote URL/title diagnostics and
+QEMU guest-failure early-stop behavior, rerun CI on `codex/m18a-albert-remote-web`,
+then repair the M18-A QEMU fixture identity failure from its observed URL/title.
+The branch is derived from fixed M17 PASS base
+`94e9a027618182b10c0ac2315e94673543f22423`. CI run `36381892343` passed Ubuntu
+host, Windows launcher, target builds, UEFI loader, and real M17 QEMU acceptance;
+M18-A QEMU emitted `Nagi M18A remote navigation FAIL fixture identity` without
+the remote Surface marker. M18-A adds POSIX nonblocking socket support, bounded
+TCP send/receive, Servo remote navigation, a controlled HTTP-to-HTTPS redirect
+with guest upload/download, and a UEFI realtime seed for normal TLS validity
+checks. Local host tests pass. Browser-originated DNS coverage and deterministic
+browser-visible timeout/reset evidence remain pending; see
 `docs/workstreams/m18a-albert-remote-web-status.md`.
 
 **Last updated:** 2026-09-28
@@ -2044,8 +2044,8 @@ Use only these statuses:
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
-| M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. M18 remains NOT STARTED. |
-| M18 | Albert Browser | PARTIAL | M18-A remote transport work is in progress on the fixed M17 base; M18-B tabs, browser chrome, history/bookmarks/session and permission UI remain NOT STARTED. Full M18 requires M18-A/M18-B integration and several real HTTPS websites. |
+| M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. M18-A is now in progress on its dedicated fixed-base branch. |
+| M18 | Albert Browser | PARTIAL | M18-A remote transport is in progress on the fixed M17 base; CI run `36381892343` passed M17 QEMU then exposed an M18-A fixture identity failure. M18-B tabs, browser chrome, history/bookmarks/session and permission UI remain NOT STARTED. Full M18 requires M18-A/M18-B integration and several real HTTPS websites. |
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
 | M21 | Planner / Validator / Executor | NOT STARTED | 遯ｶ繝ｻ|

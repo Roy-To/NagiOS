@@ -1095,10 +1095,15 @@ fn wait_for_qemu(
 ) -> Result<i32, String> {
     let deadline = Instant::now() + timeout;
     loop {
-        if fs::read_to_string(serial_log)
-            .map(|serial| guest_reached_acceptance(&serial, acceptance_marker))
-            .unwrap_or(false)
-        {
+        let serial = fs::read_to_string(serial_log).unwrap_or_default();
+        if let Some(failure) = guest_failure_marker(&serial) {
+            child.kill().map_err(|error| {
+                format!("guest reported failure but QEMU termination failed: {error}")
+            })?;
+            let _ = child.wait();
+            return Err(format!("guest reported failure marker: {failure}"));
+        }
+        if guest_reached_acceptance(&serial, acceptance_marker) {
             child.kill().map_err(|error| {
                 format!("guest reached acceptance but termination failed: {error}")
             })?;
@@ -1131,15 +1136,22 @@ fn guest_reached_acceptance(serial: &str, acceptance_marker: &str) -> bool {
     serial.contains(acceptance_marker)
 }
 
+fn guest_failure_marker(serial: &str) -> Option<&str> {
+    serial
+        .lines()
+        .find(|line| line.starts_with("Nagi ") && line.contains(" FAIL"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use super::{
-        build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
-        image_drive_argument, initialize_fats, qemu_audio_driver_for_host, write_chain,
-        Fat12Geometry, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE,
-        M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
+        build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_failure_marker,
+        guest_reached_acceptance, image_drive_argument, initialize_fats,
+        qemu_audio_driver_for_host, write_chain, Fat12Geometry, DATA_OFFSET, FAT_COUNT,
+        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER,
+        PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
     };
 
     #[test]
@@ -1172,6 +1184,20 @@ mod tests {
             "Nagi M7 acceptance PASS\r\n",
             GUEST_ACCEPTANCE_MARKER
         ));
+    }
+
+    #[test]
+    fn qemu_guest_failure_marker_is_reported_without_waiting_for_timeout() {
+        let serial =
+            "Nagi M17 trace: ready\r\nNagi M18A remote navigation FAIL fixture identity\r\n";
+        assert_eq!(
+            guest_failure_marker(serial),
+            Some("Nagi M18A remote navigation FAIL fixture identity")
+        );
+        assert_eq!(
+            guest_failure_marker("Nagi M17 first web pixel PASS\r\n"),
+            None
+        );
     }
 
     #[test]

@@ -3,23 +3,23 @@
 **Status:** `PARTIAL`  
 **Branch:** `codex/m18a-albert-remote-web`  
 **Required base:** `94e9a027618182b10c0ac2315e94673543f22423`  
-**Latest code checkpoint under test:** `330f322fbfd1c8fc8e696183fc7f13a019644804`
-**Latest local checkpoint:** `6778937fb33ffbe966863160f333114cf052061f` plus an uncommitted target-build correction.
-**Latest CI:** run `36379279390` — Ubuntu host and Windows launcher passed; `nagi-target` failed while building `nagi-albert`, before loader or QEMU acceptance.
+**Latest pushed code checkpoint:** `ebe2395e19e4c40f26e68e9827901b33ad3a0460`
+**Latest CI:** run `36381892343` — Ubuntu host and Windows launcher passed; target dependencies, Mesa, kernel, user init, and UEFI loader built; M17 QEMU acceptance passed; M18-A QEMU acceptance failed on `Nagi M18A remote navigation FAIL fixture identity` before remote Surface acceptance.
+**Current local checkpoint:** Added guest URL/page-title diagnostics and early QEMU termination on guest `Nagi ... FAIL` markers; focused host checks pass, pending commit/push and target rerun.
 **Scope:** remote browser networking and its user-space runtime path; no M18-B browser chrome or UI.
 
 ## Acceptance status
 
 | Requirement | Status | Evidence / remaining work |
 |---|---|---|
-| Preserve the M17 PASS baseline | PARTIAL | Worktree starts at the exact fixed SHA. Kernel and UEFI loader release builds pass with BootInfo v3; rerun real M17 QEMU acceptance on the M18-A branch is pending. |
-| Servo remote navigation to controlled fixture | PARTIAL | Added opt-in network initialization and a typed URL request runner. The current QEMU fixture acceptance uses HTTP then HTTPS; final target/QEMU run is pending. |
-| DNS and TCP/socket transport | PARTIAL | Servo's target `getaddrinfo` resolves through the capability-scoped POSIX-to-smoltcp DNS boundary. DNS A-answer/error mapping and DNS egress are tested; the controlled page currently uses the QEMU gateway IP, so browser-originated DNS is not yet demonstrated end-to-end. TCP nonblocking calls remain bounded and fail closed. |
-| HTTP and redirects | PARTIAL | Deterministic fixture tests cover HTTP redirect, POST echo, and attachment download. Guest Servo follows an HTTP-to-HTTPS redirect; QEMU evidence is pending. |
-| HTTPS with chain and hostname validation | PARTIAL | Servo keeps `ignore_certificate_errors = false` and uses pinned WebPKI roots plus an additive guest-installed fixture CA. Host tests accept the fixture DNS/IP SAN and reject untrusted chains and wrong hostnames. The controlled page now also probes a self-signed endpoint after transfers; current-source QEMU proof is pending. |
-| Timeout, reset, DNS, and TLS failure behavior | PARTIAL | POSIX maps DNS failure, timeout, reset, and would-block distinctly; tests cover the mapping. Host TLS tests cover untrusted and hostname failures. The current fixture adds a guest-side untrusted-chain rejection marker; browser-visible DNS/timeout/reset failures remain unverified. |
-| Download and upload transport | PARTIAL | HTTPS fixture host tests verify attachment bytes and POST echo. The guest page runs sequential HTTPS fetch upload/download and gates its title on both results; QEMU evidence is pending. |
-| Remote page rendered into Nagi Surface | PARTIAL | The M18-A QEMU gate requires the HTTPS transfer title, fixture identity, nonzero Servo frame checksum, and remote-specific Surface marker; current-source target execution is pending. |
+| Preserve the M17 PASS baseline | PASS | On the M18-A branch, CI run `36381892343` rebuilt the target and passed the real M17 first-web-pixel QEMU acceptance before M18-A. |
+| Servo remote navigation to controlled fixture | PARTIAL | The M18-A guest booted and Servo reported a completed load, but the loaded title did not match either allowed fixture title. Added URL and title serial diagnostics to identify the failed navigation on the next run. |
+| DNS and TCP/socket transport | PARTIAL | Servo's target `getaddrinfo` resolves through the capability-scoped POSIX-to-smoltcp DNS boundary. DNS A-answer/error mapping and DNS egress are tested; the controlled page uses the QEMU gateway IP, so browser-originated DNS is not demonstrated end-to-end. TCP nonblocking calls remain bounded and fail closed. |
+| HTTP and redirects | PARTIAL | Deterministic fixture tests cover HTTP redirect, POST echo, and attachment download. Guest load completed, but the current QEMU log does not prove which response or redirect reached Servo. |
+| HTTPS with chain and hostname validation | PARTIAL | Servo keeps `ignore_certificate_errors = false` and uses pinned WebPKI roots plus an additive guest-installed fixture CA. Host tests accept the fixture DNS/IP SAN and reject untrusted chains and wrong hostnames. Guest HTTPS completion is not yet established by QEMU. |
+| Timeout, reset, DNS, and TLS failure behavior | PARTIAL | POSIX maps DNS failure, timeout, reset, and would-block distinctly; tests cover the mapping. Host TLS tests cover untrusted and hostname failures. Browser-visible DNS/timeout/reset outcomes remain unverified. |
+| Download and upload transport | PARTIAL | HTTPS fixture host tests verify attachment bytes and POST echo. The guest page runs sequential HTTPS fetch upload/download, but the failed navigation produced no guest transfer marker. |
+| Remote page rendered into Nagi Surface | PARTIAL | The M18-A QEMU gate requires the HTTPS transfer title, fixture identity, nonzero Servo frame checksum, and remote-specific Surface marker. M17 QEMU passed; M18-A produced no remote Surface marker. |
 
 ## Checkpoint 1
 
@@ -94,14 +94,29 @@ Verification for this checkpoint:
 - Corrected the guest module declaration to `pub(crate)` so the sibling remote-web module can use it without exporting the module outside the crate. Focused host tests (37) and scoped Clippy pass after this change; target/QEMU confirmation is pending.
 - An isolated local custom-target `cargo check -p nagi-albert` did not reach the crate: registry `libc` 0.2.174 failed compiling its target bindings. Use the repository's full target build path in CI for acceptance.
 
-## Exact next action
+## Checkpoint 5 — first M18-A target/QEMU run and diagnostics
 
-Commit the `pub(crate)` correction with this status update, push it with the
-untrusted-certificate probe checkpoint, and rerun the full target job. Repair
-any target or QEMU failure without weakening certificate checks. The new
-guest-side self-signed endpoint test needs current-source QEMU evidence. Keep
-M18-A `PARTIAL` until M17 and M18-A QEMU markers pass and Servo-originated DNS
-plus browser-visible timeout/reset behavior have deterministic evidence.
+CI run `36381892343` on pushed HEAD `ebe2395e19e4c40f26e68e9827901b33ad3a0460`
+passed both host jobs, built the M18-A target and UEFI loader, and passed M17's
+real QEMU first-web-pixel acceptance. The M18-A QEMU run then emitted
+`Nagi M18A remote navigation FAIL fixture identity` and did not produce its
+remote frame/Surface markers. The acceptance runner waited the full 120-second
+timeout after a guest failure marker, which obscured iteration and the actual
+page state.
+
+The current local checkpoint logs remote WebView URLs and completed page
+titles, and stops QEMU as soon as a guest `Nagi ... FAIL` marker appears. A
+focused `nagi-cli` host test covers failure-marker detection; all 93
+`nagi-cli` library tests, scoped clippy with warnings denied, changed-file
+formatting, and `git diff --check` pass locally. The guest title/URL diagnostic
+and M18-A remote path require the next target CI run.
+
+Next, commit and push this diagnostic checkpoint, rerun CI from the fixed M17
+base, then use the emitted URL/title to repair the first failed navigation.
+Keep certificate validation enabled. M18-A stays `PARTIAL` until remote
+navigation, HTTPS transfers, untrusted-chain rejection, and Surface markers
+pass, with browser-originated DNS and browser-visible timeout/reset behavior
+still needing deterministic evidence.
 
 Shared-file changes are limited to the CI acceptance workflow, `Cargo.lock`,
 the global implementation-status summary, the kernel/loader BootInfo realtime

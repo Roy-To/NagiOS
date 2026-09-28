@@ -72,6 +72,13 @@ pub(crate) mod guest {
     }
 
     impl FirstPixelDelegate {
+        fn trace_remote_value(prefix: &[u8], value: &str) {
+            libnagi::console_write(prefix);
+            let bytes = value.as_bytes();
+            libnagi::console_write(&bytes[..bytes.len().min(256)]);
+            libnagi::console_write(b"\r\n");
+        }
+
         fn frame_rectangle() -> DeviceIntRect {
             DeviceIntRect::from_origin_and_size(
                 DeviceIntPoint::zero(),
@@ -185,12 +192,25 @@ pub(crate) mod guest {
         }
 
         fn notify_url_changed(&self, _webview: WebView, _url: Url) {
+            if self.remote_web {
+                Self::trace_remote_value(
+                    b"Nagi M18A trace: WebView URL changed to ",
+                    _url.as_str(),
+                );
+            }
             trace_stage(b"WebView URL changed");
         }
 
         fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
+            let title = webview.page_title();
+            if self.remote_web && status == LoadStatus::Complete {
+                Self::trace_remote_value(
+                    b"Nagi M18A trace: completed page title is ",
+                    title.as_deref().unwrap_or("<none>"),
+                );
+            }
             if self.controlled_fixture && status == LoadStatus::Complete {
-                match webview.page_title().as_deref() {
+                match title.as_deref() {
                     Some(crate::remote_web::CONTROLLED_FIXTURE_TITLE)
                     | Some(crate::remote_web::CONTROLLED_FIXTURE_TLS_FAILURE_TITLE) => {}
                     _ => {
