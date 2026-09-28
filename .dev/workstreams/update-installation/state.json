@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "update-installation",
   "current_milestone": "UPD-01 host installation foundation",
-  "current_checkpoint": "Implementation, recovery acceptance, and scoped verification complete",
+  "current_checkpoint": "Implementation and recovery acceptance complete; branch CI registry dependency isolated",
   "status": "PASS",
   "last_verified": {
     "commit_sha": "ab84fd6116b58646209a38350f1260a62f537f24",
-    "verified_at": "2026-09-28T16:09:21Z",
-    "normal_state": "PASS for the isolated UPD-01 host foundation. Branch codex/0.2-update-installation is based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; implementation and documentation were verified at ab84fd6116b58646209a38350f1260a62f537f24, including the final Windows device-path validation fix. The state and final acceptance update are committed immediately after that tested implementation commit. The shared registry does not yet contain this stream because registry edits are Integration Owner-owned. Latest meaningful failure outside owned scope: ./nagi doctor and the legacy nagi-package regression cannot load the root Cargo graph because this fresh worktree lacks third_party/cc-nagi/Cargo.toml; no third_party files were changed.",
+    "verified_at": "2026-09-28T16:21:04Z",
+    "normal_state": "PASS for the isolated UPD-01 host foundation. Branch codex/0.2-update-installation is based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; implementation and documentation were verified at ab84fd6116b58646209a38350f1260a62f537f24, including the final Windows device-path validation fix. The state and final acceptance update are committed immediately after that tested implementation commit. The shared registry does not yet contain this stream because registry edits are Integration Owner-owned. Latest meaningful failures outside owned scope: GitHub Nagi CI #36449432264 failed on Ubuntu and Windows only in `dev_status_resume_and_verify_read_the_registered_workstream`, which requires this branch to be registered in the Integration Owner-owned `.dev/workstreams.json`; repository format, lint, and build passed. Locally, ./nagi doctor and the legacy nagi-package regression cannot load the root Cargo graph because this fresh worktree lacks third_party/cc-nagi/Cargo.toml; no registry, third_party, root Cargo, or CI files were changed.",
     "commands": [
       "cargo test --manifest-path tools/nagi-installer/Cargo.toml --locked --offline",
       "cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check",
@@ -17,6 +17,7 @@
       "cargo check --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked --offline --target x86_64-pc-windows-gnu",
       "./nagi dev verify",
       "Python stdlib structural assertions against .dev/schemas/workstream-state.schema.json and .dev/schemas/workstreams.schema.json",
+      "gh run view 36449432264 --log-failed",
       "./nagi doctor",
       "cargo test --manifest-path user/nagi-package/Cargo.toml --locked --offline"
     ],
@@ -71,6 +72,13 @@
         "evidence": "Checked required/allowed field sets, schema version/status and outcome enums, 40-character SHA, UTC datetime parsing, nested test/dependency/blocker shapes, registry-row fields and ID/branch/state-file patterns. The repository's full dev verify separately validated registered states; UPD-01 remains unregistered until Integration Owner action."
       },
       {
+        "name": "GitHub Actions Nagi CI #36449432264",
+        "command": "gh run view 36449432264 --log-failed",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "Ubuntu and Windows both passed dependency bootstrap, format where present, lint where present, and host-compatible build. Each failed only `nagi-cli` integration test dev_status_resume_and_verify_read_the_registered_workstream: branch codex/0.2-update-installation is absent from .dev/workstreams.json. The registry and CI files are Integration Owner-owned; M0/follow-on checks were skipped after the workspace test failure. Run URL: https://github.com/RT-NISH/NagiOS/actions/runs/36449432264"
+      },
+      {
         "name": "Repository doctor",
         "command": "./nagi doctor",
         "outcome": "FAIL",
@@ -85,11 +93,20 @@
         "evidence": "Cargo failed before compiling the regression target because the root patch for cc points to missing third_party/cc-nagi/Cargo.toml. This is the same checkout/bootstrap limitation as ./nagi doctor; no legacy package or third_party files were changed."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 36449432264,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36449432264",
+        "head_sha": "1f900cfa5754478b7e9f58a2124a20105ca38f18",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Both Ubuntu and Windows jobs fail only the existing CLI test requiring the current branch to have an Integration Owner registry row. UPD-01 cannot edit that shared registry; registration proposal is provided. Format, lint, and host build pass; subsequent acceptance/state checks are skipped."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "UPD-01 workstream specification sections 3, 20, and 22; docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
-    "last_checked_at": "2026-09-28T16:09:21Z",
+    "last_checked_at": "2026-09-28T16:21:04Z",
     "activation_requirement": "Host-side reference foundation only. Runtime installation, product adoption, and root integration require Nagi 0.1 M30 PASS and an explicit 0.2 integration checkpoint."
   },
   "blocker": {
@@ -104,7 +121,7 @@
       "Do not change Integration Owner-owned .dev registry/schema, root Cargo workspace/lock, or CI files from this workstream."
     ]
   },
-  "next_action": "Integration Owner: review the registration proposal, register update-installation, and wire the standalone package into root workspace and host CI at the approved integration checkpoint. UPD-01 owned implementation and acceptance are complete.",
+  "next_action": "Integration Owner: review and register update-installation so DF-01 status/resume and the existing host CI branch-registration test can resolve this branch; then wire the standalone package into root workspace and host CI at the approved integration checkpoint. UPD-01 owned implementation and acceptance are complete.",
   "acceptance_criteria": [
     "PASS: Safe directory and virtual package source/staging abstraction; no archive format is selected.",
     "PASS: No permanent duplicate of the App Lifecycle manifest contract.",
@@ -130,7 +147,7 @@
     "PASS: Implementation and documentation are committed on the dedicated branch; state/acceptance update is committed and pushed with remote HEAD verified."
   ],
   "deferred": [
-    "Integration Owner registration and shared registry/state verification of UPD-01, using .dev/workstreams/update-installation/registration-proposal.json.",
+    "Integration Owner registration and shared registry/state verification of UPD-01, using .dev/workstreams/update-installation/registration-proposal.json. Until then, GitHub Nagi CI #36449432264 fails its existing branch-registration test on both Ubuntu and Windows; the implementation jobs pass their preceding build/lint/format steps.",
     "Integration Owner root workspace, lockfile reconciliation, and Ubuntu/Windows CI wiring, using .dev/workstreams/update-installation/integration-proposal.md.",
     "Runtime VFS/package-service adoption and any production installer UI remain outside UPD-01 and require the documented M30 and 0.2 checkpoint gate.",
     "Native Windows execution was unavailable on this macOS host; only the Windows target type check ran locally.",
