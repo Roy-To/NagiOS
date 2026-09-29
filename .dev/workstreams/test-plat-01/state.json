@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "test-plat-01",
   "current_milestone": "TEST-PLAT-01",
-  "current_checkpoint": "host-only-acceptance-verified",
+  "current_checkpoint": "host-only-acceptance-pushed-ci-running",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "04d65fd52d33f6704deb330707272a1c6233a972",
-    "verified_at": "2026-09-29T06:59:14Z",
-    "normal_state": "TEST-PLAT-01 is formally registered with owner, exact branch/worktree, allowed paths, and carve-outs. Integration Owner checkpoint 3fc25791ca8373121b5ddfab5944f434298f2165 is on origin/codex/integration-next-phase; the assigned branch contains its application as 7da99e559bf47f6ae7c618b2be67f8db0c8cf8da and is based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. Host-only implementation commit 04d65fd52d33f6704deb330707272a1c6233a972 adds deterministic fixtures and 10 acceptance tests. Offline acceptance, format, Clippy, registry/state verification, ownership audit, and host-escape scan passed. This is fake-based orchestration evidence only; M17 remains BLOCKED, M30 remains NOT STARTED, and runtime/target/product/shared-CI gates remain closed. The TEST-PLAT-01 branch push and remote-head check are the next actions.",
+    "commit_sha": "83b65ddeeb8001de366ef97a0c0a3b30b7f1f741",
+    "verified_at": "2026-09-29T07:04:40Z",
+    "normal_state": "TEST-PLAT-01 is registered and active for the isolated host-only foundation. The assigned branch codex/0.2-test-plat-01 is at 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741 and currently matches origin exactly; its worktree was clean after push. The root DF-01 verifier passed with 19 workstreams and 12 state files. Offline host acceptance is 10/10, format and Clippy passed, and path-ownership/host-escape audits passed. GitHub Actions run 36534477138 is in progress for this branch head. This remains fake-based orchestration evidence only; M17 is BLOCKED, M30 is NOT STARTED, and runtime/target/product/shared-CI integration gates remain closed.",
     "commands": [
       "git status --short --branch — PASS: baseline codex/integration-next-phase; unrelated dirty/untracked workstream files preserved and never staged.",
       "git rev-parse HEAD — PASS: approved base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9.",
@@ -27,7 +27,13 @@
       "Python registry ownership audit — PASS: five TEST-PLAT-01 implementation/state/spec paths are owned; no uncarved allowed-path overlap; IDs unique and development-foundation dependency registered.",
       "rg host-escape scan over crate and tests — PASS: no std::fs, TCP/UDP socket, wall-clock, sleep, or process adapter.",
       "git diff --cached --check — PASS for implementation commit; only assigned TEST-PLAT-01 paths and owner-approved state/proposal/spec paths were included.",
-      "No CI run queried yet: TEST-PLAT-01 branch has not been pushed; shared CI was not changed."
+      "No CI run queried yet: TEST-PLAT-01 branch has not been pushed; shared CI was not changed.",
+      "./nagi dev verify after TEST-PLAT-01 state checkpoint — PASS: 19 registered workstreams and 12 state files validated at 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741.",
+      "git push -u origin codex/0.2-test-plat-01 — PASS: created remote owned branch at 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741.",
+      "git rev-parse HEAD && git ls-remote --heads origin refs/heads/codex/0.2-test-plat-01 — PASS: local and remote HEAD both 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741.",
+      "git status --short --branch && git diff --check — PASS: owned worktree clean and tracking origin/codex/0.2-test-plat-01.",
+      "gh run list --branch codex/0.2-test-plat-01 --limit 10 --json databaseId,headSha,status,conclusion,name,url,createdAt — IN_PROGRESS: run 36534477138, head 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741.",
+      "CI run-list output is recorded as in progress only; wait for run 36534477138 and update this state with its actual conclusion."
     ],
     "tests": [
       {
@@ -123,17 +129,26 @@
       },
       {
         "name": "TEST-PLAT-01 CI",
-        "command": "No CI workflow invocation; inspect branch runs after the assigned branch is pushed.",
-        "outcome": "NOT_RUN",
+        "command": "gh run list --branch codex/0.2-test-plat-01 --limit 10 --json databaseId,headSha,status,conclusion,name,url,createdAt",
+        "outcome": "IN_PROGRESS",
         "exit_code": null,
-        "evidence": "Shared CI/workflow changes are outside the assigned scope; branch push and post-push run-list inspection are still pending."
+        "evidence": "GitHub Actions Nagi CI run 36534477138 is in_progress for head 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741; https://github.com/RT-NISH/NagiOS/actions/runs/36534477138. No conclusion is claimed."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 36534477138,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36534477138",
+        "head_sha": "83b65ddeeb8001de366ef97a0c0a3b30b7f1f741",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Nagi CI triggered by TEST-PLAT-01 branch push; result pending. This is shared repository CI and does not itself confer TEST-PLAT-01 product/target acceptance."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "Integration Owner registration in .dev/workstreams.json; TEST-PLAT-01 spec; docs/implementation_status.md",
-    "last_checked_at": "2026-09-29T06:59:14Z",
+    "last_checked_at": "2026-09-29T07:04:40Z",
     "activation_requirement": "Host-only deterministic harness implementation is active before M30 on codex/0.2-test-plat-01. Production/runtime services, target/QEMU, product-acceptance claims, and shared CI/workspace integration require M30 PASS plus a separate explicit Integration Owner checkpoint naming TEST-PLAT-01. M17 is BLOCKED and M30 is NOT STARTED."
   },
   "blocker": {
@@ -154,7 +169,7 @@
       "Do not use host files, sockets, processes, or wall-clock scheduling as if they were Nagi guest behavior."
     ]
   },
-  "next_action": "Commit this verified state checkpoint on codex/0.2-test-plat-01, push only that branch, then verify origin HEAD equality, worktree cleanliness, and post-push CI status before handing the host-only result to the Integration Owner for review.",
+  "next_action": "Wait for GitHub Actions run 36534477138 on head 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741 to finish; inspect any failure once, diagnose and fix only if it is in-scope, then update state and push the owner branch.",
   "acceptance_criteria": [
     "PASS — Deterministic virtual clock and explicit scheduler drain; no real sleeps.",
     "PASS — Bounded, path-confined in-memory filesystem and isolated temporary roots; interrupted writes preserve committed bytes, corrupt bytes are retained for diagnosis, and root teardown is verifiable.",
@@ -169,7 +184,7 @@
     "PASS — HarnessResult carries an explicit disclaimer that fake-based orchestration checks do not confer provider, target, product, or M30 acceptance.",
     "PASS — Implementation and tests are within assigned paths; exact owner-approved registry carve-outs prevent collisions; no M18 or unrelated state changes were made.",
     "PASS — State follows DF-01 schema and is included in the root validator; registration proposal reflects formal owner approval. The owner checkpoint is the only shared registry change; schema, CI, and workspace files were untouched by implementation.",
-    "PARTIAL — Focused tests/static checks and implementation commit are verified; dedicated branch push, remote equality, clean final worktree, and CI run-list status remain the next checkpoint."
+    "PARTIAL — Host acceptance/static checks, branch commit and push, remote equality, and clean worktree are verified. GitHub Actions run 36534477138 is still in progress; record its actual conclusion before final handoff."
   ],
   "deferred": [
     "Production service, runtime, target/QEMU, product-acceptance or M30 claims until M30 PASS and an explicit Integration Owner checkpoint.",
