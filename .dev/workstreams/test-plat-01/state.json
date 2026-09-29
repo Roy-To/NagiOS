@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "test-plat-01",
   "current_milestone": "TEST-PLAT-01",
-  "current_checkpoint": "host-only-acceptance-pushed-ci-running",
+  "current_checkpoint": "host-only-acceptance-and-ci-recorded",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "83b65ddeeb8001de366ef97a0c0a3b30b7f1f741",
-    "verified_at": "2026-09-29T07:04:40Z",
-    "normal_state": "TEST-PLAT-01 is registered and active for the isolated host-only foundation. The assigned branch codex/0.2-test-plat-01 is at 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741 and currently matches origin exactly; its worktree was clean after push. The root DF-01 verifier passed with 19 workstreams and 12 state files. Offline host acceptance is 10/10, format and Clippy passed, and path-ownership/host-escape audits passed. GitHub Actions run 36534477138 is in progress for this branch head. This remains fake-based orchestration evidence only; M17 is BLOCKED, M30 is NOT STARTED, and runtime/target/product/shared-CI integration gates remain closed.",
+    "commit_sha": "ccc6a4e4807774f2f32a56e5a879220384d20ea4",
+    "verified_at": "2026-09-29T07:13:13Z",
+    "normal_state": "TEST-PLAT-01 is formally registered and active for host-only implementation. The assigned branch was pushed at 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741 and matched origin; state-only CI checkpoint ccc6a4e4807774f2f32a56e5a879220384d20ea4 was then pushed and root-verified with 19 workstreams and 12 state files. At the 83b65dd CI head, Ubuntu and Windows host jobs passed. The shared workflow conclusion is cancelled because its automatic nagi-target job was stopped at Install pinned Mesa generators to honor the host-only gate; subsequent target builds and M17 first-web-pixel acceptance were skipped. No QEMU or target acceptance ran. Local offline harness acceptance remains 10/10, format and Clippy pass. M17 remains BLOCKED, M30 remains NOT STARTED, and runtime/target/product/shared-CI integration remains closed.",
     "commands": [
       "git status --short --branch — PASS: baseline codex/integration-next-phase; unrelated dirty/untracked workstream files preserved and never staged.",
       "git rev-parse HEAD — PASS: approved base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9.",
@@ -33,7 +33,13 @@
       "git rev-parse HEAD && git ls-remote --heads origin refs/heads/codex/0.2-test-plat-01 — PASS: local and remote HEAD both 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741.",
       "git status --short --branch && git diff --check — PASS: owned worktree clean and tracking origin/codex/0.2-test-plat-01.",
       "gh run list --branch codex/0.2-test-plat-01 --limit 10 --json databaseId,headSha,status,conclusion,name,url,createdAt — IN_PROGRESS: run 36534477138, head 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741.",
-      "CI run-list output is recorded as in progress only; wait for run 36534477138 and update this state with its actual conclusion."
+      "CI run-list output is recorded as in progress only; wait for run 36534477138 and update this state with its actual conclusion.",
+      "gh api -X POST repos/RT-NISH/NagiOS/actions/jobs/109297236284/cancel — FAIL, HTTP 404: GitHub exposes no job-specific cancel endpoint for this run.",
+      "gh run cancel 36534477138 — PASS: submitted workflow-level cancel request after observing the automatic nagi-target job at setup; the request was required to enforce the explicit no-target gate.",
+      "gh run view 36534477138 --json status,conclusion,updatedAt,jobs — PASS: completed conclusion cancelled. ubuntu-host and windows-launcher jobs completed success; nagi-target stopped at Install pinned Mesa generators, with Servo bootstrap, Nagi Mesa, package, kernel, loader, and M17 first-web-pixel steps skipped.",
+      "gh run watch 36534477138 --interval 10 --exit-status — exit 1 as expected for the cancelled workflow; output confirms both host jobs succeeded and the target job was cancelled before build/acceptance.",
+      "No QEMU invocation, target build, or M17 acceptance was run by TEST-PLAT-01; the automated target job performed dependency/toolchain preparation only before cancellation.",
+      "Current state records CI conclusion cancelled and explicitly separates successful shared host jobs from skipped target/M17 acceptance; no CI job is represented as TEST-PLAT-01 product acceptance."
     ],
     "tests": [
       {
@@ -129,10 +135,24 @@
       },
       {
         "name": "TEST-PLAT-01 CI",
-        "command": "gh run list --branch codex/0.2-test-plat-01 --limit 10 --json databaseId,headSha,status,conclusion,name,url,createdAt",
-        "outcome": "IN_PROGRESS",
+        "command": "No dedicated TEST-PLAT-01 step exists in shared CI; inspect run 36534477138 for repository host jobs and gated target steps.",
+        "outcome": "NOT_RUN",
         "exit_code": null,
-        "evidence": "GitHub Actions Nagi CI run 36534477138 is in_progress for head 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741; https://github.com/RT-NISH/NagiOS/actions/runs/36534477138. No conclusion is claimed."
+        "evidence": "The standalone harness was verified locally offline. Shared workflow run 36534477138 ended cancelled; Ubuntu and Windows host jobs passed, while target/M17 build and acceptance steps were skipped to honor the host-only gate."
+      },
+      {
+        "name": "Shared repository CI host jobs",
+        "command": "gh run view 36534477138 --json status,conclusion,jobs",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "ubuntu-host completed success (format, regression tests, lint, host build/test, M0 host acceptance, state verifier); windows-launcher completed success (host build/test, launcher checks, M0 launcher acceptance, state verifier). Workflow overall was cancelled because the target job is outside this workstream gate."
+      },
+      {
+        "name": "Shared target/M17 CI job",
+        "command": "gh run view 36534477138 --json status,conclusion,jobs",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "nagi-target completed cancelled at Install pinned Mesa generators after target dependency/toolchain and patched Rust std preparation. Servo bootstrap, Mesa build, package/kernel/loader builds, and M17 first-web-pixel acceptance were skipped. No QEMU or target acceptance result is claimed."
       }
     ],
     "ci_runs": [
@@ -140,15 +160,15 @@
         "run_id": 36534477138,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36534477138",
         "head_sha": "83b65ddeeb8001de366ef97a0c0a3b30b7f1f741",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Nagi CI triggered by TEST-PLAT-01 branch push; result pending. This is shared repository CI and does not itself confer TEST-PLAT-01 product/target acceptance."
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Ubuntu and Windows host jobs succeeded. Automated nagi-target job was cancelled at Mesa generator installation under the explicit host-only scope gate; target builds and M17 first-web-pixel acceptance were skipped."
       }
     ]
   },
   "release_line_gate": {
     "source": "Integration Owner registration in .dev/workstreams.json; TEST-PLAT-01 spec; docs/implementation_status.md",
-    "last_checked_at": "2026-09-29T07:04:40Z",
+    "last_checked_at": "2026-09-29T07:13:13Z",
     "activation_requirement": "Host-only deterministic harness implementation is active before M30 on codex/0.2-test-plat-01. Production/runtime services, target/QEMU, product-acceptance claims, and shared CI/workspace integration require M30 PASS plus a separate explicit Integration Owner checkpoint naming TEST-PLAT-01. M17 is BLOCKED and M30 is NOT STARTED."
   },
   "blocker": {
@@ -160,7 +180,8 @@
     "attempted_fixes": [
       "Resolved preparation-state validator rejection by setting blocker.class to UNKNOWN while it was active; the registration owner checkpoint later closed that assignment blocker.",
       "Resolved host link failure by selecting the repo-pinned native ARM Rustup toolchain through PATH; made no dependency or shared build configuration changes.",
-      "Resolved partial-start cleanup reporting by retaining primary and cleanup errors separately and marking cleanup incomplete; reran the acceptance suite successfully."
+      "Resolved partial-start cleanup reporting by retaining primary and cleanup errors separately and marking cleanup incomplete; reran the acceptance suite successfully.",
+      "The automatic shared workflow started nagi-target on branch push. GitHub job-level cancel API returned 404, so the workflow-level run was cancelled; both host jobs passed and target build/M17 acceptance steps were skipped before execution."
     ],
     "do_not_try": [
       "Do not modify .dev/workstreams.json or .dev/schemas/** from the TEST-PLAT-01 branch; the shared registry is Integration Owner-owned and the current schema already supports this state.",
@@ -169,7 +190,7 @@
       "Do not use host files, sockets, processes, or wall-clock scheduling as if they were Nagi guest behavior."
     ]
   },
-  "next_action": "Wait for GitHub Actions run 36534477138 on head 83b65ddeeb8001de366ef97a0c0a3b30b7f1f741 to finish; inspect any failure once, diagnose and fix only if it is in-scope, then update state and push the owner branch.",
+  "next_action": "Integration Owner: review the pushed host-only foundation and confirm how future TEST-PLAT-01 branch pushes should handle the existing automatic nagi-target job. Keep runtime, target/QEMU, product acceptance, and shared CI/workspace changes gated until M30 PASS plus a separate explicit checkpoint.",
   "acceptance_criteria": [
     "PASS — Deterministic virtual clock and explicit scheduler drain; no real sleeps.",
     "PASS — Bounded, path-confined in-memory filesystem and isolated temporary roots; interrupted writes preserve committed bytes, corrupt bytes are retained for diagnosis, and root teardown is verifiable.",
@@ -184,11 +205,12 @@
     "PASS — HarnessResult carries an explicit disclaimer that fake-based orchestration checks do not confer provider, target, product, or M30 acceptance.",
     "PASS — Implementation and tests are within assigned paths; exact owner-approved registry carve-outs prevent collisions; no M18 or unrelated state changes were made.",
     "PASS — State follows DF-01 schema and is included in the root validator; registration proposal reflects formal owner approval. The owner checkpoint is the only shared registry change; schema, CI, and workspace files were untouched by implementation.",
-    "PARTIAL — Host acceptance/static checks, branch commit and push, remote equality, and clean worktree are verified. GitHub Actions run 36534477138 is still in progress; record its actual conclusion before final handoff."
+    "PASS — Local host acceptance/static checks, owned-branch commits and pushes, remote equality, clean worktree, root verifier, and actual CI status are recorded. Shared host jobs passed; the target job was cancelled before builds/acceptance under the host-only gate."
   ],
   "deferred": [
     "Production service, runtime, target/QEMU, product-acceptance or M30 claims until M30 PASS and an explicit Integration Owner checkpoint.",
-    "Shared CI/workspace wiring; provide a focused proposal to ci-acceptance only if the host-only command needs workflow integration."
+    "Shared CI/workspace wiring; provide a focused proposal to ci-acceptance only if the host-only command needs workflow integration.",
+    "Existing shared CI automatically schedules nagi-target on eligible branch pushes. TEST-PLAT-01 did not change shared workflows; the Integration Owner should decide the future push handling or separately assign any CI-owned filter proposal."
   ],
   "cross_workstream_dependencies": [
     {
