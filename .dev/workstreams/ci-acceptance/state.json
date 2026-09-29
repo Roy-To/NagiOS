@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "ci-acceptance",
   "current_milestone": "CI / Acceptance Infrastructure",
-  "current_checkpoint": "root-host-gates-pass-m17-target-running",
+  "current_checkpoint": "host-only-target-gate-verified-on-integration-branch",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "3d2001c58f64cd5a3f63751224c2fb21ee325e40",
-    "verified_at": "2026-09-26T09:49:10Z",
-    "normal_state": "The Windows nested launcher test is now verified. Root CI #36233551349 passed Ubuntu and Windows host jobs; its Windows acceptance artifact records M0-LAUNCHER PASS (exit 0, 14,642 ms), with 20 target cases accurately marked NOT RUN. The PowerShell acceptance uses an isolated temporary CARGO_TARGET_DIR to avoid replacing the executable that is running the test. The target job is still executing the real M17 first-web-pixel acceptance, so the whole workstream remains PARTIAL and M17 remains BLOCKED until actual pixel evidence and marker appear.",
+    "commit_sha": "c1bf6c597326101dcb7bf933b3a8e92dcc909897",
+    "verified_at": "2026-09-29T07:59:28Z",
+    "normal_state": "User-directed CI_INFRA routing change is verified on codex/integration-next-phase at c1bf6c597326101dcb7bf933b3a8e92dcc909897. GitHub run 36538907564 completed successfully: classifier and both host jobs passed, nagi-target skipped on this workflow/docs-only push. The M17 steps are preserved and explicit run_target=true dispatch plus target-sensitive paths remain configured. M17 remains BLOCKED; no target or product Acceptance ran.",
     "commands": [
       "cargo test -p nagi-cli --locked --offline",
       "cargo fmt --all -- --check",
@@ -41,7 +41,12 @@
       "cargo clippy -p nagi-cli --all-targets --locked --offline --config 'build.target=\"x86_64-apple-darwin\"' -- -D warnings",
       "./nagi dev status",
       "gh run view 36233551349 --json status,conclusion,jobs,url",
-      "gh run download 36233551349 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362335-windows"
+      "gh run download 36233551349 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362335-windows",
+      "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")' — PASS: workflow YAML parsed.",
+      "Ruby workflow routing config check — PASS: target-sensitive path set, TEST-PLAT-01 harness exclusion, workflow_dispatch run_target input, and nagi-target condition verified.",
+      "Python structural comparison of pre/post nagi-target job — PASS: all target build and M17 acceptance steps unchanged; only job needs/condition changed.",
+      "gh run view 36538907564 --json status,conclusion,jobs,url — PASS: both host jobs and classifier succeeded; nagi-target skipped.",
+      "./nagi dev verify — PASS in local owner worktree and Ubuntu host job at the verified commit."
     ],
     "tests": [
       {
@@ -176,6 +181,27 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The integration status displayed in-progress run 36233551349 followed by failed run 36232966992, rather than older historical entries."
+      },
+      {
+        "name": "Host-only change routing on Integration Owner branch",
+        "command": "gh run view 36538907564 --json status,conclusion,jobs,url",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Run completed successfully on c1bf6c597326101dcb7bf933b3a8e92dcc909897. target_classification, ubuntu-host, and windows-launcher succeeded; nagi-target completed with conclusion skipped."
+      },
+      {
+        "name": "Target-sensitive and explicit dispatch routes retained",
+        "command": "Ruby workflow routing config check for .github/workflows/ci.yml",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Target-sensitive path list includes target build inputs, excludes the TEST-PLAT-01 harness paths, and the nagi-target condition accepts target_sensitive=true or workflow_dispatch inputs.run_target=true. The actual M17 target job body and acceptance invocation are unchanged."
+      },
+      {
+        "name": "GitHub Actions host-only routing run",
+        "command": "gh run view 36538907564 --json status,conclusion,jobs,url",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "GitHub parsed and executed the updated workflow; Ubuntu and Windows jobs passed and nagi-target was skipped. This is routing evidence only, not M17 acceptance."
       }
     ],
     "ci_runs": [
@@ -218,13 +244,21 @@
         "status": "IN_PROGRESS",
         "conclusion": null,
         "summary": "Ubuntu and Windows host gates passed; Windows M0-LAUNCHER passed in the retained artifact. The M17 target job is running, so overall CI remains IN_PROGRESS."
+      },
+      {
+        "run_id": 36538907564,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36538907564",
+        "head_sha": "c1bf6c597326101dcb7bf933b3a8e92dcc909897",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Host-only CI separation check: target_classification, ubuntu-host, and windows-launcher succeeded; nagi-target was skipped. No M17 acceptance ran and no M17 PASS is inferred."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md section 75 and docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T09:49:10Z",
-    "activation_requirement": "This change centralizes existing acceptance wrappers and diagnostics only. It does not redesign or weaken milestone success criteria; product/runtime activation remains behind the existing Nagi 0.1 sequence and M30 release boundary."
+    "last_checked_at": "2026-09-29T07:59:28Z",
+    "activation_requirement": "This user-authorized CI_INFRA change classifies target-sensitive changes and explicit target dispatch only. It preserves the existing M17 build and first-web-pixel success criteria; target/product/runtime activation still follows the Nagi 0.1 sequence and M30 release boundary."
   },
   "blocker": {
     "active": false,
@@ -240,7 +274,7 @@
       "Do not merge this integration branch directly to main."
     ]
   },
-  "next_action": "Inspect target run 36233551349 and its M17 diagnostic artifacts. Keep CI acceptance PARTIAL and M17 BLOCKED until the real guest pixel checksum and marker are produced.",
+  "next_action": "Keep CI / Acceptance PARTIAL and M17 BLOCKED until an actual target run produces its real pixel checksum and guest acceptance marker. Target CI may run for the documented target-sensitive paths or explicit workflow_dispatch run_target=true; a skipped target job is not an M17 result.",
   "acceptance_criteria": [
     "A single registry maps acceptance IDs to milestone, subsystem, host/target scope, wrapper, timeout, and test name.",
     "Runner options filter by milestone/subsystem/scope and report all other cases as NOT RUN.",
