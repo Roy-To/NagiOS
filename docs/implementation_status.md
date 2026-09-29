@@ -1,8 +1,8 @@
 # 1. Current status
 
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
-**Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21 `PARTIAL`, M22
-`BLOCKED`, M23–M30 `PARTIAL`.
+**Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
+M23–M30 `PARTIAL`.
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
 download/upload destinations, clipboard, IME text/composition events, and
@@ -45,25 +45,28 @@ its injected visibility filter plus executor policy checks. Sixteen host tests,
 warnings-denied Clippy, formatting, and Nagi user-target compilation pass. M21
 remains `PARTIAL`: the M19 guest fixture now proves `file.search` through the
 real target Validator/Executor and SearchService, including foreign fixture
-caller denial. App launch, file copy/move, and volume handlers are absent; a
-production AI service, authenticated target policy, and production guest
-acceptance remain.
+caller denial. The M22 guest fixture also executes a bounded `file.move` plan
+through ContextResolver, Validator, the Action Registry, capability/object
+checks, and Executor for three actual VFS files. App launch, general file
+copy/move, and volume handlers are absent; a production AI service,
+authenticated target policy, and production guest acceptance remain.
 **M22 evidence:** The existing M15 History Service now has a versioned `NH16`
 recoverable archive contract, full-width logical caller context, grouped move
 transactions, prepared/committed states, reverse-order composite undo, and
-restart recovery of pending undo metadata. A two-slot guest VFS archive and
-`./nagi m22` QEMU fixture verified three-file moves, restart-restorable undo,
-and original contents after restart; nine History tests, warnings-denied
-Clippy, formatting, CLI tests (114 unit + 18 integration), and Nagi target
-compile pass. Its QEMU regression was rerun on 2026-09-30 after preserving the
-pre-sweep disk and logs; the three-boot NH16 restore/undo acceptance passed
-again with the M19/M21 guest Search path active on every boot.
-`NH15` remains the M15 compatibility serializer. M22 is still
-`BLOCKED` at the formal AI acceptance because M21 has no authenticated
-production move action, no trusted guest caller/policy adapter, and no
-production Activity Ledger linkage. The separate M15 regression reached M14
-playback but the host QEMU CoreAudio backend had no capture driver, so its
-History path did not run.
+restart recovery of pending undo metadata. The initial three-file guest VFS
+mutation now runs as one M21 `file.move` action: the bounded plan is parsed,
+its fixture context and `files.move` capability/object checks pass, the
+Executor persists NH16 Prepared before mutation, and Committed is reopened and
+verified from guest VFS. A fresh-disk `./nagi m22` run on 2026-09-30 passed the
+action on boot 1, reverse-order composite Undo on boot 2, and restored files
+plus Undone state after restart on boot 3. Nine History tests, warnings-denied
+target Clippy for `nagi-init`, formatting, CLI tests (114 unit + 18
+integration), and Nagi target compilation pass. `NH15` remains the M15
+compatibility serializer. M22 is `PARTIAL`: the executed plan is deterministic
+acceptance input using a private fixture-only policy, not real AI inference or
+authenticated production authority, and there is no production Activity Ledger
+bridge. The separate M15 regression reached M14 playback but the host QEMU
+CoreAudio backend had no capture driver, so its History path did not run.
 **M23 evidence:** Added a bounded public Browser Context API boundary,
 authorized logical app/object/workspace context, and explicit untrusted-page
 provider input. Twenty-three `nagi-ai` tests, warnings-denied Clippy,
@@ -103,9 +106,15 @@ Recovery Environment, and broken-slot QEMU rollback remain. See
 namespace, validates the live file/ObjectId marker, accepts a previous-boot
 marker from either initial or restart logs, and archives generated images,
 OVMF variables, logs, and disk snapshots between repetitions. After preserving
-the existing acceptance outputs and disks, one real `NAGI_M28_REPEAT_COUNT=1`
-run passed the current M19 guest gate and M22 three-boot NH16 restore/undo
-gate. Shell syntax, self-test, and dry-run checks pass. M28 remains `PARTIAL`:
+the existing outputs and disks, a fresh-disk M22 run separately passed the
+M21 `file.move` action, NH16 commit, three-file Undo, and restart verification.
+One real `NAGI_M28_REPEAT_COUNT=1` run then passed the current M19 guest gate
+and M22 three-boot NH16 restore/undo gate with the updated init and CLI. Its
+final logs remain in `out/logs/m19-vfs-objectid-initial.log` and
+`out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`; fresh-disk
+M22 action logs and disk snapshot are in
+`out/evidence/pre-m28-m21-file-move-20260930/`. Shell syntax, self-test, and
+dry-run checks pass. M28 remains `PARTIAL`:
 the combined Desktop/Files/Notes/Albert, Granite, audio, Semantic Search, OOM,
 fairness, and leak workload has not been measured. QEMU reported that no host
 virtio-sound input driver is available; these Search/History gates did not
@@ -160,17 +169,23 @@ checkpoint and await its new run.
 `/Users/tozawa/.codex/worktrees/m19-m22-continuation/NagiOS`. On 2026-09-30,
 `./nagi m19` passed on a fresh isolated disk through bootstrap, initial, and
 restart boots, indexing a real VFS file and verifying its fixture ObjectId
-after rename and restart. `./nagi m22` passed the three-boot NH16 undo
-acceptance, and one current-path M28 Search/History repetition passed. The
-original M19/M22 disks and logs were preserved before reruns under
-`out/evidence/`. M19 production IPC/capability, live Files/page producer
-integration, and M22 authenticated AI mutation/Activity Ledger integration
+after rename and restart. A fresh-disk `./nagi m22` run passed M21 guest
+`file.move` Plan/Validate/Execute on boot 1, verified the persisted three-file
+NH16 Committed transaction, applied composite Undo on boot 2, and verified
+restored files plus Undone state on boot 3. One updated M28 Search/History
+repetition passed afterward. The fresh M22 action logs and disk snapshot are
+preserved under `out/evidence/pre-m28-m21-file-move-20260930/`; the M28
+final serial logs remain in `out/logs/`. M19 production
+IPC/capability, live Files/page producer integration, real AI inference,
+authenticated M21/M22 authority, and production Activity Ledger integration
 remain open.
 Focused `cargo test --locked --offline -p nagi-cli -p nagi-search -p nagi-ai
 -p nagi-history --all-targets` passed 187 tests total (114 CLI unit, 18 CLI
 integration, 23 Search, 23 AI, and 9 History). The M19 Nagi-target check,
 package-only target Clippy, formatting,
-M28 shell syntax, self-test, dry-run, and one-repetition run passed. Full target
+M28 shell syntax, self-test, dry-run, and one-repetition run passed. The M22
+`nagi-init` Nagi-target check and target package Clippy with warnings denied
+also passed, as did the subsequent 114 CLI unit and 18 integration tests. Full target
 Clippy also reports a pre-existing `clippy::not_unsafe_ptr_arg_deref` error
 in `user/nagi-posix/src/lib.rs:572`; the affected POSIX code was not changed.
 `./nagi m18` build/acceptance path, a guest runner that records normal TLS
@@ -2208,14 +2223,14 @@ Use only these statuses:
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Twenty-three Search tests, warnings-denied Clippy, format, Nagi target compile, and QEMU persistence/rename acceptance pass. Guest now also executes bounded M21 `file.search` through ContextResolver, Validator, Action Registry, and Executor against this SearchService; its caller policy is fixture-only. Real Files/page producer synchronization and authenticated production IPC remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
 | M20 | AI Runtime / Granite | PARTIAL | The model manager hashes artifact bytes through an 8 KiB buffer before backend load; IBM Granite Q4_K_M metadata and pinned llama.cpp source are recorded. `./nagi fetch`, 40 model-manager unit tests, 2 manifest/schema tests, 1 Store API test, 114 CLI unit tests, 18 CLI integration tests, formatting, warnings-denied Clippy, and `no_std` target compile pass. Nagi-target CMake configuration passed, but target `llama` compile fails at upstream `gguf.cpp` exception syntax under Nagi's no-unwinder ABI. No target backend/service, guest large-artifact store, or real Granite inference exists. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
-| M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; the bounded `file.search` action runs through guest Validator/Executor against the real M19 VFS-backed SearchService and denies a foreign fixture caller. Twenty-three host tests, formatting, warnings-denied target Clippy, Nagi target compile, and QEMU fixture acceptance pass. The policy is not an authenticated production provider. App launch, file copy/move, volume handlers, production service registration, and authenticated guest acceptance remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
-| M22 | AI Safety / Undo Integration | BLOCKED | NH16 grouped transactions persist through a two-slot guest VFS archive. `./nagi m22` verified three-file move/commit, restart-restorable composite undo, and original contents across QEMU boots; regression passed again with guest M19/M21 Search active on each boot. The QEMU path remains a private fixture, not an authenticated M21 mutation or production Activity Ledger linkage. Production move handler, authenticated target policy, and AI-to-History transaction integration remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
+| M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; bounded `file.search` and M22 fixture-scoped `file.move` actions run through guest ContextResolver, Validator, Action Registry, capability/object checks, and Executor against real VFS state. The three-file move persists NH16 Prepared/Committed and is undone after restart. Twenty-three host tests, formatting, warnings-denied target Clippy, Nagi target compile, and QEMU acceptance pass. These policies are not authenticated production providers; real AI service registration, general first-party actions, and authenticated guest acceptance remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
+| M22 | AI Safety / Undo Integration | PARTIAL | A fresh-disk `./nagi m22` run passed an M21 guest `file.move` plan on boot 1, reopened and verified its three-object NH16 Committed transaction, undid all three moves on boot 2, and verified restored files plus Undone state on boot 3. Nagi target compile, warnings-denied package Clippy, CLI tests (114 unit + 18 integration), and QEMU acceptance pass. The deterministic plan/policy is private fixture input, not real AI inference or authenticated production authority; the separate production Activity Ledger bridge remains. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-three `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
 | M24 | Embedding / Semantic AI | PARTIAL | Added bounded multilingual UTF-8 chunking, embedding/provider and vector-index contracts, and visibility-filtered `SearchService` semantic indexing/query orchestration. Twenty-three `nagi-search` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. A real embedding model, durable vector index, producer synchronization, hybrid ranking/explanations, and natural-language QEMU acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator with explicit permission/indicator ordering, PCM framing limits, provider unavailability cleanup, and a target AudioService adapter. Eight `nagi-audio` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and real guest voice acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
 | M27 | A/B / Recovery | PARTIAL | Added a bounded A/B boot state machine and checksummed two-copy journal; ten host tests, warnings-denied Clippy, formatting, and the UEFI release build pass. Firmware-backed persistence, matched A/B image slots, readiness integration, Recovery Environment, and broken-slot QEMU rollback acceptance remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
-| M28 | Integration / Stress | PARTIAL | After preserving pre-existing outputs and disks, the updated M28 harness passed another real M19/M22 repetition with the guest M21 `file.search` plan/validate/execute path active on each boot; the M22 gate completed three QEMU boots. Shell syntax, self-test, and collision-free dry-run passed. The combined reference workload, audio pressure, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
+| M28 | Integration / Stress | PARTIAL | After preserving pre-existing outputs and disks, the updated M28 harness passed another real M19/M22 repetition with the M19 guest `file.search` path and M22 three-boot NH16 gate. A separate fresh-disk M22 run passed the M21 fixture `file.move` action and grouped Undo. Shell syntax, self-test, dry-run, and one-repetition regression passed. The combined reference workload, audio pressure, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Added cross-linked setup, SDK, contribution, and roadmap documentation; 47 local documentation links resolve and `./nagi --help` was verified with the pinned rustup toolchain. No Nagi screenshots or boot-time measurement; first-run, Settings, complete localization/accessibility, user-facing provider/recovery UX, and binary license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
 | M30 | Nagi OS 0.1 Release | PARTIAL | Added deterministic release preflight/assembly/verify with x86-64 kernel, pinned source, qcow2 size/format, docs, and checksum gates; 8 tests pass. No integrated 64 GiB qcow2 exists—the current M1/M18 images are raw FAT and data disks are separate. Guest boot, M18–M29 completion, and binary notice/license review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md`. |
 
@@ -2279,23 +2294,31 @@ the action through plan validation and execution and excludes another app's
 private file. Its in-memory snapshot backend and visibility implementation are
 test fixtures; this is not guest filesystem acceptance.
 
-The guest init path still does not register the action. `app.launch`,
-`file.copy`, `file.move`, and `system.volume.set` have no production handlers,
-and the authenticated target Capability/Permission and Context authorities
-are absent. No QEMU planner acceptance was run. M21 remains `PARTIAL` until
-these handlers are connected to their real services and trusted guest policy.
+The guest init acceptance paths now compose `file.search` with the M19 Search
+Service and a bounded M22 `file.move` action with three real guest VFS objects.
+The latter plan passes through ContextResolver, Validator, the Action Registry,
+fixture capability/object checks, and Executor before persisting NH16 around
+the actual mutation. This is deterministic acceptance input and a fixture
+policy, not real model inference or authenticated caller authority. General
+`app.launch`, `file.copy`, `file.move`, and `system.volume.set` production
+handlers, along with the authenticated target Capability/Permission and
+Context authorities, are absent. M21 remains `PARTIAL` until these actions are
+connected to their real services and trusted guest policy.
 
 See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md` for
 the exact evidence and remaining integration requirements.
 
-# M22 - AI Safety / Undo Integration (`BLOCKED`)
+# M22 - AI Safety / Undo Integration (`PARTIAL`)
 
 M22 acceptance requires an authorized M21 file-move action to record one
 transaction containing all three moves, preserve caller/app/session/Node/
 workspace/Object context in the existing Activity Ledger, and restore all
 three files after `undo`, including after a restart. The current M21 branch
 has no production Action Registry handlers or authenticated target policy
-adapter, so a guest AI mutation cannot be performed safely.
+adapter, so the formal production guest AI mutation cannot be performed
+safely. A private M22 fixture now exercises the same bounded M21 Executor
+contract against three fixed guest VFS files without claiming production
+authority.
 
 The existing `user/nagi-history` `HistoryService` retains the M15
 Create/Edit/Move/Delete/Restore API and its legacy `undo_last` behavior. The
@@ -2316,7 +2339,7 @@ of an interrupted reverse batch.
 
 Focused verification on the pinned aarch64 macOS toolchain:
 
-- `cargo test --locked --offline -p nagi-history` — PASS, 7 tests including
+- `cargo test --locked --offline -p nagi-history` — PASS, 9 tests including
   grouped three-move ordering, full-width context, wrong-caller denial,
   pending-undo restart recovery, corrupt/versioned archive rejection, and
   all-or-nothing group validation.
@@ -2327,21 +2350,30 @@ Focused verification on the pinned aarch64 macOS toolchain:
   --target targets/x86_64-unknown-nagi-user.json` — PASS.
 - `cargo -Z build-std=core,alloc check --locked --offline -p nagi-init
   --features m22-history --target targets/x86_64-unknown-nagi-user.json` — PASS.
+- Target `cargo clippy --no-deps -Z build-std=core,alloc --locked --offline
+  -p nagi-init --features m22-history --target
+  targets/x86_64-unknown-nagi-user.json -- -D warnings` — PASS for the touched
+  package. Existing dependency warnings remain outside `nagi-init`.
 - `cargo test --locked --offline -p nagi-cli` — PASS, 114 unit and 18
   integration tests.
+- Fresh-disk `./nagi m22` — PASS: boot 1 ran M21 `file.move` Plan/Validate/
+  Execute and verified the reopened Committed NH16 group and destination
+  files; boot 2 persisted grouped Undo; boot 3 verified the original files
+  and Undone state. Evidence is preserved in
+  `out/evidence/pre-m28-m21-file-move-20260930/logs/`.
 - `./nagi m22` — PASS: durable NH16 grouped-move and undo fixture verified
   across QEMU boots on the same persistent guest disk. An initial boot exposed
   that M7's root lookup buffer assumed at most eight files; it is now bounded
   by the VFS's 64-inode capacity. Logs: `out/logs/m22-history-boot-1.log`,
   `out/logs/m22-history-boot-2.log`, and `out/logs/m22-history-boot-3.log`.
 
-M22 remains `BLOCKED` for its production AI acceptance. The private QEMU
-fixture proves guest VFS durability and restart-restorable undo, but it does
-not pass through a real M21 Executor action, authenticated target policy, or
-the production Activity Ledger. The remaining gate must route three moves
-through the validated Executor, verify the caller-scoped ledger transaction,
-undo through the same authority boundary, reboot, and verify both files and
-ledger.
+M22 remains `PARTIAL` for its production AI acceptance. The private QEMU
+fixture now passes through a real M21 Executor action and proves guest VFS
+durability plus restart-restorable grouped Undo. It does not use real AI
+inference, authenticated target policy, or a production Activity Ledger. The
+remaining gate must bind the action to authenticated caller capabilities,
+record/verify the caller-scoped production Activity Ledger transaction, undo
+through that same authority boundary, reboot, and verify both files and ledger.
 
 The local M15 QEMU regression did not reach its History flow. A separate
 empty-`PT_TLS` loader defect was corrected and all 15 standalone ELF parser

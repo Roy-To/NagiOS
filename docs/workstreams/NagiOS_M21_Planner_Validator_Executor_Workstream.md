@@ -33,8 +33,19 @@
   foreign fixture caller is denied. This policy remains local to the
   acceptance fixture; kernel Channels are not exposed to user processes, so
   there is still no authenticated production caller provider.
-- No production guest init service currently constructs this registry. App
-  launch, file copy/move, and volume handlers remain absent; the production
+- The M22 QEMU fixture now registers a fixture-scoped `file.move` Action. One
+  bounded plan names three stable Object IDs and three fixed destination
+  basenames. ContextResolver supplies only those fixture objects; Validator
+  checks the registered Modify action, `files.move` capability, objects, and
+  bounded parameters; Executor acquires the private fixture grant and trusted
+  fixture handles before invoking the handler. The handler writes NH16
+  Prepared before the three real guest VFS renames and writes Committed after
+  flush. A fresh-disk guest run verifies the committed archive after remount,
+  then the next boot undoes the three moves through History. This is
+  deterministic acceptance input, not model inference, and the caller/policy
+  is private to this fixture rather than authenticated production authority.
+- No production guest init service currently constructs this registry. General
+  app launch, file copy/move, and volume handlers remain absent; the production
   target policy and Context authorities are not connected.
 
 ## Verification
@@ -99,10 +110,11 @@ capability provider; no local model inference was involved.
 1. Expose user-space Channel endpoints and bind `ActionPolicy` and
    `ContextAuthority` to authenticated guest caller capabilities and object
    handles. The library intentionally has no allow-all production provider.
-2. Register `file.search` in the running production AI service with that
-   authenticated provider. Add real `app.launch`, `file.copy`, `file.move`,
-   and `system.volume.set` handlers against their existing first-party
-   services.
+2. Register `file.search` and general first-party actions in the running
+   production AI service with that authenticated provider. The bounded M22
+   fixture `file.move` action is not a production service handler. Add real
+   `app.launch`, `file.copy`, `file.move`, and `system.volume.set` handlers
+   against their existing first-party services.
 3. Connect Context Resolver and Planner to the running Nagi AI/model service,
    including provider-unavailability fallback in the UI/service path.
 4. Add guest acceptance for malformed and unsupported plans, capability and

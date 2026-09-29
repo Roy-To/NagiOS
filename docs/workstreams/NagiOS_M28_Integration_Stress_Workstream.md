@@ -50,7 +50,8 @@ repeat-count bounds without QEMU.
   previous-boot snapshot, guest-search persistence, and M13 acceptance markers.
   Each M22 invocation completed its three QEMU boots and verified restored
   files and NH16 archive state. Repetition 1's images, vars, serial logs, and
-  post-run persistent disks are in `out/evidence/m28-repetition-1/`; repetition
+  post-run persistent disks are in
+  `out/evidence/m28-repetition-1-before-m21-file-move-20260930/`; repetition
   2's final logs remain under `out/logs/`.
 - QEMU emitted the existing warning that the host has no virtio-sound input
   driver. The M19/M22 repetitions do not exercise microphone input or measure
@@ -102,11 +103,31 @@ preserved under `out/evidence/pre-m28-m21-action-20260930/`. A real
 `NAGI_M28_REPEAT_COUNT=1 ... --run` passed: M19 executed the guest
 Plan/Validate/Action Registry/Executor path against the persistent Search
 Service, then M22 passed all three NH16 guest boots with that same M19/M21
-path active before its transaction-state checks. Current serial outputs are
+path active before its transaction-state checks. Those outputs were later
+preserved under `out/evidence/pre-m28-m21-file-move-20260930/` before the next
+run. The harness shell check, self-test, and collision-free dry-run also
+passed. M28 remains PARTIAL; that run did not exercise its desktop/model/audio
+reference workload.
+
+## M21 file.move / M22 transaction continuation — 2026-09-30
+
+The M22 initial three-file mutation now runs through the M21 guest
+Plan/Validate/Capability/Executor path and persists its NH16 Prepared and
+Committed states around real VFS renames. A fresh-disk `./nagi m22` run passed
+that action on boot 1, grouped reverse-order Undo on boot 2, and restored files
+plus Undone state on boot 3. The fresh action run's logs and pre-M28 disk
+snapshot are retained in
+`out/evidence/pre-m28-m21-file-move-20260930/`.
+
+After preserving the current M19/M22 images, vars, logs, and disk snapshots,
+the updated `NAGI_M28_REPEAT_COUNT=1 ... --run` passed both M19 Search and the
+three-boot M22 NH16 restart gate. Its final serial logs remain at
 `out/logs/m19-vfs-objectid-initial.log` and
-`out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`. The harness
-shell check, self-test, and collision-free dry-run also passed. M28 remains
-PARTIAL; the run did not exercise its desktop/model/audio reference workload.
+`out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`; its final
+images and OVMF vars are in `out/artifacts/`. QEMU again reported that no host
+virtio-sound input driver is available; this repetition does not exercise
+audio. M28 stays PARTIAL because Desktop/Files/Notes/Albert, Granite inference,
+audio pressure, OOM behavior, CPU fairness, and leak soak were not measured.
 
 ## Commands
 

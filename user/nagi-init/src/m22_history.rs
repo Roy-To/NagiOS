@@ -1,4 +1,11 @@
+use alloc::{string::String, vec, vec::Vec};
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_FILE_SIZE};
+use nagi_ai::{
+    execute_plan, validate_plan, ActionDescriptor, ActionHandler, ActionInvocation, ActionOutput,
+    ActionPolicy, ActionRegistry, CallerIdentity, ContextAuthority, ContextRequest,
+    ContextResolver, ExecutionStatus, HandlerError, NagiPlan, ObjectAccess, ParameterKind,
+    ParameterRule, PolicyDenied,
+};
 use nagi_history::guest::{
     ArchiveSlot, HistoryArchiveBackend, HistoryArchiveFileStore, HistoryArchiveStore,
     GUEST_ARCHIVE_FILE_BYTES, MAX_GUEST_ARCHIVE_BYTES,
@@ -7,6 +14,7 @@ use nagi_history::{
     ActivityContext, AppId, AppSessionId, HistoryError, HistoryService, MoveRecord, NodeId,
     ObjectId, SurfaceId, TransactionState, UndoOperation, WorkspaceId,
 };
+use nagi_model_manager::CapabilityId;
 
 type GuestVolume = Vfs<SyscallBlockDevice>;
 
@@ -18,11 +26,130 @@ const CALLER: ActivityContext = ActivityContext {
     workspace_id: Some(WorkspaceId(0x2204)),
 };
 
-const MOVES: [(ObjectId, &[u8], &[u8], &[u8]); 3] = [
+type M22MoveFixture = (ObjectId, &'static [u8], &'static [u8], &'static [u8]);
+
+const MOVES: [M22MoveFixture; 3] = [
     (ObjectId(0x2211), b"m22-a", b"m22-A", b"M22 fixture one"),
     (ObjectId(0x2212), b"m22-b", b"m22-B", b"M22 fixture two"),
     (ObjectId(0x2213), b"m22-c", b"m22-C", b"M22 fixture three"),
 ];
+
+const M22_MOVE_ACTION: &str = "file.move";
+const M22_MOVE_CAPABILITY: &str = "files.move";
+const DESTINATION_PARAMETERS: [&str; 3] = ["destination_a", "destination_b", "destination_c"];
+
+#[derive(Clone, Copy)]
+struct M22MoveGrant {
+    caller: CallerIdentity,
+    capability: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct M22FileHandle {
+    object_id: ObjectId,
+    source_name: &'static [u8],
+    destination_name: &'static [u8],
+    contents: &'static [u8],
+}
+
+/// Authority for the private M22 acceptance fixture only. Production caller
+/// identity and capabilities must come from the authenticated service
+/// boundary, which is not available to guest applications yet.
+#[derive(Clone, Copy)]
+struct M22FixturePolicy;
+
+impl M22FixturePolicy {
+    fn caller_is_fixture(caller: CallerIdentity) -> bool {
+        caller.app_id == CALLER.app_id
+            && caller.app_session_id == CALLER.app_session_id
+            && caller.node_id == CALLER.node_id
+            && caller.workspace_id == CALLER.workspace_id
+    }
+
+    fn file_handle(object_id: ObjectId) -> Option<M22FileHandle> {
+        MOVES
+            .iter()
+            .find(|(fixture_id, _, _, _)| *fixture_id == object_id)
+            .map(
+                |(object_id, source_name, destination_name, contents)| M22FileHandle {
+                    object_id: *object_id,
+                    source_name,
+                    destination_name,
+                    contents,
+                },
+            )
+    }
+}
+
+impl ContextAuthority for M22FixturePolicy {
+    fn can_read_object(&self, caller: CallerIdentity, object_id: ObjectId) -> bool {
+        Self::caller_is_fixture(caller) && Self::file_handle(object_id).is_some()
+    }
+
+    fn can_read_workspace(&self, caller: CallerIdentity, workspace_id: WorkspaceId) -> bool {
+        Self::caller_is_fixture(caller) && Some(workspace_id) == CALLER.workspace_id
+    }
+}
+
+impl ActionPolicy for M22FixturePolicy {
+    type CapabilityGrant = M22MoveGrant;
+    type ObjectHandle = M22FileHandle;
+
+    fn check_capability(
+        &self,
+        caller: CallerIdentity,
+        capability: &CapabilityId,
+    ) -> Result<(), PolicyDenied> {
+        if Self::caller_is_fixture(caller) && capability.as_str() == M22_MOVE_CAPABILITY {
+            Ok(())
+        } else {
+            Err(PolicyDenied::Capability)
+        }
+    }
+
+    fn check_object_access(
+        &self,
+        caller: CallerIdentity,
+        object_id: ObjectId,
+        access: ObjectAccess,
+    ) -> Result<(), PolicyDenied> {
+        if matches!(access, ObjectAccess::Read | ObjectAccess::Modify)
+            && Self::caller_is_fixture(caller)
+            && Self::file_handle(object_id).is_some()
+        {
+            Ok(())
+        } else {
+            Err(PolicyDenied::Object)
+        }
+    }
+
+    fn acquire_capability(
+        &self,
+        caller: CallerIdentity,
+        capability: &CapabilityId,
+    ) -> Result<Self::CapabilityGrant, PolicyDenied> {
+        self.check_capability(caller, capability)?;
+        Ok(M22MoveGrant {
+            caller,
+            capability: M22_MOVE_CAPABILITY,
+        })
+    }
+
+    fn resolve_object(
+        &self,
+        caller: CallerIdentity,
+        object_id: ObjectId,
+        access: ObjectAccess,
+    ) -> Result<Self::ObjectHandle, PolicyDenied> {
+        self.check_object_access(caller, object_id, access)?;
+        Self::file_handle(object_id).ok_or(PolicyDenied::Object)
+    }
+}
+
+struct M22MoveAction {
+    backend: HistoryArchiveBackend<M22Files>,
+    history: HistoryService,
+}
 
 struct M22Files {
     volume: GuestVolume,
@@ -77,9 +204,258 @@ impl HistoryArchiveFileStore for M22Files {
     }
 }
 
+impl ActionHandler<M22FixturePolicy> for M22MoveAction {
+    fn execute(
+        &mut self,
+        invocation: ActionInvocation<'_, M22FixturePolicy>,
+    ) -> Result<ActionOutput, HandlerError> {
+        let caller = invocation.caller();
+        if !M22FixturePolicy::caller_is_fixture(caller)
+            || invocation.action().action_id() != M22_MOVE_ACTION
+            || invocation.action().object_access() != ObjectAccess::Modify
+            || invocation.action().required_capabilities().len() != 1
+            || invocation.action().required_capabilities()[0].as_str() != M22_MOVE_CAPABILITY
+            || invocation.capability_grants().len() != 1
+            || invocation.capability_grants()[0].caller != caller
+            || invocation.capability_grants()[0].capability != M22_MOVE_CAPABILITY
+            || invocation.object_ids().len() != MOVES.len()
+            || invocation.object_handles().len() != MOVES.len()
+            || invocation.parameters().len() != DESTINATION_PARAMETERS.len()
+        {
+            return Err(HandlerError::Failed);
+        }
+
+        for (index, (object_id, source_name, destination_name, contents)) in
+            MOVES.iter().enumerate()
+        {
+            let Some(handle) = invocation.object_handles().get(index) else {
+                return Err(HandlerError::Failed);
+            };
+            let Some(parameter_name) = DESTINATION_PARAMETERS.get(index) else {
+                return Err(HandlerError::Failed);
+            };
+            let Some(requested_destination) = invocation
+                .parameters()
+                .get(*parameter_name)
+                .and_then(|value| value.as_str())
+            else {
+                return Err(HandlerError::Failed);
+            };
+            if invocation.object_ids()[index] != *object_id
+                || handle.object_id != *object_id
+                || handle.source_name != *source_name
+                || handle.destination_name != *destination_name
+                || handle.contents != *contents
+                || requested_destination.as_bytes() != handle.destination_name
+                || !valid_fixture_basename(requested_destination.as_bytes())
+            {
+                return Err(HandlerError::Failed);
+            }
+        }
+
+        {
+            let volume = &mut self.backend.file_store_mut().volume;
+            for handle in invocation.object_handles() {
+                if !named_file_matches(volume, handle.source_name, handle.contents)
+                    || !file_is_missing(volume, handle.destination_name)
+                {
+                    return Err(HandlerError::Failed);
+                }
+            }
+        }
+
+        let moves: [MoveRecord<'_>; 3] = core::array::from_fn(|index| {
+            let handle = invocation.object_handles()[index];
+            MoveRecord {
+                object_id: handle.object_id,
+                from_name: handle.source_name,
+                to_name: handle.destination_name,
+            }
+        });
+        let transaction_id = self
+            .history
+            .record_move_group(activity_context(caller), &moves)
+            .map_err(|_| HandlerError::Failed)?;
+        if !save_history(&mut self.backend, &self.history) {
+            return Err(HandlerError::Failed);
+        }
+
+        {
+            let volume = &mut self.backend.file_store_mut().volume;
+            for handle in invocation.object_handles() {
+                if !apply_idempotent_move(
+                    volume,
+                    handle.source_name,
+                    handle.destination_name,
+                    handle.contents,
+                ) {
+                    return Err(HandlerError::Failed);
+                }
+            }
+            if volume.flush().is_err() {
+                return Err(HandlerError::Failed);
+            }
+        }
+
+        self.history
+            .commit_transaction(transaction_id, activity_context(caller))
+            .map_err(|_| HandlerError::Failed)?;
+        if !save_history(&mut self.backend, &self.history) {
+            return Err(HandlerError::Failed);
+        }
+
+        Ok(ActionOutput {
+            summary: String::from("Moved three M22 fixture files as one recoverable transaction"),
+            object_ids: invocation.object_ids().to_vec(),
+        })
+    }
+}
+
+fn run_file_move_action(
+    block_capability: u64,
+    backend: HistoryArchiveBackend<M22Files>,
+    history: HistoryService,
+) -> bool {
+    let policy = M22FixturePolicy;
+    let caller = CallerIdentity {
+        app_id: CALLER.app_id,
+        app_session_id: CALLER.app_session_id,
+        node_id: CALLER.node_id,
+        workspace_id: CALLER.workspace_id,
+    };
+    let candidate_objects: Vec<_> = MOVES
+        .iter()
+        .map(|(object_id, _, _, _)| *object_id)
+        .collect();
+    let Ok(context) = ContextResolver.resolve(
+        ContextRequest {
+            caller,
+            selected_object: None,
+            candidate_objects,
+        },
+        &policy,
+    ) else {
+        return false;
+    };
+    if MOVES
+        .iter()
+        .any(|(object_id, _, _, _)| !context.contains_object(*object_id))
+    {
+        return false;
+    }
+
+    // This deny check is part of the deterministic guest fixture. Production
+    // authority requires an authenticated capability provider.
+    let foreign_caller = CallerIdentity {
+        app_id: AppId(CALLER.app_id.0.wrapping_add(1)),
+        ..caller
+    };
+    let Ok(capability) = CapabilityId::new(M22_MOVE_CAPABILITY) else {
+        return false;
+    };
+    if policy.check_capability(foreign_caller, &capability).is_ok()
+        || policy
+            .check_object_access(foreign_caller, MOVES[0].0, ObjectAccess::Modify)
+            .is_ok()
+    {
+        return false;
+    }
+
+    let plan = r#"{"plan_version":1,"intent":"move the three M22 fixture files","steps":[{"action":"file.move","object_ids":[8721,8722,8723],"parameters":{"destination_a":"m22-A","destination_b":"m22-B","destination_c":"m22-C"}}]}"#;
+    let Ok(plan) = NagiPlan::parse_complete(plan) else {
+        return false;
+    };
+    let Ok(descriptor) = ActionDescriptor::new(
+        M22_MOVE_ACTION,
+        vec![capability],
+        ObjectAccess::Modify,
+        MOVES.len(),
+        MOVES.len(),
+        DESTINATION_PARAMETERS
+            .iter()
+            .map(|name| ParameterRule::new(*name, ParameterKind::String { max_bytes: 32 }, true))
+            .collect(),
+    ) else {
+        return false;
+    };
+    let mut registry = ActionRegistry::new();
+    if registry
+        .register(descriptor, M22MoveAction { backend, history })
+        .is_err()
+    {
+        return false;
+    }
+    let Ok(validated) = validate_plan(plan, &context, &registry, &policy) else {
+        return false;
+    };
+    let report = execute_plan(validated, &mut registry, &policy);
+    let action_succeeded = report.status == ExecutionStatus::Succeeded
+        && report.completed.len() == 1
+        && report.completed[0].action_id == M22_MOVE_ACTION
+        && report.completed[0].object_ids.as_slice()
+            == MOVES.map(|(object_id, _, _, _)| object_id).as_slice();
+    if !action_succeeded {
+        return false;
+    }
+    drop(registry);
+
+    let Ok((mut volume, _)) = Vfs::mount_or_format(SyscallBlockDevice::new(block_capability))
+    else {
+        return false;
+    };
+    if !verify_names(&mut volume, false) {
+        return false;
+    }
+    let mut persisted = HistoryArchiveBackend::new(M22Files { volume });
+    let mut archive = [0; MAX_GUEST_ARCHIVE_BYTES];
+    let Ok(Some(length)) = persisted.load_archive(&mut archive) else {
+        return false;
+    };
+    let Ok(history) = HistoryService::restore_recoverable(&archive[..length]) else {
+        return false;
+    };
+    let Some(first) = history.record_at(0) else {
+        return false;
+    };
+    if !verify_context_and_group(&history, first.transaction_id.0)
+        || !verify_transaction_state(
+            &history,
+            first.transaction_id.0,
+            TransactionState::Committed,
+        )
+    {
+        return false;
+    }
+
+    libnagi::console_write(b"Nagi M21 file.move Plan Validate Execute PASS\r\n");
+    libnagi::console_write(b"Nagi M22 move group persisted in guest VFS PASS\r\n");
+    true
+}
+
+fn activity_context(caller: CallerIdentity) -> ActivityContext {
+    ActivityContext {
+        app_id: caller.app_id,
+        app_session_id: caller.app_session_id,
+        node_id: caller.node_id,
+        // The fixture policy only admits this one caller, whose presentation
+        // surface is retained in the durable NH16 activity record.
+        surface_id: CALLER.surface_id,
+        workspace_id: caller.workspace_id,
+    }
+}
+
+fn valid_fixture_basename(name: &[u8]) -> bool {
+    !name.is_empty()
+        && name.len() <= nagi_history::MAX_NAME_BYTES
+        && name
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
 /// Exercises the NH16 archive over the persistent guest VFS. This fixture
 /// validates storage and restart recovery only; it is not a production AI
-/// action, authenticated policy, or M21 file-move acceptance.
+/// service or authenticated production policy. Its initial grouped mutation
+/// is deliberately exercised through the M21 Executor fixture boundary.
 pub fn run(block_capability: u64) -> bool {
     let Ok((volume, _)) = Vfs::mount_or_format(SyscallBlockDevice::new(block_capability)) else {
         return false;
@@ -102,28 +478,7 @@ pub fn run(block_capability: u64) -> bool {
         if !ensure_original_fixture(&mut backend.file_store_mut().volume) {
             return false;
         }
-        let moves = MOVES.map(|(object_id, from_name, to_name, _)| MoveRecord {
-            object_id,
-            from_name,
-            to_name,
-        });
-        let Ok(transaction_id) = history.record_move_group(CALLER, &moves) else {
-            return false;
-        };
-        if !save_history(&mut backend, &history) {
-            return false;
-        }
-        if !apply_forward_group(&mut backend.file_store_mut().volume) {
-            return false;
-        }
-        if history.commit_transaction(transaction_id, CALLER).is_err()
-            || !save_history(&mut backend, &history)
-            || !verify_names(&mut backend.file_store_mut().volume, false)
-        {
-            return false;
-        }
-        libnagi::console_write(b"Nagi M22 move group persisted in guest VFS PASS\r\n");
-        return true;
+        return run_file_move_action(block_capability, backend, history);
     }
 
     let Some(first) = history.record_at(0) else {
@@ -297,6 +652,20 @@ fn verify_context_and_group(history: &HistoryService, transaction_id: u64) -> bo
                     && record.object_id == *object_id
                     && record.operation == nagi_history::Operation::Move
                     && record.sequence == index as u64 + 1
+            })
+        })
+}
+
+fn verify_transaction_state(
+    history: &HistoryService,
+    transaction_id: u64,
+    expected_state: TransactionState,
+) -> bool {
+    history.len() == MOVES.len()
+        && (0..history.len()).all(|index| {
+            history.record_at(index).is_some_and(|record| {
+                record.transaction_id.0 == transaction_id
+                    && record.transaction_state == expected_state
             })
         })
 }

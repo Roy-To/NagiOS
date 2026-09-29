@@ -3366,6 +3366,18 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         }
+        if boot_index == 0
+            && !had_persistent_disk
+            && !serial.contains("Nagi M21 file.move Plan Validate Execute PASS")
+        {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: fresh guest did not pass the M21 file.move Plan/Validate/Execute gate (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
         saw_move |= serial.contains("Nagi M22 move group persisted in guest VFS PASS")
             || serial.contains("Nagi M22 recovered prepared move group PASS");
         saw_undo |= serial.contains("Nagi M22 composite undo applied and persisted PASS");

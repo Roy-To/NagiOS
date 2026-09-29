@@ -1,6 +1,6 @@
 # Nagi OS M22 — AI Safety / Undo Integration
 
-**Status: BLOCKED**
+**Status: PARTIAL**
 
 ## Acceptance target
 
@@ -33,11 +33,13 @@ wired to `NH16`.
 adapter contract. Each checksummed slot is bounded to one 1 KiB guest VFS
 file; writes go to the inactive generation and flush before returning. The
 target-only `m22-history` init feature connects that contract to two persistent
-guest VFS files. Its acceptance fixture writes a prepared three-move group,
-applies the guest VFS renames, persists Committed, prepares and persists
-UndoPending, applies inverse moves in reverse order, then persists Undone.
-UndoPending replay is idempotent across a reboot partway through the inverse
-batch.
+guest VFS files. The initial grouped move now enters through a bounded M21
+`file.move` Plan / Validate / Execute action. Its handler persists Prepared
+before guest VFS renames, flushes the three moves, and persists Committed
+before returning to Executor. On the next boot the fixture prepares and
+persists UndoPending, applies inverse moves in reverse order, then persists
+Undone. UndoPending replay is idempotent across a reboot partway through the
+inverse batch.
 
 This caller comparison is an identity consistency check, not an authority
 source. Production must supply caller context from the authenticated M21
@@ -45,12 +47,15 @@ policy/capability boundary.
 
 ## M21 integration prerequisite
 
-The current `services/nagi-ai` contract has no registered production action
-handlers and no authenticated target `ActionPolicy`/`ContextAuthority`
-adapter. Its host test handlers cannot perform or authorize guest VFS moves.
-Thus there is no safe M21 mutation to wrap in a transaction or connect to the
-M15 ledger. Adding an AI-owned journal would duplicate the existing History
-system and would not satisfy the required integration.
+The M22 init fixture now registers one bounded guest `file.move` handler and
+exercises it with actual VFS objects. Its fixed caller, Object IDs,
+`files.move` capability, handle resolver, and deterministic plan are private
+acceptance policy. They do not authenticate application processes or authorize
+general files. The production `services/nagi-ai` registry remains unwired in a
+running guest service, and there is no authenticated target
+`ActionPolicy`/`ContextAuthority` adapter or separate Activity Ledger bridge.
+This advances real mutation and History/Undo composition while leaving those
+production boundaries open.
 
 ## Verification and blocker
 
@@ -73,9 +78,10 @@ system and would not satisfy the required integration.
   eight entries. After bounding that buffer by the ext2 64-inode limit, a new
   QEMU boot restored the same Committed NH16 archive, applied and persisted
   composite undo, and two further boots verified Undone state and original
-  file contents. The final acceptance output is recorded in
-  `out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`; the first
-  forward-move marker was observed before the root-listing fix.
+  file contents. At that time the final acceptance output was recorded in
+  `out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`; its
+  pre-sweep inputs and logs were preserved under
+  `out/evidence/m22-before-sweep-rerun-20260930/`.
 - Regression rerun on 2026-09-30 passed all three QEMU boots. The prior disk,
   OVMF vars, bootstrap log, and three serial logs were copied before the run to
   `out/evidence/m22-before-sweep-rerun-20260930/`.
@@ -84,9 +90,24 @@ system and would not satisfy the required integration.
   the NH16 state check. Previous accepted M22 images, data disk, vars, and logs
   were preserved at
   `out/evidence/m22-before-m21-action-regression-20260930/`.
-- This is a guest VFS/persistence fixture only. It is not the required
-  authenticated M21 Executor action and does not prove production capability
-  checks or linkage to the M15 NH15 ledger.
+- A fresh-disk `./nagi m22` run on 2026-09-30 passed the guest M21 `file.move`
+  Plan/Validate/Execute action on boot 1. After remount, the test reopened NH16
+  and verified one three-object Committed transaction and the destination
+  files. Boot 2 applied and persisted reverse-order composite Undo; boot 3
+  reopened the archive and verified all source files plus `Undone` state. The
+  previous accepted M22 image, user-data disk, OVMF vars, and three logs were
+  moved intact to
+  `out/evidence/m22-before-m21-file-move-action-20260930-run1/`. Current guest
+  logs are in `out/evidence/pre-m28-m21-file-move-20260930/logs/`;
+  `m22-history-boot-1.log` contains
+  `Nagi M21 file.move Plan Validate Execute PASS`. The later one-repetition
+  M28 run's final M22 serial logs remain in `out/logs/m22-history-boot-1.log`
+  through `m22-history-boot-3.log`.
+- This remains a deterministic guest acceptance fixture, not real AI
+  inference, authenticated production capability authority, or a separate
+  production Activity Ledger integration. NH16 preserves AppId, AppSessionId,
+  NodeId, SurfaceId, WorkspaceId, ObjectIds, and TransactionId for this fixture
+  caller.
 - A local `./nagi m15` regression was attempted. The empty `PT_TLS` parser
   fix allowed the first boot to persist its M7 test data and the second boot
   to load the init ELF and pass M5/M6/M7. The first run exposed that the M13 C
@@ -108,9 +129,9 @@ system and would not satisfy the required integration.
   across restarts; neither layer proves authenticated policy, a production
   M21 file mutation, or Activity Ledger linkage.
 
-M22 remains `BLOCKED` at its dependent AI acceptance. The durable NH16 guest
-archive and restart-restorable composite undo now pass a private QEMU fixture.
-Production M21 move handlers, authenticated caller policy, real AI-to-History
-transaction linkage, and the production Activity Ledger/restart acceptance
-remain missing. Do not treat the fixture as M21-authorized mutation or an
-M22 milestone PASS.
+M22 is `PARTIAL`. The NH16 archive, a real guest `file.move` Executor action,
+grouped three-file transaction, composite Undo, and restart verification now
+pass through a private QEMU fixture. Real AI inference, authenticated caller
+and capability providers, general production move actions, and production
+Activity Ledger/restart acceptance remain incomplete, so the formal milestone
+is not PASS.
