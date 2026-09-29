@@ -1,7 +1,8 @@
 # 1. Current status
 
-**Current milestone:** `M21 - Planner / Validator / Executor`
-**Milestone status:** `PARTIAL`
+**Current milestone:** `M24 — Embedding / Semantic AI`
+**Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21 `PARTIAL`, M22
+`BLOCKED`, M23 `PARTIAL`, M24–M30 `NOT STARTED`.
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
 download/upload destinations, clipboard, IME text/composition events, and
@@ -37,22 +38,29 @@ warnings-denied Clippy, formatting, and Nagi user-target compilation pass. M21
 remains `PARTIAL`: app launch, file copy/move, and volume handlers are absent;
 the action service is not registered in guest init, and authenticated target
 policy plus QEMU acceptance remain.
-**M22 evidence:** The existing M15 History Service now has an `NH16`
+**M22 evidence:** The existing M15 History Service now has a versioned `NH16`
 recoverable archive contract, full-width logical caller context, grouped move
-transactions, prepared/committed states, composite reverse-order undo, and
-restart recovery of pending undo metadata. Seven focused host tests, warnings-
-denied Clippy, formatting, and the Nagi user-target compile pass. The legacy
-`NH15` metadata serializer remains for M15 compatibility and is not claimed as
-recoverable. M22 remains `BLOCKED` for guest acceptance: M21 still has no
-production move handler or authenticated target policy adapter, and the new
-archive is not yet wired to durable guest storage or QEMU restart acceptance.
-The local M15 QEMU attempt also stopped at M14 capture because the host QEMU
-CoreAudio backend had no capture driver; no AI mutation or undo acceptance is
-claimed.
-**Next action:** Continue M21 with real action/service registration where the
-existing authority and storage APIs permit it. In parallel, advance M22's
-durable archive integration and M23's provider-fail-closed context/UI boundary;
-only their dependent guest acceptance remains blocked.
+transactions, prepared/committed states, reverse-order composite undo, and
+restart recovery of pending undo metadata. A two-slot guest VFS archive and
+`./nagi m22` QEMU fixture verified three-file moves, restart-restorable undo,
+and original contents after restart; nine History tests, warnings-denied
+Clippy, formatting, CLI tests (114 unit + 18 integration), and Nagi target
+compile pass. `NH15` remains the M15 compatibility serializer. M22 is still
+`BLOCKED` at the formal AI acceptance because M21 has no authenticated
+production move action, no trusted guest caller/policy adapter, and no
+production Activity Ledger linkage. The separate M15 regression reached M14
+playback but the host QEMU CoreAudio backend had no capture driver, so its
+History path did not run.
+**M23 evidence:** Added a bounded public Browser Context API boundary,
+authorized logical app/object/workspace context, and explicit untrusted-page
+provider input. Twenty-three `nagi-ai` tests, warnings-denied Clippy,
+formatting, and the Nagi no-std target compile pass. Live Servo extraction,
+authenticated guest policy/IPC, Nagi Bar UI, and real inference remain, so the
+page-summary acceptance is unmet. See
+`docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`.
+**Next action:** Advance M24's bounded embedding/chunking and semantic-index
+contracts while retaining visibility filtering and the production embedding,
+storage, and QEMU acceptance blockers.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -67,12 +75,19 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-30
 **Latest continuation CI:** Run
-[`36593865893`](https://github.com/RT-NISH/NagiOS/actions/runs/36593865893)
-on `4a7feb161fe49f71620841f74f156937399f615b` is queued. The preceding M19
-repair run `36588249000` passed Ubuntu host and Windows launcher; its
-`nagi-target` job had built init and UEFI and was running the M17/M18 QEMU
-regressions when M20 was pushed. The M22 checkpoint CI run `36576635230` passed
-all gates on `a69746a82df209b1565db6b32ecf8e3b7665424b`.
+[`36602252894`](https://github.com/RT-NISH/NagiOS/actions/runs/36602252894)
+[`36608104431`](https://github.com/RT-NISH/NagiOS/actions/runs/36608104431)
+on `4acfc555f0c92cc993d2899ee73a97db46610c3b` is pending behind the previous
+long-running target job. Earlier run `36602252894` passed Ubuntu host
+tests/build/lint and formatting but failed the POSIX M0 image acceptance; the
+Windows launcher exit-propagation test also failed. Local reproduction showed
+the image path omitted `alloc` while building `nagi-init`, whose unconditional
+`nagi-history` dependency requires it. The init build flags now include
+`alloc`, and the POSIX M0 launcher acceptance passes locally. Windows-specific
+diagnostics and that run's M17/M18 QEMU results remain unavailable while the
+workflow is active. Earlier M22 base run
+[`36576635230`](https://github.com/RT-NISH/NagiOS/actions/runs/36576635230)
+passed all gates on `a69746a82df209b1565db6b32ecf8e3b7665424b`.
 **Last known checkpoint:** The user-directed continuation is on
 `codex/m19-m22-continuation` in
 `/Users/tozawa/.codex/worktrees/m19-m22-continuation/NagiOS`. The M19 guest
@@ -2116,14 +2131,14 @@ Use only these statuses:
 | M20 | AI Runtime / Granite | PARTIAL | The model manager hashes artifact bytes through an 8 KiB buffer before backend load; IBM Granite Q4_K_M metadata and pinned llama.cpp source are recorded. `./nagi fetch`, 40 model-manager unit tests, 2 manifest/schema tests, 1 Store API test, 114 CLI unit tests, 18 CLI integration tests, formatting, warnings-denied Clippy, and `no_std` target compile pass. No target backend/service, guest large-artifact store, or real Granite inference exists. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
 | M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; the existing M19 SearchService is now registered through a real bounded `file.search` action handler. Its integration test validates and executes a plan and proves the action returns only caller-visible stable Object IDs. Sixteen tests, formatting, warnings-denied Clippy, and Nagi target compile pass. App launch, file copy/move, and volume handlers, guest registration, authenticated target policy, and QEMU acceptance remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
 | M22 | AI Safety / Undo Integration | BLOCKED | NH16 grouped transactions now persist through a two-slot guest VFS archive. `./nagi m22` verified three-file move/commit, restart-restorable composite undo, and original file contents across QEMU boots; 9 History tests, warnings-denied Clippy, CLI tests (114 unit + 18 integration), changed-file format, and `m22-history` target build pass. The QEMU path is a private fixture, not an authenticated M21 action or production Activity Ledger linkage. Production move handler, authenticated target policy, and AI-to-History transaction integration remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
-| M23 | Nagi Bar / Context / Albert AI | NOT STARTED | 遯ｶ繝ｻ|
-| M24 | Embedding / Semantic AI | NOT STARTED | 遯ｶ繝ｻ|
-| M25 | Voice | NOT STARTED | 遯ｶ繝ｻ|
-| M26 | Qwen / Gemma / Automatic | NOT STARTED | 遯ｶ繝ｻ|
-| M27 | A/B / Recovery | NOT STARTED | 遯ｶ繝ｻ|
-| M28 | Integration / Stress | NOT STARTED | 遯ｶ繝ｻ|
-| M29 | Developer Preview Polish | NOT STARTED | 遯ｶ繝ｻ|
-| M30 | Nagi OS 0.1 Release | NOT STARTED | 遯ｶ繝ｻ|
+| M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-three `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
+| M24 | Embedding / Semantic AI | NOT STARTED | No M24 checkpoint recorded yet. |
+| M25 | Voice | NOT STARTED | No M25 checkpoint recorded yet. |
+| M26 | Qwen / Gemma / Automatic | NOT STARTED | No M26 checkpoint recorded yet. |
+| M27 | A/B / Recovery | NOT STARTED | No M27 checkpoint recorded yet. |
+| M28 | Integration / Stress | NOT STARTED | No M28 checkpoint recorded yet. |
+| M29 | Developer Preview Polish | NOT STARTED | No M29 checkpoint recorded yet. |
+| M30 | Nagi OS 0.1 Release | NOT STARTED | No M30 checkpoint recorded yet. |
 
 ---
 

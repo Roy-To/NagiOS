@@ -214,6 +214,7 @@ fn context(objects: &[u64]) -> ResolvedContext {
         .resolve(
             ContextRequest {
                 caller: caller(),
+                selected_object: None,
                 candidate_objects: ids,
             },
             &authority,
@@ -298,6 +299,7 @@ fn context_resolver_filters_hidden_objects_before_provider_context() {
         .resolve(
             ContextRequest {
                 caller: caller(),
+                selected_object: None,
                 candidate_objects: vec![ObjectId(1), ObjectId(2)],
             },
             &authority,
@@ -314,6 +316,7 @@ fn context_resolver_rejects_duplicate_candidates() {
     let result = ContextResolver.resolve(
         ContextRequest {
             caller: caller(),
+            selected_object: None,
             candidate_objects: vec![ObjectId(1), ObjectId(1)],
         },
         &authority,

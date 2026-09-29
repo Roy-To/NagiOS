@@ -5,6 +5,7 @@ extern crate alloc;
 extern crate std;
 
 mod actions;
+mod browser_context;
 mod context;
 mod executor;
 mod plan;
@@ -14,6 +15,7 @@ mod search_action;
 mod validator;
 
 pub use actions::*;
+pub use browser_context::*;
 pub use context::*;
 pub use executor::*;
 pub use plan::*;
