@@ -159,6 +159,10 @@ pub fn run(
     if !crate::m19_search::run(block_capability) {
         fail();
     }
+    #[cfg(feature = "m22-history")]
+    if !crate::m22_history::run(block_capability) {
+        fail();
+    }
     print(static_bytes!(NAGI_M13_ACCEPTANCE, ACCEPTANCE_LEN));
     loop {
         unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)) };

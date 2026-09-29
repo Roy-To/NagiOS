@@ -29,6 +29,16 @@ retry. The legacy `serialize()` still emits metadata-only `NH15` for M15; it
 does not restore undo data, and the current M15 guest acceptance is not yet
 wired to `NH16`.
 
+`user/nagi-history/src/guest.rs` adds a two-slot `HistoryArchiveStore`
+adapter contract. Each checksummed slot is bounded to one 1 KiB guest VFS
+file; writes go to the inactive generation and flush before returning. The
+target-only `m22-history` init feature connects that contract to two persistent
+guest VFS files. Its acceptance fixture writes a prepared three-move group,
+applies the guest VFS renames, persists Committed, prepares and persists
+UndoPending, applies inverse moves in reverse order, then persists Undone.
+UndoPending replay is idempotent across a reboot partway through the inverse
+batch.
+
 This caller comparison is an identity consistency check, not an authority
 source. Production must supply caller context from the authenticated M21
 policy/capability boundary.
@@ -44,18 +54,31 @@ system and would not satisfy the required integration.
 
 ## Verification and blocker
 
-- `cargo test --locked --offline -p nagi-history` — PASS, 7 tests covering
+- `cargo test --locked --offline -p nagi-history` — PASS, 9 tests covering
   grouped three-move ordering, full-width context restoration, caller denial,
   prepared/committed state, pending-undo restart recovery, archive
-  corruption/version rejection, and atomic group validation.
+  corruption/version rejection, atomic group validation, two-slot guest
+  archive selection, and corruption fallback.
 - `cargo clippy --locked --offline -p nagi-history --all-targets -- -D warnings`
   — PASS.
-- `cargo fmt --manifest-path user/nagi-history/Cargo.toml -- --check` — PASS.
-- `cargo -Z build-std=core,alloc check --locked --offline -p nagi-history
-  --target targets/x86_64-unknown-nagi-user.json` — PASS.
-- M22's three-file AI move/undo/restart guest acceptance was not run because
-  the real authorized M21 file-move action does not exist, and the `NH16`
-  archive does not yet have a durable guest VFS adapter.
+- Changed-file format checks for `nagi-history`, `nagi-init`, and `nagi-cli` —
+  PASS.
+- `cargo -Z build-std=core,alloc check --locked --offline -p nagi-init
+  --features m22-history --target targets/x86_64-unknown-nagi-user.json` — PASS.
+- `cargo test --locked --offline -p nagi-cli` — PASS, 114 unit tests and 18
+  integration tests, including the `m22` command surface.
+- `./nagi m22` — PASS for durable guest History recovery across QEMU boots.
+  The first attempt wrote and committed all three VFS moves, then exposed an
+  unrelated M7 acceptance limit: its root-directory lookup buffer held only
+  eight entries. After bounding that buffer by the ext2 64-inode limit, a new
+  QEMU boot restored the same Committed NH16 archive, applied and persisted
+  composite undo, and two further boots verified Undone state and original
+  file contents. The final acceptance output is recorded in
+  `out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`; the first
+  forward-move marker was observed before the root-listing fix.
+- This is a guest VFS/persistence fixture only. It is not the required
+  authenticated M21 Executor action and does not prove production capability
+  checks or linkage to the M15 NH15 ledger.
 - A local `./nagi m15` regression was attempted. The empty `PT_TLS` parser
   fix allowed the first boot to persist its M7 test data and the second boot
   to load the init ELF and pass M5/M6/M7. The first run exposed that the M13 C
@@ -76,9 +99,9 @@ system and would not satisfy the required integration.
   prove guest VFS persistence, authenticated policy, file mutation, or QEMU
   restart behavior.
 
-M22 remains `BLOCKED` only at its dependent guest acceptance: the History-side
-group/archive/undo contract is implemented, but production M21 action and
-authenticated policy integration and durable guest archive persistence remain
-missing. Continue independent M23-M30 work while those dependencies are
-tracked; do not treat host orchestration fixtures or NH16 contract tests as
-guest acceptance.
+M22 remains `BLOCKED` at its dependent AI acceptance. The durable NH16 guest
+archive and restart-restorable composite undo now pass a private QEMU fixture.
+Production M21 move handlers, authenticated caller policy, real AI-to-History
+transaction linkage, and the production Activity Ledger/restart acceptance
+remain missing. Do not treat the fixture as M21-authorized mutation or an
+M22 milestone PASS.

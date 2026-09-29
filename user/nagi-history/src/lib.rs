@@ -1,5 +1,7 @@
 #![no_std]
 
+extern crate alloc;
+
 #[cfg(test)]
 extern crate std;
 
@@ -7,6 +9,8 @@ pub const MAX_RECORDS: usize = 16;
 pub const MAX_SNAPSHOT_BYTES: usize = 1024;
 pub const MAX_NAME_BYTES: usize = 32;
 pub const MAX_ARCHIVE_BYTES: usize = 36 * 1024;
+
+pub mod guest;
 
 const ARCHIVE_HEADER_BYTES: usize = 36;
 const ARCHIVE_VERSION: u16 = 1;
@@ -104,6 +108,7 @@ pub enum HistoryError {
     TransactionNotCommitted,
     CorruptArchive,
     UnsupportedArchiveVersion(u16),
+    Storage,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -92,6 +92,7 @@ pub enum Command {
     M17,
     M18,
     M19,
+    M22,
     Test,
     Clean,
     Fmt,
@@ -157,6 +158,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m17" => Command::M17,
         "m18" => Command::M18,
         "m19" => Command::M19,
+        "m22" => Command::M22,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -192,6 +194,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M17
         | Command::M18
         | Command::M19
+        | Command::M22
         | Command::Test
         | Command::Clean
         | Command::Fmt
@@ -277,6 +280,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M17 => execute_m17(root, probe),
         Command::M18 => execute_m18(root, probe),
         Command::M19 => execute_m19(root, probe),
+        Command::M22 => execute_m22(root, probe),
     }
 }
 
@@ -442,6 +446,17 @@ fn execute_image_with_features(
             "nagi-init",
             "--features",
             "m19-search",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+        ],
+        Some("m22-history") => vec![
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m22-history",
             "--target",
             "targets/x86_64-unknown-nagi-user.json",
             "-Zbuild-std=core,alloc,compiler_builtins",
@@ -3231,12 +3246,171 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 }
 
+fn execute_m22(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let mut fixture = match start_m13_http_fixture(root) {
+        Ok(child) => child,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
+    };
+    let result = execute_m22_inner(root, probe);
+    let _ = fixture.kill();
+    let _ = fixture.wait();
+    result
+}
+
+fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let image_result =
+        execute_image_with_features(root, Some("m22-history"), "nagi-0.1-m22-history.img");
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let host = match resolve_qemu_host(root, probe, "m22") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
+    };
+    let image_path = artifacts.join("nagi-0.1-m22-history.img");
+    let persistent_disk = artifacts.join("nagi-0.1-m22-history-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-m22-history-vars.fd");
+    let bootstrap_log = logs.join("m22-history-bootstrap.log");
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
+    };
+    let timeout = Duration::from_secs(90);
+
+    if !had_persistent_disk {
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &bootstrap_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        if let Err(error) = run_qemu(&config) {
+            return failure(EXIT_CONFIG_ERROR, format!("m22: bootstrap boot: {error}"));
+        }
+        match fs::read_to_string(&bootstrap_log) {
+            Ok(serial) if serial.contains(NAGI_WRITE_MARKER) => {}
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: bootstrap did not print `{NAGI_WRITE_MARKER}`"),
+                );
+            }
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: cannot read {}: {error}", bootstrap_log.display()),
+                );
+            }
+        }
+    }
+
+    let mut saw_move = false;
+    let mut saw_undo = false;
+    let mut last_log = PathBuf::new();
+    for boot_index in 0..3 {
+        let log_path = logs.join(format!("m22-history-boot-{}.log", boot_index + 1));
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &log_path,
+            acceptance_marker: "Nagi M13 acceptance PASS",
+            timeout,
+        };
+        let final_status = match run_qemu(&config) {
+            Ok(status) => status,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: guest boot: {error}")),
+        };
+        last_log = log_path.clone();
+        let serial = match fs::read_to_string(&log_path) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: cannot read {}: {error}", log_path.display()),
+                );
+            }
+        };
+        for marker in [
+            "Nagi Kernel started",
+            "Nagi M3 acceptance PASS",
+            "Nagi M7 VirtIO Block PASS",
+            "Nagi M13 C POSIX PASS",
+            "Nagi M19 guest search persistence PASS",
+            "Nagi M13 acceptance PASS",
+        ] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: guest did not print `{marker}` (QEMU exit {final_status}; log {})",
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        saw_move |= serial.contains("Nagi M22 move group persisted in guest VFS PASS")
+            || serial.contains("Nagi M22 recovered prepared move group PASS");
+        saw_undo |= serial.contains("Nagi M22 composite undo applied and persisted PASS");
+        if boot_index == 2 && !serial.contains("Nagi M22 archive restart and restored files PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: final restart did not verify restored files and NH16 state (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+    }
+    if !saw_move && !saw_undo && had_persistent_disk {
+        let final_serial = match fs::read_to_string(&last_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: cannot read {}: {error}", last_log.display()),
+                );
+            }
+        };
+        if !final_serial.contains("Nagi M22 archive restart and restored files PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                "m22: existing guest archive neither completed the move/undo flow nor verified restored state",
+            );
+        }
+    }
+
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M22 guest NH16 archive: grouped VFS moves, composite undo, and restored state survived QEMU restarts (log {})",
+            last_log.display()
+        )],
+    }
+}
+
 fn help() -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, test, clean, fmt, lint"
                 .into(),
         ],
     }

@@ -70,6 +70,8 @@ mod m15_history;
 mod m16_package;
 #[cfg(all(target_os = "nagi", feature = "m19-search"))]
 mod m19_search;
+#[cfg(all(target_os = "nagi", feature = "m22-history"))]
+mod m22_history;
 #[cfg(all(
     target_os = "nagi",
     feature = "m12-network",
@@ -479,7 +481,10 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     }
 
     libnagi::console_write(static_message!(NAGI_INIT_M7_MOUNT_PASS, M7_MOUNT_PASS_LEN));
-    let mut entries = [libnagi::storage::DirectoryEntry::empty(); 8];
+    // The ext2 fixture has 64 inodes and M19/M22 add guest-side state files.
+    // Keep the M7 persistence lookup bounded by that filesystem limit rather
+    // than assuming the root directory still contains at most eight entries.
+    let mut entries = [libnagi::storage::DirectoryEntry::empty(); 64];
     let count = volume.list_root(&mut entries).ok()?;
     let mut directory_inode = 0;
     let mut index = 0;

@@ -24,6 +24,7 @@ m18-acceptance = [
     "nagi-posix/browser-storage",
 ]
 m19-search = ["m13-posix", "dep:nagi-search"]
+m22-history = ["m19-search"]
 
 [[bin]]
 name = "nagi-init"
