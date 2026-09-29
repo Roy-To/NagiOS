@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "notify-01",
   "current_milestone": "Host-only notification service contract and reference store",
-  "current_checkpoint": "registered-foundation-tests-pass;commit-push-ci-pending",
+  "current_checkpoint": "registered-foundation-verified-and-committed;push-ci-pending",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
-    "verified_at": "2026-09-29T05:15:32Z",
-    "normal_state": "Dedicated worktree /Users/tozawa/.codex/worktrees/notify-01/NagiOS is on codex/0.2-notify-01, based on remote-synced 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. The notify-01 row and state are registered; ./nagi dev verify passes for 19 registered workstreams and 12 state files, including notify-01. All 24 host acceptance tests, formatting, and warning-denied Clippy pass using the repository-pinned arm64 nightly toolchain. The new malformed-action test validates invalid IDs, duplicate and excessive parameter sets, and combined byte limits. ./nagi dev status confirms M17 BLOCKED and M30 NOT STARTED. Code/state/registry are still uncommitted; push and CI remain pending. No production runtime integration is performed.",
+    "commit_sha": "2f37b3dfae80f936d4fc185f8ed825604fe0fe65",
+    "verified_at": "2026-09-29T05:19:44Z",
+    "normal_state": "NOTIFY-01 implementation, acceptance, documentation, proposal/state, and its single registry row are committed as 2f37b3dfae80f936d4fc185f8ed825604fe0fe65 on codex/0.2-notify-01, based on remote-synced integration HEAD 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. The substantive commit contains exactly the 12 registered ownership files, and the dedicated worktree was clean immediately after commit. All 24 focused host tests, formatting, warning-denied Clippy, and ./nagi dev verify pass; M17 is BLOCKED and M30 is NOT STARTED. The dedicated branch has not yet been pushed, so remote equality and GitHub Actions remain pending. No production runtime integration is performed.",
     "commands": [
       "RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustdoc /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo test --manifest-path crates/nagi-notification-core/Cargo.toml --offline",
       "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH RUSTFMT=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustfmt /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo fmt --manifest-path crates/nagi-notification-core/Cargo.toml -- --check",
@@ -16,7 +16,13 @@
       "./nagi dev verify",
       "./nagi dev status",
       "git diff --check",
-      "python3 owned-file whitespace and final-newline check"
+      "python3 owned-file whitespace and final-newline check",
+      "git rev-parse HEAD",
+      "git status --short --branch",
+      "git show --stat --oneline --decorate --no-renames HEAD",
+      "git push origin codex/0.2-notify-01",
+      "git ls-remote origin refs/heads/codex/0.2-notify-01",
+      "gh run list --branch codex/0.2-notify-01"
     ],
     "tests": [
       {
@@ -53,13 +59,20 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Status reports the dedicated notify-01 branch/worktree, no active blocker, M17 BLOCKED, and M30 NOT STARTED. Foundation state remains PARTIAL only while commit/push/CI acceptance is pending."
+      },
+      {
+        "name": "NOTIFY-01 owned commit scope",
+        "command": "git show --stat --oneline --decorate --no-renames HEAD",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Commit 2f37b3dfae80f936d4fc185f8ed825604fe0fe65 contains exactly 12 files from the notify-01 allowed paths: registry row, notify state/proposal, standalone crate, acceptance test, and workstream specification. No other workstream file was staged or committed."
       }
     ],
     "ci_runs": []
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md; docs/0.2/WORKSTREAMS.md; docs/workstreams/NagiOS_0.2_System_Notification_Foundation_Workstream.md",
-    "last_checked_at": "2026-09-29T05:09:16Z",
+    "last_checked_at": "2026-09-29T05:19:44Z",
     "activation_requirement": "Host-only notification Foundation acceptance is independently PASS. Production persistence, service registration, app adoption, Settings/capability/identity runtime wiring, target behavior, notification UI, or delivery requires Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming NOTIFY-01. Current release evidence keeps M17 BLOCKED and M30 NOT STARTED."
   },
   "blocker": {
@@ -82,7 +95,7 @@
       "Do not activate production persistence, service registration, app adoption, runtime policy/permission wiring, notification UI, push, email, SMS, or target behavior before the stated M30 integration gate."
     ]
   },
-  "next_action": "Review the exact owned-file diff, commit and push only codex/0.2-notify-01, verify the remote SHA and clean dedicated worktree, then inspect and record the resulting CI run. Keep all production runtime integration gated as stated.",
+  "next_action": "Push codex/0.2-notify-01 without force, verify origin points at the resulting local HEAD, inspect the resulting GitHub Actions run, and record final remote/worktree/CI evidence.",
   "acceptance_criteria": [
     "PASS: NotificationId, adapter-authenticated source attribution, localized/user-text content, priority/severity, injected timestamps, lifecycle/read state, grouping, and permission-free data action descriptor types are documented and validated.",
     "PASS: publish/query/mark-read/acknowledge/dismiss APIs have typed outcomes; state transitions are idempotent and dismissed records retain audit data.",
@@ -98,7 +111,7 @@
     "PASS: host mock/in-memory behavior and a future UI view/adapter boundary share the contract; no product UI or delivery is claimed.",
     "PASS: implementation and tests stay within registered NOTIFY-01 ownership paths; no other workstream files or M17/M18/M30 implementation are included.",
     "PASS: state uses the current DF-01 schema, notify-01 is registered, and ./nagi dev verify includes its state.",
-    "IN PROGRESS: focused checks and registered-state verification pass; owned-branch commit/push, remote equality, clean worktree, and relevant CI status remain to be recorded."
+    "IN PROGRESS: focused checks, registered-state verification, and the owned-branch commit pass; dedicated-branch push, remote equality, final clean-worktree check, and relevant CI status remain."
   ],
   "deferred": [
     "Durable filesystem/VFS persistence and production notification service registration.",
