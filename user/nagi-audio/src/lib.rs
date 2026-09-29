@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod speech;
+
 pub const MAX_SESSIONS: usize = 4;
 pub const MAX_SESSION_SAMPLES: usize = 1024;
 
@@ -89,11 +91,13 @@ pub struct Mixer {
 
 /// User-space audio service boundary. Applications use this bounded service
 /// object; only the service owns the device capability and mixer state.
+#[cfg(target_os = "nagi")]
 pub struct AudioService {
     capability: u64,
     mixer: Mixer,
 }
 
+#[cfg(target_os = "nagi")]
 impl AudioService {
     pub fn new(capability: u64) -> Self {
         Self {
