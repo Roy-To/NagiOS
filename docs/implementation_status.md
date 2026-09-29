@@ -2,21 +2,31 @@
 
 **Current milestone:** `M18 - Albert Browser`
 **Milestone status:** `PARTIAL`
-**Acceptance:** `PASS` on the local macOS/QEMU path. `./nagi m18` built the
-target image, booted the real guest, accepted address-bar navigation, and
-rendered three HTTPS sites after successful certificate-chain and hostname
-verification, browser-chrome composition, and Nagi Surface presentation.
-**Next action:** Commit and push the compatibility and CI repairs, then verify
-a fresh Ubuntu run through the target image and QEMU acceptance. After the
-Servo patch-order repair, CI exposed Mesa's `secure_getenv` fallback colliding
-with Nagi `getenv`, host Clippy findings (including a constant thread-count
-assertion), and a whitespace-sensitive source-contract test. Those fixes are
-now in the working tree. A fresh local
-`./nagi m18` build and QEMU run passes with the Darwin ELF-link adapter and
-LLVM 19 target headers; the `-latomic` check remains enabled. The M18 acceptance
-gate is passed locally; the milestone remains `PARTIAL` while downloads,
-uploads, clipboard, IME text events, and interactive site-permission prompts
-lack their required Nagi service providers.
+**Acceptance:** `PASS` locally on macOS/QEMU and in authoritative Ubuntu CI.
+On commit `4dce31514f759646b801879b5200dbb2f5a04099`, CI run
+[`36517686132`](https://github.com/RT-NISH/NagiOS/actions/runs/36517686132)
+passed all Windows launcher, Ubuntu host, and `nagi-target` jobs. The target
+job passed M17 first-web-pixel, M18-B chrome, and `./nagi m18` three-site
+HTTPS/QEMU acceptance. The local Mac run also built the target image, booted
+the real guest, accepted address-bar navigation, verified certificate chains
+and hostnames for three HTTPS sites, composed browser chrome, and presented
+the frames on Nagi Surface.
+**Next action:** Continue M18 provider integrations where capability-safe
+Nagi service APIs exist. Keep the milestone `PARTIAL` while download/upload
+destinations, clipboard, IME text/composition events, and trusted interactive
+site-permission decisions lack their Nagi providers; formal browser
+Acceptance is already `PASS`.
+
+The macOS build failure was a host/target linker mismatch: Mesa's target
+configuration probes GNU ELF link flags including `-latomic`, while Darwin's
+native linker emits Mach-O. A Darwin-only target-link adapter routes those
+ELF links to ELF LLD. Compile-only calls and host build helpers retain their
+normal compiler paths. Linux keeps the existing Ubuntu Clang/LLD cross file;
+CI run `36517686132` confirms the Mesa, Servo target build, and QEMU paths
+still pass there with `-latomic` enabled. Local QEMU verification used
+Homebrew LLVM 19 and matching libc++ headers because this Mac's Apple Clang
+21 SDK headers do not match the pinned target libc++ flags; that host
+compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-29
 **Last known checkpoint:** Main integration work is in the managed worktree
@@ -46,10 +56,11 @@ Ubuntu's tracked cross file and Clang/LLD path are unchanged. The fresh
 renders three TLS-chain- and hostname-verified HTTPS sites through Nagi
 Surface. CI run `36512090928` then exposed the Mesa fallback declaration,
 host Clippy, and source-contract formatting issues now repaired in the working
-tree; a new Ubuntu run is pending the next push. The unchanged M17 route also
-passed its real-QEMU first-web-pixel regression on this host. Clipboard,
-download/upload, IME text events, and site-permission prompts still need actual
-Nagi providers, so overall M18 status remains `PARTIAL`.
+tree. Ubuntu CI run `36517686132` then passed all jobs, including the existing
+M17 real-QEMU first-web-pixel regression and M18 three-site HTTPS acceptance.
+Clipboard, download/upload, IME text events, and interactive site-permission
+decisions still need actual Nagi providers, so overall M18 status remains
+`PARTIAL`.
 
 ### M17 First Web Pixel completion after Actions run #303 (2026-09-28)
 
@@ -2051,7 +2062,7 @@ Use only these statuses:
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
-| M18 | Albert Browser | PARTIAL | **Acceptance PASS locally 2026-09-29:** `./nagi m18` built and booted the real target image, accepted address-bar input, and rendered TLS-verified `example.com`, `example.org`, and `example.net` pages with browser chrome on Nagi Surface. Darwin uses a narrow ELF linker adapter for target links; `-latomic` remains, and Linux's existing Clang/LLD path is unchanged. M17's QEMU regression passes. CI run `36510598517` exposed and stopped at an ordered Servo patch application error in all three OS bootstrap jobs; `0021` was corrected and the seven-patch sequence now passes local ordered application. A new Ubuntu CI run is pending. Real Nagi providers for download/upload destinations, clipboard, IME text events, and interactive site permissions remain. |
+| M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** CI run [`36517686132`](https://github.com/RT-NISH/NagiOS/actions/runs/36517686132), head `4dce31514f759646b801879b5200dbb2f5a04099`, passed Windows launcher, Ubuntu host, and `nagi-target`; the target job passed M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
 | M21 | Planner / Validator / Executor | NOT STARTED | 遯ｶ繝ｻ|

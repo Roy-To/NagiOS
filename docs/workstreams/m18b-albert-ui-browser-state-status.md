@@ -27,6 +27,12 @@ reports that all three allowlisted pages were TLS verified and presented.
 The Darwin-only ELF linker adapter lets Mesa's existing `-latomic` target
 probe and target build complete; Linux retains its existing Clang/LLD path.
 The subsequent `./nagi m17` real-QEMU first-web-pixel regression also passes.
+The formal M18 Acceptance is now **PASS locally and in public CI**. CI run
+[`36517686132`](https://github.com/RT-NISH/NagiOS/actions/runs/36517686132),
+head `4dce31514f759646b801879b5200dbb2f5a04099`, completed all three jobs
+successfully. The `nagi-target` job passed Mesa Softpipe, M16 package, kernel,
+Nagi init, UEFI loader, M17 QEMU first-web-pixel acceptance, M18-B chrome
+acceptance, and the three-site M18 HTTPS/QEMU acceptance.
 
 M18-B's `BrowserState`, per-tab Servo view wiring, chrome composition,
 address-bar input/navigation, and VFS-backed bounded snapshot have now been
@@ -35,7 +41,11 @@ The latest focused Albert host suite passes 50 tests. Runtime services remain in
 clipboard delegate fails closed without a provider; file-picker requests are
 dismissed because Servo exposes host paths and Nagi has no capability-safe
 picker; IME controls have no input-service text events; site-permission
-requests are recorded and denied until a trusted prompt/broker is available;
+requests are recorded and denied until a trusted prompt/broker is available.
+Servo currently supplies the permission feature without the requesting
+document origin, so the fallback records the WebView's top-level URL and
+cannot safely attribute cross-origin subframe requests. Nagi's existing
+permission policy helper has no browser IPC or trusted prompt adapter;
 downloads have no pinned Servo callback or Nagi destination service, and
 uploads have no Nagi selection service. These hooks do not claim successful
 transfers or permission grants. The first pushed CI run (`36510598517`) stopped
@@ -49,7 +59,9 @@ depended on rustfmt whitespace. The current working tree fixes these issues.
 Fresh local checks pass for all 112 `nagi-cli`
 unit tests and 18 CLI tests, 50 M18 Albert tests, 16 `nagi-posix` tests, the
 affected Clippy targets, pinned format checks, and local M17/M18 real-QEMU
-acceptance. The new Ubuntu CI run is pending the next push.
+acceptance. The subsequent CI run `36517686132` passed Windows launcher,
+Ubuntu host, and `nagi-target`; its M18 Acceptance printed `PASS M18 Albert:
+three verified HTTPS pages rendered to Nagi Surface and QEMU`.
 
 ## Progress by phase
 
@@ -59,7 +71,7 @@ acceptance. The new Ubuntu CI run is pending the next push.
 - **D — Session restore:** Session/history/bookmark codecs and safe restore behavior are implemented. Corrupt/missing records are handled, and restored URLs produce normal typed navigation requests. Permissions, clipboard, downloads, and upload selections are deliberately reset.
 - **E — Permissions and transfer/clipboard state:** Typed permission, clipboard, upload, and download interfaces/state machines are implemented and covered with tests. Servo permission and clipboard hooks are connected to fail-closed guest boundaries. Real clipboard, file/object picker, download destination, upload selection, and trusted permission-prompt providers are still absent.
 - **F — IME/text path:** UTF-8 selection and composition commit/cancel are implemented and reachable through typed chrome actions. Text input is bounded; a rejected over-capacity commit preserves its preedit for recovery. Servo IME controls are recognized, but no Nagi input-service text/composition events reach them.
-- **G — Guest/UI verification:** The chrome renderer overlays the real Servo RGBA frame and presents it through the existing capability-checked Nagi Surface. The fresh `./nagi m18` path passed local target build and real-QEMU acceptance on 2026-09-29: address-bar navigation to `example.com` and three TLS-verified HTTPS pages (`example.com`, `example.org`, `example.net`) produced Servo frames with chrome presented on Nagi Surface. A fresh `./nagi m17` real-QEMU first-web-pixel regression also passes. CI's Servo patch-order failure and subsequent Mesa/host checks are repaired; the next Ubuntu target/QEMU run is pending.
+- **G — Guest/UI verification:** The chrome renderer overlays the real Servo RGBA frame and presents it through the existing capability-checked Nagi Surface. The fresh `./nagi m18` path passed local target build and real-QEMU acceptance on 2026-09-29: address-bar navigation to `example.com` and three TLS-verified HTTPS pages (`example.com`, `example.org`, `example.net`) produced Servo frames with chrome presented on Nagi Surface. A fresh `./nagi m17` real-QEMU first-web-pixel regression also passes. Public CI run `36517686132` confirms the unchanged Ubuntu Clang/LLD path, target image build, M17 QEMU regression, M18-B chrome acceptance, and M18 three-site HTTPS/QEMU acceptance.
 
 ## Verification so far
 
@@ -72,8 +84,9 @@ acceptance. The new Ubuntu CI run is pending the next push.
 - Chrome renderer regression: observed failing because the selected overflow tab and status/title were absent, then passed after rendering them.
 - URL length regression: observed canonical percent-encoding expand a valid input beyond the address/persistence bound, then passed after normalization rejects oversized results.
 - Earlier `./nagi m17` attempts stopped before target build/QEMU because the Darwin linker rejected Mesa's GNU ELF `-latomic` probe flags. The Darwin-only ELF linker adapter fixes that host/target mismatch without removing the probe; a fresh local M17 first-web-pixel acceptance passes.
-- CI run `36510598517` failed during Servo bootstrap on Windows and Ubuntu because patch `0021` required a cfg import that no earlier patch added. The patch now adds that import. Follow-up run `36512090928` passed bootstrap but exposed the Mesa `secure_getenv` fallback collision, three POSIX host Clippy errors, a `manual_is_multiple_of` lint, and the Windows source-contract test's whitespace assertion. The next run (`36516544370`) passed Mesa build setup and Windows checks but Clippy found a constant thread-count assertion; it now asserts the exact M17/M18 contract separately. All affected local tests, Clippy targets, and pinned format checks pass; another Ubuntu CI run is pending this repair.
-- Historical CI run `36375030426` targeted checkpoint `d8fc25c67c3865a8fed29abf20a777861ade5d5f`, before the current integrated branch and acceptance step. The current push will launch the authoritative Ubuntu run for this combined state.
+- CI run `36510598517` failed during Servo bootstrap on Windows and Ubuntu because patch `0021` required a cfg import that no earlier patch added. The patch now adds that import. Follow-up run `36512090928` passed bootstrap but exposed the Mesa `secure_getenv` fallback collision, three POSIX host Clippy errors, a `manual_is_multiple_of` lint, and the Windows source-contract test's whitespace assertion. The next run (`36516544370`) passed Mesa build setup and Windows checks but Clippy found a constant thread-count assertion; it now asserts the exact M17/M18 contract separately. All affected local tests, Clippy targets, and pinned format checks pass. The subsequent run `36517686132` is the successful full CI result below.
+- CI run `36517686132` at `4dce31514f759646b801879b5200dbb2f5a04099` completed successfully across Windows launcher, Ubuntu host, and `nagi-target`. The target job retained Mesa's `-latomic` probe, built the image, passed the M17 first-web-pixel QEMU regression and M18-B chrome check, then passed `./nagi m18` with three verified HTTPS pages on Nagi Surface/QEMU.
+- Historical CI run `36375030426` targeted checkpoint `d8fc25c67c3865a8fed29abf20a777861ade5d5f`, before the current integrated branch and acceptance step. The authoritative result for this combined state is CI run `36517686132`.
 - The workflow runs `tests/acceptance/m18b_albert_ui_browser_state.sh` after M17 first-web-pixel acceptance, reusing that boot's serial log, then runs `./nagi m18` for the three-site HTTPS acceptance.
 
 ## Build attempt and environment notes
@@ -91,8 +104,8 @@ Earlier Mesa attempts temporarily modified their generated relibc checkout; that
 
 ## Remaining blockers and exact next actions
 
-1. Commit and push the compatibility/CI repairs on `codex/m18-main-albert-browser`, then inspect the new Ubuntu target/QEMU CI run; record whether the unchanged Ubuntu Clang/LLD path and M18 acceptance pass.
-2. Implement real provider connections only when the corresponding Nagi capability-safe service APIs exist: clipboard, object-based File Picker/upload, download destination, IME text/composition events, and trusted site-permission prompts. Preserve fail-closed behavior until then.
-3. Keep this workstream `PARTIAL` while those M18 deliverables remain outstanding, even though the basic-browser HTTPS/QEMU Acceptance now passes. Do not force-push or merge to `main`.
+1. The compatibility/CI repairs are committed and pushed on `codex/m18-main-albert-browser`; CI run `36517686132` confirms the unchanged Ubuntu Clang/LLD route and M18 Acceptance pass.
+2. Continue real provider connections only through capability-safe Nagi services. The current repository has no download destination, File Picker/upload, clipboard, IME text/composition, or interactive site-permission provider; keep these paths fail-closed until those service contracts exist. Site-permission requests are recorded and denied locally, not granted through Nagi Permission Service.
+3. Keep this workstream `PARTIAL` while those M18 deliverables remain outstanding. The formal basic-browser HTTPS/QEMU Acceptance is `PASS`. Do not force-push or merge to `main`.
 
-M18-B remains **PARTIAL** until the required runtime services are integrated. The main worktree has a target-tested input/navigation loop, bounded persistent browser snapshot, and a passing real-QEMU three-site HTTPS Acceptance. Ubuntu CI confirmation and the capability-safe service providers remain outstanding.
+M18-B remains **PARTIAL** until the required runtime services are integrated. The main worktree has a target-tested input/navigation loop, bounded persistent browser snapshot, and passing local and Ubuntu CI real-QEMU three-site HTTPS Acceptance. Capability-safe service providers remain outstanding.
