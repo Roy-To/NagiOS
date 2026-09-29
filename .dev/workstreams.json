@@ -133,6 +133,41 @@
       "merge_boundary": "Dedicated integration branch codex/integration-next-phase only; never merge to main without explicit user direction."
     },
     {
+      "id": "job-01",
+      "owner": "Codex JOB-01 Background Job / Task Scheduler Foundation",
+      "owner_branch": "codex/0.2-job-01",
+      "recommended_worktree": "../../.codex/worktrees/job-01/NagiOS",
+      "state_file": ".dev/workstreams/job-01/state.json",
+      "dependencies": [
+        "development-foundation",
+        "capability-permissions",
+        "diagnostics"
+      ],
+      "allowed_paths": [
+        "crates/nagi-job-scheduler/**",
+        "tests/job-scheduler/**",
+        ".dev/workstreams/job-01/**",
+        "docs/workstreams/NagiOS_0.2_Background_Job_Task_Scheduler_Foundation_Workstream.md"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "sdk/**",
+        "third_party/**",
+        "out/**",
+        "target/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/**",
+        ".dev/workstreams.json",
+        ".dev/schemas/**",
+        "docs/implementation_status.md"
+      ],
+      "activation_gate": "Host-only provider-neutral contracts, deterministic in-memory scheduling, and fake providers are prepared on this assigned branch. Production persistence, system-service startup, real providers, target scheduling, and shared runtime integration require Nagi 0.1 M30 PASS plus an explicit Integration Owner checkpoint naming JOB-01.",
+      "merge_boundary": "Dedicated Nagi 0.2 JOB-01 branch codex/0.2-job-01; integrate only after dependency contracts and focused checks pass, and never merge directly to main."
+    },
+    {
       "id": "os-core",
       "owner": "unassigned",
       "owner_branch": "codex/0.2-os-core",

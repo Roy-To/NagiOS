@@ -1,0 +1,47 @@
+{
+  "proposal_status": "REGISTERED",
+  "approved_base_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+  "assigned_owner": "Codex JOB-01 Background Job / Task Scheduler Foundation",
+  "assigned_branch": "codex/0.2-job-01",
+  "actual_worktree": "/Users/tozawa/.codex/worktrees/job-01/NagiOS",
+  "registry_entry": {
+    "id": "job-01",
+    "owner": "Codex JOB-01 Background Job / Task Scheduler Foundation",
+    "owner_branch": "codex/0.2-job-01",
+    "recommended_worktree": "../../.codex/worktrees/job-01/NagiOS",
+    "state_file": ".dev/workstreams/job-01/state.json",
+    "dependencies": [
+      "development-foundation",
+      "capability-permissions",
+      "diagnostics"
+    ],
+    "allowed_paths": [
+      "crates/nagi-job-scheduler/**",
+      "tests/job-scheduler/**",
+      ".dev/workstreams/job-01/**",
+      "docs/workstreams/NagiOS_0.2_Background_Job_Task_Scheduler_Foundation_Workstream.md"
+    ],
+    "forbidden_paths": [
+      "kernel/**",
+      "loader/**",
+      "user/**",
+      "sdk/**",
+      "third_party/**",
+      "out/**",
+      "target/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      ".github/workflows/**",
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      "docs/implementation_status.md"
+    ],
+    "activation_gate": "Host-only provider-neutral contracts, deterministic in-memory scheduling, and fake providers are prepared on this assigned branch. Production persistence, service startup, real providers, target scheduling, and shared runtime integration require Nagi 0.1 M30 PASS plus an explicit Integration Owner checkpoint naming JOB-01.",
+    "merge_boundary": "Dedicated Integration Owner-approved Nagi 0.2 integration branch only; do not merge to main or another workstream branch."
+  },
+  "notes": [
+    "The registry entry and owner/branch assignment are now recorded on the dedicated JOB-01 branch. The approved base SHA is recorded above.",
+    "The dependency list contains only currently registered hard-contract owners. Future job consumers and product providers remain contract relationships, not registry dependencies.",
+    "M30 and an explicit JOB-01 activation checkpoint remain required before production/runtime work; host-only foundation work is authorized on this branch."
+  ]
+}
