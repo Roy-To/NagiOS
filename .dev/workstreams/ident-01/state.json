@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "ident-01",
   "current_milestone": "IDENT-01 host-reference implementation and owner registration",
-  "current_checkpoint": "registered dedicated branch; root verifier validates IDENT-01 state; registration commit pending",
+  "current_checkpoint": "owner registration committed; post-commit host checks and root verifier pass; push and CI pending",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "1f1415f2e3879fe249f42c0636317b048bb54276",
-    "verified_at": "2026-09-29T05:14:50Z",
-    "normal_state": "Host-reference source is committed on codex/0.2-ident-01 at 1f1415f2e3879fe249f42c0636317b048bb54276, based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. The pinned nightly aarch64 toolchain passed 23 host contract tests, rustfmt, and Clippy. With the Integration Owner registration/state changes present in the working tree, `./nagi dev verify` passed for 19 registered workstreams and validated 12 state files, including IDENT-01. Registration commit, final source recheck, push, remote equality, CI, and clean status remain pending. M17 remains BLOCKED and M30 NOT STARTED; host evidence is not production acceptance.",
+    "commit_sha": "d1efc9fcf1579749d0c15e48b2e934bb3d0782bb",
+    "verified_at": "2026-09-29T05:16:09Z",
+    "normal_state": "The owner-assigned branch codex/0.2-ident-01 is at d1efc9fcf1579749d0c15e48b2e934bb3d0782bb, based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. Post-registration-commit focused tests passed (23/23), rustfmt and Clippy passed, and the root DF-01 verifier validated 19 registered workstreams and 12 state files including IDENT-01. `nagi dev status` reported PARTIAL with the live M30/checkpoint and dependency blockers and a clean worktree. Only state evidence is being updated now; push, remote equality, and CI remain pending. Host-only results do not satisfy production acceptance.",
     "commands": [
       "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test --manifest-path crates/nagi-identity-session/Cargo.toml --locked --offline",
       "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path crates/nagi-identity-session/Cargo.toml -- --check",
@@ -38,63 +38,63 @@
         "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test --manifest-path crates/nagi-identity-session/Cargo.toml --locked --offline",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Nightly aarch64 toolchain selected for both Cargo and rustc. 23 contract tests passed; 0 failed; unit tests and doctests had 0 tests. Negative coverage includes guest cleanup, cross-user/profile and caller/principal denial, stale/expired sessions, malformed/corrupt/unsupported state, interrupted commit, principal denial, migration failures, and stale-store conflict."
+        "evidence": "At committed registration HEAD d1efc9fcf1579749d0c15e48b2e934bb3d0782bb: 23 contract tests passed, 0 failed. The suite covers offline local users/profiles, guest cleanup, cross-profile/caller/principal deny, stale/expired sessions and leases, corrupt/unsupported state, interrupted commit, recovery, and migration. Host reference only."
       },
       {
         "name": "IDENT-01 formatting",
         "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path crates/nagi-identity-session/Cargo.toml -- --check",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Standalone identity-session package and contract test passed rustfmt check."
+        "evidence": "At committed registration HEAD d1efc9fcf1579749d0c15e48b2e934bb3d0782bb: standalone package and contract tests passed rustfmt check."
       },
       {
         "name": "IDENT-01 Clippy",
         "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy --manifest-path crates/nagi-identity-session/Cargo.toml --all-targets --locked --offline -- -D warnings",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "All identity-session package targets passed Clippy with warnings denied."
+        "evidence": "At committed registration HEAD d1efc9fcf1579749d0c15e48b2e934bb3d0782bb: all package targets passed Clippy with warnings denied."
       },
       {
         "name": "DF-01 repository state verifier",
         "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev verify",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Output: `PASS development state: 19 registered workstreams, 12 state files validated; branch codex/0.2-ident-01 at 1f1415f2e3879fe249f42c0636317b048bb54276`. This run used the working-tree Integration Owner registration row and state; owner registration commit was pending."
+        "evidence": "At committed registration HEAD d1efc9fcf1579749d0c15e48b2e934bb3d0782bb, output: `PASS development state: 19 registered workstreams, 12 state files validated; branch codex/0.2-ident-01 at d1efc9fcf1579749d0c15e48b2e934bb3d0782bb`."
       },
       {
         "name": "IDENT-01 staged change whitespace check",
         "command": "git diff --check",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "`git diff --check` passed for tracked registration and feature changes; a separate UTF-8 trailing-whitespace scan of the state, proposal, and registry JSON passed."
+        "evidence": "`git diff --check` passed for feature and owner-registration commits; standard-library scan of registry/state/proposal JSON found no trailing whitespace."
       },
       {
         "name": "IDENT-01 branch push and remote equality",
         "command": "git push origin codex/0.2-ident-01; git ls-remote --heads origin refs/heads/codex/0.2-ident-01",
         "outcome": "NOT_RUN",
         "exit_code": null,
-        "evidence": "Working-tree validation passed; the assigned branch push and remote equality check are pending final commits."
+        "evidence": "The owner-registration commit is now complete; push and remote equality check are the next action."
       },
       {
         "name": "IDENT-01 GitHub Actions CI",
         "command": "gh run list --branch codex/0.2-ident-01",
         "outcome": "NOT_RUN",
         "exit_code": null,
-        "evidence": "CI is checked after pushing the assigned branch; no shared CI workflow changes are in scope."
+        "evidence": "CI will be checked after pushing codex/0.2-ident-01; no shared CI workflow changes are in scope."
       },
       {
         "name": "IDENT-01 registry/proposal/state JSON structure",
         "command": "python3 standard-library JSON/state/registry structural validation",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "All three JSON documents parsed; ident-01 is unique, its branch is codex/0.2-ident-01, all hard registry dependency IDs exist, and no trailing whitespace was found. Root `./nagi dev verify` also validates the state against DF-01 v1."
+        "evidence": "Registry, proposal, and state parsed. The ident-01 row is unique, has an exact assigned branch/worktree, and all hard dependency IDs exist. Root `./nagi dev verify` validates the registered state against DF-01 v1."
       },
       {
         "name": "DF-01 current workstream status",
         "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev status",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "The verifier resolved ident-01 to owner Codex IDENT-01 workstream (assigned by Codex integration owner), branch codex/0.2-ident-01, PARTIAL status, the live M30/checkpoint and contract blocker, and the next concrete action. Worktree DIRTY was expected before the separate owner-registration commit."
+        "evidence": "At committed registration HEAD d1efc9fcf1579749d0c15e48b2e934bb3d0782bb, `./nagi dev status` resolved owner and branch, reported PARTIAL and the live M30/dependency blockers, and reported Worktree: clean."
       }
     ],
     "ci_runs": []
@@ -127,7 +127,7 @@
       "Do not edit root Cargo configuration, CI, shared schemas/IDL, another workstream source/state, or push/merge main or another owner branch."
     ]
   },
-  "next_action": "After final registered-state verification and owner-registration commit, rerun the focused suite, root verifier, diff check, and state checks; push only codex/0.2-ident-01 and confirm origin HEAD equality and GitHub Actions status. For production acceptance, the Integration Owner must retain the M30/checkpoint gate, obtain a versioned trusted-caller/session-to-PrincipalId contract from the Capability owner, and designate/create a Storage/VFS owner with a versioned opaque profile-root contract before any production persistence or service integration.",
+  "next_action": "Push only codex/0.2-ident-01, verify origin HEAD equals the pushed SHA, inspect the resulting GitHub Actions run, then record its exact result in this state and push the state update. For later production acceptance, the Integration Owner must retain the M30/checkpoint gate, obtain a versioned trusted-caller/session-to-PrincipalId contract from the Capability owner, and designate/create a Storage/VFS owner with a versioned opaque profile-root contract before production persistence or service integration.",
   "acceptance_criteria": [
     "PASS HOST-REFERENCE ONLY — UserId adapts the existing model ID with validation; ProfileId and identity SessionId are separate validated types; canonical capability PrincipalId is reused and app/runtime IDs, PID, SurfaceId, paths, and display names remain distinct.",
     "PASS HOST-REFERENCE ONLY — Local users, multiple profiles, and guest/ephemeral sessions operate offline through deterministic host fakes; no cloud/network authentication exists.",
@@ -141,7 +141,7 @@
     "PASS — No M18 code, user/nagi-init, shared capability policy, SDK, shared IDL/ABI, root Cargo configuration, CI, or unrelated workstream source/state was changed by IDENT feature implementation. Registry row changes are an isolated Integration Owner registration action.",
     "PASS — IDENT-01 has an assigned owner, codex/0.2-ident-01 branch, base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9, and dedicated managed worktree recorded in the registration row.",
     "PASS — Root `./nagi dev verify` validates the IDENT-01 registry row and DF-01 state on the dedicated branch.",
-    "PARTIAL — Focused host package checks pass; final push, remote equality, final clean worktree, and CI are pending.",
+    "PARTIAL — Focused host package checks and root state verification pass; dedicated-branch push, remote equality, final clean worktree, and CI are pending.",
     "BLOCKED BY RELEASE GATE — Production login, durable runtime store, real profile-root storage, versioned capability binding/enforcement, target integration, and full production acceptance require M30 PASS and an explicit Nagi 0.2 checkpoint naming IDENT-01."
   ],
   "deferred": [
