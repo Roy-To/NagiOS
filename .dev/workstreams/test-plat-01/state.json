@@ -6,9 +6,9 @@
   "current_checkpoint": "host-only-acceptance-verified-ci-owner-action-needed",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "d8de6ac495a105ed15f579ab67a1d76bfe2451ea",
-    "verified_at": "2026-09-29T07:19:33Z",
-    "normal_state": "TEST-PLAT-01 is formally registered and its host-only harness acceptance is complete: 10/10 offline tests, format, Clippy, root verifier, ownership audit, and host-escape scan pass. The owned branch codex/0.2-test-plat-01 is pushed and was verified at d8de6ac495a105ed15f579ab67a1d76bfe2451ea with a clean worktree. Shared CI run 36534477138 on the test branch had both host jobs pass and its automatic nagi-target job was cancelled during setup before target builds. Separately, owner branch push run 36531720959 had both host jobs pass, built target components, invoked `./nagi test --acceptance --target-only --milestone M17 --ci`, and was cancelled 11m48s into `nagi m17`; no final M17 acceptance result is available and it is not PASS. This happened because the existing shared push workflow automatically includes nagi-target; no workflow file was edited. A CI_INFRA blocker now prevents further implementation pushes until the Integration Owner coordinates the CI owner or holds pushes. M17 remains BLOCKED and M30 remains NOT STARTED; no target/product acceptance is claimed.",
+    "commit_sha": "0166c7459f32c0d3abb2ae76c6c0597c06139e63",
+    "verified_at": "2026-09-29T07:22:30Z",
+    "normal_state": "TEST-PLAT-01 is formally registered and its host-only harness acceptance is complete: 10/10 offline tests, format, Clippy, root verifier, ownership audit, and host-escape scan pass. The assigned branch codex/0.2-test-plat-01 was verified at 0166c7459f32c0d3abb2ae76c6c0597c06139e63 matching origin with a clean worktree. Shared CI run 36534477138 on the test branch had both host jobs pass and its automatic nagi-target job was cancelled during setup. Separately, owner branch push run 36531720959 had both host jobs pass, built target components, invoked `./nagi test --acceptance --target-only --milestone M17 --ci`, and was cancelled 11m48s into `nagi m17`; no final M17 acceptance result is available and it is not PASS. This happened because the existing shared push workflow automatically includes nagi-target; no workflow file was edited. A CI_INFRA blocker now prevents further implementation pushes until the Integration Owner coordinates the CI owner or holds pushes. M17 remains BLOCKED and M30 remains NOT STARTED; no target/product acceptance is claimed.",
     "commands": [
       "git status --short --branch — PASS: baseline codex/integration-next-phase; unrelated dirty/untracked workstream files preserved and never staged.",
       "git rev-parse HEAD — PASS: approved base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9.",
@@ -48,7 +48,10 @@
       "gh run download 36531720959 --name m17-diagnostics-36531720959 — PASS: captured artifact shows m17-acceptance.stdout.log empty and m17-acceptance.stderr.log only reaches `Running target/debug/nagi m17`; no completed acceptance result.",
       "gh run view 36534477138 --json status,conclusion,jobs — PASS: test-branch run conclusion cancelled; Ubuntu/Windows host jobs succeeded; target setup ended at Mesa generator installation and subsequent target/M17 build steps were skipped.",
       "Integration Owner worktree check — PASS: codex/integration-next-phase remains at pushed commit 3fc25791ca8373121b5ddfab5944f434298f2165; pre-existing unrelated untracked workstream files remain present and untouched.",
-      "CI run status recorded without marking either cancelled workflow or M17/product/target acceptance as PASS."
+      "CI run status recorded without marking either cancelled workflow or M17/product/target acceptance as PASS.",
+      "./nagi dev verify after recording both automatic-CI gate outcomes — PASS: 19 registered workstreams and 12 state files validated at 0166c7459f32c0d3abb2ae76c6c0597c06139e63.",
+      "git rev-parse HEAD && git ls-remote --heads origin refs/heads/codex/0.2-test-plat-01 — PASS at the same checkpoint: local and remote HEAD both 0166c7459f32c0d3abb2ae76c6c0597c06139e63.",
+      "git status --short --branch — PASS at the same checkpoint: owned worktree clean and tracking origin/codex/0.2-test-plat-01."
     ],
     "tests": [
       {
@@ -183,6 +186,13 @@
         "outcome": "FAIL",
         "exit_code": null,
         "evidence": "The existing workflow ran `./nagi test --acceptance --target-only --milestone M17 --ci`; log reports RUN M17-FIRST-WEB-PIXEL and the operation was canceled 11m48s later. Diagnostic artifact stdout is empty and stderr only shows `Running target/debug/nagi m17`. FAIL denotes an incomplete/canceled execution, not an assertion failure; no M17 acceptance result or PASS is available. The automatic target job was outside the user-authorized host-only scope."
+      },
+      {
+        "name": "Final state and registry verifier after CI gate incident recording",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 19 registered workstreams, 12 state files validated; branch codex/0.2-test-plat-01 at 0166c7459f32c0d3abb2ae76c6c0597c06139e63. This validates the incident record, active CI_INFRA blocker, CI run entries, and acceptance/status fields."
       }
     ],
     "ci_runs": [
@@ -206,7 +216,7 @@
   },
   "release_line_gate": {
     "source": "Integration Owner registration in .dev/workstreams.json; TEST-PLAT-01 spec; docs/implementation_status.md",
-    "last_checked_at": "2026-09-29T07:19:33Z",
+    "last_checked_at": "2026-09-29T07:22:30Z",
     "activation_requirement": "Host-only deterministic harness implementation is active before M30 on codex/0.2-test-plat-01. Production/runtime services, target/QEMU, product-acceptance claims, and shared CI/workspace integration require M30 PASS plus a separate explicit Integration Owner checkpoint naming TEST-PLAT-01. M17 is BLOCKED and M30 is NOT STARTED."
   },
   "blocker": {
