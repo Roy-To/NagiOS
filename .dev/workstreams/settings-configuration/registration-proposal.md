@@ -8,7 +8,7 @@ The source definition is docs/workstreams/NagiOS_0.2_Settings_Configuration_Foun
 
 ## Activation audit
 
-The gate is closed. docs/implementation_status.md records M17 as BLOCKED, M18 as NOT STARTED, and M30 as NOT STARTED. ./nagi dev status on codex/integration-next-phase requires M30 PASS and an explicit release-boundary checkpoint before 0.2 runtime/product work. No M30 PASS or explicit checkpoint is recorded in the checked-in status or active integration state.
+The gate is closed. Per the current GitHub status confirmed by the user, M17 is PASS; M18 is PARTIAL (its browser Acceptance is PASS, while some provider integrations remain incomplete); M30 has not reached PASS. Settings runtime activation still requires M30 PASS and an explicit 0.2 integration checkpoint. Settings remains NOT_STARTED and awaits Integration Owner registry registration; this branch contains preparation only and does not implement Settings runtime/API code or runtime tests.
 
 This branch therefore contains preparation only. It does not implement Settings runtime/API code or runtime tests.
 

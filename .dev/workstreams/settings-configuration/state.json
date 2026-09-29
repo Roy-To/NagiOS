@@ -8,7 +8,7 @@
   "last_verified": {
     "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
     "verified_at": "2026-09-28T22:34:18Z",
-    "normal_state": "Settings is absent from .dev/workstreams.json and has no implementation crate. Checked status: M17 BLOCKED, M18 NOT STARTED, M30 NOT STARTED. Integration requires M30 PASS and an explicit release-boundary checkpoint. The gate is closed, so only the registration proposal and this state were prepared; no runtime/API implementation was attempted. The proposed state was also accepted by the repository DF-01 validator in an isolated temporary registry fixture (19 registered streams, 1 state file). Direct Python JSON Schema validation was unavailable because jsonschema is not installed; JSON syntax and the repository validator were used without changing the shared registry. Hosted CI run 36492298777 at head f62d2dfc00b1e680b0e03a2477a677b14c791275 failed the same existing dev_status_resume_and_verify_read_the_registered_workstream test on Ubuntu and Windows because this branch is not registered. The target job was skipped. The shared registry is Integration Owner-owned, so the exact registration/CI blocker is recorded in the proposal.",
+    "normal_state": "Settings is absent from .dev/workstreams.json and has no implementation crate. Per the current GitHub status confirmed by the user, M17 is PASS; M18 is PARTIAL (its browser Acceptance is PASS, while some provider integrations remain incomplete); M30 has not reached PASS. The runtime gate remains closed pending M30 PASS and an explicit 0.2 integration checkpoint. Only the registration proposal and this state are prepared; no runtime/API implementation was attempted. The proposed state was also accepted by the repository DF-01 validator in an isolated temporary registry fixture (19 registered streams, 1 state file). Direct Python JSON Schema validation was unavailable because jsonschema is not installed; JSON syntax and the repository validator were used without changing the shared registry. Hosted CI run 36492298777 at head f62d2dfc00b1e680b0e03a2477a677b14c791275 failed the same existing dev_status_resume_and_verify_read_the_registered_workstream test on Ubuntu and Windows because this branch is not registered. The target job was skipped. The shared registry is Integration Owner-owned, so the exact registration/CI blocker is recorded in the proposal.",
     "commands": [
       "git status --short --branch",
       "git diff --; git diff --cached --",
@@ -41,7 +41,7 @@
         "command": "./nagi dev status; inspect docs/implementation_status.md",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "The integration status requires M30 PASS and a release-boundary checkpoint. The 0.1 table records M17 BLOCKED, M18 NOT STARTED, M30 NOT STARTED; no explicit checkpoint was found."
+        "evidence": "The earlier checked-in audit snapshot was superseded by the current GitHub status confirmed by the user: M17 PASS; M18 PARTIAL (browser Acceptance PASS; some provider integrations incomplete); M30 has not reached PASS. The Settings runtime gate remains closed pending M30 PASS and an explicit 0.2 integration checkpoint. This is a state correction; no runtime acceptance was run."
       },
       {
         "name": "initial isolated validation fixture setup",
@@ -105,7 +105,7 @@
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "Activation gate is closed: M17 BLOCKED; M18 and M30 NOT STARTED; no explicit M30 PASS or 0.2 integration checkpoint. Registration is pending. CI 36492298777 confirms the existing dev status CLI test rejects the unregistered owned branch on both hosts; the shared registry is Integration Owner-owned.",
+    "summary": "Activation gate is closed: M17 PASS; M18 PARTIAL (browser Acceptance PASS; some provider integrations remain incomplete); M30 has not reached PASS. Settings runtime activation remains pending M30 PASS and an explicit 0.2 integration checkpoint. Registration is pending Integration Owner action. CI 36492298777 confirms the existing dev status CLI test rejects the unregistered owned branch on both hosts; the shared registry is Integration Owner-owned.",
     "reproduction_commands": [
       "./nagi dev status",
       "rg -n '^\\| M(17|18|30) \\|' docs/implementation_status.md",
