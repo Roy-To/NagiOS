@@ -1,0 +1,234 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "job-01",
+  "current_milestone": "JOB-01 host-only scheduler foundation",
+  "current_checkpoint": "registered-foundation-validated-implementation-commit-recorded",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "949d367433b5becf5cb1d51a9d737a1e8091aac6",
+    "verified_at": "2026-09-29T05:21:18Z",
+    "normal_state": "JOB-01 is registered to Codex JOB-01 Background Job / Task Scheduler Foundation on codex/0.2-job-01, based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. The owned implementation, proposal, workstream spec, and registry row are committed as 949d367433b5becf5cb1d51a9d737a1e8091aac6; focused tests, format, Clippy, and the root verifier passed on that dedicated worktree. The root verifier validates 19 registered workstreams and 12 state files, including JOB-01. M17 remains BLOCKED and M30 NOT STARTED; production/runtime acceptance remains closed.",
+    "commands": [
+      "CARGO_TARGET_DIR=/tmp/nagi-job-01-target-arm64 RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc CC=/usr/bin/clang AR=/usr/bin/ar PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:/usr/bin:/bin:/usr/sbin:/sbin cargo test --manifest-path crates/nagi-job-scheduler/Cargo.toml --locked --offline -- --test-threads=1",
+      "CARGO_TARGET_DIR=/tmp/nagi-job-01-target-arm64 RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc CC=/usr/bin/clang AR=/usr/bin/ar PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:/usr/bin:/bin:/usr/sbin:/sbin cargo clippy --manifest-path crates/nagi-job-scheduler/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:/usr/bin:/bin:/usr/sbin:/sbin cargo fmt --manifest-path crates/nagi-job-scheduler/Cargo.toml -- --check",
+      "./nagi dev verify",
+      "python3 -m json.tool .dev/workstreams/job-01/state.json",
+      "python3 -m json.tool .dev/workstreams/job-01/registration-proposal.json",
+      "git diff --check",
+      "git rev-parse HEAD",
+      "git status --short --untracked-files=all",
+      "git diff --cached --check"
+    ],
+    "tests": [
+      {
+        "name": "JOB-01 deterministic host scheduler tests",
+        "command": "CARGO_TARGET_DIR=/tmp/nagi-job-01-target-arm64 with pinned nightly-2025-08-01-aarch64-apple-darwin RUSTC and /usr/bin/clang: cargo test --manifest-path crates/nagi-job-scheduler/Cargo.toml --locked --offline -- --test-threads=1",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Re-run after commit 949d367433b5becf5cb1d51a9d737a1e8091aac6 in the dedicated JOB-01 worktree: 22 tests passed, 0 failed; doc-tests passed (0 tests). Coverage includes versioned metadata-only records, dependency order/failure/cycle behavior, bounded retry/deadlines, atomic dedupe/claims, concurrency/queue/fairness bounds, cancellation/timeouts, permission changes, restart recovery and non-idempotent deferral, progress redaction/rate bounds, provider registration, and store failures. This is deterministic host-only acceptance."
+      },
+      {
+        "name": "Timeout/refresh CAS race found before repair",
+        "command": "cargo test --manifest-path crates/nagi-job-scheduler/Cargo.toml --locked --offline -- --test-threads=1",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The cancellation_propagates_to_child_work_and_timeout_uses_virtual_time test observed Store(Conflict) at tests.rs:952 when dispatch refresh raced handler completion at the deadline. Fixed refresh transitions to treat stale-revision conflicts as concurrent progress and to signal cancellation only after its CAS commits."
+      },
+      {
+        "name": "Timeout/refresh CAS regression",
+        "command": "Python 3 subprocess loop running the isolated timeout/refresh CAS regression 100 times",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The isolated cancellation/timeout regression passed 100 of 100 runs after the CAS conflict handling change."
+      },
+      {
+        "name": "Timeout/refresh CAS focused rerun",
+        "command": "cargo test --manifest-path crates/nagi-job-scheduler/Cargo.toml --locked --offline tests::cancellation_propagates_to_child_work_and_timeout_uses_virtual_time -- --exact --nocapture",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The previously failing regression passed in isolation after the targeted fix."
+      },
+      {
+        "name": "JOB-01 formatting",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:/usr/bin:/bin:/usr/sbin:/sbin cargo fmt --manifest-path crates/nagi-job-scheduler/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Format check passed after implementation commit 949d367433b5becf5cb1d51a9d737a1e8091aac6 in the dedicated worktree."
+      },
+      {
+        "name": "JOB-01 Clippy",
+        "command": "CARGO_TARGET_DIR=/tmp/nagi-job-01-target-arm64 with pinned nightly-2025-08-01-aarch64-apple-darwin RUSTC and /usr/bin/clang: cargo clippy --manifest-path crates/nagi-job-scheduler/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets passed with warnings denied after implementation commit 949d367433b5becf5cb1d51a9d737a1e8091aac6 in the dedicated worktree."
+      },
+      {
+        "name": "DF-01 registered workstream/state verifier",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS after registering job-01: 19 registered workstreams and 12 state files validated on codex/0.2-job-01 at implementation commit 949d367433b5becf5cb1d51a9d737a1e8091aac6; the registered JOB-01 state is included."
+      },
+      {
+        "name": "JOB-01 state schema validation",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The DF-01 root verifier passed after registration and validated this state against the checked-in schema as one of 12 registered state files."
+      },
+      {
+        "name": "JOB-01 registration proposal JSON syntax",
+        "command": "python3 -m json.tool .dev/workstreams/job-01/registration-proposal.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Proposal JSON parsed successfully; it remains proposal-only and is not validated as an entry in .dev/workstreams.json."
+      },
+      {
+        "name": "JOB-01 owned-file whitespace and final newline check",
+        "command": "Python 3 standard-library whitespace/final-newline check for the 11 JOB-01-owned files",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 11 owned manifest, lock, Rust, state, and proposal files have a final newline and no trailing spaces or tabs."
+      },
+      {
+        "name": "Optional full JSON Schema validator availability",
+        "command": "python3 -c 'import jsonschema'",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "ModuleNotFoundError: No module named 'jsonschema'. No package was installed; the state was checked with a standard-library validator against the checked-in schema instead."
+      },
+      {
+        "name": "Initial implementation compile check (repaired)",
+        "command": "cargo check --manifest-path crates/nagi-job-scheduler/Cargo.toml --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The first compile exposed missing public exports/serde derives, invalid byte-string literals, and ownership/borrow errors. These were fixed; the final test and Clippy builds compile the crate successfully."
+      },
+      {
+        "name": "Initial scheduler tests (repaired)",
+        "command": "cargo test --manifest-path crates/nagi-job-scheduler/Cargo.toml --locked --offline -- --test-threads=1",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "The first full run had five assertion failures and two pause-fixture waits. Causes were an uncommitted RetryWait transition, missing scheduler tick in a dependency fixture, replay incorrectly constrained by retry count, insufficient virtual aging time, and an earlier unsupported queued job selected before the pause fixture. Each cause was corrected and isolated tests plus the final 22-test suite passed."
+      },
+      {
+        "name": "Initial Clippy findings (repaired)",
+        "command": "cargo clippy --manifest-path crates/nagi-job-scheduler/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Clippy found an eight-argument event constructor, a large DispatchResult variant, and redundant callback closures. The constructor now takes a details value, the record variant is boxed, and closures are passed directly; the final Clippy run passes."
+      },
+      {
+        "name": "Production/target scheduler acceptance",
+        "command": "Not run; M30 and the explicit JOB-01 runtime checkpoint are closed.",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "No production queue, system-service startup, real Update/Search/Wayback provider, target scheduler, QEMU acceptance, or external side effect was implemented or tested."
+      },
+      {
+        "name": "Dedicated-worktree first compile with mixed host tools/artifacts",
+        "command": "cargo test --manifest-path crates/nagi-job-scheduler/Cargo.toml (default /usr/local Homebrew cargo-rustc and existing target cache)",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The host selected x86_64 Homebrew cargo/rustc while the machine and pinned rustup toolchain are arm64; linker/build-script loading failed. An explicit pinned rustc then ran all 22 unit tests but doc-tests failed E0514 because earlier failed attempts had left incompatible artifacts in the shared target directory."
+      },
+      {
+        "name": "Dedicated-worktree scheduler tests with isolated ARM64 toolchain and target directory",
+        "command": "CARGO_TARGET_DIR=/tmp/nagi-job-01-target-arm64 RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc CC=/usr/bin/clang AR=/usr/bin/ar PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:/usr/bin:/bin:/usr/sbin:/sbin cargo test --manifest-path crates/nagi-job-scheduler/Cargo.toml --locked --offline -- --test-threads=1",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Using the matching ARM64 pinned toolchain, Apple clang, and a fresh target directory avoided the incompatible artifact cache; 22 unit tests and doc-tests passed."
+      },
+      {
+        "name": "Dedicated-worktree format check",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:/usr/bin:/bin:/usr/sbin:/sbin cargo fmt --manifest-path crates/nagi-job-scheduler/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Pinned toolchain formatting check passed on the dedicated branch."
+      },
+      {
+        "name": "Dedicated-worktree Clippy with warnings denied",
+        "command": "CARGO_TARGET_DIR=/tmp/nagi-job-01-target-arm64 RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc CC=/usr/bin/clang AR=/usr/bin/ar PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:/usr/bin:/bin:/usr/sbin:/sbin cargo clippy --manifest-path crates/nagi-job-scheduler/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets passed after isolating the ARM64 toolchain and target directory."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md; docs/0.2/WORKSTREAMS.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md; docs/workstreams/NagiOS_0.2_Background_Job_Task_Scheduler_Foundation_Workstream.md; .dev/workstreams.json",
+    "last_checked_at": "2026-09-29T05:19:51Z",
+    "activation_requirement": "Host-only provider-neutral contracts and deterministic fakes may proceed on the assigned branch. Production persistence, system-service startup, real providers, target scheduling, and shared runtime integration require Nagi 0.1 M30 PASS plus an explicit Integration Owner checkpoint naming JOB-01. M17 remains BLOCKED and M30 NOT STARTED."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Host-only JOB-01 foundation and its dedicated branch checks pass. Production/runtime acceptance remains blocked because M17 is BLOCKED, M30 is NOT STARTED, and no explicit JOB-01 activation checkpoint exists.",
+    "reproduction_commands": [
+      "rg -n '^\\| M17 \\||^\\| M30 \\|' docs/implementation_status.md",
+      "jq -r .release_line_gate.activation_requirement .dev/workstreams/job-01/state.json",
+      "git status --short --branch"
+    ],
+    "failure_log_summary": "A timeout/refresh compare-and-swap race was fixed and passed 100 isolated regression runs. The first dedicated-worktree compile selected x86_64 Homebrew Rust tools and then reused mixed target artifacts, causing linker/E0514 failures; an isolated target directory with the pinned ARM64 nightly and /usr/bin/clang resolved the host-tool issue. The committed branch then passed 22 focused tests, format, Clippy with warnings denied, and the registered DF-01 verifier. Production/target acceptance and CI were not run.",
+    "attempted_fixes": [
+      "Registered job-01 with its three registered hard-contract dependencies and assigned owner/branch.",
+      "Created a managed dedicated worktree at the approved base SHA and created codex/0.2-job-01 there.",
+      "Copied only the JOB-01 crate, workstream state/proposal, and JOB-01 workstream specification; excluded build artifacts and all other workstreams.",
+      "Re-ran committed JOB-01 tests with the pinned ARM64 nightly, Apple clang, and a fresh external target directory; 22 tests and doc-tests passed.",
+      "Re-ran Clippy with warnings denied and format on the dedicated branch; both passed."
+    ],
+    "do_not_try": [
+      "Do not implement production persistence, system-service startup, real product handlers, target scheduling, or shared runtime integration before M30 PASS and an explicit JOB-01 checkpoint.",
+      "Do not bypass capability checks or treat the local authorization/diagnostics adapters as production integrations.",
+      "Do not edit another workstream implementation/state, shared IDL/ABI, root Cargo files, shared CI, .dev/schemas, or docs/implementation_status.md.",
+      "Do not merge this branch to main."
+    ]
+  },
+  "next_action": "Keep JOB-01 PARTIAL and host-only while M30 is not PASS. The Integration Owner should review the pushed branch and dependency contract mappings; only after M30 PASS should they record an explicit activation checkpoint naming JOB-01 before planning production/runtime integration.",
+  "acceptance_criteria": [
+    "HOST PASS / production PARTIAL: typed/versioned JobId, owner, registered-provider handler reference, trigger, priority, constraints, state, retry, dependency, and checkpoint models; codec rejects invalid metadata and excludes closures/secrets.",
+    "HOST PASS / integration PARTIAL: deterministic enqueue/start/cancel/query and pause/resume use authorization hooks; tests use an explicit fake adapter because real capability-permissions mapping is pending.",
+    "HOST PASS: finite retry/backoff, deadlines, runtime timeout, and hierarchical cooperative cancellation are driven by virtual time and tested.",
+    "HOST PASS: dependency ordering, cycle rejection, missing/corrupt prerequisites, and explicit failure policies are tested.",
+    "HOST PASS: global/per-owner concurrency, bounded queue/history, priority aging, and deterministic fairness are enforced and tested.",
+    "HOST PASS / durable integration PARTIAL: versioned JobStore compare-and-swap/atomic insert contract and in-memory store are tested; no production durable adapter is present.",
+    "HOST PASS / production recovery PARTIAL: restart reconciliation allows at-least-once replay only for idempotent or verified-checkpoint work; unsafe work requires explicit recovery retry. Cross-process durable recovery is not established by the in-memory store.",
+    "HOST PASS: idempotency keys are scoped by principal/profile/provider/handler/request, concurrent duplicate insertion is atomic, and retention is bounded.",
+    "HOST PASS / real authority PARTIAL: fake capability denial blocks operations and execution; permission changes reauthorize before retry/recovery. Shared capability contract integration is pending.",
+    "HOST PASS / shared observability PARTIAL: diagnostic/progress codes are bounded, correlated, rate-limited, and avoid job input/secrets; the local sink is an adapter, not the shared runtime diagnostics contract.",
+    "HOST PASS: offline deterministic scheduler invokes only explicitly registered test providers and has no host-daemon/network path.",
+    "PASS for this task's scope: no Automation, Update, Search, Wayback, mail/calendar, kernel scheduler, or unrelated product handler was added.",
+    "PASS: state/proposal use DF-01 schema v1; job-01 is registered and the root verifier validates its state.",
+    "PASS for local foundation transfer: dedicated branch/worktree use the approved base, only JOB-01-owned files are committed, focused checks pass, and production/runtime acceptance remains NOT RUN; CI is NOT RUN."
+  ],
+  "deferred": [
+    "Production durable JobStore, system service registration/startup, and target scheduler until M30 PASS and explicit JOB-01 integration checkpoint.",
+    "Real Update, Search indexing, Wayback cleanup, model download, Automation, notification, mail/calendar, or external job providers; handlers must arrive through separately registered providers.",
+    "Concrete capability-permissions adapter and shared diagnostics/event sink mapping after their public contracts are integrated and approved.",
+    "Cloud/distributed queues, cron UI, arbitrary shell handlers, exactly-once claims, and kernel scheduler changes are outside JOB-01 scope.",
+    "Production/runtime acceptance and shared capability/diagnostics integration until M30 PASS and an explicit JOB-01 checkpoint."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 durable state schema, registered ownership paths, and verification rules.",
+      "version": "workstream-state-v1 at base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+      "status": "PASS for the approved baseline contract and current root verifier: 19 registered workstreams and 12 state files validate, including registered JOB-01 state."
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "JobAuthorization adapter boundary for owner resolution and fresh per-operation/handler authorization; this crate does not bypass capability checks.",
+      "version": "capability-permissions host-policy-core checkpoint at f6941349df9a2e2f746211dd91ad347ebec940be",
+      "status": "PARTIAL on its separate owner branch. No integrated shared public mapping is available in this base; JOB-01 uses explicit host fakes and requires an approved adapter mapping before runtime integration."
+    },
+    {
+      "workstream_id": "diagnostics",
+      "contract": "Local versioned JobDiagnosticSink adapter with bounded reason/progress codes pending shared event vocabulary/sink integration.",
+      "version": "diagnostics host integration checkpoint at 3aed2e25ecf3c5984bfa16ef998358cf839fa427",
+      "status": "PARTIAL for JOB-01: shared runtime job event contract is not integrated; host recorder/fake sink only."
+    }
+  ]
+}
