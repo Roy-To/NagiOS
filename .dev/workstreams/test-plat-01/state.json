@@ -1,0 +1,124 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "test-plat-01",
+  "current_milestone": "TEST-PLAT-01",
+  "current_checkpoint": "registered-host-only-activation",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+    "verified_at": "2026-09-29T06:31:26Z",
+    "normal_state": "Integration Owner assigned TEST-PLAT-01 to Codex TEST-PLAT-01 workstream owner, registered branch codex/0.2-test-plat-01 and its exact allowed paths, and authorized host-only work before M30. The dedicated worktree was created from the approved base SHA 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. The owner registration checkpoint is being applied to that branch so the stream state is included in dev verification. No harness implementation or acceptance has passed yet. M30 remains NOT STARTED; production/runtime, target/QEMU, product-acceptance, and shared CI/workspace integration remain gated.",
+    "commands": [
+      "git status --short --branch — PASS: baseline branch codex/integration-next-phase; existing unrelated untracked paths preserved.",
+      "git rev-parse HEAD — PASS: 198b9f60b41eba14e74c2c04f51ccdcb4030adf9.",
+      "git diff --stat && git diff --name-only — PASS: no tracked diff at inspection time.",
+      "git remote -v — PASS: origin fetch/push URL is https://github.com/RT-NISH/NagiOS.git.",
+      "git worktree list --porcelain — PASS: no TEST-PLAT-01 worktree present.",
+      "git branch -a --list '*0.2-test-plat-01*' '*test-plat-01*' — PASS: no matching local or remote-tracking branch.",
+      "git ls-remote --heads origin '*test-plat*' '*integration-test*' — PASS: no matching remote branch returned.",
+      "Python registry lookup in .dev/workstreams.json — PASS: test-plat-01 is not registered; development-foundation is registered.",
+      "Read docs/implementation_status.md — PASS: M17 is BLOCKED and M30 is NOT STARTED at this baseline.",
+      "Read docs/workstreams/NagiOS_0.2_System_Integration_Test_Harness_Foundation_Workstream.md and DF-01 ownership rules — PASS: implementation requires assigned branch and approved path boundary; preparation/state/proposal are allowed before activation.",
+      "python3 import jsonschema / bundled Python import jsonschema — FAIL: ModuleNotFoundError in both environments; no package was installed.",
+      "Temporary scratch repo: append proposed registry entry, copy TEST-PLAT-01 state, then invoke tools/nagi-bootstrap/target/debug/nagi-bootstrap dev verify — first attempt FAIL, exit 4 because blocker.class was null while blocker.active was true; after setting blocker.class to UNKNOWN, rerun PASS (19 streams, 1 state validated).",
+      "./nagi dev verify — PASS: 18 registered workstreams and 11 registered state files validated; unregistered TEST-PLAT-01 is excluded.",
+      "git worktree add -b codex/0.2-test-plat-01 /Users/tozawa/Developer/NagiOS-0.2-test-plat-01 198b9f60b41eba14e74c2c04f51ccdcb4030adf9 — PASS: new assigned branch HEAD equals the approved base SHA."
+    ],
+    "tests": [
+      {
+        "name": "Formal Draft 2020-12 JSON Schema validation availability",
+        "command": "python3 -c 'import jsonschema'; /Users/tozawa/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -c 'import jsonschema'",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Both checked Python environments returned ModuleNotFoundError: No module named 'jsonschema'. No dependency was installed. The exact state and proposed registry entry were subsequently checked with the repository's existing DF-01 CLI validator in a disposable scratch repository."
+      },
+      {
+        "name": "DF-01 validator on TEST-PLAT-01 state and proposed registry entry",
+        "command": "Temporary scratch repo with the proposed registry entry and state; invoke tools/nagi-bootstrap/target/debug/nagi-bootstrap dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Initial attempt failed with exit 4: `blocker: active blocker needs a known class and summary`. Changed blocker.class from null to UNKNOWN because DF-01 has no ownership/approval class, then reran the same scenario: `PASS development state: 19 registered workstreams, 1 state files validated; branch codex/0.2-test-plat-01`. This checks the workstream state and proposed registry row through the existing state/registry validator without changing the real shared registry."
+      },
+      {
+        "name": "Root verifier registered-state scope",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 18 registered workstreams, 11 state files validated; branch codex/integration-next-phase at 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. TEST-PLAT-01 is unregistered and is therefore not among those validated state files."
+      },
+      {
+        "name": "TEST-PLAT-01 registration proposal JSON validation",
+        "command": "python3 -m json.tool .dev/workstreams/test-plat-01/registration-proposal.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Proposal parses as JSON and records the proposed registry entry, unapproved baseline, branch/worktree assignment request, hard dependency, path boundaries, gates, and owner actions. No registration schema exists for this proposal format."
+      },
+      {
+        "name": "Host-only integration harness focused tests",
+        "command": "cargo test --manifest-path crates/nagi-test-harness/Cargo.toml --offline",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "The harness crate does not exist and implementation is gated until the Integration Owner assigns the workstream branch/base/worktree and path boundary."
+      },
+      {
+        "name": "TEST-PLAT-01 CI",
+        "command": "No workstream CI invocation available before assignment and implementation.",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "No TEST-PLAT-01 CI run or workflow change was attempted; shared CI is owned by ci-acceptance and is outside this stream's edit scope."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "Integration Owner registration in .dev/workstreams.json; docs/workstreams/NagiOS_0.2_System_Integration_Test_Harness_Foundation_Workstream.md; docs/implementation_status.md",
+    "last_checked_at": "2026-09-29T06:31:26Z",
+    "activation_requirement": "Host-only deterministic harness implementation is active on the assigned codex/0.2-test-plat-01 branch before M30. Production/runtime services, target/QEMU, product-acceptance claims, and shared CI/workspace integration require M30 PASS plus an explicit Integration Owner checkpoint naming TEST-PLAT-01. M17 is BLOCKED and M30 is NOT STARTED."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [
+      "During prior state validation, changed blocker.class from null to UNKNOWN after the CLI required a known class for an active blocker; that assignment blocker is now resolved by this owner registration."
+    ],
+    "do_not_try": [
+      "Do not modify .dev/workstreams.json or .dev/schemas/** from the TEST-PLAT-01 branch; those shared files remain Integration Owner-owned.",
+      "Do not edit root Cargo.toml, root Cargo.lock, .github/workflows/**, shared IDL/ABI, kernel/**, loader/**, user/**, third_party/**, or another stream’s files/state.",
+      "Do not run QEMU/target integration, claim provider/product/M30 acceptance, or integrate into runtime paths before the M30 gate and explicit checkpoint.",
+      "Do not use host files, sockets, processes, or wall-clock scheduling as if they were Nagi guest behavior."
+    ]
+  },
+  "next_action": "Apply the Integration Owner registration checkpoint to codex/0.2-test-plat-01, verify the state is in the root dev verifier set, then implement the standalone host-only harness and its offline acceptance tests within the assigned paths.",
+  "acceptance_criteria": [
+    "NOT RUN — Virtual time advances deterministically and tests do not require real sleeps.",
+    "NOT RUN — Fake and temporary filesystem fixtures are isolated, bounded, path-confined, and cleanup-verifiable.",
+    "NOT RUN — IPC fake covers allowlisted delivery plus timeout, cancellation, malformed input, provider failure, and queue limits.",
+    "NOT RUN — Capability fake supports explicit allow and deny rules and denies missing context.",
+    "NOT RUN — Diagnostics fake captures event ordering and validates redaction.",
+    "NOT RUN — Temporary user/profile/session fixtures cannot cross-contaminate tests.",
+    "NOT RUN — Named failure injection covers crash/restart, interrupted write, corrupt state, timeout/cancel, and resource exhaustion.",
+    "NOT RUN — Deterministic scheduling and multi-service startup/shutdown are reusable APIs with bounded cleanup.",
+    "NOT RUN — Offline policy blocks network use; resource budgets report leaks and enforce configured limits.",
+    "NOT RUN — Host-only offline test command is documented in the proposed registration; verify it after the crate and invocation docs are implemented.",
+    "NOT RUN — Harness results must clearly say fakes test orchestration/contracts only and do not confer provider or product acceptance.",
+    "PARTIAL — Registry now assigns the exact TEST-PLAT-01 paths and reserves overlaps in development-foundation, integration-next-phase, and first-party-integration; verify the path-conflict audit after registry changes are validated.",
+    "PARTIAL — State and proposed registry row will be validated by the root verifier after the owner checkpoint is applied to the assigned branch; no schema change is required. Shared registry and carve-outs are Integration Owner changes.",
+    "PARTIAL — Branch/worktree are assigned and created from the approved base. Registration commit/push, host acceptance, clean final state, and workstream branch push remain to be completed."
+  ],
+  "deferred": [
+    "Production service, runtime, target/QEMU, product-acceptance or M30 claims until M30 PASS and an explicit Integration Owner checkpoint.",
+    "Shared CI/workspace wiring; provide a focused proposal to ci-acceptance only if the host-only command needs workflow integration."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 durable state ownership, schema, and verification rules",
+      "version": "DF-01 / state schema v1",
+      "status": "Registered hard dependency: development-foundation DF-01 state/ownership/verifier contract (registered). Diagnostics, capability-permissions, IPC-event-bus and other provider adapters remain optional; local fakes are used until approved versioned contracts are available."
+    }
+  ]
+}
