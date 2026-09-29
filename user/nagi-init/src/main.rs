@@ -2,6 +2,7 @@
 #![cfg_attr(target_os = "nagi", no_main)]
 #![cfg_attr(all(target_os = "nagi", feature = "m13-std"), feature(restricted_std))]
 
+#[cfg(feature = "m19-search")]
 extern crate alloc;
 
 #[cfg(all(target_os = "nagi", feature = "m19-search"))]

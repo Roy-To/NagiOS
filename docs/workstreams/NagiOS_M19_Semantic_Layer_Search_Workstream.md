@@ -95,3 +95,24 @@ Verification with `nightly-2025-08-01-aarch64-apple-darwin`:
 These missing integrations keep M19 `PARTIAL`. They do not justify a host
 fallback, an allow-all filter, or a claim that the production Search Service
 is active.
+
+## Default-init regression repair — 2026-09-30
+
+The first M19 integration declared `alloc` for every `nagi-init` build. The
+default `./nagi image` path builds only `core`, so its target compile failed
+with `E0463: can't find crate for alloc`. The crate declaration is now gated
+by `m19-search`, matching the M19 allocator and feature. This preserves the
+default image build while retaining `alloc` for M19 snapshots.
+
+Verification after the repair:
+
+- `./tests/acceptance/m0_launcher.sh` — PASS with the pinned nightly on PATH;
+  this builds the default Nagi image and checks launcher exit propagation.
+- `./nagi m19` — PASS; the fixture survived VFS remount and a second QEMU
+  boot. Logs remain in `out/logs/m19-search-initial.log` and
+  `out/logs/m19-search-restart.log`.
+- CI run `36584567375` on the pre-repair M19 commit reported failures in the
+  Ubuntu M0 launcher and Windows launcher exit-propagation jobs. The local
+  compile failure above reproduces the default-init issue; full CI logs remain
+  unavailable while its Nagi target job is still running. The corrected
+  checkpoint is being pushed for a fresh CI run.
