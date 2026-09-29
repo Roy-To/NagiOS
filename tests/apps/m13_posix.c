@@ -17,6 +17,7 @@ extern int close(int fd);
 extern int nagi_posix_default_gateway(void *address);
 extern int nagi_posix_resolve_ipv4(const char *name, void *address);
 extern int nagi_posix_poll_fds(void *fds, size_t count, int timeout_ms);
+extern int *nagi_posix_errno_location(void);
 typedef unsigned long nagi_pthread_t;
 typedef unsigned long nagi_pthread_key_t;
 extern int pthread_key_create(nagi_pthread_key_t *key, void *destructor);
@@ -51,6 +52,7 @@ struct nagi_sockaddr_ipv4 {
     unsigned short family;
     unsigned short port_be;
     unsigned char address[4];
+    unsigned char zero[8];
 };
 
 struct nagi_pollfd {
@@ -86,7 +88,7 @@ static int contains_bytes(const unsigned char *bytes, size_t length,
 static int socket_dns_http_test(void) {
     struct nagi_ipv4_address gateway = {{0, 0, 0, 0}};
     struct nagi_ipv4_address resolved = {{0, 0, 0, 0}};
-    struct nagi_sockaddr_ipv4 endpoint;
+    struct nagi_sockaddr_ipv4 endpoint = {0};
     struct nagi_pollfd pollfd;
     // This probe runs in the one serialized bootstrap process. Keep the
     // large response outside the small initial user stack while retaining
@@ -102,7 +104,7 @@ static int socket_dns_http_test(void) {
     if (nagi_posix_resolve_ipv4("example.com", &resolved) != 0 ||
         (resolved.octets[0] == 0 && resolved.octets[1] == 0 &&
          resolved.octets[2] == 0 && resolved.octets[3] == 0)) {
-        return 10;
+        return 15;
     }
     endpoint.family = AF_INET;
     endpoint.port_be = to_be16(18080);
@@ -111,8 +113,13 @@ static int socket_dns_http_test(void) {
     endpoint.address[2] = gateway.octets[2];
     endpoint.address[3] = gateway.octets[3];
     fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0 || connect(fd, &endpoint, sizeof(endpoint)) != 0) {
+    if (fd < 0) {
         return 11;
+    }
+    if (connect(fd, &endpoint, sizeof(endpoint)) != 0) {
+        int error_number = *nagi_posix_errno_location();
+        close(fd);
+        return 100 + error_number;
     }
     pollfd.fd = fd;
     pollfd.events = POLLOUT;
@@ -287,8 +294,9 @@ int nagi_m13_c_posix_test(void) {
     if (nagi_posix_poll(0) != 0) {
         return 6;
     }
-    if (socket_dns_http_test() != 0) {
-        return 7;
+    int network_result = socket_dns_http_test();
+    if (network_result != 0) {
+        return 70 + network_result;
     }
     return 0;
 }
