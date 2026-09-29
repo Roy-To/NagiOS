@@ -27,15 +27,21 @@ Fifteen host orchestration tests, warnings-denied Clippy, formatting, and Nagi
 user-target compilation pass. M21 remains `PARTIAL`: this branch has no real
 registered first-party action handlers, authenticated target policy provider,
 or guest acceptance.
-**M22 evidence:** Audited the existing M15 History Service and confirmed it
-has no transaction grouping, composite undo, deserialization, or restart-
-restorable undo data. The M21 continuation has no production actions or
-authenticated target policy adapter to connect to History. The local M15
-QEMU run reached M14 playback but the host QEMU CoreAudio backend has no
-capture driver, so it stopped before History. M22 is `BLOCKED` at the M21
-dependency boundary; no AI mutation or undo acceptance is claimed.
-**Next action:** Add the trusted M21 action/policy integration and a durable,
-versioned transaction/undo contract before attempting the M22 guest flow.
+**M22 evidence:** The existing M15 History Service now has an `NH16`
+recoverable archive contract, full-width logical caller context, grouped move
+transactions, prepared/committed states, composite reverse-order undo, and
+restart recovery of pending undo metadata. Seven focused host tests, warnings-
+denied Clippy, formatting, and the Nagi user-target compile pass. The legacy
+`NH15` metadata serializer remains for M15 compatibility and is not claimed as
+recoverable. M22 remains `BLOCKED` for guest acceptance: M21 still has no
+production move handler or authenticated target policy adapter, and the new
+archive is not yet wired to durable guest storage or QEMU restart acceptance.
+The local M15 QEMU attempt also stopped at M14 capture because the host QEMU
+CoreAudio backend had no capture driver; no AI mutation or undo acceptance is
+claimed.
+**Next action:** Finish the M19 guest snapshot backend, then connect the M21
+trusted action boundary and this recoverable History contract before M22's
+three-file guest flow.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -49,6 +55,15 @@ Homebrew LLVM 19 and matching libc++ headers because this Mac's Apple Clang
 compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-29
+**Latest continuation CI:** Run
+[`36562743750`](https://github.com/RT-NISH/NagiOS/actions/runs/36562743750)
+on `e248f2375871742b7ac50e53d3fd9a270ebebb67` passed Ubuntu host, Windows
+launcher, target builds, M17, and M18-B. M18 HTTPS acceptance failed because
+the first QEMU boot did not exit within 1200 seconds; the serial log ends in
+M3 SMP startup after three AP-online lines. The log does not identify a root
+cause. Earlier successful run
+[`36556997279`](https://github.com/RT-NISH/NagiOS/actions/runs/36556997279)
+used the prior `e389bde` commit and is not current-HEAD evidence.
 **Last known checkpoint:** Main integration work is in the managed worktree
 `codex/m18-main-albert-browser`, based on the fixed M17 PASS commit
 `94e9a027618182b10c0ac2315e94673543f22423`. It contains an M18-specific
@@ -2088,7 +2103,7 @@ Use only these statuses:
 | M19 | Semantic Layer / Search | PARTIAL | Reused M19-PREP's `user/nagi-search` contract; 16 host tests, warnings-denied Clippy, formatting, and Nagi `no_std` user-target compile pass. Added end-to-end contract acceptance for producer indexing, deterministic search, visibility filtering, Workspace grouping, restart, stable-ID metadata update, and re-search. Guest persistence/service activation, trusted capability binding, real producer ID mapping, and QEMU restart acceptance remain blocked by missing target service/authority/storage adapters. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
 | M20 | AI Runtime / Granite | PARTIAL | Reused the existing `no_std` `nagi-model-manager` manifest, registry, provider, bounded-read, and Model Store contracts. These are host-tested orchestration contracts only; no pinned llama.cpp runtime, installable Granite package, active target model service, or real in-guest Granite response is present. See `docs/workstreams/model-runtime.md`. |
 | M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; 15 tests cover complete-plan parsing, bounded prompt action filtering, LLM/Decision adapters, unknown/denied actions, object visibility, path/resource bounds, successful and partial results, and confidence-independent authorization. Formatting, Clippy, and Nagi target compile pass. No production handlers or trusted target Capability/Permission adapter are registered, so no real action/QEMU acceptance is claimed. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
-| M22 | AI Safety / Undo Integration | BLOCKED | The existing M15 History Service records independent operations and returns one in-memory undo action; it has no TransactionId grouping, composite undo, or API to deserialize restart-restorable undo data. M21 has no production actions or authenticated target policy adapter, so there is no real AI mutation to connect. Local M15 QEMU now passes the M13 POSIX gates after correcting its test sockaddr layout, then stops at `Nagi M14 capture FAIL`: this host's QEMU CoreAudio backend reports no audio input driver, before History executes. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. No three-file AI move/undo/restart acceptance is claimed. |
+| M22 | AI Safety / Undo Integration | BLOCKED | M15 History now has a bounded, checksummed NH16 archive with full context/payload restoration, grouped move transactions, caller-scoped composite undo, and pending-undo recovery contract (7 tests; Clippy, format, and Nagi target compile pass). Guest acceptance remains blocked by missing production M21 move handler/authenticated policy and absent guest archive persistence/QEMU restart flow. The NH15 compatibility serializer remains metadata-only. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | NOT STARTED | 遯ｶ繝ｻ|
 | M24 | Embedding / Semantic AI | NOT STARTED | 遯ｶ繝ｻ|
 | M25 | Voice | NOT STARTED | 遯ｶ繝ｻ|
@@ -2174,22 +2189,36 @@ three files after `undo`, including after a restart. The current M21 branch
 has no production Action Registry handlers or authenticated target policy
 adapter, so a guest AI mutation cannot be performed safely.
 
-The existing `user/nagi-history` `HistoryService` stores independent
-Create/Edit/Move/Delete/Restore entries. Its sequence number is not a
-`TransactionId`; `undo_last` returns one inverse operation and removes that
-single in-memory entry. The `NH15` serialization stores only a compact
-32-byte metadata record per entry, including name and snapshot lengths rather
-than their contents. There is no deserialize/restore API, and M15 acceptance
-does not prove that undo data can be reconstructed after restart. Replacing
-this with an AI-specific history would violate the M22 reuse requirement.
+The existing `user/nagi-history` `HistoryService` retains the M15
+Create/Edit/Move/Delete/Restore API and its legacy `undo_last` behavior. The
+new `NH16` recoverable archive API preserves full-width caller context, names,
+snapshot bytes, transaction IDs, and state under a bounded checksum. A grouped
+move begins `Prepared`, must be persisted before the external moves, and is
+made undoable only after the caller commits and persists the group. Undo checks
+the originating AppId/AppSessionId, persists `UndoPending` before applying
+inverse operations, returns actions in reverse order, and marks the group
+`Undone` after completion. Restoring an `UndoPending` archive yields the same
+batch for retry. The older `NH15` serializer remains metadata-only and is
+still used by the M15 guest acceptance; it is not treated as recoverable.
 
-Therefore M22 is `BLOCKED`, not passed by orchestration fixtures. The next
-required work is production M21 action and caller-authority integration,
-followed by a versioned extension of the existing History/Transaction
-contract that supports grouped reversible operations and restart recovery.
-Then the real guest acceptance must move three files through the validated
-Executor, verify one Activity Ledger transaction, undo all three within the
-same caller boundary, reboot, and verify the restored state and ledger.
+Focused verification on the pinned aarch64 macOS toolchain:
+
+- `cargo test --locked --offline -p nagi-history` — PASS, 7 tests including
+  grouped three-move ordering, full-width context, wrong-caller denial,
+  pending-undo restart recovery, corrupt/versioned archive rejection, and
+  all-or-nothing group validation.
+- `cargo clippy --locked --offline -p nagi-history --all-targets -- -D warnings`
+  — PASS.
+- `cargo fmt --manifest-path user/nagi-history/Cargo.toml -- --check` — PASS.
+- `cargo -Z build-std=core,alloc check --locked --offline -p nagi-history
+  --target targets/x86_64-unknown-nagi-user.json` — PASS.
+
+M22 remains `BLOCKED` for guest acceptance. The continuation still has no
+production M21 move handler or authenticated target policy adapter, and the
+NH16 archive is not wired to durable guest storage or QEMU restart acceptance.
+The real guest gate must move three files through the validated Executor,
+verify one Activity Ledger transaction, undo all three within the same caller
+boundary, reboot, and verify restored state and ledger.
 
 The local M15 QEMU regression did not reach its History flow. A separate
 empty-`PT_TLS` loader defect was corrected and all 15 standalone ELF parser

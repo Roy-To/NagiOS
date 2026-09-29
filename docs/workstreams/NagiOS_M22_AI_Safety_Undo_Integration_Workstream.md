@@ -10,21 +10,28 @@ Node/workspace/Object context in the Activity Ledger, undo the three moves,
 restart, and verify both restored state and ledger. Undo must resolve within
 the original caller boundary. Irreversible operations must not advertise undo.
 
-## Existing History API audit
+## Existing History API and independent extension
 
-`user/nagi-history/src/lib.rs` provides a bounded `HistoryService` with
-independent Create, Edit, Move, Delete, and Restore entries. Each entry has a
-monotonic sequence and logical ActivityContext. `undo_last()` removes and
-returns one in-memory inverse action; the caller must apply it. The API has no
-`TransactionId`, grouping, composite undo, authorization-bound undo lookup,
-or restart restore operation.
+`user/nagi-history/src/lib.rs` retains the bounded M15 Create, Edit, Move,
+Delete, and Restore API. `undo_last()` remains a compatibility path for a
+single operation and refuses to split a grouped transaction.
 
-`serialize()` emits the `NH15` marker and a fixed 32-byte record per entry.
-It preserves Object ID, operation, sequence, selected caller identifiers, and
-lengths, but writes only name/snapshot lengths rather than the name/content
-bytes. There is no deserializer. `user/nagi-init/src/m15_history.rs` writes
-this compact metadata ledger to the persistent VFS and checks that it can be
-read; it does not restore a HistoryService or undo payload after restart.
+The independent M22 History contract now adds an `NH16` versioned, bounded,
+checksummed archive. It stores full-width AppId, AppSessionId, NodeId,
+SurfaceId, WorkspaceId, ObjectId, TransactionId, source/destination names,
+before/after payload bytes, and transaction state. `record_move_group` creates
+a `Prepared` group so the caller can persist it before applying external
+moves. The caller commits only after the complete forward group succeeds.
+Undo is restricted to the originating AppId/AppSessionId, persists
+`UndoPending`, yields inverses in reverse order, and marks the group `Undone`
+after application. Restoring an `UndoPending` archive yields the same batch for
+retry. The legacy `serialize()` still emits metadata-only `NH15` for M15; it
+does not restore undo data, and the current M15 guest acceptance is not yet
+wired to `NH16`.
+
+This caller comparison is an identity consistency check, not an authority
+source. Production must supply caller context from the authenticated M21
+policy/capability boundary.
 
 ## M21 integration prerequisite
 
@@ -37,9 +44,18 @@ system and would not satisfy the required integration.
 
 ## Verification and blocker
 
-- `nagi-history` source inspection confirms the API limits above.
+- `cargo test --locked --offline -p nagi-history` — PASS, 7 tests covering
+  grouped three-move ordering, full-width context restoration, caller denial,
+  prepared/committed state, pending-undo restart recovery, archive
+  corruption/version rejection, and atomic group validation.
+- `cargo clippy --locked --offline -p nagi-history --all-targets -- -D warnings`
+  — PASS.
+- `cargo fmt --manifest-path user/nagi-history/Cargo.toml -- --check` — PASS.
+- `cargo -Z build-std=core,alloc check --locked --offline -p nagi-history
+  --target targets/x86_64-unknown-nagi-user.json` — PASS.
 - M22's three-file AI move/undo/restart guest acceptance was not run because
-  the real authorized M21 file-move action does not exist.
+  the real authorized M21 file-move action does not exist, and the `NH16`
+  archive does not yet have a durable guest VFS adapter.
 - A local `./nagi m15` regression was attempted. The empty `PT_TLS` parser
   fix allowed the first boot to persist its M7 test data and the second boot
   to load the init ELF and pass M5/M6/M7. The first run exposed that the M13 C
@@ -56,13 +72,13 @@ system and would not satisfy the required integration.
   be built on this arm64 macOS host because its x86 inline-assembly register
   constraints are unavailable; the intended Nagi target and CI are the
   relevant kernel build checks.
-- The `nagi-history` host suite passes all four existing tests. This verifies
-  only its current in-memory operation contract, not grouped AI transactions
-  or persistent undo restoration.
+- The NH16 tests verify a serialization/recovery contract only. They do not
+  prove guest VFS persistence, authenticated policy, file mutation, or QEMU
+  restart behavior.
 
-M22 remains `BLOCKED` by a required M21 production dependency, and by the
-missing transaction grouping and restart-restorable undo data in the current
-History API. Once M21 supplies real caller-bound actions, extend the existing
-History/Transaction service with a versioned grouped and recoverable format,
-then run the specified guest acceptance. Do not treat host orchestration
-fixtures or metadata-only serialization as that acceptance.
+M22 remains `BLOCKED` only at its dependent guest acceptance: the History-side
+group/archive/undo contract is implemented, but production M21 action and
+authenticated policy integration and durable guest archive persistence remain
+missing. Continue independent M23-M30 work while those dependencies are
+tracked; do not treat host orchestration fixtures or NH16 contract tests as
+guest acceptance.
