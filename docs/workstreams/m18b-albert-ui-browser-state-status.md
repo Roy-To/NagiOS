@@ -61,8 +61,14 @@ affected Clippy targets, pinned format checks, and local M17/M18 real-QEMU
 acceptance. The subsequent CI run `36517686132` passed Windows launcher,
 Ubuntu host, and `nagi-target`; its M18 Acceptance printed `PASS M18 Albert:
 three verified HTTPS pages rendered to Nagi Surface and QEMU`.
-The follow-up requester-origin patch passes local M18 and M17 QEMU acceptance;
-its CI run is pending.
+The requester-origin patch's first CI run (`36530525632`) failed during clean
+source bootstrap because the second hunk in patch `0025` did not match the
+pinned `webview_delegate.rs` context; no compilation or QEMU acceptance ran.
+The hunk now anchors on the existing `feature()` method and applies in order
+after `0024` to a fresh pinned-source fixture. Fresh corrected-patch `./nagi
+m18` HTTPS/QEMU acceptance and `./nagi m17` first-web-pixel regression both
+pass locally; a new CI run must validate the corrected clean bootstrap and
+Ubuntu target acceptance after the patch correction is pushed.
 
 ## Progress by phase
 
@@ -106,7 +112,7 @@ Earlier Mesa attempts temporarily modified their generated relibc checkout; that
 ## Remaining blockers and exact next actions
 
 1. The compatibility/CI repairs are committed and pushed on `codex/m18-main-albert-browser`; CI run `36517686132` confirms the unchanged Ubuntu Clang/LLD route and M18 Acceptance pass.
-2. Servo patch `0025` passes origin from the requesting document into Albert. Fresh local `./nagi m18` and `./nagi m17` runs pass; CI for this new patch is pending. Continue provider connections only through capability-safe Nagi services. The current repository has no download destination, File Picker/upload, clipboard, IME text/composition, or interactive site-permission provider; keep these paths fail-closed until those service contracts exist. Site-permission requests are recorded with their requester origin and denied locally, not granted through Nagi Permission Service.
+2. Servo patch `0025` passes origin from the requesting document into Albert. Its first CI run `36530525632` failed at clean-source patch application; the hunk is corrected, and fresh local `./nagi m18` and `./nagi m17` QEMU runs pass. CI for the corrected patch is pending push. Continue provider connections only through capability-safe Nagi services. The current repository has no download destination, File Picker/upload, clipboard, IME text/composition, or interactive site-permission provider; keep these paths fail-closed until those service contracts exist. Site-permission requests are recorded with their requester origin and denied locally, not granted through Nagi Permission Service.
 3. Keep this workstream `PARTIAL` while those M18 deliverables remain outstanding. The formal basic-browser HTTPS/QEMU Acceptance is `PASS`. Do not force-push or merge to `main`.
 
 M18-B remains **PARTIAL** until the required runtime services are integrated. The main worktree has a target-tested input/navigation loop, bounded persistent browser snapshot, and passing local and Ubuntu CI real-QEMU three-site HTTPS Acceptance. Capability-safe service providers remain outstanding.

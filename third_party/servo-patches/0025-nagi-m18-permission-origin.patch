@@ -72,7 +72,8 @@ diff --git a/components/servo/webview_delegate.rs b/components/servo/webview_del
      pub(crate) allow_deny_request: AllowOrDenyRequest,
  }
  
-@@ -84,6 +85,10 @@
+@@ -83,6 +84,11 @@
+     pub fn feature(&self) -> PermissionFeature {
          self.requested_feature
      }
  
@@ -80,7 +81,7 @@ diff --git a/components/servo/webview_delegate.rs b/components/servo/webview_del
 +    pub fn origin(&self) -> &str {
 +        &self.requested_origin
 +    }
- 
++
      /// Grant permission to the web content to access the requested feature.
      pub fn allow(self) {
 diff --git a/components/servo/servo.rs b/components/servo/servo.rs

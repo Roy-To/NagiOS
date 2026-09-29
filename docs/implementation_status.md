@@ -5720,3 +5720,38 @@ input, and a trusted interactive permission service remain absent from the
 repository's user-space service/IPC interfaces, so those paths remain
 fail-closed. Overall M18 therefore remains `PARTIAL` even though its
 HTTPS/QEMU Acceptance is `PASS`.
+
+### M18 fresh-source patch correction and acceptance rerun (2026-09-29)
+
+The first CI run for Servo patch `0025` (`36530525632`) failed during clean
+source bootstrap: the `webview_delegate.rs` accessor hunk did not match the
+pinned source around line 84. This was a patch-context defect; compilation and
+QEMU acceptance were not reached. The second hunk now uses the stable
+`feature()` method signature as context and matches the single blank line in
+the pinned source. Sequential application after patch `0024` and reverse-apply
+validation succeed on a fresh pinned-source fixture; the resulting five
+Servo files match the preserved generated checkout.
+
+After correcting the hunk, a fresh macOS `./nagi m18` completed successfully:
+`PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and
+QEMU`. The command transcript is `out/logs/m18-origin-hunk-fix-20260929.log`
+and the guest serial evidence is `out/logs/m18-albert.log`. The unchanged
+Darwin-only ELF target-link adapter still passes Mesa's `-latomic` link probe;
+it invokes ELF LLD for Nagi target link checks without removing `-latomic` or
+altering host build tools. Linux continues to use the existing Clang/LLD
+cross-file route; its latest successful full CI evidence is run `36517686132`.
+
+On the corrected patch, `cargo test -p nagi-cli --locked --offline` passes all
+113 unit tests and 18 CLI tests, `cargo test --manifest-path
+user/nagi-albert/Cargo.toml --features m18-acceptance --locked --offline`
+passes all 51 Albert tests, both affected Clippy commands pass with warnings
+denied, and both pinned-nightly format checks pass. A fresh M17 real-QEMU
+first-web-pixel regression also passes after the correction; its command log
+is `out/logs/m17-post-patch-hunk-fix-20260929.log` and guest serial evidence is
+`out/logs/m17-servo.log`. The corrected patch is ready to commit and push for
+clean Ubuntu/Windows bootstrap and Ubuntu target CI.
+The five service connections remain fail-closed because the repository still
+has no capability-safe download destination, upload/file picker, shared
+clipboard provider, IME text/composition event source, or trusted interactive
+site-permission provider. M18 stays `PARTIAL`; its HTTPS/QEMU Acceptance is
+`PASS` locally, and the corrected patch's CI result remains outstanding.

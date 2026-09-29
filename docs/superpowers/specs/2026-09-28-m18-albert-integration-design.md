@@ -142,7 +142,12 @@ The subsequent Servo requester-origin patch is applied reproducibly from
 `third_party/servo-patches/0025-nagi-m18-permission-origin.patch`. It carries
 the origin of the requesting document, including opaque `null`, through to
 Albert. Albert records and denies the request without granting authority. Its
-local M18/M17 acceptance passes; the corresponding fresh CI run is pending.
+local M18 acceptance passes. The first fresh CI run (`36530525632`) found
+that the second hunk did not apply to pinned clean `webview_delegate.rs`
+because its blank-line context was too strict. The hunk now anchors on the
+existing `feature()` accessor and passes sequential application against a
+fresh pinned-source fixture. Corrected-patch local M17 first-web-pixel
+acceptance also passes; push and fresh CI remain next.
 Download destination, capability-safe upload selection, shared clipboard,
 IME text/composition events, and a trusted interactive permission service
 remain unavailable because the repository has no user-space IPC/service
