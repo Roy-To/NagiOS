@@ -470,7 +470,7 @@ fn execute_image_with_features(
             feature,
             "--target",
             "targets/x86_64-unknown-nagi-user.json",
-            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std=core,alloc,compiler_builtins",
             "--release",
         ],
         None => vec![
@@ -479,7 +479,7 @@ fn execute_image_with_features(
             "nagi-init",
             "--target",
             "targets/x86_64-unknown-nagi-user.json",
-            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std=core,alloc,compiler_builtins",
             "--release",
         ],
     };
@@ -2206,7 +2206,7 @@ fn execute_m16_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "m16-package",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
-        "-Zbuild-std=core,compiler_builtins",
+        "-Zbuild-std=core,alloc,compiler_builtins",
         "--release",
     ];
     let image_result = execute_image_with_init_build_env(
