@@ -3,14 +3,15 @@
 **Current milestone:** `M18 - Albert Browser`
 **Milestone status:** `PARTIAL`
 **Acceptance:** `PASS` locally on macOS/QEMU and in authoritative Ubuntu CI.
-On commit `4dce31514f759646b801879b5200dbb2f5a04099`, CI run
-[`36517686132`](https://github.com/RT-NISH/NagiOS/actions/runs/36517686132)
-passed all Windows launcher, Ubuntu host, and `nagi-target` jobs. The target
-job passed M17 first-web-pixel, M18-B chrome, and `./nagi m18` three-site
-HTTPS/QEMU acceptance. The local Mac run also built the target image, booted
-the real guest, accepted address-bar navigation, verified certificate chains
-and hostnames for three HTTPS sites, composed browser chrome, and presented
-the frames on Nagi Surface.
+On corrected commit `eb22702da8e832126c32e420c8fde579b05f8a67`, CI run
+[`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477)
+passed Windows launcher, Ubuntu host, and `nagi-target`. The clean pinned
+Servo bootstrap applied patch `0025`; the target job passed M17
+first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU
+acceptance. The local Mac run also built the target image, booted the real
+guest, accepted address-bar navigation, verified certificate chains and
+hostnames for three HTTPS sites, composed browser chrome, and presented the
+frames on Nagi Surface.
 **Next action:** Continue M18 provider integrations where capability-safe
 Nagi service APIs exist. Keep the milestone `PARTIAL` while download/upload
 destinations, clipboard, IME text/composition events, and trusted interactive
@@ -22,7 +23,7 @@ configuration probes GNU ELF link flags including `-latomic`, while Darwin's
 native linker emits Mach-O. A Darwin-only target-link adapter routes those
 ELF links to ELF LLD. Compile-only calls and host build helpers retain their
 normal compiler paths. Linux keeps the existing Ubuntu Clang/LLD cross file;
-CI run `36517686132` confirms the Mesa, Servo target build, and QEMU paths
+CI run `36533931477` confirms the Mesa, Servo target build, and QEMU paths
 still pass there with `-latomic` enabled. Local QEMU verification used
 Homebrew LLVM 19 and matching libc++ headers because this Mac's Apple Clang
 21 SDK headers do not match the pinned target libc++ flags; that host
@@ -56,8 +57,10 @@ Ubuntu's tracked cross file and Clang/LLD path are unchanged. The fresh
 renders three TLS-chain- and hostname-verified HTTPS sites through Nagi
 Surface. CI run `36512090928` then exposed the Mesa fallback declaration,
 host Clippy, and source-contract formatting issues now repaired in the working
-tree. Ubuntu CI run `36517686132` then passed all jobs, including the existing
-M17 real-QEMU first-web-pixel regression and M18 three-site HTTPS acceptance.
+tree. Ubuntu CI run `36517686132` passed the initial integrated build and
+acceptance; corrected-origin-patch run `36533931477` then passed clean Servo
+bootstrap and all Windows, Ubuntu host, and Nagi target gates, including M17
+real-QEMU first-web-pixel and M18 three-site HTTPS acceptance.
 Clipboard, download/upload, IME text events, and interactive site-permission
 decisions still need actual Nagi providers, so overall M18 status remains
 `PARTIAL`.
@@ -2062,7 +2065,7 @@ Use only these statuses:
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
-| M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** CI run [`36517686132`](https://github.com/RT-NISH/NagiOS/actions/runs/36517686132), head `4dce31514f759646b801879b5200dbb2f5a04099`, passed Windows launcher, Ubuntu host, and `nagi-target`; the target job passed M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
+| M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
 | M21 | Planner / Validator / Executor | NOT STARTED | 遯ｶ繝ｻ|
@@ -5713,8 +5716,8 @@ HTTPS pages rendered through Nagi Surface and QEMU. The final local run is
 recorded in `out/logs/m18-origin-renumbered-20260929.log`, with guest evidence
 in `out/logs/m18-albert.log`. The M17 target/QEMU regression also passes with
 its first-web-pixel marker in `out/logs/m17-servo.log`. Ubuntu CI run
-`36517686132` validates the prior implementation and Linux Clang/LLD path; the
-origin patch still needs its own CI run. Download destination,
+`36533931477` validates the corrected origin patch on a clean checkout and
+retains the Linux Clang/LLD path. Download destination,
 capability-safe upload/file selection, shared clipboard, IME text/composition
 input, and a trusted interactive permission service remain absent from the
 repository's user-space service/IPC interfaces, so those paths remain
@@ -5739,7 +5742,7 @@ and the guest serial evidence is `out/logs/m18-albert.log`. The unchanged
 Darwin-only ELF target-link adapter still passes Mesa's `-latomic` link probe;
 it invokes ELF LLD for Nagi target link checks without removing `-latomic` or
 altering host build tools. Linux continues to use the existing Clang/LLD
-cross-file route; its latest successful full CI evidence is run `36517686132`.
+cross-file route; corrected-origin full CI evidence is run `36533931477`.
 
 On the corrected patch, `cargo test -p nagi-cli --locked --offline` passes all
 113 unit tests and 18 CLI tests, `cargo test --manifest-path
@@ -5748,10 +5751,17 @@ passes all 51 Albert tests, both affected Clippy commands pass with warnings
 denied, and both pinned-nightly format checks pass. A fresh M17 real-QEMU
 first-web-pixel regression also passes after the correction; its command log
 is `out/logs/m17-post-patch-hunk-fix-20260929.log` and guest serial evidence is
-`out/logs/m17-servo.log`. The corrected patch is ready to commit and push for
-clean Ubuntu/Windows bootstrap and Ubuntu target CI.
-The five service connections remain fail-closed because the repository still
+`out/logs/m17-servo.log`. Corrected commit
+`eb22702da8e832126c32e420c8fde579b05f8a67` passed CI run `36533931477`:
+clean-source Servo bootstrap passed on Windows and Ubuntu, and the target job
+passed dependency boundaries, Mesa Softpipe, image/kernel/UEFI builds, M17
+QEMU, M18-B chrome, and three-site M18 HTTPS/QEMU acceptance. The job log
+records `PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface
+and QEMU`. The five service connections remain fail-closed because the
+repository still
 has no capability-safe download destination, upload/file picker, shared
 clipboard provider, IME text/composition event source, or trusted interactive
-site-permission provider. M18 stays `PARTIAL`; its HTTPS/QEMU Acceptance is
-`PASS` locally, and the corrected patch's CI result remains outstanding.
+site-permission provider. Existing M6 ServiceRegistry calls are in-process
+and do not provide the isolated IPC/capability boundary needed to invent
+providers inside Albert. M18 stays `PARTIAL`; its formal HTTPS/QEMU Acceptance
+is `PASS` locally and in CI.

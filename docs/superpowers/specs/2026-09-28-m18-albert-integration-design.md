@@ -112,18 +112,16 @@ events, and site permission models still lack runtime service adapters. M18
 now includes M18-A's nonblocking POSIX socket and smoltcp transport code plus
 the UEFI realtime seed in the same target feature. The runner explicitly keeps
 Servo certificate errors enabled and records the normal verifier result.
-Real-site DNS and TLS behavior still need the M18 Ubuntu target/QEMU run;
-M18-A's standalone controlled-fixture runner is not part of this main
-acceptance.
+Real-site DNS and TLS behavior passed in the M18 Ubuntu target/QEMU run
+recorded below; M18-A's standalone controlled-fixture runner is not part of
+this main acceptance.
 
-The local macOS target build currently stops before M18 guest code compilation:
-SpiderMonkey's configure link probe is sent to Darwin ld64.lld with GNU ELF
-flags, and Mesa's `-latomic` probe also fails through the Darwin linker. An
-initial local attempt used a relative venv path for Python; rerunning with the
-absolute venv path passed the Mako check and confirmed the linker probe as the
-current Mesa failure. Host tests cover the state/action adapter and serial
-contract, but Ubuntu target build and real QEMU HTTPS input/render acceptance
-remain required before M18 can advance beyond PARTIAL.
+Initial local macOS target attempts stopped before M18 guest code compilation:
+SpiderMonkey and Mesa target-link probes used GNU ELF flags through Darwin's
+native linker. The follow-up below adds a Darwin-only ELF linker adapter and
+records successful local target build and QEMU acceptance. At this earlier
+checkpoint, Ubuntu target build and real-site QEMU acceptance were still
+required; the corrected-patch CI result below now confirms them.
 
 ## Follow-up verification (2026-09-29)
 
@@ -147,7 +145,12 @@ that the second hunk did not apply to pinned clean `webview_delegate.rs`
 because its blank-line context was too strict. The hunk now anchors on the
 existing `feature()` accessor and passes sequential application against a
 fresh pinned-source fixture. Corrected-patch local M17 first-web-pixel
-acceptance also passes; push and fresh CI remain next.
+acceptance also passes. Corrected commit
+`eb22702da8e832126c32e420c8fde579b05f8a67` then passed full CI run
+[`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477):
+clean Servo bootstrap passed on Windows and Ubuntu, and the Ubuntu target job
+passed Mesa Softpipe, M17 QEMU, M18-B chrome, and the three-site M18
+HTTPS/QEMU acceptance.
 Download destination, capability-safe upload selection, shared clipboard,
 IME text/composition events, and a trusted interactive permission service
 remain unavailable because the repository has no user-space IPC/service
