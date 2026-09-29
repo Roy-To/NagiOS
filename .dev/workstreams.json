@@ -30,7 +30,8 @@
         "user/nagi-init/**",
         "third_party/**",
         "out/**",
-        "target/**"
+        "target/**",
+        ".dev/workstreams/test-plat-01/**"
       ],
       "activation_gate": "Foundation tooling only; no 0.1 runtime work. Nagi 0.1 M30 PASS and an explicit integration checkpoint are required before any 0.2 runtime stream starts.",
       "merge_boundary": "Dedicated 0.2 integration branch only; never merge to main without explicit user direction."
@@ -97,7 +98,11 @@
         "loader/**",
         "third_party/**",
         "out/**",
-        "target/**"
+        "target/**",
+        ".dev/workstreams/test-plat-01/**",
+        "crates/nagi-test-harness/**",
+        "tests/system-integration-harness/**",
+        "docs/workstreams/NagiOS_0.2_System_Integration_Test_Harness_Foundation_Workstream.md"
       ],
       "activation_gate": "Integrate host-side contracts and preview foundations only; keep production 0.2 runtime work gated on Nagi 0.1 M30 PASS and an explicit release boundary.",
       "merge_boundary": "Dedicated integration branch; do not merge to main without explicit user direction."
@@ -229,7 +234,8 @@
         "out/**",
         "target/**",
         "docs/implementation_status.md",
-        "tests/acceptance/m17_servo_first_web_pixel.*"
+        "tests/acceptance/m17_servo_first_web_pixel.*",
+        ".dev/workstreams/test-plat-01/**"
       ],
       "activation_gate": "Dedicated 0.1 first-party integration only. Do not modify M17 or mark target runtime integrations PASS.",
       "merge_boundary": "Dedicated first-party integration branch/worktree; never merge to main without explicit user direction."
@@ -516,6 +522,41 @@
       ],
       "activation_gate": "The shared UI contract and host-only adapters may integrate before M30. Target visual/runtime acceptance must be independently verified; 0.2 product/runtime adoption requires Nagi 0.1 M30 PASS and an explicit integration checkpoint.",
       "merge_boundary": "Host-side UI foundation may integrate on codex/integration-next-phase. Do not claim M10 guest UI acceptance while the M5 ELF loader prevents desktop startup; do not merge directly to main."
+    },
+    {
+      "id": "test-plat-01",
+      "owner": "Codex TEST-PLAT-01 workstream owner",
+      "owner_branch": "codex/0.2-test-plat-01",
+      "recommended_worktree": "/Users/tozawa/Developer/NagiOS-0.2-test-plat-01",
+      "state_file": ".dev/workstreams/test-plat-01/state.json",
+      "dependencies": [
+        "development-foundation"
+      ],
+      "allowed_paths": [
+        "crates/nagi-test-harness/**",
+        "tests/system-integration-harness/**",
+        ".dev/workstreams/test-plat-01/**",
+        "docs/workstreams/NagiOS_0.2_System_Integration_Test_Harness_Foundation_Workstream.md"
+      ],
+      "forbidden_paths": [
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/**",
+        ".dev/workstreams.json",
+        ".dev/schemas/**",
+        "docs/implementation_status.md",
+        "idl/**",
+        "schemas/**",
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "third_party/**",
+        "out/**",
+        "target/**",
+        "docs/workstreams/NagiOS_M18C_Browser_Acceptance_Reliability_Workstream.md"
+      ],
+      "activation_gate": "Host-only deterministic integration-test harness work is authorized before Nagi 0.1 M30 by the Integration Owner registration checkpoint. Production/runtime services, target/QEMU, product-acceptance claims, and shared CI/workspace integration require M30 PASS plus an explicit Integration Owner checkpoint naming TEST-PLAT-01.",
+      "merge_boundary": "Commit and push host-only foundation on the assigned codex/0.2-test-plat-01 branch. Integrate after owned host-only acceptance and Integration Owner review. Runtime, target, product, shared workspace, and CI integration remain gated on M30 PASS and an explicit checkpoint; never merge directly to main."
     }
   ]
 }
