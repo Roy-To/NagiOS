@@ -6,6 +6,10 @@ use nagi_ai::{
     ContextResolver, ExecutionStatus, HandlerError, NagiPlan, ObjectAccess, ParameterKind,
     ParameterRule, PolicyDenied,
 };
+use nagi_history::activity_ledger::{
+    ActivityLedger, ActivityLedgerArchiveBackend, ActivityLedgerError, ActivityLedgerFileStore,
+    ActivityOutcome, ActivityRecord, ActivityRecordInput, MAX_ACTIVITY_ARCHIVE_BYTES,
+};
 use nagi_history::guest::{
     ArchiveSlot, HistoryArchiveBackend, HistoryArchiveFileStore, HistoryArchiveStore,
     GUEST_ARCHIVE_FILE_BYTES, MAX_GUEST_ARCHIVE_BYTES,
@@ -36,6 +40,8 @@ const MOVES: [M22MoveFixture; 3] = [
 
 const M22_MOVE_ACTION: &str = "file.move";
 const M22_MOVE_CAPABILITY: &str = "files.move";
+const M22_MOVE_INTENT: &str = "move the three M22 fixture files";
+const M22_MOVE_PLAN_SUMMARY: &str = "destinations=m22-A,m22-B,m22-C";
 const DESTINATION_PARAMETERS: [&str; 3] = ["destination_a", "destination_b", "destination_c"];
 
 #[derive(Clone, Copy)]
@@ -149,6 +155,7 @@ impl ActionPolicy for M22FixturePolicy {
 struct M22MoveAction {
     backend: HistoryArchiveBackend<M22Files>,
     history: HistoryService,
+    activity_ledger: ActivityLedger,
 }
 
 struct M22Files {
@@ -160,6 +167,13 @@ impl M22Files {
         match slot {
             ArchiveSlot::A => b"/m22-archive-a",
             ArchiveSlot::B => b"/m22-archive-b",
+        }
+    }
+
+    fn activity_path(slot: ArchiveSlot) -> &'static [u8] {
+        match slot {
+            ArchiveSlot::A => b"/m22-ledger-a",
+            ArchiveSlot::B => b"/m22-ledger-b",
         }
     }
 }
@@ -204,6 +218,52 @@ impl HistoryArchiveFileStore for M22Files {
     }
 }
 
+impl ActivityLedgerFileStore for M22Files {
+    fn read_activity_slot(
+        &mut self,
+        slot: ArchiveSlot,
+        buffer: &mut [u8; GUEST_ARCHIVE_FILE_BYTES],
+    ) -> Result<Option<usize>, ActivityLedgerError> {
+        let handle = match self.volume.open_path(Self::activity_path(slot)) {
+            Ok(handle) => handle,
+            Err(StorageError::NotFound) => return Ok(None),
+            Err(_) => return Err(ActivityLedgerError::Storage),
+        };
+        self.volume
+            .read(handle, buffer)
+            .map(Some)
+            .map_err(|_| ActivityLedgerError::Storage)
+    }
+
+    fn write_activity_slot(
+        &mut self,
+        slot: ArchiveSlot,
+        bytes: &[u8],
+    ) -> Result<(), ActivityLedgerError> {
+        if bytes.len() > MAX_FILE_SIZE {
+            return Err(ActivityLedgerError::Capacity);
+        }
+        let path = Self::activity_path(slot);
+        let handle = match self.volume.open_path(path) {
+            Ok(handle) => handle,
+            Err(StorageError::NotFound) => self
+                .volume
+                .create_path(path)
+                .map_err(|_| ActivityLedgerError::Storage)?,
+            Err(_) => return Err(ActivityLedgerError::Storage),
+        };
+        self.volume
+            .write(handle, bytes)
+            .map_err(|_| ActivityLedgerError::Storage)
+    }
+
+    fn flush_activity_slots(&mut self) -> Result<(), ActivityLedgerError> {
+        self.volume
+            .flush()
+            .map_err(|_| ActivityLedgerError::Storage)
+    }
+}
+
 impl ActionHandler<M22FixturePolicy> for M22MoveAction {
     fn execute(
         &mut self,
@@ -211,6 +271,7 @@ impl ActionHandler<M22FixturePolicy> for M22MoveAction {
     ) -> Result<ActionOutput, HandlerError> {
         let caller = invocation.caller();
         if !M22FixturePolicy::caller_is_fixture(caller)
+            || invocation.plan_intent() != M22_MOVE_INTENT
             || invocation.action().action_id() != M22_MOVE_ACTION
             || invocation.action().object_access() != ObjectAccess::Modify
             || invocation.action().required_capabilities().len() != 1
@@ -280,6 +341,23 @@ impl ActionHandler<M22FixturePolicy> for M22MoveAction {
             return Err(HandlerError::Failed);
         }
 
+        let activity_sequence = self
+            .activity_ledger
+            .record_action(ActivityRecordInput {
+                occurred_at: libnagi::time_ticks(),
+                context: activity_context(caller),
+                transaction_id: Some(transaction_id),
+                user_intent: invocation.plan_intent(),
+                selected_model: None,
+                action_id: M22_MOVE_ACTION,
+                plan_summary: M22_MOVE_PLAN_SUMMARY,
+                object_ids: invocation.object_ids(),
+            })
+            .map_err(|_| HandlerError::Failed)?;
+        if !save_activity_ledger(self.backend.file_store_mut(), &self.activity_ledger) {
+            return Err(HandlerError::Failed);
+        }
+
         {
             let volume = &mut self.backend.file_store_mut().volume;
             for handle in invocation.object_handles() {
@@ -303,6 +381,12 @@ impl ActionHandler<M22FixturePolicy> for M22MoveAction {
         if !save_history(&mut self.backend, &self.history) {
             return Err(HandlerError::Failed);
         }
+        self.activity_ledger
+            .transition(activity_sequence, ActivityOutcome::Committed)
+            .map_err(|_| HandlerError::Failed)?;
+        if !save_activity_ledger(self.backend.file_store_mut(), &self.activity_ledger) {
+            return Err(HandlerError::Failed);
+        }
 
         Ok(ActionOutput {
             summary: String::from("Moved three M22 fixture files as one recoverable transaction"),
@@ -315,6 +399,7 @@ fn run_file_move_action(
     block_capability: u64,
     backend: HistoryArchiveBackend<M22Files>,
     history: HistoryService,
+    activity_ledger: ActivityLedger,
 ) -> bool {
     let policy = M22FixturePolicy;
     let caller = CallerIdentity {
@@ -380,7 +465,14 @@ fn run_file_move_action(
     };
     let mut registry = ActionRegistry::new();
     if registry
-        .register(descriptor, M22MoveAction { backend, history })
+        .register(
+            descriptor,
+            M22MoveAction {
+                backend,
+                history,
+                activity_ledger,
+            },
+        )
         .is_err()
     {
         return false;
@@ -426,7 +518,14 @@ fn run_file_move_action(
     {
         return false;
     }
+    let Ok((ledger, _)) = load_activity_ledger(persisted.file_store_mut()) else {
+        return false;
+    };
+    if !verify_activity_record(&ledger, first.transaction_id, ActivityOutcome::Committed) {
+        return false;
+    }
 
+    libnagi::console_write(b"Nagi M22 AI Activity Ledger committed PASS\r\n");
     libnagi::console_write(b"Nagi M21 file.move Plan Validate Execute PASS\r\n");
     libnagi::console_write(b"Nagi M22 move group persisted in guest VFS PASS\r\n");
     true
@@ -473,18 +572,29 @@ pub fn run(block_capability: u64) -> bool {
         },
         None => (HistoryService::new(), true),
     };
+    let (mut activity_ledger, ledger_was_present) =
+        match load_activity_ledger(backend.file_store_mut()) {
+            Ok(loaded) => loaded,
+            Err(_) => return false,
+        };
 
     if is_new {
-        if !ensure_original_fixture(&mut backend.file_store_mut().volume) {
+        if ledger_was_present || !ensure_original_fixture(&mut backend.file_store_mut().volume) {
             return false;
         }
-        return run_file_move_action(block_capability, backend, history);
+        return run_file_move_action(block_capability, backend, history, activity_ledger);
     }
 
     let Some(first) = history.record_at(0) else {
         return false;
     };
     if !verify_context_and_group(&history, first.transaction_id.0) {
+        return false;
+    }
+    let Some(activity_sequence) = ensure_activity_record(&history, &mut activity_ledger) else {
+        return false;
+    };
+    if !save_activity_ledger(backend.file_store_mut(), &activity_ledger) {
         return false;
     }
 
@@ -496,6 +606,14 @@ pub fn run(block_capability: u64) -> bool {
                     .is_err()
                 || !save_history(&mut backend, &history)
                 || !verify_names(&mut backend.file_store_mut().volume, false)
+            {
+                return false;
+            }
+            if !set_activity_outcome(
+                &mut activity_ledger,
+                activity_sequence,
+                ActivityOutcome::Committed,
+            ) || !save_activity_ledger(backend.file_store_mut(), &activity_ledger)
             {
                 return false;
             }
@@ -511,6 +629,14 @@ pub fn run(block_capability: u64) -> bool {
                 return false;
             };
             if !save_history(&mut backend, &history) {
+                return false;
+            }
+            if !set_activity_outcome(
+                &mut activity_ledger,
+                activity_sequence,
+                ActivityOutcome::UndoPending,
+            ) || !save_activity_ledger(backend.file_store_mut(), &activity_ledger)
+            {
                 return false;
             }
             for action in batch.actions() {
@@ -543,12 +669,28 @@ pub fn run(block_capability: u64) -> bool {
             {
                 return false;
             }
+            if !set_activity_outcome(
+                &mut activity_ledger,
+                activity_sequence,
+                ActivityOutcome::Undone,
+            ) || !save_activity_ledger(backend.file_store_mut(), &activity_ledger)
+            {
+                return false;
+            }
+            libnagi::console_write(b"Nagi M22 AI Activity Ledger undo result PASS\r\n");
             libnagi::console_write(b"Nagi M22 composite undo applied and persisted PASS\r\n");
         }
         TransactionState::Undone => {
-            if !verify_names(&mut backend.file_store_mut().volume, true) {
+            if !verify_names(&mut backend.file_store_mut().volume, true)
+                || !verify_activity_record(
+                    &activity_ledger,
+                    first.transaction_id,
+                    ActivityOutcome::Undone,
+                )
+            {
                 return false;
             }
+            libnagi::console_write(b"Nagi M22 AI Activity Ledger undo result PASS\r\n");
             libnagi::console_write(b"Nagi M22 archive restart and restored files PASS\r\n");
         }
     }
@@ -564,6 +706,150 @@ fn save_history<F: HistoryArchiveFileStore>(
         return false;
     };
     backend.write_archive(&bytes[..length]).is_ok()
+}
+
+fn load_activity_ledger<F: ActivityLedgerFileStore>(
+    files: &mut F,
+) -> Result<(ActivityLedger, bool), ActivityLedgerError> {
+    let mut backend = ActivityLedgerArchiveBackend::new(files);
+    let mut archive = [0; MAX_ACTIVITY_ARCHIVE_BYTES];
+    match backend.load_archive(&mut archive)? {
+        Some(length) => Ok((
+            ActivityLedger::restore_recoverable(&archive[..length])?,
+            true,
+        )),
+        None => Ok((ActivityLedger::new(), false)),
+    }
+}
+
+fn save_activity_ledger<F: ActivityLedgerFileStore>(
+    files: &mut F,
+    ledger: &ActivityLedger,
+) -> bool {
+    let mut archive = [0; MAX_ACTIVITY_ARCHIVE_BYTES];
+    let Ok(length) = ledger.serialize_recoverable(&mut archive) else {
+        return false;
+    };
+    ActivityLedgerArchiveBackend::new(files)
+        .write_archive(&archive[..length])
+        .is_ok()
+}
+
+fn ensure_activity_record(history: &HistoryService, ledger: &mut ActivityLedger) -> Option<u64> {
+    if history.len() != MOVES.len() {
+        return None;
+    }
+    let first = history.record_at(0)?;
+    if !verify_context_and_group(history, first.transaction_id.0) {
+        return None;
+    }
+    let object_ids = MOVES.map(|(object_id, _, _, _)| object_id);
+    let sequence = match ledger.record_for_transaction(first.transaction_id) {
+        Some(record) if activity_record_matches(record, first.transaction_id, &object_ids) => {
+            record.sequence()
+        }
+        Some(_) => return None,
+        None if ledger.is_empty() => ledger
+            .record_action(ActivityRecordInput {
+                occurred_at: libnagi::time_ticks(),
+                context: CALLER,
+                transaction_id: Some(first.transaction_id),
+                user_intent: M22_MOVE_INTENT,
+                selected_model: None,
+                action_id: M22_MOVE_ACTION,
+                plan_summary: M22_MOVE_PLAN_SUMMARY,
+                object_ids: &object_ids,
+            })
+            .ok()?,
+        None => return None,
+    };
+    let target = match first.transaction_state {
+        TransactionState::Prepared => ActivityOutcome::Prepared,
+        TransactionState::Committed => ActivityOutcome::Committed,
+        TransactionState::UndoPending => ActivityOutcome::UndoPending,
+        TransactionState::Undone => ActivityOutcome::Undone,
+    };
+    set_activity_outcome(ledger, sequence, target).then_some(sequence)
+}
+
+fn activity_record_matches(
+    record: &ActivityRecord,
+    transaction_id: nagi_history::TransactionId,
+    object_ids: &[ObjectId],
+) -> bool {
+    record.context() == CALLER
+        && record.transaction_id() == Some(transaction_id)
+        && record.user_intent() == M22_MOVE_INTENT
+        && record.selected_model().is_none()
+        && record.action_id() == M22_MOVE_ACTION
+        && record.plan_summary() == M22_MOVE_PLAN_SUMMARY
+        && record.object_ids() == object_ids
+}
+
+fn set_activity_outcome(
+    ledger: &mut ActivityLedger,
+    sequence: u64,
+    target: ActivityOutcome,
+) -> bool {
+    let Some(record) = (0..ledger.len())
+        .filter_map(|index| ledger.record_at(index))
+        .find(|record| record.sequence() == sequence)
+    else {
+        return false;
+    };
+    let current = record.current_outcome();
+    let path = [
+        ActivityOutcome::Prepared,
+        ActivityOutcome::Committed,
+        ActivityOutcome::UndoPending,
+        ActivityOutcome::Undone,
+    ];
+    let Some(current_index) = path.iter().position(|candidate| *candidate == current) else {
+        return false;
+    };
+    let Some(target_index) = path.iter().position(|candidate| *candidate == target) else {
+        return false;
+    };
+    if current_index > target_index {
+        return false;
+    }
+    for next in path.iter().take(target_index + 1).skip(current_index + 1) {
+        if ledger.transition(sequence, *next).is_err() {
+            return false;
+        }
+    }
+    true
+}
+
+fn verify_activity_record(
+    ledger: &ActivityLedger,
+    transaction_id: nagi_history::TransactionId,
+    expected_outcome: ActivityOutcome,
+) -> bool {
+    let object_ids = MOVES.map(|(object_id, _, _, _)| object_id);
+    let Some(record) = ledger.record_for_transaction(transaction_id) else {
+        return false;
+    };
+    if !activity_record_matches(record, transaction_id, &object_ids)
+        || record.current_outcome() != expected_outcome
+    {
+        return false;
+    }
+    match expected_outcome {
+        ActivityOutcome::Committed => {
+            record.outcomes() == [ActivityOutcome::Prepared, ActivityOutcome::Committed]
+        }
+        ActivityOutcome::Undone => {
+            record.outcomes()
+                == [
+                    ActivityOutcome::Prepared,
+                    ActivityOutcome::Committed,
+                    ActivityOutcome::UndoPending,
+                    ActivityOutcome::Undone,
+                ]
+        }
+        _ => false,
+    }
 }
 
 fn ensure_original_fixture(volume: &mut GuestVolume) -> bool {

@@ -196,6 +196,7 @@ pub enum HandlerError {
 
 pub struct ActionInvocation<'a, P: ActionPolicy> {
     pub(crate) caller: CallerIdentity,
+    pub(crate) plan_intent: &'a str,
     pub(crate) action: &'a ActionDescriptor,
     pub(crate) object_ids: &'a [ObjectId],
     pub(crate) parameters: &'a BTreeMap<String, Value>,
@@ -206,6 +207,11 @@ pub struct ActionInvocation<'a, P: ActionPolicy> {
 impl<P: ActionPolicy> ActionInvocation<'_, P> {
     pub fn caller(&self) -> CallerIdentity {
         self.caller
+    }
+
+    /// The validated user intent associated with this action plan.
+    pub fn plan_intent(&self) -> &str {
+        self.plan_intent
     }
 
     pub fn action(&self) -> &ActionDescriptor {

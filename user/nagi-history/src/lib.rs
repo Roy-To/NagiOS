@@ -10,6 +10,7 @@ pub const MAX_SNAPSHOT_BYTES: usize = 1024;
 pub const MAX_NAME_BYTES: usize = 32;
 pub const MAX_ARCHIVE_BYTES: usize = 36 * 1024;
 
+pub mod activity_ledger;
 pub mod guest;
 
 const ARCHIVE_HEADER_BYTES: usize = 36;
@@ -1016,7 +1017,7 @@ fn read_u64(input: &[u8], offset: usize) -> Result<u64, HistoryError> {
     ]))
 }
 
-fn archive_checksum(bytes: &[u8]) -> u64 {
+pub(crate) fn archive_checksum(bytes: &[u8]) -> u64 {
     bytes
         .get(..28)
         .unwrap_or(&[])

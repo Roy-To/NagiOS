@@ -43,10 +43,10 @@ pub fn execute_plan<P: ActionPolicy>(
     registry: &mut ActionRegistry<P>,
     policy: &P,
 ) -> ExecutionReport {
-    let (caller, steps) = plan.into_steps();
+    let (caller, intent, steps) = plan.into_steps();
     let mut completed = Vec::with_capacity(steps.len());
     for (index, step) in steps.iter().enumerate() {
-        match execute_step(step, caller, registry, policy) {
+        match execute_step(step, caller, &intent, registry, policy) {
             Ok(result) => completed.push(result),
             Err(error) => {
                 return ExecutionReport {
@@ -73,6 +73,7 @@ pub fn execute_plan<P: ActionPolicy>(
 fn execute_step<P: ActionPolicy>(
     step: &ValidatedStep,
     caller: crate::CallerIdentity,
+    plan_intent: &str,
     registry: &mut ActionRegistry<P>,
     policy: &P,
 ) -> Result<CompletedStep, ExecutionError> {
@@ -100,6 +101,7 @@ fn execute_step<P: ActionPolicy>(
         .handler
         .execute(ActionInvocation {
             caller,
+            plan_intent,
             action: &registered.descriptor,
             object_ids: &step.object_ids,
             parameters: &step.parameters,

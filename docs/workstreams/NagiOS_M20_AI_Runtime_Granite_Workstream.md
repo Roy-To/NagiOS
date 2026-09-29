@@ -42,6 +42,18 @@ bytes before calling any backend.
   unwinder. Exact configure/build logs are retained under
   `out/m20-llama-target-probe-2026-09-30/`. The pinned checkout remains clean;
   no target library was linked and no runtime/inference is claimed.
+- A follow-up audit of that configured target's `compile_commands.json` found
+  exception syntax/tokens in 22 selected CPU-path translation units, including
+  `gguf.cpp`, `llama-context.cpp`, `llama-grammar.cpp`,
+  `llama-model-loader.cpp`, and `unicode.cpp`. The checkout has no
+  `GGML_NO_EXCEPTIONS` compatibility branch. The failure therefore extends
+  beyond the first parser file; removing catches or turning throws into
+  no-ops would discard upstream allocation, parse, and I/O error handling.
+  No Nagi-owned patch was made because a correct conversion needs an explicit
+  no-exception error path across the selected loader/inference sources, not a
+  syntax shim. The next safe experiment is to adapt one bounded upstream API
+  boundary with explicit status returns, then rebuild and test that slice
+  before expanding the patch.
 - Granite Q4_K_M source metadata pins repository commit
   `c40945d71cd90f249a56985e8155551a9188dc30`, upstream size
   `2,244,011,552` bytes, digest

@@ -30,8 +30,8 @@ impl ValidatedPlan {
         self.steps.len()
     }
 
-    pub(crate) fn into_steps(self) -> (CallerIdentity, Vec<ValidatedStep>) {
-        (self.caller, self.steps)
+    pub(crate) fn into_steps(self) -> (CallerIdentity, alloc::string::String, Vec<ValidatedStep>) {
+        (self.caller, self.intent, self.steps)
     }
 }
 

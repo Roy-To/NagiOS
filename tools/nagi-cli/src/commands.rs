@@ -3320,6 +3320,8 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 
     let mut saw_move = false;
     let mut saw_undo = false;
+    let mut saw_activity_ledger_commit = false;
+    let mut saw_activity_ledger_undo = false;
     let mut last_log = PathBuf::new();
     for boot_index in 0..3 {
         let log_path = logs.join(format!("m22-history-boot-{}.log", boot_index + 1));
@@ -3378,6 +3380,8 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 ),
             );
         }
+        saw_activity_ledger_commit |= serial.contains("Nagi M22 AI Activity Ledger committed PASS");
+        saw_activity_ledger_undo |= serial.contains("Nagi M22 AI Activity Ledger undo result PASS");
         saw_move |= serial.contains("Nagi M22 move group persisted in guest VFS PASS")
             || serial.contains("Nagi M22 recovered prepared move group PASS");
         saw_undo |= serial.contains("Nagi M22 composite undo applied and persisted PASS");
@@ -3386,6 +3390,15 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 EXIT_CONFIG_ERROR,
                 format!(
                     "m22: final restart did not verify restored files and NH16 state (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if boot_index == 2 && !serial.contains("Nagi M22 AI Activity Ledger undo result PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: final restart did not verify the separate AI Activity Ledger (QEMU exit {final_status}; log {})",
                     log_path.display()
                 ),
             );
@@ -3408,11 +3421,23 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             );
         }
     }
+    if !had_persistent_disk && !saw_activity_ledger_commit {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m22: fresh guest did not persist an AI Activity Ledger commit record",
+        );
+    }
+    if !saw_activity_ledger_undo {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m22: guest did not persist an AI Activity Ledger undo result",
+        );
+    }
 
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M22 guest NH16 archive: grouped VFS moves, composite undo, and restored state survived QEMU restarts (log {})",
+            "PASS M22 guest NH16 and separate AI Activity Ledger archives: grouped VFS moves, composite undo, and restored state survived QEMU restarts (log {})",
             last_log.display()
         )],
     }

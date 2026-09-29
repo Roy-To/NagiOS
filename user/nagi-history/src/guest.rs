@@ -12,14 +12,14 @@ pub enum ArchiveSlot {
 }
 
 impl ArchiveSlot {
-    const fn index(self) -> u8 {
+    pub(crate) const fn index(self) -> u8 {
         match self {
             Self::A => 0,
             Self::B => 1,
         }
     }
 
-    const fn other(self) -> Self {
+    pub(crate) const fn other(self) -> Self {
         match self {
             Self::A => Self::B,
             Self::B => Self::A,

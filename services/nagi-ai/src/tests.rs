@@ -6,7 +6,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 
 use nagi_model::{AppId, AppSessionId, NodeId, ObjectId};
 use nagi_model_manager::{
@@ -133,6 +133,21 @@ impl ActionHandler<TestPolicy> for TestHandler {
             }),
             Err(error) => Err(*error),
         }
+    }
+}
+
+struct IntentCaptureHandler(Rc<RefCell<Option<String>>>);
+
+impl ActionHandler<TestPolicy> for IntentCaptureHandler {
+    fn execute(
+        &mut self,
+        invocation: ActionInvocation<'_, TestPolicy>,
+    ) -> Result<ActionOutput, HandlerError> {
+        *self.0.borrow_mut() = Some(invocation.plan_intent().to_string());
+        Ok(ActionOutput {
+            summary: "captured validated intent".to_string(),
+            object_ids: invocation.object_ids().to_vec(),
+        })
     }
 }
 
@@ -465,6 +480,26 @@ fn successful_search_action_returns_a_bounded_executor_result() {
     assert_eq!(report.completed[0].summary, "2 visible matches");
     assert_eq!(report.completed[0].object_ids, [ObjectId(9)]);
     assert_eq!(calls.get(), 1);
+}
+
+#[test]
+fn executor_passes_only_the_validated_plan_intent_to_action_handlers() {
+    let captured = Rc::new(RefCell::new(None));
+    let mut registry = ActionRegistry::new();
+    registry
+        .register(search_descriptor(), IntentCaptureHandler(captured.clone()))
+        .expect("register action");
+    let parsed = plan(
+        r#"{"plan_version":1,"intent":"find my approved project file","steps":[{"action":"file.search","parameters":{"query":"project"}}]}"#,
+    );
+    let validated = validate_plan(parsed, &context(&[]), &registry, &TestPolicy::default())
+        .expect("validate complete plan");
+    let report = execute_plan(validated, &mut registry, &TestPolicy::default());
+    assert_eq!(report.status, ExecutionStatus::Succeeded);
+    assert_eq!(
+        captured.borrow().as_deref(),
+        Some("find my approved project file")
+    );
 }
 
 #[test]

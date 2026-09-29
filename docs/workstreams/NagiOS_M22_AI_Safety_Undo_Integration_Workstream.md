@@ -29,6 +29,16 @@ retry. The legacy `serialize()` still emits metadata-only `NH15` for M15; it
 does not restore undo data, and the current M15 guest acceptance is not yet
 wired to `NH16`.
 
+The separate `NAL1` AI Activity Ledger records bounded user intent, optional
+selected model, action ID, plan summary, logical caller context, Object IDs,
+transaction ID, and monotonic result transitions. It stores no hidden
+chain-of-thought. Its `NLA1` two-slot VFS backend checksums each slot and falls
+back to the previous valid generation. The M21 Executor now passes the
+validated plan intent to the action handler; the private M22 guest fixture
+writes `Prepared` to NAL1 before the VFS mutation, records `Committed` after
+the NH16 transaction commit, and persists `UndoPending`/`Undone` during
+restart recovery. NH16 undo data and NAL1 activity remain separate archives.
+
 `user/nagi-history/src/guest.rs` adds a two-slot `HistoryArchiveStore`
 adapter contract. Each checksummed slot is bounded to one 1 KiB guest VFS
 file; writes go to the inactive generation and flush before returning. The
@@ -52,18 +62,19 @@ exercises it with actual VFS objects. Its fixed caller, Object IDs,
 `files.move` capability, handle resolver, and deterministic plan are private
 acceptance policy. They do not authenticate application processes or authorize
 general files. The production `services/nagi-ai` registry remains unwired in a
-running guest service, and there is no authenticated target
-`ActionPolicy`/`ContextAuthority` adapter or separate Activity Ledger bridge.
-This advances real mutation and History/Undo composition while leaving those
-production boundaries open.
+running guest service. The NAL1 connection exists only inside this
+deterministic fixture; there is no authenticated target
+`ActionPolicy`/`ContextAuthority` adapter or production Activity Ledger
+service. This advances real mutation, History/Undo, and separate-ledger
+persistence while leaving those production boundaries open.
 
 ## Verification and blocker
 
-- `cargo test --locked --offline -p nagi-history` — PASS, 9 tests covering
-  grouped three-move ordering, full-width context restoration, caller denial,
-  prepared/committed state, pending-undo restart recovery, archive
-  corruption/version rejection, atomic group validation, two-slot guest
-  archive selection, and corruption fallback.
+- `cargo test --locked --offline -p nagi-ai -p nagi-history --all-targets` —
+  PASS, 24 orchestration tests and 14 History/Activity Ledger tests. NAL1 tests
+  cover context/model/transaction/result round-trip, malformed text and
+  transitions, object limits, archive corruption/version rejection, and
+  two-slot corruption fallback.
 - `cargo clippy --locked --offline -p nagi-history --all-targets -- -D warnings`
   — PASS.
 - Changed-file format checks for `nagi-history`, `nagi-init`, and `nagi-cli` —
@@ -91,18 +102,14 @@ production boundaries open.
   were preserved at
   `out/evidence/m22-before-m21-action-regression-20260930/`.
 - A fresh-disk `./nagi m22` run on 2026-09-30 passed the guest M21 `file.move`
-  Plan/Validate/Execute action on boot 1. After remount, the test reopened NH16
-  and verified one three-object Committed transaction and the destination
-  files. Boot 2 applied and persisted reverse-order composite Undo; boot 3
-  reopened the archive and verified all source files plus `Undone` state. The
-  previous accepted M22 image, user-data disk, OVMF vars, and three logs were
-  moved intact to
-  `out/evidence/m22-before-m21-file-move-action-20260930-run1/`. Current guest
-  logs are in `out/evidence/pre-m28-m21-file-move-20260930/logs/`;
-  `m22-history-boot-1.log` contains
-  `Nagi M21 file.move Plan Validate Execute PASS`. The later one-repetition
-  M28 run's final M22 serial logs remain in `out/logs/m22-history-boot-1.log`
-  through `m22-history-boot-3.log`.
+  Plan/Validate/Execute action on boot 1. It reopened the three-object NH16
+  Committed transaction and a separate NAL1 Committed record, then boot 2
+  applied reverse-order Undo and persisted NAL1 `UndoPending`/`Undone`. Boot 3
+  reopened both archives and verified the original files plus complete NAL1
+  outcome history. Fresh-disk serial logs and their pre-run images, persistent
+  disks, OVMF vars, and logs are preserved under
+  `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`. The subsequent M28
+  repetition's latest M22 serial logs remain in `out/logs/`.
 - This remains a deterministic guest acceptance fixture, not real AI
   inference, authenticated production capability authority, or a separate
   production Activity Ledger integration. NH16 preserves AppId, AppSessionId,
@@ -124,14 +131,15 @@ production boundaries open.
   be built on this arm64 macOS host because its x86 inline-assembly register
   constraints are unavailable; the intended Nagi target and CI are the
   relevant kernel build checks.
-- The NH16 host tests verify its serialization and recovery contract. The
-  separate `./nagi m22` QEMU fixture verifies guest VFS persistence and undo
-  across restarts; neither layer proves authenticated policy, a production
-  M21 file mutation, or Activity Ledger linkage.
+- The NH16 host tests verify its serialization and recovery contract. NAL1
+  host tests verify its separate archive/store contract, and `./nagi m22`
+  verifies the fixture's guest VFS ledger persistence across restarts. These
+  do not prove authenticated policy, production M21 file mutation, real AI
+  inference, or a production Activity Ledger service.
 
 M22 is `PARTIAL`. The NH16 archive, a real guest `file.move` Executor action,
-grouped three-file transaction, composite Undo, and restart verification now
-pass through a private QEMU fixture. Real AI inference, authenticated caller
-and capability providers, general production move actions, and production
-Activity Ledger/restart acceptance remain incomplete, so the formal milestone
-is not PASS.
+grouped three-file transaction, separate NAL1 activity persistence, composite
+Undo, and restart verification now pass through a private QEMU fixture. Real
+AI inference, authenticated caller and capability providers, general
+production move actions, and production Activity Ledger/restart acceptance
+remain incomplete, so the formal milestone is not PASS.

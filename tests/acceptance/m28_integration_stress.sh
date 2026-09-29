@@ -60,6 +60,7 @@ validate_m22_log() {
         'Nagi M7 VirtIO Block PASS' \
         'Nagi M13 C POSIX PASS' \
         'Nagi M19 guest search persistence PASS' \
+        'Nagi M22 AI Activity Ledger undo result PASS' \
         'Nagi M22 archive restart and restored files PASS' \
         'Nagi M13 acceptance PASS'
 }
@@ -103,6 +104,7 @@ Nagi M3 acceptance PASS
 Nagi M7 VirtIO Block PASS
 Nagi M13 C POSIX PASS
 Nagi M19 guest search persistence PASS
+Nagi M22 AI Activity Ledger undo result PASS
 Nagi M22 archive restart and restored files PASS
 Nagi M13 acceptance PASS
 EOF

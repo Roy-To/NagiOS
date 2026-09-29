@@ -129,6 +129,25 @@ virtio-sound input driver is available; this repetition does not exercise
 audio. M28 stays PARTIAL because Desktop/Files/Notes/Albert, Granite inference,
 audio pressure, OOM behavior, CPU fairness, and leak soak were not measured.
 
+## M22 AI Activity Ledger continuation — 2026-09-30
+
+Before the M22 ledger run and updated M28 regression, the existing M19/M22
+generated images, OVMF vars, serial logs, and persistent disks were preserved
+under `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`. The fresh-disk
+M22 three-boot run passed the M21 `file.move` action, reopened the separate
+NAL1 Committed record, persisted the `UndoPending`/`Undone` transitions, and
+verified restored files plus the ledger after restart. Its logs and prior
+inputs remain in the evidence directory.
+
+The updated `NAGI_M28_REPEAT_COUNT=1 ... --run` then passed the real M19
+ObjectId/Search gate and all three M22 boots with the new Activity Ledger
+marker required by the harness. Latest M19 and M22 serial logs remain in
+`out/logs/`, and the generated boot images/vars are in `out/artifacts/`.
+`bash -n` and `--self-test` pass. QEMU again reported no host virtio-sound input
+driver; this Search/History run does not measure audio. M28 remains PARTIAL
+because its combined desktop/model/audio workload and stability criteria are
+still unmeasured.
+
 ## Commands
 
 ```sh
