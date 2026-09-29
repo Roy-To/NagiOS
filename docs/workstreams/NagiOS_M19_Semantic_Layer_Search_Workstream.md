@@ -111,8 +111,9 @@ Verification after the repair:
 - `./nagi m19` — PASS; the fixture survived VFS remount and a second QEMU
   boot. Logs remain in `out/logs/m19-search-initial.log` and
   `out/logs/m19-search-restart.log`.
-- CI run `36584567375` on the pre-repair M19 commit reported failures in the
-  Ubuntu M0 launcher and Windows launcher exit-propagation jobs. The local
-  compile failure above reproduces the default-init issue; full CI logs remain
-  unavailable while its Nagi target job is still running. The corrected
-  checkpoint is being pushed for a fresh CI run.
+- CI run `36584567375` on the pre-repair M19 commit failed the Ubuntu M0
+  launcher and Windows launcher exit-propagation jobs. The corrected commit
+  `14918d11905220c6aa6122135361c8f40d25651d` is covered by run
+  `36588249000`: Ubuntu host and Windows launcher passed, and `nagi-target`
+  built init and UEFI before starting the M17 first-web-pixel regression. The
+  M17 and following M18 gates were still in progress at this checkpoint.

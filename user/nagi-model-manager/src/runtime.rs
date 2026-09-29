@@ -2,6 +2,7 @@ use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use nagi_model::AppId;
+use sha2::{Digest, Sha256};
 
 use crate::{
     ArtifactId, ArtifactReference, BackendDescriptor, BackendId, CapabilityId, IntegrityMetadata,
@@ -9,6 +10,7 @@ use crate::{
 };
 
 pub const STREAMING_CAPABILITY_ID: &str = "text.stream";
+const ARTIFACT_VERIFY_CHUNK_BYTES: usize = 8 * 1024;
 
 pub trait ModelArtifactReader {
     fn artifact_id(&self) -> &ArtifactId;
@@ -183,6 +185,67 @@ pub enum RuntimeError {
     SessionClosed,
 }
 
+fn verify_artifact_integrity(
+    artifact: &mut dyn ModelArtifactReader,
+    expected: &IntegrityMetadata,
+) -> Result<(), RuntimeError> {
+    if expected.algorithm != "sha256" {
+        return Err(RuntimeError::IntegrityMismatch);
+    }
+
+    let length = artifact.len();
+    let mut offset = 0u64;
+    let mut buffer = [0u8; ARTIFACT_VERIFY_CHUNK_BYTES];
+    let mut hasher = Sha256::new();
+    while offset < length {
+        let request_len = usize::try_from((length - offset).min(buffer.len() as u64))
+            .map_err(|_| RuntimeError::ArtifactUnavailable)?;
+        let read = artifact
+            .read_at(offset, &mut buffer[..request_len])
+            .map_err(|_| RuntimeError::ArtifactUnavailable)?;
+        if read == 0 || read > request_len {
+            return Err(RuntimeError::ArtifactUnavailable);
+        }
+        hasher.update(&buffer[..read]);
+        offset = offset
+            .checked_add(read as u64)
+            .ok_or(RuntimeError::ArtifactUnavailable)?;
+    }
+
+    let digest = hasher.finalize();
+    if !sha256_matches_hex(&digest, expected.digest.as_bytes()) {
+        return Err(RuntimeError::IntegrityMismatch);
+    }
+    Ok(())
+}
+
+fn sha256_matches_hex(digest: &[u8], encoded: &[u8]) -> bool {
+    if digest.len() != 32 || encoded.len() != 64 {
+        return false;
+    }
+    for (index, actual) in digest.iter().enumerate() {
+        let Some(high) = decode_hex_digit(encoded[index * 2]) else {
+            return false;
+        };
+        let Some(low) = decode_hex_digit(encoded[index * 2 + 1]) else {
+            return false;
+        };
+        if *actual != ((high << 4) | low) {
+            return false;
+        }
+    }
+    true
+}
+
+fn decode_hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 impl fmt::Display for RuntimeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let description = match self {
@@ -328,6 +391,14 @@ impl<B: ModelBackend> ModelRuntime<B> {
         target_architecture: &str,
     ) -> Result<LoadedSession<'runtime, B>, RuntimeError> {
         self.validate(manifest, artifact, target_architecture)?;
+        verify_artifact_integrity(
+            artifact,
+            manifest
+                .artifact
+                .integrity
+                .as_ref()
+                .ok_or(RuntimeError::IntegrityRequired)?,
+        )?;
         let backend_capabilities = self.backend.descriptor().capabilities.clone();
         let session = self.backend.load(manifest, artifact)?;
         Ok(LoadedSession {
@@ -514,7 +585,7 @@ mod tests {
         manifest.artifact.size_bytes = Some(1);
         manifest.artifact.integrity = Some(IntegrityMetadata {
             algorithm: String::from("sha256"),
-            digest: "a".repeat(64),
+            digest: format!("{:x}", Sha256::digest([1u8])),
         });
         manifest
     }
@@ -552,6 +623,83 @@ mod tests {
             runtime.backend().last_system_prompt.as_deref(),
             Some("Be concise.")
         );
+    }
+
+    #[test]
+    fn load_rejects_changed_artifact_bytes_before_calling_the_backend() {
+        let model = manifest();
+        let mut artifact = MemoryArtifactReader::for_manifest(&model, vec![2]);
+        let mut runtime = ModelRuntime::new(FakeModelBackend::for_manifest(&model));
+
+        assert_eq!(
+            runtime.load(&model, &mut artifact, "x86_64").err(),
+            Some(RuntimeError::IntegrityMismatch)
+        );
+        assert_eq!(runtime.backend().load_count, 0);
+    }
+
+    #[test]
+    fn sha256_integrity_comparison_accepts_hex_case_and_rejects_other_values() {
+        let digest = Sha256::digest([1u8]);
+        assert!(sha256_matches_hex(
+            &digest,
+            b"4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"
+        ));
+        assert!(sha256_matches_hex(
+            &digest,
+            b"4BF5122F344554C53BDE2EBB8CD2B7E3D1600AD631C385A5D7CCE23C7785459A"
+        ));
+        assert!(!sha256_matches_hex(&digest, &[b'0'; 64]));
+    }
+
+    struct ShortReadArtifact {
+        inner: MemoryArtifactReader,
+        largest_request: usize,
+        max_return_bytes: usize,
+    }
+
+    impl ModelArtifactReader for ShortReadArtifact {
+        fn artifact_id(&self) -> &ArtifactId {
+            self.inner.artifact_id()
+        }
+
+        fn verified_integrity(&self) -> Option<&IntegrityMetadata> {
+            self.inner.verified_integrity()
+        }
+
+        fn len(&self) -> u64 {
+            self.inner.len()
+        }
+
+        fn read_at(
+            &mut self,
+            offset: u64,
+            destination: &mut [u8],
+        ) -> Result<usize, ArtifactReadError> {
+            self.largest_request = self.largest_request.max(destination.len());
+            let bounded_len = destination.len().min(self.max_return_bytes);
+            self.inner.read_at(offset, &mut destination[..bounded_len])
+        }
+    }
+
+    #[test]
+    fn load_hashes_large_artifacts_with_bounded_reads_and_accepts_short_reads() {
+        let bytes = vec![0x5a; ARTIFACT_VERIFY_CHUNK_BYTES * 2 + 37];
+        let mut model = manifest();
+        model.artifact.size_bytes = Some(bytes.len() as u64);
+        model.artifact.integrity.as_mut().unwrap().digest = format!("{:x}", Sha256::digest(&bytes));
+        let inner = MemoryArtifactReader::for_manifest(&model, bytes);
+        let mut artifact = ShortReadArtifact {
+            inner,
+            largest_request: 0,
+            max_return_bytes: 257,
+        };
+        let mut runtime = ModelRuntime::new(FakeModelBackend::for_manifest(&model));
+
+        let session = runtime.load(&model, &mut artifact, "x86_64").unwrap();
+        assert_eq!(artifact.largest_request, ARTIFACT_VERIFY_CHUNK_BYTES);
+        assert_eq!(session.resource_report().loaded_model_sessions, 1);
+        session.unload().unwrap();
     }
 
     #[test]
@@ -649,7 +797,7 @@ mod tests {
         let mut integrity_model = manifest();
         let expected = IntegrityMetadata {
             algorithm: String::from("sha256"),
-            digest: "a".repeat(64),
+            digest: format!("{:x}", Sha256::digest([1u8])),
         };
         integrity_model.artifact.integrity = Some(expected.clone());
         let mut wrong_integrity = MemoryArtifactReader::with_metadata(
@@ -697,10 +845,12 @@ mod tests {
 
     #[test]
     fn refuses_to_load_an_artifact_without_integrity_metadata() {
-        let model = ModelManifest::parse_json(
+        let mut model = ModelManifest::parse_json(
             include_str!("../tests/fixtures/granite-4.2-3b.json").as_bytes(),
         )
         .unwrap();
+        model.artifact.integrity = None;
+        model.source = None;
         let mut runtime = ModelRuntime::new(FakeModelBackend::for_manifest(&model));
         let mut artifact = MemoryArtifactReader::for_manifest(&model, vec![1]);
         assert_eq!(
@@ -805,7 +955,7 @@ mod tests {
         model.artifact.size_bytes = Some(1);
         model.artifact.integrity = Some(IntegrityMetadata {
             algorithm: String::from("sha256"),
-            digest: "a".repeat(64),
+            digest: format!("{:x}", Sha256::digest([1u8])),
         });
         let mut runtime = ModelRuntime::new(FakeModelBackend::for_manifest(&model));
         let mut artifact = MemoryArtifactReader::for_manifest(&model, vec![1]);

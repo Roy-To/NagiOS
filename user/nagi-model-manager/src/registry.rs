@@ -638,10 +638,12 @@ mod tests {
 
     #[test]
     fn metadata_without_integrity_is_not_selectable() {
-        let model = ModelManifest::parse_json(
+        let mut model = ModelManifest::parse_json(
             include_str!("../tests/fixtures/granite-4.2-3b.json").as_bytes(),
         )
         .unwrap();
+        model.artifact.integrity = None;
+        model.source = None;
         let mut registry = ModelRegistry::new();
         assert_eq!(
             registry.discover(model, &PresentArtifact, &[backend()], budget(), "x86_64"),

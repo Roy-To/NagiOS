@@ -51,11 +51,11 @@ The accepted generative/decision architecture remains authoritative:
    license acknowledgement, and removal eligibility. It does not implement a
    network store or filesystem service.
 7. Host tests use a deterministic fake provider solely to verify orchestration
-   and lifecycle contracts. Three small catalog fixtures demonstrate that
-   Qwen3 4B, Granite 4.2 3B, and Gemma 3 1B fit the same schema; these
-   non-installable examples use illustrative context/resource bounds and
-   provider-term references, contain no weights, and make no distribution-ready
-   source/hash or licensing claim.
+   and lifecycle contracts. Qwen3 4B and Gemma 3 1B remain non-installable
+   examples with illustrative context/resource bounds. The Granite 4.2 3B
+   profile separately pins IBM's Q4_K_M GGUF repository revision, upstream
+   byte length and SHA-256 metadata, and Apache-2.0 notice; the model bytes are
+   not present in this source tree.
 
 ## Verification plan
 
@@ -147,3 +147,22 @@ a locked validator dependency would also require the shared root `Cargo.lock`,
 which the authoritative workstream registry lists as forbidden; this exact
 schema-validation gap remains deferred until the lockfile boundary is
 authorized. Existing typed parsing and semantic negative tests remain active.
+
+### 2026-09-30 artifact verification boundary
+
+The Granite 4.2 3B profile now identifies the official Q4_K_M GGUF artifact at
+Hugging Face snapshot `c40945d71cd90f249a56985e8155551a9188dc30`. Resolved file
+metadata reports `2,244,011,552` bytes and SHA-256
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`; the
+profile records Apache-2.0. The pinned upstream file was streamed through a
+SHA-256 process, and its observed digest matched. The large artifact was not
+retained locally or installed.
+
+`ModelRuntime::load` independently hashes the bytes supplied by its
+`ModelArtifactReader`, using a fixed 8 KiB buffer and rejecting mismatches
+before backend load. The pinned llama.cpp commit
+`c85b92c69c955961621193cd51da194f3cbcedf3` is registered in
+`third_party/sources.lock` and fetched into an ignored clean checkout by
+`nagi fetch`. Target C++ integration, a guest store capable of supplying a
+2.24 GB artifact, and real Granite inference remain unimplemented; M20 remains
+`PARTIAL`.

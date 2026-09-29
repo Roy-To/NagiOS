@@ -9,10 +9,13 @@ reuses the existing Model Runtime / Model Store Foundation. The shared
 `nagi-model-manager` contract is a user-space `no_std` library. Its providers
 return untrusted output and do not grant operating-system authority.
 
-The change does not claim that the manager's fake test backend is a production
-runtime. Granite fixtures remain illustrative, non-installable metadata without
-model weights, source/hash verification, or completed license/NOTICE
-provenance.
+The manager's fake test backend remains test-only. The Granite profile now
+pins IBM's official GGUF repository snapshot, the Q4_K_M file, its upstream
+SHA-256/size metadata, and Apache-2.0 notice metadata. The 2.24 GB artifact
+was streamed from the pinned revision directly into SHA-256 verification; the
+observed digest matched the profile. The model file was not retained or
+installed. `ModelRuntime::load` independently performs that check on artifact
+bytes before calling any backend.
 
 ## Implemented and verified
 
@@ -24,6 +27,19 @@ provenance.
 - Bounded artifact reads, provider-neutral generation/session interfaces,
   cancellation/deadline results, and local Model Store install/update/removal
   metadata contracts.
+- Runtime load streams artifact bytes through a fixed 8 KiB SHA-256 buffer and
+  rejects a content mismatch before invoking the backend. Tests cover changed
+  bytes, digest comparison, and short reads over a multi-chunk artifact.
+- `third_party/sources.lock` pins llama.cpp release commit
+  `c85b92c69c955961621193cd51da194f3cbcedf3`; `nagi fetch` retrieves that exact
+  clean source checkout. This is reproducible source acquisition, not a claim
+  that the C++ backend is built for Nagi.
+- Granite Q4_K_M source metadata pins repository commit
+  `c40945d71cd90f249a56985e8155551a9188dc30`, upstream size
+  `2,244,011,552` bytes, digest
+  `e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`, and
+  Apache-2.0 notice metadata. A fresh streamed fetch produced that exact
+  SHA-256; no model bytes are retained in the worktree or bundled.
 - The fake provider is exercised only by tests of orchestration and lifecycle.
 
 ## Verification evidence
@@ -40,8 +56,9 @@ CARGO_TARGET_DIR=/tmp/nagi-m20-host-arm64 \
   -p nagi-model-manager --all-targets
 ```
 
-Result: 37 unit tests, 2 manifest/schema tests, and 1 external Store API test
-passed (40 total).
+Result: 40 unit tests, 2 manifest/schema tests, and 1 external Store API test
+passed (43 total). The CLI regression suite also passed 114 unit and 18
+integration tests.
 
 ```sh
 PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
@@ -75,16 +92,23 @@ CARGO_TARGET_DIR=/tmp/nagi-m20-target \
   --target targets/x86_64-unknown-nagi-user.json --locked --offline
 ```
 
-No M20 QEMU inference acceptance was run.
+The Granite source bytes were streamed to a local SHA-256 process without
+writing a 2.24 GB artifact file; the calculated digest matched the pinned
+profile. `./nagi fetch` also passed and validated the clean llama.cpp checkout
+at the locked revision. No M20 QEMU inference acceptance was run. The runtime
+hash check was additionally tested against deterministic host artifacts and
+compiled for the Nagi `no_std` target.
 
 ## Remaining acceptance blockers
 
-1. Pin and integrate a Nagi-compatible llama.cpp source revision and target
-   backend. The M18 base has no llama.cpp source or backend adapter.
-2. Provide a verified, licensed Granite 4.2 3B GGUF artifact in the Nagi Model
-   Store. Current sample metadata is explicitly non-installable.
+1. Build a Nagi-compatible CPU llama.cpp backend from the pinned source and
+   connect it through the provider-neutral runtime. The source checkout has no
+   Nagi C ABI adapter, target build, or backend session.
+2. Add a large-artifact Model Store path. Current guest VFS files are 1 KiB
+   bounded and cannot contain the pinned 2.24 GB model; no guest model artifact
+   reader or installer is registered.
 3. Activate a user-space model service that loads the model lazily, enforces
-   bounded resource use, and fails safely when the model or backend is absent.
+   measured bounded resource use, and fails safely when the model or backend is absent.
    Granite absence must not prevent Nagi from booting.
 4. Add QEMU acceptance that obtains a real Granite response inside Nagi,
    exercises schema-constrained structured output and invalid-output rejection,

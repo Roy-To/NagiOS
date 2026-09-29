@@ -18,6 +18,7 @@
 /third_party/tempfile-nagi/
 /third_party/mozjs-sys-nagi/
 /third_party/cc-nagi/
+/third_party/llama.cpp/
 
 # Temporary developer-tool installers
 /.nagi-*

@@ -13,6 +13,7 @@ use crate::image::{
     run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image, ImageLayout,
     QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
+use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
 use crate::mozjs_sys_nagi::ensure_mozjs_sys_nagi_checkout;
 use crate::paths::{clean_owned_outputs, ensure_owned_directory};
@@ -332,6 +333,10 @@ fn execute_fetch(root: &Path) -> CommandResult {
             );
         }
     }
+    let llama_cpp = match ensure_llama_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+    };
     let surfman = match ensure_surfman_checkout(root) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
@@ -373,7 +378,11 @@ fn execute_fetch(root: &Path) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {}, {}, {})",
+            "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, Mesa/Softpipe, and llama.cpp sources validated ({}, {}, {}, {}, {}, {}, {})",
+            llama_cpp
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/llama.cpp"))
+                .display(),
             surfman
                 .strip_prefix(root)
                 .unwrap_or(Path::new("third_party/surfman"))

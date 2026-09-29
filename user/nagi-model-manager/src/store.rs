@@ -232,6 +232,17 @@ mod tests {
         manifest
     }
 
+    fn acknowledge_required_terms(record: &mut ModelStoreRecord) {
+        if record.license().acknowledgement_required {
+            let reference = record
+                .license()
+                .terms_reference
+                .clone()
+                .expect("acknowledged model terms reference");
+            record.acknowledge_terms(&reference).unwrap();
+        }
+    }
+
     #[test]
     fn records_license_terms_before_allowing_install() {
         let gemma = manifest(include_str!("../tests/fixtures/gemma-3-1b.json"));
@@ -266,6 +277,7 @@ mod tests {
     fn enforces_install_verification_update_and_removal_states() {
         let granite = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
         let mut record = ModelStoreRecord::discovered(granite).unwrap();
+        acknowledge_required_terms(&mut record);
         record.request_install().unwrap();
         record.transition(InstallState::Installing).unwrap();
         record.transition(InstallState::Verifying).unwrap();
@@ -318,6 +330,7 @@ mod tests {
     fn failed_update_keeps_the_installed_version_and_retry_target() {
         let granite = manifest(include_str!("../tests/fixtures/granite-4.2-3b.json"));
         let mut record = ModelStoreRecord::discovered(granite).unwrap();
+        acknowledge_required_terms(&mut record);
         record.request_install().unwrap();
         record.transition(InstallState::Installing).unwrap();
         record.transition(InstallState::Verifying).unwrap();

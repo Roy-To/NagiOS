@@ -6,6 +6,7 @@ pub(crate) mod freetype_sys;
 pub(crate) mod hyper_util_servo;
 pub mod image;
 pub(crate) mod libc_servo;
+pub(crate) mod llama_cpp;
 #[cfg(test)]
 mod m17_storage_contract_tests;
 pub(crate) mod m18_acceptance;

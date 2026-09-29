@@ -428,12 +428,13 @@ mod tests {
             manifest.resource_class.as_ref().unwrap().as_str(),
             "standard"
         );
-        assert_eq!(manifest.license.identifier, "provider-terms:ibm-granite");
+        assert_eq!(manifest.license.identifier, "Apache-2.0");
         assert_eq!(
             manifest.license.terms_reference.as_deref(),
-            Some("provider-terms:ibm.granite")
+            Some("https://huggingface.co/ibm-granite/granite-4.2-3b")
         );
-        assert_eq!(manifest.license.notices[0].notice_id, "model-notice");
+        assert!(manifest.license.acknowledgement_required);
+        assert_eq!(manifest.license.notices[0].notice_id, "apache-2.0");
     }
 
     #[test]
@@ -461,10 +462,11 @@ mod tests {
             ModelManifest::parse_json(b"{"),
             Err(ManifestError::MalformedJson)
         );
-        let crlf_input = VALID.replace("\r\n", "\n").replace('\n', "\r\n");
-        let missing_nullable_field = crlf_input.replace("\"source\": null", "");
+        let mut missing_source: serde_json::Value = serde_json::from_str(VALID).unwrap();
+        missing_source.as_object_mut().unwrap().remove("source");
+        let missing_nullable_field = serde_json::to_vec(&missing_source).unwrap();
         assert_eq!(
-            ModelManifest::parse_json(missing_nullable_field.as_bytes()),
+            ModelManifest::parse_json(&missing_nullable_field),
             Err(ManifestError::MalformedJson)
         );
     }
