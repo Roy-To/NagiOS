@@ -65,10 +65,33 @@ reported as a regression.
 - Ubuntu runs formatting, lint, build, host tests, Python diagnostic-parser
   regressions, and focused M0 host acceptance.
 - Windows runs host build/tests and focused M0 PowerShell launcher acceptance.
-- The target job runs the real target build and, if it reaches that gate, the
-  M17 first-web-pixel Acceptance. A host-only success cannot satisfy M17.
+- The target job runs only when the changed paths include target-sensitive
+  inputs or an operator explicitly requests it. It starts after both host jobs
+  pass, then runs the real target build and M17 first-web-pixel Acceptance.
+  A host-only success cannot satisfy M17.
 - Each job uploads machine-readable results and available Acceptance/build
   logs even when an earlier step fails.
+
+The target path classifier lives in `.github/workflows/ci.yml`. Add paths to
+both the classifier and this list when a new target-owned component becomes an
+input to the M17 target build or acceptance:
+
+```text
+Cargo.toml, Cargo.lock, rust-toolchain.toml, .cargo/**, targets/**
+kernel/**, loader/**, user/**, sdk/rust/**
+crates/nagi-abi/**, crates/nagi-bootinfo/**,
+crates/nagi-localization/**, crates/nagi-model/**
+idl/**, schemas/**, third_party/**
+tools/mesa/**, tools/nagi-target-*, tools/nagi-bootstrap/**
+tools/nagi-pkg/**, tools/nagi-cli/**, samples/hello-nagi/**
+nagi, nagi.ps1, tests/acceptance/registry.tsv
+tests/acceptance/m17_servo_first_web_pixel.*
+docs/Nagi_OS_0.1_Codex_Implementation_Spec.md
+```
+
+Workstream state/docs and the host-only integration-test harness are outside
+this set. To run target CI without a matching path change, dispatch `Nagi CI`
+with `run_target` set to `true`; the default is `false`.
 
 This PR workflow intentionally runs focused gates; `--acceptance --ci` is the
 full registered Acceptance run. A `BLOCKED` or `FAIL` result fails CI. The
