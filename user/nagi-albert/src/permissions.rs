@@ -89,7 +89,7 @@ impl PermissionBrokerState {
         kind: PermissionKind,
         requested_at: u64,
     ) -> Result<PermissionRequestId, PermissionError> {
-        let origin = parse_origin(page_url)?;
+        let origin = parse_request_origin(page_url)?;
         if self.requests.len() >= MAX_PERMISSION_REQUESTS {
             return Err(PermissionError::CapacityReached);
         }
@@ -165,6 +165,13 @@ pub fn parse_origin(page_url: &str) -> Result<String, PermissionError> {
     Ok(url.origin().ascii_serialization())
 }
 
+fn parse_request_origin(value: &str) -> Result<String, PermissionError> {
+    if value == "null" {
+        return Ok(value.to_owned());
+    }
+    parse_origin(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +232,21 @@ mod tests {
         assert_eq!(broker.requests()[0].kind, PermissionKind::Camera);
         assert_eq!(broker.requests()[0].status, PermissionStatus::Denied);
         assert_eq!(broker.pending().count(), 0);
+    }
+
+    #[test]
+    fn opaque_origin_is_recorded_as_opaque_instead_of_using_top_level_site() {
+        let mut broker = PermissionBrokerState::new();
+        let id = broker
+            .deny_without_prompt(TabId(9), "null", PermissionKind::Camera, 43)
+            .unwrap();
+
+        let request = broker
+            .requests()
+            .iter()
+            .find(|request| request.id == id)
+            .expect("opaque-origin request is retained");
+        assert_eq!(request.origin, "null");
+        assert_eq!(request.status, PermissionStatus::Denied);
     }
 }

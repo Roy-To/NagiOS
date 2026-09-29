@@ -5677,6 +5677,7 @@ reached in run `36510598517`; the repair commit and fresh CI result are pending.
 The guest now attaches Servo clipboard and permission hooks. With no Nagi
 clipboard provider, clipboard reads fail and writes/clears report unavailable;
 there is no host clipboard fallback. Servo site-permission requests are mapped
+with the requesting document's serialized origin (including opaque `null`)
 to Albert's typed permission state and denied by default until a trusted prompt
 service exists. File-picker requests are dismissed because Servo's picker
 returns host paths and Nagi has no capability-safe file/object picker. IME
@@ -5693,3 +5694,29 @@ checks passed. `git diff --check` reports only intentional blank context lines
 inside the newly added unified Servo patch files.
 Overall M18 remains `PARTIAL` until its remaining required service providers
 are implemented and verified. Its browser HTTPS/QEMU Acceptance is `PASS`.
+
+### M18 site-permission requester origin (2026-09-29)
+
+Servo's permission and screen-wake-lock requests now carry the serialized
+origin from the requesting `GlobalScope` through `PermissionRequest`. Albert
+records that origin instead of substituting the WebView's top-level URL; an
+opaque origin remains `null` and is denied without being attributed to another
+site. This fixes cross-origin iframe attribution while retaining fail-closed
+behavior; it does not grant site permissions or create the missing trusted
+prompt service. The change is reproducible in
+`third_party/servo-patches/0025-nagi-m18-permission-origin.patch`.
+
+The new opaque-origin regression failed before the fix and passes after it.
+The focused Albert suite passes 51 tests, `nagi-cli` passes 113 unit tests and
+18 CLI tests, and a fresh local `./nagi m18` passes with three TLS-verified
+HTTPS pages rendered through Nagi Surface and QEMU. The final local run is
+recorded in `out/logs/m18-origin-renumbered-20260929.log`, with guest evidence
+in `out/logs/m18-albert.log`. The M17 target/QEMU regression also passes with
+its first-web-pixel marker in `out/logs/m17-servo.log`. Ubuntu CI run
+`36517686132` validates the prior implementation and Linux Clang/LLD path; the
+origin patch still needs its own CI run. Download destination,
+capability-safe upload/file selection, shared clipboard, IME text/composition
+input, and a trusted interactive permission service remain absent from the
+repository's user-space service/IPC interfaces, so those paths remain
+fail-closed. Overall M18 therefore remains `PARTIAL` even though its
+HTTPS/QEMU Acceptance is `PASS`.

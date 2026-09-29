@@ -1102,6 +1102,40 @@ mod tests {
     }
 
     #[test]
+    fn m18_permission_requests_keep_the_requesting_document_origin() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0025-nagi-m18-permission-origin.patch"),
+        )
+        .expect("M18 permission-origin patch");
+        let acceptance = fs::read_to_string(root.join("user/nagi-albert/src/m18_acceptance.rs"))
+            .expect("M18 Albert acceptance integration");
+        let permission_callback = acceptance
+            .split("fn request_permission")
+            .nth(1)
+            .and_then(|callback| callback.split("\n        fn ").next())
+            .expect("M18 permission callback");
+
+        for contract in [
+            "requested_origin = global_scope",
+            ".ascii_serialization()",
+            "requested_origin: String",
+            "pub fn origin(&self) -> &str",
+            "EmbedderMsg::RequestWakeLockPermission(",
+        ] {
+            assert!(
+                patch.contains(contract),
+                "missing origin contract: {contract}"
+            );
+        }
+        assert!(permission_callback.contains("let origin = request.origin().to_owned();"));
+        assert!(!permission_callback.contains("webview.url()"));
+    }
+
+    #[test]
     fn checkout_validation_rejects_missing_generated_marker() {
         let root = temp_root("missing-marker");
         let checkout = root.join("third_party/servo");

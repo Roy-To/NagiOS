@@ -1,0 +1,124 @@
+diff --git a/components/shared/embedder/lib.rs b/components/shared/embedder/lib.rs
+--- a/components/shared/embedder/lib.rs
++++ b/components/shared/embedder/lib.rs
+@@ -512,11 +512,21 @@
+         GenericSender<Option<String>>,
+     ),
+     /// Open interface to request permission specified by prompt.
+-    PromptPermission(WebViewId, PermissionFeature, GenericSender<AllowOrDeny>),
++    PromptPermission(
++        WebViewId,
++        String,
++        PermissionFeature,
++        GenericSender<AllowOrDeny>,
++    ),
+     /// Async permission request for screen wake lock. The callback is invoked
+     /// with the user's decision, which resolves or rejects the pending promise
+     /// without blocking the script thread.
+-    RequestWakeLockPermission(WebViewId, GenericCallback<AllowOrDeny>, WakeLockType),
++    RequestWakeLockPermission(
++        WebViewId,
++        String,
++        GenericCallback<AllowOrDeny>,
++        WakeLockType,
++    ),
+     /// Report the status of Devtools Server with a token that can be used to bypass the permission prompt.
+     OnDevtoolsStarted(Result<u16, ()>, String),
+     /// Ask the user to allow a devtools client to connect.
+diff --git a/components/script/dom/permission/permissions.rs b/components/script/dom/permission/permissions.rs
+--- a/components/script/dom/permission/permissions.rs
++++ b/components/script/dom/permission/permissions.rs
+@@ -359,8 +359,14 @@
+         return PermissionState::Denied;
+     };
+     let (sender, receiver) = generic_channel::channel().expect("Failed to create IPC channel!");
++    let requested_origin = global_scope
++        .origin()
++        .immutable()
++        .ascii_serialization()
++        .into_owned();
+     global_scope.send_to_embedder(EmbedderMsg::PromptPermission(
+         webview_id,
++        requested_origin,
+         name.convert(),
+         sender,
+     ));
+diff --git a/components/script/dom/wakelock/wakelock.rs b/components/script/dom/wakelock/wakelock.rs
+--- a/components/script/dom/wakelock/wakelock.rs
++++ b/components/script/dom/wakelock/wakelock.rs
+@@ -85,8 +85,14 @@
+         let task_manager = global.task_manager();
+         let task_source = task_manager.dom_manipulation_task_source();
+         let callback = callback_promise(&promise, self, task_source);
++        let requested_origin = global
++            .origin()
++            .immutable()
++            .ascii_serialization()
++            .into_owned();
+         global.send_to_embedder(EmbedderMsg::RequestWakeLockPermission(
+             webview_id,
++            requested_origin,
+             callback,
+             self.type_.get().convert(),
+         ));
+diff --git a/components/servo/webview_delegate.rs b/components/servo/webview_delegate.rs
+--- a/components/servo/webview_delegate.rs
++++ b/components/servo/webview_delegate.rs
+@@ -75,6 +75,7 @@
+ /// interface.
+ pub struct PermissionRequest {
+     pub(crate) requested_feature: PermissionFeature,
++    pub(crate) requested_origin: String,
+     pub(crate) allow_deny_request: AllowOrDenyRequest,
+ }
+ 
+@@ -84,6 +85,10 @@
+         self.requested_feature
+     }
+ 
++    /// Get the serialized origin of the document requesting permission.
++    pub fn origin(&self) -> &str {
++        &self.requested_origin
++    }
+ 
+     /// Grant permission to the web content to access the requested feature.
+     pub fn allow(self) {
+diff --git a/components/servo/servo.rs b/components/servo/servo.rs
+--- a/components/servo/servo.rs
++++ b/components/servo/servo.rs
+@@ -640,10 +640,16 @@
+                     );
+                 }
+             },
+-            EmbedderMsg::PromptPermission(webview_id, requested_feature, response_sender) => {
++            EmbedderMsg::PromptPermission(
++                webview_id,
++                requested_origin,
++                requested_feature,
++                response_sender,
++            ) => {
+                 if let Some(webview) = self.get_webview_handle(webview_id) {
+                     let permission_request = PermissionRequest {
+                         requested_feature,
++                        requested_origin,
+                         allow_deny_request: AllowOrDenyRequest::new(
+                             response_sender,
+                             AllowOrDeny::Deny,
+@@ -655,10 +661,16 @@
+                         .request_permission(webview, permission_request);
+                 }
+             },
+-            EmbedderMsg::RequestWakeLockPermission(webview_id, callback, type_) => {
++            EmbedderMsg::RequestWakeLockPermission(
++                webview_id,
++                requested_origin,
++                callback,
++                type_,
++            ) => {
+                 if let Some(webview) = self.get_webview_handle(webview_id) {
+                     let permission_request = PermissionRequest {
+                         requested_feature: PermissionFeature::ScreenWakeLock(type_),
++                        requested_origin,
+                         allow_deny_request: AllowOrDenyRequest::new_from_callback(
+                             callback,
+                             AllowOrDeny::Deny,

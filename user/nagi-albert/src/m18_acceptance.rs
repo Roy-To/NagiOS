@@ -288,15 +288,14 @@ mod guest {
             self.signal.wake();
         }
 
-        fn request_permission(&self, webview: WebView, request: PermissionRequest) {
-            if let Some(url) = webview.url() {
-                let _ = self.permission_broker.borrow_mut().deny_without_prompt(
-                    self.tab_id,
-                    url.as_str(),
-                    permission_kind(request.feature()),
-                    libnagi::time_ticks(),
-                );
-            }
+        fn request_permission(&self, _webview: WebView, request: PermissionRequest) {
+            let origin = request.origin().to_owned();
+            let _ = self.permission_broker.borrow_mut().deny_without_prompt(
+                self.tab_id,
+                &origin,
+                permission_kind(request.feature()),
+                libnagi::time_ticks(),
+            );
             request.deny();
             let _ = libnagi::console_write(b"Nagi M18 site permission denied\r\n");
         }

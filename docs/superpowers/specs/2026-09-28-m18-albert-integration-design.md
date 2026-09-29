@@ -124,3 +124,28 @@ absolute venv path passed the Mako check and confirmed the linker probe as the
 current Mesa failure. Host tests cover the state/action adapter and serial
 contract, but Ubuntu target build and real QEMU HTTPS input/render acceptance
 remain required before M18 can advance beyond PARTIAL.
+
+## Follow-up verification (2026-09-29)
+
+The Darwin host-link failure is resolved with a host-specific target linker
+adapter. `tools/mesa/build.sh` adds a Meson linker override only on Darwin;
+that override applies to Nagi target links, while build-machine tools continue
+to use their native host toolchain. The adapter invokes ELF LLD directly,
+filters Darwin-only driver arguments, and passes Mesa's existing `-latomic`
+probe through unchanged. Compile-only target calls and host build helpers are
+unchanged. Ubuntu CI continues to use the tracked Clang/LLD cross file; CI run
+`36517686132` passed the Mesa build, target image, M17 QEMU regression, and
+three-site M18 HTTPS/QEMU acceptance on Ubuntu. Fresh local `./nagi m18` and
+`./nagi m17` also pass on macOS after the adapter was added.
+
+The subsequent Servo requester-origin patch is applied reproducibly from
+`third_party/servo-patches/0025-nagi-m18-permission-origin.patch`. It carries
+the origin of the requesting document, including opaque `null`, through to
+Albert. Albert records and denies the request without granting authority. Its
+local M18/M17 acceptance passes; the corresponding fresh CI run is pending.
+Download destination, capability-safe upload selection, shared clipboard,
+IME text/composition events, and a trusted interactive permission service
+remain unavailable because the repository has no user-space IPC/service
+providers for them. Their browser hooks continue to fail closed, and M18's
+overall workstream remains `PARTIAL` while the formal HTTPS/QEMU Acceptance is
+`PASS`.
