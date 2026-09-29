@@ -3,6 +3,7 @@ use nagi_pal::FileSystem;
 
 /// Matches the temporary directory names created by the pinned `tempfile`
 /// Nagi backend (`.tmp` followed by its six-character random suffix).
+#[cfg(any(target_os = "nagi", test))]
 pub(crate) fn is_servo_tempdir_name(name: &[u8]) -> bool {
     name.len() == 10
         && name.starts_with(b".tmp")

@@ -1,6 +1,7 @@
 use nagi_net::{Device, Ipv4Address, NetError};
 use nagi_pal::Network;
 
+#[cfg(any(target_os = "nagi", test))]
 pub(crate) const fn supports_stream_socket(domain: i32, socket_type: i32, protocol: i32) -> bool {
     const AF_INET: i32 = 2;
     const SOCK_STREAM: i32 = 1;
@@ -9,6 +10,7 @@ pub(crate) const fn supports_stream_socket(domain: i32, socket_type: i32, protoc
     domain == AF_INET && socket_type == SOCK_STREAM && (protocol == 0 || protocol == IPPROTO_TCP)
 }
 
+#[cfg(any(target_os = "nagi", test))]
 pub(crate) fn take_pending_socket_error(error: &mut i32) -> i32 {
     core::mem::replace(error, 0)
 }

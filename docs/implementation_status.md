@@ -6,14 +6,16 @@
 target image, booted the real guest, accepted address-bar navigation, and
 rendered three HTTPS sites after successful certificate-chain and hostname
 verification, browser-chrome composition, and Nagi Surface presentation.
-**Next action:** Push the Servo patch-order repair and verify a fresh Ubuntu
-CI run through the target image and QEMU acceptance. The first CI run exposed
-that patch `0021` depended on a cfg import from later patch `0023`; `0021` now
-adds its own import, and the ordered seven-patch sequence passes locally on
-the pinned M17-patched Servo source. The M18 acceptance gate is passed locally;
-the milestone remains `PARTIAL` while downloads, uploads, clipboard, IME text
-events, and interactive site-permission prompts lack their required Nagi
-service providers.
+**Next action:** Commit and push the compatibility and CI repairs, then verify
+a fresh Ubuntu run through the target image and QEMU acceptance. After the
+Servo patch-order repair, CI exposed Mesa's `secure_getenv` fallback colliding
+with Nagi `getenv`, host-only Clippy warnings, and a whitespace-sensitive
+source-contract test. Those fixes are now in the working tree. A fresh local
+`./nagi m18` build and QEMU run passes with the Darwin ELF-link adapter and
+LLVM 19 target headers; the `-latomic` check remains enabled. The M18 acceptance
+gate is passed locally; the milestone remains `PARTIAL` while downloads,
+uploads, clipboard, IME text events, and interactive site-permission prompts
+lack their required Nagi service providers.
 
 **Last updated:** 2026-09-29
 **Last known checkpoint:** Main integration work is in the managed worktree
@@ -38,10 +40,15 @@ is selected only for Darwin target links: Mesa gets a generated Meson cross
 file, and `nagi-target-cc.sh` uses the same adapter for link invocations;
 compile-only calls and host build helpers keep their normal host compiler.
 The original `-latomic` probe remains enabled and succeeds through ELF LLD.
-Ubuntu's tracked cross file and Clang/LLD path are unchanged. The unchanged
-M17 route also passes its real-QEMU first-web-pixel regression on this host.
-Clipboard, download/upload, IME text events, and site-permission prompts still
-need actual Nagi providers, so overall M18 status remains `PARTIAL`.
+Ubuntu's tracked cross file and Clang/LLD path are unchanged. The fresh
+`./nagi m18` rerun on this Mac also passes: the target image boots in QEMU and
+renders three TLS-chain- and hostname-verified HTTPS sites through Nagi
+Surface. CI run `36512090928` then exposed the Mesa fallback declaration,
+host Clippy, and source-contract formatting issues now repaired in the working
+tree; a new Ubuntu run is pending the next push. The unchanged M17 route also
+passed its real-QEMU first-web-pixel regression on this host. Clipboard,
+download/upload, IME text events, and site-permission prompts still need actual
+Nagi providers, so overall M18 status remains `PARTIAL`.
 
 ### M17 First Web Pixel completion after Actions run #303 (2026-09-28)
 

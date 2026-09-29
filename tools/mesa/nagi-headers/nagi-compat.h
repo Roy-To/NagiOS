@@ -20,10 +20,17 @@
 /* Mesa's EGL pointer check has an existing fallback when mincore is absent. */
 #undef HAVE_MINCORE
 
-/* Nagi has no setuid-style secure execution identity. Environment values
- * cannot grant capabilities, so Mesa's secure_getenv calls use target getenv.
+/* Nagi has no setuid-style secure execution identity. Keep the target's
+ * portable secure_getenv fallback explicit and prevent Mesa from defining a
+ * second copy in u_debug.h.
  */
-#define secure_getenv getenv
+#ifndef HAVE_SECURE_GETENV
+#define HAVE_SECURE_GETENV 1
+static inline char *secure_getenv(const char *name)
+{
+    return getenv(name);
+}
+#endif
 #endif
 
 #endif

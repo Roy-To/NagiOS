@@ -59,6 +59,9 @@ impl Fat12Geometry {
         sectors_per_cluster: usize,
         root_entry_count: usize,
     ) -> Result<Self, String> {
+        // `usize::is_multiple_of` is unstable on the repository's pinned
+        // nightly; retain the equivalent check until that API is available.
+        #[allow(clippy::manual_is_multiple_of)]
         if image_size == 0 || image_size % SECTOR_SIZE != 0 {
             return Err("FAT12 image size must be a nonzero whole number of sectors".to_owned());
         }

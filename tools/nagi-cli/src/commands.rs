@@ -3188,7 +3188,8 @@ mod tests {
         let image = include_str!("image.rs");
         assert!(image.contains("Duration::from_millis(100)"));
         assert!(image.contains("inter_event_delay.is_zero()"));
-        assert!(image.contains("vnc_port - 5900,\n        boot_disk_read_only,"));
+        let compact_image: String = image.split_whitespace().collect();
+        assert!(compact_image.contains("vnc_port-5900,boot_disk_read_only,"));
     }
 
     #[test]
