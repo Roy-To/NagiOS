@@ -66,10 +66,36 @@ notice clearance. M22 remains blocked at authenticated AI mutation/Activity
 Ledger integration. The M16 sample package acceptance and M17/M18 browser
 acceptance do not close these gaps.
 
-The actual clean-tree preflight and release-artifact QEMU boot are still
-pending. Do not run `./nagi clean` to simulate a clean checkout: it removes the
-preserved M19/M22 disks and other acceptance outputs. No release image has
-been assembled and no release readiness claim is made.
+## Clean-tree preflight evidence — 2026-09-30
+
+On clean commit `71e3a9de4ca17c773953358ee8b6bad4364e0d89`, ran:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-release/release.py preflight \
+  --root . \
+  --kernel target/x86_64-unknown-nagi/release/nagi-kernel \
+  --image out/artifacts/Nagi-OS-0.1-devpreview.qcow2
+```
+
+The command exited `2` with:
+
+```text
+release preflight failed: missing release qcow2 image: out/artifacts/Nagi-OS-0.1-devpreview.qcow2
+```
+
+The required release documents, clean Git provenance, kernel ELF, and pinned
+source/model metadata were checked before the missing image stopped preflight.
+The M-stage images were inspected with `qemu-img info` and are raw FAT images;
+M19/M22 persistence is on separate disks. Converting or renaming those files
+would not create the missing release layout. No release image was assembled
+or booted, and no release readiness claim is made.
+
+Do not run `./nagi clean` to simulate a clean checkout: it removes the
+preserved M19/M22 disks and other acceptance outputs. The next useful
+experiment is to implement the specified bootable reference-disk layout from
+the real system-slot, persistent-data, recovery, and model-store components,
+then build a self-contained 64 GiB qcow2 and rerun this preflight plus QEMU
+acceptance. That work depends on the still-incomplete M18–M29 integrations.
 
 Run the focused tests with:
 

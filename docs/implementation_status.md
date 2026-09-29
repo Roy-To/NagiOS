@@ -135,13 +135,13 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-30
 **Latest continuation CI:** Run
-[`36613069872`](https://github.com/RT-NISH/NagiOS/actions/runs/36613069872)
-for `1d033df3ccc857ec8e760776014608a87a9dfbf1` passed Ubuntu host and Windows
-launcher, including the corrected M0 launcher acceptance. The authoritative
-Nagi target job was building the user init when last checked. Prior checkpoint
-runs were cancelled by subsequent pushes before all gates completed; run
-`36611468722` also passed host and Windows before its target job was cancelled.
-Run
+[`36614842832`](https://github.com/RT-NISH/NagiOS/actions/runs/36614842832)
+for `71e3a9de4ca17c773953358ee8b6bad4364e0d89` was pending when last checked.
+The preceding M29 run `36613069872` passed Ubuntu host and Windows launcher,
+including the corrected M0 launcher acceptance; its authoritative target job
+was still building the user init. Earlier checkpoint runs were cancelled by
+subsequent pushes before all gates completed; run `36611468722` also passed
+host and Windows before its target job was cancelled. Run
 `36602252894` passed Ubuntu host tests/build/lint and formatting but failed
 both M0 launcher gates. The POSIX and Windows logs report `E0463: can't find
 crate for alloc` while building `nagi-history`; the Windows launcher returned
