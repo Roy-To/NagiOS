@@ -1265,11 +1265,11 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        DATA_OFFSET, FAT_COUNT, Fat12Geometry, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE,
-        M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
         build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
         guest_reached_failure, image_drive_argument, initialize_fats, qemu_audio_driver_for_host,
-        write_chain,
+        write_chain, Fat12Geometry, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
+        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT,
+        ROOT_OFFSET, SECTOR_SIZE,
     };
 
     #[test]

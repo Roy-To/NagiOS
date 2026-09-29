@@ -1079,6 +1079,29 @@ mod tests {
     }
 
     #[test]
+    fn m18_constellation_trace_patches_add_atomic_import_before_later_use() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let loop_patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0021-nagi-m18-constellation-loop-traces.patch"),
+        )
+        .expect("M18 constellation-loop patch");
+        let progress_patch =
+            fs::read_to_string(root.join(
+                "third_party/servo-patches/0023-nagi-m18-constellation-progress-traces.patch",
+            ))
+            .expect("M18 constellation-progress patch");
+
+        assert!(loop_patch.contains(
+            " use std::sync::Arc;\n+#[cfg(target_os = \"nagi\")]\n+use std::sync::atomic::{AtomicUsize, Ordering};\n use std::thread::JoinHandle;"
+        ));
+        assert!(loop_patch.contains("M18_NAVIGATION_TRACE_COUNT: AtomicUsize"));
+        assert!(progress_patch.contains("M18_CONSTELLATION_PROGRESS_TRACE_COUNT: AtomicUsize"));
+    }
+
+    #[test]
     fn checkout_validation_rejects_missing_generated_marker() {
         let root = temp_root("missing-marker");
         let checkout = root.join("third_party/servo");

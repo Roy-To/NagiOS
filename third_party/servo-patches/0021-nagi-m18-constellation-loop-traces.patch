@@ -1,10 +1,10 @@
 diff --git a/components/constellation/constellation.rs b/components/constellation/constellation.rs
 --- a/components/constellation/constellation.rs
 +++ b/components/constellation/constellation.rs
-@@ -93,6 +93,7 @@
+@@ -93,5 +93,7 @@
  use std::rc::{Rc, Weak};
  use std::sync::Arc;
- #[cfg(target_os = "nagi")]
++#[cfg(target_os = "nagi")]
 +use std::sync::atomic::{AtomicUsize, Ordering};
  use std::thread::JoinHandle;
  use std::{process, thread};

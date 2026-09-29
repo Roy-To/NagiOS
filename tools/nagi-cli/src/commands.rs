@@ -6,12 +6,12 @@ use std::time::Duration;
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
-use crate::doctor::{DoctorPolicy, HostProbe, ovmf_pair_is_allowed, run_doctor_with_requirements};
+use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
 use crate::image::{
-    GUEST_ACCEPTANCE_MARKER, ImageLayout, NAGI_WRITE_MARKER, QemuConfig, ensure_persistent_disk,
-    run_qemu, run_qemu_gui, run_qemu_gui_with_events,
+    ensure_persistent_disk, run_qemu, run_qemu_gui, run_qemu_gui_with_events,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker, run_qemu_interactive,
-    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image,
+    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image, ImageLayout,
+    QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::mesa::ensure_mesa_checkout;
 use crate::mozjs_sys_nagi::ensure_mozjs_sys_nagi_checkout;
@@ -3146,10 +3146,8 @@ mod tests {
             m17_branch[storage..pixel].contains("libnagi::exit(exit_code)"),
             "the first persistent-write boot must stop before the pixel boot"
         );
-        assert!(
-            runner
-                .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\"")
-        );
+        assert!(runner
+            .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\""));
         assert!(init.contains("Nagi M7 persistent write PASS"));
     }
 
@@ -3184,10 +3182,8 @@ mod tests {
             .find("fn help() -> CommandResult")
             .map(|offset| m18_start + offset)
             .expect("next command helper");
-        assert!(
-            commands[m18_start..m18_end]
-                .contains("run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(")
-        );
+        assert!(commands[m18_start..m18_end]
+            .contains("run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker("));
 
         let image = include_str!("image.rs");
         assert!(image.contains("Duration::from_millis(100)"));

@@ -6,11 +6,14 @@
 target image, booted the real guest, accepted address-bar navigation, and
 rendered three HTTPS sites after successful certificate-chain and hostname
 verification, browser-chrome composition, and Nagi Surface presentation.
-**Next action:** Verify the pushed commit on the authoritative Ubuntu target
-CI path, then continue the M18 user-space service integrations. The M18
-acceptance gate is passed; the milestone remains `PARTIAL` while downloads,
-uploads, clipboard, IME text events, and interactive site-permission prompts
-lack their required Nagi service providers.
+**Next action:** Push the Servo patch-order repair and verify a fresh Ubuntu
+CI run through the target image and QEMU acceptance. The first CI run exposed
+that patch `0021` depended on a cfg import from later patch `0023`; `0021` now
+adds its own import, and the ordered seven-patch sequence passes locally on
+the pinned M17-patched Servo source. The M18 acceptance gate is passed locally;
+the milestone remains `PARTIAL` while downloads, uploads, clipboard, IME text
+events, and interactive site-permission prompts lack their required Nagi
+service providers.
 
 **Last updated:** 2026-09-29
 **Last known checkpoint:** Main integration work is in the managed worktree
@@ -2040,7 +2043,7 @@ Use only these statuses:
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
-| M18 | Albert Browser | PARTIAL | **Acceptance PASS locally 2026-09-29:** `./nagi m18` built and booted the real target image, accepted address-bar input, and rendered TLS-verified `example.com`, `example.org`, and `example.net` pages with browser chrome on Nagi Surface. Darwin uses a narrow ELF linker adapter for target links; `-latomic` remains, and Linux's existing Clang/LLD path is unchanged. M17's QEMU regression passes. Remaining deliverables are real Nagi providers for download/upload destinations, clipboard, IME text events, and interactive site permissions; Ubuntu CI is pending the push. |
+| M18 | Albert Browser | PARTIAL | **Acceptance PASS locally 2026-09-29:** `./nagi m18` built and booted the real target image, accepted address-bar input, and rendered TLS-verified `example.com`, `example.org`, and `example.net` pages with browser chrome on Nagi Surface. Darwin uses a narrow ELF linker adapter for target links; `-latomic` remains, and Linux's existing Clang/LLD path is unchanged. M17's QEMU regression passes. CI run `36510598517` exposed and stopped at an ordered Servo patch application error in all three OS bootstrap jobs; `0021` was corrected and the seven-patch sequence now passes local ordered application. A new Ubuntu CI run is pending. Real Nagi providers for download/upload destinations, clipboard, IME text events, and interactive site permissions remain. |
 | M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
 | M21 | Planner / Validator / Executor | NOT STARTED | 遯ｶ繝ｻ|
@@ -5638,8 +5641,19 @@ the matching QMP and image evidence use the same `live10-mmap512-service-boundar
 suffix. The unchanged `./nagi m17` regression then passed on this host:
 `PASS M17 first web pixel: real Servo/Mesa Softpipe frame reached Nagi Surface
 and QEMU`. The harmless QEMU virtio-sound host-audio warning does not affect
-either acceptance result. Ubuntu Actions verification is pending the push of
-this integration.
+either local acceptance result.
+
+The first pushed Ubuntu/Windows CI run (`36510598517`, head
+`7222609a8b0c865aea6a424f64cb6c824c1bd654`) stopped during source bootstrap
+on all three OS jobs. The pinned Servo patch `0021` expected the Nagi-only
+`#[cfg]` line to already exist, although no earlier numbered patch adds that
+line on a fresh checkout; the pre-prepared local source had hidden this
+ordering defect. Patch `0021` now adds the cfg-gated atomic import itself.
+`cargo test -p nagi-cli --locked --offline` passes all 112 unit tests and 18
+CLI tests; the pinned nightly formatting check passes. All seven M18 Servo
+patches also pass sequential `git apply --check` and application against the
+pinned M17-patched source fixture. The Ubuntu target image/QEMU steps were not
+reached in run `36510598517`; the repair commit and fresh CI result are pending.
 
 The guest now attaches Servo clipboard and permission hooks. With no Nagi
 clipboard provider, clipboard reads fail and writes/clears report unavailable;

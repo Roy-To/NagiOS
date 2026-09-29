@@ -36,8 +36,12 @@ picker; IME controls have no input-service text events; site-permission
 requests are recorded and denied until a trusted prompt/broker is available;
 downloads have no pinned Servo callback or Nagi destination service, and
 uploads have no Nagi selection service. These hooks do not claim successful
-transfers or permission grants. Ubuntu CI for the pushed integration is still
-pending.
+transfers or permission grants. The first pushed CI run (`36510598517`) stopped
+all three platform bootstrap jobs at Servo patch `0021`; that patch now adds
+its cfg-gated atomic import instead of assuming it exists. All 112 `nagi-cli`
+unit tests and 18 CLI tests pass, the pinned nightly format check passes, and
+all seven M18 patches apply in numeric order to the pinned M17-patched Servo
+source. The repair commit and fresh CI run are pending.
 
 ## Progress by phase
 
@@ -47,7 +51,7 @@ pending.
 - **D — Session restore:** Session/history/bookmark codecs and safe restore behavior are implemented. Corrupt/missing records are handled, and restored URLs produce normal typed navigation requests. Permissions, clipboard, downloads, and upload selections are deliberately reset.
 - **E — Permissions and transfer/clipboard state:** Typed permission, clipboard, upload, and download interfaces/state machines are implemented and covered with tests. Servo permission and clipboard hooks are connected to fail-closed guest boundaries. Real clipboard, file/object picker, download destination, upload selection, and trusted permission-prompt providers are still absent.
 - **F — IME/text path:** UTF-8 selection and composition commit/cancel are implemented and reachable through typed chrome actions. Text input is bounded; a rejected over-capacity commit preserves its preedit for recovery. Servo IME controls are recognized, but no Nagi input-service text/composition events reach them.
-- **G — Guest/UI verification:** The chrome renderer overlays the real Servo RGBA frame and presents it through the existing capability-checked Nagi Surface. The main `./nagi m18` path passed local target build and real-QEMU acceptance on 2026-09-29: address-bar navigation to `example.com` and three TLS-verified HTTPS pages (`example.com`, `example.org`, `example.net`) produced Servo frames with chrome presented on Nagi Surface. Ubuntu CI verification is pending.
+- **G — Guest/UI verification:** The chrome renderer overlays the real Servo RGBA frame and presents it through the existing capability-checked Nagi Surface. The main `./nagi m18` path passed local target build and real-QEMU acceptance on 2026-09-29: address-bar navigation to `example.com` and three TLS-verified HTTPS pages (`example.com`, `example.org`, `example.net`) produced Servo frames with chrome presented on Nagi Surface. The first CI run exposed a Servo patch-order failure before Mesa/build/QEMU; the patch series is repaired and CI must rerun.
 
 ## Verification so far
 
@@ -60,6 +64,7 @@ pending.
 - Chrome renderer regression: observed failing because the selected overflow tab and status/title were absent, then passed after rendering them.
 - URL length regression: observed canonical percent-encoding expand a valid input beyond the address/persistence bound, then passed after normalization rejects oversized results.
 - Earlier `./nagi m17` attempts stopped before target build/QEMU because the Darwin linker rejected Mesa's GNU ELF `-latomic` probe flags. On 2026-09-29, the Darwin-only ELF linker adapter fixed that host/target mismatch without removing the probe; the current `./nagi m17` then passed its real-QEMU first-web-pixel acceptance.
+- CI run `36510598517` failed in the Servo bootstrap step on Windows, Ubuntu host, and Ubuntu target: patch `0021` required a cfg import that no earlier patch added. The patch now adds that import. The new `nagi-cli` source-contract regression passes, and the ordered M18 patch series passes sequential application against the pinned M17-patched source. The fresh Ubuntu CI result is pending.
 - Historical CI run `36375030426` targeted checkpoint `d8fc25c67c3865a8fed29abf20a777861ade5d5f`, before the current integrated branch and acceptance step. The current push will launch the authoritative Ubuntu run for this combined state.
 - The workflow runs `tests/acceptance/m18b_albert_ui_browser_state.sh` after M17 first-web-pixel acceptance, reusing that boot's serial log, then runs `./nagi m18` for the three-site HTTPS acceptance.
 
@@ -78,7 +83,7 @@ Earlier Mesa attempts temporarily modified their generated relibc checkout; that
 
 ## Remaining blockers and exact next actions
 
-1. Push the integrated `codex/m18-main-albert-browser` branch and inspect its Ubuntu target/QEMU CI run; record whether the unchanged Ubuntu Clang/LLD path and M18 acceptance pass.
+1. Commit and push the Servo patch-order repair on `codex/m18-main-albert-browser`, then inspect the new Ubuntu target/QEMU CI run; record whether the unchanged Ubuntu Clang/LLD path and M18 acceptance pass.
 2. Implement real provider connections only when the corresponding Nagi capability-safe service APIs exist: clipboard, object-based File Picker/upload, download destination, IME text/composition events, and trusted site-permission prompts. Preserve fail-closed behavior until then.
 3. Keep this workstream `PARTIAL` while those M18 deliverables remain outstanding, even though the basic-browser HTTPS/QEMU Acceptance now passes. Do not force-push or merge to `main`.
 
