@@ -90,6 +90,7 @@ pub enum Command {
     M16,
     M17,
     M18,
+    M19,
     Test,
     Clean,
     Fmt,
@@ -154,6 +155,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m16" => Command::M16,
         "m17" => Command::M17,
         "m18" => Command::M18,
+        "m19" => Command::M19,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -188,6 +190,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M16
         | Command::M17
         | Command::M18
+        | Command::M19
         | Command::Test
         | Command::Clean
         | Command::Fmt
@@ -272,6 +275,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M16 => execute_m16(root, probe),
         Command::M17 => execute_m17(root, probe),
         Command::M18 => execute_m18(root, probe),
+        Command::M19 => execute_m19(root, probe),
     }
 }
 
@@ -423,6 +427,17 @@ fn execute_image_with_features(
     image_name: &str,
 ) -> CommandResult {
     let init_args = match init_feature {
+        Some("m19-search") => vec![
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m19-search",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+        ],
         Some(feature) => vec![
             "build",
             "-p",
@@ -3044,12 +3059,175 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
+fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let mut fixture = match start_m13_http_fixture(root) {
+        Ok(child) => child,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    };
+    let result = execute_m19_inner(root, probe);
+    let _ = fixture.kill();
+    let _ = fixture.wait();
+    result
+}
+
+fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let image_result =
+        execute_image_with_features(root, Some("m19-search"), "nagi-0.1-m19-search.img");
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let host = match resolve_qemu_host(root, probe, "m19") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    };
+    let image_path = artifacts.join("nagi-0.1-m19-search.img");
+    let persistent_disk = artifacts.join("nagi-0.1-m19-search-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-m19-search-vars.fd");
+    let bootstrap_log = logs.join("m19-search-bootstrap.log");
+    let initial_log = logs.join("m19-search-initial.log");
+    let restart_log = logs.join("m19-search-restart.log");
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    };
+    let timeout = Duration::from_secs(90);
+
+    if !had_persistent_disk {
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &bootstrap_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        if let Err(error) = run_qemu(&config) {
+            return failure(EXIT_CONFIG_ERROR, format!("m19: bootstrap boot: {error}"));
+        }
+        let bootstrap = match fs::read_to_string(&bootstrap_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m19: cannot read {}: {error}", bootstrap_log.display()),
+                );
+            }
+        };
+        if !bootstrap.contains(NAGI_WRITE_MARKER) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m19: bootstrap did not print `{NAGI_WRITE_MARKER}`"),
+            );
+        }
+    }
+
+    let mut final_log = initial_log.as_path();
+    let mut verified_restart = false;
+    for boot_index in 0..2 {
+        let log_path = if boot_index == 0 {
+            &initial_log
+        } else {
+            &restart_log
+        };
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: log_path,
+            acceptance_marker: "Nagi M13 acceptance PASS",
+            timeout,
+        };
+        let final_status = match run_qemu(&config) {
+            Ok(status) => status,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: guest boot: {error}")),
+        };
+        final_log = log_path;
+        let serial = match fs::read_to_string(log_path) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m19: cannot read {}: {error}", log_path.display()),
+                );
+            }
+        };
+        for marker in [
+            "Nagi Kernel started",
+            "Nagi M3 acceptance PASS",
+            "Nagi M7 VirtIO Block PASS",
+            "Nagi M13 Rust PAL PASS",
+            "Nagi M13 C POSIX PASS",
+            "Nagi M19 guest search persistence PASS",
+            "Nagi M19 acceptance PASS",
+            "Nagi M13 acceptance PASS",
+        ] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m19: guest did not print `{marker}` (QEMU exit {final_status}; log {})",
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        if serial.contains("Nagi M19 previous-boot snapshot PASS") {
+            verified_restart = true;
+            break;
+        }
+        if boot_index == 0 && serial.contains("Nagi M19 initial snapshot/reopen PASS") {
+            continue;
+        }
+        let expected_generation = "Nagi M19 previous-boot snapshot PASS";
+        if !serial.contains(expected_generation) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m19: guest did not print `{expected_generation}` (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+    }
+    if !verified_restart {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m19: persistent snapshot was not verified after QEMU restart (log {})",
+                final_log.display()
+            ),
+        );
+    }
+
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M19 guest Search Service: stable ObjectId and Workspace survived VFS remount and QEMU restart (acceptance marker reached; log {})",
+            final_log.display()
+        )],
+    }
+}
+
 fn help() -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, test, clean, fmt, lint"
                 .into(),
         ],
     }

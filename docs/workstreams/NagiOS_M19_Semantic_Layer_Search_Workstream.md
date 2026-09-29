@@ -31,11 +31,23 @@ vector, and LLM retrieval are out of scope.
   creates file/page/Workspace metadata, searches it, filters a denied object,
   checks Workspace grouping, reopens persisted metadata, updates a file under
   the same Object ID, and re-searches it.
+- `GuestSnapshotBackend` now stores a bounded snapshot in two VFS-backed
+  generations. It writes and flushes data chunks before the checksummed
+  manifest commit, rejects snapshots over 4 KiB, and falls back to the older
+  valid generation when the newer manifest or payload is corrupt. The target
+  `nagi-init` adapter stores its files under `/var/lib/nagi-search`.
+- The opt-in `m19-search` init feature exercises a private fixture through the
+  real target VFS and SearchService. `nagi m19` boots QEMU with one persistent
+  user disk, verifies the fixture after a guest remount, reboots QEMU, then
+  verifies the same ObjectId and Workspace again. The target filter is scoped
+  to this acceptance fixture and is not registered as production authority.
 
-The acceptance uses the explicitly host-only `HostFileBackend` and a fixture
-visibility policy. It proves the provider-neutral contract and reference
-snapshot restart behavior; it does **not** claim guest VFS persistence,
-authenticated capability enforcement, or a running Nagi Search service.
+The host acceptance uses the explicitly host-only `HostFileBackend` and a
+fixture visibility policy. It proves the provider-neutral contract and
+reference snapshot restart behavior. The QEMU acceptance separately proves
+bounded guest VFS persistence for its private fixture; it does **not** claim
+authenticated capability enforcement, live file/page producer integration, or
+a production IPC Search Service.
 
 ## Regressions
 
@@ -47,51 +59,39 @@ authenticated capability enforcement, or a running Nagi Search service.
   CLI printed `PASS M18 Albert`.
 - This M18 baseline contains no `.dev` DF-01 registry or verify command. No
   unrelated subsystem or workstream state was changed.
+- M19 QEMU acceptance passed with a persistent user disk. The initial boot
+  printed `Nagi M19 initial snapshot/reopen PASS`; the following boot printed
+  `Nagi M19 previous-boot snapshot PASS`. Logs are preserved at
+  `out/logs/m19-search-initial.log` and `out/logs/m19-search-restart.log`.
 
 ## Verification evidence
 
-On the pinned aarch64 macOS Rust toolchain:
+Verification with `nightly-2025-08-01-aarch64-apple-darwin`:
 
-```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
-RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-/Users/tozawa/.cargo/bin/cargo test \
-  --manifest-path user/nagi-search/Cargo.toml --locked --offline
-```
-
-Result: 16 tests passed, including the restart/search contract acceptance; no
-doc tests are defined. Formatting and Clippy with `-D warnings` passed.
-
-The isolated `no_std` Nagi user-target check also passed:
-
-```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
-RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-/Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check \
-  --manifest-path user/nagi-search/Cargo.toml \
-  --target targets/x86_64-unknown-nagi-user.json \
-  --target-dir /tmp/nagi-m19-target --locked --offline
-```
-
-No M19 QEMU acceptance was run because the target Search service, guest
-snapshot backend, trusted visibility provider, and real producer adapters are
-not connected on this branch.
+- `cargo test --locked --offline -p nagi-search` — PASS, 19 tests.
+- `cargo clippy --locked --offline -p nagi-search --all-targets -- -D warnings`
+  — PASS.
+- `cargo test --locked --offline -p nagi-cli -p nagi-search` — PASS, 113 CLI
+  unit tests, 18 CLI integration tests, and 19 search tests.
+- `cargo clippy --locked --offline -p nagi-cli --all-targets -- -D warnings
+  -A unknown-lints` — PASS. The pinned Clippy predates an existing lint name
+  in `tools/nagi-cli/src/image.rs`; only that unknown-lint warning was allowed.
+- Changed-file `rustfmt --check` — PASS.
+- `cargo -Z build-std=core,alloc,compiler_builtins check --locked --offline
+  -p nagi-init --features m19-search --target
+  targets/x86_64-unknown-nagi-user.json` — PASS.
+- `./nagi m19` — PASS across the initial search snapshot and the following
+  QEMU reboot with the same persistent user disk.
 
 ## Remaining acceptance blockers
 
-1. Add a guest-owned snapshot adapter that supports bounded multi-chunk data
-   and a crash-safe commit protocol. The current VFS limits a file to 1 KiB;
-   the host atomic-file adapter cannot be used as guest persistence.
-2. Activate Search as a user-space service with a capability-scoped storage
-   handle and authenticated caller context. `AccessContext` is descriptive;
-   the fixture filter is not an authority provider.
-3. Resolve and persist canonical Object IDs from actual Files/page providers,
-   preserving identity over rename/move/restart.
-4. Add QEMU acceptance that creates guest data, indexes/searches/filters it,
-   reboots using the same guest storage, and re-searches the same stable IDs.
+1. Activate Search as a production user-space service with a capability-scoped
+   storage handle and authenticated caller context. `AccessContext` is
+   descriptive; the fixture filter is not an authority provider.
+2. Resolve and persist canonical Object IDs from actual Files/page providers,
+   preserving identity over rename/move/restart. Current QEMU acceptance uses
+   one fixed private fixture rather than live producers.
 
-These missing services prevent M19 PASS. They do not justify a host fallback,
-an allow-all filter, or a claim that the guest Search Service is active.
+These missing integrations keep M19 `PARTIAL`. They do not justify a host
+fallback, an allow-all filter, or a claim that the production Search Service
+is active.

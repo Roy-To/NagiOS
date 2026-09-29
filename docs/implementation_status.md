@@ -9,11 +9,13 @@ trusted interactive site-permission decisions still lack Nagi providers; the
 user-directed M19 work proceeds because those services are not M19
 dependencies.
 **M19 evidence:** The deterministic metadata/search contract is integrated
-from M19-PREP. Its host acceptance covers indexing, visibility filtering,
-Workspace grouping, persistence restart, stable-ID update, and re-search; its
-`no_std` Nagi user-target compile passes. M19 remains `PARTIAL`: guest storage,
-trusted capability binding, live producer integration, and QEMU restart
-acceptance are not implemented.
+into the root workspace. Nineteen host tests cover metadata search, policy
+filtering, producer adapters, and two-slot snapshot recovery. The M19 target
+feature compiles with the bounded POSIX allocator; `./nagi m19` passed the
+guest VFS persistence acceptance across an init remount and QEMU restart using
+the same persistent disk. M19 remains `PARTIAL`: this acceptance uses a fixed
+private fixture, not live File/page producers, and Search is not exposed as a
+production IPC service with authenticated capability-bound caller context.
 **M20 evidence:** The existing provider-neutral `no_std` model manager is
 integrated and passes its 40-test host suite, warnings-denied Clippy, formatting,
 and Nagi user-target compilation. This is contract/orchestration evidence only;
@@ -56,17 +58,20 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-29
 **Latest continuation CI:** Run
-[`36562743750`](https://github.com/RT-NISH/NagiOS/actions/runs/36562743750)
-on `e248f2375871742b7ac50e53d3fd9a270ebebb67` passed Ubuntu host, Windows
-launcher, target builds, M17, and M18-B. M18 HTTPS acceptance failed because
-the first QEMU boot did not exit within 1200 seconds; the serial log ends in
-M3 SMP startup after three AP-online lines. The log does not identify a root
-cause. Earlier successful run
-[`36556997279`](https://github.com/RT-NISH/NagiOS/actions/runs/36556997279)
-used the prior `e389bde` commit and is not current-HEAD evidence.
-**Last known checkpoint:** Main integration work is in the managed worktree
-`codex/m18-main-albert-browser`, based on the fixed M17 PASS commit
-`94e9a027618182b10c0ac2315e94673543f22423`. It contains an M18-specific
+[`36576635230`](https://github.com/RT-NISH/NagiOS/actions/runs/36576635230)
+on `a69746a82df209b1565db6b32ecf8e3b7665424b` passed Ubuntu host, Windows
+launcher, target builds, M17 first-web-pixel, M18-B, and M18 interactive
+HTTPS acceptance. This run is the latest evidence for the pushed M22
+checkpoint; it does not include the current M19 working changes. The prior
+run `36562743750` failed M18 HTTPS after a 1200-second first-boot timeout; its
+serial ended during M3 SMP startup without identifying a cause. The subsequent
+successful run supersedes that failure for the M22 checkpoint.
+**Last known checkpoint:** The user-directed continuation is on
+`codex/m19-m22-continuation` in
+`/Users/tozawa/.codex/worktrees/m19-m22-continuation/NagiOS`. The M19 guest
+VFS persistence acceptance is verified on this branch and recorded in the
+current M19 checkpoint. Its production IPC/capability and live producer
+integration remain open.
 `./nagi m18` build/acceptance path, a guest runner that records normal TLS
 verifier success and real Servo frames, and the M18-B browser state/chrome
 modules from checkpoint `ee49b812fa69c943c34ca076fe795e6ba92e504f`. The guest
@@ -2100,7 +2105,7 @@ Use only these statuses:
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
-| M19 | Semantic Layer / Search | PARTIAL | Reused M19-PREP's `user/nagi-search` contract; 16 host tests, warnings-denied Clippy, formatting, and Nagi `no_std` user-target compile pass. Added end-to-end contract acceptance for producer indexing, deterministic search, visibility filtering, Workspace grouping, restart, stable-ID metadata update, and re-search. Guest persistence/service activation, trusted capability binding, real producer ID mapping, and QEMU restart acceptance remain blocked by missing target service/authority/storage adapters. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
+| M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root Cargo workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Nineteen host tests, warnings-denied `nagi-search` Clippy, changed-file format, M19 target compile, and `./nagi m19` two-boot QEMU persistence acceptance pass. Acceptance uses one private fixture; real File/page producer ID mapping and a production IPC service with authenticated capability-bound visibility remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
 | M20 | AI Runtime / Granite | PARTIAL | Reused the existing `no_std` `nagi-model-manager` manifest, registry, provider, bounded-read, and Model Store contracts. These are host-tested orchestration contracts only; no pinned llama.cpp runtime, installable Granite package, active target model service, or real in-guest Granite response is present. See `docs/workstreams/model-runtime.md`. |
 | M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; 15 tests cover complete-plan parsing, bounded prompt action filtering, LLM/Decision adapters, unknown/denied actions, object visibility, path/resource bounds, successful and partial results, and confidence-independent authorization. Formatting, Clippy, and Nagi target compile pass. No production handlers or trusted target Capability/Permission adapter are registered, so no real action/QEMU acceptance is claimed. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
 | M22 | AI Safety / Undo Integration | BLOCKED | M15 History now has a bounded, checksummed NH16 archive with full context/payload restoration, grouped move transactions, caller-scoped composite undo, and pending-undo recovery contract (7 tests; Clippy, format, and Nagi target compile pass). Guest acceptance remains blocked by missing production M21 move handler/authenticated policy and absent guest archive persistence/QEMU restart flow. The NH15 compatibility serializer remains metadata-only. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |

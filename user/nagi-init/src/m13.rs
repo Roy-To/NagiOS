@@ -155,6 +155,10 @@ pub fn run(
     if !crate::m16_package::run(block_capability) {
         fail();
     }
+    #[cfg(feature = "m19-search")]
+    if !crate::m19_search::run(block_capability) {
+        fail();
+    }
     print(static_bytes!(NAGI_M13_ACCEPTANCE, ACCEPTANCE_LEN));
     loop {
         unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)) };

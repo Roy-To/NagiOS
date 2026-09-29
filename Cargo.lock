@@ -3454,11 +3454,13 @@ dependencies = [
  "nagi-albert",
  "nagi-audio",
  "nagi-history",
+ "nagi-model",
  "nagi-net",
  "nagi-package",
  "nagi-pal",
  "nagi-posix",
  "nagi-sdk",
+ "nagi-search",
  "relibc",
 ]
 
@@ -3519,6 +3521,13 @@ dependencies = [
 
 [[package]]
 name = "nagi-sdk"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+]
+
+[[package]]
+name = "nagi-search"
 version = "0.1.0"
 dependencies = [
  "nagi-model",

@@ -23,6 +23,7 @@ m18-acceptance = [
     "libnagi/m18-browser-threads",
     "nagi-posix/browser-storage",
 ]
+m19-search = ["m13-posix", "dep:nagi-search"]
 
 [[bin]]
 name = "nagi-init"
@@ -34,11 +35,13 @@ bench = false
 libnagi = { path = "../libnagi" }
 nagi-audio = { path = "../nagi-audio" }
 nagi-history = { path = "../nagi-history" }
+nagi-model = { path = "../../crates/nagi-model" }
 nagi-package = { path = "../nagi-package" }
 nagi-sdk = { path = "../../sdk/rust" }
 nagi-net = { path = "../nagi-net" }
 nagi-pal = { path = "../nagi-pal" }
 nagi-posix = { path = "../nagi-posix" }
+nagi-search = { path = "../nagi-search", optional = true }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 nagi-albert = { path = "../nagi-albert", optional = true }

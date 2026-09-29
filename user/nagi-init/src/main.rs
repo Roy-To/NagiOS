@@ -2,6 +2,34 @@
 #![cfg_attr(target_os = "nagi", no_main)]
 #![cfg_attr(all(target_os = "nagi", feature = "m13-std"), feature(restricted_std))]
 
+extern crate alloc;
+
+#[cfg(all(target_os = "nagi", feature = "m19-search"))]
+struct M19Allocator;
+
+#[cfg(all(target_os = "nagi", feature = "m19-search"))]
+unsafe impl core::alloc::GlobalAlloc for M19Allocator {
+    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+        if layout.size() == 0 {
+            return layout.align() as *mut u8;
+        }
+        nagi_posix::nagi_posix_malloc_aligned(
+            layout.size(),
+            layout.align().max(core::mem::size_of::<usize>()),
+        )
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: core::alloc::Layout) {
+        if layout.size() != 0 {
+            nagi_posix::nagi_posix_free(pointer);
+        }
+    }
+}
+
+#[cfg(all(target_os = "nagi", feature = "m19-search"))]
+#[global_allocator]
+static M19_ALLOCATOR: M19Allocator = M19Allocator;
+
 #[cfg(target_os = "nagi")]
 use core::arch::asm;
 #[cfg(all(target_os = "nagi", not(feature = "m13-std")))]
@@ -39,6 +67,8 @@ mod m14_audio;
 mod m15_history;
 #[cfg(all(target_os = "nagi", feature = "m16-package"))]
 mod m16_package;
+#[cfg(all(target_os = "nagi", feature = "m19-search"))]
+mod m19_search;
 #[cfg(all(
     target_os = "nagi",
     feature = "m12-network",

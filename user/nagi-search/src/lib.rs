@@ -5,6 +5,7 @@ extern crate alloc;
 extern crate std;
 
 mod codec;
+pub mod guest;
 mod model;
 mod search;
 mod store;
@@ -13,6 +14,10 @@ pub mod adapters;
 #[cfg(not(target_os = "nagi"))]
 pub mod host;
 
+pub use guest::{
+    GuestSnapshotBackend, SnapshotFile, SnapshotFileStore, SnapshotSlot, GUEST_FILE_BYTES,
+    MAX_GUEST_SNAPSHOT_BYTES,
+};
 pub use model::{
     AccessContext, AttributeMatch, MetadataRecord, ModelError, ObjectKind, Relation,
     RelationDirection, RelationKind, RelationProvenance, SearchError, SearchHit, SearchMatch,
