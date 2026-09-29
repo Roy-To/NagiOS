@@ -1,0 +1,180 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "ident-01",
+  "current_milestone": "IDENT-01 host-reference implementation and owner registration",
+  "current_checkpoint": "registered dedicated branch; root verifier validates IDENT-01 state; registration commit pending",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "1f1415f2e3879fe249f42c0636317b048bb54276",
+    "verified_at": "2026-09-29T05:14:50Z",
+    "normal_state": "Host-reference source is committed on codex/0.2-ident-01 at 1f1415f2e3879fe249f42c0636317b048bb54276, based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. The pinned nightly aarch64 toolchain passed 23 host contract tests, rustfmt, and Clippy. With the Integration Owner registration/state changes present in the working tree, `./nagi dev verify` passed for 19 registered workstreams and validated 12 state files, including IDENT-01. Registration commit, final source recheck, push, remote equality, CI, and clean status remain pending. M17 remains BLOCKED and M30 NOT STARTED; host evidence is not production acceptance.",
+    "commands": [
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test --manifest-path crates/nagi-identity-session/Cargo.toml --locked --offline",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path crates/nagi-identity-session/Cargo.toml -- --check",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy --manifest-path crates/nagi-identity-session/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev verify",
+      "git diff --check",
+      "python3 standard-library JSON/state/registry structural validation",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev status"
+    ],
+    "tests": [
+      {
+        "name": "IDENT-01 initial focused test using system PATH",
+        "command": "cargo test --manifest-path crates/nagi-identity-session/Cargo.toml --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "The Homebrew x86_64-apple-darwin rustc selected /usr/local/bin/cc -arch x86_64; host Command Line Tools only contain arm64 libxcrun, so build-script linking failed before the IDENT-01 crate compiled."
+      },
+      {
+        "name": "IDENT-01 rustup selector diagnostic",
+        "command": "rustup run nightly-2025-08-01-aarch64-apple-darwin cargo test --manifest-path crates/nagi-identity-session/Cargo.toml --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "rustup run selected nightly Cargo, but its child compiler still resolved /usr/local/bin/rustc from PATH and repeated the x86_64 linker mismatch. No source-level test executed."
+      },
+      {
+        "name": "IDENT-01 host contract tests",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test --manifest-path crates/nagi-identity-session/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Nightly aarch64 toolchain selected for both Cargo and rustc. 23 contract tests passed; 0 failed; unit tests and doctests had 0 tests. Negative coverage includes guest cleanup, cross-user/profile and caller/principal denial, stale/expired sessions, malformed/corrupt/unsupported state, interrupted commit, principal denial, migration failures, and stale-store conflict."
+      },
+      {
+        "name": "IDENT-01 formatting",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path crates/nagi-identity-session/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Standalone identity-session package and contract test passed rustfmt check."
+      },
+      {
+        "name": "IDENT-01 Clippy",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy --manifest-path crates/nagi-identity-session/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All identity-session package targets passed Clippy with warnings denied."
+      },
+      {
+        "name": "DF-01 repository state verifier",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Output: `PASS development state: 19 registered workstreams, 12 state files validated; branch codex/0.2-ident-01 at 1f1415f2e3879fe249f42c0636317b048bb54276`. This run used the working-tree Integration Owner registration row and state; owner registration commit was pending."
+      },
+      {
+        "name": "IDENT-01 staged change whitespace check",
+        "command": "git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "`git diff --check` passed for tracked registration and feature changes; a separate UTF-8 trailing-whitespace scan of the state, proposal, and registry JSON passed."
+      },
+      {
+        "name": "IDENT-01 branch push and remote equality",
+        "command": "git push origin codex/0.2-ident-01; git ls-remote --heads origin refs/heads/codex/0.2-ident-01",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Working-tree validation passed; the assigned branch push and remote equality check are pending final commits."
+      },
+      {
+        "name": "IDENT-01 GitHub Actions CI",
+        "command": "gh run list --branch codex/0.2-ident-01",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "CI is checked after pushing the assigned branch; no shared CI workflow changes are in scope."
+      },
+      {
+        "name": "IDENT-01 registry/proposal/state JSON structure",
+        "command": "python3 standard-library JSON/state/registry structural validation",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All three JSON documents parsed; ident-01 is unique, its branch is codex/0.2-ident-01, all hard registry dependency IDs exist, and no trailing whitespace was found. Root `./nagi dev verify` also validates the state against DF-01 v1."
+      },
+      {
+        "name": "DF-01 current workstream status",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev status",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The verifier resolved ident-01 to owner Codex IDENT-01 workstream (assigned by Codex integration owner), branch codex/0.2-ident-01, PARTIAL status, the live M30/checkpoint and contract blocker, and the next concrete action. Worktree DIRTY was expected before the separate owner-registration commit."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md; docs/0.2/WORKSTREAMS.md; docs/workstreams/NagiOS_0.2_Local_Identity_User_Session_Foundation_Workstream.md",
+    "last_checked_at": "2026-09-29T05:11:22Z",
+    "activation_requirement": "M17 is BLOCKED and M30 is NOT STARTED; no explicit Nagi 0.2 checkpoint naming IDENT-01 is recorded. Host-only reference work is assigned. Production login/session service wiring, durable runtime persistence, capability enforcement, user-scoped Storage/VFS integration, and target behavior require M30 PASS plus that explicit checkpoint. Capability session binding and the Storage/VFS profile-root owner contract remain unresolved."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Production/runtime acceptance is gated by M30 NOT STARTED and the absence of an explicit Nagi 0.2 checkpoint naming IDENT-01. The Capability owner has not published a versioned trusted-caller/session-to-PrincipalId binding contract, and no registered Storage/VFS owner or profile-root contract is present. Host-reference implementation, owner assignment, and branch registration are allowed and continue as PARTIAL.",
+    "reproduction_commands": [
+      "rg -n \"M17|M30\" docs/implementation_status.md",
+      "rg -n \"capability-permissions|platform-apis|storage|vfs\" .dev/workstreams.json docs/workstreams/NagiOS_0.2_Local_Identity_User_Session_Foundation_Workstream.md",
+      ".dev/workstreams/ident-01/state.json",
+      "./nagi dev verify"
+    ],
+    "failure_log_summary": "Two initial focused-test invocations failed before crate compilation because /usr/local/bin Homebrew Rust targeted x86_64 while the installed Apple Command Line Tools provide arm64 only. `rustup run` alone left /usr/local/bin/rustc first in PATH. Putting the repository-pinned nightly aarch64 toolchain bin directory first resolved the host mismatch; all 23 contract tests, formatting, and Clippy then passed. No source failure remains. Production acceptance is independently blocked by the release/dependency gates above.",
+    "attempted_fixes": [
+      "Verified the selected system compiler and found rustc 1.86.0 Homebrew with host x86_64-apple-darwin while rust-toolchain.toml selects nightly aarch64.",
+      "Confirmed `rustup run` changes Cargo selection but leaves /usr/local/bin/rustc ahead in child PATH.",
+      "Ran all focused checks with the pinned nightly aarch64 bin directory first; tests, formatting, and Clippy passed.",
+      "Registered the approved host-only workstream row and assigned branch/base/worktree as an Integration Owner action; production contracts remain in proposals pending their owners and activation gate."
+    ],
+    "do_not_try": [
+      "Do not implement production login/session service wiring, user/nagi-init behavior, durable runtime identity persistence, capability policy/enforcement, Storage/VFS persistence, SDK/shared-schema runtime integration, or target behavior before M30 PASS and an explicit checkpoint.",
+      "Do not add cloud, OAuth/OIDC, or network authentication; do not substitute paths, PIDs, app-session IDs, execution IDs, or surfaces for user/profile/session identity.",
+      "Do not edit root Cargo configuration, CI, shared schemas/IDL, another workstream source/state, or push/merge main or another owner branch."
+    ]
+  },
+  "next_action": "After final registered-state verification and owner-registration commit, rerun the focused suite, root verifier, diff check, and state checks; push only codex/0.2-ident-01 and confirm origin HEAD equality and GitHub Actions status. For production acceptance, the Integration Owner must retain the M30/checkpoint gate, obtain a versioned trusted-caller/session-to-PrincipalId contract from the Capability owner, and designate/create a Storage/VFS owner with a versioned opaque profile-root contract before any production persistence or service integration.",
+  "acceptance_criteria": [
+    "PASS HOST-REFERENCE ONLY — UserId adapts the existing model ID with validation; ProfileId and identity SessionId are separate validated types; canonical capability PrincipalId is reused and app/runtime IDs, PID, SurfaceId, paths, and display names remain distinct.",
+    "PASS HOST-REFERENCE ONLY — Local users, multiple profiles, and guest/ephemeral sessions operate offline through deterministic host fakes; no cloud/network authentication exists.",
+    "PASS HOST-REFERENCE ONLY — Profile metadata is versioned and bounded and excludes credentials, tokens, and provider subject values.",
+    "PASS HOST-REFERENCE ONLY — Session create/current resolution/expiry/idempotent end, concurrency behavior, in-process lease expiry/revocation, and recovery-ended sessions are covered by tests.",
+    "PASS HOST-REFERENCE ONLY — Opaque profile-root adapter enforces caller, live session, and exact-profile scope with cross-profile and stale-operation denial against an in-memory fake; no production Storage/VFS owner contract or backend is present.",
+    "PARTIAL — Capability mapping reuses canonical PrincipalId and fails closed, but no versioned trusted-caller/session binding, policy-engine integration, or runtime enforcement is published.",
+    "PASS HOST-REFERENCE ONLY — Credential-free offline local-login/logout orchestration hooks and provider-neutral mapping seam are tested behind injected authorizers; no product authentication flow or service is implemented.",
+    "PASS HOST-REFERENCE ONLY — Versioned snapshot, atomic commit/CAS, last-known-good recovery, explicit migration, and safe restart policy are exercised with an in-memory store; no durable runtime persistence exists.",
+    "PASS HOST-REFERENCE ONLY — Negative tests cover cross-user/profile denial, stale and expired sessions, malformed/corrupt/unsupported state, interrupted commit, guest cleanup, principal denial, caller-principal binding, and stale-store conflict.",
+    "PASS — No M18 code, user/nagi-init, shared capability policy, SDK, shared IDL/ABI, root Cargo configuration, CI, or unrelated workstream source/state was changed by IDENT feature implementation. Registry row changes are an isolated Integration Owner registration action.",
+    "PASS — IDENT-01 has an assigned owner, codex/0.2-ident-01 branch, base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9, and dedicated managed worktree recorded in the registration row.",
+    "PASS — Root `./nagi dev verify` validates the IDENT-01 registry row and DF-01 state on the dedicated branch.",
+    "PARTIAL — Focused host package checks pass; final push, remote equality, final clean worktree, and CI are pending.",
+    "BLOCKED BY RELEASE GATE — Production login, durable runtime store, real profile-root storage, versioned capability binding/enforcement, target integration, and full production acceptance require M30 PASS and an explicit Nagi 0.2 checkpoint naming IDENT-01."
+  ],
+  "deferred": [
+    "Production approved unpredictable ID/entropy source and trusted local authentication provider.",
+    "Durable storage implementation with atomic transactions, last-known-good recovery, privacy policy, and production migration history.",
+    "Versioned capability principal/authentication binding and runtime policy enforcement from the Capability owner.",
+    "Integration Owner must designate a registered Storage/VFS owner and accept a capability-scoped persistent profile-root handle contract and production cross-profile backend denial.",
+    "User/nagi-init, setup/lock UI, SDK, shared schemas/IDL, root workspace, target integration, production CI integration, and full acceptance behind M30 and an explicit checkpoint."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 durable workstream-state v1 schema, registry ownership, and verifier behavior",
+      "version": "workstream-state-v1",
+      "status": "PASS; root `./nagi dev verify` validates the registered IDENT-01 state on this branch (19 workstreams, 12 state files)."
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "Canonical PrincipalId and owner-defined authorization-principal binding/policy contract",
+      "version": "nagi-capability 0.2.0 source model with policy/declaration schema v1; no session-binding version",
+      "status": "PARTIAL; registered owner is Codex capability/permission workstream. Canonical PrincipalId is reused, but trusted session/caller binding and production enforcement remain unpublished/unintegrated."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Distinct AppId, AppSessionId, and ExecutionInstanceId semantics",
+      "version": "host contract; current registered workstream state PASS",
+      "status": "PASS for host semantics; identity values remain separate and SDK files are not changed."
+    },
+    {
+      "workstream_id": "platform-apis",
+      "contract": "Existing `nagi_model::UserId` source type adapted by the IDENT validator",
+      "version": "nagi-model 0.1.0 source at base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9; no accepted 0.2 identity schema",
+      "status": "PARTIAL/UNASSIGNED; registry row exists but owner is unassigned and no registered state file is present. This is source-level reuse only."
+    }
+  ]
+}
