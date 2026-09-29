@@ -10,6 +10,7 @@ relibc_target_dir="$output_root/relibc-target"
 relibc_build="$relibc_target_dir/$target"
 relibc_headers="$relibc_build/include"
 mesa_build="$output_root/mesa-build"
+mesa_cross_args=(--cross-file "$repo_root/tools/mesa/nagi-x86_64-user.meson.cross")
 
 for command_name in cargo make patch cbindgen meson ninja python3 llvm-ar llvm-ranlib llvm-nm llvm-objcopy llvm-strip; do
     command -v "$command_name" >/dev/null 2>&1 || {
@@ -32,6 +33,36 @@ if [[ ! -d "$repo_root/third_party/mesa" || ! -f "$repo_root/third_party/mesa/.n
 fi
 
 mkdir -p "$output_root"
+
+# Apple Clang emits the right freestanding ELF objects for Mesa, but delegates
+# final target links to the macOS gcc shim. Only that Darwin host-linker path
+# receives an override; Ubuntu keeps the tracked M17/M18 cross-file and lld
+# driver selection unchanged.
+if [[ "$(uname -s)" == Darwin ]]; then
+    target_linker=${NAGI_TARGET_LD:-ld.lld}
+    target_linker_path=$(command -v "$target_linker") || {
+        echo "M17 Mesa build: ELF linker not found: $target_linker" >&2
+        exit 2
+    }
+    export NAGI_TARGET_LD="$target_linker_path"
+
+    darwin_linker_cross="$output_root/nagi-darwin-elf-linker.meson.cross"
+    python3 - "$darwin_linker_cross" "$repo_root/tools/mesa/nagi-ld-adapter.sh" <<'PY'
+import sys
+from pathlib import Path
+
+cross_file = Path(sys.argv[1])
+adapter = repr(sys.argv[2])
+cross_file.write_text(
+    "[binaries]\n"
+    f"c_ld = {adapter}\n"
+    f"cpp_ld = {adapter}\n",
+    encoding="utf-8",
+)
+PY
+    mesa_cross_args+=(--cross-file "$darwin_linker_cross")
+    echo "M17 Mesa build: Darwin host links use Nagi ELF linker: $target_linker_path"
+fi
 
 # Apply the narrow Nagi-owned build-host portability patch before relibc
 # generates the target C headers. The patch is checked both before applying
@@ -101,9 +132,9 @@ resource_dir=$("$target_clang" --target=x86_64-unknown-elf -print-resource-dir)
     "$repo_root/tools/mesa/nagi-c11-header-check.c"
 
 mesa_headers="$repo_root/tools/mesa/nagi-headers"
-mesa_c_args="--target=x86_64-unknown-elf -D__NAGI__ -ffreestanding -fno-stack-protector -fno-builtin -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -mcmodel=large -I$mesa_headers -I$relibc_headers"
+mesa_c_args="--target=x86_64-unknown-elf -D__NAGI__ -ffreestanding -fno-stack-protector -fno-builtin -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -mcmodel=large -I$mesa_headers -I$relibc_headers -include $mesa_headers/nagi-compat.h"
 meson setup --wipe "$mesa_build" "$repo_root/third_party/mesa" \
-    --cross-file "$repo_root/tools/mesa/nagi-x86_64-user.meson.cross" \
+    "${mesa_cross_args[@]}" \
     -Dgallium-drivers=softpipe \
     -Dvulkan-drivers= \
     -Dplatforms=nagi \

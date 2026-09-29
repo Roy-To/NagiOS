@@ -34,8 +34,13 @@ pub const SYS_THREAD_DETACH: u64 = 29;
 /// before it can be scheduled.
 pub const THREAD_CREATE_DETACHED: u64 = 1;
 
-/// Capacity of the bounded, cooperative M17 bootstrap thread pool. ID zero is
-/// the initial user-init thread; all remaining IDs are reusable child slots.
+/// Capacity of the bounded, cooperative bootstrap thread pool. ID zero is the
+/// initial user-init thread; all remaining IDs are reusable child slots. M18
+/// enables a larger pool for Servo's additional browser worker threads while
+/// preserving the accepted M17 capacity.
+#[cfg(feature = "m18-browser-threads")]
+pub const BOOTSTRAP_USER_THREAD_COUNT: usize = 64;
+#[cfg(not(feature = "m18-browser-threads"))]
 pub const BOOTSTRAP_USER_THREAD_COUNT: usize = 32;
 
 /// Page granularity for M17 bootstrap user-thread stack mappings.
@@ -84,11 +89,21 @@ pub const PROT_WRITE: u64 = 0x2;
 pub const PROT_READ: u64 = 0x4;
 pub const PROT_NONE: u64 = 0x0;
 
-/// Nagi 0.1's initial wall-clock contract.  The reference firmware does not
-/// yet pass an RTC value through BootInfo, so realtime is defined as elapsed
-/// nanoseconds from the guest's Nagi epoch.  It is deliberately a guest
-/// clock, never a host clock fallback.
-pub const NAGI_REALTIME_EPOCH_NS: u64 = 0;
+/// Convert a validated firmware RTC seed and elapsed guest timer ticks into
+/// Unix nanoseconds. The unavailable sentinel and arithmetic overflow fail
+/// closed; this never falls back to the host clock.
+pub const fn realtime_ns_at_ticks(epoch_ns: u64, ticks: u64) -> u64 {
+    if epoch_ns == u64::MAX {
+        return u64::MAX;
+    }
+    let Some(elapsed_ns) = ticks.checked_mul(10_000_000) else {
+        return u64::MAX;
+    };
+    match epoch_ns.checked_add(elapsed_ns) {
+        Some(realtime_ns) => realtime_ns,
+        None => u64::MAX,
+    }
+}
 
 pub const BLOCK_SECTOR_SIZE: usize = 512;
 pub const MAX_CONSOLE_WRITE: usize = 256;
@@ -105,16 +120,19 @@ pub const PIXEL_FORMAT_RGBA8888: u32 = 0;
 pub const INPUT_EVENT_KEY: u16 = 1;
 pub const INPUT_EVENT_REL: u16 = 2;
 pub const INPUT_EVENT_ABS: u16 = 3;
-pub const INPUT_KEY_LEFT: u16 = 0x110;
+/// Virtio/Linux input event code for the primary pointer button.
+pub const INPUT_BUTTON_PRIMARY: u16 = 0x110;
+/// Compatibility name used by the earlier window acceptance path.
+pub const INPUT_KEY_LEFT: u16 = INPUT_BUTTON_PRIMARY;
 pub const INPUT_REL_X: u16 = 0;
 pub const INPUT_REL_Y: u16 = 1;
 
 #[cfg(test)]
 mod tests {
     use super::{
-        is_valid_bootstrap_user_thread_stack_size, round_bootstrap_user_thread_stack_size,
-        BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE, BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE,
-        BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE,
+        is_valid_bootstrap_user_thread_stack_size, realtime_ns_at_ticks,
+        round_bootstrap_user_thread_stack_size, BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE,
+        BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE, BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE,
     };
 
     #[test]
@@ -142,6 +160,14 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_thread_capacity_matches_the_selected_milestone_contract() {
+        #[cfg(feature = "m18-browser-threads")]
+        assert_eq!(super::BOOTSTRAP_USER_THREAD_COUNT, 64);
+        #[cfg(not(feature = "m18-browser-threads"))]
+        assert_eq!(super::BOOTSTRAP_USER_THREAD_COUNT, 32);
+    }
+
+    #[test]
     fn kernel_thread_stack_contract_requires_aligned_bounded_sizes() {
         assert!(is_valid_bootstrap_user_thread_stack_size(
             BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE
@@ -159,6 +185,14 @@ mod tests {
         assert!(!is_valid_bootstrap_user_thread_stack_size(
             BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE - 1
         ));
+    }
+
+    #[test]
+    fn realtime_clock_preserves_unavailable_and_fails_closed_on_overflow() {
+        assert_eq!(realtime_ns_at_ticks(u64::MAX, 10), u64::MAX);
+        assert_eq!(realtime_ns_at_ticks(1_000, 3), 30_001_000);
+        assert_eq!(realtime_ns_at_ticks(u64::MAX - 5, 1), u64::MAX);
+        assert_eq!(realtime_ns_at_ticks(0, u64::MAX), u64::MAX);
     }
 }
 

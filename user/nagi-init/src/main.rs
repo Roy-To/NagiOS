@@ -6,8 +6,14 @@
 use core::arch::asm;
 #[cfg(all(target_os = "nagi", not(feature = "m13-std")))]
 use core::panic::PanicInfo;
-#[cfg(all(target_os = "nagi", feature = "m17-servo"))]
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m17-servo",
+    not(feature = "m18-acceptance")
+))]
 use nagi_albert::run_first_web_pixel;
+#[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
+use nagi_albert::run_m18_https_acceptance;
 
 #[cfg(all(
     target_os = "nagi",
@@ -548,6 +554,33 @@ pub extern "C" fn _start(
             libnagi::exit(1);
         }
         libnagi::console_write(b"Nagi M17 trace: temporary directory ready\r\n");
+        #[cfg(feature = "m18-acceptance")]
+        {
+            libnagi::console_write(b"Nagi M18 browser trace: network initialization started\r\n");
+            if unsafe { nagi_posix::nagi_posix_initialize_network(net_capability) } != 0 {
+                libnagi::console_write(b"Nagi M18 browser FAIL network initialization\r\n");
+                libnagi::exit(1);
+            }
+            libnagi::console_write(b"Nagi M18 browser trace: network capability initialized\r\n");
+            if nagi_posix::cleanup_m18_servo_temp_directories().is_none() {
+                libnagi::console_write(b"Nagi M18 browser FAIL temporary storage cleanup\r\n");
+                libnagi::exit(1);
+            }
+            if libnagi::console_write(b"Nagi M18 browser temporary storage cleanup PASS\r\n")
+                != b"Nagi M18 browser temporary storage cleanup PASS\r\n".len()
+            {
+                libnagi::exit(1);
+            }
+            if unsafe {
+                nagi_posix::nagi_posix_ensure_directory(c"/tmp/nagi-servo-profile".as_ptr())
+            } != 0
+            {
+                libnagi::console_write(b"Nagi M18 browser FAIL Servo profile directory\r\n");
+                libnagi::exit(1);
+            }
+            return run_m18_https_acceptance(display_capability, input_capability);
+        }
+        #[cfg(not(feature = "m18-acceptance"))]
         return run_first_web_pixel(display_capability);
     }
 

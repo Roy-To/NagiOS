@@ -6,11 +6,12 @@ use std::time::Duration;
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
-use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
+use crate::doctor::{DoctorPolicy, HostProbe, ovmf_pair_is_allowed, run_doctor_with_requirements};
 use crate::image::{
-    ensure_persistent_disk, run_qemu, run_qemu_gui, run_qemu_gui_with_events, run_qemu_interactive,
-    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image, ImageLayout,
-    QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    GUEST_ACCEPTANCE_MARKER, ImageLayout, NAGI_WRITE_MARKER, QemuConfig, ensure_persistent_disk,
+    run_qemu, run_qemu_gui, run_qemu_gui_with_events,
+    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker, run_qemu_interactive,
+    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image,
 };
 use crate::mesa::ensure_mesa_checkout;
 use crate::mozjs_sys_nagi::ensure_mozjs_sys_nagi_checkout;
@@ -26,6 +27,47 @@ pub const EXIT_CONFIG_ERROR: i32 = 4;
 pub const EXIT_DOCTOR_FAILURE: i32 = 10;
 
 type ImageWriter = fn(&Path, &[u8], &[u8], &[u8]) -> Result<ImageLayout, String>;
+
+const M18_INPUT_EVENTS: [&str; 2] = [
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"rel","data":{"axis":"x","value":100}},
+            {"type":"rel","data":{"axis":"y","value":30}},
+            {"type":"btn","data":{"button":"left","down":true}},
+            {"type":"btn","data":{"button":"left","down":false}}
+        ]}
+    }"#,
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"e"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"e"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"x"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"x"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"m"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"m"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"p"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"p"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"l"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"l"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"e"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"e"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"dot"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"dot"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"c"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"c"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"m"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"m"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}
+        ]}
+    }"#,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -47,6 +89,7 @@ pub enum Command {
     M15,
     M16,
     M17,
+    M18,
     Test,
     Clean,
     Fmt,
@@ -110,6 +153,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m15" => Command::M15,
         "m16" => Command::M16,
         "m17" => Command::M17,
+        "m18" => Command::M18,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -143,6 +187,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M15
         | Command::M16
         | Command::M17
+        | Command::M18
         | Command::Test
         | Command::Clean
         | Command::Fmt
@@ -226,6 +271,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M15 => execute_m15(root, probe),
         Command::M16 => execute_m16(root, probe),
         Command::M17 => execute_m17(root, probe),
+        Command::M18 => execute_m18(root, probe),
     }
 }
 
@@ -263,7 +309,7 @@ fn execute_fetch(root: &Path) -> CommandResult {
                 format!(
                     "fetch: cannot read third_party/sources.lock; source fetching is not reproducible: {error}"
                 ),
-            )
+            );
         }
     };
     for required in [
@@ -322,23 +368,27 @@ fn execute_fetch(root: &Path) -> CommandResult {
         .unwrap_or(Path::new("third_party/mesa"));
     CommandResult {
         exit_code: EXIT_SUCCESS,
-        lines: vec![
-            format!(
-                "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {}, {}, {})",
-                surfman.strip_prefix(root).unwrap_or(Path::new("third_party/surfman")).display(),
-                tempfile_nagi.strip_prefix(root).unwrap_or(Path::new("third_party/tempfile-nagi")).display(),
-                mozjs_sys_nagi
-                    .strip_prefix(root)
-                    .unwrap_or(Path::new("third_party/mozjs-sys-nagi"))
-                    .display(),
-                cc_nagi
-                    .strip_prefix(root)
-                    .unwrap_or(Path::new("third_party/cc-nagi"))
-                    .display(),
-                servo_relative.display(),
-                mesa_relative.display()
-            ),
-        ],
+        lines: vec![format!(
+            "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {}, {}, {})",
+            surfman
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/surfman"))
+                .display(),
+            tempfile_nagi
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/tempfile-nagi"))
+                .display(),
+            mozjs_sys_nagi
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/mozjs-sys-nagi"))
+                .display(),
+            cc_nagi
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/cc-nagi"))
+                .display(),
+            servo_relative.display(),
+            mesa_relative.display()
+        )],
     }
 }
 
@@ -440,6 +490,7 @@ fn execute_image_with_init_build_env(
         rust_std_source,
         image_name,
         cargo_env,
+        &[],
         write_fat12_image,
     )
 }
@@ -450,6 +501,7 @@ fn execute_image_with_init_build_env_using_writer(
     rust_std_source: Option<&Path>,
     image_name: &str,
     cargo_env: &[(&str, &Path)],
+    kernel_features: &[&str],
     image_writer: ImageWriter,
 ) -> CommandResult {
     let init_build = match rust_std_source {
@@ -461,19 +513,18 @@ fn execute_image_with_init_build_env_using_writer(
     if init_build.exit_code != EXIT_SUCCESS {
         return init_build;
     }
-    let kernel_build = run_cargo(
-        root,
-        "kernel",
-        &[
-            "build",
-            "-p",
-            "nagi-kernel",
-            "--target",
-            "targets/x86_64-unknown-nagi.json",
-            "-Zbuild-std=core,compiler_builtins",
-            "--release",
-        ],
-    );
+    let kernel_features = kernel_features.join(",");
+    let mut kernel_args = vec!["build", "-p", "nagi-kernel"];
+    if !kernel_features.is_empty() {
+        kernel_args.extend(["--features", kernel_features.as_str()]);
+    }
+    kernel_args.extend([
+        "--target",
+        "targets/x86_64-unknown-nagi.json",
+        "-Zbuild-std=core,compiler_builtins",
+        "--release",
+    ]);
+    let kernel_build = run_cargo(root, "kernel", &kernel_args);
     if kernel_build.exit_code != EXIT_SUCCESS {
         return kernel_build;
     }
@@ -1437,7 +1488,7 @@ fn execute_m14_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m14: cannot read {}: {error}", first_log.display()),
-                )
+                );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
@@ -1468,7 +1519,7 @@ fn execute_m14_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m14: cannot read {}: {error}", audio_log.display()),
-            )
+            );
         }
     };
     for marker in [
@@ -1573,7 +1624,7 @@ fn execute_m15_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m15: cannot read {}: {error}", first_log.display()),
-                )
+                );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
@@ -1604,7 +1655,7 @@ fn execute_m15_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m15: cannot read {}: {error}", history_log.display()),
-            )
+            );
         }
     };
     for marker in [
@@ -1695,13 +1746,13 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     "m17: Mesa/Softpipe build failed: {}",
                     command_output(&output)
                 ),
-            )
+            );
         }
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m17: cannot start tools/mesa/build.sh through bash: {error}"),
-            )
+            );
         }
     }
 
@@ -1721,24 +1772,31 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "--locked",
         "--offline",
     ];
+    let mut init_build_env = vec![
+        ("NAGI_M16_PACKAGE", package_path.as_path()),
+        ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        // MozJS builds host-side configure helpers as well as Nagi
+        // target objects; keep those host probes off the target wrapper.
+        ("HOST_CC", Path::new("cc")),
+        ("HOST_CXX", Path::new("c++")),
+        (
+            "CC_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+        (
+            "CXX_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+    ];
+    append_nagi_target_archive_tools(&mut init_build_env, std::env::consts::OS);
     let image_result = execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
         Some(&rust_std_source),
         "nagi-0.1-m17-servo.img",
-        &[
-            ("NAGI_M16_PACKAGE", package_path.as_path()),
-            ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
-            ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
-            (
-                "CC_x86_64_unknown_nagi_user",
-                target_compiler_wrapper.as_path(),
-            ),
-            (
-                "CXX_x86_64_unknown_nagi_user",
-                target_compiler_wrapper.as_path(),
-            ),
-        ],
+        &init_build_env,
+        &[],
         write_m17_fat12_image,
     );
     if image_result.exit_code != EXIT_SUCCESS {
@@ -1794,7 +1852,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m17: cannot read {}: {error}", first_log.display()),
-                )
+                );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
@@ -1828,7 +1886,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     serial_log_m17_trace_excerpt(&log_path, 256),
                     serial_log_tail(&log_path, 64),
                 ),
-            )
+            );
         }
     };
     let serial = match fs::read_to_string(&log_path) {
@@ -1837,7 +1895,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m17: cannot read {}: {error}", log_path.display()),
-            )
+            );
         }
     };
     for marker in [
@@ -1961,7 +2019,7 @@ fn execute_m16_sample_build(root: &Path) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: sample build failed: {}", command_output(&output)),
-            )
+            );
         }
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m16: sample build: {error}")),
     };
@@ -1989,13 +2047,13 @@ fn execute_m16_sample_build(root: &Path) -> CommandResult {
                     "m16: sample SDK artifact failed: {}",
                     command_output(&output)
                 ),
-            )
+            );
         }
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: sample SDK artifact: {error}"),
-            )
+            );
         }
     };
     let generated_dir = root.join("out").join("generated").join("m16");
@@ -2019,7 +2077,7 @@ fn execute_m16_sample_build(root: &Path) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: IDL generation failed: {}", command_output(&output)),
-            )
+            );
         }
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m16: IDL generation: {error}")),
     };
@@ -2072,7 +2130,7 @@ fn execute_m16_sample_build(root: &Path) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: package build failed: {}", command_output(&output)),
-            )
+            );
         }
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m16: package build: {error}")),
     };
@@ -2165,7 +2223,7 @@ fn execute_m16_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m16: cannot read {}: {error}", first_log.display()),
-                )
+                );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
@@ -2196,7 +2254,7 @@ fn execute_m16_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: cannot read {}: {error}", package_log.display()),
-            )
+            );
         }
     };
     for marker in [
@@ -2770,12 +2828,228 @@ fn nonempty_detail(detail: &str) -> String {
     }
 }
 
+fn append_nagi_target_archive_tools<'a>(cargo_env: &mut Vec<(&'a str, &'a Path)>, host_os: &str) {
+    if host_os == "macos" {
+        // Apple's archiver treats freestanding Nagi ELF objects as invalid
+        // Mach-O members. Keep the override target-qualified so build-script
+        // host tools continue using the native macOS archiver.
+        cargo_env.push(("AR_x86_64_unknown_nagi_user", Path::new("llvm-ar")));
+        cargo_env.push(("RANLIB_x86_64_unknown_nagi_user", Path::new("llvm-ranlib")));
+    }
+}
+
+fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let cxx_headers = match resolve_m17_cxx_headers() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: C++ headers: {error}")),
+    };
+
+    let fetch = execute_fetch(root);
+    if fetch.exit_code != EXIT_SUCCESS {
+        return fetch;
+    }
+    let sample = execute_m16_sample_build(root);
+    if sample.exit_code != EXIT_SUCCESS {
+        return sample;
+    }
+
+    let rust_std_source = match prepare_nagi_rust_std_source(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: rust std: {error}")),
+    };
+    let mesa_build = ProcessCommand::new("bash")
+        .args(["tools/mesa/build.sh"])
+        .current_dir(root)
+        .output();
+    match mesa_build {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: Mesa/Softpipe build failed: {}",
+                    command_output(&output)
+                ),
+            );
+        }
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m18: cannot start tools/mesa/build.sh through bash: {error}"),
+            );
+        }
+    }
+
+    let package_path = root.join("out").join("artifacts").join("hello-nagi.xapp");
+    let mesa_build_path = root.join("out").join("m17-mesa").join("mesa-build");
+    let target_compiler_wrapper = root.join("tools").join("nagi-target-cc.sh");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m18-acceptance",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=std,panic_abort",
+        "--release",
+        "--locked",
+        "--offline",
+    ];
+    let mut init_build_env = vec![
+        ("NAGI_M16_PACKAGE", package_path.as_path()),
+        ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        // MozJS builds host-side configure helpers as well as Nagi
+        // target objects; keep those host probes off the target wrapper.
+        ("HOST_CC", Path::new("cc")),
+        ("HOST_CXX", Path::new("c++")),
+        (
+            "CC_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+        (
+            "CXX_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+    ];
+    append_nagi_target_archive_tools(&mut init_build_env, std::env::consts::OS);
+    let image_result = execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        Some(&rust_std_source),
+        "nagi-0.1-m18-albert.img",
+        &init_build_env,
+        &["m18-browser-memory"],
+        write_m17_fat12_image,
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+
+    let host = match resolve_qemu_host(root, probe, "m18") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: {error}")),
+    };
+    let image_path = artifacts.join("nagi-0.1-m18-albert.img");
+    let persistent_disk = artifacts.join("nagi-0.1-m18-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-m18-vars.fd");
+    let first_log = logs.join("m18-first-boot.log");
+    let log_path = logs.join("m18-albert.log");
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: {error}")),
+    };
+    let timeout = Duration::from_secs(1_200);
+    if !had_persistent_disk {
+        let first_config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &first_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        if let Err(error) = run_qemu_with_read_only_boot_disk(&first_config) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: first boot: {error}\nserial log tail:\n{}",
+                    serial_log_tail(&first_log, 64)
+                ),
+            );
+        }
+        let first_serial = match fs::read_to_string(&first_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m18: cannot read {}: {error}", first_log.display()),
+                );
+            }
+        };
+        if !first_serial.contains(NAGI_WRITE_MARKER) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: first boot did not print `{NAGI_WRITE_MARKER}` (log {})",
+                    first_log.display()
+                ),
+            );
+        }
+    }
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &log_path,
+        acceptance_marker: "Nagi M18 browser scenario complete pages=3",
+        timeout,
+    };
+    let status = match run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(
+        &config,
+        "Nagi M18 browser READY",
+        &M18_INPUT_EVENTS,
+        "Nagi M18 browser FAIL",
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: QEMU: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
+                    serial_log_m17_trace_excerpt(&log_path, 256),
+                    serial_log_tail(&log_path, 64),
+                ),
+            );
+        }
+    };
+    let serial = match fs::read_to_string(&log_path) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m18: cannot read {}: {error}", log_path.display()),
+            );
+        }
+    };
+    if let Err(error) = crate::m18_acceptance::validate_serial_log(&serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m18: guest browser acceptance failed: {error} (QEMU exit {status}; log {})",
+                log_path.display()
+            ),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU (exit {status}; log {})",
+            log_path.display()
+        )],
+    }
+}
 fn help() -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -2790,7 +3064,8 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{last_serial_lines, m17_trace_excerpt};
+    use super::{append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt};
+    use std::path::Path;
 
     #[test]
     fn serial_log_excerpt_keeps_the_last_lines_in_order() {
@@ -2809,6 +3084,23 @@ mod tests {
             ),
             "Nagi M17 trace: TLS initialized\nNagi M17 trace: EGL bind started"
         );
+    }
+
+    #[test]
+    fn cross_archive_tools_are_limited_to_macos_nagi_target_builds() {
+        let mut macos_env = Vec::<(&str, &Path)>::new();
+        append_nagi_target_archive_tools(&mut macos_env, "macos");
+        assert_eq!(
+            macos_env,
+            vec![
+                ("AR_x86_64_unknown_nagi_user", Path::new("llvm-ar")),
+                ("RANLIB_x86_64_unknown_nagi_user", Path::new("llvm-ranlib")),
+            ]
+        );
+
+        let mut linux_env = Vec::<(&str, &Path)>::new();
+        append_nagi_target_archive_tools(&mut linux_env, "linux");
+        assert!(linux_env.is_empty());
     }
 
     #[test]
@@ -2854,8 +3146,10 @@ mod tests {
             m17_branch[storage..pixel].contains("libnagi::exit(exit_code)"),
             "the first persistent-write boot must stop before the pixel boot"
         );
-        assert!(runner
-            .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\""));
+        assert!(
+            runner
+                .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\"")
+        );
         assert!(init.contains("Nagi M7 persistent write PASS"));
     }
 
@@ -2880,6 +3174,46 @@ mod tests {
             !m17_command.contains("run_qemu(&"),
             "M17 must not boot with a writable ESP"
         );
+    }
+
+    #[test]
+    fn m18_browser_boot_keeps_the_esp_read_only_for_storage_selection() {
+        let commands = include_str!("commands.rs");
+        let m18_start = commands.find("fn execute_m18(").expect("M18 command");
+        let m18_end = commands[m18_start..]
+            .find("fn help() -> CommandResult")
+            .map(|offset| m18_start + offset)
+            .expect("next command helper");
+        assert!(
+            commands[m18_start..m18_end]
+                .contains("run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(")
+        );
+
+        let image = include_str!("image.rs");
+        assert!(image.contains("Duration::from_millis(100)"));
+        assert!(image.contains("inter_event_delay.is_zero()"));
+        assert!(image.contains("vnc_port - 5900,\n        boot_disk_read_only,"));
+    }
+
+    #[test]
+    fn m18_cleans_stale_servo_temp_storage_before_creating_its_profile() {
+        let init = include_str!("../../../user/nagi-init/src/main.rs");
+        let cleanup = init
+            .find("nagi_posix::cleanup_m18_servo_temp_directories()")
+            .expect("M18 stale Servo temp cleanup");
+        let profile = init
+            .find("nagi_posix_ensure_directory(c\"/tmp/nagi-servo-profile\".as_ptr())")
+            .expect("stable Servo profile directory");
+        assert!(
+            cleanup < profile,
+            "free VFS inodes before creating the profile"
+        );
+
+        let acceptance = include_str!("../../../user/nagi-albert/src/m18_acceptance.rs");
+        assert!(acceptance.contains(
+            "servo_options.config_dir = Some(std::path::PathBuf::from(SERVO_CONFIG_DIR))"
+        ));
+        assert!(acceptance.contains("const SERVO_CONFIG_DIR: &str = \"/tmp/nagi-servo-profile\""));
     }
 
     #[test]

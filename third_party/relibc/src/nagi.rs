@@ -1670,6 +1670,23 @@ struct NagiTm {
     tm_zone: *const c_char,
 }
 
+// POSIX localtime()/gmtime() return a shared struct tm object. Nagi exposes
+// UTC only, so both functions use the same buffer and the existing target
+// conversion routines.
+static mut NAGI_SHARED_C_TIME: NagiTm = NagiTm {
+    tm_sec: 0,
+    tm_min: 0,
+    tm_hour: 0,
+    tm_mday: 1,
+    tm_mon: 0,
+    tm_year: 70,
+    tm_wday: 4,
+    tm_yday: 0,
+    tm_isdst: 0,
+    tm_gmtoff: 0,
+    tm_zone: ptr::null(),
+};
+
 static NAGI_C_LOCALE: &[u8] = b"C\0";
 static NAGI_UTC_ZONE: &[u8] = b"UTC\0";
 
@@ -1753,6 +1770,19 @@ pub unsafe extern "C" fn localtime_r(timer: *const c_longlong, result: *mut Nagi
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gmtime_r(timer: *const c_longlong, result: *mut NagiTm) -> *mut NagiTm {
     unsafe { localtime_r(timer, result) }
+}
+
+/// Convert to UTC using the shared buffer required by the C `gmtime` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gmtime(timer: *const c_longlong) -> *mut NagiTm {
+    unsafe { gmtime_r(timer, &raw mut NAGI_SHARED_C_TIME) }
+}
+
+/// Convert to Nagi's UTC local time using the shared buffer required by the C
+/// `localtime` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn localtime(timer: *const c_longlong) -> *mut NagiTm {
+    unsafe { localtime_r(timer, &raw mut NAGI_SHARED_C_TIME) }
 }
 
 #[inline]
@@ -2448,21 +2478,14 @@ pub unsafe extern "C" fn bsearch(
 }
 
 type QsortComparator = extern "C" fn(*const c_void, *const c_void) -> c_int;
+type QsortRComparator = extern "C" fn(*const c_void, *const c_void, *mut c_void) -> c_int;
 
-/// Bounded in-place sorting for the target backend. The standard relibc
-/// sorting module is excluded from the Nagi target, so use a deterministic
-/// selection sort with byte swaps and no host allocator dependency. The
-/// comparator and element storage remain caller-owned, as required by qsort.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qsort(
+unsafe fn nagi_sort_by(
     base: *mut c_void,
     count: usize,
     width: usize,
-    comparator: Option<QsortComparator>,
+    mut comparator: impl FnMut(*const c_void, *const c_void) -> c_int,
 ) {
-    let Some(comparator) = comparator else {
-        return;
-    };
     if base.is_null() || count < 2 || width == 0 {
         return;
     }
@@ -2501,6 +2524,42 @@ pub unsafe extern "C" fn qsort(
             }
         }
     }
+}
+
+/// Bounded in-place sorting for the target backend. The standard relibc
+/// sorting module is excluded from the Nagi target, so use a deterministic
+/// selection sort with byte swaps and no host allocator dependency. The
+/// comparator and element storage remain caller-owned, as required by qsort.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qsort(
+    base: *mut c_void,
+    count: usize,
+    width: usize,
+    comparator: Option<QsortComparator>,
+) {
+    let Some(comparator) = comparator else {
+        return;
+    };
+    unsafe { nagi_sort_by(base, count, width, |left, right| comparator(left, right)) };
+}
+
+/// Context-aware POSIX sort entry point used by NIR and Servo dependencies.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qsort_r(
+    base: *mut c_void,
+    count: usize,
+    width: usize,
+    comparator: Option<QsortRComparator>,
+    context: *mut c_void,
+) {
+    let Some(comparator) = comparator else {
+        return;
+    };
+    unsafe {
+        nagi_sort_by(base, count, width, |left, right| {
+            comparator(left, right, context)
+        })
+    };
 }
 
 #[unsafe(no_mangle)]

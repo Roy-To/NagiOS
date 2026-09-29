@@ -1,0 +1,14 @@
+--- a/components/constellation/constellation.rs
++++ b/components/constellation/constellation.rs
+@@ -3425,8 +3425,11 @@
+         );
+         nagi_m17_trace("Constellation NewWebView pipeline creation returned");
+ 
++        nagi_m17_trace("M18 Constellation font prefetch started");
+         self.system_font_service
+             .prefetch_font_keys_for_painter(PainterId::from(webview_id));
++        nagi_m17_trace("M18 Constellation font prefetch returned");
++        nagi_m17_trace("M18 Constellation NewWebView handler returned");
+     }
+ 
+     #[servo_tracing::instrument(skip_all)]

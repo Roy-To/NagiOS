@@ -1,0 +1,97 @@
+diff --git a/components/constellation/constellation.rs b/components/constellation/constellation.rs
+--- a/components/constellation/constellation.rs
++++ b/components/constellation/constellation.rs
+@@ -93,6 +93,7 @@
+ use std::rc::{Rc, Weak};
+ use std::sync::Arc;
+ #[cfg(target_os = "nagi")]
++use std::sync::atomic::{AtomicUsize, Ordering};
+ use std::thread::JoinHandle;
+ use std::{process, thread};
+ 
+@@ -194,6 +195,7 @@
+ #[expect(unsafe_code)]
+ unsafe extern "C" {
+     fn nagi_m17_console_trace(stage: *const u8, length: usize);
++    fn nagi_m18_navigation_trace_enabled() -> u8;
+ }
+ 
+ #[cfg(target_os = "nagi")]
+@@ -206,6 +208,22 @@
+ #[cfg(not(target_os = "nagi"))]
+ #[inline]
+ fn nagi_m17_trace(_: &str) {}
++
++#[cfg(target_os = "nagi")]
++static M18_NAVIGATION_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m18_trace_if_active(stage: &str) {
++    let enabled = unsafe { nagi_m18_navigation_trace_enabled() } != 0;
++    if enabled && M18_NAVIGATION_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) < 64 {
++        nagi_m17_trace(stage);
++    }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m18_trace_if_active(_: &str) {}
+ 
+ struct PendingApprovalNavigation {
+     load_data: LoadData,
+@@ -788,9 +806,13 @@
+             // Randomly close a pipeline if --random-pipeline-closure-probability is set
+             // This is for testing the hardening of the constellation.
+             self.maybe_close_random_pipeline();
++            nagi_m18_trace_if_active("M18 Constellation run loop before handle_request");
+             self.handle_request();
++            nagi_m18_trace_if_active("M18 Constellation run loop after handle_request");
+             self.finish_completed_session_history_traversal_requests();
++            nagi_m18_trace_if_active("M18 Constellation run loop after traversal maintenance");
+             self.clean_up_finished_script_event_loops();
++            nagi_m18_trace_if_active("M18 Constellation run loop after script cleanup");
+         }
+         self.handle_shutdown();
+ 
+@@ -1263,9 +1285,17 @@
+         let request = {
+             let oper = {
+                 let _span = profile_traits::trace_span!("handle_request::select").entered();
++                nagi_m18_trace_if_active("M18 Constellation waiting in request Select");
+                 sel.select()
+             };
+             let index = oper.index();
++            nagi_m18_trace_if_active(match index {
++                0 => "M18 Constellation selected namespace request",
++                1 => "M18 Constellation selected script request",
++                2 => "M18 Constellation selected hang-monitor request",
++                3 => "M18 Constellation selected embedder request",
++                _ => "M18 Constellation selected process request",
++            });
+ 
+             match index {
+                 0 => oper
+@@ -1301,13 +1331,21 @@
+ 
+         match request {
+             Request::PipelineNamespace(message) => {
++                nagi_m18_trace_if_active("M18 Constellation namespace handler entered");
+                 self.handle_request_for_pipeline_namespace(message)
+             },
+-            Request::Embedder(message) => self.handle_request_from_embedder(message),
++            Request::Embedder(message) => {
++                nagi_m18_trace_if_active("M18 Constellation embedder handler entered");
++                self.handle_request_from_embedder(message);
++                nagi_m18_trace_if_active("M18 Constellation embedder handler returned");
++            },
+             Request::Script(message) => {
++                nagi_m18_trace_if_active("M18 Constellation script handler entered");
+                 self.handle_request_from_script(message);
++                nagi_m18_trace_if_active("M18 Constellation script handler returned");
+             },
+             Request::BackgroundHangMonitor(message) => {
++                nagi_m18_trace_if_active("M18 Constellation hang-monitor handler entered");
+                 self.handle_request_from_background_hang_monitor(message);
+             },
+             #[cfg(feature = "multiprocess")]

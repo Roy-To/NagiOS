@@ -3,7 +3,93 @@
 use core::mem::size_of;
 
 pub const BOOT_INFO_MAGIC: u64 = 0x4E41_4749_424F_4F54;
-pub const BOOT_INFO_VERSION: u32 = 2;
+pub const BOOT_INFO_VERSION: u32 = 3;
+pub const REALTIME_UNAVAILABLE_NS: u64 = u64::MAX;
+
+/// RTC fields copied from UEFI before boot services end.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FirmwareDateTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+    pub nanosecond: u32,
+    /// Minutes east of UTC. `None` is interpreted as UTC for Nagi's QEMU
+    /// reference machine, which is launched with `-rtc base=utc`.
+    pub time_zone: Option<i16>,
+    /// UEFI daylight flags. Nagi currently fails closed for daylight-adjusted
+    /// values because the firmware data does not identify the adjustment.
+    pub daylight_flags: u8,
+}
+
+/// Convert a validated UEFI RTC value to nanoseconds since the Unix epoch.
+/// Invalid, unavailable, pre-epoch, or daylight-adjusted values fail closed.
+pub fn firmware_time_to_unix_ns(time: FirmwareDateTime) -> u64 {
+    if !(1970..=9999).contains(&time.year)
+        || !(1..=12).contains(&time.month)
+        || time.hour > 23
+        || time.minute > 59
+        || time.second > 59
+        || time.nanosecond > 999_999_999
+        || time.daylight_flags != 0
+        || time
+            .time_zone
+            .is_some_and(|offset| !(-1440..=1440).contains(&offset))
+    {
+        return REALTIME_UNAVAILABLE_NS;
+    }
+
+    let month_days = match time.month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(time.year) => 29,
+        2 => 28,
+        _ => return REALTIME_UNAVAILABLE_NS,
+    };
+    if time.day == 0 || time.day > month_days {
+        return REALTIME_UNAVAILABLE_NS;
+    }
+
+    let days = days_before_year(time.year)
+        + days_before_month(time.year, time.month)
+        + u64::from(time.day - 1);
+    let seconds = days * 86_400
+        + u64::from(time.hour) * 3_600
+        + u64::from(time.minute) * 60
+        + u64::from(time.second);
+    let offset_seconds = i64::from(time.time_zone.unwrap_or(0)) * 60;
+    let utc_seconds = i64::try_from(seconds)
+        .ok()
+        .and_then(|seconds| seconds.checked_sub(offset_seconds));
+    let Some(utc_seconds) = utc_seconds.filter(|seconds| *seconds >= 0) else {
+        return REALTIME_UNAVAILABLE_NS;
+    };
+
+    u64::try_from(utc_seconds)
+        .ok()
+        .and_then(|seconds| seconds.checked_mul(1_000_000_000))
+        .and_then(|nanoseconds| nanoseconds.checked_add(u64::from(time.nanosecond)))
+        .unwrap_or(REALTIME_UNAVAILABLE_NS)
+}
+
+#[allow(clippy::manual_is_multiple_of)]
+const fn is_leap_year(year: u16) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+fn days_before_year(year: u16) -> u64 {
+    let year = u64::from(year - 1);
+    let epoch_year = 1969;
+    year * 365 + year / 4 - year / 100 + year / 400
+        - (epoch_year * 365 + epoch_year / 4 - epoch_year / 100 + epoch_year / 400)
+}
+
+fn days_before_month(year: u16, month: u8) -> u64 {
+    let common_year_days: [u16; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    u64::from(common_year_days[usize::from(month - 1)]) + u64::from(month > 2 && is_leap_year(year))
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -54,6 +140,7 @@ pub struct BootInfo {
     pub framebuffer: FramebufferInfo,
     pub acpi_rsdp: u64,
     pub init_image: InitImageInfo,
+    pub realtime_epoch_ns: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,6 +182,7 @@ impl BootInfo {
                 address: 0,
                 size: 0,
             },
+            realtime_epoch_ns: REALTIME_UNAVAILABLE_NS,
         }
     }
 
@@ -112,7 +200,7 @@ impl BootInfo {
             return Err(BootInfoError::MissingMemoryMap);
         }
         if self.memory_map.entry_size < size_of::<MemoryMapEntry>() as u64
-            || !self.memory_map.entry_size.is_multiple_of(8)
+            || self.memory_map.entry_size & 7 != 0
         {
             return Err(BootInfoError::BadMemoryMapStride);
         }
@@ -244,10 +332,10 @@ mod tests {
     }
 
     #[test]
-    fn boot_info_v2_layout_is_c_compatible_and_stable() {
-        assert_eq!(BOOT_INFO_VERSION, 2);
+    fn boot_info_v3_layout_is_c_compatible_and_stable() {
+        assert_eq!(BOOT_INFO_VERSION, 3);
         assert_eq!(core::mem::size_of::<InitImageInfo>(), 16);
-        assert_eq!(core::mem::size_of::<BootInfo>(), 104);
+        assert_eq!(core::mem::size_of::<BootInfo>(), 112);
         assert_eq!(core::mem::offset_of!(BootInfo, magic), 0);
         assert_eq!(core::mem::offset_of!(BootInfo, version), 8);
         assert_eq!(core::mem::offset_of!(BootInfo, size), 12);
@@ -255,6 +343,8 @@ mod tests {
         assert_eq!(core::mem::offset_of!(BootInfo, framebuffer), 48);
         assert_eq!(core::mem::offset_of!(BootInfo, acpi_rsdp), 80);
         assert_eq!(core::mem::offset_of!(BootInfo, init_image), 88);
+        assert_eq!(core::mem::offset_of!(BootInfo, realtime_epoch_ns), 104);
+        assert_eq!(BootInfo::new().realtime_epoch_ns, REALTIME_UNAVAILABLE_NS);
     }
 
     #[test]
@@ -269,5 +359,85 @@ mod tests {
         let mut info = valid_boot_info();
         info.memory_map.entry_size = 8;
         assert_eq!(info.validate(), Err(BootInfoError::BadMemoryMapStride));
+    }
+
+    fn datetime(year: u16, month: u8, day: u8, hour: u8, minute: u8) -> FirmwareDateTime {
+        FirmwareDateTime {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second: 0,
+            nanosecond: 0,
+            time_zone: Some(0),
+            daylight_flags: 0,
+        }
+    }
+
+    #[test]
+    fn firmware_time_conversion_handles_epoch_leap_day_and_nanoseconds() {
+        assert_eq!(
+            firmware_time_to_unix_ns(FirmwareDateTime {
+                nanosecond: 123,
+                ..datetime(1970, 1, 1, 0, 0)
+            }),
+            123
+        );
+        assert_eq!(
+            firmware_time_to_unix_ns(datetime(2000, 2, 29, 0, 0)),
+            951_782_400_000_000_000
+        );
+        assert_eq!(
+            firmware_time_to_unix_ns(datetime(2026, 9, 28, 0, 0)),
+            1_790_553_600_000_000_000
+        );
+    }
+
+    #[test]
+    fn firmware_time_conversion_applies_timezone_offset() {
+        let utc = datetime(2026, 9, 28, 0, 0);
+        let mut unspecified_zone = utc;
+        unspecified_zone.time_zone = None;
+        assert_eq!(
+            firmware_time_to_unix_ns(unspecified_zone),
+            firmware_time_to_unix_ns(utc)
+        );
+
+        let mut local = utc;
+        local.time_zone = Some(330);
+        assert_eq!(
+            firmware_time_to_unix_ns(local),
+            firmware_time_to_unix_ns(utc) - 330 * 60 * 1_000_000_000
+        );
+    }
+
+    #[test]
+    fn invalid_unavailable_and_daylight_adjusted_firmware_times_fail_closed() {
+        for invalid in [
+            datetime(1969, 12, 31, 23, 59),
+            datetime(2025, 2, 29, 0, 0),
+            datetime(2026, 4, 31, 0, 0),
+            datetime(2026, 9, 28, 24, 0),
+            datetime(2026, 9, 28, 0, 60),
+            datetime(3000, 1, 1, 0, 0),
+        ] {
+            assert_eq!(firmware_time_to_unix_ns(invalid), REALTIME_UNAVAILABLE_NS);
+        }
+
+        let mut daylight = datetime(2026, 9, 28, 0, 0);
+        daylight.daylight_flags = 1;
+        assert_eq!(firmware_time_to_unix_ns(daylight), REALTIME_UNAVAILABLE_NS);
+
+        let mut underflow = datetime(1970, 1, 1, 0, 0);
+        underflow.time_zone = Some(1);
+        assert_eq!(firmware_time_to_unix_ns(underflow), REALTIME_UNAVAILABLE_NS);
+
+        let mut bad_timezone = datetime(2026, 9, 28, 0, 0);
+        bad_timezone.time_zone = Some(1441);
+        assert_eq!(
+            firmware_time_to_unix_ns(bad_timezone),
+            REALTIME_UNAVAILABLE_NS
+        );
     }
 }

@@ -165,6 +165,8 @@ mod tests {
         assert!(compiler_wrapper.contains("-isystem"));
         assert!(compiler_wrapper.contains("-idirafter"));
         assert!(compiler_wrapper.contains("compiler_args+=(-isystem \"$NAGI_CXX_HEADERS\")"));
+        assert!(compiler_wrapper
+            .contains("if [[ -n \"${NAGI_CXX_HEADERS:-}\" && \"$target_is_cxx\" == true ]]; then"));
         assert!(compiler_wrapper.contains(
             "compiler_args+=(-idirafter \"$repo_root/tools/mesa/nagi-headers\" -idirafter \"$relibc_headers\")"
         ));
@@ -671,6 +673,29 @@ mod tests {
     }
 
     #[test]
+    fn m18_target_link_supplies_servo_time_and_mesa_sort_abis() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("workspace root");
+        let build_script = std::fs::read_to_string(root.join("user/nagi-init/build.rs"))
+            .expect("nagi-init build script");
+        let target_libc = std::fs::read_to_string(root.join("third_party/relibc/src/nagi.rs"))
+            .expect("Nagi relibc backend");
+
+        for symbol in ["localtime", "gmtime", "qsort_r"] {
+            assert!(
+                build_script.contains(&format!("\"{symbol}\"")),
+                "nagi-init must retain the target archive provider for {symbol}"
+            );
+            assert!(
+                target_libc.contains(&format!("pub unsafe extern \"C\" fn {symbol}(")),
+                "the Nagi target libc must export the {symbol} ABI"
+            );
+        }
+    }
+
+    #[test]
     fn m17_cpp_build_scripts_use_the_nagi_target_wrapper() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -687,6 +712,8 @@ mod tests {
                 "M17 CLI must route {variable} through the Nagi target wrapper"
             );
         }
+        assert!(commands.contains("(\"HOST_CC\", Path::new(\"cc\"))"));
+        assert!(commands.contains("(\"HOST_CXX\", Path::new(\"c++\"))"));
         assert!(commands.contains("(\"NAGI_CXX_HEADERS\", cxx_headers.as_path())"));
 
         let wrapper = std::fs::read_to_string(root.join("tools/nagi-target-cc.sh"))

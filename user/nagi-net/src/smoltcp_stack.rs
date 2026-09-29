@@ -1,8 +1,11 @@
 use core::array;
+#[cfg(all(feature = "m18-browser-network", target_os = "nagi"))]
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use libnagi::MAX_NET_FRAME_SIZE;
 use smoltcp::iface::{
-    Config as InterfaceConfig, Interface, SocketHandle, SocketSet, SocketStorage,
+    Config as InterfaceConfig, Interface, PollIngressSingleResult, SocketHandle, SocketSet,
+    SocketStorage,
 };
 use smoltcp::phy::{
     ChecksumCapabilities, Device as PhyDevice, DeviceCapabilities, Medium, RxToken, TxToken,
@@ -15,23 +18,80 @@ use smoltcp::wire::{
     Ipv4Address as SmolIpv4,
 };
 
-use crate::{Device, Ipv4Address, NetError};
+use crate::{Device, Ipv4Address, NetError, TcpConnectionId};
 
 const POLL_BUDGET: usize = 1_000_000;
+#[cfg(not(feature = "m18-browser-network"))]
 const DNS_POLL_BUDGET: usize = 200;
+#[cfg(feature = "m18-browser-network")]
+const DNS_POLL_BUDGET: usize = 20_000;
 const DHCP_TIMEOUT: Duration = Duration::from_secs(30);
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const SOCKET_BUFFER_SIZE: usize = 2048;
+#[cfg(feature = "m18-browser-network")]
+const TCP_CONNECTION_CAPACITY: usize = 4;
+#[cfg(not(feature = "m18-browser-network"))]
+const TCP_CONNECTION_CAPACITY: usize = 1;
 const LOCAL_MAC: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x15];
+#[cfg(all(feature = "m18-browser-network", target_os = "nagi"))]
+static M18_DNS_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(feature = "m18-browser-network", target_os = "nagi"))]
+static M18_DNS_POLL_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[inline]
+fn trace_m18_dns(message: &[u8]) {
+    #[cfg(all(feature = "m18-browser-network", target_os = "nagi"))]
+    if M18_DNS_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) < 24 {
+        let _ = libnagi::console_write(message);
+    }
+    #[cfg(not(all(feature = "m18-browser-network", target_os = "nagi")))]
+    let _ = message;
+}
+
+#[inline]
+fn trace_m18_dns_poll(message: &[u8]) {
+    #[cfg(all(feature = "m18-browser-network", target_os = "nagi"))]
+    if M18_DNS_POLL_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) < 128 {
+        let _ = libnagi::console_write(message);
+    }
+    #[cfg(not(all(feature = "m18-browser-network", target_os = "nagi")))]
+    let _ = message;
+}
+
+#[inline]
+fn trace_m18_dns_iteration(iteration: usize, stage: &[u8]) {
+    let ordinal: &[u8] = match iteration {
+        3 => b"fourth",
+        4 => b"fifth",
+        5 => b"sixth",
+        6 => b"seventh",
+        7 => b"eighth",
+        8 => b"ninth",
+        9 => b"tenth",
+        _ => return,
+    };
+    let prefix = b"Nagi M18 smoltcp DNS ";
+    let mut line = [0_u8; 96];
+    let mut length = prefix.len();
+    line[..length].copy_from_slice(prefix);
+    line[length..length + ordinal.len()].copy_from_slice(ordinal);
+    length += ordinal.len();
+    line[length..length + stage.len()].copy_from_slice(stage);
+    length += stage.len();
+    trace_m18_dns_poll(&line[..length]);
+}
 
 // Nagi's initial user stack is intentionally small. These buffers belong to
 // this single-threaded network service and keep packet storage out of the
 // service call stack without using a host allocator.
 static mut PHY_RX_FRAME: [u8; MAX_NET_FRAME_SIZE] = [0; MAX_NET_FRAME_SIZE];
 static mut PHY_TX_FRAME: [u8; MAX_NET_FRAME_SIZE] = [0; MAX_NET_FRAME_SIZE];
-static mut TCP_RX_STORAGE: [u8; SOCKET_BUFFER_SIZE] = [0; SOCKET_BUFFER_SIZE];
-static mut TCP_TX_STORAGE: [u8; SOCKET_BUFFER_SIZE] = [0; SOCKET_BUFFER_SIZE];
-static mut TCP_SOCKET_STORAGE: [SocketStorage<'static>; 1] = [SocketStorage::EMPTY];
+static mut TCP_RX_STORAGE: [[u8; SOCKET_BUFFER_SIZE]; TCP_CONNECTION_CAPACITY] =
+    [[0; SOCKET_BUFFER_SIZE]; TCP_CONNECTION_CAPACITY];
+static mut TCP_TX_STORAGE: [[u8; SOCKET_BUFFER_SIZE]; TCP_CONNECTION_CAPACITY] =
+    [[0; SOCKET_BUFFER_SIZE]; TCP_CONNECTION_CAPACITY];
+static mut TCP_SOCKET_STORAGE: [SocketStorage<'static>; TCP_CONNECTION_CAPACITY] =
+    [const { SocketStorage::EMPTY }; TCP_CONNECTION_CAPACITY];
 
 pub const SOCKET_READY_READ: i16 = 0x0001;
 pub const SOCKET_READY_WRITE: i16 = 0x0004;
@@ -140,6 +200,17 @@ struct NetworkConfig {
     dns: Option<SmolIpv4>,
 }
 
+fn dns_a_result(addresses: &[IpAddress]) -> Result<Ipv4Address, NetError> {
+    addresses
+        .iter()
+        .next()
+        .map(|address| {
+            let IpAddress::Ipv4(address) = address;
+            from_smol_ipv4(*address)
+        })
+        .ok_or(NetError::DnsFailure)
+}
+
 /// User-space network stack backed by smoltcp and Nagi's raw VirtIO capability.
 struct SmoltcpStack<D> {
     device: D,
@@ -147,7 +218,7 @@ struct SmoltcpStack<D> {
     network_config: Option<NetworkConfig>,
     tcp_interface: Option<Interface>,
     tcp_sockets: Option<SocketSet<'static>>,
-    tcp_handle: Option<SocketHandle>,
+    tcp_handles: [Option<SocketHandle>; TCP_CONNECTION_CAPACITY],
 }
 
 impl<D: Device> SmoltcpStack<D> {
@@ -158,7 +229,7 @@ impl<D: Device> SmoltcpStack<D> {
             network_config: None,
             tcp_interface: None,
             tcp_sockets: None,
-            tcp_handle: None,
+            tcp_handles: [None; TCP_CONNECTION_CAPACITY],
         }
     }
 
@@ -180,9 +251,14 @@ impl<D: Device> SmoltcpStack<D> {
 
     /// Resolve an A record through the DNS server received from DHCP.
     pub fn resolve_ipv4(&mut self, name: &str) -> Result<Ipv4Address, NetError> {
+        #[cfg(all(feature = "m18-browser-network", target_os = "nagi"))]
+        {
+            M18_DNS_TRACE_COUNT.store(0, Ordering::Relaxed);
+            M18_DNS_POLL_TRACE_COUNT.store(0, Ordering::Relaxed);
+        }
         let config = self.ensure_dhcp()?;
         let mut phy = NagiPhyDevice::new(&mut self.device);
-        let mut interface = new_interface(&mut phy);
+        let mut interface = new_interface(&mut phy)?;
         apply_network_config(&mut interface, config)?;
         let mut storage: [SocketStorage<'_>; 8] = array::from_fn(|_| SocketStorage::EMPTY);
         let mut sockets = SocketSet::new(&mut storage[..]);
@@ -190,32 +266,169 @@ impl<D: Device> SmoltcpStack<D> {
         let mut queries: [Option<dns::DnsQuery>; 1] = array::from_fn(|_| None);
         let dns_socket = dns::Socket::new(&[IpAddress::Ipv4(server)], &mut queries[..]);
         let dns_handle = sockets.add(dns_socket);
+        trace_m18_dns(b"Nagi M18 smoltcp DNS query setup started\r\n");
         let query = sockets
             .get_mut::<dns::Socket>(dns_handle)
             .start_query(interface.context(), name, smoltcp::wire::DnsQueryType::A)
             .map_err(|_| NetError::Malformed)?;
-        for _iteration in 0..DNS_POLL_BUDGET {
+        trace_m18_dns(b"Nagi M18 smoltcp DNS query setup completed\r\n");
+        #[cfg(feature = "m18-browser-network")]
+        let started = now();
+        for iteration in 0..DNS_POLL_BUDGET {
+            if iteration == 0 {
+                trace_m18_dns(b"Nagi M18 smoltcp DNS first poll entered\r\n");
+            }
             let timestamp = now();
-            poll_once(&mut interface, &mut phy, &mut sockets, timestamp);
+            if iteration == 1 {
+                trace_m18_dns_poll(b"Nagi M18 smoltcp DNS second poll entered\r\n");
+            }
+            if iteration == 2 {
+                trace_m18_dns_poll(b"Nagi M18 smoltcp DNS third ingress entered\r\n");
+            }
+            if (3..=9).contains(&iteration) {
+                trace_m18_dns_iteration(iteration, b" ingress entered\r\n");
+            }
+            let ingress = interface.poll_ingress_single(timestamp, &mut phy, &mut sockets);
+            if iteration == 2 {
+                trace_m18_dns_poll(b"Nagi M18 smoltcp DNS third ingress returned\r\n");
+                trace_m18_dns_poll(b"Nagi M18 smoltcp DNS third egress entered\r\n");
+            }
+            if (3..=9).contains(&iteration) {
+                trace_m18_dns_iteration(iteration, b" ingress returned\r\n");
+                trace_m18_dns_iteration(iteration, b" egress entered\r\n");
+            }
+            let _ = interface.poll_egress(timestamp, &mut phy, &mut sockets);
+            if iteration == 2 {
+                trace_m18_dns_poll(b"Nagi M18 smoltcp DNS third egress returned\r\n");
+            }
+            if (3..=9).contains(&iteration) {
+                trace_m18_dns_iteration(iteration, b" egress returned\r\n");
+            }
+            if iteration == 1 {
+                trace_m18_dns_poll(b"Nagi M18 smoltcp DNS second poll returned\r\n");
+            }
+            if iteration != 0 && iteration.is_multiple_of(256) {
+                trace_m18_dns_poll(
+                    if matches!(
+                        ingress,
+                        PollIngressSingleResult::PacketProcessed
+                            | PollIngressSingleResult::SocketStateChanged
+                    ) {
+                        b"Nagi M18 smoltcp DNS poll received a frame\r\n"
+                    } else {
+                        b"Nagi M18 smoltcp DNS poll had no frame\r\n"
+                    },
+                );
+            }
+            if iteration == 0 {
+                trace_m18_dns(b"Nagi M18 smoltcp DNS first poll returned\r\n");
+            }
             match sockets
                 .get_mut::<dns::Socket>(dns_handle)
                 .get_query_result(query)
             {
                 Ok(addresses) => {
-                    if let Some(address) = addresses.iter().next() {
-                        let IpAddress::Ipv4(address) = address;
-                        return Ok(from_smol_ipv4(*address));
-                    }
-                    return Err(NetError::DnsTimeout);
+                    trace_m18_dns(b"Nagi M18 smoltcp DNS answer received\r\n");
+                    return dns_a_result(&addresses);
                 }
                 Err(dns::GetQueryResultError::Pending) => {
-                    if !libnagi::sleep_ns(1_000_000) {
-                        return Err(NetError::DnsTimeout);
+                    if iteration == 0 {
+                        trace_m18_dns(b"Nagi M18 smoltcp DNS answer pending\r\n");
+                    }
+                    if (3..=9).contains(&iteration) {
+                        trace_m18_dns_iteration(iteration, b" answer pending\r\n");
+                    }
+                    #[cfg(feature = "m18-browser-network")]
+                    {
+                        // Keep the Tokio worker cooperative while its synchronous
+                        // resolver polls the guest VirtIO device. A timed sleep
+                        // parks this worker on the coarse kernel clock and can
+                        // prevent further network polling on the M18 path.
+                        if iteration == 1 {
+                            trace_m18_dns_poll(b"Nagi M18 smoltcp DNS second answer pending\r\n");
+                        }
+                        if iteration == 2 {
+                            trace_m18_dns_poll(b"Nagi M18 smoltcp DNS third answer pending\r\n");
+                        }
+                        if iteration != 0 && iteration.is_multiple_of(256) {
+                            trace_m18_dns_poll(b"Nagi M18 smoltcp DNS poll loop progressed\r\n");
+                        }
+                        let elapsed = now() - started;
+                        if elapsed >= Duration::from_secs(2) {
+                            if iteration == 1 {
+                                trace_m18_dns_poll(
+                                    b"Nagi M18 smoltcp DNS second poll timed out\r\n",
+                                );
+                            }
+                            if iteration == 2 {
+                                trace_m18_dns_poll(
+                                    b"Nagi M18 smoltcp DNS third poll timed out\r\n",
+                                );
+                            }
+                            return Err(NetError::DnsTimeout);
+                        }
+                        if iteration == 1 {
+                            trace_m18_dns_poll(b"Nagi M18 smoltcp DNS second yield entered\r\n");
+                        }
+                        if iteration == 2 {
+                            trace_m18_dns_poll(b"Nagi M18 smoltcp DNS third yield entered\r\n");
+                        }
+                        if (3..=9).contains(&iteration) {
+                            trace_m18_dns_iteration(iteration, b" yield entered\r\n");
+                        }
+                        if iteration == 0 {
+                            trace_m18_dns(b"Nagi M18 smoltcp DNS worker yield entered\r\n");
+                        }
+                        let yielded = libnagi::thread_yield();
+                        if iteration == 1 {
+                            trace_m18_dns_poll(if yielded {
+                                b"Nagi M18 smoltcp DNS second yield returned\r\n"
+                            } else {
+                                b"Nagi M18 smoltcp DNS second yield failed\r\n"
+                            });
+                        }
+                        if iteration == 2 {
+                            trace_m18_dns_poll(if yielded {
+                                b"Nagi M18 smoltcp DNS third yield returned\r\n"
+                            } else {
+                                b"Nagi M18 smoltcp DNS third yield failed\r\n"
+                            });
+                        }
+                        if (3..=9).contains(&iteration) {
+                            trace_m18_dns_iteration(
+                                iteration,
+                                if yielded {
+                                    b" yield returned\r\n"
+                                } else {
+                                    b" yield failed\r\n"
+                                },
+                            );
+                        }
+                        if iteration == 0 {
+                            trace_m18_dns(if yielded {
+                                b"Nagi M18 smoltcp DNS worker yield returned\r\n"
+                            } else {
+                                b"Nagi M18 smoltcp DNS worker yield failed\r\n"
+                            });
+                        }
+                        if !yielded {
+                            return Err(NetError::DnsTimeout);
+                        }
+                    }
+                    #[cfg(not(feature = "m18-browser-network"))]
+                    {
+                        if !libnagi::sleep_ns(1_000_000) {
+                            return Err(NetError::DnsTimeout);
+                        }
                     }
                 }
-                Err(dns::GetQueryResultError::Failed) => return Err(NetError::DnsTimeout),
+                Err(dns::GetQueryResultError::Failed) => {
+                    trace_m18_dns(b"Nagi M18 smoltcp DNS query failed\r\n");
+                    return Err(NetError::DnsFailure);
+                }
             }
         }
+        trace_m18_dns(b"Nagi M18 smoltcp DNS poll budget exhausted\r\n");
         Err(NetError::DnsTimeout)
     }
 
@@ -230,9 +443,9 @@ impl<D: Device> SmoltcpStack<D> {
     ) -> Result<usize, NetError> {
         let mut request = [0_u8; 512];
         let request_length = http_request(path, &mut request)?;
-        self.tcp_connect(target, target_port)?;
-        if let Err(error) = self.tcp_send(&request[..request_length]) {
-            let _ = self.tcp_close();
+        let connection = self.tcp_connect(target, target_port)?;
+        if let Err(error) = self.tcp_send(connection, &request[..request_length]) {
+            let _ = self.tcp_close(connection);
             return Err(error);
         }
 
@@ -242,7 +455,7 @@ impl<D: Device> SmoltcpStack<D> {
             if response_length == response.len() {
                 break 'receive Err(NetError::BufferTooSmall);
             }
-            match self.tcp_receive(&mut response[response_length..]) {
+            match self.tcp_receive(connection, &mut response[response_length..]) {
                 Ok(0) => {
                     break 'receive if expected_found {
                         Ok(response_length)
@@ -262,7 +475,7 @@ impl<D: Device> SmoltcpStack<D> {
                 Err(error) => break 'receive Err(error),
             }
         };
-        let close_result = self.tcp_close();
+        let close_result = self.tcp_close(connection);
         match result {
             Ok(length) => {
                 close_result?;
@@ -275,62 +488,79 @@ impl<D: Device> SmoltcpStack<D> {
         }
     }
 
-    /// Open one bounded TCP connection and retain its smoltcp state in the
-    /// user-space network service. The bootstrap service intentionally has one
-    /// live stream at a time; additional streams fail closed instead of
-    /// sharing or strengthening the caller's capability.
-    pub fn tcp_connect(&mut self, target: Ipv4Address, target_port: u16) -> Result<(), NetError> {
-        if self.tcp_sockets.is_some() {
-            return Err(NetError::Unsupported);
+    /// Open a bounded TCP connection and retain its smoltcp state in the
+    /// user-space network service. M18 provides a small fixed socket pool;
+    /// earlier milestones retain their one-socket capacity.
+    pub fn tcp_connect(
+        &mut self,
+        target: Ipv4Address,
+        target_port: u16,
+    ) -> Result<TcpConnectionId, NetError> {
+        let slot = first_free_tcp_slot(&self.tcp_handles).ok_or(NetError::Unsupported)?;
+        let network_config = self.ensure_dhcp()?;
+        let local_port = self.next_port;
+        self.next_port = self.next_port.wrapping_add(1).max(40_000);
+        if self.tcp_interface.is_none() {
+            let mut phy = NagiPhyDevice::new(&mut self.device);
+            let mut interface = new_interface(&mut phy)?;
+            apply_network_config(&mut interface, network_config)?;
+            self.tcp_interface = Some(interface);
         }
 
-        let network_config = self.ensure_dhcp()?;
-        let mut interface = {
-            let mut phy = NagiPhyDevice::new(&mut self.device);
-            let mut interface = new_interface(&mut phy);
-            apply_network_config(&mut interface, network_config)?;
-            interface
-        };
-
-        let mut sockets = unsafe {
-            let storage = &mut *core::ptr::addr_of_mut!(TCP_SOCKET_STORAGE);
-            SocketSet::new(&mut storage[..])
-        };
+        if self.tcp_sockets.is_none() {
+            let storage = unsafe {
+                core::slice::from_raw_parts_mut(
+                    core::ptr::addr_of_mut!(TCP_SOCKET_STORAGE).cast::<SocketStorage<'static>>(),
+                    TCP_CONNECTION_CAPACITY,
+                )
+            };
+            self.tcp_sockets = Some(SocketSet::new(storage));
+        }
         let tcp_socket = unsafe {
             let rx = core::slice::from_raw_parts_mut(
-                core::ptr::addr_of_mut!(TCP_RX_STORAGE).cast::<u8>(),
+                core::ptr::addr_of_mut!(TCP_RX_STORAGE)
+                    .cast::<u8>()
+                    .add(slot * SOCKET_BUFFER_SIZE),
                 SOCKET_BUFFER_SIZE,
             );
             let tx = core::slice::from_raw_parts_mut(
-                core::ptr::addr_of_mut!(TCP_TX_STORAGE).cast::<u8>(),
+                core::ptr::addr_of_mut!(TCP_TX_STORAGE)
+                    .cast::<u8>()
+                    .add(slot * SOCKET_BUFFER_SIZE),
                 SOCKET_BUFFER_SIZE,
             );
             tcp::Socket::new(tcp::SocketBuffer::new(rx), tcp::SocketBuffer::new(tx))
         };
+        let interface = self
+            .tcp_interface
+            .as_mut()
+            .ok_or(NetError::ConnectionReset)?;
+        let sockets = self.tcp_sockets.as_mut().ok_or(NetError::ConnectionReset)?;
         let handle = sockets.add(tcp_socket);
-        let local_port = self.next_port;
-        self.next_port = self.next_port.wrapping_add(1).max(40_000);
-        sockets
+        if sockets
             .get_mut::<tcp::Socket>(handle)
             .connect(
                 interface.context(),
                 (IpAddress::Ipv4(to_smol_ipv4(target)), target_port),
                 local_port,
             )
-            .map_err(|_| NetError::ConnectionReset)?;
+            .is_err()
+        {
+            let _ = sockets.remove(handle);
+            return Err(NetError::ConnectionReset);
+        }
 
         let started = now();
         for attempt in 0..POLL_BUDGET {
             let mut phy = NagiPhyDevice::new(&mut self.device);
-            poll_once(&mut interface, &mut phy, &mut sockets, now());
+            poll_once(interface, &mut phy, sockets, now());
             let socket = sockets.get::<tcp::Socket>(handle);
             if socket.may_send() {
-                self.tcp_interface = Some(interface);
-                self.tcp_sockets = Some(sockets);
-                self.tcp_handle = Some(handle);
-                return Ok(());
+                self.tcp_handles[slot] = Some(handle);
+                return Ok(TcpConnectionId::from_index(slot));
             }
             if !socket.is_open() {
+                let _ = sockets.remove(handle);
                 return Err(NetError::ConnectionReset);
             }
             if now() - started >= TCP_CONNECT_TIMEOUT {
@@ -340,17 +570,28 @@ impl<D: Device> SmoltcpStack<D> {
                 break;
             }
         }
+        let _ = sockets.remove(handle);
         Err(NetError::TcpTimeout)
     }
 
     /// Send bytes on the retained TCP stream, polling smoltcp until the
     /// bounded transmit buffer accepts them or the connection fails.
-    pub fn tcp_send(&mut self, data: &[u8]) -> Result<usize, NetError> {
-        let (Some(interface), Some(sockets), Some(handle)) = (
-            self.tcp_interface.as_mut(),
-            self.tcp_sockets.as_mut(),
-            self.tcp_handle,
-        ) else {
+    fn tcp_handle(&self, connection: TcpConnectionId) -> Result<SocketHandle, NetError> {
+        self.tcp_handles
+            .get(connection.index())
+            .and_then(|handle| *handle)
+            .ok_or(NetError::ConnectionReset)
+    }
+
+    pub fn tcp_send(
+        &mut self,
+        connection: TcpConnectionId,
+        data: &[u8],
+    ) -> Result<usize, NetError> {
+        let handle = self.tcp_handle(connection)?;
+        let (Some(interface), Some(sockets)) =
+            (self.tcp_interface.as_mut(), self.tcp_sockets.as_mut())
+        else {
             return Err(NetError::ConnectionReset);
         };
         let mut sent = 0;
@@ -381,10 +622,52 @@ impl<D: Device> SmoltcpStack<D> {
         Ok(sent)
     }
 
+    /// Make one bounded nonblocking write attempt on the retained stream.
+    ///
+    /// This is the operation used by POSIX sockets after `O_NONBLOCK` has been
+    /// set. It never waits for additional TCP send-buffer capacity: callers
+    /// either receive the number of bytes accepted in this poll step or
+    /// `WouldBlock` when the send buffer is full.
+    pub fn tcp_try_send(
+        &mut self,
+        connection: TcpConnectionId,
+        data: &[u8],
+    ) -> Result<usize, NetError> {
+        if data.is_empty() {
+            return Ok(0);
+        }
+        let handle = self.tcp_handle(connection)?;
+        let (Some(interface), Some(sockets)) =
+            (self.tcp_interface.as_mut(), self.tcp_sockets.as_mut())
+        else {
+            return Err(NetError::ConnectionReset);
+        };
+        let count = {
+            let socket = sockets.get_mut::<tcp::Socket>(handle);
+            if !socket.can_send() {
+                return if socket.is_open() {
+                    Err(NetError::WouldBlock)
+                } else {
+                    Err(NetError::ConnectionReset)
+                };
+            }
+            socket
+                .send_slice(data)
+                .map_err(|_| NetError::ConnectionReset)?
+        };
+        if count == 0 {
+            return Err(NetError::WouldBlock);
+        }
+        let mut phy = NagiPhyDevice::new(&mut self.device);
+        poll_once(interface, &mut phy, sockets, now());
+        Ok(count)
+    }
+
     /// Close only the transmit half of the retained TCP stream. This is the
     /// user-space implementation boundary for POSIX `shutdown(SHUT_WR)`.
-    pub fn tcp_shutdown_write(&mut self) -> Result<(), NetError> {
-        let (Some(sockets), Some(handle)) = (self.tcp_sockets.as_mut(), self.tcp_handle) else {
+    pub fn tcp_shutdown_write(&mut self, connection: TcpConnectionId) -> Result<(), NetError> {
+        let handle = self.tcp_handle(connection)?;
+        let Some(sockets) = self.tcp_sockets.as_mut() else {
             return Err(NetError::ConnectionReset);
         };
         sockets.get_mut::<tcp::Socket>(handle).close();
@@ -393,8 +676,13 @@ impl<D: Device> SmoltcpStack<D> {
 
     /// Apply TCP_NODELAY to the retained stream. The setting is owned by
     /// smoltcp rather than treated as a successful no-op.
-    pub fn tcp_set_nagle(&mut self, enabled: bool) -> Result<(), NetError> {
-        let (Some(sockets), Some(handle)) = (self.tcp_sockets.as_mut(), self.tcp_handle) else {
+    pub fn tcp_set_nagle(
+        &mut self,
+        connection: TcpConnectionId,
+        enabled: bool,
+    ) -> Result<(), NetError> {
+        let handle = self.tcp_handle(connection)?;
+        let Some(sockets) = self.tcp_sockets.as_mut() else {
             return Err(NetError::ConnectionReset);
         };
         sockets
@@ -404,8 +692,13 @@ impl<D: Device> SmoltcpStack<D> {
     }
 
     /// Apply a bounded TCP timeout to the retained stream.
-    pub fn tcp_set_timeout(&mut self, timeout: Option<(u64, u32)>) -> Result<(), NetError> {
-        let (Some(sockets), Some(handle)) = (self.tcp_sockets.as_mut(), self.tcp_handle) else {
+    pub fn tcp_set_timeout(
+        &mut self,
+        connection: TcpConnectionId,
+        timeout: Option<(u64, u32)>,
+    ) -> Result<(), NetError> {
+        let handle = self.tcp_handle(connection)?;
+        let Some(sockets) = self.tcp_sockets.as_mut() else {
             return Err(NetError::ConnectionReset);
         };
         let timeout = timeout.map(|(seconds, microseconds)| {
@@ -421,12 +714,15 @@ impl<D: Device> SmoltcpStack<D> {
 
     /// Receive available bytes from the retained TCP stream. This is a
     /// bounded polling operation; callers use `tcp_ready` for readiness.
-    pub fn tcp_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {
-        let (Some(interface), Some(sockets), Some(handle)) = (
-            self.tcp_interface.as_mut(),
-            self.tcp_sockets.as_mut(),
-            self.tcp_handle,
-        ) else {
+    pub fn tcp_receive(
+        &mut self,
+        connection: TcpConnectionId,
+        buffer: &mut [u8],
+    ) -> Result<usize, NetError> {
+        let handle = self.tcp_handle(connection)?;
+        let (Some(interface), Some(sockets)) =
+            (self.tcp_interface.as_mut(), self.tcp_sockets.as_mut())
+        else {
             return Err(NetError::ConnectionReset);
         };
         for _ in 0..POLL_BUDGET {
@@ -445,14 +741,48 @@ impl<D: Device> SmoltcpStack<D> {
         Err(NetError::TcpTimeout)
     }
 
+    /// Poll the TCP stream once and receive currently queued bytes without
+    /// waiting for a future packet. A still-open stream with no data returns
+    /// `WouldBlock`.
+    pub fn tcp_try_receive(
+        &mut self,
+        connection: TcpConnectionId,
+        buffer: &mut [u8],
+    ) -> Result<usize, NetError> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        let handle = self.tcp_handle(connection)?;
+        let (Some(interface), Some(sockets)) =
+            (self.tcp_interface.as_mut(), self.tcp_sockets.as_mut())
+        else {
+            return Err(NetError::ConnectionReset);
+        };
+        let mut phy = NagiPhyDevice::new(&mut self.device);
+        poll_once(interface, &mut phy, sockets, now());
+        let socket = sockets.get_mut::<tcp::Socket>(handle);
+        if socket.can_recv() {
+            return socket
+                .recv_slice(buffer)
+                .map_err(|_| NetError::ConnectionReset);
+        }
+        if !socket.may_recv() {
+            return Ok(0);
+        }
+        Err(NetError::WouldBlock)
+    }
+
     /// Report readiness for the retained TCP stream without exposing smoltcp
     /// handles to POSIX callers.
-    pub fn tcp_ready(&mut self, requested: i16) -> Result<i16, NetError> {
-        let (Some(interface), Some(sockets), Some(handle)) = (
-            self.tcp_interface.as_mut(),
-            self.tcp_sockets.as_mut(),
-            self.tcp_handle,
-        ) else {
+    pub fn tcp_ready(
+        &mut self,
+        connection: TcpConnectionId,
+        requested: i16,
+    ) -> Result<i16, NetError> {
+        let handle = self.tcp_handle(connection)?;
+        let (Some(interface), Some(sockets)) =
+            (self.tcp_interface.as_mut(), self.tcp_sockets.as_mut())
+        else {
             return Err(NetError::ConnectionReset);
         };
         let mut phy = NagiPhyDevice::new(&mut self.device);
@@ -471,23 +801,37 @@ impl<D: Device> SmoltcpStack<D> {
         Ok(ready)
     }
 
-    pub fn tcp_close(&mut self) -> Result<(), NetError> {
+    pub fn tcp_close(&mut self, connection: TcpConnectionId) -> Result<(), NetError> {
+        let handle = self.tcp_handle(connection)?;
+        let slot = connection.index();
+        #[cfg(feature = "m18-browser-network")]
         {
-            let (Some(_interface), Some(mut sockets), Some(handle)) = (
-                self.tcp_interface.take(),
-                self.tcp_sockets.take(),
-                self.tcp_handle.take(),
-            ) else {
+            let (Some(interface), Some(sockets)) =
+                (self.tcp_interface.as_mut(), self.tcp_sockets.as_mut())
+            else {
                 return Err(NetError::ConnectionReset);
             };
             sockets.get_mut::<tcp::Socket>(handle).abort();
-            // Abort the old stream locally and consume only already queued guest
-            // RX frames.  A close/FIN poll can leave TCP frames in the shared raw
-            // VirtIO queue; feeding those frames into a newly-created DNS
-            // SocketSet makes smoltcp emit an unrelated response while the
-            // capability-scoped transmit path is still finishing the old stream.
-            // Draining at the device boundary keeps the next user-space protocol
-            // operation independent without resetting or bypassing the device.
+            // Keep the shared interface and socket set alive for other browser
+            // streams. Poll through smoltcp so queued frames for those streams
+            // remain routed to their own socket instead of being drained raw.
+            for _ in 0..64 {
+                let mut phy = NagiPhyDevice::new(&mut self.device);
+                poll_once(interface, &mut phy, sockets, now());
+            }
+            let _ = sockets.remove(handle);
+            self.tcp_handles[slot] = None;
+        }
+        #[cfg(not(feature = "m18-browser-network"))]
+        {
+            let (Some(_interface), Some(mut sockets)) =
+                (self.tcp_interface.take(), self.tcp_sockets.take())
+            else {
+                return Err(NetError::ConnectionReset);
+            };
+            sockets.get_mut::<tcp::Socket>(handle).abort();
+            // The one-socket M17 service drains queued frames before a later
+            // protocol operation builds a fresh socket set.
             let mut phy = NagiPhyDevice::new(&mut self.device);
             for _ in 0..64 {
                 if phy.receive(now()).is_none() {
@@ -495,17 +839,21 @@ impl<D: Device> SmoltcpStack<D> {
                 }
             }
             let _ = sockets.remove(handle);
+            self.tcp_handles[slot] = None;
+            reset_tcp_storage();
         }
-        reset_tcp_storage();
         Ok(())
     }
 
     /// Return the local endpoint selected by smoltcp for the retained TCP
     /// stream. The POSIX adapter uses this to implement `getsockname` without
     /// inventing a port or consulting a host socket table.
-    pub fn tcp_local_name(&self) -> Result<(Ipv4Address, u16), NetError> {
+    pub fn tcp_local_name(
+        &self,
+        connection: TcpConnectionId,
+    ) -> Result<(Ipv4Address, u16), NetError> {
         let config = self.network_config.ok_or(NetError::ConnectionReset)?;
-        let handle = self.tcp_handle.ok_or(NetError::ConnectionReset)?;
+        let handle = self.tcp_handle(connection)?;
         let sockets = self.tcp_sockets.as_ref().ok_or(NetError::ConnectionReset)?;
         let endpoint = sockets
             .get::<tcp::Socket>(handle)
@@ -521,7 +869,7 @@ impl<D: Device> SmoltcpStack<D> {
     pub fn icmp_echo(&mut self, target: Ipv4Address) -> Result<(), NetError> {
         let network_config = self.ensure_dhcp()?;
         let mut phy = NagiPhyDevice::new(&mut self.device);
-        let mut interface = new_interface(&mut phy);
+        let mut interface = new_interface(&mut phy)?;
         apply_network_config(&mut interface, network_config)?;
         let mut storage: [SocketStorage<'_>; 8] = array::from_fn(|_| SocketStorage::EMPTY);
         let mut sockets = SocketSet::new(&mut storage[..]);
@@ -578,7 +926,7 @@ impl<D: Device> SmoltcpStack<D> {
             return Ok(config);
         }
         let mut phy = NagiPhyDevice::new(&mut self.device);
-        let mut interface = new_interface(&mut phy);
+        let mut interface = new_interface(&mut phy)?;
         let mut storage: [SocketStorage<'_>; 8] = array::from_fn(|_| SocketStorage::EMPTY);
         let mut sockets = SocketSet::new(&mut storage[..]);
         let dhcp_handle = sockets.add(dhcpv4::Socket::new());
@@ -636,53 +984,115 @@ impl<D: Device> SocketApi<D> {
             .http_get(target, target_port, path, expected_body, response)
     }
 
-    pub fn tcp_connect(&mut self, target: Ipv4Address, target_port: u16) -> Result<(), NetError> {
+    pub fn tcp_connect(
+        &mut self,
+        target: Ipv4Address,
+        target_port: u16,
+    ) -> Result<TcpConnectionId, NetError> {
         self.stack.tcp_connect(target, target_port)
     }
 
-    pub fn tcp_send(&mut self, data: &[u8]) -> Result<usize, NetError> {
-        self.stack.tcp_send(data)
+    pub fn tcp_send(
+        &mut self,
+        connection: TcpConnectionId,
+        data: &[u8],
+    ) -> Result<usize, NetError> {
+        self.stack.tcp_send(connection, data)
     }
 
-    pub fn tcp_shutdown_write(&mut self) -> Result<(), NetError> {
-        self.stack.tcp_shutdown_write()
+    pub fn tcp_try_send(
+        &mut self,
+        connection: TcpConnectionId,
+        data: &[u8],
+    ) -> Result<usize, NetError> {
+        self.stack.tcp_try_send(connection, data)
     }
 
-    pub fn tcp_set_nagle(&mut self, enabled: bool) -> Result<(), NetError> {
-        self.stack.tcp_set_nagle(enabled)
+    pub fn tcp_shutdown_write(&mut self, connection: TcpConnectionId) -> Result<(), NetError> {
+        self.stack.tcp_shutdown_write(connection)
+    }
+
+    pub fn tcp_set_nagle(
+        &mut self,
+        connection: TcpConnectionId,
+        enabled: bool,
+    ) -> Result<(), NetError> {
+        self.stack.tcp_set_nagle(connection, enabled)
     }
 
     pub fn tcp_set_timeout(
         &mut self,
+        connection: TcpConnectionId,
         timeout: Option<core::time::Duration>,
     ) -> Result<(), NetError> {
-        self.stack
-            .tcp_set_timeout(timeout.map(|duration| (duration.as_secs(), duration.subsec_micros())))
+        self.stack.tcp_set_timeout(
+            connection,
+            timeout.map(|duration| (duration.as_secs(), duration.subsec_micros())),
+        )
     }
 
-    pub fn tcp_receive(&mut self, buffer: &mut [u8]) -> Result<usize, NetError> {
-        self.stack.tcp_receive(buffer)
+    pub fn tcp_receive(
+        &mut self,
+        connection: TcpConnectionId,
+        buffer: &mut [u8],
+    ) -> Result<usize, NetError> {
+        self.stack.tcp_receive(connection, buffer)
     }
 
-    pub fn tcp_ready(&mut self, requested: i16) -> Result<i16, NetError> {
-        self.stack.tcp_ready(requested)
+    pub fn tcp_try_receive(
+        &mut self,
+        connection: TcpConnectionId,
+        buffer: &mut [u8],
+    ) -> Result<usize, NetError> {
+        self.stack.tcp_try_receive(connection, buffer)
     }
 
-    pub fn tcp_close(&mut self) -> Result<(), NetError> {
-        self.stack.tcp_close()
+    pub fn tcp_ready(
+        &mut self,
+        connection: TcpConnectionId,
+        requested: i16,
+    ) -> Result<i16, NetError> {
+        self.stack.tcp_ready(connection, requested)
     }
 
-    pub fn tcp_local_name(&self) -> Result<(Ipv4Address, u16), NetError> {
-        self.stack.tcp_local_name()
+    pub fn tcp_close(&mut self, connection: TcpConnectionId) -> Result<(), NetError> {
+        self.stack.tcp_close(connection)
+    }
+
+    pub fn tcp_local_name(
+        &self,
+        connection: TcpConnectionId,
+    ) -> Result<(Ipv4Address, u16), NetError> {
+        self.stack.tcp_local_name(connection)
     }
 }
 
-fn new_interface<D: Device>(phy: &mut NagiPhyDevice<'_, D>) -> Interface {
+#[cfg(all(feature = "m18-browser-network", target_os = "nagi"))]
+fn interface_random_seed() -> Result<u64, NetError> {
+    let mut seed = [0_u8; 8];
+    libnagi::random_fill(&mut seed)
+        .then(|| u64::from_le_bytes(seed))
+        .ok_or(NetError::EntropyUnavailable)
+}
+
+#[cfg(not(all(feature = "m18-browser-network", target_os = "nagi")))]
+fn interface_random_seed() -> Result<u64, NetError> {
+    Ok(0x4e41_4749_0000_0001)
+}
+
+fn first_free_tcp_slot<T>(slots: &[Option<T>]) -> Option<usize> {
+    slots.iter().position(Option::is_none)
+}
+
+fn new_interface<D: Device>(phy: &mut NagiPhyDevice<'_, D>) -> Result<Interface, NetError> {
     let mut config = InterfaceConfig::new(HardwareAddress::Ethernet(EthernetAddress::from_bytes(
         &LOCAL_MAC,
     )));
-    config.random_seed = 0x4e41_4749_0000_0001;
-    Interface::new(config, phy, now())
+    // M18 rebuilds the smoltcp interface for each bounded network operation.
+    // Its PRNG generates DNS transaction IDs and UDP/TCP source ports, so each
+    // instance must start from fresh guest entropy to avoid repeating flows.
+    config.random_seed = interface_random_seed()?;
+    Ok(Interface::new(config, phy, now()))
 }
 
 /// Run one bounded network-service step.
@@ -701,21 +1111,22 @@ fn poll_once<D: Device>(
     let _ = interface.poll_egress(timestamp, phy, sockets);
 }
 
+#[cfg(not(feature = "m18-browser-network"))]
 fn reset_tcp_storage() {
     unsafe {
-        core::ptr::write(
-            core::ptr::addr_of_mut!(TCP_SOCKET_STORAGE),
-            [SocketStorage::EMPTY],
-        );
+        let sockets = core::ptr::addr_of_mut!(TCP_SOCKET_STORAGE).cast::<SocketStorage<'static>>();
+        for index in 0..TCP_CONNECTION_CAPACITY {
+            core::ptr::write(sockets.add(index), SocketStorage::EMPTY);
+        }
         core::ptr::write_bytes(
             core::ptr::addr_of_mut!(TCP_RX_STORAGE).cast::<u8>(),
             0,
-            core::mem::size_of::<[u8; SOCKET_BUFFER_SIZE]>(),
+            core::mem::size_of::<[[u8; SOCKET_BUFFER_SIZE]; TCP_CONNECTION_CAPACITY]>(),
         );
         core::ptr::write_bytes(
             core::ptr::addr_of_mut!(TCP_TX_STORAGE).cast::<u8>(),
             0,
-            core::mem::size_of::<[u8; SOCKET_BUFFER_SIZE]>(),
+            core::mem::size_of::<[[u8; SOCKET_BUFFER_SIZE]; TCP_CONNECTION_CAPACITY]>(),
         );
     }
 }
@@ -904,7 +1315,7 @@ mod tests {
         let _lock = test_lock();
         let mut device = CountingIngressDevice { receives: 0 };
         let mut phy = NagiPhyDevice::new(&mut device);
-        let mut interface = new_interface(&mut phy);
+        let mut interface = new_interface(&mut phy).expect("test network interface seed");
         let mut storage: [SocketStorage<'_>; 1] = array::from_fn(|_| SocketStorage::EMPTY);
         let mut sockets = SocketSet::new(&mut storage[..]);
 
@@ -918,7 +1329,7 @@ mod tests {
         let _lock = test_lock();
         let mut device = RecordingDevice { sent: 0 };
         let mut phy = NagiPhyDevice::new(&mut device);
-        let mut interface = new_interface(&mut phy);
+        let mut interface = new_interface(&mut phy).expect("test network interface seed");
         let mut storage: [SocketStorage<'_>; 2] = array::from_fn(|_| SocketStorage::EMPTY);
         let mut sockets = SocketSet::new(&mut storage[..]);
         let handle = sockets.add(dhcpv4::Socket::new());
@@ -932,7 +1343,7 @@ mod tests {
         let _lock = test_lock();
         let mut device = RecordingDevice { sent: 0 };
         let mut phy = NagiPhyDevice::new(&mut device);
-        let mut interface = new_interface(&mut phy);
+        let mut interface = new_interface(&mut phy).expect("test network interface seed");
         let config = NetworkConfig {
             address: smoltcp::wire::Ipv4Cidr::new(SmolIpv4::new(10, 0, 2, 15), 24),
             router: Some(SmolIpv4::new(10, 0, 2, 2)),
@@ -967,6 +1378,15 @@ mod tests {
     }
 
     #[test]
+    fn dns_a_answers_distinguish_success_from_missing_records() {
+        assert_eq!(
+            dns_a_result(&[IpAddress::Ipv4(SmolIpv4::new(203, 0, 113, 18))]),
+            Ok(Ipv4Address::new([203, 0, 113, 18]))
+        );
+        assert_eq!(dns_a_result(&[]), Err(NetError::DnsFailure));
+    }
+
+    #[test]
     fn icmp_echo_request_is_encoded_as_a_real_wire_packet() {
         let _lock = test_lock();
         let mut packet = [0_u8; 64];
@@ -989,43 +1409,30 @@ mod tests {
     fn retained_tcp_surface_fails_closed_before_connect() {
         let _lock = test_lock();
         let mut stack = SocketApi::new(RecordingDevice { sent: 0 });
+        let connection = TcpConnectionId::from_index(0);
         assert_eq!(
-            stack.tcp_send(b"GET / HTTP/1.0\r\n\r\n"),
+            stack.tcp_send(connection, b"GET / HTTP/1.0\r\n\r\n"),
             Err(NetError::ConnectionReset)
         );
         assert_eq!(
-            stack.tcp_ready(SOCKET_READY_READ),
+            stack.tcp_try_send(connection, b"GET / HTTP/1.1\r\n\r\n"),
             Err(NetError::ConnectionReset)
         );
-        assert_eq!(stack.tcp_close(), Err(NetError::ConnectionReset));
+        let mut byte = [0];
+        assert_eq!(
+            stack.tcp_try_receive(connection, &mut byte),
+            Err(NetError::ConnectionReset)
+        );
+        assert_eq!(
+            stack.tcp_ready(connection, SOCKET_READY_READ),
+            Err(NetError::ConnectionReset)
+        );
+        assert_eq!(stack.tcp_close(connection), Err(NetError::ConnectionReset));
     }
 
     #[test]
-    fn http_get_fails_closed_when_retained_tcp_service_is_busy() {
-        let _lock = test_lock();
-        let mut stack = SocketApi::new(RecordingDevice { sent: 0 });
-        stack.stack.network_config = Some(NetworkConfig {
-            address: smoltcp::wire::Ipv4Cidr::new(SmolIpv4::new(10, 0, 2, 15), 24),
-            router: Some(SmolIpv4::new(10, 0, 2, 2)),
-            dns: Some(SmolIpv4::new(10, 0, 2, 3)),
-        });
-        stack.stack.tcp_sockets = Some(unsafe {
-            SocketSet::new(core::slice::from_raw_parts_mut(
-                core::ptr::addr_of_mut!(TCP_SOCKET_STORAGE).cast::<SocketStorage<'static>>(),
-                1,
-            ))
-        });
-
-        let mut response = [0_u8; 64];
-        assert_eq!(
-            stack.http_get(
-                Ipv4Address::new([10, 0, 2, 2]),
-                18_080,
-                b"/",
-                b"fixture",
-                &mut response,
-            ),
-            Err(NetError::Unsupported)
-        );
+    fn tcp_connection_capacity_keeps_free_slots_available() {
+        assert_eq!(first_free_tcp_slot(&[Some(()), None, None]), Some(1));
+        assert_eq!(first_free_tcp_slot(&[Some(()), Some(())]), None);
     }
 }

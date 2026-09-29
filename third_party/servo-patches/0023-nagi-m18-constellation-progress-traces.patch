@@ -1,0 +1,66 @@
+--- a/components/constellation/constellation.rs
++++ b/components/constellation/constellation.rs
+@@ -225,6 +225,20 @@
+ #[inline]
+ fn nagi_m18_trace_if_active(_: &str) {}
+ 
++#[cfg(target_os = "nagi")]
++static M18_CONSTELLATION_PROGRESS_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
++
++#[cfg(target_os = "nagi")]
++fn nagi_m18_progress_trace(stage: &str) {
++    if M18_CONSTELLATION_PROGRESS_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) < 128 {
++        nagi_m17_trace(stage);
++    }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m18_progress_trace(_: &str) {}
++
+ struct PendingApprovalNavigation {
+     load_data: LoadData,
+     history_behaviour: NavigationHistoryBehavior,
+@@ -802,16 +816,23 @@
+ 
+     /// The main event loop for the constellation.
+     fn run(&mut self) {
++        nagi_m18_progress_trace("M18 Constellation run entered");
+         while !self.shutting_down || !self.pipelines.is_empty() {
+             // Randomly close a pipeline if --random-pipeline-closure-probability is set
+             // This is for testing the hardening of the constellation.
+             self.maybe_close_random_pipeline();
++            nagi_m18_progress_trace("M18 Constellation before handle_request");
+             nagi_m18_trace_if_active("M18 Constellation run loop before handle_request");
+             self.handle_request();
++            nagi_m18_progress_trace("M18 Constellation after handle_request");
+             nagi_m18_trace_if_active("M18 Constellation run loop after handle_request");
++            nagi_m18_progress_trace("M18 Constellation before traversal maintenance");
+             self.finish_completed_session_history_traversal_requests();
++            nagi_m18_progress_trace("M18 Constellation after traversal maintenance");
+             nagi_m18_trace_if_active("M18 Constellation run loop after traversal maintenance");
++            nagi_m18_progress_trace("M18 Constellation before script cleanup");
+             self.clean_up_finished_script_event_loops();
++            nagi_m18_progress_trace("M18 Constellation after script cleanup");
+             nagi_m18_trace_if_active("M18 Constellation run loop after script cleanup");
+         }
+         self.handle_shutdown();
+@@ -1285,10 +1306,18 @@
+         let request = {
+             let oper = {
+                 let _span = profile_traits::trace_span!("handle_request::select").entered();
++                nagi_m18_progress_trace("M18 Constellation entering request Select");
+                 nagi_m18_trace_if_active("M18 Constellation waiting in request Select");
+                 sel.select()
+             };
+             let index = oper.index();
++            nagi_m18_progress_trace(match index {
++                0 => "M18 Constellation progress selected namespace",
++                1 => "M18 Constellation progress selected script",
++                2 => "M18 Constellation progress selected hang-monitor",
++                3 => "M18 Constellation progress selected embedder",
++                _ => "M18 Constellation progress selected process",
++            });
+             nagi_m18_trace_if_active(match index {
+                 0 => "M18 Constellation selected namespace request",
+                 1 => "M18 Constellation selected script request",

@@ -12,6 +12,8 @@ use crate::errno::{
     errno, set_errno, EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP,
     ENOTTY, ERANGE, ETIMEDOUT,
 };
+#[cfg(feature = "browser-storage")]
+use libnagi::storage::StorageError;
 use libnagi::storage::{
     DirectoryEntry, FileMetadata, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH, MAX_PATH_LENGTH,
 };
@@ -446,6 +448,58 @@ pub unsafe extern "C" fn nagi_posix_initialize_network(capability: u64) -> c_int
     }
 }
 
+/// Read the pathless Albert snapshot service. Returns the stored byte count,
+/// zero when no snapshot exists, and negative service status codes on failure:
+/// -1 for I/O, -2 for capacity, and -3 when the filesystem is unavailable.
+#[cfg(feature = "browser-storage")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_browser_storage_read(
+    output: *mut u8,
+    capacity: usize,
+) -> isize {
+    if output.is_null() || capacity == 0 || capacity > libnagi::storage::BLOCK_SIZE {
+        return write_errno_and_fail(EINVAL) as isize;
+    }
+    let output = core::slice::from_raw_parts_mut(output, capacity);
+    match crate::runtime::browser_storage_read(output) {
+        Ok(None) => 0,
+        Ok(Some(length)) => length as isize,
+        Err(error) => browser_storage_failure(error),
+    }
+}
+
+/// Atomically replace the pathless Albert snapshot through the initialized
+/// guest VFS. Returns 0 on success, -1 for I/O, -2 for capacity, and -3 when
+/// the filesystem is unavailable. No page-controlled path or kernel
+/// capability crosses this ABI.
+#[cfg(feature = "browser-storage")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_browser_storage_write(
+    bytes: *const u8,
+    length: usize,
+) -> c_int {
+    if bytes.is_null() || length == 0 || length > libnagi::storage::BLOCK_SIZE {
+        return write_errno_and_fail(EINVAL);
+    }
+    let bytes = core::slice::from_raw_parts(bytes, length);
+    match crate::runtime::browser_storage_write(bytes) {
+        Ok(()) => 0,
+        Err(error) => browser_storage_failure(error) as c_int,
+    }
+}
+
+#[cfg(feature = "browser-storage")]
+fn browser_storage_failure(error: crate::runtime::RuntimeError) -> isize {
+    set_errno(crate::runtime::map_error(error));
+    match error {
+        crate::runtime::RuntimeError::Storage(
+            StorageError::Capacity | StorageError::FileTooLarge,
+        ) => -2,
+        crate::runtime::RuntimeError::NotInitialized => -3,
+        _ => -1,
+    }
+}
+
 #[repr(C)]
 pub struct NagiIpv4Address {
     pub octets: [u8; 4],
@@ -503,8 +557,8 @@ pub unsafe extern "C" fn nagi_posix_default_gateway(output: *mut NagiIpv4Address
 }
 
 const AF_INET: c_int = 2;
-const SOCK_STREAM: c_int = 1;
 const SOL_SOCKET: c_int = 1;
+const SO_ERROR: c_int = 4;
 const SO_RCVTIMEO: c_int = 20;
 const SO_SNDTIMEO: c_int = 21;
 const IPPROTO_TCP: c_int = 6;
@@ -513,19 +567,21 @@ const SHUT_RD: c_int = 0;
 const SHUT_WR: c_int = 1;
 const SHUT_RDWR: c_int = 2;
 
-#[repr(C)]
+#[repr(C, align(4))]
 pub struct NagiSockaddrIpv4 {
     pub family: u16,
     pub port_be: u16,
     pub address: [u8; 4],
+    pub zero: [u8; 8],
 }
 
 #[linkage = "weak"]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn socket(domain: c_int, socket_type: c_int, protocol: c_int) -> c_int {
-    if domain != AF_INET || socket_type != SOCK_STREAM || protocol != 0 {
+    if !crate::net::supports_stream_socket(domain, socket_type, protocol) {
         return write_errno_and_fail(97);
     }
+    crate::runtime::trace_m18_network(b"Nagi M18 network TCP socket accepted\r\n");
     match crate::runtime::socket() {
         Ok(fd) => fd,
         Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
@@ -578,6 +634,7 @@ pub unsafe extern "C" fn getpeername(
         family: AF_INET as u16,
         port_be: port.to_be(),
         address: peer.0,
+        zero: [0; 8],
     });
     address_length.write(required);
     0
@@ -604,6 +661,7 @@ pub unsafe extern "C" fn nagi_posix_getsockname(
         family: AF_INET as u16,
         port_be: port.to_be(),
         address: local.0,
+        zero: [0; 8],
     });
     address_length.write(required);
     0
@@ -778,6 +836,20 @@ pub unsafe extern "C" fn nagi_posix_getsockopt(
     }
 
     match (level, option_name) {
+        (SOL_SOCKET, SO_ERROR) => {
+            let required = core::mem::size_of::<c_int>() as c_uint;
+            if option_len.read() < required {
+                return write_errno_and_fail(EINVAL);
+            }
+            let error = match crate::runtime::take_socket_error(socket) {
+                Ok(error) => error,
+                Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
+            };
+            crate::runtime::trace_m18_network(b"Nagi M18 network SO_ERROR returned\r\n");
+            option_value.cast::<c_int>().write_unaligned(error);
+            option_len.write(required);
+            0
+        }
         (IPPROTO_TCP, TCP_NODELAY) => {
             let required = core::mem::size_of::<c_int>() as c_uint;
             if option_len.read() < required {
@@ -2143,6 +2215,19 @@ pub unsafe extern "C" fn pthread_attr_getstack(
         stack_size.write(attributes.stack_size);
     }
     0
+}
+
+#[cfg(test)]
+mod socket_address_abi_tests {
+    use super::NagiSockaddrIpv4;
+
+    #[test]
+    fn ipv4_sockaddr_matches_the_relibc_target_layout() {
+        assert_eq!(core::mem::size_of::<NagiSockaddrIpv4>(), 16);
+        assert_eq!(core::mem::align_of::<NagiSockaddrIpv4>(), 4);
+        assert_eq!(core::mem::offset_of!(NagiSockaddrIpv4, address), 4);
+        assert_eq!(core::mem::offset_of!(NagiSockaddrIpv4, zero), 8);
+    }
 }
 
 #[cfg(test)]

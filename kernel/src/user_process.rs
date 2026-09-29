@@ -34,6 +34,9 @@ pub const USER_TLS_CHILD_BASE: u64 = USER_TLS_BASE + USER_TLS_PAGES_PER_THREAD a
 pub const USER_TLS_CHILD_CONTROL_BASE: u64 = USER_TLS_CHILD_BASE + PAGE_SIZE;
 pub const USER_TLS_LIMIT: u64 = USER_TLS_BASE + USER_TLS_PAGE_COUNT as u64 * PAGE_SIZE;
 pub const USER_MMAP_BASE: u64 = USER_IMAGE_LIMIT + 0x0080_0000;
+#[cfg(feature = "m18-browser-memory")]
+const USER_MMAP_PAGE_TABLES: usize = 256;
+#[cfg(not(feature = "m18-browser-memory"))]
 const USER_MMAP_PAGE_TABLES: usize = 128;
 pub const USER_MMAP_PAGES: usize = PAGE_TABLE_ENTRIES * USER_MMAP_PAGE_TABLES;
 pub const USER_MMAP_LIMIT: u64 = USER_MMAP_BASE + USER_MMAP_PAGES as u64 * PAGE_SIZE;
@@ -47,7 +50,7 @@ const MAX_INIT_IMAGE_SIZE: usize = 128 * 1024 * 1024;
 #[cfg(test)]
 const MAX_TEST_IMAGE_PAGES: usize = 256;
 const MAX_IDENTITY_MAPPED_ADDRESS: u64 = 1 << 32;
-const MAX_MMAP_RESERVATIONS: usize = 64;
+const MAX_MMAP_RESERVATIONS: usize = USER_TLS_THREAD_SLOT_COUNT * 2;
 const IA32_EFER: u32 = 0xC000_0080;
 const IA32_FS_BASE: u32 = 0xC000_0100;
 const EFER_NXE: u64 = 1 << 11;
@@ -170,6 +173,8 @@ pub(crate) struct BootstrapStorage {
     pub(crate) pml4: PageTable,
     pdpt: PageTable,
     pd: PageTable,
+    #[cfg(feature = "m18-browser-memory")]
+    mmap_pd_extra: PageTable,
     pub(crate) image_pt: PageTable,
     image_extra_pts: [PageTable; USER_IMAGE_PAGE_TABLE_COUNT - 1],
     pub(crate) stack_pt: PageTable,
@@ -192,6 +197,8 @@ impl BootstrapStorage {
             pml4: PageTable::empty(),
             pdpt: PageTable::empty(),
             pd: PageTable::empty(),
+            #[cfg(feature = "m18-browser-memory")]
+            mmap_pd_extra: PageTable::empty(),
             image_pt: PageTable::empty(),
             image_extra_pts: [const { PageTable::empty() }; USER_IMAGE_PAGE_TABLE_COUNT - 1],
             stack_pt: PageTable::empty(),
@@ -213,6 +220,8 @@ impl BootstrapStorage {
         self.pml4.clear();
         self.pdpt.clear();
         self.pd.clear();
+        #[cfg(feature = "m18-browser-memory")]
+        self.mmap_pd_extra.clear();
         self.image_pt.clear();
         for table in &mut self.image_extra_pts {
             table.clear();
@@ -1362,11 +1371,20 @@ fn map_hierarchy(storage: &mut BootstrapStorage) -> Result<(), UserProcessError>
     let hierarchy_flags = PageTableEntry::PRESENT | PageTableEntry::WRITABLE | PageTableEntry::USER;
     let pdpt = table_address(&storage.pdpt)?;
     let pd = table_address(&storage.pd)?;
+    #[cfg(feature = "m18-browser-memory")]
+    let mmap_pd_extra = table_address(&storage.mmap_pd_extra)?;
     let stack_pt = table_address(&storage.stack_pt)?;
     let tls_pt = table_address(&storage.tls_pt)?;
     let surface_pt = table_address(&storage.surface_pt)?;
     map_leaf(&mut storage.pml4, USER_PML4_INDEX, pdpt, hierarchy_flags)?;
     map_leaf(&mut storage.pdpt, USER_PDPT_INDEX, pd, hierarchy_flags)?;
+    #[cfg(feature = "m18-browser-memory")]
+    map_leaf(
+        &mut storage.pdpt,
+        USER_PDPT_INDEX + 1,
+        mmap_pd_extra,
+        hierarchy_flags,
+    )?;
     for table_index in 0..USER_IMAGE_PAGE_TABLE_COUNT {
         let image_pt = table_address(image_page_table(storage, table_index)?)?;
         map_leaf(
@@ -1396,12 +1414,20 @@ fn map_hierarchy(storage: &mut BootstrapStorage) -> Result<(), UserProcessError>
     )?;
     for table_index in 0..USER_MMAP_PAGE_TABLES {
         let mmap_pt = table_address(&storage.mmap_pts[table_index])?;
-        map_leaf(
-            &mut storage.pd,
-            user_pd_index(USER_MMAP_BASE) + table_index,
-            mmap_pt,
-            hierarchy_flags,
-        )?;
+        let pd_index = user_pd_index(USER_MMAP_BASE) + table_index;
+        if pd_index < PAGE_TABLE_ENTRIES {
+            map_leaf(&mut storage.pd, pd_index, mmap_pt, hierarchy_flags)?;
+        } else {
+            #[cfg(feature = "m18-browser-memory")]
+            map_leaf(
+                &mut storage.mmap_pd_extra,
+                pd_index - PAGE_TABLE_ENTRIES,
+                mmap_pt,
+                hierarchy_flags,
+            )?;
+            #[cfg(not(feature = "m18-browser-memory"))]
+            return Err(UserProcessError::InvalidLoadPlan);
+        }
     }
     Ok(())
 }
@@ -1763,11 +1789,12 @@ mod tests {
 
     use super::{
         build_address_space, efer_with_nxe, find_exact_mmap_fragment_owner, find_mmap_start_page,
-        image_range_is_mapped, mapped_range, mmap_page_flags, mmap_range, mmap_range_is_owned,
-        mmap_user_in_storage, mprotect_mmap_range, munmap_mmap_range, register_mmap_reservation,
-        release_mmap_range_owners, remap_mmap_pages, reset_child_tls_pages, user_tls_control_base,
-        validate_mmap_request, BootstrapStorage, MmapReservation, MmapUserFailureKind,
-        UserProcessError, MAX_MMAP_RESERVATIONS, USER_MMAP_BASE, USER_MMAP_LIMIT, USER_MMAP_PAGES,
+        image_range_is_mapped, map_hierarchy, mapped_range, mmap_page_flags, mmap_range,
+        mmap_range_is_owned, mmap_user_in_storage, mprotect_mmap_range, munmap_mmap_range,
+        register_mmap_reservation, release_mmap_range_owners, remap_mmap_pages,
+        reset_child_tls_pages, user_tls_control_base, validate_mmap_request, BootstrapStorage,
+        MmapReservation, MmapUserFailureKind, UserProcessError, MAX_MMAP_RESERVATIONS,
+        USER_MMAP_BASE, USER_MMAP_LIMIT, USER_MMAP_PAGES, USER_MMAP_PAGE_TABLES, USER_PDPT_INDEX,
         USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES, USER_SURFACE_LIMIT, USER_TLS_BASE,
         USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT, USER_TLS_PAGE_COUNT,
         USER_TLS_THREAD_SLOT_COUNT,
@@ -1792,16 +1819,22 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_mmap_window_reserves_256_mib_after_the_surface_region() {
-        assert_eq!(USER_MMAP_PAGES as u64 * PAGE_SIZE, 256 * 1024 * 1024);
+    fn bootstrap_mmap_window_matches_the_enabled_browser_memory_budget() {
+        let expected_window_bytes = if cfg!(feature = "m18-browser-memory") {
+            512 * 1024 * 1024
+        } else {
+            256 * 1024 * 1024
+        };
+        assert_eq!(USER_MMAP_PAGES as u64 * PAGE_SIZE, expected_window_bytes);
         assert!(USER_SURFACE_LIMIT <= USER_MMAP_BASE);
-        assert_eq!(USER_MMAP_LIMIT - USER_MMAP_BASE, 256 * 1024 * 1024);
+        assert_eq!(USER_MMAP_LIMIT - USER_MMAP_BASE, expected_window_bytes);
     }
 
     #[test]
-    fn mmap_range_accepts_the_256_mib_window_end_and_rejects_crossing_it() {
+    fn mmap_range_accepts_its_window_end_and_rejects_crossing_it() {
+        let window_bytes = USER_MMAP_PAGES as u64 * PAGE_SIZE;
         assert_eq!(
-            mmap_range(USER_MMAP_BASE, 256 * 1024 * 1024, PROT_READ),
+            mmap_range(USER_MMAP_BASE, window_bytes, PROT_READ),
             Some((0, USER_MMAP_PAGES))
         );
         assert_eq!(
@@ -1815,8 +1848,35 @@ mod tests {
     }
 
     #[test]
+    fn mmap_page_tables_fit_the_feature_specific_page_directory_hierarchy() {
+        let storage = unsafe { &mut *super::BOOTSTRAP_STORAGE.0.get() };
+        map_hierarchy(storage).expect("the complete mmap window must be mapped");
+
+        let first_pd_index = super::user_pd_index(USER_MMAP_BASE);
+        let last_pd_index = first_pd_index + USER_MMAP_PAGE_TABLES - 1;
+        assert!(storage.pd.raw_entry(first_pd_index).is_some());
+        if cfg!(feature = "m18-browser-memory") {
+            assert_eq!(last_pd_index, PAGE_TABLE_ENTRIES + 3);
+            assert!(storage.pd.raw_entry(PAGE_TABLE_ENTRIES - 1).is_some());
+            #[cfg(feature = "m18-browser-memory")]
+            {
+                assert!(storage.pdpt.raw_entry(USER_PDPT_INDEX + 1).is_some());
+                assert!(storage.mmap_pd_extra.raw_entry(0).is_some());
+                assert!(storage.mmap_pd_extra.raw_entry(3).is_some());
+            }
+        } else {
+            assert!(last_pd_index < PAGE_TABLE_ENTRIES);
+            assert!(storage.pd.raw_entry(last_pd_index).is_some());
+            assert!(storage.pdpt.raw_entry(USER_PDPT_INDEX + 1).is_none());
+        }
+    }
+
+    #[test]
     fn bootstrap_threads_have_distinct_tls_control_pages() {
-        assert_eq!(USER_TLS_THREAD_SLOT_COUNT, 32);
+        assert_eq!(
+            USER_TLS_THREAD_SLOT_COUNT,
+            nagi_abi::BOOTSTRAP_USER_THREAD_COUNT
+        );
         assert_eq!(user_tls_control_base(0), Some(USER_TLS_CONTROL_BASE));
         assert_eq!(user_tls_control_base(1), Some(USER_TLS_CHILD_CONTROL_BASE));
         for thread_id in 0..USER_TLS_THREAD_SLOT_COUNT {
@@ -1836,7 +1896,7 @@ mod tests {
         }
         assert_eq!(user_tls_control_base(USER_TLS_THREAD_SLOT_COUNT), None);
         assert!(USER_TLS_LIMIT <= USER_MMAP_BASE);
-        assert_eq!(MAX_MMAP_RESERVATIONS, 64);
+        assert_eq!(MAX_MMAP_RESERVATIONS, USER_TLS_THREAD_SLOT_COUNT * 2);
     }
 
     #[test]

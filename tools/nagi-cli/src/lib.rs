@@ -8,6 +8,7 @@ pub mod image;
 pub(crate) mod libc_servo;
 #[cfg(test)]
 mod m17_storage_contract_tests;
+pub(crate) mod m18_acceptance;
 pub(crate) mod mesa;
 pub(crate) mod mio_servo;
 pub(crate) mod mozjs_sys_nagi;

@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+browser-storage = ["nagi-net/m18-browser-network"]
+
 [dependencies]
 libnagi = { path = "../libnagi" }
 nagi-pal = { path = "../nagi-pal" }

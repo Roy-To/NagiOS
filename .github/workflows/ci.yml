@@ -42,6 +42,8 @@ jobs:
         run: cargo build --workspace --exclude nagi-kernel --locked
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: Test Albert browser state and input adapters
+        run: cargo test --manifest-path user/nagi-albert/Cargo.toml --locked
       - name: M0 doctor acceptance
         run: ./tests/acceptance/m0_doctor.sh
       - name: M0 launcher acceptance
@@ -143,10 +145,34 @@ jobs:
           exit "$bootstrap_status"
       - name: Verify M17 target dependency feature boundary
         run: |
-          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p}')
+          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
           printf '%s\n' "$graph"
           if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
             echo 'M17 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$graph" | grep -E '^nagi-posix v.*\[.*browser-storage.*\]' >/dev/null; then
+            echo 'M17 Nagi target graph must not expose the M18 browser-storage service' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$graph" | grep -E '^nagi-abi v.*\[.*m18-browser-threads.*\]' >/dev/null; then
+            echo 'M17 Nagi target graph must retain its 32-slot bootstrap thread pool' >&2
+            exit 1
+          fi
+      - name: Verify M18 target dependency feature boundary
+        run: |
+          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m18-acceptance --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
+          printf '%s\n' "$graph"
+          if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
+            echo 'M18 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$graph" | grep -E '^nagi-posix v.*\[.*browser-storage.*\]' >/dev/null; then
+            echo 'M18 Nagi target graph must enable the browser-storage service' >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$graph" | grep -E '^nagi-abi v.*\[.*m18-browser-threads.*\]' >/dev/null; then
+            echo 'M18 Nagi target graph must enable the bounded browser worker pool' >&2
             exit 1
           fi
       - name: Build pinned Nagi Mesa Softpipe archive
@@ -235,3 +261,14 @@ jobs:
         run: |
           source out/mesa-venv/bin/activate
           sh tests/acceptance/m17_servo_first_web_pixel.sh
+      - name: M18-B Albert chrome acceptance
+        env:
+          NAGI_M18B_REUSE_M17_ACCEPTANCE: "1"
+        run: sh tests/acceptance/m18b_albert_ui_browser_state.sh
+      - name: M18 Albert interactive HTTPS acceptance
+        env:
+          NAGI_TARGET_CLANG: clang-19
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
+        run: |
+          source out/mesa-venv/bin/activate
+          ./nagi m18

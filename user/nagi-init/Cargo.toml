@@ -17,6 +17,12 @@ m14-audio = ["m13-posix"]
 m15-history = ["m14-audio"]
 m16-package = ["m15-history"]
 m17-servo = ["m16-package", "m13-posix", "m13-std", "dep:nagi-albert"]
+m18-acceptance = [
+    "m17-servo",
+    "nagi-albert/m18-acceptance",
+    "libnagi/m18-browser-threads",
+    "nagi-posix/browser-storage",
+]
 
 [[bin]]
 name = "nagi-init"

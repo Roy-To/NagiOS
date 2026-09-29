@@ -125,10 +125,15 @@ fn main() {
             "nearbyint",
             "nearbyintf",
             "mktime",
+            "localtime",
+            "gmtime",
             "gmtime_r",
             "readlink",
             // Mesa's real printf formatter reaches this POSIX search helper.
             "strpbrk",
+            // Mesa's NIR helper archive calls the context-aware POSIX sort;
+            // relibc exports the matching Nagi target ABI below.
+            "qsort_r",
             // These are real relibc/POSIX providers for the target link
             // inventory. They can be introduced by later Mesa,
             // MozJS, and SQLite archive members, so seed their exact C ABI

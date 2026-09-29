@@ -7,6 +7,10 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+m18-browser-threads = ["nagi-abi/m18-browser-threads"]
+
 [dependencies]
 nagi-abi = { path = "../../crates/nagi-abi" }
 

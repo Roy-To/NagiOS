@@ -1,4 +1,5 @@
 use std::fs;
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
@@ -58,7 +59,7 @@ impl Fat12Geometry {
         sectors_per_cluster: usize,
         root_entry_count: usize,
     ) -> Result<Self, String> {
-        if image_size == 0 || !image_size.is_multiple_of(SECTOR_SIZE) {
+        if image_size == 0 || image_size % SECTOR_SIZE != 0 {
             return Err("FAT12 image size must be a nonzero whole number of sectors".to_owned());
         }
         if sectors_per_cluster == 0
@@ -701,6 +702,51 @@ pub fn run_qemu_gui_with_events(
     ready_marker: &str,
     events: &[&str],
 ) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode(config, ready_marker, events, None, false, Duration::ZERO)
+}
+
+pub fn run_qemu_gui_with_read_only_boot_disk_and_events(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+) -> Result<i32, String> {
+    // The guest polls independent VirtIO input queues in device order, which
+    // is not guaranteed to match the order of QMP commands. Let it consume a
+    // pointer click before the next command sends address-bar keystrokes.
+    run_qemu_gui_with_events_mode(
+        config,
+        ready_marker,
+        events,
+        None,
+        true,
+        Duration::from_millis(100),
+    )
+}
+
+pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    failure_marker: &str,
+) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode(
+        config,
+        ready_marker,
+        events,
+        Some(failure_marker),
+        true,
+        Duration::from_millis(100),
+    )
+}
+
+fn run_qemu_gui_with_events_mode(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    failure_marker: Option<&str>,
+    boot_disk_read_only: bool,
+    inter_event_delay: Duration,
+) -> Result<i32, String> {
     let serial_listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|error| format!("cannot reserve GUI serial TCP port: {error}"))?;
     let serial_port = serial_listener
@@ -731,9 +777,25 @@ pub fn run_qemu_gui_with_events(
     }
 
     let serial_device = format!("tcp:127.0.0.1:{serial_port},server,nowait");
-    let mut child = spawn_qemu_with_display(config, &serial_device, qmp_port, vnc_port - 5900)?;
+    let mut child = spawn_qemu_with_display_mode(
+        config,
+        &serial_device,
+        qmp_port,
+        vnc_port - 5900,
+        boot_disk_read_only,
+    )?;
     let deadline = Instant::now() + config.timeout;
     let mut serial = Vec::new();
+    let mut serial_log = match fs::File::create(config.serial_log) {
+        Ok(file) => file,
+        Err(error) => {
+            terminate_qemu(&mut child, config.serial_log, &serial);
+            return Err(format!(
+                "cannot create GUI serial log {}: {error}",
+                config.serial_log.display()
+            ));
+        }
+    };
     let mut serial_stream =
         match connect_guest_tcp(&mut child, serial_port, deadline, "GUI serial TCP endpoint") {
             Ok(stream) => stream,
@@ -782,6 +844,18 @@ pub fn run_qemu_gui_with_events(
         return Err(error);
     }
 
+    // The M18 HTTPS acceptance passes its failure marker here. Keep a
+    // low-rate QMP register trace beside the serial log so a stalled guest
+    // remains diagnosable without opening a second QMP client connection.
+    let mut qmp_diagnostics = if failure_marker.is_some() {
+        let path = config.serial_log.with_extension("qmp-registers.log");
+        OpenOptions::new().create(true).append(true).open(path).ok()
+    } else {
+        None
+    };
+    let qmp_trace_started = Instant::now();
+    let mut last_qmp_trace = qmp_trace_started;
+
     let marker = config.acceptance_marker.as_bytes();
     let mut buffer = [0_u8; 4096];
     let mut events_sent = false;
@@ -790,14 +864,33 @@ pub fn run_qemu_gui_with_events(
             Ok(0) => break,
             Ok(count) => {
                 serial.extend_from_slice(&buffer[..count]);
+                if let Err(error) = serial_log
+                    .write_all(&buffer[..count])
+                    .and_then(|()| serial_log.flush())
+                {
+                    terminate_qemu(&mut child, config.serial_log, &serial);
+                    return Err(format!(
+                        "cannot append GUI serial log {}: {error}",
+                        config.serial_log.display()
+                    ));
+                }
                 if !events_sent && bytes_contain(&serial, ready_marker.as_bytes()) {
-                    for event in events {
+                    for (index, event) in events.iter().enumerate() {
                         if let Err(error) = qmp_exchange(&mut qmp_stream, event, deadline) {
                             terminate_qemu(&mut child, config.serial_log, &serial);
                             return Err(error);
                         }
+                        if index + 1 < events.len() && !inter_event_delay.is_zero() {
+                            thread::sleep(inter_event_delay);
+                        }
                     }
                     events_sent = true;
+                }
+                if let Some(marker) =
+                    failure_marker.filter(|marker| guest_reached_failure(&serial, marker))
+                {
+                    terminate_qemu(&mut child, config.serial_log, &serial);
+                    return Err(format!("GUI QEMU guest printed failure marker `{marker}`"));
                 }
                 if bytes_contain(&serial, marker) {
                     child.kill().map_err(|error| {
@@ -843,6 +936,30 @@ pub fn run_qemu_gui_with_events(
                 "GUI QEMU did not reach acceptance within {} seconds",
                 config.timeout.as_secs()
             ));
+        }
+        if last_qmp_trace.elapsed() >= Duration::from_secs(20) {
+            last_qmp_trace = Instant::now();
+            if let Some(diagnostics) = qmp_diagnostics.as_mut() {
+                let trace_deadline = Instant::now() + Duration::from_secs(5);
+                let response = qmp_exchange_response(
+                    &mut qmp_stream,
+                    r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
+                    trace_deadline,
+                );
+                let elapsed = qmp_trace_started.elapsed().as_secs();
+                let _ = match response {
+                    Ok(response) => writeln!(
+                        diagnostics,
+                        "M18 QMP registers after {elapsed}s: {}",
+                        response.trim_end()
+                    ),
+                    Err(error) => writeln!(
+                        diagnostics,
+                        "M18 QMP register query after {elapsed}s failed: {error}"
+                    ),
+                };
+                let _ = diagnostics.flush();
+            }
         }
     }
     let _ = fs::write(config.serial_log, &serial);
@@ -915,6 +1032,8 @@ fn spawn_qemu_with_display_mode(
     );
     let mut command = ProcessCommand::new(qemu);
     command.args([
+        "-rtc",
+        "base=utc",
         "-machine",
         "q35",
         "-cpu",
@@ -1050,6 +1169,14 @@ fn read_qmp_line(stream: &mut TcpStream, deadline: Instant) -> Result<String, St
 }
 
 fn qmp_exchange(stream: &mut TcpStream, command: &str, deadline: Instant) -> Result<(), String> {
+    qmp_exchange_response(stream, command, deadline).map(|_| ())
+}
+
+fn qmp_exchange_response(
+    stream: &mut TcpStream,
+    command: &str,
+    deadline: Instant,
+) -> Result<String, String> {
     stream
         .write_all(command.as_bytes())
         .and_then(|_| stream.write_all(b"\r\n"))
@@ -1065,7 +1192,7 @@ fn qmp_exchange(stream: &mut TcpStream, command: &str, deadline: Instant) -> Res
         if !response.contains("\"return\"") {
             return Err(format!("unexpected QMP response: {response}"));
         }
-        return Ok(());
+        return Ok(response);
     }
 }
 
@@ -1129,15 +1256,20 @@ fn guest_reached_acceptance(serial: &str, acceptance_marker: &str) -> bool {
     serial.contains(acceptance_marker)
 }
 
+fn guest_reached_failure(serial: &[u8], failure_marker: &str) -> bool {
+    bytes_contain(serial, failure_marker.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use super::{
-        build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
-        image_drive_argument, initialize_fats, qemu_audio_driver_for_host, write_chain,
-        Fat12Geometry, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE,
+        DATA_OFFSET, FAT_COUNT, Fat12Geometry, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE,
         M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
+        build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
+        guest_reached_failure, image_drive_argument, initialize_fats, qemu_audio_driver_for_host,
+        write_chain,
     };
 
     #[test]
@@ -1169,6 +1301,18 @@ mod tests {
         assert!(guest_reached_acceptance(
             "Nagi M7 acceptance PASS\r\n",
             GUEST_ACCEPTANCE_MARKER
+        ));
+    }
+
+    #[test]
+    fn gui_qemu_failure_marker_stops_the_acceptance_wait() {
+        assert!(guest_reached_failure(
+            b"Nagi M18 browser FAIL HTTPS timeout\r\n",
+            "Nagi M18 browser FAIL"
+        ));
+        assert!(!guest_reached_failure(
+            b"Nagi M18 browser READY\r\n",
+            "Nagi M18 browser FAIL"
         ));
     }
 

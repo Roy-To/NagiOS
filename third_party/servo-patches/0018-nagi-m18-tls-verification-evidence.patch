@@ -1,0 +1,37 @@
+diff --git a/components/net/connector.rs b/components/net/connector.rs
+--- a/components/net/connector.rs
++++ b/components/net/connector.rs
+@@ -28,6 +28,17 @@ use rustls::crypto::{CryptoProvider, aws_lc_rs};
+ use rustls::{CipherSuite, ClientConfig, NamedGroup, ProtocolVersion};
+ use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
+ use servo_config::pref;
++
++#[cfg(target_os = "nagi")]
++#[allow(unsafe_code)]
++mod nagi_m18_tls_evidence {
++    pub(super) fn verified(host: &str) {
++        unsafe extern "C" {
++            fn nagi_m18_tls_verified(host: *const u8, length: usize);
++        }
++        unsafe { nagi_m18_tls_verified(host.as_ptr(), host.len()) };
++    }
++}
+ use tokio::net::TcpStream;
+ use tower::Service;
+ 
+@@ -550,7 +555,14 @@ impl rustls::client::danger::ServerCertVerifier for CertificateVerificationOver
+             ocsp_response,
+             now,
+         ) {
+-            Ok(result) => return Ok(result),
++            Ok(result) => {
++                #[cfg(target_os = "nagi")]
++                {
++                    let host = server_name.to_str();
++                    nagi_m18_tls_evidence::verified(&host);
++                }
++                return Ok(result);
++            }
+             Err(error) => error,
+         };
+ 

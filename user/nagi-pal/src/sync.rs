@@ -27,6 +27,13 @@ impl<T> SpinMutex<T> {
         }
         SpinGuard { mutex: self }
     }
+
+    pub fn try_lock(&self) -> Option<SpinGuard<'_, T>> {
+        self.locked
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .ok()
+            .map(|_| SpinGuard { mutex: self })
+    }
 }
 
 pub struct SpinGuard<'a, T> {
@@ -110,5 +117,15 @@ mod tests {
         assert!(tls.set(key, 42));
         assert_eq!(tls.get(key), Some(42));
         assert!(tls.allocate().is_none());
+    }
+
+    #[test]
+    fn try_lock_reports_contention_and_recovers_after_release() {
+        let mutex = SpinMutex::new(42_u32);
+        let guard = mutex.try_lock();
+        assert!(guard.is_some());
+        assert!(mutex.try_lock().is_none());
+        drop(guard);
+        assert!(mutex.try_lock().is_some());
     }
 }

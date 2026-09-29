@@ -31,6 +31,24 @@ if [[ -n "${NAGI_CXX_HEADERS:-}" ]]; then
 fi
 
 resource_dir=$("$compiler" --target=x86_64-unknown-elf -print-resource-dir)
+target_linker_arg=""
+if [[ "$(uname -s)" == Darwin ]]; then
+    compile_only=false
+    for argument in "$@"; do
+        case "$argument" in
+            -c|-E|-S) compile_only=true ;;
+        esac
+    done
+    if [[ "$compile_only" == false ]]; then
+        target_linker=${NAGI_TARGET_LD:-ld.lld}
+        target_linker_path=$(command -v "$target_linker") || {
+            echo "Nagi target C compiler: ELF linker not found: $target_linker" >&2
+            exit 2
+        }
+        export NAGI_TARGET_LD="$target_linker_path"
+        target_linker_arg="-fuse-ld=$repo_root/tools/mesa/nagi-ld-adapter.sh"
+    fi
+fi
 target_compile_definition=""
 target_is_cxx=false
 target_rtti_enabled=false
@@ -77,7 +95,7 @@ compiler_args=(
     -mcmodel=large \
     -nostdinc \
 )
-if [[ -n "${NAGI_CXX_HEADERS:-}" ]]; then
+if [[ -n "${NAGI_CXX_HEADERS:-}" && "$target_is_cxx" == true ]]; then
     compiler_args+=(-isystem "$NAGI_CXX_HEADERS")
     # libc++ owns the C++ standard headers. Keep the Nagi/Mesa compatibility
     # headers after libc++ so include_next in libc++ reaches relibc instead of
@@ -106,6 +124,12 @@ if [[ "$target_is_cxx" == true ]]; then
     if [[ "$target_rtti_enabled" != true ]]; then
         cxx_runtime_flags+=(-fno-rtti)
     fi
+    if [[ -n "$target_linker_arg" ]]; then
+        exec "$compiler" "${compiler_args[@]}" "$@" -nostdlib "$target_linker_arg" "${cxx_runtime_flags[@]}"
+    fi
     exec "$compiler" "${compiler_args[@]}" "$@" "${cxx_runtime_flags[@]}"
+fi
+if [[ -n "$target_linker_arg" ]]; then
+    exec "$compiler" "${compiler_args[@]}" "$@" -nostdlib "$target_linker_arg"
 fi
 exec "$compiler" "${compiler_args[@]}" "$@"

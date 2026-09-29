@@ -16,7 +16,7 @@ use nagi_kernel::user_process::{
 #[cfg(not(test))]
 use core::arch::{asm, global_asm};
 #[cfg(not(test))]
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 #[cfg(not(test))]
 use super::{
@@ -57,6 +57,19 @@ const KERNEL_CODE_SELECTOR: u64 = 0x08;
 const SYSRET_SELECTOR_BASE: u64 = 0x13;
 #[cfg(not(test))]
 const SYSCALL_FMASK: u64 = (1 << 8) | (1 << 9) | (1 << 10) | (1 << 18);
+
+#[cfg(not(test))]
+static REALTIME_EPOCH_NS: AtomicU64 = AtomicU64::new(nagi_bootinfo::REALTIME_UNAVAILABLE_NS);
+
+#[cfg(all(not(test), feature = "m18-browser-threads"))]
+static M18_SCHEDULER_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(not(test), feature = "m18-browser-threads"))]
+static M18_SCHEDULER_YIELD_DIAGNOSTIC_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(not(test))]
+pub fn set_realtime_epoch_ns(epoch_ns: u64) {
+    REALTIME_EPOCH_NS.store(epoch_ns, Ordering::Release);
+}
 
 #[cfg(not(test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -756,11 +769,10 @@ fn time_read() -> u64 {
 
 #[cfg(not(test))]
 fn time_realtime() -> u64 {
-    let ticks = interrupts::timer_ticks();
-    let Some(elapsed) = ticks.checked_mul(10_000_000) else {
-        return u64::MAX;
-    };
-    nagi_abi::NAGI_REALTIME_EPOCH_NS.saturating_add(elapsed)
+    nagi_abi::realtime_ns_at_ticks(
+        REALTIME_EPOCH_NS.load(Ordering::Acquire),
+        interrupts::timer_ticks(),
+    )
 }
 
 #[cfg(not(test))]
@@ -857,11 +869,76 @@ fn valid_thread_exit_code_address(address: u64) -> bool {
 fn thread_yield(frame: &SyscallFrame) -> u64 {
     let current = current_user_thread();
     save_current_thread_context(frame, 0);
-    let Some(next) = thread_table().yield_current(interrupts::timer_ticks()) else {
+    let tick = interrupts::timer_ticks();
+    let Some(next) = thread_table().yield_current(tick) else {
+        #[cfg(feature = "m18-browser-threads")]
+        trace_m18_scheduler_yield(current, None, tick);
         return u64::MAX;
     };
+    #[cfg(feature = "m18-browser-threads")]
+    if next != current {
+        let sequence = M18_SCHEDULER_TRACE_COUNT.fetch_add(1, Ordering::Relaxed);
+        if sequence < 64 || sequence.is_multiple_of(1024) {
+            serial_write(b"Nagi M18 scheduler handoff #");
+            serial_write_decimal(sequence);
+            serial_write(b" thread");
+            serial_write_decimal(current as usize);
+            serial_write(b" -> thread");
+            serial_write_decimal(next as usize);
+            serial_write(b"\r\n");
+        }
+    }
+    #[cfg(feature = "m18-browser-threads")]
+    trace_m18_scheduler_yield(current, Some(next), tick);
     switch_to_thread(current, next, b"yield");
     0
+}
+
+#[cfg(all(not(test), feature = "m18-browser-threads"))]
+fn trace_m18_scheduler_yield(current: u8, next: Option<u8>, tick: u64) {
+    let handoffs = M18_SCHEDULER_TRACE_COUNT.load(Ordering::Relaxed);
+    if handoffs < 98_304 || handoffs % 1_024 >= 16 {
+        return;
+    }
+
+    let sequence = M18_SCHEDULER_YIELD_DIAGNOSTIC_COUNT.fetch_add(1, Ordering::Relaxed);
+    if sequence >= 512 {
+        return;
+    }
+
+    let mut runnable = 0_usize;
+    let mut running = 0_usize;
+    let mut sleeping = 0_usize;
+    for id in 0..nagi_abi::BOOTSTRAP_USER_THREAD_COUNT {
+        match thread_table().state(id as u8) {
+            Some(nagi_kernel::scheduler::UserThreadState::Runnable) => runnable += 1,
+            Some(nagi_kernel::scheduler::UserThreadState::Running) => running += 1,
+            Some(nagi_kernel::scheduler::UserThreadState::Sleeping { .. }) => sleeping += 1,
+            _ => {}
+        }
+    }
+
+    serial_write(b"Nagi M18 scheduler yield state #");
+    serial_write_decimal(sequence);
+    serial_write(b" handoffs=");
+    serial_write_decimal(handoffs);
+    serial_write(b" from=");
+    serial_write_decimal(current as usize);
+    serial_write(b" next=");
+    if let Some(next) = next {
+        serial_write_decimal(next as usize);
+    } else {
+        serial_write(b"none");
+    }
+    serial_write(b" tick=");
+    serial_write_decimal(tick as usize);
+    serial_write(b" running=");
+    serial_write_decimal(running);
+    serial_write(b" runnable=");
+    serial_write_decimal(runnable);
+    serial_write(b" sleeping=");
+    serial_write_decimal(sleeping);
+    serial_write(b"\r\n");
 }
 
 #[cfg(not(test))]

@@ -14,7 +14,8 @@ mod abi;
 mod runtime;
 #[cfg(target_os = "nagi")]
 pub use abi::{
-    nagi_posix_ensure_directory, nagi_posix_initialize_filesystem, nagi_posix_initialize_network,
+    nagi_posix_close, nagi_posix_ensure_directory, nagi_posix_initialize_filesystem,
+    nagi_posix_initialize_network, nagi_posix_open, nagi_posix_write_fd,
 };
 
 /// Copy the current guest process name into a C buffer through the kernel's
@@ -68,6 +69,13 @@ pub fn nagi_posix_network_default_gateway() -> Option<nagi_net::Ipv4Address> {
     runtime::default_gateway().ok()
 }
 
+/// Clean stale, process-temporary Servo storage left by an earlier M18
+/// browser run. This is available only in the M18 target feature graph.
+#[cfg(all(target_os = "nagi", feature = "browser-storage"))]
+pub fn cleanup_m18_servo_temp_directories() -> Option<usize> {
+    runtime::cleanup_m18_servo_temp_directories().ok()
+}
+
 use core::ptr;
 
 #[cfg(target_os = "nagi")]
@@ -79,7 +87,9 @@ use errno::{set_errno, EBADF, EINVAL, ENOSYS};
 #[cfg(target_os = "nagi")]
 use nagi_pal::time::{Clock, GuestClock};
 
-#[cfg(any(target_os = "nagi", test))]
+#[cfg(all(any(target_os = "nagi", test), feature = "browser-storage"))]
+const POSIX_HEAP_SIZE: usize = 128 * 1024 * 1024;
+#[cfg(all(any(target_os = "nagi", test), not(feature = "browser-storage")))]
 const POSIX_HEAP_SIZE: usize = 64 * 1024 * 1024;
 #[cfg(any(target_os = "nagi", test))]
 const BLOCK_HEADER_SIZE: usize = 16;
@@ -767,8 +777,13 @@ mod tests {
     struct TestHeap([u8; 64 * 1024]);
 
     #[test]
-    fn servo_posix_heap_budget_is_64_mib() {
-        assert_eq!(POSIX_HEAP_SIZE, 64 * 1024 * 1024);
+    fn posix_heap_budget_is_bounded_by_the_enabled_browser_feature() {
+        let expected = if cfg!(feature = "browser-storage") {
+            128 * 1024 * 1024
+        } else {
+            64 * 1024 * 1024
+        };
+        assert_eq!(POSIX_HEAP_SIZE, expected);
     }
 
     #[test]

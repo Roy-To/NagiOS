@@ -5,6 +5,11 @@ edition = "2021"
 publish = false
 autobins = false
 
+[features]
+default = []
+m18-browser-threads = ["nagi-abi/m18-browser-threads"]
+m18-browser-memory = ["m18-browser-threads"]
+
 [lib]
 name = "nagi_kernel"
 path = "src/lib.rs"
