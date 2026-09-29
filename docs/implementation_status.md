@@ -106,6 +106,18 @@ actual supported command list under the pinned rustup toolchain. M29 remains
 Settings, full localization/accessibility, and end-user recovery/error UI are
 not complete. Binary redistribution also awaits license review. See
 `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`.
+**M30 evidence:** Added a deterministic release preflight/assembly/verify tool
+that checks a clean Git revision, the actual x86-64 kernel ELF, pinned source
+revisions, Granite digest, a self-contained 64 GiB qcow2, required release
+notes/notices/all architecture docs/SDK/contribution/roadmap, and artifact
+hashes. Eight standard-library tests pass; the manifest explicitly leaves
+guest acceptance `NOT_EVALUATED`. The built kernel is a real x86-64 ELF, but
+the available M1 and M18 boot images are raw FAT images (1,474,560 and
+133,844,480 bytes), with persistent data disks separate. There is no integrated
+64 GiB qcow2 with the specified system/data/recovery layout. M30 is `PARTIAL`:
+the image has not been assembled or booted, M18–M29 acceptance remains
+incomplete, and binary license/notice review is open. See
+`docs/workstreams/NagiOS_M30_Release_Workstream.md`.
 **Next action:** Complete the M30 release-gate audit and record the real
 artifact, reproducibility, CI, and guest-acceptance evidence without claiming
 release readiness while any formal gate remains unmet.
@@ -123,12 +135,12 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-30
 **Latest continuation CI:** Run
-[`36611468722`](https://github.com/RT-NISH/NagiOS/actions/runs/36611468722)
-for `ccdeb514ab761ea300dde0db5ddd80328b34dece` passed Ubuntu host and Windows
+[`36613069872`](https://github.com/RT-NISH/NagiOS/actions/runs/36613069872)
+for `1d033df3ccc857ec8e760776014608a87a9dfbf1` passed Ubuntu host and Windows
 launcher, including the corrected M0 launcher acceptance. The authoritative
 Nagi target job was building the user init when last checked. Prior checkpoint
 runs were cancelled by subsequent pushes before all gates completed; run
-`36608977219` also passed host and Windows before its target job was cancelled.
+`36611468722` also passed host and Windows before its target job was cancelled.
 Run
 `36602252894` passed Ubuntu host tests/build/lint and formatting but failed
 both M0 launcher gates. The POSIX and Windows logs report `E0463: can't find
@@ -2189,7 +2201,7 @@ Use only these statuses:
 | M27 | A/B / Recovery | PARTIAL | Added a bounded A/B boot state machine and checksummed two-copy journal; ten host tests, warnings-denied Clippy, formatting, and the UEFI release build pass. Firmware-backed persistence, matched A/B image slots, readiness integration, Recovery Environment, and broken-slot QEMU rollback acceptance remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | After preserving pre-existing outputs and disks, two real M19/M22 QEMU repetitions passed. The harness now accepts initial or restart M19 logs and archives intermediate outputs. Combined reference workload, audio pressure, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Added cross-linked setup, SDK, contribution, and roadmap documentation; 47 local documentation links resolve and `./nagi --help` was verified with the pinned rustup toolchain. No Nagi screenshots or boot-time measurement; first-run, Settings, complete localization/accessibility, user-facing provider/recovery UX, and binary license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | NOT STARTED | No M30 checkpoint recorded yet. |
+| M30 | Nagi OS 0.1 Release | PARTIAL | Added deterministic release preflight/assembly/verify with x86-64 kernel, pinned source, qcow2 size/format, docs, and checksum gates; 8 tests pass. No integrated 64 GiB qcow2 exists—the current M1/M18 images are raw FAT and data disks are separate. Guest boot, M18–M29 completion, and binary notice/license review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md`. |
 
 ---
 

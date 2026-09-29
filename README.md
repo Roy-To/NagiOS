@@ -67,6 +67,7 @@ Third-party components remain subject to their respective licenses.
 - [Rust and C SDK surface with the sample packaging flow](sdk/README.md)
 - [Contribution and verification workflow](CONTRIBUTING.md)
 - [Milestone roadmap](ROADMAP.md)
+- [Developer Preview release notes](RELEASE_NOTES.md)
 - [Security reporting policy](SECURITY.md)
 
 ## Security status
