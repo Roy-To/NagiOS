@@ -1,8 +1,8 @@
 # 1. Current status
 
-**Current milestone:** `M24 — Embedding / Semantic AI`
+**Current milestone:** `M25 — Voice`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21 `PARTIAL`, M22
-`BLOCKED`, M23 `PARTIAL`, M24–M30 `NOT STARTED`.
+`BLOCKED`, M23–M24 `PARTIAL`, M25–M30 `NOT STARTED`.
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
 download/upload destinations, clipboard, IME text/composition events, and
@@ -58,9 +58,17 @@ formatting, and the Nagi no-std target compile pass. Live Servo extraction,
 authenticated guest policy/IPC, Nagi Bar UI, and real inference remain, so the
 page-summary acceptance is unmet. See
 `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`.
-**Next action:** Advance M24's bounded embedding/chunking and semantic-index
-contracts while retaining visibility filtering and the production embedding,
-storage, and QEMU acceptance blockers.
+**M24 evidence:** Added bounded multilingual UTF-8 chunking, provider-neutral
+embedding and vector-index contracts, and `SearchService` semantic indexing
+and querying that filters visible Object IDs before and after index access.
+Twenty-three `nagi-search` tests, warnings-denied Clippy, formatting, and the
+Nagi no-std target compile pass. A real embedding model, durable vector index,
+producer synchronization, hybrid ranking/explanations, and natural-language
+QEMU acceptance remain. See
+`docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`.
+**Next action:** Advance M25's explicit push-to-talk/audio provider boundary;
+keep authenticated permission and indicator wiring, Japanese STT/TTS, and
+real guest voice acceptance open.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -75,17 +83,15 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-30
 **Latest continuation CI:** Run
-[`36602252894`](https://github.com/RT-NISH/NagiOS/actions/runs/36602252894)
-[`36608104431`](https://github.com/RT-NISH/NagiOS/actions/runs/36608104431)
-on `4acfc555f0c92cc993d2899ee73a97db46610c3b` is pending behind the previous
-long-running target job. Earlier run `36602252894` passed Ubuntu host
-tests/build/lint and formatting but failed the POSIX M0 image acceptance; the
-Windows launcher exit-propagation test also failed. Local reproduction showed
-the image path omitted `alloc` while building `nagi-init`, whose unconditional
-`nagi-history` dependency requires it. The init build flags now include
-`alloc`, and the POSIX M0 launcher acceptance passes locally. Windows-specific
-diagnostics and that run's M17/M18 QEMU results remain unavailable while the
-workflow is active. Earlier M22 base run
+[`36608423967`](https://github.com/RT-NISH/NagiOS/actions/runs/36608423967)
+for `f8f7b0ed2dbefa33743f6f5ad38ee45d95f2788a` is queued. Earlier run
+`36602252894` passed Ubuntu host tests/build/lint and formatting but failed
+both M0 launcher gates. The POSIX and Windows logs report `E0463: can't find
+crate for alloc` while building `nagi-history`; the Windows launcher returned
+101 from `nagi image`, so this was not an exit-propagation defect. Commit
+`fe26f3f` adds `alloc` to no-std init-image builds. The POSIX M0 launcher
+acceptance passes locally after the fix; the corrected Windows gate and M17/M18
+QEMU regressions still need a completed CI run. Earlier M22 base run
 [`36576635230`](https://github.com/RT-NISH/NagiOS/actions/runs/36576635230)
 passed all gates on `a69746a82df209b1565db6b32ecf8e3b7665424b`.
 **Last known checkpoint:** The user-directed continuation is on
@@ -2132,7 +2138,7 @@ Use only these statuses:
 | M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; the existing M19 SearchService is now registered through a real bounded `file.search` action handler. Its integration test validates and executes a plan and proves the action returns only caller-visible stable Object IDs. Sixteen tests, formatting, warnings-denied Clippy, and Nagi target compile pass. App launch, file copy/move, and volume handlers, guest registration, authenticated target policy, and QEMU acceptance remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
 | M22 | AI Safety / Undo Integration | BLOCKED | NH16 grouped transactions now persist through a two-slot guest VFS archive. `./nagi m22` verified three-file move/commit, restart-restorable composite undo, and original file contents across QEMU boots; 9 History tests, warnings-denied Clippy, CLI tests (114 unit + 18 integration), changed-file format, and `m22-history` target build pass. The QEMU path is a private fixture, not an authenticated M21 action or production Activity Ledger linkage. Production move handler, authenticated target policy, and AI-to-History transaction integration remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-three `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
-| M24 | Embedding / Semantic AI | NOT STARTED | No M24 checkpoint recorded yet. |
+| M24 | Embedding / Semantic AI | PARTIAL | Added bounded multilingual UTF-8 chunking, embedding/provider and vector-index contracts, and visibility-filtered `SearchService` semantic indexing/query orchestration. Twenty-three `nagi-search` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. A real embedding model, durable vector index, producer synchronization, hybrid ranking/explanations, and natural-language QEMU acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
 | M25 | Voice | NOT STARTED | No M25 checkpoint recorded yet. |
 | M26 | Qwen / Gemma / Automatic | NOT STARTED | No M26 checkpoint recorded yet. |
 | M27 | A/B / Recovery | NOT STARTED | No M27 checkpoint recorded yet. |

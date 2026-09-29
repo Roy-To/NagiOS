@@ -6,6 +6,7 @@ use alloc::{
     vec::Vec,
 };
 use std::{
+    cell::RefCell,
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -21,12 +22,15 @@ use crate::{
     },
     codec,
     host::HostFileBackend,
+    semantic::{
+        Embedding, EmbeddingPurpose, IndexedChunk, SemanticError, VectorIndexError, VectorMatch,
+    },
     store::StoreState,
-    AccessContext, AttributeMatch, BackendError, DenyAllVisibility, MetadataRecord,
-    MetadataStoreError, ObjectKind, Relation, RelationDirection, RelationKind, RelationProvenance,
-    SearchError, SearchMatch, SearchQuery, SearchService, SearchSort, SearchTimeRange,
-    SnapshotBackend, VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession,
-    CURRENT_STORE_VERSION,
+    AccessContext, AttributeMatch, BackendError, DenyAllVisibility, EmbeddingProvider,
+    MetadataRecord, MetadataStoreError, ObjectKind, Relation, RelationDirection, RelationKind,
+    RelationProvenance, SearchError, SearchMatch, SearchQuery, SearchService, SearchSort,
+    SearchTimeRange, SnapshotBackend, VectorIndex, VisibilityFilter, VisibilityScope, Workspace,
+    WorkspaceSession, CURRENT_STORE_VERSION,
 };
 
 static TEST_PATH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -104,6 +108,93 @@ impl VisibilityFilter for FixtureVisibility {
         session: WorkspaceSession,
     ) -> bool {
         access.app_id == Some(session.app_id)
+    }
+}
+
+struct FixedEmbeddingProvider;
+
+impl EmbeddingProvider for FixedEmbeddingProvider {
+    fn embed(&self, _purpose: EmbeddingPurpose, _text: &str) -> Result<Embedding, SemanticError> {
+        Embedding::try_from_values(vec![1.0, 0.0])
+    }
+}
+
+#[derive(Default)]
+struct FixtureVectorIndex {
+    entries: Vec<VectorMatch>,
+    dimensions: Option<usize>,
+    permitted_seen: RefCell<Vec<ObjectId>>,
+    ignore_allowlist: bool,
+}
+
+impl VectorIndex for FixtureVectorIndex {
+    fn dimensions(&self) -> Option<usize> {
+        self.dimensions
+    }
+
+    fn replace_object(
+        &mut self,
+        object_id: ObjectId,
+        chunks: &[IndexedChunk],
+    ) -> Result<(), VectorIndexError> {
+        let dimensions = chunks.first().map(|chunk| chunk.embedding.dimensions());
+        if chunks.iter().any(|chunk| {
+            Some(chunk.embedding.dimensions()) != dimensions
+                || self
+                    .dimensions
+                    .is_some_and(|current| current != chunk.embedding.dimensions())
+        }) {
+            return Err(VectorIndexError::DimensionMismatch);
+        }
+        self.entries.retain(|entry| entry.object_id != object_id);
+        self.entries.extend(chunks.iter().map(|chunk| VectorMatch {
+            object_id,
+            chunk_ordinal: chunk.chunk.ordinal,
+            start_byte: chunk.chunk.start_byte,
+            end_byte: chunk.chunk.end_byte,
+            similarity: 0.75,
+        }));
+        if let Some(dimensions) = dimensions {
+            self.dimensions = Some(dimensions);
+        }
+        Ok(())
+    }
+
+    fn remove_object(&mut self, object_id: ObjectId) -> Result<(), VectorIndexError> {
+        self.entries.retain(|entry| entry.object_id != object_id);
+        if self.entries.is_empty() {
+            self.dimensions = None;
+        }
+        Ok(())
+    }
+
+    fn search(
+        &self,
+        _query: &Embedding,
+        permitted_objects: &[ObjectId],
+        limit: usize,
+    ) -> Result<Vec<VectorMatch>, VectorIndexError> {
+        // Record exactly what reached the replaceable index boundary. This
+        // fixture can also intentionally violate the allowlist to verify the
+        // service's independent result check.
+        *self.permitted_seen.borrow_mut() = permitted_objects.to_vec();
+        let mut matches = self
+            .entries
+            .iter()
+            .copied()
+            .filter(|entry| self.ignore_allowlist || permitted_objects.contains(&entry.object_id))
+            .collect::<Vec<_>>();
+        matches.sort_by(|left, right| {
+            right
+                .similarity
+                .partial_cmp(&left.similarity)
+                .unwrap_or(core::cmp::Ordering::Equal)
+                .then_with(|| left.object_id.cmp(&right.object_id))
+        });
+        if !self.ignore_allowlist {
+            matches.truncate(limit);
+        }
+        Ok(matches)
     }
 }
 
@@ -1232,4 +1323,74 @@ fn m19_acceptance_indexes_filters_restarts_and_researches_stable_objects() {
         Some("vfs://archive/budget-final.pdf")
     );
     std::fs::remove_file(&path).expect("remove acceptance snapshot");
+}
+
+#[test]
+fn semantic_search_passes_only_visible_ids_and_filters_untrusted_index_results() {
+    let visible_id = ObjectId(0x2401);
+    let hidden_id = ObjectId(0x2402);
+    let mut service = service();
+    service
+        .upsert_record(public_record(visible_id.0, "Servo article"))
+        .expect("visible metadata");
+    let mut hidden = MetadataRecord::new(hidden_id, ObjectKind::File, "Private article");
+    hidden.visibility = VisibilityScope::Private;
+    service.upsert_record(hidden).expect("hidden metadata");
+
+    let provider = FixedEmbeddingProvider;
+    let mut index = FixtureVectorIndex {
+        ignore_allowlist: true,
+        ..FixtureVectorIndex::default()
+    };
+    assert_eq!(
+        service
+            .index_semantic_text(
+                access(),
+                visible_id,
+                "Servo article content in Japanese and English.",
+                &provider,
+                &mut index,
+            )
+            .expect("index visible text"),
+        1
+    );
+    assert_eq!(
+        service.index_semantic_text(
+            access(),
+            hidden_id,
+            "private content",
+            &provider,
+            &mut index,
+        ),
+        Err(SemanticError::ObjectNotVisible)
+    );
+    // Simulate a faulty/stale index implementation returning many hidden hits.
+    // They must not consume the visible result limit or affect the outcome.
+    for _ in 0..11 {
+        index.entries.push(VectorMatch {
+            object_id: hidden_id,
+            chunk_ordinal: 0,
+            start_byte: 0,
+            end_byte: 12,
+            similarity: 0.99,
+        });
+    }
+
+    let hits = service
+        .semantic_search(access(), "Servo browser article", &provider, &index, 1)
+        .expect("semantic search");
+    assert_eq!(
+        *index.permitted_seen.borrow(),
+        [visible_id],
+        "hidden identities must not reach the vector index"
+    );
+    assert_eq!(hits.len(), 1, "hidden index results must be discarded");
+    assert_eq!(hits[0].record.object_id, visible_id);
+    assert_eq!(hits[0].record.title, "Servo article");
+    assert_eq!(hits[0].chunk_ordinal, 0);
+    assert_eq!(hits[0].similarity, 0.75);
+    assert_eq!(
+        service.semantic_search(access(), "  ", &provider, &index, 10),
+        Err(SemanticError::EmptyText)
+    );
 }

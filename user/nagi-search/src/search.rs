@@ -8,6 +8,10 @@ use core::cmp::Ordering;
 
 use nagi_model::{ObjectId, WorkspaceId};
 
+use crate::semantic::{
+    chunk_text, EmbeddingProvider, EmbeddingPurpose, IndexedChunk, SemanticError, SemanticHit,
+    VectorIndex,
+};
 use crate::{
     model::{
         AccessContext, AttributeMatch, MetadataRecord, ModelError, Relation, RelationDirection,
@@ -248,6 +252,143 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
         })
     }
 
+    /// Replace semantic content for a caller-visible object. The provider and
+    /// index are injected so model/runtime choices remain replaceable. A
+    /// successful operation replaces all of this object's indexed chunks.
+    pub fn index_semantic_text<P: EmbeddingProvider, I: VectorIndex>(
+        &self,
+        access: AccessContext,
+        object_id: ObjectId,
+        text: &str,
+        provider: &P,
+        index: &mut I,
+    ) -> Result<usize, SemanticError> {
+        if self.visible_object(access, object_id).is_none() {
+            return Err(SemanticError::ObjectNotVisible);
+        }
+
+        let chunks = chunk_text(object_id, text)?;
+        let mut indexed = Vec::with_capacity(chunks.len());
+        let mut dimensions = index.dimensions();
+        for chunk in chunks {
+            let embedding = provider.embed(EmbeddingPurpose::Passage, &chunk.text)?;
+            if dimensions.is_some_and(|expected| expected != embedding.dimensions()) {
+                return Err(SemanticError::DimensionMismatch);
+            }
+            dimensions = Some(embedding.dimensions());
+            indexed.push(IndexedChunk { chunk, embedding });
+        }
+        let count = indexed.len();
+        index
+            .replace_object(object_id, &indexed)
+            .map_err(map_vector_index_error)?;
+        Ok(count)
+    }
+
+    /// Search semantic chunks only after deriving the caller-visible object
+    /// allowlist. The index receives no hidden ObjectIds, and its response is
+    /// checked again before metadata is returned to the caller.
+    pub fn semantic_search<P: EmbeddingProvider, I: VectorIndex>(
+        &self,
+        access: AccessContext,
+        query: &str,
+        provider: &P,
+        index: &I,
+        limit: usize,
+    ) -> Result<Vec<SemanticHit>, SemanticError> {
+        if query.trim().is_empty() {
+            return Err(SemanticError::EmptyText);
+        }
+        if query.len() > crate::semantic::MAX_SEMANTIC_QUERY_BYTES {
+            return Err(SemanticError::QueryTooLong);
+        }
+        if limit == 0 || limit > crate::semantic::MAX_SEMANTIC_RESULTS {
+            return Err(SemanticError::InvalidLimit);
+        }
+
+        let permitted_objects: Vec<ObjectId> = self
+            .store
+            .records()
+            .filter(|record| {
+                record.tombstoned_at.is_none() && self.visibility.can_read_object(access, record)
+            })
+            .map(|record| record.object_id)
+            .collect();
+        if permitted_objects.is_empty() {
+            return Ok(Vec::new());
+        }
+        let permitted: BTreeSet<ObjectId> = permitted_objects.iter().copied().collect();
+
+        let query_embedding = provider.embed(EmbeddingPurpose::Query, query)?;
+        if index
+            .dimensions()
+            .is_some_and(|expected| expected != query_embedding.dimensions())
+        {
+            return Err(SemanticError::DimensionMismatch);
+        }
+        let matches = index
+            .search(&query_embedding, &permitted_objects, limit)
+            .map_err(map_vector_index_error)?;
+        if matches
+            .iter()
+            .filter(|candidate| permitted.contains(&candidate.object_id))
+            .count()
+            > limit
+        {
+            return Err(SemanticError::InvalidIndexResult);
+        }
+
+        let mut best_by_object = alloc::collections::BTreeMap::new();
+        for candidate in matches {
+            // Ignore unauthorized output before inspecting any of its fields.
+            if !permitted.contains(&candidate.object_id) {
+                continue;
+            }
+            if !candidate.similarity.is_finite()
+                || !(-1.0..=1.0).contains(&candidate.similarity)
+                || usize::from(candidate.chunk_ordinal)
+                    >= crate::semantic::MAX_SEMANTIC_CHUNKS_PER_OBJECT
+                || candidate.start_byte >= candidate.end_byte
+                || candidate.end_byte as usize > crate::semantic::MAX_SEMANTIC_SOURCE_BYTES
+            {
+                return Err(SemanticError::InvalidIndexResult);
+            }
+            let replace = best_by_object.get(&candidate.object_id).is_none_or(
+                |existing: &crate::semantic::VectorMatch| {
+                    candidate.similarity > existing.similarity
+                        || (candidate.similarity == existing.similarity
+                            && candidate.chunk_ordinal < existing.chunk_ordinal)
+                },
+            );
+            if replace {
+                best_by_object.insert(candidate.object_id, candidate);
+            }
+        }
+
+        let mut hits = Vec::with_capacity(best_by_object.len());
+        for (object_id, candidate) in best_by_object {
+            let Some(record) = self.visible_object(access, object_id) else {
+                continue;
+            };
+            hits.push(SemanticHit {
+                record: record.clone(),
+                chunk_ordinal: candidate.chunk_ordinal,
+                start_byte: candidate.start_byte,
+                end_byte: candidate.end_byte,
+                similarity: candidate.similarity,
+            });
+        }
+        hits.sort_by(|left, right| {
+            right
+                .similarity
+                .partial_cmp(&left.similarity)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| left.record.object_id.cmp(&right.record.object_id))
+        });
+        hits.truncate(limit);
+        Ok(hits)
+    }
+
     /// Traverse only direct stored relations, in stable ObjectId order. A
     /// denied node is not returned and is not used as a bridge to other nodes.
     pub fn related_objects(
@@ -365,6 +506,14 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
             return false;
         };
         record.tombstoned_at.is_none() && self.visibility.can_read_object(access, record)
+    }
+}
+
+fn map_vector_index_error(error: crate::semantic::VectorIndexError) -> SemanticError {
+    match error {
+        crate::semantic::VectorIndexError::Unavailable => SemanticError::IndexUnavailable,
+        crate::semantic::VectorIndexError::Capacity => SemanticError::IndexCapacity,
+        crate::semantic::VectorIndexError::DimensionMismatch => SemanticError::DimensionMismatch,
     }
 }
 
