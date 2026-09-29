@@ -438,7 +438,7 @@ impl ModelRegistry {
     }
 }
 
-fn selection_role_priority(entry: &ModelEntry, use_default_role_order: bool) -> u8 {
+pub(crate) fn selection_role_priority(entry: &ModelEntry, use_default_role_order: bool) -> u8 {
     if !use_default_role_order {
         return 0;
     }
@@ -461,7 +461,7 @@ fn selection_role_priority(entry: &ModelEntry, use_default_role_order: bool) -> 
     }
 }
 
-fn resources_fit(manifest: &ModelManifest, resources: ResourceBudget) -> bool {
+pub(crate) fn resources_fit(manifest: &ModelManifest, resources: ResourceBudget) -> bool {
     manifest.resources.minimum_ram_bytes <= resources.available_ram_bytes
         && manifest.resources.minimum_storage_bytes <= resources.available_storage_bytes
         && manifest.resources.minimum_cpu_cores <= resources.cpu_cores

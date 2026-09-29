@@ -1,8 +1,8 @@
 # 1. Current status
 
-**Current milestone:** `M26 — Qwen / Gemma / Automatic`
+**Current milestone:** `M27 — A/B / Recovery`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21 `PARTIAL`, M22
-`BLOCKED`, M23–M25 `PARTIAL`, M26–M30 `NOT STARTED`.
+`BLOCKED`, M23–M26 `PARTIAL`, M27–M30 `NOT STARTED`.
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
 download/upload destinations, clipboard, IME text/composition events, and
@@ -73,9 +73,15 @@ warnings-denied Clippy, formatting, and Nagi target compilation pass.
 Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and
 real guest voice acceptance remain. See
 `docs/workstreams/NagiOS_M25_Voice_Workstream.md`.
-**Next action:** Advance M26's provider-health-aware role/capability/resource
-routing while keeping unverified Qwen/Gemma artifacts and guest inference
-acceptance open.
+**M26 evidence:** Added deterministic role/capability/resource/provider-health
+model routing, strict manual override checks, and unavailable-provider
+fallbacks while retaining Granite as the Standard default. Forty-four
+model-manager tests, warnings-denied Clippy, formatting, and Nagi target
+compile pass. Verified Qwen/Gemma artifacts, guest runtime/inference, switching
+UI, and real routing acceptance remain. See
+`docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`.
+**Next action:** Connect M27's bounded A/B state machine and checksummed journal
+to firmware-backed slots, boot readiness, and an actual recovery path.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -90,8 +96,8 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-30
 **Latest continuation CI:** Run
-[`36608647508`](https://github.com/RT-NISH/NagiOS/actions/runs/36608647508)
-for `9e532e756f20d65bbc9870f2e15f9c757483965f` is pending. Prior checkpoint
+[`36608796411`](https://github.com/RT-NISH/NagiOS/actions/runs/36608796411)
+for `bf994d04c96568e14908e98a45fcf7f94f355a1d` is pending. Prior checkpoint
 runs were cancelled by subsequent pushes before all gates completed. Run
 `36602252894` passed Ubuntu host tests/build/lint and formatting but failed
 both M0 launcher gates. The POSIX and Windows logs report `E0463: can't find
@@ -2148,7 +2154,7 @@ Use only these statuses:
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-three `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
 | M24 | Embedding / Semantic AI | PARTIAL | Added bounded multilingual UTF-8 chunking, embedding/provider and vector-index contracts, and visibility-filtered `SearchService` semantic indexing/query orchestration. Twenty-three `nagi-search` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. A real embedding model, durable vector index, producer synchronization, hybrid ranking/explanations, and natural-language QEMU acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator with explicit permission/indicator ordering, PCM framing limits, provider unavailability cleanup, and a target AudioService adapter. Eight `nagi-audio` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and real guest voice acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
-| M26 | Qwen / Gemma / Automatic | NOT STARTED | No M26 checkpoint recorded yet. |
+| M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
 | M27 | A/B / Recovery | NOT STARTED | No M27 checkpoint recorded yet. |
 | M28 | Integration / Stress | NOT STARTED | No M28 checkpoint recorded yet. |
 | M29 | Developer Preview Polish | NOT STARTED | No M29 checkpoint recorded yet. |
