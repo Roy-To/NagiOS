@@ -27,8 +27,15 @@ Fifteen host orchestration tests, warnings-denied Clippy, formatting, and Nagi
 user-target compilation pass. M21 remains `PARTIAL`: this branch has no real
 registered first-party action handlers, authenticated target policy provider,
 or guest acceptance.
-**Next action:** Continue M22 by reusing the existing M15 History Service and
-recording the transaction/restart gaps without fabricating AI side effects.
+**M22 evidence:** Audited the existing M15 History Service and confirmed it
+has no transaction grouping, composite undo, deserialization, or restart-
+restorable undo data. The M21 continuation has no production actions or
+authenticated target policy adapter to connect to History. The local M15
+QEMU run reached M14 playback but the host QEMU CoreAudio backend has no
+capture driver, so it stopped before History. M22 is `BLOCKED` at the M21
+dependency boundary; no AI mutation or undo acceptance is claimed.
+**Next action:** Add the trusted M21 action/policy integration and a durable,
+versioned transaction/undo contract before attempting the M22 guest flow.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -2081,7 +2088,7 @@ Use only these statuses:
 | M19 | Semantic Layer / Search | PARTIAL | Reused M19-PREP's `user/nagi-search` contract; 16 host tests, warnings-denied Clippy, formatting, and Nagi `no_std` user-target compile pass. Added end-to-end contract acceptance for producer indexing, deterministic search, visibility filtering, Workspace grouping, restart, stable-ID metadata update, and re-search. Guest persistence/service activation, trusted capability binding, real producer ID mapping, and QEMU restart acceptance remain blocked by missing target service/authority/storage adapters. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
 | M20 | AI Runtime / Granite | PARTIAL | Reused the existing `no_std` `nagi-model-manager` manifest, registry, provider, bounded-read, and Model Store contracts. These are host-tested orchestration contracts only; no pinned llama.cpp runtime, installable Granite package, active target model service, or real in-guest Granite response is present. See `docs/workstreams/model-runtime.md`. |
 | M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; 15 tests cover complete-plan parsing, bounded prompt action filtering, LLM/Decision adapters, unknown/denied actions, object visibility, path/resource bounds, successful and partial results, and confidence-independent authorization. Formatting, Clippy, and Nagi target compile pass. No production handlers or trusted target Capability/Permission adapter are registered, so no real action/QEMU acceptance is claimed. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
-| M22 | AI Safety / Undo Integration | NOT STARTED | 遯ｶ繝ｻ|
+| M22 | AI Safety / Undo Integration | BLOCKED | The existing M15 History Service records independent operations and returns one in-memory undo action; it has no TransactionId grouping, composite undo, or API to deserialize restart-restorable undo data. M21 has no production actions or authenticated target policy adapter, so there is no real AI mutation to connect. Local M15 QEMU now passes the M13 POSIX gates after correcting its test sockaddr layout, then stops at `Nagi M14 capture FAIL`: this host's QEMU CoreAudio backend reports no audio input driver, before History executes. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. No three-file AI move/undo/restart acceptance is claimed. |
 | M23 | Nagi Bar / Context / Albert AI | NOT STARTED | 遯ｶ繝ｻ|
 | M24 | Embedding / Semantic AI | NOT STARTED | 遯ｶ繝ｻ|
 | M25 | Voice | NOT STARTED | 遯ｶ繝ｻ|
@@ -2157,6 +2164,45 @@ policy/executor path passes acceptance.
 
 See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md` for
 the exact evidence and remaining integration requirements.
+
+# M22 - AI Safety / Undo Integration (`BLOCKED`)
+
+M22 acceptance requires an authorized M21 file-move action to record one
+transaction containing all three moves, preserve caller/app/session/Node/
+workspace/Object context in the existing Activity Ledger, and restore all
+three files after `undo`, including after a restart. The current M21 branch
+has no production Action Registry handlers or authenticated target policy
+adapter, so a guest AI mutation cannot be performed safely.
+
+The existing `user/nagi-history` `HistoryService` stores independent
+Create/Edit/Move/Delete/Restore entries. Its sequence number is not a
+`TransactionId`; `undo_last` returns one inverse operation and removes that
+single in-memory entry. The `NH15` serialization stores only a compact
+32-byte metadata record per entry, including name and snapshot lengths rather
+than their contents. There is no deserialize/restore API, and M15 acceptance
+does not prove that undo data can be reconstructed after restart. Replacing
+this with an AI-specific history would violate the M22 reuse requirement.
+
+Therefore M22 is `BLOCKED`, not passed by orchestration fixtures. The next
+required work is production M21 action and caller-authority integration,
+followed by a versioned extension of the existing History/Transaction
+contract that supports grouped reversible operations and restart recovery.
+Then the real guest acceptance must move three files through the validated
+Executor, verify one Activity Ledger transaction, undo all three within the
+same caller boundary, reboot, and verify the restored state and ledger.
+
+The local M15 QEMU regression did not reach its History flow. A separate
+empty-`PT_TLS` loader defect was corrected and all 15 standalone ELF parser
+tests passed. The M13 C POSIX test also exposed a stale eight-byte
+`sockaddr_in` fixture; matching Nagi's 16-byte IPv4 socket ABI allowed the
+real C socket/DNS/HTTP checks to pass. The guest then passed M14 playback but
+failed capture because local QEMU reports `Can not open virtio-sound.in` and
+`no host audio driver`. The wrapper timed out without reaching M15 History.
+This host-audio limitation does not substitute for, or count as, M22
+acceptance.
+
+See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md` for
+the inspected API limits and acceptance blockers.
 
 # M17 - Servo Bootstrap (`PASS`)
 
