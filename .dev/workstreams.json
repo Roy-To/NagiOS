@@ -516,6 +516,41 @@
       ],
       "activation_gate": "The shared UI contract and host-only adapters may integrate before M30. Target visual/runtime acceptance must be independently verified; 0.2 product/runtime adoption requires Nagi 0.1 M30 PASS and an explicit integration checkpoint.",
       "merge_boundary": "Host-side UI foundation may integrate on codex/integration-next-phase. Do not claim M10 guest UI acceptance while the M5 ELF loader prevents desktop startup; do not merge directly to main."
+    },
+    {
+      "id": "notify-01",
+      "owner": "Codex NOTIFY-01 workstream",
+      "owner_branch": "codex/0.2-notify-01",
+      "recommended_worktree": "../../.codex/worktrees/notify-01/NagiOS",
+      "state_file": ".dev/workstreams/notify-01/state.json",
+      "dependencies": [
+        "development-foundation"
+      ],
+      "allowed_paths": [
+        "crates/nagi-notification-core/**",
+        "tests/notification-core/**",
+        ".dev/workstreams/notify-01/**",
+        "docs/workstreams/NagiOS_0.2_System_Notification_Foundation_Workstream.md"
+      ],
+      "forbidden_paths": [
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/**",
+        ".dev/workstreams.json",
+        ".dev/schemas/**",
+        "docs/implementation_status.md",
+        "idl/**",
+        "schemas/**",
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "sdk/**",
+        "third_party/**",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "Host notification contracts, adapters, tests, and the in-memory reference may be prepared on this dedicated branch. Production persistence, service registration, app adoption, settings/capability/identity runtime wiring, notification UI, delivery, and target behavior require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming NOTIFY-01.",
+      "merge_boundary": "Dedicated codex/0.2-notify-01 branch only; integrate through an explicit checkpoint after review, and never merge directly to main or another workstream branch."
     }
   ]
 }

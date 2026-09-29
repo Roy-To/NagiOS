@@ -1,0 +1,144 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "notify-01",
+  "current_milestone": "Host-only notification service contract and reference store",
+  "current_checkpoint": "registered-foundation-tests-pass;commit-push-ci-pending",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+    "verified_at": "2026-09-29T05:15:32Z",
+    "normal_state": "Dedicated worktree /Users/tozawa/.codex/worktrees/notify-01/NagiOS is on codex/0.2-notify-01, based on remote-synced 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. The notify-01 row and state are registered; ./nagi dev verify passes for 19 registered workstreams and 12 state files, including notify-01. All 24 host acceptance tests, formatting, and warning-denied Clippy pass using the repository-pinned arm64 nightly toolchain. The new malformed-action test validates invalid IDs, duplicate and excessive parameter sets, and combined byte limits. ./nagi dev status confirms M17 BLOCKED and M30 NOT STARTED. Code/state/registry are still uncommitted; push and CI remain pending. No production runtime integration is performed.",
+    "commands": [
+      "RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustdoc /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo test --manifest-path crates/nagi-notification-core/Cargo.toml --offline",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH RUSTFMT=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustfmt /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo fmt --manifest-path crates/nagi-notification-core/Cargo.toml -- --check",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo clippy --manifest-path crates/nagi-notification-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "git diff --check",
+      "python3 owned-file whitespace and final-newline check"
+    ],
+    "tests": [
+      {
+        "name": "NOTIFY-01 focused host acceptance",
+        "command": "RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustdoc /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo test --manifest-path crates/nagi-notification-core/Cargo.toml --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "24 acceptance tests passed, 0 failed; library and doc-test targets also passed. Includes malformed action descriptor validation, identity/localization, ordering, idempotent transitions, expiry, profile isolation, action revalidation/authorization, policy decisions/failure modes, Personal/Sensitive/Secret redaction, atomic updates, corrupt recovery, migration/generation overflow, quotas/eviction, and diagnostics sink failure/rate limiting."
+      },
+      {
+        "name": "NOTIFY-01 formatting",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH RUSTFMT=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustfmt /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo fmt --manifest-path crates/nagi-notification-core/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Crate and acceptance test target are rustfmt-clean with the repository-pinned nightly toolchain."
+      },
+      {
+        "name": "NOTIFY-01 warning-denied Clippy",
+        "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo clippy --manifest-path crates/nagi-notification-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All standalone crate targets and the acceptance target pass Clippy with warnings denied using the repository-pinned nightly toolchain."
+      },
+      {
+        "name": "DF-01 registered-state verifier",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "19 registered workstreams and 12 state files validated; notify-01 is included. Ran on codex/0.2-notify-01 at 198b9f60b41eba14e74c2c04f51ccdcb4030adf9."
+      },
+      {
+        "name": "DF-01 workstream status and release gate",
+        "command": "./nagi dev status",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Status reports the dedicated notify-01 branch/worktree, no active blocker, M17 BLOCKED, and M30 NOT STARTED. Foundation state remains PARTIAL only while commit/push/CI acceptance is pending."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md; docs/0.2/WORKSTREAMS.md; docs/workstreams/NagiOS_0.2_System_Notification_Foundation_Workstream.md",
+    "last_checked_at": "2026-09-29T05:09:16Z",
+    "activation_requirement": "Host-only notification Foundation acceptance is independently PASS. Production persistence, service registration, app adoption, Settings/capability/identity runtime wiring, target behavior, notification UI, or delivery requires Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming NOTIFY-01. Current release evidence keeps M17 BLOCKED and M30 NOT STARTED."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": "Two registered-state verifier failures were corrected: the first rejected the stale pre-registration state because blocker.active was true while blocker.class was null; the second rejected references to ident-01, settings-configuration, and system-service-ipc because those IDs are not registered. The blocker was cleared and cross_workstream_dependencies was restricted to registered IDs; the final ./nagi dev verify passes for 19 workstreams and 12 state files including notify-01. Initial Cargo attempts selected x86_64 Homebrew Rust tools from /usr/local/bin on an arm64 host and mixed rustdoc/Clippy toolchains; explicitly selecting the repository-pinned arm64 nightly toolchain resolved the environment issue. An initial format check caught only formatting introduced by the new malformed-action acceptance test; cargo fmt fixed it and the subsequent check passes. No implementation test failure remains.",
+    "attempted_fixes": [
+      "Removed public service getters that exposed persistence and adapter internals and could bypass profile-scoped service APIs; tests observe state through their fixture.",
+      "Reject generation advancement at u64::MAX instead of saturating and reusing a persistence revision; in-memory compare-and-swap also uses checked_add(1).",
+      "Use saturating byte aggregation for snapshots and total in-memory store usage so accumulated sizes cannot wrap below quota checks.",
+      "Rate-limit diagnostic sink attempts to 128 per 1,000 monotonic milliseconds, track dropped events internally, and report a process-level summary at the next available window.",
+      "Added explicit malformed action descriptor acceptance coverage for invalid action IDs, duplicate parameter names, excessive parameter count, and descriptor byte limits."
+    ],
+    "do_not_try": [
+      "Do not reset, clean, force-checkout, rebase, or alter another workstream branch/worktree; do not delete unrelated untracked files or stash unrelated work.",
+      "Do not push to codex/integration-next-phase, main, or another workstream branch; push only codex/0.2-notify-01.",
+      "The notify-01 registry row assigns only its registered allowed paths; do not modify schemas, root manifests/locks, shared CI, shared IDL/ABI, docs/implementation_status.md, localization catalogs, Settings, capability, identity, service IPC, app lifecycle, M17/M18/M30, or other workstream source/state.",
+      "Do not activate production persistence, service registration, app adoption, runtime policy/permission wiring, notification UI, push, email, SMS, or target behavior before the stated M30 integration gate."
+    ]
+  },
+  "next_action": "Review the exact owned-file diff, commit and push only codex/0.2-notify-01, verify the remote SHA and clean dedicated worktree, then inspect and record the resulting CI run. Keep all production runtime integration gated as stated.",
+  "acceptance_criteria": [
+    "PASS: NotificationId, adapter-authenticated source attribution, localized/user-text content, priority/severity, injected timestamps, lifecycle/read state, grouping, and permission-free data action descriptor types are documented and validated.",
+    "PASS: publish/query/mark-read/acknowledge/dismiss APIs have typed outcomes; state transitions are idempotent and dismissed records retain audit data.",
+    "PASS: injected monotonic time drives expiry visibility and deterministic bounded cleanup at the expiry boundary.",
+    "PASS: action descriptors contain no code or authority; invalid IDs/parameters/limits are rejected, and activation revalidates source and capability before resolving provider availability.",
+    "PASS: persistence is abstracted, profile-scoped, versioned, and atomic; a bounded in-memory reference implementation satisfies the host contract. Durable production storage remains deferred.",
+    "PASS: unread/read transitions, groups, deterministic ordering, and cross-profile read/update/action isolation are covered by focused tests.",
+    "PASS: quiet/focus policy supports permit, defer, suppress-with-retention, reject, and configured fail-safe provider failure without owning Settings.",
+    "PASS: capability hooks fail closed through host mocks for publish/list/read/state-change/action operations; canonical runtime capability wiring remains deferred.",
+    "PASS: Personal, Sensitive, and Secret content is redacted before persistence and is rechecked at query/UI/export boundaries; diagnostics omit content and action parameters.",
+    "PASS: profile/item/notification-byte/store-byte/group/query/action quotas and deterministic terminal/read eviction are bounded; unread items are not evicted.",
+    "PASS: lifecycle, policy, persistence, capacity, redaction, action, sink-failure, and rate-limit diagnostics use bounded metadata-only events; shared production sink remains deferred.",
+    "PASS: host mock/in-memory behavior and a future UI view/adapter boundary share the contract; no product UI or delivery is claimed.",
+    "PASS: implementation and tests stay within registered NOTIFY-01 ownership paths; no other workstream files or M17/M18/M30 implementation are included.",
+    "PASS: state uses the current DF-01 schema, notify-01 is registered, and ./nagi dev verify includes its state.",
+    "IN PROGRESS: focused checks and registered-state verification pass; owned-branch commit/push, remote equality, clean worktree, and relevant CI status remain to be recorded."
+  ],
+  "deferred": [
+    "Durable filesystem/VFS persistence and production notification service registration.",
+    "Canonical identity/profile, capability, diagnostics, and Settings quiet/focus runtime adapters; retain host-only adapters until owning contracts are versioned and integrated.",
+    "First-party application adoption, notification center/banner/toast/shell/lock-screen UI, and target/QEMU behavior.",
+    "Push/cloud/mobile push, email, SMS, delivery providers, remote queues, and cross-device synchronization.",
+    "Root workspace, shared CI, shared schemas, IDL/ABI, localization catalogs, Settings keys, and all other workstream changes.",
+    "Unregistered Identity, Settings policy, and system-service-IPC targets are adapter targets only; track them as registered dependencies only after their owners publish versioned contracts.",
+    "The notification crate is outside the root workspace, so current shared CI does not run its focused suite; a narrow CI step is proposed in registration-proposal.json and requires the shared CI owner."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 workstream ownership, durable state, registration, and verification rules.",
+      "version": "workstream-state-v1 at baseline 198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+      "status": "PASS: notify-01 is registered and validated by ./nagi dev verify against the current DF-01 schema."
+    },
+    {
+      "workstream_id": "localization-i18n",
+      "contract": "Existing nagi-localization::MessageId and LocaleContext consumed by the standalone crate; catalog validation and rendering remain adapters.",
+      "version": "nagi-localization 0.1.0 in the inspected checkout",
+      "status": "PASS for the host library contract: the standalone crate consumes the existing MessageId and LocaleContext types; no catalog or localization-owned files were changed."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Existing AppId and service identity remain owned externally and can be mapped by NotificationAdapters; notification core introduces no replacement identity type.",
+      "version": "nagi-model 0.1.0 AppId; user/libnagi 0.1.0 M6 ServiceId",
+      "status": "ADAPTER ONLY: source identity remains opaque/generic in host tests; no canonical AppId/ServiceId runtime binding is included."
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "Operation-level publish/list/read/state-change/export/action authorization and may-view-sensitive decisions through NotificationAdapters.",
+      "version": "No shared runtime binding accepted; capability-permissions state is PARTIAL on its separate owner worktree.",
+      "status": "HOST MOCK PASS: operation-level denial and sensitive-view hooks are tested. Production capability binding remains owned by capability-permissions and deferred."
+    },
+    {
+      "workstream_id": "diagnostics",
+      "contract": "Metadata-only NotificationDiagnosticEvent delivered through a narrow, failure-tolerant NotificationDiagnosticsSink adapter.",
+      "version": "NOTIFY-01 local event contract v1; no shared notification event schema accepted",
+      "status": "HOST CONTRACT PASS: bounded metadata-only diagnostic events and sink-failure isolation are tested. Shared production sink binding remains deferred."
+    }
+  ]
+}

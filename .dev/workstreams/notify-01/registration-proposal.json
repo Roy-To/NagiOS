@@ -1,0 +1,75 @@
+{
+  "proposal_version": 1,
+  "workstream_id": "notify-01",
+  "name": "System Notification Foundation",
+  "proposal_status": "REGISTERED",
+  "proposal_baseline": {
+    "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+    "branch_observed": "codex/integration-next-phase",
+    "base_approval": "USER-DIRECTED: current remote-synced integration HEAD selected after DF-01 and history review"
+  },
+  "registry_entry": {
+    "id": "notify-01",
+    "owner": "Codex NOTIFY-01 workstream",
+    "owner_branch": "codex/0.2-notify-01",
+    "recommended_worktree": "/Users/tozawa/.codex/worktrees/notify-01/NagiOS",
+    "state_file": ".dev/workstreams/notify-01/state.json",
+    "dependencies": [
+      "development-foundation"
+    ],
+    "allowed_paths": [
+      "crates/nagi-notification-core/**",
+      "tests/notification-core/**",
+      ".dev/workstreams/notify-01/**",
+      "docs/workstreams/NagiOS_0.2_System_Notification_Foundation_Workstream.md"
+    ],
+    "forbidden_paths": [
+      "Cargo.toml",
+      "Cargo.lock",
+      ".github/workflows/**",
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      "docs/implementation_status.md",
+      "idl/**",
+      "schemas/**",
+      "kernel/**",
+      "loader/**",
+      "user/**",
+      "sdk/**",
+      "third_party/**",
+      "out/**",
+      "target/**"
+    ],
+    "activation_gate": "Host notification contracts, adapters, tests, and the in-memory reference may be prepared on this dedicated branch. Production persistence, service registration, app adoption, settings/capability/identity runtime wiring, notification UI, delivery, and target behavior require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming NOTIFY-01.",
+    "merge_boundary": "Dedicated codex/0.2-notify-01 branch only; integrate through an explicit checkpoint after review, and never merge directly to main or another workstream branch."
+  },
+  "proposed_host_test_command": {
+    "command": "cargo test --manifest-path crates/nagi-notification-core/Cargo.toml --offline",
+    "status": "PASS_IN_DEDICATED_WORKTREE",
+    "note": "24 host acceptance tests, library/doc-test targets, format check, and warning-denied Clippy passed in /Users/tozawa/.codex/worktrees/notify-01/NagiOS using the repository-pinned arm64 nightly toolchain. These host checks do not establish durable production persistence, service activation, UI, delivery, or runtime integration acceptance."
+  },
+  "integration_owner_actions": [
+    "Review the registered host-only foundation when selecting the next integration checkpoint.",
+    "After Nagi 0.1 M30 PASS and an explicit checkpoint naming NOTIFY-01, assign/version production identity, capability, policy, diagnostics, persistence, service IPC, and UI adapter contracts before runtime integration.",
+    "Do not merge this dedicated branch directly to main or another workstream branch."
+  ],
+  "scope_notes": [
+    "The registration has only development-foundation as a hard dependency. Unregistered Identity, Settings, SVC-IPC, and app lifecycle work are adapter targets, not implied dependencies or edit permission.",
+    "The standalone crate depends on the existing nagi-localization 0.1.0 MessageId and LocaleContext types. It does not add catalog messages.",
+    "AppId and M6 ServiceId remain owned by their existing contracts and are represented through generic identity adapters; this crate defines no competing app/service/profile identity.",
+    "Capability, profile, source identity, policy, localization rendering, persistence, diagnostics, and UI behavior are injected. Current tests use host-only mocks; no production runtime adapter is active.",
+    "No notification UI, banner, toast, push/cloud/mobile push, email, SMS, app adoption, Settings key, root workspace/CI, shared schema, IDL/ABI, M18, M17/M30 implementation, or other workstream source/state is included.",
+    "The workstream is registered. Its state is now part of the root ./nagi dev verify target; PASS in this record covers the host Foundation acceptance only."
+  ],
+  "ci_proposal": {
+    "status": "PROPOSAL_ONLY_NO_SHARED_CI_EDIT",
+    "target": ".github/workflows/ci.yml",
+    "reason": "The notification crate is intentionally standalone and is not a root workspace member; current CI workspace format, Clippy, build, and test commands therefore do not compile or run its 24 acceptance cases.",
+    "suggested_steps": [
+      "cargo fmt --manifest-path crates/nagi-notification-core/Cargo.toml -- --check",
+      "cargo clippy --manifest-path crates/nagi-notification-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path crates/nagi-notification-core/Cargo.toml --locked --offline"
+    ],
+    "ownership_note": "A later Integration Owner/CI-acceptance checkpoint should approve and apply the shared workflow change; .github/workflows/ci.yml is forbidden to this workstream."
+  }
+}
