@@ -2,7 +2,7 @@
 
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21 `PARTIAL`, M22
-`BLOCKED`, M23–M29 `PARTIAL`, M30 `NOT STARTED`.
+`BLOCKED`, M23–M30 `PARTIAL`.
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
 download/upload destinations, clipboard, IME text/composition events, and
@@ -10,13 +10,15 @@ trusted interactive site-permission decisions still lack Nagi providers; the
 user-directed M19 work proceeds because those services are not M19
 dependencies.
 **M19 evidence:** The deterministic metadata/search contract is integrated
-into the root workspace. Nineteen host tests cover metadata search, policy
-filtering, producer adapters, and two-slot snapshot recovery. The M19 target
-feature compiles with the bounded POSIX allocator; `./nagi m19` passed the
-guest VFS persistence acceptance across an init remount and QEMU restart using
-the same persistent disk. M19 remains `PARTIAL`: this acceptance uses a fixed
-private fixture, not live File/page producers, and Search is not exposed as a
-production IPC service with authenticated capability-bound caller context.
+into the root workspace. Host tests cover metadata search, policy filtering,
+producer adapters, and two-slot snapshot recovery. `./nagi m19` now enumerates
+one real guest VFS file, maps its metadata through `FilesProducerAdapter`,
+persists an independent fixture Object ID, and verifies that ID and file
+location after rename, VFS remount, and a fresh QEMU restart. M19 remains
+`PARTIAL`: this is a fixed private acceptance file, not synchronization from
+the production Files or browser-page services; inode reuse is not addressed,
+and Search is not exposed as a production IPC service with authenticated,
+capability-bound caller context.
 **M20 evidence:** The provider-neutral `no_std` model manager now verifies
 actual artifact bytes with streaming SHA-256 before backend load. Its catalog
 pins the IBM Granite 4.2 3B Q4_K_M source revision, size, digest, and Apache
@@ -45,7 +47,9 @@ restart recovery of pending undo metadata. A two-slot guest VFS archive and
 `./nagi m22` QEMU fixture verified three-file moves, restart-restorable undo,
 and original contents after restart; nine History tests, warnings-denied
 Clippy, formatting, CLI tests (114 unit + 18 integration), and Nagi target
-compile pass. `NH15` remains the M15 compatibility serializer. M22 is still
+compile pass. Its QEMU regression was rerun on 2026-09-30 after preserving the
+pre-sweep disk and logs; the three-boot NH16 restore/undo acceptance passed.
+`NH15` remains the M15 compatibility serializer. M22 is still
 `BLOCKED` at the formal AI acceptance because M21 has no authenticated
 production move action, no trusted guest caller/policy adapter, and no
 production Activity Ledger linkage. The separate M15 regression reached M14
@@ -86,16 +90,17 @@ warnings-denied Clippy, formatting, and the UEFI release build pass.
 Firmware-backed persistence, actual A/B image slots, boot-readiness wiring,
 Recovery Environment, and broken-slot QEMU rollback remain. See
 `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`.
-**M28 evidence:** The stress harness now accepts the M19 previous-boot marker
-from either its initial or restart log and archives generated images, OVMF
-variables, logs, and disk snapshots between repetitions. After preserving the
-pre-existing outputs and disks, two real `./nagi m19` plus `./nagi m22`
-QEMU repetitions passed, including M19 guest-search persistence and M22
-three-boot NH16 restore/undo markers. Shell syntax, self-test, and dry-run
-checks pass. M28 remains `PARTIAL`: the combined Desktop/Files/Notes/Albert,
-Granite, audio, Semantic Search, OOM, fairness, and leak workload has not been
-measured. QEMU reported that no host virtio-sound input driver is available;
-these repetitions did not exercise audio. See
+**M28 evidence:** The stress harness uses the current M19 VFS/ObjectId artifact
+namespace, validates the live file/ObjectId marker, accepts a previous-boot
+marker from either initial or restart logs, and archives generated images,
+OVMF variables, logs, and disk snapshots between repetitions. After preserving
+the existing acceptance outputs and disks, one real `NAGI_M28_REPEAT_COUNT=1`
+run passed the current M19 guest gate and M22 three-boot NH16 restore/undo
+gate. Shell syntax, self-test, and dry-run checks pass. M28 remains `PARTIAL`:
+the combined Desktop/Files/Notes/Albert, Granite, audio, Semantic Search, OOM,
+fairness, and leak workload has not been measured. QEMU reported that no host
+virtio-sound input driver is available; these Search/History gates did not
+exercise audio. See
 `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`.
 **M29 evidence:** Added cross-linked root, Developer Preview, SDK, contribution,
 and roadmap documentation, with explicit setup, provider, recovery, language,
@@ -135,28 +140,30 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-30
 **Latest continuation CI:** Run
-[`36614842832`](https://github.com/RT-NISH/NagiOS/actions/runs/36614842832)
-for `71e3a9de4ca17c773953358ee8b6bad4364e0d89` was pending when last checked.
-The preceding M29 run `36613069872` passed Ubuntu host and Windows launcher,
-including the corrected M0 launcher acceptance; its authoritative target job
-was still building the user init. Earlier checkpoint runs were cancelled by
-subsequent pushes before all gates completed; run `36611468722` also passed
-host and Windows before its target job was cancelled. Run
-`36602252894` passed Ubuntu host tests/build/lint and formatting but failed
-both M0 launcher gates. The POSIX and Windows logs report `E0463: can't find
-crate for alloc` while building `nagi-history`; the Windows launcher returned
-101 from `nagi image`, so this was not an exit-propagation defect. Commit
-`fe26f3f` adds `alloc` to no-std init-image builds. The POSIX M0 launcher
-acceptance passes locally after the fix; corrected Windows acceptance and
-M17/M18 QEMU regressions await a complete CI run. Earlier M22 base run
-[`36576635230`](https://github.com/RT-NISH/NagiOS/actions/runs/36576635230)
-passed all gates on `a69746a82df209b1565db6b32ecf8e3b7665424b`.
-**Last known checkpoint:** The user-directed continuation is on
+[`36615323040`](https://github.com/RT-NISH/NagiOS/actions/runs/36615323040)
+passed Ubuntu host, Windows launcher, and the Nagi target gates on base commit
+`db2ffb7bc4a51cb1455efc194ccc843ab08d7203`, including M17 first-web-pixel,
+M18-B chrome, and M18 three-site HTTPS/QEMU acceptance. This is the predecessor
+baseline; M19 live VFS and M22 regression steps were added to CI in the current
+checkpoint and await its new run.
+**Last known checkpoint:** The user-directed continuation remains on
 `codex/m19-m22-continuation` in
-`/Users/tozawa/.codex/worktrees/m19-m22-continuation/NagiOS`. The M19 guest
-VFS persistence acceptance is verified on this branch and recorded in the
-current M19 checkpoint. Its production IPC/capability and live producer
-integration remain open.
+`/Users/tozawa/.codex/worktrees/m19-m22-continuation/NagiOS`. On 2026-09-30,
+`./nagi m19` passed on a fresh isolated disk through bootstrap, initial, and
+restart boots, indexing a real VFS file and verifying its fixture ObjectId
+after rename and restart. `./nagi m22` passed the three-boot NH16 undo
+acceptance, and one current-path M28 Search/History repetition passed. The
+original M19/M22 disks and logs were preserved before reruns under
+`out/evidence/`. M19 production IPC/capability, live Files/page producer
+integration, and M22 authenticated AI mutation/Activity Ledger integration
+remain open.
+Focused `cargo test --locked --offline -p nagi-cli -p nagi-search -p nagi-ai
+-p nagi-history --all-targets` passed 187 tests total (114 CLI unit, 18 CLI
+integration, 23 Search, 23 AI, and 9 History). The M19 Nagi-target check,
+package-only target Clippy, formatting,
+M28 shell syntax, self-test, dry-run, and one-repetition run passed. Full target
+Clippy also reports a pre-existing `clippy::not_unsafe_ptr_arg_deref` error
+in `user/nagi-posix/src/lib.rs:572`; the affected POSIX code was not changed.
 `./nagi m18` build/acceptance path, a guest runner that records normal TLS
 verifier success and real Servo frames, and the M18-B browser state/chrome
 modules from checkpoint `ee49b812fa69c943c34ca076fe795e6ba92e504f`. The guest

@@ -46,6 +46,7 @@ validate_m19_log() {
         'Nagi M7 VirtIO Block PASS' \
         'Nagi M13 Rust PAL PASS' \
         'Nagi M13 C POSIX PASS' \
+        'Nagi M19 live VFS file ObjectId rename/restart PASS' \
         'Nagi M19 previous-boot snapshot PASS' \
         'Nagi M19 guest search persistence PASS' \
         'Nagi M19 acceptance PASS' \
@@ -90,6 +91,7 @@ Nagi M3 acceptance PASS
 Nagi M7 VirtIO Block PASS
 Nagi M13 Rust PAL PASS
 Nagi M13 C POSIX PASS
+Nagi M19 live VFS file ObjectId rename/restart PASS
 Nagi M19 previous-boot snapshot PASS
 Nagi M19 guest search persistence PASS
 Nagi M19 acceptance PASS
@@ -139,10 +141,10 @@ repo_root=$(git -C "$script_dir/../.." rev-parse --show-toplevel 2>/dev/null) \
     || fail 'cannot locate repository root with git rev-parse'
 cd "$repo_root"
 
-m19_disk=out/artifacts/nagi-0.1-m19-search-user-data.img
+m19_disk=out/artifacts/nagi-0.1-m19-vfs-objectid-user-data.img
 m22_disk=out/artifacts/nagi-0.1-m22-history-user-data.img
-m19_initial_log=out/logs/m19-search-initial.log
-m19_log=out/logs/m19-search-restart.log
+m19_initial_log=out/logs/m19-vfs-objectid-initial.log
+m19_log=out/logs/m19-vfs-objectid-restart.log
 m22_log=out/logs/m22-history-boot-3.log
 
 latest_m19_log() {
@@ -187,10 +189,11 @@ if [ "$mode" = --dry-run ]; then
     printf 'Named outputs that --run would overwrite if present:\n'
     collision=0
     for output in \
-        out/artifacts/nagi-0.1-m19-search.img \
-        out/artifacts/nagi-0.1-m19-search-vars.fd \
-        out/logs/m19-search-initial.log \
-        out/logs/m19-search-restart.log \
+        out/artifacts/nagi-0.1-m19-vfs-objectid.img \
+        out/artifacts/nagi-0.1-m19-vfs-objectid-vars.fd \
+        out/logs/m19-vfs-objectid-bootstrap.log \
+        out/logs/m19-vfs-objectid-initial.log \
+        out/logs/m19-vfs-objectid-restart.log \
         out/artifacts/nagi-0.1-m22-history.img \
         out/artifacts/nagi-0.1-m22-history-vars.fd \
         out/logs/m22-history-boot-1.log \
@@ -213,10 +216,11 @@ fi
 
 collisions=''
 for output in \
-    out/artifacts/nagi-0.1-m19-search.img \
-    out/artifacts/nagi-0.1-m19-search-vars.fd \
-    out/logs/m19-search-initial.log \
-    out/logs/m19-search-restart.log \
+    out/artifacts/nagi-0.1-m19-vfs-objectid.img \
+    out/artifacts/nagi-0.1-m19-vfs-objectid-vars.fd \
+    out/logs/m19-vfs-objectid-bootstrap.log \
+    out/logs/m19-vfs-objectid-initial.log \
+    out/logs/m19-vfs-objectid-restart.log \
     out/artifacts/nagi-0.1-m22-history.img \
     out/artifacts/nagi-0.1-m22-history-vars.fd \
     out/logs/m22-history-boot-1.log \
@@ -239,8 +243,9 @@ archive_iteration_outputs() {
     cp -p "$m19_disk" "$archive_dir/"
     cp -p "$m22_disk" "$archive_dir/"
     for output in \
-        out/artifacts/nagi-0.1-m19-search.img \
-        out/artifacts/nagi-0.1-m19-search-vars.fd \
+        out/artifacts/nagi-0.1-m19-vfs-objectid.img \
+        out/artifacts/nagi-0.1-m19-vfs-objectid-vars.fd \
+        out/logs/m19-vfs-objectid-bootstrap.log \
         "$m19_initial_log" \
         "$m19_log" \
         out/artifacts/nagi-0.1-m22-history.img \

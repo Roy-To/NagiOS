@@ -272,3 +272,7 @@ jobs:
         run: |
           source out/mesa-venv/bin/activate
           ./nagi m18
+      - name: M19 live VFS Search acceptance
+        run: ./nagi m19
+      - name: M22 NH16 grouped Undo acceptance
+        run: ./nagi m22

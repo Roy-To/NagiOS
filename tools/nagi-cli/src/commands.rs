@@ -3096,7 +3096,7 @@ fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 
 fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let image_result =
-        execute_image_with_features(root, Some("m19-search"), "nagi-0.1-m19-search.img");
+        execute_image_with_features(root, Some("m19-search"), "nagi-0.1-m19-vfs-objectid.img");
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -3112,12 +3112,12 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
     };
-    let image_path = artifacts.join("nagi-0.1-m19-search.img");
-    let persistent_disk = artifacts.join("nagi-0.1-m19-search-user-data.img");
-    let vars_copy = artifacts.join("nagi-0.1-m19-search-vars.fd");
-    let bootstrap_log = logs.join("m19-search-bootstrap.log");
-    let initial_log = logs.join("m19-search-initial.log");
-    let restart_log = logs.join("m19-search-restart.log");
+    let image_path = artifacts.join("nagi-0.1-m19-vfs-objectid.img");
+    let persistent_disk = artifacts.join("nagi-0.1-m19-vfs-objectid-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-m19-vfs-objectid-vars.fd");
+    let bootstrap_log = logs.join("m19-vfs-objectid-bootstrap.log");
+    let initial_log = logs.join("m19-vfs-objectid-initial.log");
+    let restart_log = logs.join("m19-vfs-objectid-restart.log");
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
@@ -3195,6 +3195,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi M7 VirtIO Block PASS",
             "Nagi M13 Rust PAL PASS",
             "Nagi M13 C POSIX PASS",
+            "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M19 acceptance PASS",
             "Nagi M13 acceptance PASS",
@@ -3240,7 +3241,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M19 guest Search Service: stable ObjectId and Workspace survived VFS remount and QEMU restart (acceptance marker reached; log {})",
+            "PASS M19 guest Search: live VFS file metadata and stable ObjectId survived rename, remount, and QEMU restart (acceptance marker reached; log {})",
             final_log.display()
         )],
     }

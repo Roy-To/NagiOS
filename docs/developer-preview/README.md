@@ -168,8 +168,9 @@ cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- \
 
 - M17: `out/logs/m17-first-boot.log`、`out/logs/m17-servo.log`
 - M18: `out/logs/m18-first-boot.log`、`out/logs/m18-albert.log`
-- M19: `out/logs/m19-search-bootstrap.log`、`m19-search-initial.log`、
-  `m19-search-restart.log`（いずれも `out/logs/` 内）
+- M19: `out/logs/m19-vfs-objectid-bootstrap.log`、
+  `m19-vfs-objectid-initial.log`、`m19-vfs-objectid-restart.log`
+  （いずれも `out/logs/` 内）
 - M22: `out/logs/m22-history-bootstrap.log` と
   `out/logs/m22-history-boot-*.log`
 

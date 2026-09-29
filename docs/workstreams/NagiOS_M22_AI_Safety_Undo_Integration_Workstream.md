@@ -76,6 +76,9 @@ system and would not satisfy the required integration.
   file contents. The final acceptance output is recorded in
   `out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`; the first
   forward-move marker was observed before the root-listing fix.
+- Regression rerun on 2026-09-30 passed all three QEMU boots. The prior disk,
+  OVMF vars, bootstrap log, and three serial logs were copied before the run to
+  `out/evidence/m22-before-sweep-rerun-20260930/`.
 - This is a guest VFS/persistence fixture only. It is not the required
   authenticated M21 Executor action and does not prove production capability
   checks or linkage to the M15 NH15 ledger.

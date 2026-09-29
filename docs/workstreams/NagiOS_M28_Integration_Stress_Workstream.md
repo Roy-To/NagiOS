@@ -14,7 +14,7 @@ M28 is not accepted.
 `tests/acceptance/m28_integration_stress.sh` provides a bounded integration
 slice using the existing independent persistent disks:
 
-- `out/artifacts/nagi-0.1-m19-search-user-data.img`
+- `out/artifacts/nagi-0.1-m19-vfs-objectid-user-data.img`
 - `out/artifacts/nagi-0.1-m22-history-user-data.img`
 
 For each repetition, `--run` invokes the real `./nagi m19` and `./nagi m22`
@@ -76,6 +76,23 @@ guest NH16 flow remains a VFS persistence fixture without authenticated M21
 mutation authority. Passing these repeated guest restart checks advances only
 this integration slice; it does not satisfy M28's complete reference-load
 acceptance.
+
+## Isolated artifact namespace continuation — 2026-09-30
+
+The M19 acceptance now uses the isolated `nagi-0.1-m19-vfs-objectid-*` image,
+disk, and OVMF vars names, with `m19-vfs-objectid-*.log` serial outputs. The
+M28 harness follows those names and requires the live VFS file/ObjectId marker
+in addition to the previous-boot Search markers. This preserves the earlier
+`m19-search-*` evidence. The harness self-test and dry-run passed with the new
+M19 namespace and the existing M22 disk/logs; the dry-run reported the
+expected collision guards without writing or booting anything. Full repeated
+M28 invocation requires archiving generated image/log outputs first. Before
+the real check, the accepted M19 and M22 images, vars, logs, and disks were
+copied to `out/evidence/pre-m28-continuation-20260930/`; generated image/log
+files were moved there to clear the runner's collision guard. A real
+`NAGI_M28_REPEAT_COUNT=1 ... --run` then passed the current M19 gate and the
+three-boot M22 gate. M28 remains PARTIAL because this Search/History slice does
+not measure its combined reference workload.
 
 ## Commands
 

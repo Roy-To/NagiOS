@@ -1,9 +1,17 @@
-use alloc::string::String;
-use libnagi::storage::{BlockDevice, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE};
+use alloc::{
+    collections::BTreeMap,
+    string::{String, ToString},
+    vec::Vec,
+};
+use libnagi::storage::{
+    BlockDevice, DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
+    MAX_FILE_SIZE,
+};
 use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
 use nagi_search::{
-    AccessContext, GuestSnapshotBackend, MetadataRecord, ObjectKind, SearchQuery, SnapshotFile,
-    SnapshotFileStore, SnapshotSlot, VisibilityFilter, VisibilityScope, Workspace,
+    adapters::{FilesProducerAdapter, ProducerObject},
+    AccessContext, GuestSnapshotBackend, MetadataRecord, ObjectKind, SearchQuery, SearchService,
+    SnapshotFile, SnapshotFileStore, SnapshotSlot, VisibilityFilter, VisibilityScope, Workspace,
     WorkspaceSession, GUEST_FILE_BYTES,
 };
 
@@ -13,6 +21,14 @@ const WORKSPACE_ID: WorkspaceId = WorkspaceId(0x4e41_4749_4d19_0002);
 const APP_ID: AppId = AppId(0x4e41_4749_4d19_0003);
 const SESSION_ID: AppSessionId = AppSessionId(0x4e41_4749_4d19_0004);
 const ACCESS: AccessContext = AccessContext::for_application(APP_ID, SESSION_ID);
+const FILE_ID_BASE: u64 = 0x4e41_4749_4d19_1000;
+const FILE_INDEXER_ATTRIBUTE: &str = "nagi.files.indexer";
+const FILE_INODE_ATTRIBUTE: &str = "nagi.files.vfs_inode";
+const FILE_INDEXER_ID: &str = "m19-vfs-files-fixture";
+const LIVE_FILE_SOURCE: &[u8] = b"nagi-m19-live-source.txt";
+const LIVE_FILE_RENAMED: &[u8] = b"nagi-m19-live-file.txt";
+const LIVE_FILE_CONTENT: &[u8] = b"A real guest VFS file indexed by Nagi Search.\n";
+const MAX_M19_ROOT_ENTRIES: usize = 64;
 
 const _: [(); BLOCK_SIZE] = [(); GUEST_FILE_BYTES];
 
@@ -116,8 +132,12 @@ impl VisibilityFilter for M19AcceptanceVisibility {
     fn can_read_object(&self, access: AccessContext, record: &MetadataRecord) -> bool {
         access.app_id == Some(APP_ID)
             && access.app_session_id == Some(SESSION_ID)
-            && record.object_id == OBJECT_ID
             && record.visibility == VisibilityScope::Private
+            && (record.object_id == OBJECT_ID
+                || record
+                    .attributes
+                    .get(FILE_INDEXER_ATTRIBUTE)
+                    .is_some_and(|indexer| indexer == FILE_INDEXER_ID))
     }
 
     fn can_read_workspace(&self, access: AccessContext, workspace: &Workspace) -> bool {
@@ -139,67 +159,294 @@ impl VisibilityFilter for M19AcceptanceVisibility {
     }
 }
 
-fn open_search(
-    block_capability: u64,
-) -> Result<
-    nagi_search::SearchService<
-        GuestSnapshotBackend<VfsSnapshotFiles<SyscallBlockDevice>>,
-        M19AcceptanceVisibility,
-    >,
-    nagi_search::MetadataStoreError,
-> {
-    let (volume, _) = Vfs::mount_or_format(SyscallBlockDevice::new(block_capability))
+type M19SearchService = SearchService<
+    GuestSnapshotBackend<VfsSnapshotFiles<SyscallBlockDevice>>,
+    M19AcceptanceVisibility,
+>;
+
+fn open_volume(block_capability: u64) -> Result<Vfs<SyscallBlockDevice>, StorageError> {
+    Vfs::mount_or_format(SyscallBlockDevice::new(block_capability)).map(|(volume, _)| volume)
+}
+
+fn open_search(block_capability: u64) -> Result<M19SearchService, nagi_search::MetadataStoreError> {
+    let volume = open_volume(block_capability)
         .map_err(|_| nagi_search::MetadataStoreError::Backend(nagi_search::BackendError::Io))?;
     let files = VfsSnapshotFiles::new(volume).map_err(nagi_search::MetadataStoreError::Backend)?;
     nagi_search::SearchService::open(GuestSnapshotBackend::new(files), M19AcceptanceVisibility)
 }
 
+fn fixture_file(volume: &mut Vfs<SyscallBlockDevice>) -> Option<(FileHandle, &'static [u8])> {
+    let source = match volume.open(LIVE_FILE_SOURCE) {
+        Ok(handle) => Some(handle),
+        Err(StorageError::NotFound) => None,
+        Err(_) => return None,
+    };
+    let renamed = match volume.open(LIVE_FILE_RENAMED) {
+        Ok(handle) => Some(handle),
+        Err(StorageError::NotFound) => None,
+        Err(_) => return None,
+    };
+    let (handle, name) = match (source, renamed) {
+        (Some(_), Some(_)) => return None,
+        (Some(handle), None) => (handle, LIVE_FILE_SOURCE),
+        (None, Some(handle)) => (handle, LIVE_FILE_RENAMED),
+        (None, None) => {
+            let handle = volume.create(LIVE_FILE_SOURCE).ok()?;
+            volume.write(handle, LIVE_FILE_CONTENT).ok()?;
+            (handle, LIVE_FILE_SOURCE)
+        }
+    };
+    let mut content = [0; MAX_FILE_SIZE];
+    let length = volume.read(handle, &mut content).ok()?;
+    (&content[..length] == LIVE_FILE_CONTENT).then_some((handle, name))
+}
+
+fn indexed_file_records(service: &M19SearchService) -> Option<Vec<MetadataRecord>> {
+    let query = SearchQuery {
+        kind: Some(ObjectKind::File),
+        limit: MAX_M19_ROOT_ENTRIES,
+        ..SearchQuery::default()
+    };
+    service
+        .search(ACCESS, &query)
+        .ok()
+        .map(|response| response.objects.into_iter().map(|hit| hit.record).collect())
+}
+
+struct LiveFileProjection {
+    inode: u32,
+    name: String,
+    modified_at: i64,
+}
+
+fn project_live_file(
+    volume: &mut Vfs<SyscallBlockDevice>,
+    expected_name: &[u8],
+) -> Option<LiveFileProjection> {
+    let mut entries = [DirectoryEntry::empty(); MAX_M19_ROOT_ENTRIES];
+    let count = volume.list_root(&mut entries).ok()?;
+    for entry in &entries[..count] {
+        if entry.file_type != 1 || entry.name() != expected_name {
+            continue;
+        }
+        let name = core::str::from_utf8(entry.name()).ok()?;
+        let mut location = String::from("/");
+        location.push_str(name);
+        let metadata = volume.metadata_path(location.as_bytes()).ok()?;
+        if metadata.inode != entry.inode {
+            return None;
+        }
+        return Some(LiveFileProjection {
+            inode: metadata.inode,
+            name: String::from(name),
+            modified_at: i64::from(metadata.mtime),
+        });
+    }
+    None
+}
+
+fn index_live_file(service: &mut M19SearchService, file: LiveFileProjection) -> Option<ObjectId> {
+    let existing_records = indexed_file_records(service)?;
+    let inode_key = file.inode.to_string();
+    let existing = existing_records.iter().find(|record| {
+        record
+            .attributes
+            .get(FILE_INDEXER_ATTRIBUTE)
+            .is_some_and(|indexer| indexer == FILE_INDEXER_ID)
+            && record
+                .attributes
+                .get(FILE_INODE_ATTRIBUTE)
+                .is_some_and(|value| value == &inode_key)
+    });
+    let object_id = if let Some(record) = existing {
+        record.object_id
+    } else {
+        let next_id = existing_records
+            .iter()
+            .filter(|record| {
+                record
+                    .attributes
+                    .get(FILE_INDEXER_ATTRIBUTE)
+                    .is_some_and(|indexer| indexer == FILE_INDEXER_ID)
+            })
+            .map(|record| record.object_id.0)
+            .filter(|id| *id >= FILE_ID_BASE)
+            .max()
+            .unwrap_or(FILE_ID_BASE - 1)
+            .checked_add(1)?;
+        ObjectId(next_id)
+    };
+    let mut location = String::from("/");
+    location.push_str(&file.name);
+    let mut record = FilesProducerAdapter
+        .to_record(ProducerObject {
+            object_id,
+            title: file.name,
+            location: Some(location),
+            source_app: Some(APP_ID),
+            source_session: Some(SESSION_ID),
+            created_at: None,
+            modified_at: Some(file.modified_at),
+            observed_at: None,
+            tags: Vec::new(),
+            attributes: BTreeMap::new(),
+            visibility: VisibilityScope::Private,
+        })
+        .ok()?;
+    record.attributes.insert(
+        FILE_INDEXER_ATTRIBUTE.to_string(),
+        FILE_INDEXER_ID.to_string(),
+    );
+    record
+        .attributes
+        .insert(FILE_INODE_ATTRIBUTE.to_string(), inode_key);
+    service.upsert_record(record).ok()?;
+    Some(object_id)
+}
+
 /// Exercises the real guest VFS persistence adapter with a test-only private
-/// fixture. The search API is not registered as a production IPC service here;
-/// caller authority remains a separate M19 integration requirement.
+/// fixture and indexes a real file entry from that VFS. The search API is not
+/// registered as a production IPC service here; caller authority remains a
+/// separate M19 integration requirement.
 pub fn run(block_capability: u64) -> bool {
+    libnagi::console_write(b"Nagi M19 trace start\r\n");
+    let was_persisted = {
+        let Ok(mut service) = open_search(block_capability) else {
+            return false;
+        };
+        let previous_record = service.get_object(ACCESS, OBJECT_ID);
+        let previous_workspace = service.get_workspace(ACCESS, WORKSPACE_ID);
+        let was_persisted = previous_record.is_some() && previous_workspace.is_some();
+        if previous_record.is_some() != previous_workspace.is_some()
+            || previous_record.is_some_and(|record| record.title != "M19 persisted object")
+            || previous_workspace
+                .as_ref()
+                .is_some_and(|workspace| workspace.objects != [OBJECT_ID])
+        {
+            return false;
+        }
+        let mut record = MetadataRecord::new(
+            OBJECT_ID,
+            ObjectKind::File,
+            String::from("M19 persisted object"),
+        );
+        record.source_app = Some(APP_ID);
+        record.source_session = Some(SESSION_ID);
+        record.visibility = VisibilityScope::Private;
+        if service.upsert_record(record).is_err() {
+            return false;
+        }
+
+        let mut workspace = Workspace::new(WORKSPACE_ID, "M19 persisted workspace");
+        workspace.owner_app = Some(APP_ID);
+        workspace.visibility = VisibilityScope::Private;
+        workspace.sessions.push(WorkspaceSession {
+            app_id: APP_ID,
+            session_id: SESSION_ID,
+        });
+        workspace.objects.push(OBJECT_ID);
+        if service.upsert_workspace(workspace).is_err() {
+            return false;
+        }
+        was_persisted
+    };
+    libnagi::console_write(b"Nagi M19 trace snapshot fixture persisted\r\n");
+
+    let (file_metadata, initial_projection) = {
+        let Ok(mut volume) = open_volume(block_capability) else {
+            return false;
+        };
+        let Some((handle, name)) = fixture_file(&mut volume) else {
+            return false;
+        };
+        if volume.flush().is_err() {
+            return false;
+        }
+        let Ok(metadata) = volume.metadata(handle) else {
+            return false;
+        };
+        let Some(projection) = project_live_file(&mut volume, name) else {
+            return false;
+        };
+        (metadata, projection)
+    };
+    libnagi::console_write(b"Nagi M19 trace real VFS file projected\r\n");
+
+    let object_id_before_rename = {
+        let Ok(mut service) = open_search(block_capability) else {
+            return false;
+        };
+        let Some(object_id) = index_live_file(&mut service, initial_projection) else {
+            return false;
+        };
+        object_id
+    };
+    libnagi::console_write(b"Nagi M19 trace initial ObjectId indexed\r\n");
+
+    let renamed_projection = {
+        let Ok(mut volume) = open_volume(block_capability) else {
+            return false;
+        };
+        let Some((handle, name)) = fixture_file(&mut volume) else {
+            return false;
+        };
+        let Ok(metadata) = volume.metadata(handle) else {
+            return false;
+        };
+        if metadata.inode != file_metadata.inode
+            || (name == LIVE_FILE_SOURCE
+                && volume.rename(LIVE_FILE_SOURCE, LIVE_FILE_RENAMED).is_err())
+            || volume.flush().is_err()
+        {
+            return false;
+        }
+        let Some(projection) = project_live_file(&mut volume, LIVE_FILE_RENAMED) else {
+            return false;
+        };
+        projection
+    };
+    libnagi::console_write(b"Nagi M19 trace VFS rename persisted\r\n");
+
+    let object_id_after_rename = {
+        let Ok(mut service) = open_search(block_capability) else {
+            return false;
+        };
+        let Some(object_id) = index_live_file(&mut service, renamed_projection) else {
+            return false;
+        };
+        object_id
+    };
+    if object_id_before_rename != object_id_after_rename {
+        return false;
+    }
+    libnagi::console_write(b"Nagi M19 trace ObjectId stable after rename\r\n");
+
+    let remounted_projection = {
+        let Ok(mut volume) = open_volume(block_capability) else {
+            return false;
+        };
+        let Some((handle, name)) = fixture_file(&mut volume) else {
+            return false;
+        };
+        let Ok(metadata) = volume.metadata(handle) else {
+            return false;
+        };
+        if name != LIVE_FILE_RENAMED || metadata.inode != file_metadata.inode {
+            return false;
+        }
+        let Some(projection) = project_live_file(&mut volume, LIVE_FILE_RENAMED) else {
+            return false;
+        };
+        projection
+    };
+    libnagi::console_write(b"Nagi M19 trace VFS remount verified\r\n");
     let Ok(mut service) = open_search(block_capability) else {
         return false;
     };
-    let previous_record = service.get_object(ACCESS, OBJECT_ID);
-    let previous_workspace = service.get_workspace(ACCESS, WORKSPACE_ID);
-    let was_persisted = previous_record.is_some() && previous_workspace.is_some();
-    if previous_record.is_some() != previous_workspace.is_some()
-        || previous_record.is_some_and(|record| record.title != "M19 persisted object")
-        || previous_workspace
-            .as_ref()
-            .is_some_and(|workspace| workspace.objects != [OBJECT_ID])
-    {
-        return false;
-    }
-    let mut record = MetadataRecord::new(
-        OBJECT_ID,
-        ObjectKind::File,
-        String::from("M19 persisted object"),
-    );
-    record.source_app = Some(APP_ID);
-    record.source_session = Some(SESSION_ID);
-    record.visibility = VisibilityScope::Private;
-    if service.upsert_record(record).is_err() {
-        return false;
-    }
-
-    let mut workspace = Workspace::new(WORKSPACE_ID, "M19 persisted workspace");
-    workspace.owner_app = Some(APP_ID);
-    workspace.visibility = VisibilityScope::Private;
-    workspace.sessions.push(WorkspaceSession {
-        app_id: APP_ID,
-        session_id: SESSION_ID,
-    });
-    workspace.objects.push(OBJECT_ID);
-    if service.upsert_workspace(workspace).is_err() {
-        return false;
-    }
-    drop(service);
-
-    let Ok(service) = open_search(block_capability) else {
+    let Some(object_id_after_restart) = index_live_file(&mut service, remounted_projection) else {
         return false;
     };
+    libnagi::console_write(b"Nagi M19 trace ObjectId stable after remount\r\n");
     let query = SearchQuery {
         text: Some(String::from("persisted object")),
         workspace: Some(WORKSPACE_ID),
@@ -209,17 +456,39 @@ pub fn run(block_capability: u64) -> bool {
         return false;
     };
     let workspace = service.get_workspace(ACCESS, WORKSPACE_ID);
-    let passed = response.objects.len() == 1
+    let file_query = SearchQuery {
+        text: Some(String::from("nagi-m19-live-file.txt")),
+        kind: Some(ObjectKind::File),
+        ..SearchQuery::default()
+    };
+    let file_response = service.search(ACCESS, &file_query);
+    let file_passed = file_response.is_ok_and(|response| {
+        response.objects.len() == 1
+            && response.objects[0].record.object_id == object_id_after_rename
+            && response.objects[0].record.location.as_deref() == Some("/nagi-m19-live-file.txt")
+            && response.objects[0]
+                .record
+                .attributes
+                .get(FILE_INODE_ATTRIBUTE)
+                == Some(&file_metadata.inode.to_string())
+    });
+    let passed = file_passed
+        && object_id_before_rename == object_id_after_restart
+        && response.objects.len() == 1
         && response.objects[0].record.object_id == OBJECT_ID
         && response.workspace_groups.len() == 1
         && response.workspace_groups[0].object_ids == [OBJECT_ID]
         && workspace.is_some_and(|workspace| workspace.objects == [OBJECT_ID]);
+    if !passed {
+        libnagi::console_write(b"Nagi M19 trace final query assertion failed\r\n");
+    }
     if passed {
         if was_persisted {
             libnagi::console_write(b"Nagi M19 previous-boot snapshot PASS\r\n");
         } else {
             libnagi::console_write(b"Nagi M19 initial snapshot/reopen PASS\r\n");
         }
+        libnagi::console_write(b"Nagi M19 live VFS file ObjectId rename/restart PASS\r\n");
         libnagi::console_write(b"Nagi M19 guest search persistence PASS\r\n");
         libnagi::console_write(b"Nagi M19 acceptance PASS\r\n");
     }
