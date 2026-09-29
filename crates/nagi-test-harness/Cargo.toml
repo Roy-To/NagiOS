@@ -1,0 +1,15 @@
+[package]
+name = "nagi-test-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Deterministic host-only fixtures for Nagi service orchestration tests"
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "acceptance"
+path = "../../tests/system-integration-harness/acceptance.rs"

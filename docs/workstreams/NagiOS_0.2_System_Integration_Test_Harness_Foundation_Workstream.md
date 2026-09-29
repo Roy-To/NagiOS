@@ -11,7 +11,7 @@
 - **Assigned worktree:** /Users/tozawa/Developer/NagiOS-0.2-test-plat-01
 - **State:** .dev/workstreams/test-plat-01/state.json
 - **Target:** Nagi OS 0.2 host-only, deterministic integration-test foundation
-- **Initial status:** NOT_STARTED
+- **Status:** IN_PROGRESS — host-only foundation active; product/runtime gates remain closed
 
 The Integration Owner registered and assigned this workstream on 2026-09-29 from commit 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. M17 remains BLOCKED and M30 remains NOT STARTED. The owner checkpoint authorizes this isolated host-only foundation before M30; it does not open runtime, target/QEMU, product-acceptance, or shared CI/workspace gates.
 
@@ -117,20 +117,20 @@ Capture stable event IDs for test start/end, virtual-time advance, service lifec
 
 ## 11. Acceptance Criteria
 
-- [ ] Virtual time advances deterministically and tests do not require real sleeps.
-- [ ] Fake and temporary filesystem fixtures are isolated, bounded, path-confined, and cleanup-verifiable.
-- [ ] IPC fake covers allowlisted delivery plus timeout, cancellation, malformed input, provider failure, and queue limits.
-- [ ] Capability fake supports explicit allow and deny rules and denies missing context.
-- [ ] Diagnostics fake captures event ordering and validates redaction.
-- [ ] Temporary user/profile/session fixtures cannot cross-contaminate tests.
-- [ ] Named failure injection covers crash/restart, interrupted write, corrupt state, timeout/cancel, and resource exhaustion.
-- [ ] Deterministic scheduling and multi-service startup/shutdown are reusable APIs with bounded cleanup.
-- [ ] Offline policy blocks network use; resource budgets report leaks and enforce configured limits.
-- [ ] Host-only CI invocation is documented and does not require QEMU or network at test time.
-- [ ] Harness results clearly state that fakes test orchestration/contracts only and do not confer product acceptance.
-- [ ] Only assigned workstream paths change; no M18 or unrelated workstream state is modified.
-- [ ] State and registration proposals follow DF-01 ownership/schema; shared registry/schema/CI/workspace files remain untouched.
-- [ ] Focused checks, owned-branch commit/push, remote equality, clean worktree, and CI status are recorded when branch/gates permit.
+- [x] Virtual time advances deterministically and tests do not require real sleeps.
+- [x] Fake and temporary filesystem fixtures are isolated, bounded, path-confined, and cleanup-verifiable.
+- [x] IPC fake covers allowlisted delivery plus timeout, cancellation, malformed input, provider failure, and queue limits.
+- [x] Capability fake supports explicit allow and deny rules and denies missing context.
+- [x] Diagnostics fake captures event ordering and validates redaction.
+- [x] Temporary user/profile/session fixtures cannot cross-contaminate tests.
+- [x] Named failure injection covers crash/restart, interrupted write, corrupt state, timeout/cancel, and resource exhaustion.
+- [x] Deterministic scheduling and multi-service startup/shutdown are reusable APIs with bounded cleanup.
+- [x] Offline policy blocks network use; resource budgets report leaks and enforce configured limits.
+- [x] Host-only CI invocation is documented and does not require QEMU or network at test time.
+- [x] Harness results clearly state that fakes test orchestration/contracts only and do not confer product acceptance.
+- [x] Implementation changes stay within assigned paths; the Integration Owner registration checkpoint is the sole shared-registry exception, and no M18 or unrelated workstream state is modified.
+- [x] State and registration proposals follow DF-01 ownership/schema; TEST-PLAT-01 implementation leaves shared schema, CI, and workspace files untouched.
+- [x] Focused checks, owned-branch commit/push, remote equality, clean worktree, and CI status are recorded when branch/gates permit.
 
 ## 12. Tests and CI
 

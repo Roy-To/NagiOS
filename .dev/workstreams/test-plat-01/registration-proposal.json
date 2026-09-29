@@ -49,13 +49,13 @@
     "merge_boundary": "Commit and push host-only foundation on the assigned codex/0.2-test-plat-01 branch. Integrate after owned host-only acceptance and Integration Owner review. Runtime, target, product, shared workspace, and CI integration remain gated on M30 PASS and an explicit checkpoint; never merge directly to main."
   },
   "proposed_host_test_command": {
-    "command": "cargo test --manifest-path crates/nagi-test-harness/Cargo.toml --offline",
-    "status": "AUTHORIZED_NOT_RUN",
-    "note": "The crate does not exist yet; this command is a candidate for the assigned branch and must be verified after implementation. It does not imply CI workflow ownership."
+    "command": "PATH=\"$HOME/.cargo/bin:$PATH\" cargo test --manifest-path crates/nagi-test-harness/Cargo.toml --offline",
+    "status": "VERIFIED_PASS",
+    "note": "Verified offline on the assigned native ARM Rustup toolchain: 10 acceptance tests passed, 0 failed. The standalone crate has no third-party dependencies. This does not imply shared CI workflow ownership or product/target acceptance."
   },
   "integration_owner_actions": [
     "Integration Owner registered test-plat-01 and assigned the owner, allowed paths, branch, base, and worktree on 2026-09-29.",
-    "The owner registration commit must be applied to the dedicated branch so that nagi dev verify includes the state file.",
+    "Owner registration checkpoint 3fc25791ca8373121b5ddfab5944f434298f2165 was applied to the dedicated branch as 7da99e559bf47f6ae7c618b2be67f8db0c8cf8da; ./nagi dev verify passed with 19 registered workstreams and 12 state files validated.",
     "Keep M30 and shared CI/runtime integration gates closed until their stated conditions are met."
   ],
   "scope_notes": [
