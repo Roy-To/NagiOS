@@ -1,6 +1,6 @@
 # 1. Current status
 
-**Current milestone:** `M19 - Semantic Layer / Search`
+**Current milestone:** `M20 - AI Runtime / Granite`
 **Milestone status:** `PARTIAL`
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
@@ -14,9 +14,13 @@ Workspace grouping, persistence restart, stable-ID update, and re-search; its
 `no_std` Nagi user-target compile passes. M19 remains `PARTIAL`: guest storage,
 trusted capability binding, live producer integration, and QEMU restart
 acceptance are not implemented.
-**Next action:** Continue safe M20 runtime work while retaining the M19 target
-integration blocker. Do not claim M19 PASS without a capability-bound guest
-Search Service and persistent QEMU acceptance.
+**M20 evidence:** The existing provider-neutral `no_std` model manager is
+integrated and passes its 40-test host suite, warnings-denied Clippy, formatting,
+and Nagi user-target compilation. This is contract/orchestration evidence only;
+the pinned llama.cpp backend, installable Granite 4.2 3B artifact, target model
+service, and in-guest inference acceptance are absent. M20 is `PARTIAL`.
+**Next action:** Continue M21 only through a deterministic, fail-closed plan
+contract; do not register fake OS actions or route model output around policy.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -2101,6 +2105,25 @@ See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md` for the
 focused evidence and remaining target acceptance criteria. M19 stays `PARTIAL`
 until real guest data survives a QEMU restart and is re-searched through the
 capability-bound service.
+
+# M20 - AI Runtime / Granite (`PARTIAL`)
+
+The existing `nagi-model-manager` workstream was selectively reused, including
+strict model manifest validation, capability/role/resource-aware model
+selection, lifecycle-safe registration, bounded artifact-reader and provider
+contracts, and local Model Store metadata transitions. Its illustrative Granite
+fixture is not an installable model package: it has no distributable artifact,
+verified artifact hash, or completed license/NOTICE provenance.
+
+On this continuation branch the package passes 40 host tests, formatting,
+warnings-denied Clippy, and `no_std` Nagi user-target compilation. Its fake
+backend is used only by orchestration tests. No llama.cpp source/revision or
+target backend is pinned, there is no active model service or Granite GGUF
+artifact, and no real Granite response has been produced in Nagi/QEMU. These
+are M20 acceptance blockers; this milestone remains `PARTIAL`.
+
+See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md` for exact
+commands, provenance, and the concrete runtime acceptance gap.
 
 # M17 - Servo Bootstrap (`PASS`)
 

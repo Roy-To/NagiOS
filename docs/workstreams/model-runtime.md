@@ -1,6 +1,6 @@
 # Model Runtime / Model Store Foundation Workstream
 
-Status: `IN_PROGRESS`
+Status: `PARTIAL` (host contract foundation; M20 inference acceptance pending)
 
 ## Goal and boundaries
 
@@ -8,9 +8,9 @@ Implement a typed, user-space foundation for model manifests, discovery,
 compatibility, selection, provider invocation contracts, and local Model Store
 metadata. The workstream does not fetch model weights or implement the
 production inference engine. M17, Servo, Capability policy, App SDK, Activity,
-Wayback, and other concurrent workstreams remain separately owned. M20 stays
-`NOT STARTED` until its milestone acceptance, including a real local Granite
-response inside Nagi, is met.
+Wayback, and other concurrent workstreams remain separately owned. On the M18
+continuation branch, M20 is `PARTIAL`: the contract is reused and target-compiled,
+but acceptance still requires a real local Granite response inside Nagi.
 
 The accepted generative/decision architecture remains authoritative:
 
@@ -74,9 +74,9 @@ The accepted generative/decision architecture remains authoritative:
 
 ### 2026-09-26 implementation checkpoint
 
-Status: `IN_PROGRESS`. The foundation slice is implemented and focused checks
-pass. M20 remains `NOT STARTED`; this workstream has no production inference
-backend or real target/VM inference acceptance.
+Status: `PARTIAL`. The foundation slice is implemented and focused checks pass.
+This workstream has no production inference backend or real target/VM inference
+acceptance, so it does not satisfy M20 by itself.
 
 - Added `user/nagi-model-manager`, a `no_std` crate with strict manifest v1
   parsing/validation, capability-oriented registry/selection, lifecycle and
@@ -90,7 +90,8 @@ backend or real target/VM inference acceptance.
   source files were changed. The inspected owner branch predates `.dev` and
   DF-01 state tooling; the current integration registry assigns this stream
   only `.dev/workstreams/model-runtime/**`, not the shared registry/schema.
-  `implementation_status.md` keeps M20 `NOT STARTED`.
+  `implementation_status.md` keeps M20 `PARTIAL` until local Granite inference
+  is accepted in Nagi.
 
 Verification:
 
