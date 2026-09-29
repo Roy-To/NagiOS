@@ -1,22 +1,22 @@
 # 1. Current status
 
-**Current milestone:** `M18 - Albert Browser`
+**Current milestone:** `M19 - Semantic Layer / Search`
 **Milestone status:** `PARTIAL`
-**Acceptance:** `PASS` locally on macOS/QEMU and in authoritative Ubuntu CI.
-On corrected commit `eb22702da8e832126c32e420c8fde579b05f8a67`, CI run
-[`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477)
-passed Windows launcher, Ubuntu host, and `nagi-target`. The clean pinned
-Servo bootstrap applied patch `0025`; the target job passed M17
-first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU
-acceptance. The local Mac run also built the target image, booted the real
-guest, accepted address-bar navigation, verified certificate chains and
-hostnames for three HTTPS sites, composed browser chrome, and presented the
-frames on Nagi Surface.
-**Next action:** Continue M18 provider integrations where capability-safe
-Nagi service APIs exist. Keep the milestone `PARTIAL` while download/upload
-destinations, clipboard, IME text/composition events, and trusted interactive
-site-permission decisions lack their Nagi providers; formal browser
-Acceptance is already `PASS`.
+**M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
+in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
+download/upload destinations, clipboard, IME text/composition events, and
+trusted interactive site-permission decisions still lack Nagi providers; the
+user-directed M19 work proceeds because those services are not M19
+dependencies.
+**M19 evidence:** The deterministic metadata/search contract is integrated
+from M19-PREP. Its host acceptance covers indexing, visibility filtering,
+Workspace grouping, persistence restart, stable-ID update, and re-search; its
+`no_std` Nagi user-target compile passes. M19 remains `PARTIAL`: guest storage,
+trusted capability binding, live producer integration, and QEMU restart
+acceptance are not implemented.
+**Next action:** Continue safe M20 runtime work while retaining the M19 target
+integration blocker. Do not claim M19 PASS without a capability-bound guest
+Search Service and persistent QEMU acceptance.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -2066,7 +2066,7 @@ Use only these statuses:
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
-| M19 | Semantic Layer / Search | NOT STARTED | 遯ｶ繝ｻ|
+| M19 | Semantic Layer / Search | PARTIAL | Reused M19-PREP's `user/nagi-search` contract; 16 host tests, warnings-denied Clippy, formatting, and Nagi `no_std` user-target compile pass. Added end-to-end contract acceptance for producer indexing, deterministic search, visibility filtering, Workspace grouping, restart, stable-ID metadata update, and re-search. Guest persistence/service activation, trusted capability binding, real producer ID mapping, and QEMU restart acceptance remain blocked by missing target service/authority/storage adapters. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
 | M20 | AI Runtime / Granite | NOT STARTED | 遯ｶ繝ｻ|
 | M21 | Planner / Validator / Executor | NOT STARTED | 遯ｶ繝ｻ|
 | M22 | AI Safety / Undo Integration | NOT STARTED | 遯ｶ繝ｻ|
@@ -2080,6 +2080,27 @@ Use only these statuses:
 | M30 | Nagi OS 0.1 Release | NOT STARTED | 遯ｶ繝ｻ|
 
 ---
+
+# M19 - Semantic Layer / Search (`PARTIAL`)
+
+The M19-PREP deterministic metadata/search implementation is reused on the
+M18 acceptance branch. The added contract acceptance creates file/page and
+Workspace metadata with stable Object IDs, indexes and searches it, checks
+visibility filtering before results and grouping are exposed, reopens the
+persistent reference store, updates metadata under the same Object ID, and
+searches again.
+
+The verified host contract does not provide guest persistence or a production
+authority source. `libnagi::storage::Vfs` currently limits each file to 1 KiB;
+there is no atomic chunked Search snapshot adapter, active Search Service
+process/IPC entry, authenticated capability-to-object visibility provider, or
+live Files/page Object ID adapter on this M18 base. The host `HostFileBackend`
+is only a reference acceptance backend and is not treated as Nagi VFS.
+
+See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md` for the
+focused evidence and remaining target acceptance criteria. M19 stays `PARTIAL`
+until real guest data survives a QEMU restart and is re-searched through the
+capability-bound service.
 
 # M17 - Servo Bootstrap (`PASS`)
 

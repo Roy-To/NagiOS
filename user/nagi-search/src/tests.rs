@@ -1071,3 +1071,165 @@ fn files_pages_and_workspace_producer_fixtures_index_and_search() {
         [ObjectId(101), ObjectId(100)]
     );
 }
+
+#[test]
+fn m19_acceptance_indexes_filters_restarts_and_researches_stable_objects() {
+    let path = host_test_path();
+    let file_id = ObjectId(0x1901);
+    let page_id = ObjectId(0x1902);
+    let hidden_id = ObjectId(0x1903);
+    let workspace_id = WorkspaceId(0x1910);
+
+    {
+        let mut service =
+            SearchService::open(HostFileBackend::new(&path), FixtureVisibility::default())
+                .expect("create acceptance store");
+
+        let mut file = FilesProducerAdapter
+            .to_record(ProducerObject {
+                object_id: file_id,
+                title: "Quarterly budget draft.pdf".into(),
+                location: Some("vfs://documents/budget-draft.pdf".into()),
+                source_app: Some(AppId(7)),
+                source_session: Some(AppSessionId(70)),
+                created_at: Some(100),
+                modified_at: Some(150),
+                observed_at: Some(160),
+                tags: vec!["finance".into()],
+                attributes: BTreeMap::new(),
+                visibility: VisibilityScope::Public,
+            })
+            .expect("map file producer record");
+        file.attributes.insert("format".into(), "pdf".into());
+        service.upsert_record(file).expect("index file");
+
+        let page = PageProducerAdapter
+            .to_record(ProducerObject {
+                object_id: page_id,
+                title: "Quarterly budget review".into(),
+                location: Some("page://history/review".into()),
+                source_app: Some(AppId(9)),
+                source_session: Some(AppSessionId(90)),
+                created_at: Some(90),
+                modified_at: Some(170),
+                observed_at: Some(175),
+                tags: vec!["review".into()],
+                attributes: BTreeMap::new(),
+                visibility: VisibilityScope::Public,
+            })
+            .expect("map page producer record");
+        service.upsert_record(page).expect("index page");
+
+        service
+            .upsert_record(public_record(hidden_id.0, "Quarterly budget restricted"))
+            .expect("index restricted record");
+
+        let mut workspace = WorkspaceProducerAdapter
+            .create(
+                workspace_id,
+                "Quarterly budget workspace",
+                Some(AppId(7)),
+                VisibilityScope::Public,
+            )
+            .expect("create workspace");
+        workspace.objects = vec![file_id, page_id, hidden_id];
+        workspace.sessions.push(WorkspaceSession {
+            app_id: AppId(7),
+            session_id: AppSessionId(70),
+        });
+        service
+            .upsert_workspace(workspace)
+            .expect("persist workspace");
+
+        let initial = service
+            .search(
+                access(),
+                &SearchQuery {
+                    text: Some("budget".into()),
+                    ..SearchQuery::default()
+                },
+            )
+            .expect("search indexed data");
+        assert_eq!(result_ids(&initial), [page_id, file_id, hidden_id]);
+    }
+
+    let filtered = FixtureVisibility {
+        denied_objects: [hidden_id].into_iter().collect(),
+        ..FixtureVisibility::default()
+    };
+    {
+        let service = SearchService::open(HostFileBackend::new(&path), filtered.clone())
+            .expect("restart with caller visibility policy");
+        let query = service
+            .search(
+                access(),
+                &SearchQuery {
+                    text: Some("budget".into()),
+                    modified: Some(SearchTimeRange::new(Some(140), Some(180))),
+                    ..SearchQuery::default()
+                },
+            )
+            .expect("search after restart");
+        assert_eq!(result_ids(&query), [page_id, file_id]);
+        assert!(query
+            .objects
+            .iter()
+            .all(|hit| !hit.record.title.contains("restricted")));
+
+        let metadata = service
+            .search(
+                access(),
+                &SearchQuery {
+                    tags_any: vec!["finance".into()],
+                    attributes_all: vec![AttributeMatch {
+                        key: "format".into(),
+                        value: "pdf".into(),
+                    }],
+                    ..SearchQuery::default()
+                },
+            )
+            .expect("search metadata after restart");
+        assert_eq!(result_ids(&metadata), [file_id]);
+
+        let grouped = service
+            .search(access(), &SearchQuery::default())
+            .expect("group visible objects");
+        assert_eq!(grouped.workspace_groups.len(), 1);
+        assert_eq!(grouped.workspace_groups[0].workspace_id, workspace_id);
+        assert_eq!(grouped.workspace_groups[0].object_ids, [page_id, file_id]);
+        assert!(service.get_object(access(), hidden_id).is_none());
+    }
+
+    {
+        let mut service = SearchService::open(HostFileBackend::new(&path), filtered.clone())
+            .expect("second restart");
+        let mut renamed = public_record(file_id.0, "Quarterly budget final.pdf");
+        renamed.location = Some("vfs://archive/budget-final.pdf".into());
+        renamed.modified_at = Some(200);
+        renamed.tags = vec!["finance".into()];
+        renamed.attributes.insert("format".into(), "pdf".into());
+        service
+            .upsert_record(renamed)
+            .expect("update same stable ID");
+    }
+
+    let service = SearchService::open(HostFileBackend::new(&path), filtered)
+        .expect("restart after stable-ID update");
+    let final_result = service
+        .search(
+            access(),
+            &SearchQuery {
+                text: Some("final".into()),
+                modified: Some(SearchTimeRange::new(Some(200), Some(200))),
+                ..SearchQuery::default()
+            },
+        )
+        .expect("re-search updated metadata");
+    assert_eq!(result_ids(&final_result), [file_id]);
+    assert_eq!(final_result.objects[0].record.object_id, file_id);
+    assert_eq!(
+        final_result.objects[0].record.location.as_deref(),
+        Some("vfs://archive/budget-final.pdf")
+    );
+    std::fs::remove_file(&path).expect("remove acceptance snapshot");
+}
