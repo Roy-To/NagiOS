@@ -33,6 +33,11 @@ fn main() -> Status {
         return fail(error_message("Nagi Loader: helper init failed"));
     }
 
+    #[cfg(feature = "m27-boot-control-smoke")]
+    if let Err(message) = m27_boot_control_smoke() {
+        return fail(error_message(message));
+    }
+
     let kernel_size = match read_kernel(boot::image_handle()) {
         Ok(size) => size,
         Err(message) => return fail(message),
@@ -105,6 +110,39 @@ fn main() -> Status {
             mem::transmute(plan.entry as usize);
         entry(&raw const BOOT_INFO);
     }
+}
+
+#[cfg(feature = "m27-boot-control-smoke")]
+fn m27_boot_control_smoke() -> Result<(), &'static str> {
+    use nagi_loader::ab::{
+        uefi_store::UefiVariableBootControlStore, BootControlJournal, SystemSlot,
+    };
+
+    let mut journal = BootControlJournal::new(UefiVariableBootControlStore::new());
+    let state = journal
+        .load()
+        .map_err(|_| "Nagi Loader: M27 boot-control journal read failed")?;
+    if state.generation() == 0 {
+        journal
+            .stage_update(SystemSlot::B)
+            .map_err(|_| "Nagi Loader: M27 boot-control trial staging failed")?;
+    }
+
+    let decision = journal
+        .begin_boot()
+        .map_err(|_| "Nagi Loader: M27 boot-control decision failed")?;
+    if decision.rolled_back {
+        uefi::println!("Nagi M27 persistence decision: rollback slot=A");
+    } else if decision.trial_attempt == 0 {
+        uefi::println!("Nagi M27 persistence decision: confirmed slot=A");
+    } else {
+        uefi::println!(
+            "Nagi M27 persistence decision: trial attempt={} slot=B",
+            decision.trial_attempt
+        );
+    }
+    uefi::println!("Nagi M27 UEFI variable journal persistence PASS");
+    Ok(())
 }
 
 fn read_kernel(image_handle: Handle) -> Result<usize, &'static str> {

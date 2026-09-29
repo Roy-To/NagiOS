@@ -7,6 +7,9 @@
 pub const MAX_BOOT_ATTEMPTS: u8 = 3;
 pub const RECORD_SIZE: usize = 32;
 
+#[cfg(target_os = "uefi")]
+pub mod uefi_store;
+
 const RECORD_MAGIC: [u8; 4] = *b"NABS";
 const RECORD_VERSION: u8 = 1;
 const NO_PENDING_SLOT: u8 = 0xff;

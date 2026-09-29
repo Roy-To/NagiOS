@@ -115,6 +115,7 @@ fn parses_the_complete_m0_command_surface() {
         ("m18", Command::M18),
         ("m19", Command::M19),
         ("m22", Command::M22),
+        ("m27", Command::M27),
         ("test", Command::Test),
         ("clean", Command::Clean),
         ("fmt", Command::Fmt),
@@ -156,7 +157,7 @@ fn rejects_unexpected_arguments_for_every_command() {
     for name in [
         "doctor", "fetch", "build", "image", "run", "shell", "gui", "desktop", "test", "clean",
         "fmt", "lint", "security", "network", "posix", "std", "m13", "m14", "m15", "m16", "m17",
-        "m18", "m19", "m22",
+        "m18", "m19", "m22", "m27",
     ] {
         let error = parse_command(&[name.to_owned(), "unexpected".to_owned()]).unwrap_err();
         assert_eq!(error.exit_code(), EXIT_USAGE, "{name}");

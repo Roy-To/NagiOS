@@ -2,16 +2,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
 use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
 use crate::image::{
-    ensure_persistent_disk, run_qemu, run_qemu_gui, run_qemu_gui_with_events,
+    ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui, run_qemu_gui_with_events,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker, run_qemu_interactive,
-    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image, ImageLayout,
-    QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    run_qemu_reusing_ovmf_vars, run_qemu_with_read_only_boot_disk, write_fat12_image,
+    write_m17_fat12_image, ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -28,6 +28,12 @@ pub const EXIT_CONFIG_ERROR: i32 = 4;
 pub const EXIT_DOCTOR_FAILURE: i32 = 10;
 
 type ImageWriter = fn(&Path, &[u8], &[u8], &[u8]) -> Result<ImageLayout, String>;
+
+#[derive(Clone, Copy, Default)]
+struct ImageBuildFeatures<'a> {
+    kernel: &'a [&'a str],
+    loader: &'a [&'a str],
+}
 
 const M18_INPUT_EVENTS: [&str; 2] = [
     r#"{
@@ -93,6 +99,7 @@ pub enum Command {
     M18,
     M19,
     M22,
+    M27,
     Test,
     Clean,
     Fmt,
@@ -159,6 +166,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m18" => Command::M18,
         "m19" => Command::M19,
         "m22" => Command::M22,
+        "m27" => Command::M27,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -195,6 +203,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M18
         | Command::M19
         | Command::M22
+        | Command::M27
         | Command::Test
         | Command::Clean
         | Command::Fmt
@@ -281,6 +290,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M18 => execute_m18(root, probe),
         Command::M19 => execute_m19(root, probe),
         Command::M22 => execute_m22(root, probe),
+        Command::M27 => execute_m27(root, probe),
     }
 }
 
@@ -529,8 +539,8 @@ fn execute_image_with_init_build_env(
         rust_std_source,
         image_name,
         cargo_env,
-        &[],
         write_fat12_image,
+        ImageBuildFeatures::default(),
     )
 }
 
@@ -540,8 +550,8 @@ fn execute_image_with_init_build_env_using_writer(
     rust_std_source: Option<&Path>,
     image_name: &str,
     cargo_env: &[(&str, &Path)],
-    kernel_features: &[&str],
     image_writer: ImageWriter,
+    build_features: ImageBuildFeatures<'_>,
 ) -> CommandResult {
     let init_build = match rust_std_source {
         Some(source) => {
@@ -552,7 +562,7 @@ fn execute_image_with_init_build_env_using_writer(
     if init_build.exit_code != EXIT_SUCCESS {
         return init_build;
     }
-    let kernel_features = kernel_features.join(",");
+    let kernel_features = build_features.kernel.join(",");
     let mut kernel_args = vec!["build", "-p", "nagi-kernel"];
     if !kernel_features.is_empty() {
         kernel_args.extend(["--features", kernel_features.as_str()]);
@@ -567,18 +577,13 @@ fn execute_image_with_init_build_env_using_writer(
     if kernel_build.exit_code != EXIT_SUCCESS {
         return kernel_build;
     }
-    let loader_build = run_cargo(
-        root,
-        "loader",
-        &[
-            "build",
-            "--manifest-path",
-            "loader/Cargo.toml",
-            "--target",
-            "x86_64-unknown-uefi",
-            "--release",
-        ],
-    );
+    let loader_features = build_features.loader.join(",");
+    let mut loader_args = vec!["build", "--manifest-path", "loader/Cargo.toml"];
+    if !loader_features.is_empty() {
+        loader_args.extend(["--features", loader_features.as_str()]);
+    }
+    loader_args.extend(["--target", "x86_64-unknown-uefi", "--release", "--locked"]);
+    let loader_build = run_cargo(root, "loader", &loader_args);
     if loader_build.exit_code != EXIT_SUCCESS {
         return loader_build;
     }
@@ -1835,8 +1840,8 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Some(&rust_std_source),
         "nagi-0.1-m17-servo.img",
         &init_build_env,
-        &[],
         write_m17_fat12_image,
+        ImageBuildFeatures::default(),
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
@@ -2959,8 +2964,11 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Some(&rust_std_source),
         "nagi-0.1-m18-albert.img",
         &init_build_env,
-        &["m18-browser-memory"],
         write_m17_fat12_image,
+        ImageBuildFeatures {
+            kernel: &["m18-browser-memory"],
+            loader: &[],
+        },
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
@@ -3443,12 +3451,190 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 }
 
+fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot create a unique evidence identifier: {error}"),
+            );
+        }
+    };
+    let image_name = format!("nagi-0.1-m27-uefi-smoke-{run_id}.img");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+    ];
+    let image_result = execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        &image_name,
+        &[],
+        write_fat12_image,
+        ImageBuildFeatures {
+            kernel: &[],
+            loader: &["m27-boot-control-smoke"],
+        },
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+
+    let host = match resolve_qemu_host(root, probe, "m27") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m27-uefi-persistence-{run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m27: {error}")),
+    };
+    let image_path = root.join("out").join("artifacts").join(&image_name);
+    let persistent_disk = evidence.join("user-data.img");
+    let vars_copy = evidence.join("OVMF_VARS.fd");
+    if let Err(error) = ensure_persistent_disk(&persistent_disk) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m27: create user-data disk: {error}"),
+        );
+    }
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m27: initialize OVMF variables: {error}"),
+        );
+    }
+
+    let bootstrap_log = evidence.join("bootstrap.log");
+    let bootstrap_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &bootstrap_log,
+        acceptance_marker: NAGI_WRITE_MARKER,
+        timeout: Duration::from_secs(90),
+    };
+    let bootstrap_status = match run_qemu_reusing_ovmf_vars(&bootstrap_config) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: guest storage bootstrap failed: {error}"),
+            );
+        }
+    };
+    let bootstrap_serial = match fs::read_to_string(&bootstrap_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", bootstrap_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 persistence decision: trial attempt=1 slot=B",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        NAGI_WRITE_MARKER,
+        "Nagi M7 reboot required PASS",
+    ] {
+        if !bootstrap_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: bootstrap did not print `{marker}` (QEMU exit {bootstrap_status}; log {})",
+                    bootstrap_log.display()
+                ),
+            );
+        }
+    }
+
+    let expected_decisions = [
+        "Nagi M27 persistence decision: trial attempt=2 slot=B",
+        "Nagi M27 persistence decision: trial attempt=3 slot=B",
+        "Nagi M27 persistence decision: rollback slot=A",
+        "Nagi M27 persistence decision: confirmed slot=A",
+    ];
+    let mut final_log = PathBuf::new();
+    for (index, expected_decision) in expected_decisions.iter().enumerate() {
+        let log_path = evidence.join(format!("boot-{}.log", index + 1));
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &log_path,
+            acceptance_marker: GUEST_ACCEPTANCE_MARKER,
+            timeout: Duration::from_secs(90),
+        };
+        let status = match run_qemu_reusing_ovmf_vars(&config) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: QEMU boot {} failed: {error}", index + 1),
+                );
+            }
+        };
+        let serial = match fs::read_to_string(&log_path) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: cannot read {}: {error}", log_path.display()),
+                );
+            }
+        };
+        for marker in [
+            *expected_decision,
+            "Nagi M27 UEFI variable journal persistence PASS",
+            GUEST_ACCEPTANCE_MARKER,
+        ] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m27: boot {} did not print `{marker}` (QEMU exit {status}; log {})",
+                        index + 1,
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        final_log = log_path;
+    }
+
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M27 UEFI variable persistence smoke: trial attempts 1–3 and rollback survived five QEMU launches using one OVMF variable image; the existing fixed guest payload reached acceptance (evidence {})",
+            evidence.display()
+        ), format!("Final serial log: {}", final_log.display())],
+    }
+}
+
 fn help() -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, m27, test, clean, fmt, lint"
                 .into(),
         ],
     }

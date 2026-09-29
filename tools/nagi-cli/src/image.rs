@@ -550,9 +550,27 @@ pub fn run_qemu_with_read_only_boot_disk(config: &QemuConfig<'_>) -> Result<i32,
     run_qemu_with_boot_disk_mode(config, true)
 }
 
+/// Launch QEMU without replacing the existing OVMF variable store.
+pub fn run_qemu_reusing_ovmf_vars(config: &QemuConfig<'_>) -> Result<i32, String> {
+    run_qemu_with_vars_mode(config, false, true)
+}
+
+/// Initialize a per-run OVMF variable image from the configured template.
+pub fn initialize_ovmf_vars(template: &Path, vars_copy: &Path) -> Result<(), String> {
+    prepare_ovmf_vars(template, vars_copy, false)
+}
+
 fn run_qemu_with_boot_disk_mode(
     config: &QemuConfig<'_>,
     boot_disk_read_only: bool,
+) -> Result<i32, String> {
+    run_qemu_with_vars_mode(config, boot_disk_read_only, false)
+}
+
+fn run_qemu_with_vars_mode(
+    config: &QemuConfig<'_>,
+    boot_disk_read_only: bool,
+    reuse_ovmf_vars: bool,
 ) -> Result<i32, String> {
     let QemuConfig {
         serial_log,
@@ -561,8 +579,14 @@ fn run_qemu_with_boot_disk_mode(
         ..
     } = *config;
     let serial_device = format!("file:{}", external_path(serial_log));
-    let mut child =
-        spawn_qemu_with_display_mode(config, &serial_device, 0, 0, boot_disk_read_only)?;
+    let mut child = spawn_qemu_with_display_mode_and_vars(
+        config,
+        &serial_device,
+        0,
+        0,
+        boot_disk_read_only,
+        reuse_ovmf_vars,
+    )?;
     let status = wait_for_qemu(&mut child, serial_log, acceptance_marker, timeout)?;
     Ok(status)
 }
@@ -993,6 +1017,24 @@ fn spawn_qemu_with_display_mode(
     vnc_display: u16,
     boot_disk_read_only: bool,
 ) -> Result<Child, String> {
+    spawn_qemu_with_display_mode_and_vars(
+        config,
+        serial_device,
+        qmp_port,
+        vnc_display,
+        boot_disk_read_only,
+        false,
+    )
+}
+
+fn spawn_qemu_with_display_mode_and_vars(
+    config: &QemuConfig<'_>,
+    serial_device: &str,
+    qmp_port: u16,
+    vnc_display: u16,
+    boot_disk_read_only: bool,
+    reuse_ovmf_vars: bool,
+) -> Result<Child, String> {
     let QemuConfig {
         qemu,
         ovmf_code,
@@ -1002,13 +1044,7 @@ fn spawn_qemu_with_display_mode(
         vars_copy,
         ..
     } = *config;
-    fs::copy(ovmf_vars_template, vars_copy).map_err(|error| {
-        format!(
-            "cannot copy OVMF variables template {} to {}: {error}",
-            ovmf_vars_template.display(),
-            vars_copy.display()
-        )
-    })?;
+    prepare_ovmf_vars(ovmf_vars_template, vars_copy, reuse_ovmf_vars)?;
     if let Some(parent) = config.serial_log.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("cannot create serial log directory: {error}"))?;
@@ -1091,6 +1127,34 @@ fn spawn_qemu_with_display_mode(
         ])
         .spawn()
         .map_err(|error| format!("cannot start QEMU {}: {error}", qemu.display()))
+}
+
+fn prepare_ovmf_vars(
+    template: &Path,
+    vars_copy: &Path,
+    reuse_existing: bool,
+) -> Result<(), String> {
+    if reuse_existing {
+        return match fs::metadata(vars_copy) {
+            Ok(metadata) if metadata.is_file() => Ok(()),
+            Ok(_) => Err(format!(
+                "OVMF variables path is not a file: {}",
+                vars_copy.display()
+            )),
+            Err(error) => Err(format!(
+                "cannot reuse missing OVMF variables image {}: {error}",
+                vars_copy.display()
+            )),
+        };
+    }
+
+    fs::copy(template, vars_copy).map(|_| ()).map_err(|error| {
+        format!(
+            "cannot copy OVMF variables template {} to {}: {error}",
+            template.display(),
+            vars_copy.display()
+        )
+    })
 }
 
 fn qemu_audio_driver_for_host(host_os: &str) -> &'static str {
@@ -1269,10 +1333,10 @@ mod tests {
 
     use super::{
         build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
-        guest_reached_failure, image_drive_argument, initialize_fats, qemu_audio_driver_for_host,
-        write_chain, Fat12Geometry, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
-        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT,
-        ROOT_OFFSET, SECTOR_SIZE,
+        guest_reached_failure, image_drive_argument, initialize_fats, prepare_ovmf_vars,
+        qemu_audio_driver_for_host, write_chain, Fat12Geometry, DATA_OFFSET, FAT_COUNT,
+        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER,
+        PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
     };
 
     #[test]
@@ -1353,6 +1417,38 @@ mod tests {
         file.read_exact(&mut marker).expect("read marker");
         assert_eq!(marker, [0xa5]);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn qemu_can_reuse_one_initialized_ovmf_variables_image() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("nagi-ovmf-vars-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create temp directory");
+        let template = root.join("template.fd");
+        let vars = root.join("vars.fd");
+        std::fs::write(&template, b"template vars").expect("write template");
+
+        prepare_ovmf_vars(&template, &vars, false).expect("initialize vars");
+        assert_eq!(
+            std::fs::read(&vars).expect("read initialized vars"),
+            b"template vars"
+        );
+        std::fs::write(&vars, b"firmware state").expect("write simulated firmware state");
+        prepare_ovmf_vars(&template, &vars, true).expect("reuse vars");
+        assert_eq!(
+            std::fs::read(&vars).expect("read reused vars"),
+            b"firmware state"
+        );
+
+        std::fs::remove_file(&vars).expect("remove vars");
+        assert!(prepare_ovmf_vars(&template, &vars, true).is_err());
+        std::fs::remove_dir_all(root).expect("remove temp directory");
     }
 
     #[test]

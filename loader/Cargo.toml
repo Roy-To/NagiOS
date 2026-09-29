@@ -7,6 +7,9 @@ autobins = false
 
 [workspace]
 
+[features]
+m27-boot-control-smoke = []
+
 [lib]
 path = "src/lib.rs"
 test = true
