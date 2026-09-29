@@ -1,0 +1,39 @@
+{
+  "id": "ident-01",
+  "owner": "Codex IDENT-01 workstream (assigned by Codex integration owner)",
+  "owner_branch": "codex/0.2-ident-01",
+  "recommended_worktree": "/Users/tozawa/.codex/worktrees/ident-01/NagiOS",
+  "state_file": ".dev/workstreams/ident-01/state.json",
+  "dependencies": [
+    "development-foundation",
+    "capability-permissions",
+    "app-sdk-contract",
+    "platform-apis"
+  ],
+  "allowed_paths": [
+    "crates/nagi-identity-session/**",
+    "tests/identity-session/**",
+    ".dev/workstreams/ident-01/**",
+    "docs/workstreams/NagiOS_0.2_Local_Identity_User_Session_Foundation_Workstream.md"
+  ],
+  "forbidden_paths": [
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    ".dev/workstreams.json",
+    ".dev/schemas/**",
+    "idl/**",
+    "kernel/**",
+    "loader/**",
+    "user/**",
+    "sdk/**",
+    "third_party/**",
+    "out/**",
+    "target/**",
+    "docs/implementation_status.md",
+    "docs/workstreams/NagiOS_0.2_IPC_Event_Bus_Foundation_Workstream.md",
+    "docs/workstreams/NagiOS_M18C_Browser_Acceptance_Reliability_Workstream.md"
+  ],
+  "activation_gate": "Host-only reference contracts, adapters/fakes, and deterministic tests are assigned. Production login/session service, durable runtime persistence, capability enforcement, user-scoped Storage/VFS integration, and target behavior require Nagi 0.1 M30 PASS plus an explicit Nagi 0.2 Integration Owner checkpoint naming IDENT-01. At assignment M17 is BLOCKED and M30 is NOT STARTED.",
+  "merge_boundary": "Keep candidate changes on codex/0.2-ident-01. Integrate only through codex/integration-next-phase after the Integration Owner accepts dependency contracts and host evidence; never merge directly to main without explicit user direction."
+}
