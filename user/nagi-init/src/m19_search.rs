@@ -7,7 +7,13 @@ use libnagi::storage::{
     BlockDevice, DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
     MAX_FILE_SIZE,
 };
-use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
+use nagi_ai::{
+    execute_plan, register_file_search_action, validate_plan, ActionPolicy, ActionRegistry,
+    CallerIdentity, ContextAuthority, ContextRequest, ContextResolver, ExecutionStatus, NagiPlan,
+    ObjectAccess, PolicyDenied,
+};
+use nagi_model::{AppId, AppSessionId, NodeId, ObjectId, WorkspaceId};
+use nagi_model_manager::CapabilityId;
 use nagi_search::{
     adapters::{FilesProducerAdapter, ProducerObject},
     AccessContext, GuestSnapshotBackend, MetadataRecord, ObjectKind, SearchQuery, SearchService,
@@ -20,6 +26,7 @@ const OBJECT_ID: ObjectId = ObjectId(0x4e41_4749_4d19_0001);
 const WORKSPACE_ID: WorkspaceId = WorkspaceId(0x4e41_4749_4d19_0002);
 const APP_ID: AppId = AppId(0x4e41_4749_4d19_0003);
 const SESSION_ID: AppSessionId = AppSessionId(0x4e41_4749_4d19_0004);
+const NODE_ID: NodeId = NodeId(0x4e41_4749_4d19_0005);
 const ACCESS: AccessContext = AccessContext::for_application(APP_ID, SESSION_ID);
 const FILE_ID_BASE: u64 = 0x4e41_4749_4d19_1000;
 const FILE_INDEXER_ATTRIBUTE: &str = "nagi.files.indexer";
@@ -163,6 +170,150 @@ type M19SearchService = SearchService<
     GuestSnapshotBackend<VfsSnapshotFiles<SyscallBlockDevice>>,
     M19AcceptanceVisibility,
 >;
+
+struct M19ActionPolicy {
+    live_file: ObjectId,
+}
+
+impl M19ActionPolicy {
+    fn caller_is_fixture(caller: CallerIdentity) -> bool {
+        caller.app_id == APP_ID
+            && caller.app_session_id == SESSION_ID
+            && caller.node_id == NODE_ID
+            && (caller.workspace_id.is_none() || caller.workspace_id == Some(WORKSPACE_ID))
+    }
+
+    fn object_is_visible(&self, caller: CallerIdentity, object_id: ObjectId) -> bool {
+        Self::caller_is_fixture(caller) && (object_id == OBJECT_ID || object_id == self.live_file)
+    }
+}
+
+impl ContextAuthority for M19ActionPolicy {
+    fn can_read_object(&self, caller: CallerIdentity, object_id: ObjectId) -> bool {
+        self.object_is_visible(caller, object_id)
+    }
+
+    fn can_read_workspace(&self, caller: CallerIdentity, workspace_id: WorkspaceId) -> bool {
+        Self::caller_is_fixture(caller) && workspace_id == WORKSPACE_ID
+    }
+}
+
+impl ActionPolicy for M19ActionPolicy {
+    type CapabilityGrant = ();
+    type ObjectHandle = ObjectId;
+
+    fn check_capability(
+        &self,
+        caller: CallerIdentity,
+        capability: &CapabilityId,
+    ) -> Result<(), PolicyDenied> {
+        if Self::caller_is_fixture(caller) && capability.as_str() == "files.search" {
+            Ok(())
+        } else {
+            Err(PolicyDenied::Capability)
+        }
+    }
+
+    fn check_object_access(
+        &self,
+        caller: CallerIdentity,
+        object_id: ObjectId,
+        access: ObjectAccess,
+    ) -> Result<(), PolicyDenied> {
+        if access == ObjectAccess::Read && self.object_is_visible(caller, object_id) {
+            Ok(())
+        } else {
+            Err(PolicyDenied::Object)
+        }
+    }
+
+    fn acquire_capability(
+        &self,
+        caller: CallerIdentity,
+        capability: &CapabilityId,
+    ) -> Result<Self::CapabilityGrant, PolicyDenied> {
+        self.check_capability(caller, capability)?;
+        Ok(())
+    }
+
+    fn resolve_object(
+        &self,
+        caller: CallerIdentity,
+        object_id: ObjectId,
+        access: ObjectAccess,
+    ) -> Result<Self::ObjectHandle, PolicyDenied> {
+        self.check_object_access(caller, object_id, access)?;
+        Ok(object_id)
+    }
+}
+
+fn run_file_search_action(service: M19SearchService, live_file: ObjectId) -> bool {
+    libnagi::console_write(b"Nagi M21 trace file.search start\r\n");
+    let policy = M19ActionPolicy { live_file };
+    let caller = CallerIdentity {
+        app_id: APP_ID,
+        app_session_id: SESSION_ID,
+        node_id: NODE_ID,
+        workspace_id: Some(WORKSPACE_ID),
+    };
+    let Ok(context) = ContextResolver.resolve(
+        ContextRequest {
+            caller,
+            selected_object: None,
+            candidate_objects: alloc::vec![OBJECT_ID, live_file],
+        },
+        &policy,
+    ) else {
+        return false;
+    };
+    libnagi::console_write(b"Nagi M21 trace context resolved\r\n");
+    if !context.contains_object(OBJECT_ID) || !context.contains_object(live_file) {
+        return false;
+    }
+
+    // This capability and caller policy are private to the M19 guest fixture.
+    // Production authority must come from an authenticated user-space service
+    // boundary, which is not exposed to applications yet.
+    let foreign_caller = CallerIdentity {
+        app_id: AppId(APP_ID.0.wrapping_add(1)),
+        ..caller
+    };
+    let Ok(capability) = CapabilityId::new("files.search") else {
+        return false;
+    };
+    if policy.check_capability(foreign_caller, &capability).is_ok() {
+        return false;
+    }
+    libnagi::console_write(b"Nagi M21 trace foreign caller denied\r\n");
+
+    let Ok(plan) = NagiPlan::parse_complete(
+        r#"{"plan_version":1,"intent":"find the live VFS fixture","steps":[{"action":"file.search","parameters":{"query":"nagi-m19-live-file.txt"}}]}"#,
+    ) else {
+        return false;
+    };
+    libnagi::console_write(b"Nagi M21 trace plan parsed\r\n");
+    let mut registry: ActionRegistry<M19ActionPolicy> = ActionRegistry::new();
+    if register_file_search_action(&mut registry, service).is_err() {
+        return false;
+    }
+    libnagi::console_write(b"Nagi M21 trace file.search registered\r\n");
+    let Ok(validated) = validate_plan(plan, &context, &registry, &policy) else {
+        return false;
+    };
+    libnagi::console_write(b"Nagi M21 trace plan validated\r\n");
+    let report = execute_plan(validated, &mut registry, &policy);
+    libnagi::console_write(b"Nagi M21 trace plan executed\r\n");
+    let passed = report.status == ExecutionStatus::Succeeded
+        && report.completed.len() == 1
+        && report.completed[0].action_id == "file.search"
+        && report.completed[0].object_ids == [live_file];
+    if passed {
+        libnagi::console_write(b"Nagi M21 file.search Plan Validate Execute PASS\r\n");
+    } else {
+        libnagi::console_write(b"Nagi M21 file.search Plan Validate Execute FAIL\r\n");
+    }
+    passed
+}
 
 fn open_volume(block_capability: u64) -> Result<Vfs<SyscallBlockDevice>, StorageError> {
     Vfs::mount_or_format(SyscallBlockDevice::new(block_capability)).map(|(volume, _)| volume)
@@ -472,7 +623,9 @@ pub fn run(block_capability: u64) -> bool {
                 .get(FILE_INODE_ATTRIBUTE)
                 == Some(&file_metadata.inode.to_string())
     });
-    let passed = file_passed
+    let action_passed = run_file_search_action(service, object_id_after_rename);
+    let passed = action_passed
+        && file_passed
         && object_id_before_rename == object_id_after_restart
         && response.objects.len() == 1
         && response.objects[0].record.object_id == OBJECT_ID

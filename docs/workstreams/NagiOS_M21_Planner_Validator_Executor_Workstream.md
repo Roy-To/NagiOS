@@ -26,9 +26,16 @@
   SearchService's injected filter. The host integration test runs a plan
   through validation and execution and confirms another app's private file is
   omitted. Its in-memory backend and filter are test-only.
-- No guest init service currently constructs this registry. App launch, file
-  copy/move, and volume handlers remain absent; the production target policy
-  and Context authorities are also not connected.
+- The M19 QEMU fixture now composes this action on the guest: it parses a
+  bounded `NagiPlan@1`, resolves fixture context, validates the registered
+  action, checks the fixture capability, executes against the real persistent
+  VFS-backed SearchService, and verifies the returned stable ObjectId. A
+  foreign fixture caller is denied. This policy remains local to the
+  acceptance fixture; kernel Channels are not exposed to user processes, so
+  there is still no authenticated production caller provider.
+- No production guest init service currently constructs this registry. App
+  launch, file copy/move, and volume handlers remain absent; the production
+  target policy and Context authorities are not connected.
 
 ## Verification
 
@@ -43,7 +50,7 @@ CARGO_TARGET_DIR=/tmp/nagi-m21-host-arm64 \
 /Users/tozawa/.cargo/bin/cargo test --locked --offline -p nagi-ai
 ```
 
-Result: 16 orchestration and SearchService integration tests passed; no doc
+Result: 23 orchestration and SearchService integration tests passed; no doc
 tests are defined.
 
 ```sh
@@ -79,19 +86,23 @@ CARGO_TARGET_DIR=/tmp/nagi-m21-target \
 ```
 
 The `nagi-ai` service, including the SearchService action adapter, compiles
-for the Nagi `no_std` user target. No M21 QEMU acceptance was run. The adapter
-is a real service composition, but its test's in-memory backend does not claim
-guest filesystem action execution.
+for the Nagi `no_std` user target. The later 2026-09-30 integration run passed
+`./nagi m19` with the M21 Plan/Validate/Execute marker in
+`out/logs/m19-vfs-objectid-initial.log`. The three-boot `./nagi m22`
+regression also passed and included the action marker on every boot in
+`out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`. This uses a
+fixture-scoped policy, not an authenticated app identity or production
+capability provider; no local model inference was involved.
 
 ## Remaining acceptance blockers
 
-1. Register the `file.search` action in the running guest AI service and
-   connect it to a SearchService with authenticated capability-bound caller
-   context. Add real `app.launch`, `file.copy`, `file.move`, and
-   `system.volume.set` handlers against their existing first-party services.
-2. Bind `ActionPolicy` and `ContextAuthority` to authenticated guest caller
-   capabilities and object handles. The library intentionally has no
-   allow-all production provider.
+1. Expose user-space Channel endpoints and bind `ActionPolicy` and
+   `ContextAuthority` to authenticated guest caller capabilities and object
+   handles. The library intentionally has no allow-all production provider.
+2. Register `file.search` in the running production AI service with that
+   authenticated provider. Add real `app.launch`, `file.copy`, `file.move`,
+   and `system.volume.set` handlers against their existing first-party
+   services.
 3. Connect Context Resolver and Planner to the running Nagi AI/model service,
    including provider-unavailability fallback in the UI/service path.
 4. Add guest acceptance for malformed and unsupported plans, capability and

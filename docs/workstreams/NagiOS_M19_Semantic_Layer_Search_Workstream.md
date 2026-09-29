@@ -42,8 +42,11 @@ vector, and LLM retrieval are out of scope.
   `FilesProducerAdapter`, and persists a fixture ObjectId separately from its
   inode. It renames the file, remounts the VFS, reboots QEMU with the same
   persistent user disk, and verifies the same ObjectId and updated location.
-  The target filter and caller context are scoped to this acceptance fixture;
-  they are not registered as production authority.
+  The guest SearchService is also registered as M21 `file.search`; a bounded
+  `NagiPlan@1` is parsed, validated, and executed against it, and the action
+  returns only the fixture file's visible ObjectId. Its caller/capability
+  policy denies a foreign fixture caller but is private test authority, not
+  production authority.
 
 The host acceptance uses the explicitly host-only `HostFileBackend` and a
 fixture visibility policy. It proves the provider-neutral contract and
@@ -65,13 +68,22 @@ a production IPC Search Service.
 - M19 QEMU acceptance passed on a fresh, isolated persistent user disk on
   2026-09-30. The initial boot printed `Nagi M19 initial snapshot/reopen PASS`;
   the following QEMU boot printed `Nagi M19 previous-boot snapshot PASS` and
-  the live VFS file/ObjectId marker. Logs are
-  `out/logs/m19-vfs-objectid-initial.log` and
-  `out/logs/m19-vfs-objectid-restart.log`; the bootstrap log is also retained.
+  the live VFS file/ObjectId marker. Those original two-boot logs and bootstrap
+  log are preserved under `out/evidence/pre-m28-continuation-20260930/`.
+  Current integrated M19/M21 guest evidence is in
+  `out/logs/m19-vfs-objectid-initial.log`.
   Earlier `m19-search-*` logs remain untouched. Failed development attempts
   are preserved under `out/evidence/m19-stale-target-dir-attempt/`,
   `out/evidence/m19-guest-failure-before-trace/`, and
   `out/evidence/m19-rename-capacity-attempt/`.
+- The follow-up guest run also passed the M21 `file.search`
+  Plan/Validate/Execute path against the persisted guest SearchService; serial
+  evidence is in `out/logs/m19-vfs-objectid-initial.log`. Its first attempt
+  rejected the fixture's own Workspace and timed out; that image, data disk,
+  OVMF vars, and log are preserved in
+  `out/evidence/m19-m21-action-failure-workspace-caller-20260930/`. The
+  pre-run accepted artifacts are at
+  `out/evidence/m19-m21-action-before-qemu-20260930/`.
 
 ## Verification evidence
 

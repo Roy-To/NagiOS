@@ -23,7 +23,12 @@ m18-acceptance = [
     "libnagi/m18-browser-threads",
     "nagi-posix/browser-storage",
 ]
-m19-search = ["m13-posix", "dep:nagi-search"]
+m19-search = [
+    "m13-posix",
+    "dep:nagi-ai",
+    "dep:nagi-model-manager",
+    "dep:nagi-search",
+]
 m22-history = ["m19-search"]
 
 [[bin]]
@@ -37,6 +42,7 @@ libnagi = { path = "../libnagi" }
 nagi-audio = { path = "../nagi-audio" }
 nagi-history = { path = "../nagi-history" }
 nagi-model = { path = "../../crates/nagi-model" }
+nagi-model-manager = { path = "../nagi-model-manager", optional = true }
 nagi-package = { path = "../nagi-package" }
 nagi-sdk = { path = "../../sdk/rust" }
 nagi-net = { path = "../nagi-net" }
@@ -46,6 +52,7 @@ nagi-search = { path = "../nagi-search", optional = true }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 nagi-albert = { path = "../nagi-albert", optional = true }
+nagi-ai = { path = "../../services/nagi-ai", optional = true }
 relibc = { path = "../../third_party/relibc", default-features = false }
 
 [lints.rust]

@@ -34,6 +34,14 @@ bytes before calling any backend.
   `c85b92c69c955961621193cd51da194f3cbcedf3`; `nagi fetch` retrieves that exact
   clean source checkout. This is reproducible source acquisition, not a claim
   that the C++ backend is built for Nagi.
+- A 2026-09-30 CMake configuration probe using the Nagi x86-64 target compiler
+  and CPU-only/static options passed compiler detection and configuration.
+  Building target `llama` then failed in upstream `ggml/src/gguf.cpp`: its
+  parser and writer use C++ exception syntax, while the Nagi target wrapper
+  intentionally passes `-fno-exceptions` because Nagi has no exception
+  unwinder. Exact configure/build logs are retained under
+  `out/m20-llama-target-probe-2026-09-30/`. The pinned checkout remains clean;
+  no target library was linked and no runtime/inference is claimed.
 - Granite Q4_K_M source metadata pins repository commit
   `c40945d71cd90f249a56985e8155551a9188dc30`, upstream size
   `2,244,011,552` bytes, digest
@@ -101,9 +109,11 @@ compiled for the Nagi `no_std` target.
 
 ## Remaining acceptance blockers
 
-1. Build a Nagi-compatible CPU llama.cpp backend from the pinned source and
-   connect it through the provider-neutral runtime. The source checkout has no
-   Nagi C ABI adapter, target build, or backend session.
+1. Add and test a reproducible Nagi-owned no-exception adaptation for the
+   pinned llama.cpp source, then build its CPU backend and connect it through
+   the provider-neutral runtime. The current parser compile failure is concrete
+   evidence for this compatibility work; the checkout has no Nagi C ABI
+   adapter, target build, or backend session.
 2. Add a large-artifact Model Store path. Current guest VFS files are 1 KiB
    bounded and cannot contain the pinned 2.24 GB model; no guest model artifact
    reader or installer is registered.

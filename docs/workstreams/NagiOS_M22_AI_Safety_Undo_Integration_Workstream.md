@@ -79,6 +79,11 @@ system and would not satisfy the required integration.
 - Regression rerun on 2026-09-30 passed all three QEMU boots. The prior disk,
   OVMF vars, bootstrap log, and three serial logs were copied before the run to
   `out/evidence/m22-before-sweep-rerun-20260930/`.
+- After the M21 `file.search` guest composition, the three-boot `./nagi m22`
+  regression passed again on 2026-09-30. Each boot passed M19/M21 Search before
+  the NH16 state check. Previous accepted M22 images, data disk, vars, and logs
+  were preserved at
+  `out/evidence/m22-before-m21-action-regression-20260930/`.
 - This is a guest VFS/persistence fixture only. It is not the required
   authenticated M21 Executor action and does not prove production capability
   checks or linkage to the M15 NH15 ledger.

@@ -94,6 +94,20 @@ files were moved there to clear the runner's collision guard. A real
 three-boot M22 gate. M28 remains PARTIAL because this Search/History slice does
 not measure its combined reference workload.
 
+## M21 guest action integration continuation — 2026-09-30
+
+Before rerunning the combined harness after adding M21 `file.search`, the
+current M19/M22 images, OVMF vars, serial logs, and both persistent disks were
+preserved under `out/evidence/pre-m28-m21-action-20260930/`. A real
+`NAGI_M28_REPEAT_COUNT=1 ... --run` passed: M19 executed the guest
+Plan/Validate/Action Registry/Executor path against the persistent Search
+Service, then M22 passed all three NH16 guest boots with that same M19/M21
+path active before its transaction-state checks. Current serial outputs are
+`out/logs/m19-vfs-objectid-initial.log` and
+`out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`. The harness
+shell check, self-test, and collision-free dry-run also passed. M28 remains
+PARTIAL; the run did not exercise its desktop/model/audio reference workload.
+
 ## Commands
 
 ```sh

@@ -3452,10 +3452,12 @@ name = "nagi-init"
 version = "0.1.0"
 dependencies = [
  "libnagi",
+ "nagi-ai",
  "nagi-albert",
  "nagi-audio",
  "nagi-history",
  "nagi-model",
+ "nagi-model-manager",
  "nagi-net",
  "nagi-package",
  "nagi-pal",
