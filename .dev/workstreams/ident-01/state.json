@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "ident-01",
   "current_milestone": "IDENT-01 host-reference implementation and owner registration",
-  "current_checkpoint": "owner registration committed; post-commit host checks and root verifier pass; push and CI pending",
+  "current_checkpoint": "IDENT-01 owner registration and host reference are published on the dedicated branch. Focused host checks and Ubuntu/Windows CI jobs passed; CI run 36525459370 completed with the unrelated M17 target acceptance failing at Servo pthread_create EAGAIN and QEMU timeout. Exact run/artifact evidence is recorded here. IDENT-01 remains PARTIAL and production acceptance remains gated.",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "d1efc9fcf1579749d0c15e48b2e934bb3d0782bb",
-    "verified_at": "2026-09-29T05:16:09Z",
-    "normal_state": "The owner-assigned branch codex/0.2-ident-01 is at d1efc9fcf1579749d0c15e48b2e934bb3d0782bb, based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9. Post-registration-commit focused tests passed (23/23), rustfmt and Clippy passed, and the root DF-01 verifier validated 19 registered workstreams and 12 state files including IDENT-01. `nagi dev status` reported PARTIAL with the live M30/checkpoint and dependency blockers and a clean worktree. Only state evidence is being updated now; push, remote equality, and CI remain pending. Host-only results do not satisfy production acceptance.",
+    "commit_sha": "0b333944175cdae4a5ea6c822ab08078ca504ccc",
+    "verified_at": "2026-09-29T06:26:00Z",
+    "normal_state": "IDENT-01 is registered on owner-assigned branch codex/0.2-ident-01, based on 198b9f60b41eba14e74c2c04f51ccdcb4030adf9, in the dedicated managed worktree. The tested/pushed source commit 0b333944175cdae4a5ea6c822ab08078ca504ccc matched origin at verification. Focused host tests (23/23), formatting, Clippy, DF-01 root verification, and both Ubuntu/Windows host CI jobs passed. GitHub Actions run 36525459370 completed with nagi-target failure at unrelated M17 first-web-pixel acceptance: Servo construction hit pthread_create EAGAIN (11), panicked in Servo profile/mem.rs:48, and QEMU did not exit within 120 seconds; no real pixel checksum/pass marker was produced. Status remains PARTIAL; host fakes do not satisfy production acceptance. Production integrations remain gated by M30 PASS plus an explicit checkpoint and unresolved Capability and Storage/VFS contracts.",
     "commands": [
       "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test --manifest-path crates/nagi-identity-session/Cargo.toml --locked --offline",
       "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path crates/nagi-identity-session/Cargo.toml -- --check",
@@ -16,7 +16,13 @@
       "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev verify",
       "git diff --check",
       "python3 standard-library JSON/state/registry structural validation",
-      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev status"
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev status",
+      "gh run view 36525459370 --repo RT-NISH/NagiOS --json status,conclusion,updatedAt,jobs,url",
+      "gh run view 36525459370 --repo RT-NISH/NagiOS --job 109269025592 --log",
+      "gh run download 36525459370 --repo RT-NISH/NagiOS --name m17-diagnostics-36525459370",
+      "gh run download 36525459370 --repo RT-NISH/NagiOS --name acceptance-nagi-target-1",
+      "git ls-remote --heads origin refs/heads/codex/0.2-ident-01",
+      "git status --short --branch"
     ],
     "tests": [
       {
@@ -59,7 +65,7 @@
         "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev verify",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "At committed registration HEAD d1efc9fcf1579749d0c15e48b2e934bb3d0782bb, output: `PASS development state: 19 registered workstreams, 12 state files validated; branch codex/0.2-ident-01 at d1efc9fcf1579749d0c15e48b2e934bb3d0782bb`."
+        "evidence": "After recording CI run 36525459370, verifier passed at source/test commit 0b333944175cdae4a5ea6c822ab08078ca504ccc: 19 registered workstreams and 12 state files validated on codex/0.2-ident-01."
       },
       {
         "name": "IDENT-01 staged change whitespace check",
@@ -71,16 +77,16 @@
       {
         "name": "IDENT-01 branch push and remote equality",
         "command": "git push origin codex/0.2-ident-01; git ls-remote --heads origin refs/heads/codex/0.2-ident-01",
-        "outcome": "NOT_RUN",
-        "exit_code": null,
-        "evidence": "The owner-registration commit is now complete; push and remote equality check are the next action."
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Pushed only codex/0.2-ident-01 with `git push --set-upstream origin codex/0.2-ident-01`; the branch source commit 0b333944175cdae4a5ea6c822ab08078ca504ccc matched `git ls-remote --heads origin refs/heads/codex/0.2-ident-01`."
       },
       {
         "name": "IDENT-01 GitHub Actions CI",
-        "command": "gh run list --branch codex/0.2-ident-01",
-        "outcome": "NOT_RUN",
-        "exit_code": null,
-        "evidence": "CI will be checked after pushing codex/0.2-ident-01; no shared CI workflow changes are in scope."
+        "command": "GitHub Actions run 36525459370; gh run view 36525459370 --repo RT-NISH/NagiOS --job 109269025592 --log",
+        "outcome": "FAIL",
+        "exit_code": 11,
+        "evidence": "https://github.com/RT-NISH/NagiOS/actions/runs/36525459370 completed failure on head 0b333944175cdae4a5ea6c822ab08078ca504ccc. ubuntu-host and windows-launcher passed. nagi-target exit 11: M17 acceptance report exit 1, stage timeout; QEMU did not exit within 120 seconds after Servo pthread_create failed with EAGAIN (11) and Servo profile/mem.rs:48 panicked. No real pixel checksum/pass marker. This target/M17 failure is outside IDENT-01 host-reference acceptance."
       },
       {
         "name": "IDENT-01 registry/proposal/state JSON structure",
@@ -94,32 +100,56 @@
         "command": "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH ./nagi dev status",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "At committed registration HEAD d1efc9fcf1579749d0c15e48b2e934bb3d0782bb, `./nagi dev status` resolved owner and branch, reported PARTIAL and the live M30/dependency blockers, and reported Worktree: clean."
+        "evidence": "After recording CI evidence, `./nagi dev status` resolved the assigned IDENT-01 owner and dedicated branch, reported PARTIAL with the M30/checkpoint and dependency gates, and reported Worktree: DIRTY solely because the new state evidence had not yet been committed."
+      },
+      {
+        "name": "IDENT-01 CI target diagnostics captured",
+        "command": "gh run download 36525459370 --repo RT-NISH/NagiOS --name m17-diagnostics-36525459370; gh run download 36525459370 --repo RT-NISH/NagiOS --name acceptance-nagi-target-1",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Downloaded both uploaded artifacts. M17-FIRST-WEB-PIXEL.log and acceptance-1790661233737.json confirm QEMU timeout after Servo thread creation EAGAIN/panic; runner snapshot recorded about 14 GiB available memory, so no host-RAM exhaustion is inferred. Diagnostic artifact: https://github.com/RT-NISH/NagiOS/actions/runs/36525459370/artifacts/11016342779; target acceptance artifact: https://github.com/RT-NISH/NagiOS/actions/runs/36525459370/artifacts/11015993282."
+      },
+      {
+        "name": "IDENT-01 CI evidence state validation",
+        "command": "python3 -m json.tool .dev/workstreams/ident-01/state.json; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The updated IDENT-01 state parses as JSON and the state-only diff has no whitespace errors; root DF-01 verifier was also rerun after the update."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 36525459370,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36525459370",
+        "head_sha": "0b333944175cdae4a5ea6c822ab08078ca504ccc",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "ubuntu-host and windows-launcher passed. nagi-target failed M17 first-web-pixel acceptance (exit 11; report test exit 1): Servo pthread_create EAGAIN (11) panic at profile/mem.rs:48 followed by QEMU timeout at 120 seconds; no pixel checksum/pass marker. This unrelated M17 target failure does not satisfy or change IDENT-01 host-reference acceptance."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md; docs/0.2/WORKSTREAMS.md; docs/workstreams/NagiOS_0.2_Local_Identity_User_Session_Foundation_Workstream.md",
-    "last_checked_at": "2026-09-29T05:11:22Z",
-    "activation_requirement": "M17 is BLOCKED and M30 is NOT STARTED; no explicit Nagi 0.2 checkpoint naming IDENT-01 is recorded. Host-only reference work is assigned. Production login/session service wiring, durable runtime persistence, capability enforcement, user-scoped Storage/VFS integration, and target behavior require M30 PASS plus that explicit checkpoint. Capability session binding and the Storage/VFS profile-root owner contract remain unresolved."
+    "last_checked_at": "2026-09-29T06:24:10Z",
+    "activation_requirement": "M17 remains BLOCKED and M30 is NOT STARTED; no explicit Nagi 0.2 checkpoint naming IDENT-01 is recorded. GitHub Actions run 36525459370 failed the M17 target first-web-pixel acceptance after Servo construction hit pthread_create EAGAIN (11) and QEMU timed out after 120 seconds; this is a release-line blocker outside IDENT-01. Host-only reference work is assigned. Production login/session service wiring, durable runtime persistence, capability enforcement, user-scoped Storage/VFS integration, and target behavior require M30 PASS plus that explicit checkpoint. Capability session binding and the Storage/VFS profile-root owner contract remain unresolved."
   },
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "Production/runtime acceptance is gated by M30 NOT STARTED and the absence of an explicit Nagi 0.2 checkpoint naming IDENT-01. The Capability owner has not published a versioned trusted-caller/session-to-PrincipalId binding contract, and no registered Storage/VFS owner or profile-root contract is present. Host-reference implementation, owner assignment, and branch registration are allowed and continue as PARTIAL.",
+    "summary": "Production/runtime acceptance is gated by M30 NOT STARTED and the absence of an explicit Nagi 0.2 checkpoint naming IDENT-01. The Capability owner has not published a versioned trusted-caller/session-to-PrincipalId binding contract, and no registered Storage/VFS owner or profile-root contract is present. GitHub Actions run 36525459370 also failed the unrelated M17 first-web-pixel target acceptance after Servo thread creation was rejected with EAGAIN (11) and QEMU timed out after 120 seconds. Host-reference implementation, owner assignment, and branch registration are allowed and continue as PARTIAL.",
     "reproduction_commands": [
       "rg -n \"M17|M30\" docs/implementation_status.md",
       "rg -n \"capability-permissions|platform-apis|storage|vfs\" .dev/workstreams.json docs/workstreams/NagiOS_0.2_Local_Identity_User_Session_Foundation_Workstream.md",
       ".dev/workstreams/ident-01/state.json",
       "./nagi dev verify"
     ],
-    "failure_log_summary": "Two initial focused-test invocations failed before crate compilation because /usr/local/bin Homebrew Rust targeted x86_64 while the installed Apple Command Line Tools provide arm64 only. `rustup run` alone left /usr/local/bin/rustc first in PATH. Putting the repository-pinned nightly aarch64 toolchain bin directory first resolved the host mismatch; all 23 contract tests, formatting, and Clippy then passed. No source failure remains. Production acceptance is independently blocked by the release/dependency gates above.",
+    "failure_log_summary": "Two initial focused-test invocations failed before crate compilation because /usr/local/bin Homebrew Rust targeted x86_64 while the installed Apple Command Line Tools provide arm64 only. `rustup run` alone left /usr/local/bin/rustc first in PATH. Putting the repository-pinned nightly aarch64 toolchain bin directory first resolved the host mismatch; all 23 contract tests, formatting, and Clippy passed. GitHub Actions run 36525459370: Ubuntu and Windows host jobs passed; nagi-target failed M17 first-web-pixel acceptance (wrapper exit 11; acceptance report exit 1, stage timeout). The guest reached user entry, persistent-storage acceptance, surface acquisition, and GL context creation. During Servo construction, native thread creation was rejected with pthread_error=11 (EAGAIN), Servo profile/mem.rs:48 panicked, QEMU did not exit within 120 seconds, and no pixel checksum/pass marker was emitted. Target diagnostic artifacts are attached to the run. This M17 failure is outside IDENT-01; no M17 source was modified. Production acceptance remains independently blocked by M30/checkpoint and unresolved dependency contracts.",
     "attempted_fixes": [
       "Verified the selected system compiler and found rustc 1.86.0 Homebrew with host x86_64-apple-darwin while rust-toolchain.toml selects nightly aarch64.",
       "Confirmed `rustup run` changes Cargo selection but leaves /usr/local/bin/rustc ahead in child PATH.",
       "Ran all focused checks with the pinned nightly aarch64 bin directory first; tests, formatting, and Clippy passed.",
-      "Registered the approved host-only workstream row and assigned branch/base/worktree as an Integration Owner action; production contracts remain in proposals pending their owners and activation gate."
+      "Registered the approved host-only workstream row and assigned branch/base/worktree as an Integration Owner action; production contracts remain in proposals pending their owners and activation gate.",
+      "Inspected GitHub Actions run 36525459370 M17 logs and uploaded diagnostics; confirmed a Servo native-thread creation EAGAIN panic followed by the 120-second QEMU timeout. Kept the M17 failure assigned to its owning target workstream; IDENT-01 remains host-only."
     ],
     "do_not_try": [
       "Do not implement production login/session service wiring, user/nagi-init behavior, durable runtime identity persistence, capability policy/enforcement, Storage/VFS persistence, SDK/shared-schema runtime integration, or target behavior before M30 PASS and an explicit checkpoint.",
@@ -127,7 +157,7 @@
       "Do not edit root Cargo configuration, CI, shared schemas/IDL, another workstream source/state, or push/merge main or another owner branch."
     ]
   },
-  "next_action": "Push only codex/0.2-ident-01, verify origin HEAD equals the pushed SHA, inspect the resulting GitHub Actions run, then record its exact result in this state and push the state update. For later production acceptance, the Integration Owner must retain the M30/checkpoint gate, obtain a versioned trusted-caller/session-to-PrincipalId contract from the Capability owner, and designate/create a Storage/VFS owner with a versioned opaque profile-root contract before production persistence or service integration.",
+  "next_action": "Integration Owner: keep IDENT-01 production integration gated; route the run 36525459370 M17 Servo/QEMU thread-creation failure to the M17/target owner for diagnosis; obtain a versioned trusted-caller/session-to-PrincipalId contract from the Capability owner; designate/create a registered Storage/VFS owner with a versioned opaque profile-root contract; retain the M30 PASS and explicit-checkpoint gate. IDENT-01 may continue only approved host-reference work until these gates open.",
   "acceptance_criteria": [
     "PASS HOST-REFERENCE ONLY — UserId adapts the existing model ID with validation; ProfileId and identity SessionId are separate validated types; canonical capability PrincipalId is reused and app/runtime IDs, PID, SurfaceId, paths, and display names remain distinct.",
     "PASS HOST-REFERENCE ONLY — Local users, multiple profiles, and guest/ephemeral sessions operate offline through deterministic host fakes; no cloud/network authentication exists.",
@@ -141,7 +171,7 @@
     "PASS — No M18 code, user/nagi-init, shared capability policy, SDK, shared IDL/ABI, root Cargo configuration, CI, or unrelated workstream source/state was changed by IDENT feature implementation. Registry row changes are an isolated Integration Owner registration action.",
     "PASS — IDENT-01 has an assigned owner, codex/0.2-ident-01 branch, base 198b9f60b41eba14e74c2c04f51ccdcb4030adf9, and dedicated managed worktree recorded in the registration row.",
     "PASS — Root `./nagi dev verify` validates the IDENT-01 registry row and DF-01 state on the dedicated branch.",
-    "PARTIAL — Focused host package checks and root state verification pass; dedicated-branch push, remote equality, final clean worktree, and CI are pending.",
+    "PARTIAL — Focused host package checks and DF-01 state verification pass; dedicated branch push and remote equality are verified. Ubuntu and Windows host CI jobs passed. GitHub Actions run 36525459370 failed at unrelated M17 first-web-pixel target acceptance: Servo pthread_create EAGAIN (11), panic, then QEMU timeout after 120 seconds; no pixel checksum/pass marker. This does not complete IDENT production acceptance, and host fakes are not production acceptance.",
     "BLOCKED BY RELEASE GATE — Production login, durable runtime store, real profile-root storage, versioned capability binding/enforcement, target integration, and full production acceptance require M30 PASS and an explicit Nagi 0.2 checkpoint naming IDENT-01."
   ],
   "deferred": [
