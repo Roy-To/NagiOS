@@ -3,7 +3,7 @@
 Nagi OS 0.1 Developer Preview is an independent, local-first operating system
 targeting the QEMU x86-64 reference machine.
 
-## M0 developer workflow
+## Developer workflow
 
 On Windows PowerShell:
 
@@ -16,16 +16,16 @@ On Windows PowerShell:
 
 On a POSIX development host:
 
-```text
+```sh
 ./nagi fetch
 ./nagi doctor
 ./nagi build
 ./nagi test
 ```
 
-`fetch` materializes the pinned Servo and libc sources, applies the tracked
-Nagi patches, and records their fingerprints. Run it before root-workspace
-Cargo commands when the generated third-party sources are absent.
+`fetch` materializes and validates pinned third-party sources. It may need a
+network connection and substantial free disk space. Run it before workspace
+Cargo commands when those sources are absent.
 
 If PowerShell execution policy blocks local scripts, invoke the launcher with
 the repository-scoped bypass used by the acceptance test:
@@ -34,18 +34,20 @@ the repository-scoped bypass used by the acceptance test:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\nagi.ps1 doctor
 ```
 
-`doctor` reports host dependencies. Commands for guest image creation and
-boot remain unavailable until their owning milestones implement them.
+`doctor` checks development-host dependencies. The current command list is
+available with `./nagi --help` or `.\nagi.ps1 --help`. For the first guest
+image and QEMU run, see the [Developer Preview guide](docs/developer-preview/README.md).
 
 Read `AGENTS.md`, the primary specification, and
 `docs/implementation_status.md` before changing the project.
 
-## Project status
+## Project status and limits
 
-Nagi OS is an independent, local-first Developer Preview. The current
-implementation milestone is M17, Servo Bootstrap. M17 is currently
-`BLOCKED`, and M18 has not started. This repository does not claim a real
-guest first-web-pixel acceptance result yet.
+Nagi OS is an independent, local-first Developer Preview. Milestone states,
+acceptance evidence, and known blockers change as work proceeds; use
+[`docs/implementation_status.md`](docs/implementation_status.md) as the
+current status source. A command or library existing in the repository does
+not by itself mean its milestone acceptance has passed.
 
 The reference environment is QEMU x86-64 with UEFI/OVMF, q35, four vCPUs,
 8 GiB of RAM, VirtIO block/network/GPU/sound/RNG, and Nagi's software
@@ -58,6 +60,14 @@ for Nagi OS from any third-party component. Current third-party source pins,
 license metadata, and items requiring review are recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 Third-party components remain subject to their respective licenses.
+
+## More documentation
+
+- [Developer Preview setup, QEMU acceptance, and diagnostics](docs/developer-preview/README.md)
+- [Rust and C SDK surface with the sample packaging flow](sdk/README.md)
+- [Contribution and verification workflow](CONTRIBUTING.md)
+- [Milestone roadmap](ROADMAP.md)
+- [Security reporting policy](SECURITY.md)
 
 ## Security status
 
