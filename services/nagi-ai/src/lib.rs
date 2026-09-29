@@ -10,6 +10,7 @@ mod executor;
 mod plan;
 mod planner;
 mod router;
+mod search_action;
 mod validator;
 
 pub use actions::*;
@@ -18,6 +19,7 @@ pub use executor::*;
 pub use plan::*;
 pub use planner::*;
 pub use router::*;
+pub use search_action::*;
 pub use validator::*;
 
 #[cfg(test)]

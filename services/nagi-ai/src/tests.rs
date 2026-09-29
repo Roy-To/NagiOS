@@ -13,16 +13,20 @@ use nagi_model_manager::{
     BackendId, CancellationToken, CapabilityId, GenerativeProvider, ModelId, ModelRequest,
     ModelResponse, ModelStreamResponse, ProviderId, RuntimeError, TokenUsage,
 };
+use nagi_search::{
+    AccessContext, BackendError, MetadataRecord, ObjectKind, SearchService, SnapshotBackend,
+    VisibilityFilter, VisibilityScope, Workspace,
+};
 use serde_json::json;
 
 use crate::{
-    execute_plan, route_decision_candidate, route_with_decision_provider, validate_plan,
-    ActionDescriptor, ActionHandler, ActionInvocation, ActionOutput, ActionPolicy, ActionRegistry,
-    CallerIdentity, ContextAuthority, ContextRequest, ContextResolver, DecisionCandidate,
-    DecisionProvider, DecisionRequest, DecisionRoute, ExecutionStatus, FallbackRoute,
-    GenerativePlanProvider, HandlerError, LlmDecisionAdapter, ModelManagerPlanAdapter, NagiPlan,
-    ObjectAccess, ParameterKind, ParameterRule, PlanPrompt, PlanProviderError, Planner,
-    PlannerError, PolicyDenied, ResolvedContext, ValidationError,
+    execute_plan, register_file_search_action, route_decision_candidate,
+    route_with_decision_provider, validate_plan, ActionDescriptor, ActionHandler, ActionInvocation,
+    ActionOutput, ActionPolicy, ActionRegistry, CallerIdentity, ContextAuthority, ContextRequest,
+    ContextResolver, DecisionCandidate, DecisionProvider, DecisionRequest, DecisionRoute,
+    ExecutionStatus, FallbackRoute, GenerativePlanProvider, HandlerError, LlmDecisionAdapter,
+    ModelManagerPlanAdapter, NagiPlan, ObjectAccess, ParameterKind, ParameterRule, PlanPrompt,
+    PlanProviderError, Planner, PlannerError, PolicyDenied, ResolvedContext, ValidationError,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -755,4 +759,71 @@ fn llm_decision_adapter_is_bounded_and_returns_only_an_advisory_candidate() {
         .expect("safe failure fallback"),
         DecisionRoute::Fallback(FallbackRoute::DeterministicOrManual)
     );
+}
+
+#[derive(Default)]
+struct SearchMemoryBackend(Option<Vec<u8>>);
+
+impl SnapshotBackend for SearchMemoryBackend {
+    fn load_snapshot(&mut self) -> Result<Option<Vec<u8>>, BackendError> {
+        Ok(self.0.clone())
+    }
+
+    fn write_snapshot(&mut self, snapshot: &[u8]) -> Result<(), BackendError> {
+        self.0 = Some(snapshot.to_vec());
+        Ok(())
+    }
+}
+
+struct CallerSearchVisibility;
+
+impl VisibilityFilter for CallerSearchVisibility {
+    fn can_read_object(&self, access: AccessContext, record: &MetadataRecord) -> bool {
+        record.visibility == VisibilityScope::Public
+            || (record.source_app == access.app_id
+                && record.source_session == access.app_session_id)
+    }
+
+    fn can_read_workspace(&self, access: AccessContext, workspace: &Workspace) -> bool {
+        workspace.visibility == VisibilityScope::Public || workspace.owner_app == access.app_id
+    }
+}
+
+#[test]
+fn registered_file_search_action_runs_search_and_returns_only_visible_ids() {
+    let caller = caller();
+    let mut service = SearchService::open(SearchMemoryBackend::default(), CallerSearchVisibility)
+        .expect("open metadata search service");
+    let mut visible = MetadataRecord::new(ObjectId(41), ObjectKind::File, "Servo notes");
+    visible.source_app = Some(caller.app_id);
+    visible.source_session = Some(caller.app_session_id);
+    visible.visibility = VisibilityScope::Private;
+    service.upsert_record(visible).expect("index caller file");
+    let mut page = MetadataRecord::new(ObjectId(43), ObjectKind::Page, "Servo article");
+    page.source_app = Some(caller.app_id);
+    page.source_session = Some(caller.app_session_id);
+    page.visibility = VisibilityScope::Private;
+    service.upsert_record(page).expect("index caller page");
+    let mut hidden = MetadataRecord::new(ObjectId(42), ObjectKind::File, "Servo private");
+    hidden.source_app = Some(AppId(caller.app_id.0 + 1));
+    hidden.visibility = VisibilityScope::Private;
+    service
+        .upsert_record(hidden)
+        .expect("index another app file");
+
+    let mut registry = ActionRegistry::new();
+    register_file_search_action(&mut registry, service).expect("register file.search");
+    let validated = validate_plan(
+        plan(r#"{"plan_version":1,"intent":"find Servo notes","steps":[{"action":"file.search","parameters":{"query":"Servo"}}]}"#),
+        &context(&[]),
+        &registry,
+        &TestPolicy::default(),
+    )
+    .expect("validate bounded search plan");
+    let report = execute_plan(validated, &mut registry, &TestPolicy::default());
+
+    assert_eq!(report.status, ExecutionStatus::Succeeded);
+    assert_eq!(report.completed.len(), 1);
+    assert_eq!(report.completed[0].summary, "Found 1 visible object(s).");
+    assert_eq!(report.completed[0].object_ids, vec![ObjectId(41)]);
 }

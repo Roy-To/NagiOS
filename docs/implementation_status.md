@@ -1,6 +1,6 @@
 # 1. Current status
 
-**Current milestone:** `M20 - AI Runtime / Granite`
+**Current milestone:** `M21 - Planner / Validator / Executor`
 **Milestone status:** `PARTIAL`
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
@@ -28,13 +28,15 @@ formatting, warnings-denied Clippy, and the Nagi user-target compile pass. No
 Nagi llama.cpp backend, guest Model Store path, active model service, or real
 in-guest Granite response exists, so M20 remains `PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
-DecisionProvider/LLM adapter routing, context visibility filtering, a deny-by-
-construction action registry contract, deterministic capability/object/
-parameter validation, and a sequential executor with partial-failure results.
-Fifteen host orchestration tests, warnings-denied Clippy, formatting, and Nagi
-user-target compilation pass. M21 remains `PARTIAL`: this branch has no real
-registered first-party action handlers, authenticated target policy provider,
-or guest acceptance.
+DecisionProvider/LLM routing, context visibility filtering, deterministic
+capability/object/parameter validation, and sequential partial-failure
+execution. The registry now has a real `file.search` handler that delegates to
+the M19 SearchService, returns at most 64 authorized Object IDs, and relies on
+its injected visibility filter plus executor policy checks. Sixteen host tests,
+warnings-denied Clippy, formatting, and Nagi user-target compilation pass. M21
+remains `PARTIAL`: app launch, file copy/move, and volume handlers are absent;
+the action service is not registered in guest init, and authenticated target
+policy plus QEMU acceptance remain.
 **M22 evidence:** The existing M15 History Service now has an `NH16`
 recoverable archive contract, full-width logical caller context, grouped move
 transactions, prepared/committed states, composite reverse-order undo, and
@@ -47,9 +49,10 @@ archive is not yet wired to durable guest storage or QEMU restart acceptance.
 The local M15 QEMU attempt also stopped at M14 capture because the host QEMU
 CoreAudio backend had no capture driver; no AI mutation or undo acceptance is
 claimed.
-**Next action:** Continue M20's real backend/service boundary work, then
-advance M21 independently where M19/M20 authority and provider dependencies do
-not apply. M22 remains gated only at its real three-file guest acceptance.
+**Next action:** Continue M21 with real action/service registration where the
+existing authority and storage APIs permit it. In parallel, advance M22's
+durable archive integration and M23's provider-fail-closed context/UI boundary;
+only their dependent guest acceptance remains blocked.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -64,13 +67,12 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-30
 **Latest continuation CI:** Run
-[`36588249000`](https://github.com/RT-NISH/NagiOS/actions/runs/36588249000)
-on `14918d11905220c6aa6122135361c8f40d25651d` is in progress. Ubuntu host and
-Windows launcher passed; `nagi-target` built the image, init, and UEFI loader,
-and is running M17 first-web-pixel before M18 regressions. This run includes
-the M19 default-init allocator repair. Earlier run `36584567375` is for the
-pre-repair commit and is not current evidence. The M22 checkpoint CI run
-`36576635230` passed all gates on `a69746a82df209b1565db6b32ecf8e3b7665424b`.
+[`36593865893`](https://github.com/RT-NISH/NagiOS/actions/runs/36593865893)
+on `4a7feb161fe49f71620841f74f156937399f615b` is queued. The preceding M19
+repair run `36588249000` passed Ubuntu host and Windows launcher; its
+`nagi-target` job had built init and UEFI and was running the M17/M18 QEMU
+regressions when M20 was pushed. The M22 checkpoint CI run `36576635230` passed
+all gates on `a69746a82df209b1565db6b32ecf8e3b7665424b`.
 **Last known checkpoint:** The user-directed continuation is on
 `codex/m19-m22-continuation` in
 `/Users/tozawa/.codex/worktrees/m19-m22-continuation/NagiOS`. The M19 guest
@@ -2112,7 +2114,7 @@ Use only these statuses:
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Nineteen host tests, warnings-denied `nagi-search` Clippy, changed-file format, M19 target compile, and `./nagi m19` two-boot QEMU persistence acceptance pass. CI `36588249000` has passed Ubuntu host and Windows launcher; target M17/M18 regressions are still running. Acceptance uses one private fixture; real File/page producer ID mapping and a production IPC service with authenticated capability-bound visibility remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
 | M20 | AI Runtime / Granite | PARTIAL | The model manager hashes artifact bytes through an 8 KiB buffer before backend load; IBM Granite Q4_K_M metadata and pinned llama.cpp source are recorded. `./nagi fetch`, 40 model-manager unit tests, 2 manifest/schema tests, 1 Store API test, 114 CLI unit tests, 18 CLI integration tests, formatting, warnings-denied Clippy, and `no_std` target compile pass. No target backend/service, guest large-artifact store, or real Granite inference exists. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
-| M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; 15 tests cover complete-plan parsing, bounded prompt action filtering, LLM/Decision adapters, unknown/denied actions, object visibility, path/resource bounds, successful and partial results, and confidence-independent authorization. Formatting, Clippy, and Nagi target compile pass. No production handlers or trusted target Capability/Permission adapter are registered, so no real action/QEMU acceptance is claimed. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
+| M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; the existing M19 SearchService is now registered through a real bounded `file.search` action handler. Its integration test validates and executes a plan and proves the action returns only caller-visible stable Object IDs. Sixteen tests, formatting, warnings-denied Clippy, and Nagi target compile pass. App launch, file copy/move, and volume handlers, guest registration, authenticated target policy, and QEMU acceptance remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
 | M22 | AI Safety / Undo Integration | BLOCKED | M15 History now has a bounded, checksummed NH16 archive with full context/payload restoration, grouped move transactions, caller-scoped composite undo, and pending-undo recovery contract (7 tests; Clippy, format, and Nagi target compile pass). Guest acceptance remains blocked by missing production M21 move handler/authenticated policy and absent guest archive persistence/QEMU restart flow. The NH15 compatibility serializer remains metadata-only. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | NOT STARTED | 遯ｶ繝ｻ|
 | M24 | Embedding / Semantic AI | NOT STARTED | 遯ｶ繝ｻ|
@@ -2174,14 +2176,20 @@ for the entire plan before execution. Executor reacquires capability grants
 and object handles for each step, exposes no host path/shell fields, and
 reports completed steps plus a partial failure without pretending to roll back.
 
-Fifteen host tests cover the orchestration contract, and the `no_std` service
-compiles for the Nagi user target. Test handlers and policy providers are
-explicit test fixtures only. This M18 branch has no first-party application
-Action Registry or authenticated target Capability/Permission policy adapter;
-no production action is registered. The contract therefore does not provide
-guest file/app/system behavior, and no QEMU planner acceptance was run. M21
-remains `PARTIAL` until real bounded actions are registered and a trusted guest
-policy/executor path passes acceptance.
+Sixteen host tests cover the orchestration contract and SearchService action
+integration; the `no_std` service compiles for the Nagi user target. The new
+`register_file_search_action` binds the existing M19 SearchService to
+`file.search`, bounds the query to 128 bytes and results to 64 Object IDs, and
+returns only matches allowed by its injected visibility filter. The test runs
+the action through plan validation and execution and excludes another app's
+private file. Its in-memory snapshot backend and visibility implementation are
+test fixtures; this is not guest filesystem acceptance.
+
+The guest init path still does not register the action. `app.launch`,
+`file.copy`, `file.move`, and `system.volume.set` have no production handlers,
+and the authenticated target Capability/Permission and Context authorities
+are absent. No QEMU planner acceptance was run. M21 remains `PARTIAL` until
+these handlers are connected to their real services and trusted guest policy.
 
 See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md` for
 the exact evidence and remaining integration requirements.

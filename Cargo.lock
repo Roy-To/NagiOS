@@ -3403,6 +3403,7 @@ version = "0.1.0"
 dependencies = [
  "nagi-model",
  "nagi-model-manager",
+ "nagi-search",
  "serde",
  "serde_json",
 ]

@@ -20,8 +20,15 @@
 - Executor obtains fresh capability grants and object handles for each action,
   bounds the returned result, checks result Object IDs for visibility, and
   reports success/failure/partial completion. It does not claim rollback.
-- Mock policy and handlers exist only in orchestration tests. There are no
-  production first-party handlers registered in this M18 continuation base.
+- `register_file_search_action` binds the existing M19 `SearchService` to the
+  real `file.search` Action Registry entry. It limits queries to 128 bytes,
+  returns at most 64 visible Object IDs, and delegates visibility to the
+  SearchService's injected filter. The host integration test runs a plan
+  through validation and execution and confirms another app's private file is
+  omitted. Its in-memory backend and filter are test-only.
+- No guest init service currently constructs this registry. App launch, file
+  copy/move, and volume handlers remain absent; the production target policy
+  and Context authorities are also not connected.
 
 ## Verification
 
@@ -36,7 +43,8 @@ CARGO_TARGET_DIR=/tmp/nagi-m21-host-arm64 \
 /Users/tozawa/.cargo/bin/cargo test --locked --offline -p nagi-ai
 ```
 
-Result: 15 orchestration tests passed; no doc tests are defined.
+Result: 16 orchestration and SearchService integration tests passed; no doc
+tests are defined.
 
 ```sh
 PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
@@ -70,14 +78,17 @@ CARGO_TARGET_DIR=/tmp/nagi-m21-target \
   --target targets/x86_64-unknown-nagi-user.json --locked --offline
 ```
 
-No M21 QEMU acceptance was run. Test fixtures do not claim real guest action
-execution.
+The `nagi-ai` service, including the SearchService action adapter, compiles
+for the Nagi `no_std` user target. No M21 QEMU acceptance was run. The adapter
+is a real service composition, but its test's in-memory backend does not claim
+guest filesystem action execution.
 
 ## Remaining acceptance blockers
 
-1. Integrate the real application Action Registry and actual handlers. This
-   base has no first-party `app.launch`, `file.search`, `file.copy`,
-   `file.move`, or `system.volume.set` executor to register.
+1. Register the `file.search` action in the running guest AI service and
+   connect it to a SearchService with authenticated capability-bound caller
+   context. Add real `app.launch`, `file.copy`, `file.move`, and
+   `system.volume.set` handlers against their existing first-party services.
 2. Bind `ActionPolicy` and `ContextAuthority` to authenticated guest caller
    capabilities and object handles. The library intentionally has no
    allow-all production provider.
