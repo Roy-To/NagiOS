@@ -95,9 +95,10 @@ system and would not satisfy the required integration.
   be built on this arm64 macOS host because its x86 inline-assembly register
   constraints are unavailable; the intended Nagi target and CI are the
   relevant kernel build checks.
-- The NH16 tests verify a serialization/recovery contract only. They do not
-  prove guest VFS persistence, authenticated policy, file mutation, or QEMU
-  restart behavior.
+- The NH16 host tests verify its serialization and recovery contract. The
+  separate `./nagi m22` QEMU fixture verifies guest VFS persistence and undo
+  across restarts; neither layer proves authenticated policy, a production
+  M21 file mutation, or Activity Ledger linkage.
 
 M22 remains `BLOCKED` at its dependent AI acceptance. The durable NH16 guest
 archive and restart-restorable composite undo now pass a private QEMU fixture.
