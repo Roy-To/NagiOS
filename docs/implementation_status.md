@@ -2,7 +2,7 @@
 
 **Current milestone:** `M28 — Integration / Stress`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21 `PARTIAL`, M22
-`BLOCKED`, M23–M27 `PARTIAL`, M28–M30 `NOT STARTED`.
+`BLOCKED`, M23–M28 `PARTIAL`, M29–M30 `NOT STARTED`.
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
 download/upload destinations, clipboard, IME text/composition events, and
@@ -86,9 +86,20 @@ warnings-denied Clippy, formatting, and the UEFI release build pass.
 Firmware-backed persistence, actual A/B image slots, boot-readiness wiring,
 Recovery Environment, and broken-slot QEMU rollback remain. See
 `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`.
-**Next action:** Use M28 to measure repeatable integration behavior where
-existing outputs can be preserved, and keep the combined reference workload's
-unmeasured gates explicit.
+**M28 evidence:** The stress harness now accepts the M19 previous-boot marker
+from either its initial or restart log and archives generated images, OVMF
+variables, logs, and disk snapshots between repetitions. After preserving the
+pre-existing outputs and disks, two real `./nagi m19` plus `./nagi m22`
+QEMU repetitions passed, including M19 guest-search persistence and M22
+three-boot NH16 restore/undo markers. Shell syntax, self-test, and dry-run
+checks pass. M28 remains `PARTIAL`: the combined Desktop/Files/Notes/Albert,
+Granite, audio, Semantic Search, OOM, fairness, and leak workload has not been
+measured. QEMU reported that no host virtio-sound input driver is available;
+these repetitions did not exercise audio. See
+`docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`.
+**Next action:** Continue with the M29 Developer Preview documentation and
+polish audit, then complete the M30 release-gate audit without claiming
+release readiness while its artifact and guest acceptance are absent.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -103,9 +114,12 @@ compiler issue is separate from the linker adapter.
 
 **Last updated:** 2026-09-30
 **Latest continuation CI:** Run
-[`36608883434`](https://github.com/RT-NISH/NagiOS/actions/runs/36608883434)
-for `203da63eb6e5c217026ed4c864770ee276abb4c2` is pending. Prior checkpoint
-runs were cancelled by subsequent pushes before all gates completed. Run
+[`36608977219`](https://github.com/RT-NISH/NagiOS/actions/runs/36608977219)
+for `4f7aecd18db02b1d513fd7a53a62e9a381cf529f` has passed Ubuntu host and
+Windows launcher, including the corrected M0 launcher acceptance; the
+authoritative Nagi target job was still building the user init when last
+checked. Prior checkpoint runs were cancelled by subsequent pushes before all
+gates completed. Run
 `36602252894` passed Ubuntu host tests/build/lint and formatting but failed
 both M0 launcher gates. The POSIX and Windows logs report `E0463: can't find
 crate for alloc` while building `nagi-history`; the Windows launcher returned
@@ -2163,7 +2177,7 @@ Use only these statuses:
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator with explicit permission/indicator ordering, PCM framing limits, provider unavailability cleanup, and a target AudioService adapter. Eight `nagi-audio` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and real guest voice acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
 | M27 | A/B / Recovery | PARTIAL | Added a bounded A/B boot state machine and checksummed two-copy journal; ten host tests, warnings-denied Clippy, formatting, and the UEFI release build pass. Firmware-backed persistence, matched A/B image slots, readiness integration, Recovery Environment, and broken-slot QEMU rollback acceptance remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
-| M28 | Integration / Stress | NOT STARTED | No M28 checkpoint recorded yet. |
+| M28 | Integration / Stress | PARTIAL | After preserving pre-existing outputs and disks, two real M19/M22 QEMU repetitions passed. The harness now accepts initial or restart M19 logs and archives intermediate outputs. Combined reference workload, audio pressure, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | NOT STARTED | No M29 checkpoint recorded yet. |
 | M30 | Nagi OS 0.1 Release | NOT STARTED | No M30 checkpoint recorded yet. |
 
