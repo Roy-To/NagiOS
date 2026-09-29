@@ -1,6 +1,6 @@
 # 1. Current status
 
-**Current milestone:** `M20 - AI Runtime / Granite`
+**Current milestone:** `M21 - Planner / Validator / Executor`
 **Milestone status:** `PARTIAL`
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
@@ -19,8 +19,16 @@ integrated and passes its 40-test host suite, warnings-denied Clippy, formatting
 and Nagi user-target compilation. This is contract/orchestration evidence only;
 the pinned llama.cpp backend, installable Granite 4.2 3B artifact, target model
 service, and in-guest inference acceptance are absent. M20 is `PARTIAL`.
-**Next action:** Continue M21 only through a deterministic, fail-closed plan
-contract; do not register fake OS actions or route model output around policy.
+**M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
+DecisionProvider/LLM adapter routing, context visibility filtering, a deny-by-
+construction action registry contract, deterministic capability/object/
+parameter validation, and a sequential executor with partial-failure results.
+Fifteen host orchestration tests, warnings-denied Clippy, formatting, and Nagi
+user-target compilation pass. M21 remains `PARTIAL`: this branch has no real
+registered first-party action handlers, authenticated target policy provider,
+or guest acceptance.
+**Next action:** Continue M22 by reusing the existing M15 History Service and
+recording the transaction/restart gaps without fabricating AI side effects.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -2072,7 +2080,7 @@ Use only these statuses:
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | PARTIAL | Reused M19-PREP's `user/nagi-search` contract; 16 host tests, warnings-denied Clippy, formatting, and Nagi `no_std` user-target compile pass. Added end-to-end contract acceptance for producer indexing, deterministic search, visibility filtering, Workspace grouping, restart, stable-ID metadata update, and re-search. Guest persistence/service activation, trusted capability binding, real producer ID mapping, and QEMU restart acceptance remain blocked by missing target service/authority/storage adapters. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
 | M20 | AI Runtime / Granite | PARTIAL | Reused the existing `no_std` `nagi-model-manager` manifest, registry, provider, bounded-read, and Model Store contracts. These are host-tested orchestration contracts only; no pinned llama.cpp runtime, installable Granite package, active target model service, or real in-guest Granite response is present. See `docs/workstreams/model-runtime.md`. |
-| M21 | Planner / Validator / Executor | NOT STARTED | 遯ｶ繝ｻ|
+| M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; 15 tests cover complete-plan parsing, bounded prompt action filtering, LLM/Decision adapters, unknown/denied actions, object visibility, path/resource bounds, successful and partial results, and confidence-independent authorization. Formatting, Clippy, and Nagi target compile pass. No production handlers or trusted target Capability/Permission adapter are registered, so no real action/QEMU acceptance is claimed. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
 | M22 | AI Safety / Undo Integration | NOT STARTED | 遯ｶ繝ｻ|
 | M23 | Nagi Bar / Context / Albert AI | NOT STARTED | 遯ｶ繝ｻ|
 | M24 | Embedding / Semantic AI | NOT STARTED | 遯ｶ繝ｻ|
@@ -2124,6 +2132,31 @@ are M20 acceptance blockers; this milestone remains `PARTIAL`.
 
 See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md` for exact
 commands, provenance, and the concrete runtime acceptance gap.
+
+# M21 - Planner / Validator / Executor (`PARTIAL`)
+
+`services/nagi-ai` now defines strict complete-document parsing for
+`NagiPlan@1`, a bounded prompt adapter over the existing
+`GenerativeProvider`, a provider-neutral Decision candidate interface and
+`LlmDecisionAdapter`, and confidence-based fallback routing. Context is
+filtered to visible stable Object IDs before prompt construction. The Action
+Registry is explicit and allow-listed; Validator checks schema/version,
+registered action, parameter bounds, capability decisions, and object access
+for the entire plan before execution. Executor reacquires capability grants
+and object handles for each step, exposes no host path/shell fields, and
+reports completed steps plus a partial failure without pretending to roll back.
+
+Fifteen host tests cover the orchestration contract, and the `no_std` service
+compiles for the Nagi user target. Test handlers and policy providers are
+explicit test fixtures only. This M18 branch has no first-party application
+Action Registry or authenticated target Capability/Permission policy adapter;
+no production action is registered. The contract therefore does not provide
+guest file/app/system behavior, and no QEMU planner acceptance was run. M21
+remains `PARTIAL` until real bounded actions are registered and a trusted guest
+policy/executor path passes acceptance.
+
+See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md` for
+the exact evidence and remaining integration requirements.
 
 # M17 - Servo Bootstrap (`PASS`)
 

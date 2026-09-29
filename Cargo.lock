@@ -3398,6 +3398,16 @@ name = "nagi-abi"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-ai"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "nagi-model-manager",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-albert"
 version = "0.1.0"
 dependencies = [
