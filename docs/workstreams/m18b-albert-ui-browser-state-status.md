@@ -43,9 +43,10 @@ all three platform bootstrap jobs at Servo patch `0021`; that patch now adds
 its cfg-gated atomic import instead of assuming it exists. The follow-up run
 (`36512090928`) passed Servo bootstrap on Windows and Ubuntu but found three
 separate issues: Mesa's Nagi `secure_getenv` fallback collided with `getenv`,
-host Clippy found cfg-inactive POSIX helpers and a pinned-nightly lint mismatch,
-and a Windows source-contract test depended on rustfmt whitespace. The current
-working tree fixes all three. Fresh local checks pass for all 112 `nagi-cli`
+host Clippy found cfg-inactive POSIX helpers, a pinned-nightly lint mismatch,
+and a constant thread-capacity assertion; a Windows source-contract test also
+depended on rustfmt whitespace. The current working tree fixes these issues.
+Fresh local checks pass for all 112 `nagi-cli`
 unit tests and 18 CLI tests, 50 M18 Albert tests, 16 `nagi-posix` tests, the
 affected Clippy targets, pinned format checks, and local M17/M18 real-QEMU
 acceptance. The new Ubuntu CI run is pending the next push.
@@ -71,7 +72,7 @@ acceptance. The new Ubuntu CI run is pending the next push.
 - Chrome renderer regression: observed failing because the selected overflow tab and status/title were absent, then passed after rendering them.
 - URL length regression: observed canonical percent-encoding expand a valid input beyond the address/persistence bound, then passed after normalization rejects oversized results.
 - Earlier `./nagi m17` attempts stopped before target build/QEMU because the Darwin linker rejected Mesa's GNU ELF `-latomic` probe flags. The Darwin-only ELF linker adapter fixes that host/target mismatch without removing the probe; a fresh local M17 first-web-pixel acceptance passes.
-- CI run `36510598517` failed during Servo bootstrap on Windows and Ubuntu because patch `0021` required a cfg import that no earlier patch added. The patch now adds that import. Follow-up run `36512090928` passed bootstrap but exposed the Mesa `secure_getenv` fallback collision, three host Clippy errors, and the Windows source-contract test's whitespace assertion. The current working tree repairs these, and affected local tests/Clippy/format checks pass. A new Ubuntu CI result is pending the next push.
+- CI run `36510598517` failed during Servo bootstrap on Windows and Ubuntu because patch `0021` required a cfg import that no earlier patch added. The patch now adds that import. Follow-up run `36512090928` passed bootstrap but exposed the Mesa `secure_getenv` fallback collision, three POSIX host Clippy errors, a `manual_is_multiple_of` lint, and the Windows source-contract test's whitespace assertion. The next run (`36516544370`) passed Mesa build setup and Windows checks but Clippy found a constant thread-count assertion; it now asserts the exact M17/M18 contract separately. All affected local tests, Clippy targets, and pinned format checks pass; another Ubuntu CI run is pending this repair.
 - Historical CI run `36375030426` targeted checkpoint `d8fc25c67c3865a8fed29abf20a777861ade5d5f`, before the current integrated branch and acceptance step. The current push will launch the authoritative Ubuntu run for this combined state.
 - The workflow runs `tests/acceptance/m18b_albert_ui_browser_state.sh` after M17 first-web-pixel acceptance, reusing that boot's serial log, then runs `./nagi m18` for the three-site HTTPS acceptance.
 

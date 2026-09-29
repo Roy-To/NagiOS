@@ -9,8 +9,9 @@ verification, browser-chrome composition, and Nagi Surface presentation.
 **Next action:** Commit and push the compatibility and CI repairs, then verify
 a fresh Ubuntu run through the target image and QEMU acceptance. After the
 Servo patch-order repair, CI exposed Mesa's `secure_getenv` fallback colliding
-with Nagi `getenv`, host-only Clippy warnings, and a whitespace-sensitive
-source-contract test. Those fixes are now in the working tree. A fresh local
+with Nagi `getenv`, host Clippy findings (including a constant thread-count
+assertion), and a whitespace-sensitive source-contract test. Those fixes are
+now in the working tree. A fresh local
 `./nagi m18` build and QEMU run passes with the Darwin ELF-link adapter and
 LLVM 19 target headers; the `-latomic` check remains enabled. The M18 acceptance
 gate is passed locally; the milestone remains `PARTIAL` while downloads,
