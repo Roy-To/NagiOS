@@ -1,7 +1,7 @@
 use core::arch::asm;
 use core::mem::size_of;
 use core::ptr;
-use core::sync::atomic::{fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering, fence};
 
 const PCI_CONFIG_ADDRESS: u16 = 0x0cf8;
 const PCI_CONFIG_DATA: u16 = 0x0cfc;
@@ -33,6 +33,7 @@ const BLOCK_FLUSH: u32 = 4;
 const VIRTIO_BLK_F_RO: u32 = 1 << 5;
 const VIRTIO_BLK_F_FLUSH: u32 = 1 << 9;
 const BLOCK_SECTOR_SIZE: usize = 512;
+const MAX_USER_DATA_SECTORS: u64 = 16_384;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BlockError {
@@ -45,6 +46,8 @@ pub enum BlockError {
     RequestTimeout,
     QueueCorrupt,
     SectorOutOfRange,
+    InvalidPartitionTable,
+    UserDataPartitionTooSmall,
     Busy,
     UnsupportedFeature,
 }
@@ -112,6 +115,8 @@ struct BlockRequestHeader {
 #[derive(Clone, Copy)]
 struct DeviceState {
     io_base: u16,
+    physical_capacity_sectors: u64,
+    data_start_lba: u64,
     capacity_sectors: u64,
     capability: u64,
     flush_supported: bool,
@@ -177,18 +182,40 @@ pub fn initialize() -> Result<(), BlockError> {
             STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK,
         );
     }
+    let raw_device = DeviceState {
+        io_base: candidate.io_base,
+        physical_capacity_sectors: candidate.capacity_sectors,
+        data_start_lba: 0,
+        capacity_sectors: candidate.capacity_sectors,
+        capability: 0,
+        flush_supported,
+    };
+    let data_extent = crate::gpt::find_user_data(
+        |sector, destination| unsafe {
+            transfer_locked(raw_device, sector, destination, false).map_err(|_| ())
+        },
+        candidate.capacity_sectors,
+    )
+    .map_err(|_| BlockError::InvalidPartitionTable)?;
+    if data_extent.sector_count < MAX_USER_DATA_SECTORS {
+        return Err(BlockError::UserDataPartitionTooSmall);
+    }
+    let exposed_sectors = data_extent.sector_count.min(MAX_USER_DATA_SECTORS);
     let capability = make_capability(
         candidate.bus,
         candidate.device,
         candidate.function,
-        candidate.capacity_sectors,
+        data_extent.start_lba,
+        exposed_sectors,
     );
     unsafe {
         ptr::write_volatile(
             ptr::addr_of_mut!(DEVICE),
             Some(DeviceState {
                 io_base: candidate.io_base,
-                capacity_sectors: candidate.capacity_sectors,
+                physical_capacity_sectors: candidate.capacity_sectors,
+                data_start_lba: data_extent.start_lba,
+                capacity_sectors: exposed_sectors,
                 capability,
                 flush_supported,
             }),
@@ -310,14 +337,19 @@ fn transfer(
     let Some(device) = (unsafe { ptr::addr_of!(DEVICE).read_volatile() }) else {
         return Err(BlockError::NotInitialized);
     };
-    validate_sector(sector, device.capacity_sectors)?;
+    let physical_sector = translate_user_sector(
+        sector,
+        device.data_start_lba,
+        device.capacity_sectors,
+        device.physical_capacity_sectors,
+    )?;
     if REQUEST_LOCK
         .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
         .is_err()
     {
         return Err(BlockError::Busy);
     }
-    let result = unsafe { transfer_locked(device, sector, buffer, write_request) };
+    let result = unsafe { transfer_locked(device, physical_sector, buffer, write_request) };
     REQUEST_LOCK.store(false, Ordering::Release);
     result
 }
@@ -492,14 +524,13 @@ const fn descriptor_flags(write_request: bool, next: bool) -> u16 {
     flags
 }
 
-const fn make_capability(bus: u8, device: u8, function: u8, capacity: u64) -> u64 {
+const fn make_capability(bus: u8, device: u8, function: u8, start_lba: u64, capacity: u64) -> u64 {
     let bdf = ((bus as u64) << 16) | ((device as u64) << 8) | function as u64;
-    let capability = 0x4e41_4749_424c_4b01_u64 ^ bdf.rotate_left(17) ^ capacity.rotate_right(11);
-    if capability == 0 {
-        1
-    } else {
-        capability
-    }
+    let capability = 0x4e41_4749_424c_4b01_u64
+        ^ bdf.rotate_left(17)
+        ^ start_lba.rotate_left(31)
+        ^ capacity.rotate_right(11);
+    if capability == 0 { 1 } else { capability }
 }
 
 fn validate_sector(sector: u64, capacity: u64) -> Result<(), BlockError> {
@@ -508,6 +539,20 @@ fn validate_sector(sector: u64, capacity: u64) -> Result<(), BlockError> {
     } else {
         Err(BlockError::SectorOutOfRange)
     }
+}
+
+fn translate_user_sector(
+    sector: u64,
+    start_lba: u64,
+    capacity: u64,
+    physical_capacity: u64,
+) -> Result<u64, BlockError> {
+    validate_sector(sector, capacity)?;
+    let physical_sector = start_lba
+        .checked_add(sector)
+        .ok_or(BlockError::SectorOutOfRange)?;
+    validate_sector(physical_sector, physical_capacity)?;
+    Ok(physical_sector)
 }
 
 fn copy_bytes(destination: &mut [u8], source: &[u8]) {
@@ -578,9 +623,10 @@ unsafe fn io_write32(port: u16, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        choose_largest_writable_block_device, descriptor_flags, make_capability,
-        pci_config_address, request_header, validate_sector, BlockRequestHeader, DeviceCandidate,
-        LegacyQueue, BLOCK_IN, DESC_F_NEXT, DESC_F_WRITE, QUEUE_SIZE, QUEUE_USED_RING_OFFSET,
+        BLOCK_IN, BlockRequestHeader, DESC_F_NEXT, DESC_F_WRITE, DeviceCandidate, LegacyQueue,
+        QUEUE_SIZE, QUEUE_USED_RING_OFFSET, choose_largest_writable_block_device, descriptor_flags,
+        make_capability, pci_config_address, request_header, translate_user_sector,
+        validate_sector,
     };
 
     #[test]
@@ -610,10 +656,14 @@ mod tests {
 
     #[test]
     fn derives_nonzero_device_capability() {
-        assert_ne!(make_capability(0, 2, 0, 131_072), 0);
+        assert_ne!(make_capability(0, 2, 0, 2048, 16_384), 0);
         assert_ne!(
-            make_capability(0, 2, 0, 131_072),
-            make_capability(0, 3, 0, 131_072)
+            make_capability(0, 2, 0, 2048, 16_384),
+            make_capability(0, 3, 0, 2048, 16_384)
+        );
+        assert_ne!(
+            make_capability(0, 2, 0, 2048, 16_384),
+            make_capability(0, 2, 0, 4096, 16_384)
         );
     }
 
@@ -621,6 +671,23 @@ mod tests {
     fn rejects_sector_at_capacity() {
         assert!(validate_sector(131_071, 131_072).is_ok());
         assert!(validate_sector(131_072, 131_072).is_err());
+    }
+
+    #[test]
+    fn user_sector_translation_is_relative_and_bounded_by_the_partition() {
+        assert_eq!(translate_user_sector(0, 2048, 16_384, 32_768), Ok(2048));
+        assert_eq!(
+            translate_user_sector(16_383, 2048, 16_384, 32_768),
+            Ok(18_431)
+        );
+        assert_eq!(
+            translate_user_sector(16_384, 2048, 16_384, 32_768),
+            Err(super::BlockError::SectorOutOfRange)
+        );
+        assert_eq!(
+            translate_user_sector(0, u64::MAX, 16_384, 32_768),
+            Err(super::BlockError::SectorOutOfRange)
+        );
     }
 
     #[test]

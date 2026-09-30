@@ -33,11 +33,11 @@ the reference image by SHA-256. The Granite digest is the upstream Q4_K_M pin
 from the M20 workstream; that workstream explicitly says
 the model bytes are not included.
 
-The current `./nagi image` and milestone commands produce raw FAT images and
-separate persistent data disks. Converting one of those test images to qcow2
-does not create the required self-contained 64 GiB release disk layout or add
-the missing A/B, recovery, data, and model-store partitions. Do not use such a
-conversion as a release input.
+`./nagi image` and most milestone fixtures still produce raw FAT images with
+separate persistent data disks. `./nagi m30` uses a dedicated writer to
+produce the self-contained 64 GiB GPT qcow2 with ESP, System A/B, User Data,
+Recovery, and Model Store partitions. Use that image as the release input; do
+not convert an M-stage test image and treat it as the release layout.
 
 Required source documents are `RELEASE_NOTES.md`, `THIRD_PARTY_NOTICES.md`,
 all checked-in `docs/architecture/*.md` files, `sdk/README.md`,

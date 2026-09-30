@@ -10,10 +10,13 @@ trial whose guest readiness record is consumed before B is confirmed. A third
 launch retains confirmed B, and all relevant boots read the same persistent
 user-data disk. The current readiness gate is successful M10 desktop surface
 presentation after M6/M7 checks; Nagi 0.1 has no account login flow. The normal
-release image still uses the fixed `KERNEL.ELF` and `INIT.ELF` pair. A
-feature-scoped Recovery boot and guest Undo path now pass QEMU acceptance, but
-the final partitioned release layout, authenticated slot manifests, and viable
-update acceptance remain incomplete, so M27 remains PARTIAL.
+reference release image now has separate GPT System A/B and Recovery
+partitions, and the default loader boots System A. The M27 journal-driven A/B
+acceptance still uses its dedicated FAT fixture and separate user-data disk;
+GPT System B selection and GPT Recovery have not yet been exercised with that
+journal policy. A feature-scoped Recovery boot and guest Undo path pass QEMU
+acceptance, but authenticated slot manifests and viable GPT update acceptance
+remain incomplete, so M27 remains PARTIAL.
 
 ## Read-only VFS integrity-check slice
 
@@ -197,6 +200,18 @@ Using the pinned `nightly-2025-08-01` toolchain:
   consumption before promotion. The loader now also requires exact UEFI
   variable attributes on the readiness record. Current evidence is in
   `out/evidence/m27-ab-rollback-1790735315934886000/`.
+- The completion-sweep regression after the M30 GPT loader/kernel changes
+  passed the full malformed-B rollback, healthy-B readiness promotion,
+  Recovery Undo, and restart checks again. Fresh evidence is in
+  `out/evidence/m27-ab-rollback-1790744128241974000/`.
+- A follow-up exposed that the M27 fixture attaches a separate GPT User Data
+  disk beside its legacy FAT boot image. Loader fallback detection now counts
+  only Nagi ESP/System/Recovery partition GUIDs, so that data disk does not
+  masquerade as a GPT boot layout; a GPT boot layout with the requested Nagi
+  volume missing still fails closed. Default and M27 UEFI target builds,
+  loader tests, warnings-denied target Clippy, and the complete M27 QEMU
+  acceptance passed after this fix. Evidence is in
+  `out/evidence/m27-ab-rollback-1790744869754176000/`.
 - The QEMU host logged that it has no `virtio-sound.in` audio driver. The M27
   acceptance does not exercise audio; all boot-control and persistent-data
   markers passed.
@@ -219,9 +234,9 @@ they do not establish firmware persistence or guest boot behavior.
    retrieval, the remaining important-file/history restore operations, an
    advanced terminal, and basic filesystem repair; the current checker is
    intentionally read-only.
-3. Integrate the paired slots and separate user data into the final
-   partitioned release layout, and validate a viable update alongside the
-   intentionally malformed-slot rollback acceptance.
+3. Integrate the A/B journal policy with the GPT System A/B/Recovery partitions
+   and GPT User Data capability, then validate both viable update and malformed
+   slot rollback from that reference image.
 
 Until those pieces and the final partitioned release acceptance pass, M27
 remains PARTIAL.
@@ -242,7 +257,8 @@ and user-data disk were reused throughout.
 The original malformed-payload acceptance passed with the preserved evidence
 above. It proves firmware-backed selection of paired payloads and rollback to
 A while preserving data on the separate user-data disk. The later readiness
-promotion slice adds a positive guest signal for the current M10 gate; neither
-slice provides the final partitioned release layout, authenticated slot
-manifests, the full login readiness gate, or the Recovery Environment. Those
-remain separate M27/M30 work.
+promotion slice adds a positive guest signal for the current M10 gate. M30 now
+provides a GPT release layout and System A boot, but these M27 fixture tests do
+not yet exercise journal-driven System B/Recovery selection on those GPT
+partitions. Authenticated slot manifests and the full login readiness gate
+also remain separate work.

@@ -1,19 +1,19 @@
 use std::fs;
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const IMAGE_SIZE: usize = 1_474_560;
 // One sector of boot data, 12 sectors in each FAT, 14 root-directory sectors,
 // and exactly 4,084 32 KiB data clusters. This is the largest valid FAT12
 // volume geometry and leaves room for the current Servo init ELF plus kernel.
 pub const M17_IMAGE_SIZE: usize = 261_415 * SECTOR_SIZE;
-pub const PERSISTENT_DISK_SIZE: u64 = 16 * 1024 * 1024;
+pub const PERSISTENT_DISK_SIZE: u64 = 18 * 1024 * 1024;
 pub const NAGI_WRITE_MARKER: &str = "Nagi M7 persistent write PASS";
 pub const GUEST_ACCEPTANCE_MARKER: &str = "Nagi M7 acceptance PASS";
 const M9_GUI_READY_MARKER: &str = "Nagi M9 window READY";
@@ -35,6 +35,12 @@ const ROOT_OFFSET: usize = (RESERVED_SECTORS + FAT_COUNT * SECTORS_PER_FAT) * SE
 const DATA_OFFSET: usize =
     (RESERVED_SECTORS + FAT_COUNT * SECTORS_PER_FAT + ROOT_DIRECTORY_SECTORS) * SECTOR_SIZE;
 const END_OF_CHAIN: u16 = 0x0fff;
+const LEGACY_PERSISTENT_DISK_SIZE: u64 = 16 * 1024 * 1024;
+const USER_DATA_START_LBA: u64 = 2048;
+const REFERENCE_DISK_SIZE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
+const REFERENCE_DISK_SECTORS: u64 = REFERENCE_DISK_SIZE_BYTES / 512;
+const MIB_SECTORS: u64 = 1024 * 1024 / 512;
+const GIB_SECTORS: u64 = 1024 * MIB_SECTORS;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Fat12Geometry {
@@ -407,6 +413,299 @@ pub fn write_m27_recovery_image(
     Ok(layout)
 }
 
+pub fn write_reference_disk_qcow2(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+    recovery_init: Option<&[u8]>,
+) -> Result<ImageLayout, String> {
+    if bootloader.is_empty() || kernel.is_empty() || init.is_empty() {
+        return Err("release image requires non-empty loader, kernel, and init ELFs".to_owned());
+    }
+    let recovery_init = recovery_init
+        .filter(|bytes| !bytes.is_empty())
+        .ok_or_else(|| "release image requires the M27 Recovery init ELF".to_owned())?;
+    match fs::symlink_metadata(path) {
+        Ok(_) => {
+            return Err(format!(
+                "refusing to overwrite release image {}",
+                path.display()
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect release image path {}: {error}",
+                path.display()
+            ));
+        }
+    }
+    let staging_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("cannot create release staging identifier: {error}"))?
+        .as_nanos();
+    let raw_path = path_with_suffix(path, &format!(".raw-staging-{staging_id}"));
+    let qcow_staging_path = path_with_suffix(path, &format!(".qcow2-staging-{staging_id}"));
+    for staging in [&raw_path, &qcow_staging_path] {
+        match fs::symlink_metadata(staging) {
+            Ok(_) => {
+                return Err(format!(
+                    "release image staging file already exists; preserving it: {}",
+                    staging.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect release image staging path {}: {error}",
+                    staging.display()
+                ));
+            }
+        }
+    }
+
+    let mut raw = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&raw_path)
+        .map_err(|error| format!("cannot create release disk staging file: {error}"))?;
+    raw.set_len(REFERENCE_DISK_SIZE_BYTES)
+        .map_err(|error| format!("cannot size 64 GiB release disk: {error}"))?;
+    let partitions = reference_partitions()?;
+    super::gpt::write_gpt(&mut raw, REFERENCE_DISK_SECTORS, &partitions)?;
+    let esp = &partitions[0];
+    let system_a = &partitions[1];
+    let system_b = &partitions[2];
+    let user_data = &partitions[3];
+    let recovery = &partitions[4];
+    let model_store = &partitions[5];
+
+    let esp_layout = super::fat32::format_partition(
+        &mut raw,
+        esp.first_lba,
+        partition_sector_count(esp)?,
+        "NAGI ESP",
+        &[super::fat32::VolumeFile {
+            path: "EFI/BOOT/BOOTX64.EFI",
+            contents: bootloader,
+        }],
+    )?;
+    let a_layout = super::fat32::format_partition(
+        &mut raw,
+        system_a.first_lba,
+        partition_sector_count(system_a)?,
+        "NAGI SYS A",
+        &[
+            super::fat32::VolumeFile {
+                path: "KERNEL.ELF",
+                contents: kernel,
+            },
+            super::fat32::VolumeFile {
+                path: "INIT.ELF",
+                contents: init,
+            },
+        ],
+    )?;
+    super::fat32::format_partition(
+        &mut raw,
+        system_b.first_lba,
+        partition_sector_count(system_b)?,
+        "NAGI SYS B",
+        &[
+            super::fat32::VolumeFile {
+                path: "KERNEL.ELF",
+                contents: kernel,
+            },
+            super::fat32::VolumeFile {
+                path: "INIT.ELF",
+                contents: init,
+            },
+        ],
+    )?;
+    if partition_sector_count(user_data)? < 16_384 {
+        return Err("release User Data partition is smaller than the VFS geometry".to_owned());
+    }
+    super::fat32::format_partition(
+        &mut raw,
+        recovery.first_lba,
+        partition_sector_count(recovery)?,
+        "NAGI RECOV",
+        &[
+            super::fat32::VolumeFile {
+                path: "KERNEL.ELF",
+                contents: kernel,
+            },
+            super::fat32::VolumeFile {
+                path: "INIT.ELF",
+                contents: recovery_init,
+            },
+        ],
+    )?;
+    super::fat32::format_partition(
+        &mut raw,
+        model_store.first_lba,
+        partition_sector_count(model_store)?,
+        "NAGI MODELS",
+        &[],
+    )?;
+    raw.sync_all()
+        .map_err(|error| format!("cannot flush raw release image: {error}"))?;
+    drop(raw);
+
+    let conversion = ProcessCommand::new("qemu-img")
+        .args(["convert", "-S", "4k", "-f", "raw", "-O", "qcow2"])
+        .arg(&raw_path)
+        .arg(&qcow_staging_path)
+        .output()
+        .map_err(|error| format!("cannot run qemu-img convert: {error}"))?;
+    if !conversion.status.success() {
+        return Err(format!(
+            "qemu-img convert failed ({}): {}",
+            conversion.status,
+            String::from_utf8_lossy(&conversion.stderr).trim()
+        ));
+    }
+    validate_reference_disk_qcow2(&qcow_staging_path)?;
+    fs::hard_link(&qcow_staging_path, path).map_err(|error| {
+        format!(
+            "cannot install release qcow2 image {}: {error}",
+            path.display()
+        )
+    })?;
+    fs::remove_file(&qcow_staging_path).map_err(|error| {
+        format!(
+            "release image is ready but staging cleanup failed at {}: {error}",
+            qcow_staging_path.display()
+        )
+    })?;
+    fs::remove_file(&raw_path).map_err(|error| {
+        format!(
+            "release image is ready but raw staging cleanup failed at {}: {error}",
+            raw_path.display()
+        )
+    })?;
+
+    let bootloader = esp_layout
+        .first()
+        .ok_or_else(|| "release ESP omitted its loader".to_owned())?;
+    let kernel = a_layout
+        .first()
+        .ok_or_else(|| "System A volume omitted its kernel".to_owned())?;
+    let init = a_layout
+        .get(1)
+        .ok_or_else(|| "System A volume omitted its init".to_owned())?;
+    Ok(ImageLayout {
+        bootloader_start_cluster: u16::try_from(bootloader.first_cluster)
+            .map_err(|_| "release ESP loader cluster exceeds the diagnostic field".to_owned())?,
+        bootloader_clusters: bootloader.cluster_count as usize,
+        kernel_start_cluster: u16::try_from(kernel.first_cluster)
+            .map_err(|_| "System A kernel cluster exceeds the diagnostic field".to_owned())?,
+        kernel_clusters: kernel.cluster_count as usize,
+        init_start_cluster: u16::try_from(init.first_cluster)
+            .map_err(|_| "System A init cluster exceeds the diagnostic field".to_owned())?,
+        init_clusters: init.cluster_count as usize,
+    })
+}
+
+pub fn validate_reference_disk_qcow2(path: &Path) -> Result<(), String> {
+    let info = ProcessCommand::new("qemu-img")
+        .args(["info", "--output=json"])
+        .arg(path)
+        .output()
+        .map_err(|error| format!("cannot inspect release qcow2 image: {error}"))?;
+    if !info.status.success() {
+        return Err(format!(
+            "qemu-img info failed for {}: {}",
+            path.display(),
+            String::from_utf8_lossy(&info.stderr).trim()
+        ));
+    }
+    let info = String::from_utf8_lossy(&info.stdout);
+    if json_string_field(&info, "format") != Some("qcow2".to_owned())
+        || json_u64_field(&info, "virtual-size") != Some(REFERENCE_DISK_SIZE_BYTES)
+    {
+        return Err(format!(
+            "release image {} has unexpected format or virtual size: {}",
+            path.display(),
+            info.trim()
+        ));
+    }
+    Ok(())
+}
+
+fn reference_partitions() -> Result<Vec<super::gpt::GptPartition>, String> {
+    let mut start = 2048u64;
+    let mut partitions = Vec::with_capacity(6);
+    let sizes = [
+        512 * MIB_SECTORS,
+        4 * GIB_SECTORS,
+        4 * GIB_SECTORS,
+        16 * GIB_SECTORS,
+        4 * GIB_SECTORS,
+        32 * GIB_SECTORS,
+    ];
+    let names = [
+        "ESP",
+        "System A",
+        "System B",
+        "User Data",
+        "Recovery",
+        "Model Store",
+    ];
+    for (index, size) in sizes.into_iter().enumerate() {
+        let first_lba = start;
+        let last_lba = first_lba
+            .checked_add(size)
+            .and_then(|end| end.checked_sub(1))
+            .ok_or_else(|| "release partition end overflow".to_owned())?;
+        let partition = if index == 0 {
+            super::gpt::efi_system_partition(first_lba, last_lba, super::gpt::ESP_PARTITION_GUID)
+        } else {
+            super::gpt::nagi_partition(index as u8, first_lba, last_lba, names[index])
+        };
+        partitions.push(partition);
+        start = last_lba
+            .checked_add(1)
+            .and_then(|end| end.checked_add(2047))
+            .map(|end| end & !2047)
+            .ok_or_else(|| "release partition alignment overflow".to_owned())?;
+    }
+    let last_usable_lba = REFERENCE_DISK_SECTORS - 34;
+    if partitions
+        .last()
+        .is_some_and(|partition| partition.last_lba > last_usable_lba)
+    {
+        return Err("64 GiB release layout does not fit the disk".to_owned());
+    }
+    Ok(partitions)
+}
+
+fn partition_sector_count(partition: &super::gpt::GptPartition) -> Result<u64, String> {
+    partition
+        .last_lba
+        .checked_sub(partition.first_lba)
+        .and_then(|sectors| sectors.checked_add(1))
+        .ok_or_else(|| format!("invalid GPT partition bounds for {}", partition.name))
+}
+
+fn json_string_field(json: &str, field: &str) -> Option<String> {
+    let key = format!("\"{field}\"");
+    let after_key = json.get(json.rfind(&key)? + key.len()..)?;
+    let value = after_key.get(after_key.find(':')? + 1..)?.trim_start();
+    let value = value.strip_prefix('"')?;
+    Some(value.get(..value.find('"')?)?.to_owned())
+}
+
+fn json_u64_field(json: &str, field: &str) -> Option<u64> {
+    let key = format!("\"{field}\"");
+    let after_key = json.get(json.rfind(&key)? + key.len()..)?;
+    let value = after_key.get(after_key.find(':')? + 1..)?.trim_start();
+    let digits = value.bytes().take_while(u8::is_ascii_digit).count();
+    value.get(..digits)?.parse().ok()
+}
+
 #[derive(Clone, Copy)]
 struct SlotPayload<'a> {
     kernel: &'a [u8],
@@ -709,30 +1008,51 @@ pub fn ensure_persistent_disk(path: &Path) -> Result<bool, String> {
                     path.display()
                 ));
             }
-            if metadata.len() != PERSISTENT_DISK_SIZE {
+            if metadata.len() < (super::gpt::GPT_ENTRY_ARRAY_SECTORS + 4) * 512
+                || metadata.len() % 512 != 0
+            {
                 return Err(format!(
-                    "persistent data disk has size {} bytes; expected {} bytes: {}",
+                    "persistent data disk has unsupported size {} bytes: {}",
                     metadata.len(),
-                    PERSISTENT_DISK_SIZE,
                     path.display()
                 ));
             }
-            Ok(true)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let file = fs::File::create(path).map_err(|create_error| {
+            let sectors = metadata.len() / 512;
+            let mut disk = fs::File::open(path).map_err(|error| {
                 format!(
-                    "cannot create persistent data disk {}: {create_error}",
+                    "cannot read persistent data disk {}: {error}",
                     path.display()
                 )
             })?;
-            file.set_len(PERSISTENT_DISK_SIZE)
-                .map_err(|set_len_error| {
-                    format!(
-                        "cannot size persistent data disk {}: {set_len_error}",
-                        path.display()
-                    )
-                })?;
+            match super::gpt::read_user_data_partition(&mut disk, sectors) {
+                Ok(partition) => {
+                    if partition.sector_count < 16_384 {
+                        return Err(format!(
+                            "persistent data partition is smaller than the 8 MiB VFS geometry: {}",
+                            path.display()
+                        ));
+                    }
+                    Ok(true)
+                }
+                Err(gpt_error) if metadata.len() == LEGACY_PERSISTENT_DISK_SIZE => {
+                    if looks_like_gpt(path)? {
+                        return Err(format!(
+                            "persistent data disk has invalid GPT metadata ({}): {}",
+                            gpt_error,
+                            path.display()
+                        ));
+                    }
+                    migrate_legacy_persistent_disk(path)
+                }
+                Err(gpt_error) => Err(format!(
+                    "persistent data disk has invalid GPT metadata ({}): {}",
+                    gpt_error,
+                    path.display()
+                )),
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            create_persistent_data_disk(path)?;
             Ok(false)
         }
         Err(error) => Err(format!(
@@ -740,6 +1060,183 @@ pub fn ensure_persistent_disk(path: &Path) -> Result<bool, String> {
             path.display()
         )),
     }
+}
+
+fn create_persistent_data_disk(path: &Path) -> Result<(), String> {
+    let mut disk = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| {
+            format!(
+                "cannot create persistent data disk {}: {error}",
+                path.display()
+            )
+        })?;
+    if let Err(error) = initialize_partitioned_data_disk(&mut disk, None) {
+        drop(disk);
+        let _ = fs::remove_file(path);
+        return Err(format!(
+            "cannot initialize persistent data disk {}: {error}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn migrate_legacy_persistent_disk(path: &Path) -> Result<bool, String> {
+    let temporary_path = path_with_suffix(path, ".gpt-migration");
+    let backup_path = path_with_suffix(path, ".legacy-raw");
+    if fs::symlink_metadata(&temporary_path).is_ok() || fs::symlink_metadata(&backup_path).is_ok() {
+        return Err(format!(
+            "persistent data migration sidecar already exists; preserving all files: {}",
+            path.display()
+        ));
+    }
+
+    let mut migrated = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&temporary_path)
+    {
+        Ok(file) => file,
+        Err(error) => {
+            return Err(format!(
+                "cannot create GPT migration image {}: {error}",
+                temporary_path.display()
+            ));
+        }
+    };
+    let contains_data = match initialize_partitioned_data_disk(&mut migrated, Some(path)) {
+        Ok(contains_data) => contains_data,
+        Err(error) => {
+            drop(migrated);
+            let _ = fs::remove_file(&temporary_path);
+            return Err(format!("cannot migrate persistent data disk: {error}"));
+        }
+    };
+    drop(migrated);
+
+    fs::rename(path, &backup_path).map_err(|error| {
+        let _ = fs::remove_file(&temporary_path);
+        format!(
+            "cannot preserve legacy persistent data disk {}: {error}",
+            path.display()
+        )
+    })?;
+    if let Err(error) = fs::rename(&temporary_path, path) {
+        return match fs::rename(&backup_path, path) {
+            Ok(()) => Err(format!(
+                "cannot install migrated persistent data disk {}: {error}",
+                path.display()
+            )),
+            Err(restore_error) => Err(format!(
+                "cannot install migrated disk ({error}) or restore original; original data remains at {} ({restore_error})",
+                backup_path.display()
+            )),
+        };
+    }
+    Ok(contains_data)
+}
+
+fn initialize_partitioned_data_disk(
+    disk: &mut fs::File,
+    legacy_path: Option<&Path>,
+) -> Result<bool, String> {
+    disk.set_len(PERSISTENT_DISK_SIZE)
+        .map_err(|error| format!("cannot size disk: {error}"))?;
+    let contains_data = if let Some(legacy_path) = legacy_path {
+        copy_legacy_disk_data(disk, legacy_path)?
+    } else {
+        false
+    };
+    let disk_sectors = PERSISTENT_DISK_SIZE / 512;
+    super::gpt::write_gpt(
+        disk,
+        disk_sectors,
+        &[super::gpt::user_data_partition(
+            USER_DATA_START_LBA,
+            disk_sectors - 34,
+            super::gpt::USER_DATA_PARTITION_GUID,
+        )],
+    )?;
+    disk.sync_all()
+        .map_err(|error| format!("cannot flush GPT disk: {error}"))?;
+    let partition = super::gpt::read_user_data_partition(disk, disk_sectors)?;
+    if partition.start_lba != USER_DATA_START_LBA || partition.sector_count < 16_384 {
+        return Err("generated GPT does not expose the expected User Data extent".to_owned());
+    }
+    Ok(contains_data)
+}
+
+fn copy_legacy_disk_data(disk: &mut fs::File, legacy_path: &Path) -> Result<bool, String> {
+    let mut legacy = fs::File::open(legacy_path).map_err(|error| {
+        format!(
+            "cannot open legacy data disk {}: {error}",
+            legacy_path.display()
+        )
+    })?;
+    let legacy_length = legacy
+        .metadata()
+        .map_err(|error| format!("cannot inspect legacy data disk: {error}"))?
+        .len();
+    if legacy_length != LEGACY_PERSISTENT_DISK_SIZE {
+        return Err(format!(
+            "legacy data disk changed size during migration: {} bytes",
+            legacy_length
+        ));
+    }
+    let data_offset = USER_DATA_START_LBA
+        .checked_mul(512)
+        .ok_or_else(|| "User Data offset overflow".to_owned())?;
+    disk.seek(SeekFrom::Start(data_offset))
+        .map_err(|error| format!("cannot seek to User Data partition: {error}"))?;
+    let mut contains_data = false;
+    let mut copied = 0u64;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = legacy
+            .read(&mut buffer)
+            .map_err(|error| format!("cannot read legacy data disk: {error}"))?;
+        if count == 0 {
+            break;
+        }
+        contains_data |= buffer[..count].iter().any(|byte| *byte != 0);
+        disk.write_all(&buffer[..count])
+            .map_err(|error| format!("cannot copy legacy data disk: {error}"))?;
+        copied += count as u64;
+    }
+    if copied != legacy_length {
+        return Err(format!(
+            "copied {copied} bytes from a {legacy_length}-byte legacy disk"
+        ));
+    }
+    Ok(contains_data)
+}
+
+fn looks_like_gpt(path: &Path) -> Result<bool, String> {
+    let mut disk = fs::File::open(path).map_err(|error| {
+        format!(
+            "cannot inspect persistent data disk {}: {error}",
+            path.display()
+        )
+    })?;
+    let mut mbr = [0u8; 512];
+    disk.read_exact(&mut mbr)
+        .map_err(|error| format!("cannot read persistent data disk MBR: {error}"))?;
+    let mut header = [0u8; 8];
+    disk.seek(SeekFrom::Start(512))
+        .and_then(|_| disk.read_exact(&mut header))
+        .map_err(|error| format!("cannot read persistent data disk header: {error}"))?;
+    Ok(mbr[450] == 0xee || &header == b"EFI PART")
+}
+
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
 }
 
 pub struct QemuConfig<'a> {
@@ -900,6 +1397,24 @@ fn write_u32(target: &mut [u8], offset: usize, value: u32) {
 
 pub fn run_qemu(config: &QemuConfig<'_>) -> Result<i32, String> {
     run_qemu_with_boot_disk_mode(config, false)
+}
+
+pub fn run_qemu_until_any_acceptance_marker(
+    config: &QemuConfig<'_>,
+    acceptance_markers: &[&str],
+) -> Result<i32, String> {
+    if acceptance_markers.is_empty() {
+        return Err("QEMU acceptance requires at least one marker".to_owned());
+    }
+    let serial_device = format!("file:{}", external_path(config.serial_log));
+    let mut child =
+        spawn_qemu_with_display_mode_and_vars(config, &serial_device, 0, 0, false, false)?;
+    wait_for_qemu_any(
+        &mut child,
+        config.serial_log,
+        acceptance_markers,
+        config.timeout,
+    )
 }
 
 pub fn run_qemu_with_read_only_boot_disk(config: &QemuConfig<'_>) -> Result<i32, String> {
@@ -1474,6 +1989,7 @@ fn spawn_qemu_with_display_mode_and_vars(
     );
     let vars_drive = format!("if=pflash,format=raw,file={}", external_path(vars_copy));
     let disk_drive = image_drive_argument(disk_image, boot_disk_read_only);
+    let single_disk = disk_image == persistent_disk;
     let persistent_drive = format!(
         "if=none,id=nagi-data,format=raw,file={}",
         external_path(persistent_disk)
@@ -1517,13 +2033,14 @@ fn spawn_qemu_with_display_mode_and_vars(
         &vars_drive,
         "-drive",
         &disk_drive,
-        "-drive",
-        &persistent_drive,
-        "-device",
-        "virtio-blk-pci,drive=nagi-data,disable-modern=on",
-        "-serial",
-        serial_device,
     ]);
+    if !single_disk {
+        command.arg("-drive").arg(&persistent_drive).args([
+            "-device",
+            "virtio-blk-pci,drive=nagi-data,disable-modern=on",
+        ]);
+    }
+    command.args(["-serial", serial_device]);
     if qmp_port == 0 {
         command.args(["-display", "none", "-monitor", "none"]);
     } else {
@@ -1582,8 +2099,19 @@ fn qemu_audio_driver_for_host(host_os: &str) -> &'static str {
 }
 
 fn image_drive_argument(path: &Path, read_only: bool) -> String {
+    let format = if path
+        .extension()
+        .is_some_and(|extension| extension == "qcow2")
+    {
+        "qcow2"
+    } else {
+        "raw"
+    };
     let mode = if read_only { ",readonly=on" } else { "" };
-    format!("if=virtio,format=raw{mode},file={}", external_path(path))
+    format!(
+        "if=virtio,format={format}{mode},file={}",
+        external_path(path)
+    )
 }
 
 fn terminate_qemu(child: &mut Child, serial_log: &Path, serial: &[u8]) {
@@ -1698,10 +2226,19 @@ fn wait_for_qemu(
     acceptance_marker: &str,
     timeout: Duration,
 ) -> Result<i32, String> {
+    wait_for_qemu_any(child, serial_log, &[acceptance_marker], timeout)
+}
+
+fn wait_for_qemu_any(
+    child: &mut Child,
+    serial_log: &Path,
+    acceptance_markers: &[&str],
+    timeout: Duration,
+) -> Result<i32, String> {
     let deadline = Instant::now() + timeout;
     loop {
         if fs::read_to_string(serial_log)
-            .map(|serial| guest_reached_acceptance(&serial, acceptance_marker))
+            .map(|serial| guest_reached_any_acceptance(&serial, acceptance_markers))
             .unwrap_or(false)
         {
             child.kill().map_err(|error| {
@@ -1736,6 +2273,12 @@ fn guest_reached_acceptance(serial: &str, acceptance_marker: &str) -> bool {
     serial.contains(acceptance_marker)
 }
 
+fn guest_reached_any_acceptance(serial: &str, acceptance_markers: &[&str]) -> bool {
+    acceptance_markers
+        .iter()
+        .any(|marker| guest_reached_acceptance(serial, marker))
+}
+
 fn guest_reached_failure(serial: &[u8], failure_marker: &str) -> bool {
     bytes_contain(serial, failure_marker.as_bytes())
 }
@@ -1745,12 +2288,14 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        build_fat12_ab_image, build_fat12_image, build_m17_fat12_image, cluster_offset,
-        ensure_persistent_disk, guest_reached_acceptance, guest_reached_failure,
-        image_drive_argument, initialize_fats, prepare_ovmf_vars, qemu_audio_driver_for_host,
-        write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET, FAT_COUNT,
-        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER,
-        PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
+        AbSlotImages, DATA_OFFSET, FAT_COUNT, Fat12Geometry, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
+        LEGACY_PERSISTENT_DISK_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE,
+        REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, SlotPayload,
+        USER_DATA_START_LBA, build_fat12_ab_image, build_fat12_image, build_m17_fat12_image,
+        cluster_offset, ensure_persistent_disk, guest_reached_acceptance,
+        guest_reached_any_acceptance, guest_reached_failure, image_drive_argument, initialize_fats,
+        json_string_field, json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host,
+        reference_partitions, write_chain,
     };
 
     #[test]
@@ -1771,6 +2316,75 @@ mod tests {
             image_drive_argument(Path::new("m7.img"), false),
             "if=virtio,format=raw,file=m7.img"
         );
+        assert_eq!(
+            image_drive_argument(Path::new("release.qcow2"), false),
+            "if=virtio,format=qcow2,file=release.qcow2"
+        );
+    }
+
+    #[test]
+    fn reference_release_layout_has_the_specified_order_sizes_and_guids() {
+        let partitions = reference_partitions().expect("reference partition layout");
+        assert_eq!(partitions.len(), 6);
+        let sizes = [
+            512 * 2048,
+            4 * 1024 * 2048,
+            4 * 1024 * 2048,
+            16 * 1024 * 2048,
+            4 * 1024 * 2048,
+            32 * 1024 * 2048,
+        ];
+        for (index, (partition, expected_size)) in partitions.iter().zip(sizes).enumerate() {
+            assert_eq!(partition.last_lba - partition.first_lba + 1, expected_size);
+            if index > 0 {
+                assert_eq!(partition.first_lba % 2048, 0);
+                assert!(partition.first_lba > partitions[index - 1].last_lba);
+            }
+        }
+        assert_eq!(partitions[0].unique_guid, crate::gpt::ESP_PARTITION_GUID);
+        assert_eq!(partitions[1].type_guid, crate::gpt::SYSTEM_A_TYPE_GUID);
+        assert_eq!(
+            partitions[1].unique_guid,
+            crate::gpt::SYSTEM_A_PARTITION_GUID
+        );
+        assert_eq!(partitions[2].type_guid, crate::gpt::SYSTEM_B_TYPE_GUID);
+        assert_eq!(
+            partitions[2].unique_guid,
+            crate::gpt::SYSTEM_B_PARTITION_GUID
+        );
+        assert_eq!(
+            partitions[3].type_guid,
+            crate::gpt::NAGI_USER_DATA_TYPE_GUID
+        );
+        assert_eq!(
+            partitions[3].unique_guid,
+            crate::gpt::USER_DATA_PARTITION_GUID
+        );
+        assert_eq!(partitions[4].type_guid, crate::gpt::RECOVERY_TYPE_GUID);
+        assert_eq!(
+            partitions[4].unique_guid,
+            crate::gpt::RECOVERY_PARTITION_GUID
+        );
+        assert_eq!(partitions[5].type_guid, crate::gpt::MODEL_STORE_TYPE_GUID);
+        assert_eq!(
+            partitions[5].unique_guid,
+            crate::gpt::MODEL_STORE_PARTITION_GUID
+        );
+        assert!(partitions[5].last_lba < REFERENCE_DISK_SECTORS - 34);
+    }
+
+    #[test]
+    fn release_image_info_reads_outer_format_and_virtual_size() {
+        let info = r#"{
+            "children": [{"info": {"format": "file", "virtual-size": 3801088}}],
+            "virtual-size": 68719476736,
+            "format": "qcow2"
+        }"#;
+        assert_eq!(json_string_field(info, "format"), Some("qcow2".to_owned()));
+        assert_eq!(
+            json_u64_field(info, "virtual-size"),
+            Some(64 * 1024 * 1024 * 1024)
+        );
     }
 
     #[test]
@@ -1782,6 +2396,23 @@ mod tests {
         assert!(guest_reached_acceptance(
             "Nagi M7 acceptance PASS\r\n",
             GUEST_ACCEPTANCE_MARKER
+        ));
+    }
+
+    #[test]
+    fn qemu_acceptance_can_stop_on_either_first_boot_state() {
+        let markers = ["Nagi M7 reboot required PASS", "Nagi M7 acceptance PASS"];
+        assert!(guest_reached_any_acceptance(
+            "Nagi M7 reboot required PASS\r\n",
+            &markers
+        ));
+        assert!(guest_reached_any_acceptance(
+            "Nagi M7 acceptance PASS\r\n",
+            &markers
+        ));
+        assert!(!guest_reached_any_acceptance(
+            "Nagi M7 persistent write PASS\r\n",
+            &markers
         ));
     }
 
@@ -1801,9 +2432,7 @@ mod tests {
     fn persistent_disk_is_created_once_and_existing_data_is_preserved() {
         use std::io::{Read, Seek, SeekFrom, Write};
 
-        let path =
-            std::env::temp_dir().join(format!("nagi-persistent-disk-{}", std::process::id()));
-        let _ = std::fs::remove_file(&path);
+        let path = unique_persistent_disk_path("fresh");
 
         std::fs::write(&path, b"short").expect("write wrong-sized disk");
         assert!(ensure_persistent_disk(&path).is_err());
@@ -1815,7 +2444,12 @@ mod tests {
             std::fs::metadata(&path).expect("disk metadata").len(),
             PERSISTENT_DISK_SIZE
         );
-        let offset = PERSISTENT_DISK_SIZE - 1;
+        let mut disk = std::fs::File::open(&path).expect("open GPT disk");
+        let partition = crate::gpt::read_user_data_partition(&mut disk, PERSISTENT_DISK_SIZE / 512)
+            .expect("valid GPT data partition");
+        assert_eq!(partition.start_lba, USER_DATA_START_LBA);
+        assert!(partition.sector_count >= 16_384);
+        let offset = USER_DATA_START_LBA * 512 + 8 * 1024 * 1024 - 1;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .open(&path)
@@ -1830,7 +2464,104 @@ mod tests {
         file.seek(SeekFrom::Start(offset)).expect("seek marker");
         file.read_exact(&mut marker).expect("read marker");
         assert_eq!(marker, [0xa5]);
-        let _ = std::fs::remove_file(&path);
+        let mut disk = std::fs::File::open(&path).expect("reopen GPT disk");
+        assert_eq!(
+            crate::gpt::read_user_data_partition(&mut disk, PERSISTENT_DISK_SIZE / 512),
+            Ok(partition)
+        );
+        remove_persistent_disk_files(&path);
+    }
+
+    #[test]
+    fn legacy_raw_disk_migration_preserves_the_full_disk_and_keeps_a_recovery_copy() {
+        use std::io::{Read, Seek, SeekFrom, Write};
+
+        let path = unique_persistent_disk_path("legacy");
+        let mut legacy = std::fs::File::create(&path).expect("create legacy disk");
+        legacy
+            .set_len(LEGACY_PERSISTENT_DISK_SIZE)
+            .expect("size legacy disk");
+        legacy
+            .write_all(&[0x4a, 0x47, 0x50, 0x54])
+            .expect("write first marker");
+        legacy
+            .seek(SeekFrom::Start(LEGACY_PERSISTENT_DISK_SIZE - 1))
+            .expect("seek last marker");
+        legacy.write_all(&[0xa5]).expect("write last marker");
+        drop(legacy);
+
+        assert!(ensure_persistent_disk(&path).expect("migrate legacy disk"));
+        assert_eq!(
+            std::fs::metadata(&path).expect("migrated size").len(),
+            PERSISTENT_DISK_SIZE
+        );
+        let backup = super::path_with_suffix(&path, ".legacy-raw");
+        assert_eq!(
+            std::fs::metadata(&backup)
+                .expect("legacy recovery copy")
+                .len(),
+            LEGACY_PERSISTENT_DISK_SIZE
+        );
+
+        let mut migrated = std::fs::File::open(&path).expect("open migrated disk");
+        let partition =
+            crate::gpt::read_user_data_partition(&mut migrated, PERSISTENT_DISK_SIZE / 512)
+                .expect("migrated GPT is valid");
+        let data_offset = partition.start_lba * 512;
+        migrated
+            .seek(SeekFrom::Start(data_offset))
+            .expect("seek first copied marker");
+        let mut first_marker = [0u8; 4];
+        migrated
+            .read_exact(&mut first_marker)
+            .expect("read first copied marker");
+        assert_eq!(first_marker, [0x4a, 0x47, 0x50, 0x54]);
+        migrated
+            .seek(SeekFrom::Start(
+                data_offset + LEGACY_PERSISTENT_DISK_SIZE - 1,
+            ))
+            .expect("seek last copied marker");
+        let mut last_marker = [0u8; 1];
+        migrated
+            .read_exact(&mut last_marker)
+            .expect("read last copied marker");
+        assert_eq!(last_marker, [0xa5]);
+        assert!(ensure_persistent_disk(&path).expect("keep migrated disk"));
+        remove_persistent_disk_files(&path);
+    }
+
+    #[test]
+    fn blank_legacy_disk_migration_requests_initial_vfs_format() {
+        let path = unique_persistent_disk_path("blank-legacy");
+        let legacy = std::fs::File::create(&path).expect("create blank legacy disk");
+        legacy
+            .set_len(LEGACY_PERSISTENT_DISK_SIZE)
+            .expect("size blank legacy disk");
+        drop(legacy);
+
+        assert!(!ensure_persistent_disk(&path).expect("migrate blank legacy disk"));
+        assert!(ensure_persistent_disk(&path).expect("recognize migrated GPT disk"));
+        remove_persistent_disk_files(&path);
+    }
+
+    fn unique_persistent_disk_path(label: &str) -> std::path::PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "nagi-persistent-disk-{}-{label}-{nonce}",
+            std::process::id()
+        ))
+    }
+
+    fn remove_persistent_disk_files(path: &std::path::Path) {
+        let _ = std::fs::remove_file(path);
+        for suffix in [".legacy-raw", ".gpt-migration"] {
+            let _ = std::fs::remove_file(super::path_with_suffix(path, suffix));
+        }
     }
 
     #[test]

@@ -6,15 +6,17 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
-use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
+use crate::doctor::{DoctorPolicy, HostProbe, ovmf_pair_is_allowed, run_doctor_with_requirements};
 use crate::image::{
-    ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui, run_qemu_gui_with_events,
+    GUEST_ACCEPTANCE_MARKER, ImageLayout, NAGI_WRITE_MARKER, QemuConfig, ensure_persistent_disk,
+    initialize_ovmf_vars, run_qemu, run_qemu_gui, run_qemu_gui_with_events,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
-    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image,
+    run_qemu_until_any_acceptance_marker, run_qemu_with_read_only_boot_disk,
+    validate_reference_disk_qcow2, write_fat12_image, write_m17_fat12_image,
     write_m27_broken_slot_image, write_m27_healthy_slot_image, write_m27_recovery_image,
-    ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    write_reference_disk_qcow2,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -112,6 +114,7 @@ pub enum Command {
     M22,
     M25,
     M27,
+    M30,
     Test,
     Clean,
     Fmt,
@@ -180,6 +183,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m22" => Command::M22,
         "m25" => Command::M25,
         "m27" => Command::M27,
+        "m30" => Command::M30,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -218,6 +222,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M22
         | Command::M25
         | Command::M27
+        | Command::M30
         | Command::Test
         | Command::Clean
         | Command::Fmt
@@ -306,6 +311,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M22 => execute_m22(root, probe),
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
+        Command::M30 => execute_m30(root, probe),
     }
 }
 
@@ -697,6 +703,261 @@ fn execute_image_with_init_build_env_using_writer_and_recovery(
             layout.kernel_start_cluster + layout.kernel_clusters as u16 - 1,
             layout.init_start_cluster,
             layout.init_start_cluster + layout.init_clusters as u16 - 1,
+        )],
+    }
+}
+
+fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let host = match resolve_qemu_host(root, probe, "m30") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: system clock: {error}")),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+    };
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m30-release-{run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+    };
+    let image_name = "Nagi-OS-0.1-devpreview.qcow2";
+    let image_path = artifacts.join(image_name);
+    let vars_copy = artifacts.join(format!("nagi-0.1-m30-vars-{run_id}.fd"));
+    let image_is_new = match fs::symlink_metadata(&image_path) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            if let Err(error) = validate_reference_disk_qcow2(&image_path) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m30: existing release image is invalid: {error}"),
+                );
+            }
+            false
+        }
+        Ok(_) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: release image path is not a regular file: {}",
+                    image_path.display()
+                ),
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: cannot inspect release image {}: {error}",
+                    image_path.display()
+                ),
+            );
+        }
+    };
+
+    if image_is_new {
+        let recovery_init_args = [
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m27-recovery",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+            "--locked",
+        ];
+        let recovery_init_build = run_cargo(root, "M30 Recovery init", &recovery_init_args);
+        if recovery_init_build.exit_code != EXIT_SUCCESS {
+            return recovery_init_build;
+        }
+        let recovery_init_path = root
+            .join("target")
+            .join("x86_64-unknown-nagi-user")
+            .join("release")
+            .join("nagi-init");
+        let recovery_init = match fs::read(&recovery_init_path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m30: cannot read {}: {error}", recovery_init_path.display()),
+                );
+            }
+        };
+        let init_args = [
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m10-desktop,m19-search,m22-history",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+            "--locked",
+        ];
+        let image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+            root,
+            &init_args,
+            None,
+            ImageBuildRequest {
+                image_name,
+                cargo_env: &[],
+                recovery_init: Some(&recovery_init),
+                image_writer: write_reference_disk_qcow2,
+                build_features: ImageBuildFeatures::default(),
+            },
+        );
+        if image_result.exit_code != EXIT_SUCCESS {
+            return image_result;
+        }
+    }
+
+    let first_log = evidence.join("reference-disk-first-boot.log");
+    let first_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &image_path,
+        vars_copy: &vars_copy,
+        serial_log: &first_log,
+        acceptance_marker: "Nagi M7 acceptance PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let first_status = match run_qemu_until_any_acceptance_marker(
+        &first_config,
+        &["Nagi M7 reboot required PASS", "Nagi M7 acceptance PASS"],
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: initial QEMU boot: {error}"),
+            );
+        }
+    };
+    let first_serial = match fs::read_to_string(&first_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", first_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi Kernel started",
+        "Nagi M7 VirtIO Block PASS",
+    ] {
+        if !first_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: initial boot did not print `{marker}` (QEMU exit {first_status}; log {})",
+                    first_log.display()
+                ),
+            );
+        }
+    }
+    if first_serial.contains("Nagi M7 reboot required PASS") {
+        for marker in ["Nagi M7 ext2 format PASS", "Nagi M7 persistent write PASS"] {
+            if !first_serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m30: User Data bootstrap did not print `{marker}` (log {})",
+                        first_log.display()
+                    ),
+                );
+            }
+        }
+    } else if !first_serial.contains("Nagi M7 persistent read PASS") {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: existing User Data did not print the persistent read marker (log {})",
+                first_log.display()
+            ),
+        );
+    }
+
+    let serial_log = evidence.join("reference-disk-restart.log");
+    let restart_config = QemuConfig {
+        serial_log: &serial_log,
+        acceptance_marker: "Nagi M7 acceptance PASS",
+        ..first_config
+    };
+    let qemu_status = match run_qemu_reusing_ovmf_vars(&restart_config) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: persistent restart boot: {error}"),
+            );
+        }
+    };
+    let serial = match fs::read_to_string(&serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", serial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi Kernel started",
+        "Nagi M7 VirtIO Block PASS",
+        "Nagi M7 ext2 mount PASS",
+        "Nagi M7 persistent read PASS",
+        "Nagi M7 acceptance PASS",
+    ] {
+        if !serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: release guest did not print `{marker}` (QEMU exit {qemu_status}; log {})",
+                    serial_log.display()
+                ),
+            );
+        }
+    }
+    let image_check = ProcessCommand::new("qemu-img")
+        .args(["check", "-f", "qcow2"])
+        .arg(&image_path)
+        .output();
+    match image_check {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: qemu-img check failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            );
+        }
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: qemu-img check: {error}")),
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M30 64 GiB GPT qcow2 booted System A and verified User Data persistence across restart (image {}; serial log {})",
+            image_path.display(),
+            serial_log.display()
         )],
     }
 }
@@ -1713,7 +1974,7 @@ fn execute_m25(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m25: storage bootstrap: {error}"),
-                )
+                );
             }
         };
         let serial = match fs::read_to_string(&bootstrap_log) {
@@ -4270,10 +4531,13 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 
     CommandResult {
         exit_code: EXIT_SUCCESS,
-        lines: vec![format!(
-            "PASS M27 A/B and Recovery: three malformed System B trials rolled back to persistent System A; a healthy System B trial was promoted after guest readiness; Recovery boot left the journal unchanged and undid a committed M22 file.move group across restart (evidence {})",
-            evidence.display()
-        ), format!("Final serial log: {}", final_log.display())],
+        lines: vec![
+            format!(
+                "PASS M27 A/B and Recovery: three malformed System B trials rolled back to persistent System A; a healthy System B trial was promoted after guest readiness; Recovery boot left the journal unchanged and undid a committed M22 file.move group across restart (evidence {})",
+                evidence.display()
+            ),
+            format!("Final serial log: {}", final_log.display()),
+        ],
     }
 }
 
@@ -4310,7 +4574,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, m25, m27, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, m25, m27, m30, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -4447,8 +4711,10 @@ mod tests {
             m17_branch[storage..pixel].contains("libnagi::exit(exit_code)"),
             "the first persistent-write boot must stop before the pixel boot"
         );
-        assert!(runner
-            .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\""));
+        assert!(
+            runner
+                .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\"")
+        );
         assert!(init.contains("Nagi M7 persistent write PASS"));
     }
 
@@ -4483,8 +4749,10 @@ mod tests {
             .find("fn help() -> CommandResult")
             .map(|offset| m18_start + offset)
             .expect("next command helper");
-        assert!(commands[m18_start..m18_end]
-            .contains("run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker("));
+        assert!(
+            commands[m18_start..m18_end]
+                .contains("run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(")
+        );
 
         let image = include_str!("image.rs");
         assert!(image.contains("Duration::from_millis(100)"));
