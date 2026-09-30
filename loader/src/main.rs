@@ -3,17 +3,17 @@
 
 use core::mem;
 use core::ptr;
-#[cfg(feature = "m27-ab-slot-acceptance")]
+#[cfg(feature = "m27-ab-slot-boot-control")]
 use core::time::Duration;
 
-#[cfg(feature = "m27-ab-slot-acceptance")]
-use nagi_bootinfo::{BOOT_READY_RECORD_SIZE, BootReadyRecord};
 use nagi_bootinfo::{
-    BootControlInfo, BootInfo, FirmwareDateTime, FramebufferInfo, InitImageInfo, MemoryMapInfo,
-    REALTIME_UNAVAILABLE_NS, firmware_time_to_unix_ns,
+    firmware_time_to_unix_ns, BootControlInfo, BootInfo, FirmwareDateTime, FramebufferInfo,
+    InitImageInfo, MemoryMapInfo, REALTIME_UNAVAILABLE_NS,
 };
+#[cfg(feature = "m27-ab-slot-boot-control")]
+use nagi_bootinfo::{BootReadyRecord, BOOT_READY_RECORD_SIZE};
 use nagi_loader::ab::SystemSlot;
-use nagi_loader::elf::{LoadPlan, parse};
+use nagi_loader::elf::{parse, LoadPlan};
 use uefi::boot::{AllocateType, MemoryType, SearchType};
 use uefi::mem::memory_map::MemoryMap;
 use uefi::prelude::*;
@@ -63,12 +63,12 @@ fn main() -> Status {
         return fail(error_message("Nagi Loader: helper init failed"));
     }
 
-    #[cfg(feature = "m27-ab-slot-acceptance")]
+    #[cfg(feature = "m27-ab-slot-boot-control")]
     let (image_selection, boot_control) = match m27_boot_control_decision() {
         Ok((selection, context)) => (selection, context),
         Err(message) => return fail(error_message(message)),
     };
-    #[cfg(not(feature = "m27-ab-slot-acceptance"))]
+    #[cfg(not(feature = "m27-ab-slot-boot-control"))]
     let (image_selection, boot_control) = (BootImageSelection::Default, BootControlInfo::default());
     let selected_slot = image_selection.system_slot();
 
@@ -157,10 +157,10 @@ fn main() -> Status {
     }
 }
 
-#[cfg(feature = "m27-ab-slot-acceptance")]
+#[cfg(feature = "m27-ab-slot-boot-control")]
 fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), &'static str> {
     use nagi_loader::ab::uefi_store::{
-        NAGI_BOOT_CONTROL_VENDOR, NAGI_BOOT_READY_VARIABLE, UefiVariableBootControlStore,
+        UefiVariableBootControlStore, NAGI_BOOT_CONTROL_VENDOR, NAGI_BOOT_READY_VARIABLE,
     };
     use nagi_loader::ab::{BootControlJournal, BootControlState};
     use uefi::runtime::{self, VariableAttributes};
@@ -237,13 +237,16 @@ fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), 
     let selected_pending_candidate = selection
         .system_slot()
         .filter(|slot| state.pending_slot() == Some(*slot));
+    #[cfg(feature = "m27-ab-slot-acceptance")]
     if selected_pending_candidate.is_none() && state.generation() == 0 {
-        // The acceptance fixture seeds System B on its first automatic boot.
-        // Recovery and explicit confirmed-slot selection never reach this path.
+        // Only the M27 acceptance fixture seeds System B on its first
+        // automatic boot. The release loader never invents an update.
         journal
             .stage_update(SystemSlot::B)
             .map_err(|_| "Nagi Loader: M27 boot-control trial staging failed")?;
     }
+    #[cfg(not(feature = "m27-ab-slot-acceptance"))]
+    let _ = selected_pending_candidate;
 
     let decision = journal
         .begin_boot()
@@ -310,7 +313,7 @@ fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), 
     ))
 }
 
-#[cfg(feature = "m27-ab-slot-acceptance")]
+#[cfg(feature = "m27-ab-slot-boot-control")]
 fn m27_boot_menu(state: nagi_loader::ab::BootControlState) -> BootImageSelection {
     use uefi::proto::console::text::Key;
 
@@ -359,11 +362,11 @@ fn m27_boot_menu(state: nagi_loader::ab::BootControlState) -> BootImageSelection
 }
 
 fn report_m27_trial_payload_rejection(selected_slot: Option<SystemSlot>) {
-    #[cfg(feature = "m27-ab-slot-acceptance")]
+    #[cfg(feature = "m27-ab-slot-boot-control")]
     if selected_slot == Some(SystemSlot::B) {
         uefi::println!("Nagi M27 trial payload rejected slot=B");
     }
-    #[cfg(not(feature = "m27-ab-slot-acceptance"))]
+    #[cfg(not(feature = "m27-ab-slot-boot-control"))]
     let _ = selected_slot;
 }
 

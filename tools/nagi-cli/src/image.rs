@@ -420,8 +420,45 @@ pub fn write_reference_disk_qcow2(
     init: &[u8],
     recovery_init: Option<&[u8]>,
 ) -> Result<ImageLayout, String> {
-    if bootloader.is_empty() || kernel.is_empty() || init.is_empty() {
-        return Err("release image requires non-empty loader, kernel, and init ELFs".to_owned());
+    write_reference_disk_qcow2_with_system_b_kernel(
+        path,
+        bootloader,
+        kernel,
+        kernel,
+        init,
+        recovery_init,
+    )
+}
+
+/// Build a GPT acceptance image with a deliberately malformed System B
+/// kernel while keeping System A and Recovery bootable.
+pub fn write_m27_gpt_broken_system_b_qcow2(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+    recovery_init: Option<&[u8]>,
+) -> Result<ImageLayout, String> {
+    write_reference_disk_qcow2_with_system_b_kernel(
+        path,
+        bootloader,
+        kernel,
+        b"invalid System B kernel",
+        init,
+        recovery_init,
+    )
+}
+
+fn write_reference_disk_qcow2_with_system_b_kernel(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    system_b_kernel: &[u8],
+    init: &[u8],
+    recovery_init: Option<&[u8]>,
+) -> Result<ImageLayout, String> {
+    if bootloader.is_empty() || kernel.is_empty() || system_b_kernel.is_empty() || init.is_empty() {
+        return Err("GPT image requires non-empty loader, system kernels, and init ELF".to_owned());
     }
     let recovery_init = recovery_init
         .filter(|bytes| !bytes.is_empty())
@@ -516,7 +553,7 @@ pub fn write_reference_disk_qcow2(
         &[
             super::fat32::VolumeFile {
                 path: "KERNEL.ELF",
-                contents: kernel,
+                contents: system_b_kernel,
             },
             super::fat32::VolumeFile {
                 path: "INIT.ELF",
@@ -1251,6 +1288,13 @@ pub struct QemuConfig<'a> {
     pub timeout: Duration,
 }
 
+#[derive(Clone, Copy)]
+struct GuiQemuMode {
+    boot_disk_read_only: bool,
+    reuse_ovmf_vars: bool,
+    inter_event_delay: Duration,
+}
+
 pub type InteractiveQemuConfig<'a> = QemuConfig<'a>;
 
 fn write_boot_sector(image: &mut [u8], geometry: Fat12Geometry) {
@@ -1403,18 +1447,7 @@ pub fn run_qemu_until_any_acceptance_marker(
     config: &QemuConfig<'_>,
     acceptance_markers: &[&str],
 ) -> Result<i32, String> {
-    if acceptance_markers.is_empty() {
-        return Err("QEMU acceptance requires at least one marker".to_owned());
-    }
-    let serial_device = format!("file:{}", external_path(config.serial_log));
-    let mut child =
-        spawn_qemu_with_display_mode_and_vars(config, &serial_device, 0, 0, false, false)?;
-    wait_for_qemu_any(
-        &mut child,
-        config.serial_log,
-        acceptance_markers,
-        config.timeout,
-    )
+    run_qemu_with_qmp_file_markers(config, acceptance_markers, false, false)
 }
 
 pub fn run_qemu_with_read_only_boot_disk(config: &QemuConfig<'_>) -> Result<i32, String> {
@@ -1450,23 +1483,110 @@ fn run_qemu_with_vars_mode(
     boot_disk_read_only: bool,
     reuse_ovmf_vars: bool,
 ) -> Result<i32, String> {
-    let QemuConfig {
-        serial_log,
-        acceptance_marker,
-        timeout,
-        ..
-    } = *config;
-    let serial_device = format!("file:{}", external_path(serial_log));
+    run_qemu_with_qmp_file_markers(
+        config,
+        &[config.acceptance_marker],
+        boot_disk_read_only,
+        reuse_ovmf_vars,
+    )
+}
+
+fn run_qemu_with_qmp_file_markers(
+    config: &QemuConfig<'_>,
+    acceptance_markers: &[&str],
+    boot_disk_read_only: bool,
+    reuse_ovmf_vars: bool,
+) -> Result<i32, String> {
+    if acceptance_markers.is_empty() {
+        return Err("QEMU acceptance requires at least one marker".to_owned());
+    }
+    let (qmp_listener, qmp_port) = reserve_local_tcp_listener("QMP")?;
+    drop(qmp_listener);
+
+    let serial_device = format!("file:{}", external_path(config.serial_log));
     let mut child = spawn_qemu_with_display_mode_and_vars(
         config,
         &serial_device,
-        0,
+        qmp_port,
         0,
         boot_disk_read_only,
         reuse_ovmf_vars,
+        false,
     )?;
-    let status = wait_for_qemu(&mut child, serial_log, acceptance_marker, timeout)?;
-    Ok(status)
+    let deadline = Instant::now() + config.timeout;
+    let mut qmp_stream = match connect_guest_tcp(&mut child, qmp_port, deadline, "QMP endpoint") {
+        Ok(stream) => stream,
+        Err(error) => {
+            terminate_qemu(&mut child, config.serial_log, &[]);
+            return Err(error);
+        }
+    };
+    qmp_stream
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .map_err(|error| {
+            terminate_qemu(&mut child, config.serial_log, &[]);
+            format!("cannot configure QMP read timeout: {error}")
+        })?;
+    let greeting = match read_qmp_line(&mut qmp_stream, deadline) {
+        Ok(greeting) => greeting,
+        Err(error) => {
+            terminate_qemu(&mut child, config.serial_log, &[]);
+            return Err(error);
+        }
+    };
+    if !greeting.contains("\"QMP\"") {
+        terminate_qemu(&mut child, config.serial_log, &[]);
+        return Err(format!("unexpected QMP greeting: {greeting}"));
+    }
+    if let Err(error) = qmp_exchange(
+        &mut qmp_stream,
+        r#"{"execute":"qmp_capabilities"}"#,
+        deadline,
+    ) {
+        terminate_qemu(&mut child, config.serial_log, &[]);
+        return Err(error);
+    }
+
+    wait_for_qemu_any_with_qmp(
+        &mut child,
+        &mut qmp_stream,
+        config.serial_log,
+        acceptance_markers,
+        config.timeout,
+    )
+}
+
+fn wait_for_qemu_any_with_qmp(
+    child: &mut Child,
+    qmp_stream: &mut TcpStream,
+    serial_log: &Path,
+    acceptance_markers: &[&str],
+    timeout: Duration,
+) -> Result<i32, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let serial = fs::read(serial_log).unwrap_or_default();
+        if acceptance_markers
+            .iter()
+            .any(|marker| bytes_contain(&serial, marker.as_bytes()))
+        {
+            return quit_qemu_after_acceptance(child, qmp_stream, serial_log, &serial);
+        }
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("cannot poll QEMU: {error}"))?
+        {
+            return Ok(status.code().unwrap_or(-1));
+        }
+        if Instant::now() >= deadline {
+            terminate_qemu(child, serial_log, &serial);
+            return Err(format!(
+                "QEMU did not reach acceptance within {} seconds",
+                timeout.as_secs()
+            ));
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
 }
 
 pub fn run_qemu_interactive(config: &InteractiveQemuConfig<'_>) -> Result<i32, String> {
@@ -1607,7 +1727,17 @@ pub fn run_qemu_gui_with_events(
     ready_marker: &str,
     events: &[&str],
 ) -> Result<i32, String> {
-    run_qemu_gui_with_events_mode(config, ready_marker, events, None, false, Duration::ZERO)
+    run_qemu_gui_with_events_mode(
+        config,
+        ready_marker,
+        events,
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: false,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::ZERO,
+        },
+    )
 }
 
 pub fn run_qemu_gui_with_read_only_boot_disk_and_events(
@@ -1623,8 +1753,11 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_events(
         ready_marker,
         events,
         None,
-        true,
-        Duration::from_millis(100),
+        GuiQemuMode {
+            boot_disk_read_only: true,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::from_millis(100),
+        },
     )
 }
 
@@ -1640,8 +1773,55 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input(
         ready_marker,
         events,
         None,
-        true,
-        Duration::from_millis(100),
+        GuiQemuMode {
+            boot_disk_read_only: true,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::from_millis(100),
+        },
+        Some((serial_input_marker, serial_input)),
+    )
+}
+
+/// Launch writable integrated GPT media with the existing OVMF journal state.
+pub fn run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    serial_input_marker: &str,
+    serial_input: &[u8],
+) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode_and_serial_input(
+        config,
+        ready_marker,
+        events,
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: false,
+            reuse_ovmf_vars: true,
+            inter_event_delay: Duration::from_millis(100),
+        },
+        Some((serial_input_marker, serial_input)),
+    )
+}
+
+/// Launch a read-only boot image with the existing OVMF journal state.
+pub fn run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    serial_input_marker: &str,
+    serial_input: &[u8],
+) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode_and_serial_input(
+        config,
+        ready_marker,
+        events,
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: true,
+            reuse_ovmf_vars: true,
+            inter_event_delay: Duration::from_millis(100),
+        },
         Some((serial_input_marker, serial_input)),
     )
 }
@@ -1657,8 +1837,11 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(
         ready_marker,
         events,
         Some(failure_marker),
-        true,
-        Duration::from_millis(100),
+        GuiQemuMode {
+            boot_disk_read_only: true,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::from_millis(100),
+        },
     )
 }
 
@@ -1667,16 +1850,14 @@ fn run_qemu_gui_with_events_mode(
     ready_marker: &str,
     events: &[&str],
     failure_marker: Option<&str>,
-    boot_disk_read_only: bool,
-    inter_event_delay: Duration,
+    mode: GuiQemuMode,
 ) -> Result<i32, String> {
     run_qemu_gui_with_events_mode_and_serial_input(
         config,
         ready_marker,
         events,
         failure_marker,
-        boot_disk_read_only,
-        inter_event_delay,
+        mode,
         None,
     )
 }
@@ -1686,8 +1867,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input(
     ready_marker: &str,
     events: &[&str],
     failure_marker: Option<&str>,
-    boot_disk_read_only: bool,
-    inter_event_delay: Duration,
+    mode: GuiQemuMode,
     serial_input: Option<(&str, &[u8])>,
 ) -> Result<i32, String> {
     let serial_listener = TcpListener::bind(("127.0.0.1", 0))
@@ -1720,12 +1900,14 @@ fn run_qemu_gui_with_events_mode_and_serial_input(
     }
 
     let serial_device = format!("tcp:127.0.0.1:{serial_port},server,nowait");
-    let mut child = spawn_qemu_with_display_mode(
+    let mut child = spawn_qemu_with_display_mode_and_vars(
         config,
         &serial_device,
         qmp_port,
         vnc_port - 5900,
-        boot_disk_read_only,
+        mode.boot_disk_read_only,
+        mode.reuse_ovmf_vars,
+        true,
     )?;
     let deadline = Instant::now() + config.timeout;
     let mut serial = Vec::new();
@@ -1824,8 +2006,8 @@ fn run_qemu_gui_with_events_mode_and_serial_input(
                             terminate_qemu(&mut child, config.serial_log, &serial);
                             return Err(error);
                         }
-                        if index + 1 < events.len() && !inter_event_delay.is_zero() {
-                            thread::sleep(inter_event_delay);
+                        if index + 1 < events.len() && !mode.inter_event_delay.is_zero() {
+                            thread::sleep(mode.inter_event_delay);
                         }
                     }
                     events_sent = true;
@@ -1848,19 +2030,12 @@ fn run_qemu_gui_with_events_mode_and_serial_input(
                     return Err(format!("GUI QEMU guest printed failure marker `{marker}`"));
                 }
                 if bytes_contain(&serial, marker) {
-                    child.kill().map_err(|error| {
-                        format!("guest reached acceptance but termination failed: {error}")
-                    })?;
-                    let status = child.wait().map_err(|error| {
-                        format!("cannot reap QEMU after GUI acceptance: {error}")
-                    })?;
-                    fs::write(config.serial_log, &serial).map_err(|error| {
-                        format!(
-                            "cannot write GUI serial log {}: {error}",
-                            config.serial_log.display()
-                        )
-                    })?;
-                    return Ok(status.code().unwrap_or(-1));
+                    return quit_qemu_after_acceptance(
+                        &mut child,
+                        &mut qmp_stream,
+                        config.serial_log,
+                        &serial,
+                    );
                 }
             }
             Err(error)
@@ -1952,6 +2127,7 @@ fn spawn_qemu_with_display_mode(
         vnc_display,
         boot_disk_read_only,
         false,
+        qmp_port != 0,
     )
 }
 
@@ -1962,6 +2138,7 @@ fn spawn_qemu_with_display_mode_and_vars(
     vnc_display: u16,
     boot_disk_read_only: bool,
     reuse_ovmf_vars: bool,
+    show_vnc_display: bool,
 ) -> Result<Child, String> {
     let QemuConfig {
         qemu,
@@ -2043,10 +2220,16 @@ fn spawn_qemu_with_display_mode_and_vars(
     command.args(["-serial", serial_device]);
     if qmp_port == 0 {
         command.args(["-display", "none", "-monitor", "none"]);
-    } else {
+    } else if show_vnc_display {
         let qmp = format!("tcp:127.0.0.1:{qmp_port},server=on,wait=off");
         let display = format!("vnc=127.0.0.1:{vnc_display}");
         command.arg("-qmp").arg(qmp).arg("-display").arg(display);
+    } else {
+        let qmp = format!("tcp:127.0.0.1:{qmp_port},server=on,wait=off");
+        command
+            .arg("-qmp")
+            .arg(qmp)
+            .args(["-display", "none", "-monitor", "none"]);
     }
     command
         .args([
@@ -2118,6 +2301,57 @@ fn terminate_qemu(child: &mut Child, serial_log: &Path, serial: &[u8]) {
     let _ = child.kill();
     let _ = child.wait();
     let _ = fs::write(serial_log, serial);
+}
+
+fn quit_qemu_after_acceptance(
+    child: &mut Child,
+    qmp_stream: &mut TcpStream,
+    serial_log: &Path,
+    serial: &[u8],
+) -> Result<i32, String> {
+    if let Err(error) = qmp_exchange(
+        qmp_stream,
+        r#"{"execute":"quit"}"#,
+        Instant::now() + Duration::from_secs(5),
+    ) {
+        terminate_qemu(child, serial_log, serial);
+        return Err(format!(
+            "cannot request QEMU to quit after acceptance: {error}"
+        ));
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                fs::write(serial_log, serial).map_err(|error| {
+                    format!("cannot write serial log {}: {error}", serial_log.display())
+                })?;
+                return Ok(status.code().unwrap_or(-1));
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            Ok(None) => {
+                terminate_qemu(child, serial_log, serial);
+                return Err("QEMU did not exit after the QMP quit request".to_owned());
+            }
+            Err(error) => {
+                terminate_qemu(child, serial_log, serial);
+                return Err(format!(
+                    "cannot poll QEMU after the QMP quit request: {error}"
+                ));
+            }
+        }
+    }
+}
+
+fn reserve_local_tcp_listener(description: &str) -> Result<(TcpListener, u16), String> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| format!("cannot reserve {description} TCP port: {error}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("cannot inspect {description} TCP port: {error}"))?
+        .port();
+    Ok((listener, port))
 }
 
 fn connect_guest_tcp(
@@ -2220,59 +2454,12 @@ fn external_path(path: &Path) -> String {
     path.into_owned()
 }
 
-fn wait_for_qemu(
-    child: &mut Child,
-    serial_log: &Path,
-    acceptance_marker: &str,
-    timeout: Duration,
-) -> Result<i32, String> {
-    wait_for_qemu_any(child, serial_log, &[acceptance_marker], timeout)
-}
-
-fn wait_for_qemu_any(
-    child: &mut Child,
-    serial_log: &Path,
-    acceptance_markers: &[&str],
-    timeout: Duration,
-) -> Result<i32, String> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if fs::read_to_string(serial_log)
-            .map(|serial| guest_reached_any_acceptance(&serial, acceptance_markers))
-            .unwrap_or(false)
-        {
-            child.kill().map_err(|error| {
-                format!("guest reached acceptance but termination failed: {error}")
-            })?;
-            let status = child
-                .wait()
-                .map_err(|error| format!("cannot reap QEMU after acceptance: {error}"))?;
-            return Ok(status.code().unwrap_or(-1));
-        }
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| format!("cannot poll QEMU: {error}"))?
-        {
-            return Ok(status.code().unwrap_or(-1));
-        }
-        if Instant::now() >= deadline {
-            child
-                .kill()
-                .map_err(|error| format!("QEMU timeout and termination failed: {error}"))?;
-            let _ = child.wait();
-            return Err(format!(
-                "QEMU did not exit within {} seconds",
-                timeout.as_secs()
-            ));
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-}
-
+#[cfg(test)]
 fn guest_reached_acceptance(serial: &str, acceptance_marker: &str) -> bool {
     serial.contains(acceptance_marker)
 }
 
+#[cfg(test)]
 fn guest_reached_any_acceptance(serial: &str, acceptance_markers: &[&str]) -> bool {
     acceptance_markers
         .iter()
@@ -2288,14 +2475,14 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        AbSlotImages, DATA_OFFSET, FAT_COUNT, Fat12Geometry, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
-        LEGACY_PERSISTENT_DISK_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE,
-        REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, SlotPayload,
-        USER_DATA_START_LBA, build_fat12_ab_image, build_fat12_image, build_m17_fat12_image,
-        cluster_offset, ensure_persistent_disk, guest_reached_acceptance,
-        guest_reached_any_acceptance, guest_reached_failure, image_drive_argument, initialize_fats,
-        json_string_field, json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host,
-        reference_partitions, write_chain,
+        build_fat12_ab_image, build_fat12_image, build_m17_fat12_image, cluster_offset,
+        ensure_persistent_disk, guest_reached_acceptance, guest_reached_any_acceptance,
+        guest_reached_failure, image_drive_argument, initialize_fats, json_string_field,
+        json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host, reference_partitions,
+        write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET, FAT_COUNT,
+        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE, M17_IMAGE_SIZE,
+        M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT,
+        ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
     };
 
     #[test]

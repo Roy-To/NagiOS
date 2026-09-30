@@ -146,10 +146,14 @@ builds, formatting, and the complete M27 QEMU acceptance pass. The read-only
 checker validates VFS geometry, accounting, and reachable files without write
 or format APIs; the acceptance now permits additional valid user files while
 still checking the M7 marker bytes. The M30 reference GPT image and System A
-boot now pass, but the M27 journal policy is not integrated with those GPT
-System A/B/Recovery partitions. M27 remains `PARTIAL`: no account login
-readiness flow exists, slot manifests are not authenticated, and GPT-integrated
-update/Recovery acceptance remains. See
+boot now use the production M27 journal feature. Fresh `./nagi m27` acceptance
+also passed the same reference GPT layout: malformed B failed three trials,
+Recovery preserved the journal and passed its read-only VFS check, A rollback
+read the GPT User Data volume, and a healthy B trial was promoted after
+Recovery. Evidence for the full run is in
+`out/evidence/m27-ab-rollback-1790750679606495000/`. M27 remains `PARTIAL`:
+the current readiness point is before account login, slot manifests are not
+authenticated, and no authenticated GPT updater exists. See
 `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`.
 **M28 evidence:** The stress harness uses the current M19 VFS/ObjectId artifact
 namespace, validates the live file/ObjectId marker, accepts a previous-boot
@@ -183,7 +187,14 @@ partitions. The UEFI loader locates System A by GPT partition GUID, while the
 kernel validates primary/backup GPT metadata and exposes a bounded User Data
 capability. QEMU booted the image and verified VFS format/write followed by
 mount/read and `Nagi M7 acceptance PASS` across restart; `qemu-img check`
-reported no errors. Clean-source release preflight, assembly, and verification
+reported no errors. The release loader now enables production
+`m27-ab-slot-boot-control` without the acceptance-only pending-B seed. The M30
+QEMU acceptance copies the image into its evidence directory before booting;
+`./nagi m30` passed on 2026-09-30 with the original input untouched, the copy
+booted confirmed System A, and User Data persisted across restart. Evidence is
+in `out/evidence/m30-release-1790751196189577000/`; `qemu-img check` passed on
+both files. A fresh blank-image format/write through the copy path will be
+reverified during clean-commit release assembly. Clean-source release preflight, assembly, and verification
 initially passed at commit `93b1d258669d4fa5f1ff83623a293be68334617f`. Those
 writable guest boots changed the assembled qcow2's SHA-256, and the post-boot
 `release.py verify` correctly failed. The modified test bundle is preserved at
@@ -208,8 +219,10 @@ virtual size. CLI tests (133 unit, 18 integration), warnings-denied CLI
 Clippy, kernel and loader target builds, and eight release-tool tests pass.
 The release tool's manifest still records guest acceptance as
 `NOT_EVALUATED`; the external QEMU evidence is kept separately. M30 remains
-`PARTIAL`: System B and Recovery acceptance from the GPT image, authenticated
-update manifests, M18–M29 completion, and binary license/notice review remain. See
+`PARTIAL`: authenticated update/slot manifests, M18–M29 completion, a clean
+post-checkpoint release assembly, and binary license/notice review remain. The
+production M27 loader boots confirmed GPT System A, and the M27 QEMU acceptance
+now covers malformed/healthy System B and Recovery on the same layout. See
 `docs/workstreams/NagiOS_M30_Release_Workstream.md` and
 `docs/decisions/ADR-0013-m30-reference-disk-layout.md`.
 **Completion Sweep audit — 2026-09-30:** M19 Search and M22 grouped Undo
@@ -232,10 +245,17 @@ search/ObjectId across rename and restart, and `./nagi m22` verified grouped
 Undo and the separate Activity Ledger across three QEMU boots. Current logs are
 `out/logs/m19-vfs-objectid-initial.log` and
 `out/logs/m22-history-boot-3.log`.
-**Next action:** Continue M27 integration by exercising System B and Recovery
-from the GPT release image with the existing UEFI journal policy. Continue
-independent M18–M29 service, runtime, action, voice, and stress work while
-authentic update and provider dependencies remain.
+The M27 GPT run exposed that killing QEMU immediately after a serial marker
+could lose pending qcow2 User Data writes. Headless and GUI acceptance runners
+now use QMP `quit` after observing the marker; headless QEMU keeps its file
+serial backend to preserve UEFI behavior. `./nagi m27` passed twice with the
+durable GPT VFS check, and `./nagi m30` passed initial boot and restart with
+confirmed System A and persistent reads. The final M30 log pair is under
+`out/evidence/m30-release-1790750282042692000/`.
+**Next action:** Continue the highest-priority shared Service/IPC/Capability
+boundary audit and implementation for M18–M23, reusing the existing
+foundations and preserving fixture-only caller identity. Continue independent
+M20, M22–M29 work while authenticated update and provider dependencies remain.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's

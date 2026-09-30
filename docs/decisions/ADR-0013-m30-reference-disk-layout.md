@@ -65,6 +65,9 @@ is replaced, release preflight must reject model artifacts at or above 4 GiB.
   utility. The reference qcow2 has booted System A under QEMU, and the bounded
   User Data VFS has passed persistence checks across restart.
 - The kernel, not user space, derives and bounds the data capability.
+- `./nagi m30` runs its QEMU format/write/restart acceptance against a
+  byte-identical qcow2 copy in the run evidence directory. The built reference
+  image remains a clean release input instead of inheriting acceptance data.
 - M-stage acceptance disks must be converted to GPT images with a User Data
   partition before the kernel can remove its whole-disk fallback.
 - Model Store and the system partitions have release-image placement, but
@@ -76,6 +79,7 @@ is replaced, release preflight must reject model artifacts at or above 4 GiB.
   SHA-256 and passed `release.py verify` and `qemu-img check` afterward. Direct
   read-only boot is not supported by the current M7 initialization path,
   because the kernel excludes read-only devices when selecting writable
-  storage. M30 remains `PARTIAL` until GPT System B/Recovery and authenticated
-  update acceptance, the remaining M18–M29 gates, and license/notice review
-  pass.
+  storage. M27 GPT acceptance now covers System B, Recovery, rollback, and
+  readiness-based promotion using the same partition layout. M30 remains
+  `PARTIAL` until authenticated update acceptance, the remaining M18–M29
+  gates, and license/notice review pass.

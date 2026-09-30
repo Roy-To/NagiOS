@@ -6,17 +6,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
-use crate::doctor::{DoctorPolicy, HostProbe, ovmf_pair_is_allowed, run_doctor_with_requirements};
+use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
 use crate::image::{
-    GUEST_ACCEPTANCE_MARKER, ImageLayout, NAGI_WRITE_MARKER, QemuConfig, ensure_persistent_disk,
-    initialize_ovmf_vars, run_qemu, run_qemu_gui, run_qemu_gui_with_events,
-    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker,
+    ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui,
+    run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
+    run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
+    run_qemu_gui_with_events, run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
     run_qemu_until_any_acceptance_marker, run_qemu_with_read_only_boot_disk,
     validate_reference_disk_qcow2, write_fat12_image, write_m17_fat12_image,
-    write_m27_broken_slot_image, write_m27_healthy_slot_image, write_m27_recovery_image,
-    write_reference_disk_qcow2,
+    write_m27_broken_slot_image, write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image,
+    write_m27_recovery_image, write_reference_disk_qcow2, ImageLayout, QemuConfig,
+    GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -87,6 +89,16 @@ const M18_INPUT_EVENTS: [&str; 2] = [
             {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}
         ]}
     }"#,
+];
+
+const M27_SYSTEM_A_MENU_EVENTS: [&str; 2] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}}]}}"#,
+];
+
+const M27_RECOVERY_MENU_EVENTS: [&str; 2] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"r"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"r"}}}]}}"#,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -815,7 +827,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 cargo_env: &[],
                 recovery_init: Some(&recovery_init),
                 image_writer: write_reference_disk_qcow2,
-                build_features: ImageBuildFeatures::default(),
+                build_features: ImageBuildFeatures {
+                    kernel: &[],
+                    loader: &["m27-ab-slot-boot-control"],
+                },
             },
         );
         if image_result.exit_code != EXIT_SUCCESS {
@@ -823,13 +838,25 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
     }
 
+    let qemu_test_image = evidence.join("reference-disk-qemu-acceptance-copy.qcow2");
+    if let Err(error) = fs::copy(&image_path, &qemu_test_image) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: cannot create QEMU acceptance copy {} from {}: {error}",
+                qemu_test_image.display(),
+                image_path.display()
+            ),
+        );
+    }
+
     let first_log = evidence.join("reference-disk-first-boot.log");
     let first_config = QemuConfig {
         qemu: &host.qemu,
         ovmf_code: &host.ovmf_code,
         ovmf_vars_template: &host.ovmf_vars,
-        disk_image: &image_path,
-        persistent_disk: &image_path,
+        disk_image: &qemu_test_image,
+        persistent_disk: &qemu_test_image,
         vars_copy: &vars_copy,
         serial_log: &first_log,
         acceptance_marker: "Nagi M7 acceptance PASS",
@@ -858,6 +885,8 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     };
     for marker in [
         "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M27 persistence decision: confirmed slot=A",
+        "Nagi M27 UEFI variable journal persistence PASS",
         "Nagi Kernel started",
         "Nagi M7 VirtIO Block PASS",
     ] {
@@ -919,6 +948,8 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     };
     for marker in [
         "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M27 persistence decision: confirmed slot=A",
+        "Nagi M27 UEFI variable journal persistence PASS",
         "Nagi Kernel started",
         "Nagi M7 VirtIO Block PASS",
         "Nagi M7 ext2 mount PASS",
@@ -935,28 +966,37 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             );
         }
     }
-    let image_check = ProcessCommand::new("qemu-img")
-        .args(["check", "-f", "qcow2"])
-        .arg(&image_path)
-        .output();
-    match image_check {
-        Ok(output) if output.status.success() => {}
-        Ok(output) => {
-            return failure(
-                EXIT_CONFIG_ERROR,
-                format!(
-                    "m30: qemu-img check failed: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ),
-            );
+    for checked_image in [&image_path, &qemu_test_image] {
+        let image_check = ProcessCommand::new("qemu-img")
+            .args(["check", "-f", "qcow2"])
+            .arg(checked_image)
+            .output();
+        match image_check {
+            Ok(output) if output.status.success() => {}
+            Ok(output) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m30: qemu-img check failed for {}: {}",
+                        checked_image.display(),
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ),
+                );
+            }
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m30: qemu-img check {}: {error}", checked_image.display()),
+                );
+            }
         }
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: qemu-img check: {error}")),
     }
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M30 64 GiB GPT qcow2 booted System A and verified User Data persistence across restart (image {}; serial log {})",
+            "PASS M30 64 GiB GPT qcow2 passed System A and User Data persistence acceptance on a disposable copy (image {}; QEMU copy {}; serial log {})",
             image_path.display(),
+            qemu_test_image.display(),
             serial_log.display()
         )],
     }
@@ -4281,63 +4321,191 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
     }
 
-    let recovery_default_log = evidence.join("recovery-default-trial-probe.log");
-    let recovery_default_config = QemuConfig {
+    let first_trial_log = evidence.join("boot-1.log");
+    let first_trial_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &slots_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &first_trial_log,
+        acceptance_marker: "Nagi Loader: invalid ELF",
+        timeout: Duration::from_secs(90),
+    };
+    let first_trial_status =
+        match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&first_trial_config) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: initial System B trial: {error}"),
+                );
+            }
+        };
+    let first_trial_serial = match fs::read_to_string(&first_trial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", first_trial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 persistence decision: trial attempt=1 slot=B",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi M27 trial payload rejected slot=B",
+        "Nagi Loader: invalid ELF",
+    ] {
+        if !first_trial_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: initial trial did not print `{marker}` (QEMU exit {first_trial_status}; log {})",
+                    first_trial_log.display()
+                ),
+            );
+        }
+    }
+    if !m27_trial_failure_observed(&first_trial_serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m27: initial malformed System B trial did not reach the rejection path (QEMU exit {first_trial_status}; log {})",
+                first_trial_log.display()
+            ),
+        );
+    }
+
+    let recovery_journal_log = evidence.join("recovery-preserved-trial-journal.log");
+    let recovery_journal_config = QemuConfig {
         qemu: &host.qemu,
         ovmf_code: &host.ovmf_code,
         ovmf_vars_template: &host.ovmf_vars,
         disk_image: &recovery_image_path,
         persistent_disk: &persistent_disk,
-        vars_copy: &recovery_vars,
-        serial_log: &recovery_default_log,
-        acceptance_marker: "Nagi Loader: invalid ELF",
+        vars_copy: &vars_copy,
+        serial_log: &recovery_journal_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
         timeout: Duration::from_secs(90),
     };
-    let recovery_default_status =
-        match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&recovery_default_config) {
+    let recovery_commands = b"check\nlog\nfiles\nslots\nhelp\n";
+    let recovery_journal_status =
+        match run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input(
+            &recovery_journal_config,
+            "Nagi M27 Recovery boot menu READY",
+            &M27_RECOVERY_MENU_EVENTS,
+            "Nagi M27 Recovery console READY",
+            recovery_commands,
+        ) {
             Ok(status) => status,
             Err(error) => {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("m27: Recovery journal follow-up boot: {error}"),
+                    format!("m27: Recovery with pending System B trial: {error}"),
                 );
             }
         };
-    let recovery_default_serial = match fs::read_to_string(&recovery_default_log) {
+    let recovery_journal_serial = match fs::read_to_string(&recovery_journal_log) {
         Ok(serial) => serial,
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
                     "m27: cannot read {}: {error}",
-                    recovery_default_log.display()
+                    recovery_journal_log.display()
                 ),
             );
         }
     };
-    if !recovery_default_serial.contains("Nagi M27 persistence decision: trial attempt=1 slot=B")
-        || !m27_trial_failure_observed(&recovery_default_serial)
+    for marker in [
+        "Nagi M27 boot menu: confirmed=A pending=B",
+        "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+        "Nagi M27 Recovery VFS check PASS files=",
+        "Nagi M27 Recovery command help PASS",
+    ] {
+        if !recovery_journal_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery with a pending trial did not print `{marker}` (QEMU exit {recovery_journal_status}; log {})",
+                    recovery_journal_log.display()
+                ),
+            );
+        }
+    }
+    if recovery_journal_serial.contains("Nagi M27 persistence decision:")
+        || recovery_journal_serial.contains("Nagi M27 readiness persisted")
     {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "m27: Recovery changed the initial trial journal or malformed System B was not rejected (QEMU exit {recovery_default_status}; log {})",
-                recovery_default_log.display()
+                "m27: Recovery changed the pending journal or reported trial readiness (log {})",
+                recovery_journal_log.display()
+            ),
+        );
+    }
+
+    let second_trial_log = evidence.join("recovery-follow-up-trial.log");
+    let second_trial_config = QemuConfig {
+        serial_log: &second_trial_log,
+        ..first_trial_config
+    };
+    let second_trial_status =
+        match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&second_trial_config) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: Recovery journal trial continuation: {error}"),
+                );
+            }
+        };
+    let second_trial_serial = match fs::read_to_string(&second_trial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", second_trial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 persistence decision: trial attempt=2 slot=B",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi M27 trial payload rejected slot=B",
+        "Nagi Loader: invalid ELF",
+    ] {
+        if !second_trial_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery follow-up trial did not print `{marker}` (QEMU exit {second_trial_status}; log {})",
+                    second_trial_log.display()
+                ),
+            );
+        }
+    }
+    if !m27_trial_failure_observed(&second_trial_serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m27: Recovery follow-up malformed System B trial did not reach rejection (QEMU exit {second_trial_status}; log {})",
+                second_trial_log.display()
             ),
         );
     }
 
     let expected_decisions = [
-        "Nagi M27 persistence decision: trial attempt=1 slot=B",
-        "Nagi M27 persistence decision: trial attempt=2 slot=B",
-        "Nagi M27 persistence decision: trial attempt=3 slot=B",
-        "Nagi M27 persistence decision: rollback slot=A",
-        "Nagi M27 persistence decision: confirmed slot=A",
+        (3, "Nagi M27 persistence decision: trial attempt=3 slot=B"),
+        (4, "Nagi M27 persistence decision: rollback slot=A"),
+        (5, "Nagi M27 persistence decision: confirmed slot=A"),
     ];
     let mut final_log = PathBuf::new();
-    for (index, expected_decision) in expected_decisions.iter().enumerate() {
-        let log_path = evidence.join(format!("boot-{}.log", index + 1));
-        let is_trial_boot = index < 3;
+    for (boot_number, expected_decision) in &expected_decisions {
+        let log_path = evidence.join(format!("boot-{boot_number}.log"));
+        let is_trial_boot = *boot_number == 3;
         let acceptance_marker = if is_trial_boot {
             // Stop only after the loader has printed its actual invalid-ELF
             // failure. The preceding rejection marker alone is not enough:
@@ -4362,7 +4530,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             Err(error) => {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("m27: QEMU boot {} failed: {error}", index + 1),
+                    format!("m27: QEMU boot {boot_number} failed: {error}"),
                 );
             }
         };
@@ -4384,8 +4552,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!(
-                        "m27: boot {} did not print `{marker}` (QEMU exit {status}; log {})",
-                        index + 1,
+                        "m27: boot {boot_number} did not print `{marker}` (QEMU exit {status}; log {})",
                         log_path.display()
                     ),
                 );
@@ -4395,28 +4562,25 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m27: boot {} did not complete the broken-slot failure path (QEMU exit {status}; log {})",
-                    index + 1,
+                    "m27: boot {boot_number} did not complete the broken-slot failure path (QEMU exit {status}; log {})",
                     log_path.display()
                 ),
             );
         }
-        if index >= 3 && !serial.contains("Nagi M7 persistent read PASS") {
+        if *boot_number >= 4 && !serial.contains("Nagi M7 persistent read PASS") {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m27: fallback boot {} did not verify persistent user data (QEMU exit {status}; log {})",
-                    index + 1,
+                    "m27: fallback boot {boot_number} did not verify persistent user data (QEMU exit {status}; log {})",
                     log_path.display()
                 ),
             );
         }
-        if index >= 3 && !serial.contains("Nagi M27 read-only VFS check PASS") {
+        if *boot_number >= 4 && !serial.contains("Nagi M27 read-only VFS check PASS") {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m27: fallback boot {} did not complete the read-only VFS integrity check (QEMU exit {status}; log {})",
-                    index + 1,
+                    "m27: fallback boot {boot_number} did not complete the read-only VFS integrity check (QEMU exit {status}; log {})",
                     log_path.display()
                 ),
             );
@@ -4529,6 +4693,11 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
     }
 
+    if let Err(error) = execute_m27_gpt_acceptance(root, &host, &evidence, &run_id, &recovery_init)
+    {
+        return failure(EXIT_CONFIG_ERROR, format!("m27 GPT acceptance: {error}"));
+    }
+
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
@@ -4539,6 +4708,382 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             format!("Final serial log: {}", final_log.display()),
         ],
     }
+}
+
+fn execute_m27_gpt_acceptance(
+    root: &Path,
+    host: &QemuHost,
+    evidence: &Path,
+    run_id: &str,
+    recovery_init: &[u8],
+) -> Result<(), String> {
+    let broken_image_name = format!("nagi-0.1-m27-gpt-broken-{run_id}.qcow2");
+    let healthy_image_name = format!("nagi-0.1-m27-gpt-healthy-{run_id}.qcow2");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m10-desktop",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let boot_features = ImageBuildFeatures {
+        kernel: &[],
+        loader: &["m27-ab-slot-acceptance"],
+    };
+    for (image_name, writer) in [
+        (
+            broken_image_name.as_str(),
+            write_m27_gpt_broken_system_b_qcow2 as ImageWriter,
+        ),
+        (
+            healthy_image_name.as_str(),
+            write_reference_disk_qcow2 as ImageWriter,
+        ),
+    ] {
+        let result = execute_image_with_init_build_env_using_writer_and_recovery(
+            root,
+            &init_args,
+            None,
+            ImageBuildRequest {
+                image_name,
+                cargo_env: &[],
+                recovery_init: Some(recovery_init),
+                image_writer: writer,
+                build_features: boot_features,
+            },
+        );
+        if result.exit_code != EXIT_SUCCESS {
+            return Err(format!("build {image_name}: {}", result.lines.join("; ")));
+        }
+    }
+
+    let artifacts = root.join("out").join("artifacts");
+    let broken_image_path = artifacts.join(&broken_image_name);
+    let healthy_image_path = artifacts.join(&healthy_image_name);
+    let gpt_evidence_relative = evidence
+        .strip_prefix(root)
+        .map_err(|error| {
+            format!(
+                "M27 evidence path {} is outside the repository: {error}",
+                evidence.display()
+            )
+        })?
+        .join("gpt-integration");
+    let gpt_evidence = ensure_owned_directory(root, gpt_evidence_relative)?;
+
+    let broken_vars = gpt_evidence.join("broken-OVMF_VARS.fd");
+    let broken_boot_log = gpt_evidence.join("broken-initialize-user-data.log");
+    let broken_boot_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &broken_image_path,
+        persistent_disk: &broken_image_path,
+        vars_copy: &broken_vars,
+        serial_log: &broken_boot_log,
+        acceptance_marker: "Nagi M7 reboot required PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let status = run_qemu_gui_with_events(
+        &broken_boot_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_SYSTEM_A_MENU_EVENTS,
+    )
+    .map_err(|error| format!("GPT broken image User Data bootstrap: {error}"))?;
+    let serial = fs::read_to_string(&broken_boot_log)
+        .map_err(|error| format!("read {}: {error}", broken_boot_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT broken image User Data bootstrap",
+        status,
+        &broken_boot_log,
+        &serial,
+        &[
+            "Nagi M27 manual selection: confirmed slot=A",
+            "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi M7 ext2 format PASS",
+            "Nagi M7 persistent write PASS",
+            "Nagi M7 reboot required PASS",
+        ],
+    )?;
+
+    for attempt in 1..=3 {
+        let log = gpt_evidence.join(format!("broken-system-b-trial-{attempt}.log"));
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &broken_image_path,
+            persistent_disk: &broken_image_path,
+            vars_copy: &broken_vars,
+            serial_log: &log,
+            acceptance_marker: "Nagi Loader: invalid ELF",
+            timeout: Duration::from_secs(120),
+        };
+        let status = run_qemu_reusing_ovmf_vars(&config)
+            .map_err(|error| format!("GPT System B trial {attempt}: {error}"))?;
+        let serial =
+            fs::read_to_string(&log).map_err(|error| format!("read {}: {error}", log.display()))?;
+        let expected_decision =
+            format!("Nagi M27 persistence decision: trial attempt={attempt} slot=B");
+        require_m27_gpt_markers(
+            "GPT malformed System B trial",
+            status,
+            &log,
+            &serial,
+            &[
+                &expected_decision,
+                "Nagi M27 UEFI variable journal persistence PASS",
+                "Nagi M30 GPT partition boot: System B PASS",
+                "Nagi M27 trial payload rejected slot=B",
+                "Nagi Loader: invalid ELF",
+            ],
+        )?;
+        if !m27_trial_failure_observed(&serial) {
+            return Err(format!(
+                "GPT System B trial {attempt} reached the guest kernel or missed the rejection path (log {})",
+                log.display()
+            ));
+        }
+    }
+
+    let recovery_log = gpt_evidence.join("broken-recovery.log");
+    let recovery_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &broken_image_path,
+        persistent_disk: &broken_image_path,
+        vars_copy: &broken_vars,
+        serial_log: &recovery_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        timeout: Duration::from_secs(120),
+    };
+    let recovery_commands = b"check\nlog\nfiles\nslots\nhelp\n";
+    let status = run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
+        &recovery_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_RECOVERY_MENU_EVENTS,
+        "Nagi M27 Recovery console READY",
+        recovery_commands,
+    )
+    .map_err(|error| format!("GPT Recovery after three System B failures: {error}"))?;
+    let serial = fs::read_to_string(&recovery_log)
+        .map_err(|error| format!("read {}: {error}", recovery_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT Recovery after malformed System B",
+        status,
+        &recovery_log,
+        &serial,
+        &[
+            "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+            "Nagi M30 GPT partition boot: Recovery PASS",
+            "Nagi M27 Recovery VFS check PASS files=",
+            "Nagi M27 Recovery current-boot log PASS",
+            "Nagi M27 Recovery files PASS",
+            "Nagi M27 Recovery command help PASS",
+        ],
+    )?;
+    if serial.contains("Nagi M27 persistence decision:")
+        || serial.contains("Nagi M27 readiness persisted")
+    {
+        return Err(format!(
+            "GPT Recovery changed the boot journal or recorded trial readiness (log {})",
+            recovery_log.display()
+        ));
+    }
+
+    for (boot, expected_decision) in [
+        (4, "Nagi M27 persistence decision: rollback slot=A"),
+        (5, "Nagi M27 persistence decision: confirmed slot=A"),
+    ] {
+        let log = gpt_evidence.join(format!("broken-system-a-recovery-{boot}.log"));
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &broken_image_path,
+            persistent_disk: &broken_image_path,
+            vars_copy: &broken_vars,
+            serial_log: &log,
+            acceptance_marker: "Nagi M7 acceptance PASS",
+            timeout: Duration::from_secs(120),
+        };
+        let status = run_qemu_reusing_ovmf_vars(&config)
+            .map_err(|error| format!("GPT rollback/confirmed boot {boot}: {error}"))?;
+        let serial =
+            fs::read_to_string(&log).map_err(|error| format!("read {}: {error}", log.display()))?;
+        require_m27_gpt_markers(
+            "GPT System A rollback after Recovery",
+            status,
+            &log,
+            &serial,
+            &[
+                expected_decision,
+                "Nagi M30 GPT partition boot: System A PASS",
+                "Nagi M7 persistent read PASS",
+                "Nagi M7 acceptance PASS",
+            ],
+        )?;
+    }
+
+    let healthy_vars = gpt_evidence.join("healthy-OVMF_VARS.fd");
+    let healthy_boot_log = gpt_evidence.join("healthy-initialize-user-data.log");
+    let healthy_boot_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &healthy_image_path,
+        persistent_disk: &healthy_image_path,
+        vars_copy: &healthy_vars,
+        serial_log: &healthy_boot_log,
+        acceptance_marker: "Nagi M7 reboot required PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let status = run_qemu_gui_with_events(
+        &healthy_boot_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_SYSTEM_A_MENU_EVENTS,
+    )
+    .map_err(|error| format!("GPT healthy image User Data bootstrap: {error}"))?;
+    let serial = fs::read_to_string(&healthy_boot_log)
+        .map_err(|error| format!("read {}: {error}", healthy_boot_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT healthy image User Data bootstrap",
+        status,
+        &healthy_boot_log,
+        &serial,
+        &[
+            "Nagi M27 manual selection: confirmed slot=A",
+            "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi M7 reboot required PASS",
+        ],
+    )?;
+
+    let trial_log = gpt_evidence.join("healthy-system-b-readiness.log");
+    let trial_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &healthy_image_path,
+        persistent_disk: &healthy_image_path,
+        vars_copy: &healthy_vars,
+        serial_log: &trial_log,
+        acceptance_marker: "Nagi M10 desktop READY",
+        timeout: Duration::from_secs(120),
+    };
+    let status = run_qemu_reusing_ovmf_vars(&trial_config)
+        .map_err(|error| format!("GPT healthy System B trial: {error}"))?;
+    let serial = fs::read_to_string(&trial_log)
+        .map_err(|error| format!("read {}: {error}", trial_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT healthy System B trial",
+        status,
+        &trial_log,
+        &serial,
+        &[
+            "Nagi M27 persistence decision: trial attempt=1 slot=B",
+            "Nagi M27 UEFI variable journal persistence PASS",
+            "Nagi M30 GPT partition boot: System B PASS",
+            "Nagi M7 persistent read PASS",
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=",
+            "Nagi M10 desktop READY",
+        ],
+    )?;
+    if !m27_readiness_persisted_before_desktop(&serial) {
+        return Err(format!(
+            "GPT System B did not persist readiness before the desktop marker (log {})",
+            trial_log.display()
+        ));
+    }
+
+    let healthy_recovery_log = gpt_evidence.join("healthy-recovery.log");
+    let healthy_recovery_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &healthy_image_path,
+        persistent_disk: &healthy_image_path,
+        vars_copy: &healthy_vars,
+        serial_log: &healthy_recovery_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        timeout: Duration::from_secs(120),
+    };
+    let status = run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
+        &healthy_recovery_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_RECOVERY_MENU_EVENTS,
+        "Nagi M27 Recovery console READY",
+        recovery_commands,
+    )
+    .map_err(|error| format!("GPT Recovery after healthy B readiness: {error}"))?;
+    let serial = fs::read_to_string(&healthy_recovery_log)
+        .map_err(|error| format!("read {}: {error}", healthy_recovery_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT Recovery after healthy System B readiness",
+        status,
+        &healthy_recovery_log,
+        &serial,
+        &[
+            "Nagi M27 readiness record consumed slot=B PASS",
+            "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+            "Nagi M30 GPT partition boot: Recovery PASS",
+            "Nagi M27 Recovery VFS check PASS files=",
+            "Nagi M27 Recovery command help PASS",
+        ],
+    )?;
+
+    let confirmed_log = gpt_evidence.join("healthy-system-b-confirmed.log");
+    let confirmed_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &healthy_image_path,
+        persistent_disk: &healthy_image_path,
+        vars_copy: &healthy_vars,
+        serial_log: &confirmed_log,
+        acceptance_marker: GUEST_ACCEPTANCE_MARKER,
+        timeout: Duration::from_secs(120),
+    };
+    let status = run_qemu_reusing_ovmf_vars(&confirmed_config)
+        .map_err(|error| format!("GPT confirmed System B boot: {error}"))?;
+    let serial = fs::read_to_string(&confirmed_log)
+        .map_err(|error| format!("read {}: {error}", confirmed_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT confirmed System B after Recovery",
+        status,
+        &confirmed_log,
+        &serial,
+        &[
+            "Nagi M27 persistence decision: confirmed slot=B",
+            "Nagi M30 GPT partition boot: System B PASS",
+            "Nagi M7 persistent read PASS",
+            "Nagi M7 acceptance PASS",
+        ],
+    )?;
+    Ok(())
+}
+
+fn require_m27_gpt_markers(
+    phase: &str,
+    qemu_status: i32,
+    log_path: &Path,
+    serial: &str,
+    markers: &[&str],
+) -> Result<(), String> {
+    for marker in markers {
+        if !serial.contains(marker) {
+            return Err(format!(
+                "{phase} did not print `{marker}` (QEMU exit {qemu_status}; log {})",
+                log_path.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn m27_trial_failure_observed(serial: &str) -> bool {
@@ -4711,10 +5256,8 @@ mod tests {
             m17_branch[storage..pixel].contains("libnagi::exit(exit_code)"),
             "the first persistent-write boot must stop before the pixel boot"
         );
-        assert!(
-            runner
-                .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\"")
-        );
+        assert!(runner
+            .contains("pub const NAGI_WRITE_MARKER: &str = \"Nagi M7 persistent write PASS\""));
         assert!(init.contains("Nagi M7 persistent write PASS"));
     }
 
@@ -4749,16 +5292,19 @@ mod tests {
             .find("fn help() -> CommandResult")
             .map(|offset| m18_start + offset)
             .expect("next command helper");
-        assert!(
-            commands[m18_start..m18_end]
-                .contains("run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(")
-        );
+        assert!(commands[m18_start..m18_end]
+            .contains("run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker("));
 
         let image = include_str!("image.rs");
         assert!(image.contains("Duration::from_millis(100)"));
-        assert!(image.contains("inter_event_delay.is_zero()"));
         let compact_image: String = image.split_whitespace().collect();
-        assert!(compact_image.contains("vnc_port-5900,boot_disk_read_only,"));
+        assert!(compact_image.contains("mode.inter_event_delay.is_zero()"));
+        assert!(
+            compact_image.contains("vnc_port-5900,mode.boot_disk_read_only,mode.reuse_ovmf_vars,")
+        );
+        assert!(compact_image.contains(
+            "boot_disk_read_only:true,reuse_ovmf_vars:false,inter_event_delay:Duration::from_millis(100),"
+        ));
     }
 
     #[test]

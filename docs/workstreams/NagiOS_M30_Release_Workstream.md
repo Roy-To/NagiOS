@@ -36,9 +36,19 @@ complete and this evidence does not assert release readiness.
   user storage only an 8 MiB User Data-relative block capability. Invalid GPT
   metadata fails closed. M-stage persistent disks migrate to a GPT data
   partition while retaining the original raw image as `.legacy-raw`.
-- The M30 QEMU path stops on either first-format or existing-data acceptance,
-  restarts with the same OVMF variables, and requires a successful VFS
-  persistent read and M7 acceptance marker.
+- The M30 QEMU path copies the reference qcow2 into its run evidence directory,
+  stops on either first-format or existing-data acceptance, restarts the copy
+  with the same OVMF variables, and requires a successful VFS persistent read
+  and M7 acceptance marker. QEMU writes cannot mutate the release input image.
+- The release image builds the loader with `m27-ab-slot-boot-control`, so the
+  persistent M27 journal selects GPT System A/B/Recovery in production. The
+  release build does not include the acceptance-only empty-journal pending-B
+  seed; a blank journal boots confirmed System A.
+- `./nagi m27` now exercises the same six-partition GPT layout with malformed
+  and healthy System B variants. It covers three failed B trials, Recovery
+  without changing a pending journal, rollback to A, healthy-B readiness
+  promotion across Recovery, and a confirmed-B boot. This does not establish
+  authenticated update or slot-manifest verification.
 
 ## Preflight checklist
 
@@ -55,8 +65,10 @@ complete and this evidence does not assert release readiness.
   partitions and boot it from GPT System A.
 - [x] Verify User Data format/write and persistent read after QEMU restart;
   review both serial logs and run `qemu-img check`.
-- [ ] Exercise System B, Recovery, and authenticated update from the GPT image
-  using the persistent M27 boot-control policy.
+- [x] Exercise GPT System B selection, Recovery, retry preservation, rollback,
+  and readiness-based promotion using the persistent M27 boot-control policy.
+- [ ] Produce and install an authenticated GPT update with authenticated slot
+  manifests.
 - [x] Run release preflight, assembly, and verification from a clean committed
   revision. Boot a byte-identical disposable qcow2 copy twice, then verify the
   untouched assembled package checksums and qcow2 structure.
@@ -72,10 +84,11 @@ all checked-in architecture documents. Eight focused tests pass.
 The target kernel output at `target/x86_64-unknown-nagi/release/nagi-kernel`
 is a real x86-64 ELF. The reference image now comes from a dedicated GPT/FAT32
 writer, not conversion of the M1 or M18 raw FAT fixture. The current VFS
-remains fixed at 8 MiB inside the 16 GiB User Data partition. System A and B
-currently carry identical payloads, and the default release loader boots
-System A. Journal-driven B selection, Recovery selection, and update
-acceptance have not yet been exercised from this GPT image.
+remains fixed at 8 MiB inside the 16 GiB User Data partition. The normal M30
+image carries identical A/B payloads and starts with confirmed System A; the
+separate M27 GPT fixtures substitute malformed or healthy System B payloads to
+verify journal-driven rollback and promotion. No authenticated update
+acceptance exists yet.
 
 The first assembled bundle passed `verify` before QEMU testing. Two writable
 QEMU boots reached M7 acceptance but changed the qcow2 bytes in User Data, so
@@ -90,12 +103,13 @@ storage discovery; failure evidence is at
 
 The §90 Definition of Done audit remains open across M18–M29: M18 lacks several
 browser providers; M19–M26 lack their production guest integrations or real
-providers; M27 lacks account-authenticated readiness and GPT-integrated update
-acceptance; M28 has not measured the combined reference workload; and M29
-lacks screenshots, boot-time evidence, complete Settings/accessibility/
-localization, and binary notice clearance. M22 remains blocked at
-authenticated AI mutation/Activity Ledger integration. The M16 sample package
-acceptance and M17/M18 browser acceptance do not close these gaps.
+providers; M27 lacks account-authenticated readiness, authenticated slot
+manifests, and an authorized GPT update installer; M28 has not measured the
+combined reference workload; and M29 lacks screenshots, boot-time evidence,
+complete Settings/accessibility/localization, and binary notice clearance. M22
+remains blocked at authenticated AI mutation/Activity Ledger integration. The
+M16 sample package acceptance and M17/M18 browser acceptance do not close
+these gaps.
 
 ## Historical clean-tree preflight evidence — 2026-09-30
 

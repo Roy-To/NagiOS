@@ -13,11 +13,23 @@ alter the pending/confirmed journal. The current data-volume mount helper can
 format an unrecognized device, which is unsafe in Recovery and will also be
 unsafe when a GPT disk is introduced.
 
+M30 adds the reference GPT System A, System B, and Recovery partitions. The
+release loader must apply the same durable boot policy to those partitions
+without creating a synthetic update on a new installation. The existing M27
+acceptance fixture needs an initial pending System B trial to exercise rollback
+and promotion, but that test setup is not a production updater.
+
 ## Decision
 
 - Before loading a system image, the M27 loader presents System A, System B,
   and Recovery choices for a bounded interval. On timeout it keeps the existing
   automatic A/B policy.
+- The M30 release loader enables the production `m27-ab-slot-boot-control`
+  feature for the GPT System A/B/Recovery partitions. An empty journal boots and
+  confirms System A under the existing policy; it does not stage System B.
+- `m27-ab-slot-acceptance` includes `m27-ab-slot-boot-control` and adds only the
+  acceptance fixture's empty-journal pending-B seed. It is not enabled in the
+  release image and is not an update mechanism.
 - The loader consumes a valid readiness record before showing the menu, so a
   guest that reached the readiness gate is confirmed even if the operator then
   enters Recovery.
@@ -46,6 +58,9 @@ unsafe when a GPT disk is introduced.
 
 - Recovery remains independent of A/B system payload validity and leaves the
   boot journal untouched when selected.
+- M27's persistent journal policy now selects payloads from the M30 GPT
+  partitions. An authenticated updater and authenticated slot manifests are
+  still required before an installation can stage a production update.
 - A failed data-volume integrity check leaves the device unmounted and
   unmodified while log and help remain available.
 - Human-directed Undo is recoverable across restart through the existing

@@ -8,15 +8,17 @@ init files from the selected System A or System B directory. QEMU acceptance
 covers three malformed System B trials and rollback to A, plus a healthy B
 trial whose guest readiness record is consumed before B is confirmed. A third
 launch retains confirmed B, and all relevant boots read the same persistent
-user-data disk. The current readiness gate is successful M10 desktop surface
-presentation after M6/M7 checks; Nagi 0.1 has no account login flow. The normal
-reference release image now has separate GPT System A/B and Recovery
-partitions, and the default loader boots System A. The M27 journal-driven A/B
-acceptance still uses its dedicated FAT fixture and separate user-data disk;
-GPT System B selection and GPT Recovery have not yet been exercised with that
-journal policy. A feature-scoped Recovery boot and guest Undo path pass QEMU
-acceptance, but authenticated slot manifests and viable GPT update acceptance
-remain incomplete, so M27 remains PARTIAL.
+user-data disk. The reference release image now has separate GPT System A/B
+and Recovery partitions, and its production loader applies the M27 journal
+policy without staging a synthetic update on an empty journal. The completion
+sweep also added GPT acceptance images using the same reference layout:
+malformed System B is tried three times, Recovery preserves the pending
+journal, then System A rolls back; a healthy System B trial persists readiness,
+survives Recovery, and is later confirmed. The acceptance-only empty-journal
+seed is not part of the release loader. The current readiness gate is
+successful M10 desktop surface presentation after M6/M7 checks; Nagi 0.1 has
+no account login flow. Authenticated slot manifests and an authenticated GPT
+update installer remain incomplete, so M27 remains PARTIAL.
 
 ## Read-only VFS integrity-check slice
 
@@ -101,9 +103,11 @@ trial-1/B default boot. Evidence is in
   non-volatile, boot-service, and runtime attributes and fails closed on
   missing/unsupported operations or unexpected attributes.
 - The `m27-ab-slot-acceptance` loader feature seeds a pending B trial only when
-  the journal is empty, then opens matched kernel/init payloads from the
-  selected slot directory. The CLI `m27` fixture preserves a malformed-B
-  image for three-attempt rollback and a healthy A/B image for promotion tests.
+  the journal is empty; it also enables production
+  `m27-ab-slot-boot-control`. The release image enables only the production
+  feature, so an empty release journal does not stage an update. The CLI `m27`
+  fixture preserves malformed-B and healthy A/B images for rollback and
+  promotion tests.
 - BootInfo v4 carries the candidate slot, attempt, journal generation, and UEFI
   Runtime Services `SetVariable` entry point only on trial boots. The kernel
   validates the pointer against a runtime-code memory descriptor. Its
@@ -216,6 +220,28 @@ Using the pinned `nightly-2025-08-01` toolchain:
   acceptance does not exercise audio; all boot-control and persistent-data
   markers passed.
 
+## GPT partition A/B and Recovery acceptance
+
+The completion sweep builds malformed-B and healthy-B qcow2 images with the
+same six-partition reference GPT layout used by M30. In both images the loader
+selects payloads by the documented unique partition GUIDs, the kernel exposes
+the bounded User Data capability, and the guest uses the GPT User Data
+partition rather than a separate raw data disk. The malformed image passes
+three System B attempts, Recovery with the pending journal unchanged, rollback
+to System A, and a confirmed-A restart. The healthy image persists the guest
+readiness record on System B, selects Recovery without losing the record, then
+boots confirmed System B. Recovery also passes the read-only VFS check and
+console commands. Full evidence is under
+`out/evidence/m27-ab-rollback-1790750679606495000/gpt-integration/`.
+
+The M30 production loader uses `m27-ab-slot-boot-control`; only the acceptance
+feature seeds the pending trial needed for the rollback/promotion fixture.
+`./nagi m27` passed end-to-end on 2026-09-30 after the QEMU runner began
+requesting a QMP `quit` at serial acceptance, so GPT User Data writes are
+flushed before the next QEMU process. Account-authenticated readiness,
+authenticated update manifests/installation, prior-boot log retrieval, and
+filesystem repair remain outside this completed acceptance slice.
+
 Host `clippy --all-targets` is not a usable check for the UEFI binary: its
 target-only `uefi` dependency is unavailable in a host build. The UEFI target
 release build above verifies the binary target instead.
@@ -228,18 +254,17 @@ they do not establish firmware persistence or guest boot behavior.
 
 ## Remaining M27 work
 
-1. Extend the current core-check + first-desktop readiness signal to the full
+1. Add authenticated slot manifests and a viable GPT update/installation path;
+   the current GPT images are fixture-built and do not prove updater
+   authorization or artifact authenticity.
+2. Extend the current core-check + first-desktop readiness signal to the full
    authenticated session readiness gate when login/authentication exists.
-2. Extend Recovery beyond its current bounded console with persistent boot-log
+3. Extend Recovery beyond its current bounded console with persistent boot-log
    retrieval, the remaining important-file/history restore operations, an
    advanced terminal, and basic filesystem repair; the current checker is
    intentionally read-only.
-3. Integrate the A/B journal policy with the GPT System A/B/Recovery partitions
-   and GPT User Data capability, then validate both viable update and malformed
-   slot rollback from that reference image.
 
-Until those pieces and the final partitioned release acceptance pass, M27
-remains PARTIAL.
+Until those pieces pass their acceptance criteria, M27 remains PARTIAL.
 
 ## Matched-payload rollback slice (completed)
 
@@ -257,8 +282,7 @@ and user-data disk were reused throughout.
 The original malformed-payload acceptance passed with the preserved evidence
 above. It proves firmware-backed selection of paired payloads and rollback to
 A while preserving data on the separate user-data disk. The later readiness
-promotion slice adds a positive guest signal for the current M10 gate. M30 now
-provides a GPT release layout and System A boot, but these M27 fixture tests do
-not yet exercise journal-driven System B/Recovery selection on those GPT
-partitions. Authenticated slot manifests and the full login readiness gate
-also remain separate work.
+promotion slice adds a positive guest signal for the current M10 gate. GPT
+partition selection is now covered by the separate integration acceptance
+above. Authenticated slot manifests and the full login readiness gate remain
+open.
