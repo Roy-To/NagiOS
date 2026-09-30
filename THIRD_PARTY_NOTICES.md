@@ -44,6 +44,19 @@ as missing license metadata rather than assigned an unverified value.
 | cc-nagi | B + C | `1.4.6`, locked archive hash | MIT OR Apache-2.0 | `third_party/cc-nagi`, `third_party/cc-nagi-patches/` | Generated checkout contains both license texts; verify notice preservation for a binary release |
 | inventory-nagi | A + B + C | `0.3.24`, locked archive hash | MIT OR Apache-2.0 | `third_party/inventory-nagi`, `third_party/inventory-nagi-patches/` | Tracked source includes both license texts; verify notice preservation for a binary release |
 | llama.cpp-ggml-cpu | B + C | revision `c85b92c69c955961621193cd51da194f3cbcedf3` | MIT | `third_party/llama.cpp`, `third_party/llama-cpp-patches/` | Generated checkout includes the upstream license and component-license directory; review linked components before binary redistribution |
+| whisper.cpp-stt | B | revision `927cfce34f31707e17f2bff35c349632fb9e2c3a` | MIT | `third_party/whisper.cpp` | Source pin is fetched by `./nagi fetch`; review linked-source notices before binary redistribution |
+
+## External model artifact pins
+
+`third_party/models.lock` pins the Whisper small multilingual artifact at
+487,601,967 bytes with SHA-256
+`1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` and
+records the model repository's MIT declaration at an immutable revision. Model
+bytes are not fetched by `./nagi fetch`, stored in the source checkout, or
+included in a Nagi image by this metadata-only step. The Model Store uses the
+opaque artifact ID in the lock; it must verify the size and SHA-256 before a
+future STT backend can load the bytes. Keep model licensing distinct from the
+whisper.cpp source license and review both before redistribution.
 
 ## Cargo.lock transitive and native-source review
 

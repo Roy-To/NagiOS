@@ -19,6 +19,7 @@
 /third_party/mozjs-sys-nagi/
 /third_party/cc-nagi/
 /third_party/llama.cpp/
+/third_party/whisper.cpp/
 
 # Temporary developer-tool installers
 /.nagi-*

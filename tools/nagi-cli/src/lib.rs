@@ -24,3 +24,4 @@ pub(crate) mod tempfile_nagi;
 #[cfg(test)]
 mod third_party_notices;
 pub(crate) mod tokio_servo;
+pub(crate) mod whisper_cpp;

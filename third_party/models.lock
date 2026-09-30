@@ -1,0 +1,18 @@
+format_version = 1
+
+# Exact model artifact pins. These entries describe external model bytes; they
+# do not download or place artifacts into the Model Store.
+
+[models.whisper_small_multilingual]
+component = "whisper-small-multilingual"
+model_id = "openai.whisper-small-multilingual"
+repository = "https://huggingface.co/ggerganov/whisper.cpp"
+revision = "5359861c739e955e79d9a303bcbc70fb988958b1"
+file_name = "ggml-small.bin"
+format = "ggml"
+size_bytes = 487601967
+sha256 = "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
+license = "MIT"
+license_reference = "https://huggingface.co/ggerganov/whisper.cpp/tree/5359861c739e955e79d9a303bcbc70fb988958b1"
+artifact_id = "openai.whisper-small-multilingual"
+storage = "model_store"

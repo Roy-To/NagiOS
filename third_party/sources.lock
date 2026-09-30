@@ -178,3 +178,12 @@ source_hash = "git:c85b92c69c955961621193cd51da194f3cbcedf3"
 license = "MIT"
 vendored_path = "third_party/llama.cpp"
 nagi_patch = "third_party/llama-cpp-patches"
+
+[sources.whisper_cpp]
+component = "whisper.cpp-stt"
+repository = "https://github.com/ggml-org/whisper.cpp.git"
+revision = "927cfce34f31707e17f2bff35c349632fb9e2c3a"
+source_hash = "git:927cfce34f31707e17f2bff35c349632fb9e2c3a"
+license = "MIT"
+vendored_path = "third_party/whisper.cpp"
+nagi_patch = "none"

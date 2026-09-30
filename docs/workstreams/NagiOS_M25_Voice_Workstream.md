@@ -150,9 +150,16 @@ intentionally verifies orchestration without relying on host audio.
 2. Connect `MicrophoneActivityIndicator` to the system-owned, localized UI and
    register the system push-to-talk shortcut. The contract test uses an
    in-memory indicator fixture.
-3. Add the pinned whisper.cpp small multilingual Japanese STT backend and model
-   artifact/license metadata. No concrete provider or Japanese transcription
-   is implemented.
+3. Implement the target whisper.cpp provider and Japanese transcription. The
+   source is now pinned in `third_party/sources.lock` at
+   `927cfce34f31707e17f2bff35c349632fb9e2c3a`, and `./nagi fetch` materializes
+   and validates that clean upstream checkout. The multilingual Whisper small
+   artifact is pinned in `third_party/models.lock` to immutable Hugging Face
+   revision `5359861c739e955e79d9a303bcbc70fb988958b1`, size 487,601,967 bytes,
+   SHA-256
+   `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b`, and
+   the upstream MIT metadata. This metadata does not download the model, place
+   it into Model Store, or implement inference.
 4. Add a concrete local TTS engine behind the new provider contract, select it
    using the documented quality/CPU/RAM/portability/license criteria, and
    verify real playback. The contract and target AudioService sink exist, but
@@ -166,3 +173,43 @@ intentionally verifies orchestration without relying on host audio.
 M25 remains `PARTIAL` until authenticated permission, real Japanese STT, local
 TTS, the system indicator, and real guest voice-command acceptance are
 connected and verified.
+
+## Reproducible STT source and artifact pins — 2026-10-01
+
+`./nagi fetch` fetches the exact whisper.cpp commit into the ignored
+`third_party/whisper.cpp/` generated-source path. It validates the commit,
+upstream MIT `LICENSE`, `CMakeLists.txt`, and clean checkout state; it preserves
+any existing mismatched or dirty checkout. `third_party/models.lock` records
+the small multilingual model file name, immutable source revision, byte size,
+SHA-256, license declaration, and opaque Model Store artifact ID. Fetch
+validates the metadata but deliberately does not download model bytes. This
+step establishes reproducible provenance and placement metadata only; no STT
+provider, target inference, or Japanese speech acceptance is claimed.
+
+### Verification and current target blocker
+
+- `./nagi fetch` passed and fetched whisper.cpp commit
+  `927cfce34f31707e17f2bff35c349632fb9e2c3a`; the ignored source checkout is
+  clean and its `LICENSE` and `CMakeLists.txt` validate.
+- `./nagi test` passed with 140 CLI unit tests and 21 integration tests;
+  `./nagi fmt`, `./nagi lint`, and `./nagi build` passed.
+- `./nagi m25` passed the guest orchestration markers. QEMU reported no host
+  `virtio-sound.in` driver, so the run did not exercise microphone or speaker
+  hardware. The boot image, persistent disk, OVMF variables, and logs were
+  SHA-256 preserved before and after the run in
+  `out/evidence/m25-whisper-pin-pre-rerun-20261001/` and
+  `out/evidence/m25-whisper-pin-pass-20261001/`.
+- A CPU-only Nagi cross-CMake configure for whisper.cpp 1.9.4 succeeded using
+  `tools/nagi-target-cc.sh`, the LLVM 19 libc++ headers, and generated relibc
+  headers. Building target `whisper` then failed in upstream
+  `ggml/src/gguf.cpp`: 18 uses of `try`, `catch`, and `throw` are incompatible
+  with Nagi's `-fno-exceptions` ABI. The first errors are at lines 429, 551,
+  637, 1590, 1598, and 1668. The existing llama.cpp GGUF patch does not apply
+  to this newer ggml source. No edits were made in the fetched checkout; a
+  Nagi-owned patch and host regression suite are required before this library
+  can build for Nagi.
+
+The model digest and size are pinned from immutable upstream metadata; the
+488 MB model bytes have not been downloaded or independently hashed in this
+worktree. A backend, guest inference, and spoken Japanese command acceptance
+remain unimplemented.
