@@ -342,3 +342,22 @@ unconfirmed. Host QEMU timeout handling now attempts to record bounded status
 and CPU-register details on future headless or GUI timeouts; this passing run
 did not exercise that failure path. M27 remains PARTIAL for the authenticated
 update, full session-readiness, and Recovery features listed above.
+
+## Latest integrated timeout diagnostic — 2026-10-01
+
+The latest M28 two-repetition run passed M19 Search/ObjectId persistence and
+the three-boot M22 grouped-Undo/Activity-Ledger gate in repetition 1, then
+timed out during M27 boot 4 after malformed-B rollback selected confirmed A.
+The guest printed three M3 AP-online markers but no scheduler-workload marker.
+The bounded QMP record reported `status=shutdown`, `running=false`, and CPU#0
+RIP `0x4005d90`; `llvm-addr2line` maps that address to
+`nagi_kernel::smp::thread_entry`. This evidence localizes investigation to the
+M3 SMP/scheduler transition but does not establish a specific root cause.
+
+The run's M27 input images, OVMF variables, user-data image, boot logs, and
+QMP output with a verified SHA-256 manifest are preserved in
+`out/evidence/m27-ab-rollback-1790796067483623000/`. The M27 run remains
+`PARTIAL`; the most recent successful complete QEMU acceptance is still
+`out/evidence/m27-ab-rollback-1790788040114277000/`. A useful next diagnostic
+is bounded per-CPU timer and workload progress on this boot path, followed by
+a replay from the preserved rollback inputs before modifying scheduler code.

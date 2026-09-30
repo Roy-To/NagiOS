@@ -28,10 +28,12 @@ accepts 1–5 (default 2).
 The runner uses `git rev-parse` from its own location to find the repository.
 It refuses to run when the commands' fixed-name image, OVMF-vars, or serial-log
 outputs already exist, because those commands would replace those files. This
-keeps a run from overwriting existing acceptance evidence. Between repetitions,
-the harness moves generated images, vars, and logs to
-`out/evidence/m28-repetition-N/` and snapshots both persistent disks before
-starting the next gate. If a prior M19 snapshot already exists, its guest
+keeps a run from overwriting existing acceptance evidence. Every `--run`
+reserves a unique `out/evidence/m28-run-<UTC timestamp>-<PID>/` namespace.
+Between successful repetitions, the harness moves generated images, vars, and
+logs to that run's `repetition-N/` subdirectory and snapshots both persistent
+disks before starting the next gate. A later invocation never reuses an older
+run namespace. If a prior M19 snapshot already exists, its guest
 verifies the previous-boot generation in the initial boot log and may not
 create a separate restart log; the harness accepts the fresh initial or restart
 log. `--dry-run` reports collisions and validates an existing latest log
@@ -282,3 +284,32 @@ multi-tab browser, real Granite, audio-pressure, OOM, CPU-fairness, or leak
 soak workload. Before the rerun, its fixed-name inputs were preserved and
 hash-verified under
 `out/evidence/m28-qmp-diagnostics-pre-rerun-20261001/`.
+
+## Unique repetition evidence and M27 SMP timeout — 2026-10-01
+
+The runner now reserves a unique UTC timestamp/PID archive root for every
+`--run`; successful intermediate repetitions are retained below
+`repetition-N/`. This removes the fixed `m28-repetition-N/` collision that
+prevented another run after earlier evidence had been preserved. The namespace
+self-test, `sh -n`, and a two-repetition dry-run passed. The dry-run remained a
+preflight and did not build or boot a guest.
+
+Before the real two-repetition attempt, the fixed-name M19/M22 outputs and
+both persistent disks were preserved under
+`out/evidence/pre-m28-repeat-20261001-0a331f6/` with verified hashes. M19 and
+M22 passed in repetition 1; the M27 boot 4 acceptance timed out after rollback
+to confirmed A. Its serial log reached three M3 AP-online markers but stopped
+before the scheduler workload marker. QMP reported shutdown and CPU#0 RIP
+`0x4005d90`, which maps to `nagi_kernel::smp::thread_entry`. That narrows the
+area for diagnosis but does not identify the fault. M27 and M28 do not receive
+a pass from this attempt.
+
+M27's input images, OVMF variables, guest data, serial logs, and QMP details
+are preserved with verified hashes under
+`out/evidence/m27-ab-rollback-1790796067483623000/`. The M19/M22 partial
+outputs from repetition 1 and the runner log are preserved under
+`out/evidence/m28-run-failure-20261001-0a331f6/`. The next useful experiment is
+bounded per-CPU timer/workload progress around M3 startup, followed by a replay
+from the saved rollback inputs before changing scheduler behavior. M28's
+combined Desktop/Files/Notes/Albert, real Granite, audio, OOM, fairness, and
+leak workload remains unmeasured.

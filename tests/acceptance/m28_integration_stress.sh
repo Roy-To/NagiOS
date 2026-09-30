@@ -32,6 +32,10 @@ validate_user_data_disk_size() {
     esac
 }
 
+archive_root_for_run() {
+    printf 'out/evidence/m28-run-%s\n' "$1"
+}
+
 validate_log() {
     log_path=$1
     shift
@@ -138,6 +142,11 @@ Nagi M13 acceptance PASS
 EOF
     validate_m19_log "$temporary_dir/m19.log" || fail 'valid M19 fixture rejected'
     validate_m22_log "$temporary_dir/m22.log" || fail 'valid M22 fixture rejected'
+    first_archive_root=$(archive_root_for_run self-test-run-1)
+    second_archive_root=$(archive_root_for_run self-test-run-2)
+    [ "$first_archive_root" != "$second_archive_root" ] || fail 'run archive namespaces collide'
+    [ "$first_archive_root" != 'out/evidence/m28-repetition-1' ] \
+        || fail 'run archive namespace reuses legacy repetition path'
     validate_m27_output 'PASS M27 A/B and Recovery: GPT slot rollback and promotion passed' \
         || fail 'valid M27 acceptance output rejected'
     if validate_m27_output 'FAIL M27: guest did not reach Recovery' >/dev/null 2>&1; then
@@ -175,6 +184,9 @@ script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
 repo_root=$(git -C "$script_dir/../.." rev-parse --show-toplevel 2>/dev/null) \
     || fail 'cannot locate repository root with git rev-parse'
 cd "$repo_root"
+
+run_id=$(date -u '+%Y%m%dT%H%M%SZ')-$$
+archive_root=$(archive_root_for_run "$run_id")
 
 m19_disk=out/artifacts/nagi-0.1-m19-vfs-objectid-user-data.img
 m22_disk=out/artifacts/nagi-0.1-m22-history-user-data.img
@@ -221,6 +233,7 @@ if [ "$mode" = --dry-run ]; then
         printf '  %s: ./nagi m19, ./nagi m22, then ./nagi m27\n' "$iteration"
         iteration=$((iteration + 1))
     done
+    printf 'Unique repetition archive namespace (if --run): %s/\n' "$archive_root"
     printf 'Named outputs that --run would overwrite if present:\n'
     collision=0
     for output in \
@@ -271,10 +284,11 @@ if [ -n "$collisions" ]; then
     printf 'Refusing --run; it would overwrite existing acceptance outputs:%b\n' "$collisions" >&2
     exit 1
 fi
+[ ! -e "$archive_root" ] || fail "refusing to replace existing run evidence: $archive_root"
 
 archive_iteration_outputs() {
     archived_iteration=$1
-    archive_dir="out/evidence/m28-repetition-$archived_iteration"
+    archive_dir="$archive_root/repetition-$archived_iteration"
     [ ! -e "$archive_dir" ] || fail "refusing to replace existing repetition evidence: $archive_dir"
     mkdir -p "$archive_dir"
     cp -p "$m19_disk" "$archive_dir/"
@@ -299,7 +313,7 @@ archive_iteration_outputs() {
 
 iteration=1
 while [ "$iteration" -lt "$repeat_count" ]; do
-    archive_dir="out/evidence/m28-repetition-$iteration"
+    archive_dir="$archive_root/repetition-$iteration"
     [ ! -e "$archive_dir" ] || fail "refusing to replace existing repetition evidence: $archive_dir"
     iteration=$((iteration + 1))
 done
@@ -307,6 +321,8 @@ done
 if [ ! -x ./nagi ]; then
     fail 'repository ./nagi entry point is missing or not executable'
 fi
+mkdir "$archive_root" || fail "cannot reserve run evidence directory: $archive_root"
+printf 'M28 repetition archive namespace: %s/\n' "$archive_root"
 
 iteration=1
 while [ "$iteration" -le "$repeat_count" ]; do
