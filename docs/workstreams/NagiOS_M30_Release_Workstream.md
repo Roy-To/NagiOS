@@ -322,3 +322,29 @@ has not yet been assembled into a clean-source release bundle. Release
 manifest acceptance remains `NOT_EVALUATED`; this gate verifies Model Store
 capability and discovery only, not artifact installation, model loading,
 authenticated updates, or inference. M30 remains `PARTIAL`.
+
+## Clean-source Model Store release bundle and QEMU acceptance — 2026-10-01
+
+After commit `7144949` was pushed, the clean-source release preflight passed
+with the release kernel and current 64 GiB reference qcow2. The eight release
+tool tests passed, and assembly/verification produced
+`out/artifacts/m30-release-bundle-7144949/`. Its qcow2 is byte-identical to
+the current reference image (SHA-256
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`) and
+reports a 64 GiB virtual size.
+
+After assembly, `./nagi m30` passed both QEMU boots using a disposable copy of
+the same reference image. System A, Model Store capability-relative read and
+write denial, empty-root artifact discovery, User Data format/write and
+restart persistence, and M7 acceptance all passed. The QEMU copy, serial logs,
+README, and local `SHA256SUMS` are preserved under
+`out/evidence/m30-release-1790806188358089000/`. Post-QEMU `release.py verify`,
+all 15 bundle checksums, and `qemu-img check` passed on the untouched bundle.
+The generated `m30_acceptance` field remains `NOT_EVALUATED`; the external
+guest acceptance is recorded separately. QEMU warned that the host has no
+`virtio-sound.in` driver, so this run does not verify host audio capture.
+
+The source and reference image are real build outputs. The Model Store is
+empty, so this acceptance does not claim artifact installation, Granite load,
+or inference. M30 remains `PARTIAL` for authenticated updates, incomplete
+M18–M29 acceptance, and binary license/notice review.
