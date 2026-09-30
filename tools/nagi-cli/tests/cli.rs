@@ -155,6 +155,78 @@ fn host_clippy_command_keeps_warning_deny_boundary() {
 }
 
 #[test]
+fn format_commands_match_ci_source_scope_without_vendored_servo() {
+    let commands = nagi_cli::commands::host_format_commands();
+    assert_eq!(commands.len(), 4);
+
+    let (cargo, workspace_args) = &commands[0];
+    assert_eq!(*cargo, "cargo");
+    assert_eq!(workspace_args.first(), Some(&"fmt"));
+    assert!(!workspace_args.contains(&"--all"));
+    for package in [
+        "nagi-cli",
+        "nagi-idl",
+        "nagi-bootinfo",
+        "nagi-abi",
+        "nagi-model",
+        "nagi-kernel",
+        "libnagi",
+        "nagi-net",
+        "nagi-pal",
+        "nagi-posix",
+        "nagi-audio",
+        "nagi-history",
+        "nagi-model-manager",
+        "nagi-search",
+        "nagi-ai",
+        "nagi-servo-adapter",
+        "nagi-init",
+        "nagi-package",
+        "nagi-sdk",
+    ] {
+        assert!(workspace_args
+            .windows(2)
+            .any(|pair| pair == ["--package", package]));
+    }
+    assert!(workspace_args.ends_with(&["--", "--check"]));
+
+    assert_eq!(
+        commands[1],
+        (
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "tools/nagi-pkg/Cargo.toml",
+                "--",
+                "--check"
+            ]
+        )
+    );
+    assert_eq!(
+        commands[2],
+        (
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "loader/Cargo.toml",
+                "--",
+                "--check"
+            ]
+        )
+    );
+    assert_eq!(
+        commands[3],
+        ("rustfmt", vec!["--check", "user/nagi-albert/src/lib.rs"])
+    );
+    assert!(commands
+        .iter()
+        .flat_map(|(_, args)| args)
+        .all(|arg| !arg.contains("third_party/servo")));
+}
+
+#[test]
 fn arm64_host_commands_select_only_host_compatible_packages() {
     let host_packages = [
         "nagi-cli",

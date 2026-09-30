@@ -57,7 +57,7 @@ bytes before calling any backend.
 - The generated llama.cpp patch clone normalizes source and destination paths
   for Git on Windows while keeping extended paths available to filesystem
   APIs. Its regression fixture canonicalizes the temporary repository root;
-  the targeted patch test and current 135-unit/20-integration CLI suite pass
+  the targeted patch test and current 135-unit/21-integration CLI suite pass
   on the host.
 - The full Nagi-target `llama` build still fails. With `ninja -k 0`, 29 object
   targets failed and diagnostics covered 57 distinct source files, including

@@ -303,6 +303,59 @@ pub fn host_workspace_args_for_arch(command: &str, host_arch: &str) -> Vec<&'sta
     args
 }
 
+pub fn host_format_commands() -> Vec<(&'static str, Vec<&'static str>)> {
+    let mut workspace_args = vec!["fmt"];
+    for package in [
+        "nagi-cli",
+        "nagi-idl",
+        "nagi-bootinfo",
+        "nagi-abi",
+        "nagi-model",
+        "nagi-kernel",
+        "libnagi",
+        "nagi-net",
+        "nagi-pal",
+        "nagi-posix",
+        "nagi-audio",
+        "nagi-history",
+        "nagi-model-manager",
+        "nagi-search",
+        "nagi-ai",
+        "nagi-servo-adapter",
+        "nagi-init",
+        "nagi-package",
+        "nagi-sdk",
+    ] {
+        workspace_args.extend(["--package", package]);
+    }
+    workspace_args.extend(["--", "--check"]);
+
+    vec![
+        ("cargo", workspace_args),
+        (
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "tools/nagi-pkg/Cargo.toml",
+                "--",
+                "--check",
+            ],
+        ),
+        (
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "loader/Cargo.toml",
+                "--",
+                "--check",
+            ],
+        ),
+        ("rustfmt", vec!["--check", "user/nagi-albert/src/lib.rs"]),
+    ]
+}
+
 pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let command = match parse_command(args) {
         Ok(command) => command,
@@ -323,7 +376,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::Fetch => execute_fetch(root),
         Command::Build => run_cargo(root, "build", &host_workspace_args("build")),
         Command::Test => run_cargo(root, "test", &host_workspace_args("test")),
-        Command::Fmt => run_cargo(root, "fmt", &["fmt", "--all", "--", "--check"]),
+        Command::Fmt => execute_format(root),
         Command::Lint => run_cargo(root, "lint", &host_workspace_args("clippy")),
         Command::Clean => execute_clean(root),
         Command::Image => execute_image(root),
@@ -3226,6 +3279,24 @@ fn run_cargo(root: &Path, label: &str, args: &[&str]) -> CommandResult {
     )
 }
 
+fn execute_format(root: &Path) -> CommandResult {
+    for (program, args) in host_format_commands() {
+        let output = ProcessCommand::new(program)
+            .args(args)
+            .current_dir(root)
+            .output();
+        let result = finish_tool(&format!("fmt ({program})"), program, output);
+        if result.exit_code != EXIT_SUCCESS {
+            return result;
+        }
+    }
+
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec!["PASS fmt: configured repository source checks passed".into()],
+    }
+}
+
 fn run_cargo_in(
     root: &Path,
     relative_directory: &Path,
@@ -3274,21 +3345,29 @@ fn run_cargo_with_rust_std_source(
 }
 
 fn finish_cargo(label: &str, output: std::io::Result<std::process::Output>) -> CommandResult {
+    finish_tool(label, "cargo", output)
+}
+
+fn finish_tool(
+    label: &str,
+    program: &str,
+    output: std::io::Result<std::process::Output>,
+) -> CommandResult {
     match output {
         Ok(output) if output.status.success() => CommandResult {
             exit_code: EXIT_SUCCESS,
-            lines: vec![format!("PASS {label}: cargo completed successfully")],
+            lines: vec![format!("PASS {label}: {program} completed successfully")],
         },
         Ok(output) => {
             let detail = command_output(&output).trim().to_owned();
             failure(
                 output.status.code().unwrap_or(EXIT_CONFIG_ERROR),
-                format!("{label}: cargo failed{}", nonempty_detail(&detail)),
+                format!("{label}: {program} failed{}", nonempty_detail(&detail)),
             )
         }
         Err(error) => failure(
             EXIT_CONFIG_ERROR,
-            format!("{label}: cannot start cargo: {error}"),
+            format!("{label}: cannot start {program}: {error}"),
         ),
     }
 }

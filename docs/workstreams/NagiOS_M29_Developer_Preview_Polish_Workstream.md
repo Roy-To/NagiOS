@@ -55,7 +55,7 @@ desktop shell or complete Japanese localization.
   it failed against the prior candidate list; `./nagi doctor` then passed on
   macOS with 12 checks, including `/opt/homebrew/bin/python3`.
 - `cargo test --locked --offline -p nagi-cli --all-targets` — passed (135 unit
-  tests, 20 integration tests); `cargo clippy --locked --offline -p nagi-cli
+  tests, 21 integration tests); `cargo clippy --locked --offline -p nagi-cli
   --all-targets -- -D warnings` — passed.
 - `rustfmt --check` for the changed Rust files and `git diff --check` — passed.
 - `./nagi desktop` — passed on 2026-09-30 after the scanout and bitmap-font
@@ -96,11 +96,10 @@ The regression checks the unchanged x86_64 arguments and the ARM64 package
 set, including its warning-denied Clippy boundary.
 
 On this ARM64 macOS host, `./nagi test`, `./nagi build`, and `./nagi lint` all
-passed. The CLI suite passed with 135 unit and 20 integration tests, and the
+passed. The CLI suite passed with 135 unit and 21 integration tests, and the
 changed CLI package passed `cargo fmt --manifest-path
-tools/nagi-cli/Cargo.toml -- --check`. The repository-wide `./nagi fmt` still
-reports formatting diffs in untouched vendored Servo files; no third-party
-sources were reformatted as part of this fix.
+tools/nagi-cli/Cargo.toml -- --check`. `./nagi fmt` now matches the CI source
+selection and passes without checking or reformatting the vendored Servo tree.
 
 ## Remaining M29 work
 

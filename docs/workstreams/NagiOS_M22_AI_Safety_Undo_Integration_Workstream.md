@@ -90,7 +90,7 @@ persistence while leaving those production boundaries open.
 - `cargo -Z build-std=core,alloc check --locked --offline -p nagi-init
   --features m22-history --target targets/x86_64-unknown-nagi-user.json` — PASS.
 - `cargo test --locked --offline -p nagi-cli --all-targets` — PASS, 135 unit
-  tests and 20 integration tests, including the `m22` command surface.
+  tests and 21 integration tests, including the `m22` command surface.
 - `cargo clippy --locked --offline -p nagi-cli --all-targets -- -D warnings` —
   PASS.
 - `./nagi m22` — PASS for durable guest History recovery across QEMU boots.
