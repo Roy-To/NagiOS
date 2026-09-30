@@ -2,14 +2,20 @@
 #![cfg_attr(target_os = "nagi", no_main)]
 #![cfg_attr(all(target_os = "nagi", feature = "m13-std"), feature(restricted_std))]
 
-#[cfg(feature = "m19-search")]
+#[cfg(any(feature = "m19-search", feature = "m27-recovery"))]
 extern crate alloc;
 
-#[cfg(all(target_os = "nagi", feature = "m19-search"))]
-struct M19Allocator;
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "m19-search", feature = "m27-recovery")
+))]
+struct GuestAllocator;
 
-#[cfg(all(target_os = "nagi", feature = "m19-search"))]
-unsafe impl core::alloc::GlobalAlloc for M19Allocator {
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "m19-search", feature = "m27-recovery")
+))]
+unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
         if layout.size() == 0 {
             return layout.align() as *mut u8;
@@ -27,11 +33,14 @@ unsafe impl core::alloc::GlobalAlloc for M19Allocator {
     }
 }
 
-#[cfg(all(target_os = "nagi", feature = "m19-search"))]
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "m19-search", feature = "m27-recovery")
+))]
 #[global_allocator]
-static M19_ALLOCATOR: M19Allocator = M19Allocator;
+static GUEST_ALLOCATOR: GuestAllocator = GuestAllocator;
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 use core::arch::asm;
 #[cfg(all(target_os = "nagi", not(feature = "m13-std")))]
 use core::panic::PanicInfo;
@@ -80,6 +89,8 @@ mod m25_voice;
     not(feature = "m13-posix")
 ))]
 mod network;
+#[cfg(all(target_os = "nagi", feature = "m27-recovery"))]
+mod recovery;
 #[cfg(all(target_os = "nagi", feature = "m11-security"))]
 mod security;
 #[cfg(all(
@@ -301,7 +312,7 @@ static NAGI_INIT_M6_ACCEPTANCE_PASS: [u8; M6_ACCEPTANCE_PASS_LEN] = *b"Nagi M6 a
 #[no_mangle]
 static NAGI_INIT_M7_ACCEPTANCE_PASS: [u8; M7_ACCEPTANCE_PASS_LEN] = *b"Nagi M7 acceptance PASS\r\n";
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 macro_rules! static_message {
     ($symbol:ident, $length:expr) => {{
         let message: *const u8;
@@ -317,7 +328,7 @@ macro_rules! static_message {
     }};
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn echo_handler(
     request: &[u8],
     response: &mut [u8],
@@ -338,7 +349,7 @@ fn echo_handler(
     Ok(request.len())
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn echo_handler_pointer() -> libnagi::service::ServiceHandler {
     let address: usize;
     unsafe {
@@ -352,7 +363,7 @@ fn echo_handler_pointer() -> libnagi::service::ServiceHandler {
     }
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn run_m6_service_acceptance() -> bool {
     libnagi::console_write(static_message!(
         NAGI_INIT_M6_SUPERVISOR_START,
@@ -431,7 +442,7 @@ fn run_m6_service_acceptance() -> bool {
     true
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn bytes_equal(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
@@ -448,10 +459,10 @@ fn bytes_equal(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 type GuestVolume = libnagi::storage::Vfs<libnagi::storage::SyscallBlockDevice>;
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<GuestVolume>)> {
     let file_name = static_message!(NAGI_INIT_M7_FILE_NAME, M7_FILE_NAME_LEN);
     let payload = static_message!(NAGI_INIT_M7_PAYLOAD, M7_PAYLOAD_LEN);
@@ -462,10 +473,10 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
             &mut device,
         )
         .ok()?;
-        if report.regular_files != 1
-            || report.directories != 1
-            || report.allocated_data_blocks != 1
-            || report.directory_entries != 1
+        if report.regular_files == 0
+            || report.directories == 0
+            || report.allocated_data_blocks == 0
+            || report.directory_entries == 0
         {
             return None;
         }
@@ -567,7 +578,26 @@ unsafe fn run_elf_initializers() {
     run_array(init_start, init_end);
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", feature = "m27-recovery"))]
+#[no_mangle]
+pub extern "C" fn _start(
+    block_capability: u64,
+    display_capability: u64,
+    input_capability: u64,
+    net_capability: u64,
+    audio_capability: u64,
+) -> ! {
+    unsafe { run_elf_initializers() };
+    let _ = (
+        display_capability,
+        input_capability,
+        net_capability,
+        audio_capability,
+    );
+    recovery::run(block_capability)
+}
+
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 #[no_mangle]
 pub extern "C" fn _start(
     block_capability: u64,

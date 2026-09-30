@@ -3,6 +3,7 @@
 
 use core::mem;
 use core::ptr;
+use core::time::Duration;
 
 use nagi_bootinfo::{
     firmware_time_to_unix_ns, BootControlInfo, BootInfo, BootReadyRecord, FirmwareDateTime,
@@ -27,6 +28,24 @@ const INIT_IMAGE_MAX_ADDRESS: u64 = 0xFFFF_FFFF;
 static mut KERNEL_IMAGE: [u8; MAX_KERNEL_IMAGE_SIZE] = [0; MAX_KERNEL_IMAGE_SIZE];
 static mut BOOT_INFO: BootInfo = BootInfo::new();
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BootImageSelection {
+    Default,
+    SystemA,
+    SystemB,
+    Recovery,
+}
+
+impl BootImageSelection {
+    const fn system_slot(self) -> Option<SystemSlot> {
+        match self {
+            Self::SystemA => Some(SystemSlot::A),
+            Self::SystemB => Some(SystemSlot::B),
+            Self::Default | Self::Recovery => None,
+        }
+    }
+}
+
 #[entry]
 fn main() -> Status {
     if let Err(error) = uefi::helpers::init() {
@@ -35,14 +54,15 @@ fn main() -> Status {
     }
 
     #[cfg(feature = "m27-ab-slot-acceptance")]
-    let (selected_slot, boot_control) = match m27_boot_control_decision() {
-        Ok((slot, context)) => (Some(slot), context),
+    let (image_selection, boot_control) = match m27_boot_control_decision() {
+        Ok((selection, context)) => (selection, context),
         Err(message) => return fail(error_message(message)),
     };
     #[cfg(not(feature = "m27-ab-slot-acceptance"))]
-    let (selected_slot, boot_control) = (None, BootControlInfo::default());
+    let (image_selection, boot_control) = (BootImageSelection::Default, BootControlInfo::default());
+    let selected_slot = image_selection.system_slot();
 
-    let kernel_size = match read_kernel(boot::image_handle(), selected_slot) {
+    let kernel_size = match read_kernel(boot::image_handle(), image_selection) {
         Ok(size) => size,
         Err(message) => {
             report_m27_trial_payload_rejection(selected_slot);
@@ -63,7 +83,7 @@ fn main() -> Status {
         report_m27_trial_payload_rejection(selected_slot);
         return fail(message);
     }
-    let init_image = match read_init(boot::image_handle(), selected_slot) {
+    let init_image = match read_init(boot::image_handle(), image_selection) {
         Ok(info) => info,
         Err(message) => {
             report_m27_trial_payload_rejection(selected_slot);
@@ -128,7 +148,7 @@ fn main() -> Status {
 }
 
 #[cfg(feature = "m27-ab-slot-acceptance")]
-fn m27_boot_control_decision() -> Result<(SystemSlot, BootControlInfo), &'static str> {
+fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), &'static str> {
     use nagi_loader::ab::uefi_store::{
         UefiVariableBootControlStore, NAGI_BOOT_CONTROL_VENDOR, NAGI_BOOT_READY_VARIABLE,
     };
@@ -186,7 +206,30 @@ fn m27_boot_control_decision() -> Result<(SystemSlot, BootControlInfo), &'static
         let _ = runtime::delete_variable(NAGI_BOOT_READY_VARIABLE, &NAGI_BOOT_CONTROL_VENDOR);
     }
 
-    if state.generation() == 0 {
+    let selection = m27_boot_menu(state);
+    if selection == BootImageSelection::Recovery {
+        uefi::println!("Nagi M27 manual selection: Recovery; boot journal unchanged PASS");
+        return Ok((BootImageSelection::Recovery, BootControlInfo::default()));
+    }
+    if selection.system_slot() == Some(state.confirmed_slot()) {
+        uefi::println!(
+            "Nagi M27 manual selection: confirmed slot={} (pending trial preserved) PASS",
+            if state.confirmed_slot() == SystemSlot::A {
+                "A"
+            } else {
+                "B"
+            }
+        );
+        uefi::println!("Nagi M27 UEFI variable journal persistence PASS");
+        return Ok((selection, BootControlInfo::default()));
+    }
+
+    let selected_pending_candidate = selection
+        .system_slot()
+        .filter(|slot| state.pending_slot() == Some(*slot));
+    if selected_pending_candidate.is_none() && state.generation() == 0 {
+        // The acceptance fixture seeds System B on its first automatic boot.
+        // Recovery and explicit confirmed-slot selection never reach this path.
         journal
             .stage_update(SystemSlot::B)
             .map_err(|_| "Nagi Loader: M27 boot-control trial staging failed")?;
@@ -248,7 +291,61 @@ fn m27_boot_control_decision() -> Result<(SystemSlot, BootControlInfo), &'static
             reserved: [0; 6],
         }
     };
-    Ok((decision.slot, context))
+    Ok((
+        match decision.slot {
+            SystemSlot::A => BootImageSelection::SystemA,
+            SystemSlot::B => BootImageSelection::SystemB,
+        },
+        context,
+    ))
+}
+
+#[cfg(feature = "m27-ab-slot-acceptance")]
+fn m27_boot_menu(state: nagi_loader::ab::BootControlState) -> BootImageSelection {
+    use uefi::proto::console::text::Key;
+
+    uefi::println!(
+        "Nagi M27 boot menu: confirmed={} pending={} (A=System A, B=System B, R=Recovery)",
+        if state.confirmed_slot() == SystemSlot::A {
+            "A"
+        } else {
+            "B"
+        },
+        match state.pending_slot() {
+            Some(SystemSlot::A) => "A",
+            Some(SystemSlot::B) => "B",
+            None => "none",
+        }
+    );
+    uefi::println!("Nagi M27 Recovery boot menu READY");
+
+    for _ in 0..30 {
+        let key = uefi::system::with_stdin(|stdin| stdin.read_key().ok().flatten());
+        if let Some(Key::Printable(key)) = key {
+            let key = char::from(key).to_ascii_uppercase();
+            let requested = match key {
+                'A' => Some(SystemSlot::A),
+                'B' => Some(SystemSlot::B),
+                'R' => return BootImageSelection::Recovery,
+                _ => None,
+            };
+            if let Some(slot) = requested {
+                if slot == state.confirmed_slot() || state.pending_slot() == Some(slot) {
+                    return match slot {
+                        SystemSlot::A => BootImageSelection::SystemA,
+                        SystemSlot::B => BootImageSelection::SystemB,
+                    };
+                }
+                uefi::println!(
+                    "Nagi M27 boot menu: System {} unavailable (no staged image)",
+                    if slot == SystemSlot::A { "A" } else { "B" }
+                );
+            }
+        }
+        uefi::boot::stall(Duration::from_millis(100));
+    }
+    uefi::println!("Nagi M27 boot menu timeout; using automatic A/B policy");
+    BootImageSelection::Default
 }
 
 fn report_m27_trial_payload_rejection(selected_slot: Option<SystemSlot>) {
@@ -260,19 +357,17 @@ fn report_m27_trial_payload_rejection(selected_slot: Option<SystemSlot>) {
     let _ = selected_slot;
 }
 
-fn read_kernel(
-    image_handle: Handle,
-    selected_slot: Option<SystemSlot>,
-) -> Result<usize, &'static str> {
+fn read_kernel(image_handle: Handle, selection: BootImageSelection) -> Result<usize, &'static str> {
     let mut filesystem = boot::get_image_file_system(image_handle)
         .map_err(|_| error_message("Nagi Loader: filesystem unavailable"))?;
     let mut root = filesystem
         .open_volume()
         .map_err(|_| error_message("Nagi Loader: volume unavailable"))?;
-    let path = match selected_slot {
-        Some(SystemSlot::A) => cstr16!("\\EFI\\NAGI\\SYSTEMA\\KERNEL.ELF"),
-        Some(SystemSlot::B) => cstr16!("\\EFI\\NAGI\\SYSTEMB\\KERNEL.ELF"),
-        None => cstr16!("\\EFI\\NAGI\\KERNEL.ELF"),
+    let path = match selection {
+        BootImageSelection::SystemA => cstr16!("\\EFI\\NAGI\\SYSTEMA\\KERNEL.ELF"),
+        BootImageSelection::SystemB => cstr16!("\\EFI\\NAGI\\SYSTEMB\\KERNEL.ELF"),
+        BootImageSelection::Recovery => cstr16!("\\EFI\\NAGI\\RECOVERY\\KERNEL.ELF"),
+        BootImageSelection::Default => cstr16!("\\EFI\\NAGI\\KERNEL.ELF"),
     };
     let handle = root
         .open(path, FileMode::Read, FileAttribute::empty())
@@ -303,17 +398,18 @@ fn read_kernel(
 
 fn read_init(
     image_handle: Handle,
-    selected_slot: Option<SystemSlot>,
+    selection: BootImageSelection,
 ) -> Result<InitImageInfo, &'static str> {
     let mut filesystem = boot::get_image_file_system(image_handle)
         .map_err(|_| error_message("Nagi Loader: filesystem unavailable"))?;
     let mut root = filesystem
         .open_volume()
         .map_err(|_| error_message("Nagi Loader: volume unavailable"))?;
-    let path = match selected_slot {
-        Some(SystemSlot::A) => cstr16!("\\EFI\\NAGI\\SYSTEMA\\INIT.ELF"),
-        Some(SystemSlot::B) => cstr16!("\\EFI\\NAGI\\SYSTEMB\\INIT.ELF"),
-        None => cstr16!("\\EFI\\NAGI\\INIT.ELF"),
+    let path = match selection {
+        BootImageSelection::SystemA => cstr16!("\\EFI\\NAGI\\SYSTEMA\\INIT.ELF"),
+        BootImageSelection::SystemB => cstr16!("\\EFI\\NAGI\\SYSTEMB\\INIT.ELF"),
+        BootImageSelection::Recovery => cstr16!("\\EFI\\NAGI\\RECOVERY\\INIT.ELF"),
+        BootImageSelection::Default => cstr16!("\\EFI\\NAGI\\INIT.ELF"),
     };
     let handle = root
         .open(path, FileMode::Read, FileAttribute::empty())

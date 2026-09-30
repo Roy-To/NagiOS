@@ -61,7 +61,7 @@ impl Fat12Geometry {
     ) -> Result<Self, String> {
         // `usize::is_multiple_of` is unstable on the repository's pinned
         // nightly; retain the equivalent check until that API is available.
-        #[allow(clippy::manual_is_multiple_of)]
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
         if image_size == 0 || image_size % SECTOR_SIZE != 0 {
             return Err("FAT12 image size must be a nonzero whole number of sectors".to_owned());
         }
@@ -309,6 +309,7 @@ pub fn write_fat12_image(
     bootloader: &[u8],
     kernel: &[u8],
     init: &[u8],
+    _recovery_init: Option<&[u8]>,
 ) -> Result<ImageLayout, String> {
     write_fat12_image_with_geometry(path, bootloader, kernel, init, Fat12Geometry::legacy())
 }
@@ -318,6 +319,7 @@ pub fn write_m17_fat12_image(
     bootloader: &[u8],
     kernel: &[u8],
     init: &[u8],
+    _recovery_init: Option<&[u8]>,
 ) -> Result<ImageLayout, String> {
     let geometry = Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)?;
     write_fat12_image_with_geometry(path, bootloader, kernel, init, geometry)
@@ -330,14 +332,19 @@ pub fn write_m27_broken_slot_image(
     bootloader: &[u8],
     kernel: &[u8],
     init: &[u8],
+    recovery_init: Option<&[u8]>,
 ) -> Result<ImageLayout, String> {
     let geometry = Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)?;
     let (image, layout) = build_fat12_ab_image(
         bootloader,
-        kernel,
-        init,
-        b"Nagi M27 intentionally invalid slot B kernel ELF",
-        init,
+        AbSlotImages {
+            system_a: SlotPayload { kernel, init },
+            system_b: SlotPayload {
+                kernel: b"Nagi M27 intentionally invalid slot B kernel ELF",
+                init,
+            },
+            recovery: recovery_init.map(|init| SlotPayload { kernel, init }),
+        },
         geometry,
     )?;
     fs::write(path, image).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
@@ -351,27 +358,93 @@ pub fn write_m27_healthy_slot_image(
     bootloader: &[u8],
     kernel: &[u8],
     init: &[u8],
+    recovery_init: Option<&[u8]>,
 ) -> Result<ImageLayout, String> {
     let geometry = Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)?;
-    let (image, layout) = build_fat12_ab_image(bootloader, kernel, init, kernel, init, geometry)?;
+    let (image, layout) = build_fat12_ab_image(
+        bootloader,
+        AbSlotImages {
+            system_a: SlotPayload { kernel, init },
+            system_b: SlotPayload { kernel, init },
+            recovery: recovery_init.map(|init| SlotPayload { kernel, init }),
+        },
+        geometry,
+    )?;
     fs::write(path, image).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     Ok(layout)
 }
 
+/// Build a Recovery-only acceptance image whose System A and B kernels are
+/// both intentionally malformed while the separate Recovery payload is valid.
+pub fn write_m27_recovery_image(
+    path: &Path,
+    bootloader: &[u8],
+    recovery_kernel: &[u8],
+    _system_init: &[u8],
+    recovery_init: Option<&[u8]>,
+) -> Result<ImageLayout, String> {
+    let geometry = Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)?;
+    let recovery_init = recovery_init.unwrap_or(b"invalid recovery init");
+    let (image, layout) = build_fat12_ab_image(
+        bootloader,
+        AbSlotImages {
+            system_a: SlotPayload {
+                kernel: b"invalid System A kernel",
+                init: b"invalid System A init",
+            },
+            system_b: SlotPayload {
+                kernel: b"invalid System B kernel",
+                init: b"invalid System B init",
+            },
+            recovery: Some(SlotPayload {
+                kernel: recovery_kernel,
+                init: recovery_init,
+            }),
+        },
+        geometry,
+    )?;
+    fs::write(path, image).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    Ok(layout)
+}
+
+#[derive(Clone, Copy)]
+struct SlotPayload<'a> {
+    kernel: &'a [u8],
+    init: &'a [u8],
+}
+
+#[derive(Clone, Copy)]
+struct AbSlotImages<'a> {
+    system_a: SlotPayload<'a>,
+    system_b: SlotPayload<'a>,
+    recovery: Option<SlotPayload<'a>>,
+}
+
 fn build_fat12_ab_image(
     bootloader: &[u8],
-    system_a_kernel: &[u8],
-    system_a_init: &[u8],
-    system_b_kernel: &[u8],
-    system_b_init: &[u8],
+    slots: AbSlotImages<'_>,
     geometry: Fat12Geometry,
 ) -> Result<(Vec<u8>, ImageLayout), String> {
+    let system_a_kernel = slots.system_a.kernel;
+    let system_a_init = slots.system_a.init;
+    let system_b_kernel = slots.system_b.kernel;
+    let system_b_init = slots.system_b.init;
+    let recovery_kernel = slots
+        .recovery
+        .map(|recovery| recovery.kernel)
+        .unwrap_or(system_a_kernel);
+    let recovery_init = slots
+        .recovery
+        .map(|recovery| recovery.init)
+        .unwrap_or(system_a_init);
     for (name, contents) in [
         ("UEFI bootloader", bootloader),
         ("System A kernel", system_a_kernel),
         ("System A init", system_a_init),
         ("System B kernel", system_b_kernel),
         ("System B init", system_b_init),
+        ("Recovery kernel", recovery_kernel),
+        ("Recovery init", recovery_init),
     ] {
         if contents.is_empty() {
             return Err(format!("{name} is empty"));
@@ -390,13 +463,17 @@ fn build_fat12_ab_image(
     let a_init_clusters = clusters_for(system_a_init.len(), geometry.cluster_size());
     let b_kernel_clusters = clusters_for(system_b_kernel.len(), geometry.cluster_size());
     let b_init_clusters = clusters_for(system_b_init.len(), geometry.cluster_size());
+    let recovery_kernel_clusters = clusters_for(recovery_kernel.len(), geometry.cluster_size());
+    let recovery_init_clusters = clusters_for(recovery_init.len(), geometry.cluster_size());
     let required_clusters = [
-        5,
+        6,
         bootloader_clusters,
         a_kernel_clusters,
         a_init_clusters,
         b_kernel_clusters,
         b_init_clusters,
+        recovery_kernel_clusters,
+        recovery_init_clusters,
     ]
     .into_iter()
     .try_fold(0usize, usize::checked_add)
@@ -413,12 +490,17 @@ fn build_fat12_ab_image(
     const NAGI_CLUSTER: u16 = 4;
     const SYSTEM_A_CLUSTER: u16 = 5;
     const SYSTEM_B_CLUSTER: u16 = 6;
-    let mut next_cluster = 7_u16;
+    const RECOVERY_CLUSTER: u16 = 7;
+    let mut next_cluster = 8_u16;
     let bootloader_start_cluster = allocate_chain_start(&mut next_cluster, bootloader_clusters)?;
     let a_kernel_start_cluster = allocate_chain_start(&mut next_cluster, a_kernel_clusters)?;
     let a_init_start_cluster = allocate_chain_start(&mut next_cluster, a_init_clusters)?;
     let b_kernel_start_cluster = allocate_chain_start(&mut next_cluster, b_kernel_clusters)?;
     let b_init_start_cluster = allocate_chain_start(&mut next_cluster, b_init_clusters)?;
+    let recovery_kernel_start_cluster =
+        allocate_chain_start(&mut next_cluster, recovery_kernel_clusters)?;
+    let recovery_init_start_cluster =
+        allocate_chain_start(&mut next_cluster, recovery_init_clusters)?;
     let layout = ImageLayout {
         bootloader_start_cluster,
         bootloader_clusters,
@@ -437,6 +519,7 @@ fn build_fat12_ab_image(
         NAGI_CLUSTER,
         SYSTEM_A_CLUSTER,
         SYSTEM_B_CLUSTER,
+        RECOVERY_CLUSTER,
     ] {
         write_chain(&mut image, geometry, directory_cluster, 1);
     }
@@ -446,6 +529,8 @@ fn build_fat12_ab_image(
         (a_init_start_cluster, a_init_clusters),
         (b_kernel_start_cluster, b_kernel_clusters),
         (b_init_start_cluster, b_init_clusters),
+        (recovery_kernel_start_cluster, recovery_kernel_clusters),
+        (recovery_init_start_cluster, recovery_init_clusters),
     ] {
         write_chain(&mut image, geometry, start_cluster, cluster_count);
     }
@@ -480,6 +565,29 @@ fn build_fat12_ab_image(
         &[
             (short_name("SYSTEMA", ""), 0x10, SYSTEM_A_CLUSTER, 0),
             (short_name("SYSTEMB", ""), 0x10, SYSTEM_B_CLUSTER, 0),
+            (short_name("RECOVERY", ""), 0x10, RECOVERY_CLUSTER, 0),
+        ],
+    );
+    write_directory(
+        &mut image,
+        geometry,
+        RECOVERY_CLUSTER,
+        NAGI_CLUSTER,
+        &[
+            (
+                short_name("KERNEL", "ELF"),
+                0x20,
+                recovery_kernel_start_cluster,
+                u32::try_from(recovery_kernel.len())
+                    .map_err(|_| "Recovery kernel size overflow".to_owned())?,
+            ),
+            (
+                short_name("INIT", "ELF"),
+                0x20,
+                recovery_init_start_cluster,
+                u32::try_from(recovery_init.len())
+                    .map_err(|_| "Recovery init size overflow".to_owned())?,
+            ),
         ],
     );
     write_directory(
@@ -546,6 +654,18 @@ fn build_fat12_ab_image(
         system_b_kernel,
     );
     write_file(&mut image, geometry, b_init_start_cluster, system_b_init);
+    write_file(
+        &mut image,
+        geometry,
+        recovery_kernel_start_cluster,
+        recovery_kernel,
+    );
+    write_file(
+        &mut image,
+        geometry,
+        recovery_init_start_cluster,
+        recovery_init,
+    );
     Ok((image, layout))
 }
 
@@ -993,6 +1113,24 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_events(
     )
 }
 
+pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    serial_input_marker: &str,
+    serial_input: &[u8],
+) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode_and_serial_input(
+        config,
+        ready_marker,
+        events,
+        None,
+        true,
+        Duration::from_millis(100),
+        Some((serial_input_marker, serial_input)),
+    )
+}
+
 pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(
     config: &QemuConfig<'_>,
     ready_marker: &str,
@@ -1016,6 +1154,26 @@ fn run_qemu_gui_with_events_mode(
     failure_marker: Option<&str>,
     boot_disk_read_only: bool,
     inter_event_delay: Duration,
+) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode_and_serial_input(
+        config,
+        ready_marker,
+        events,
+        failure_marker,
+        boot_disk_read_only,
+        inter_event_delay,
+        None,
+    )
+}
+
+fn run_qemu_gui_with_events_mode_and_serial_input(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    failure_marker: Option<&str>,
+    boot_disk_read_only: bool,
+    inter_event_delay: Duration,
+    serial_input: Option<(&str, &[u8])>,
 ) -> Result<i32, String> {
     let serial_listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|error| format!("cannot reserve GUI serial TCP port: {error}"))?;
@@ -1129,6 +1287,7 @@ fn run_qemu_gui_with_events_mode(
     let marker = config.acceptance_marker.as_bytes();
     let mut buffer = [0_u8; 4096];
     let mut events_sent = false;
+    let mut serial_input_sent = false;
     loop {
         match serial_stream.read(&mut buffer) {
             Ok(0) => break,
@@ -1155,6 +1314,17 @@ fn run_qemu_gui_with_events_mode(
                         }
                     }
                     events_sent = true;
+                }
+                if !serial_input_sent {
+                    if let Some((input_marker, input)) = serial_input {
+                        if bytes_contain(&serial, input_marker.as_bytes()) {
+                            if let Err(error) = serial_stream.write_all(input) {
+                                terminate_qemu(&mut child, config.serial_log, &serial);
+                                return Err(format!("cannot send Recovery console input: {error}"));
+                            }
+                            serial_input_sent = true;
+                        }
+                    }
                 }
                 if let Some(marker) =
                     failure_marker.filter(|marker| guest_reached_failure(&serial, marker))
@@ -1578,9 +1748,9 @@ mod tests {
         build_fat12_ab_image, build_fat12_image, build_m17_fat12_image, cluster_offset,
         ensure_persistent_disk, guest_reached_acceptance, guest_reached_failure,
         image_drive_argument, initialize_fats, prepare_ovmf_vars, qemu_audio_driver_for_host,
-        write_chain, Fat12Geometry, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
-        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT,
-        ROOT_OFFSET, SECTOR_SIZE,
+        write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET, FAT_COUNT,
+        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER,
+        PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
     };
 
     #[test]
@@ -1752,10 +1922,20 @@ mod tests {
                 .expect("M27 FAT12 geometry");
         let (image, layout) = build_fat12_ab_image(
             b"loader",
-            b"kernel A",
-            b"init A",
-            b"broken B kernel",
-            b"init B",
+            AbSlotImages {
+                system_a: SlotPayload {
+                    kernel: b"kernel A",
+                    init: b"init A",
+                },
+                system_b: SlotPayload {
+                    kernel: b"broken B kernel",
+                    init: b"init B",
+                },
+                recovery: Some(SlotPayload {
+                    kernel: b"kernel A",
+                    init: b"recovery init",
+                }),
+            },
             geometry,
         )
         .expect("build A/B image");
@@ -1770,10 +1950,14 @@ mod tests {
             &image[nagi_directory + 96..nagi_directory + 107],
             &super::short_name("SYSTEMB", "")
         );
+        assert_eq!(
+            &image[nagi_directory + 128..nagi_directory + 139],
+            &super::short_name("RECOVERY", "")
+        );
         let a_directory = cluster_offset(5, geometry);
         let b_directory = cluster_offset(6, geometry);
         for (directory, kernel_cluster, init_cluster) in
-            [(a_directory, 8, 9), (b_directory, 10, 11)]
+            [(a_directory, 9, 10), (b_directory, 11, 12)]
         {
             assert_eq!(
                 &image[directory + 64..directory + 75],
@@ -1792,12 +1976,89 @@ mod tests {
                 init_cluster
             );
         }
+        let recovery_directory = cluster_offset(7, geometry);
+        assert_eq!(
+            &image[recovery_directory + 64..recovery_directory + 75],
+            &super::short_name("KERNEL", "ELF")
+        );
+        assert_eq!(
+            u16::from_le_bytes([
+                image[recovery_directory + 64 + 26],
+                image[recovery_directory + 64 + 27],
+            ]),
+            13
+        );
+        assert_eq!(
+            &image[recovery_directory + 96..recovery_directory + 107],
+            &super::short_name("INIT", "ELF")
+        );
+        assert_eq!(
+            u16::from_le_bytes([
+                image[recovery_directory + 96 + 26],
+                image[recovery_directory + 96 + 27],
+            ]),
+            14
+        );
         let a_kernel_offset = cluster_offset(layout.kernel_start_cluster, geometry);
         assert_eq!(&image[a_kernel_offset..a_kernel_offset + 8], b"kernel A");
-        let b_kernel_offset = cluster_offset(10, geometry);
+        let b_kernel_offset = cluster_offset(11, geometry);
         assert_eq!(
             &image[b_kernel_offset..b_kernel_offset + b"broken B kernel".len()],
             b"broken B kernel"
+        );
+    }
+
+    #[test]
+    fn m27_recovery_payload_is_independent_of_both_broken_system_slots() {
+        let geometry =
+            Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)
+                .expect("M27 FAT12 geometry");
+        let (image, _) = build_fat12_ab_image(
+            b"loader",
+            AbSlotImages {
+                system_a: SlotPayload {
+                    kernel: b"bad A kernel",
+                    init: b"bad A init",
+                },
+                system_b: SlotPayload {
+                    kernel: b"bad B kernel",
+                    init: b"bad B init",
+                },
+                recovery: Some(SlotPayload {
+                    kernel: b"valid recovery kernel",
+                    init: b"valid recovery init",
+                }),
+            },
+            geometry,
+        )
+        .expect("build Recovery-only fixture");
+
+        let a_directory = cluster_offset(5, geometry);
+        let b_directory = cluster_offset(6, geometry);
+        let recovery_directory = cluster_offset(7, geometry);
+        let a_kernel_cluster =
+            u16::from_le_bytes([image[a_directory + 64 + 26], image[a_directory + 64 + 27]]);
+        let b_kernel_cluster =
+            u16::from_le_bytes([image[b_directory + 64 + 26], image[b_directory + 64 + 27]]);
+        let recovery_kernel_cluster = u16::from_le_bytes([
+            image[recovery_directory + 64 + 26],
+            image[recovery_directory + 64 + 27],
+        ]);
+        assert_eq!(
+            &image[cluster_offset(a_kernel_cluster, geometry)
+                ..cluster_offset(a_kernel_cluster, geometry) + b"bad A kernel".len()],
+            b"bad A kernel"
+        );
+        assert_eq!(
+            &image[cluster_offset(b_kernel_cluster, geometry)
+                ..cluster_offset(b_kernel_cluster, geometry) + b"bad B kernel".len()],
+            b"bad B kernel"
+        );
+        assert_eq!(
+            &image[cluster_offset(recovery_kernel_cluster, geometry)
+                ..cluster_offset(recovery_kernel_cluster, geometry)
+                    + b"valid recovery kernel".len()],
+            b"valid recovery kernel"
         );
     }
 

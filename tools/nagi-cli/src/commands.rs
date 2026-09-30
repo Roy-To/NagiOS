@@ -9,11 +9,12 @@ use crate::config::{load_toolchain_requirements, validate_project};
 use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
 use crate::image::{
     ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui, run_qemu_gui_with_events,
-    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker, run_qemu_interactive,
+    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker,
+    run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
     run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image,
-    write_m27_broken_slot_image, write_m27_healthy_slot_image, ImageLayout, QemuConfig,
-    GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    write_m27_broken_slot_image, write_m27_healthy_slot_image, write_m27_recovery_image,
+    ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -29,12 +30,20 @@ pub const EXIT_NOT_IMPLEMENTED: i32 = 3;
 pub const EXIT_CONFIG_ERROR: i32 = 4;
 pub const EXIT_DOCTOR_FAILURE: i32 = 10;
 
-type ImageWriter = fn(&Path, &[u8], &[u8], &[u8]) -> Result<ImageLayout, String>;
+type ImageWriter = fn(&Path, &[u8], &[u8], &[u8], Option<&[u8]>) -> Result<ImageLayout, String>;
 
 #[derive(Clone, Copy, Default)]
 struct ImageBuildFeatures<'a> {
     kernel: &'a [&'a str],
     loader: &'a [&'a str],
+}
+
+struct ImageBuildRequest<'a> {
+    image_name: &'a str,
+    cargo_env: &'a [(&'a str, &'a Path)],
+    recovery_init: Option<&'a [u8]>,
+    image_writer: ImageWriter,
+    build_features: ImageBuildFeatures<'a>,
 }
 
 const M18_INPUT_EVENTS: [&str; 2] = [
@@ -559,6 +568,33 @@ fn execute_image_with_init_build_env_using_writer(
     image_writer: ImageWriter,
     build_features: ImageBuildFeatures<'_>,
 ) -> CommandResult {
+    execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        init_args,
+        rust_std_source,
+        ImageBuildRequest {
+            image_name,
+            cargo_env,
+            recovery_init: None,
+            image_writer,
+            build_features,
+        },
+    )
+}
+
+fn execute_image_with_init_build_env_using_writer_and_recovery(
+    root: &Path,
+    init_args: &[&str],
+    rust_std_source: Option<&Path>,
+    request: ImageBuildRequest<'_>,
+) -> CommandResult {
+    let ImageBuildRequest {
+        image_name,
+        cargo_env,
+        recovery_init,
+        image_writer,
+        build_features,
+    } = request;
     let init_build = match rust_std_source {
         Some(source) => {
             run_cargo_with_rust_std_source(root, "user init", init_args, source, cargo_env)
@@ -643,7 +679,7 @@ fn execute_image_with_init_build_env_using_writer(
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
     };
     let image_path = artifacts.join(image_name);
-    let layout = match image_writer(&image_path, &loader, &kernel, &init) {
+    let layout = match image_writer(&image_path, &loader, &kernel, &init, recovery_init) {
         Ok(layout) => layout,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
     };
@@ -3396,6 +3432,14 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 }
 
+fn run_m13_qemu_with_http_fixture(root: &Path, config: &QemuConfig<'_>) -> Result<i32, String> {
+    let mut fixture = start_m13_http_fixture(root)?;
+    let result = run_qemu_reusing_ovmf_vars(config);
+    let _ = fixture.kill();
+    let _ = fixture.wait();
+    result
+}
+
 fn execute_m22(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let mut fixture = match start_m13_http_fixture(root) {
         Ok(child) => child,
@@ -3605,10 +3649,41 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let bootstrap_image_name = format!("nagi-0.1-m27-bootstrap-{run_id}.img");
     let slots_image_name = format!("nagi-0.1-m27-ab-slots-{run_id}.img");
     let healthy_slots_image_name = format!("nagi-0.1-m27-ab-healthy-slots-{run_id}.img");
+    let recovery_image_name = format!("nagi-0.1-m27-recovery-{run_id}.img");
     let bootstrap_image_result = execute_image_with_features(root, None, &bootstrap_image_name);
     if bootstrap_image_result.exit_code != EXIT_SUCCESS {
         return bootstrap_image_result;
     }
+    let recovery_init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m27-recovery",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let recovery_init_build = run_cargo(root, "M27 Recovery init", &recovery_init_args);
+    if recovery_init_build.exit_code != EXIT_SUCCESS {
+        return recovery_init_build;
+    }
+    let recovery_init_path = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release")
+        .join("nagi-init");
+    let recovery_init = match fs::read(&recovery_init_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", recovery_init_path.display()),
+            );
+        }
+    };
     let init_args = [
         "build",
         "-p",
@@ -3620,35 +3695,59 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "-Zbuild-std=core,alloc,compiler_builtins",
         "--release",
     ];
-    let image_result = execute_image_with_init_build_env_using_writer(
+    let image_result = execute_image_with_init_build_env_using_writer_and_recovery(
         root,
         &init_args,
         None,
-        &slots_image_name,
-        &[],
-        write_m27_broken_slot_image,
-        ImageBuildFeatures {
-            kernel: &[],
-            loader: &["m27-ab-slot-acceptance"],
+        ImageBuildRequest {
+            image_name: &slots_image_name,
+            cargo_env: &[],
+            recovery_init: Some(&recovery_init),
+            image_writer: write_m27_broken_slot_image,
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-acceptance"],
+            },
         },
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
-    let healthy_image_result = execute_image_with_init_build_env_using_writer(
+    let healthy_image_result = execute_image_with_init_build_env_using_writer_and_recovery(
         root,
         &init_args,
         None,
-        &healthy_slots_image_name,
-        &[],
-        write_m27_healthy_slot_image,
-        ImageBuildFeatures {
-            kernel: &[],
-            loader: &["m27-ab-slot-acceptance"],
+        ImageBuildRequest {
+            image_name: &healthy_slots_image_name,
+            cargo_env: &[],
+            recovery_init: Some(&recovery_init),
+            image_writer: write_m27_healthy_slot_image,
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-acceptance"],
+            },
         },
     );
     if healthy_image_result.exit_code != EXIT_SUCCESS {
         return healthy_image_result;
+    }
+    let recovery_image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &recovery_image_name,
+            cargo_env: &[],
+            recovery_init: Some(&recovery_init),
+            image_writer: write_m27_recovery_image,
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-acceptance"],
+            },
+        },
+    );
+    if recovery_image_result.exit_code != EXIT_SUCCESS {
+        return recovery_image_result;
     }
 
     let host = match resolve_qemu_host(root, probe, "m27") {
@@ -3673,6 +3772,10 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         .join("out")
         .join("artifacts")
         .join(&healthy_slots_image_name);
+    let recovery_image_path = root
+        .join("out")
+        .join("artifacts")
+        .join(&recovery_image_name);
     let persistent_disk = evidence.join("user-data.img");
     let vars_copy = evidence.join("OVMF_VARS.fd");
     if let Err(error) = ensure_persistent_disk(&persistent_disk) {
@@ -3733,6 +3836,233 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             "m27: normal bootstrap loader unexpectedly modified the boot-control journal",
+        );
+    }
+
+    let recovery_vars = evidence.join("recovery-OVMF_VARS.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &recovery_vars) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m27: initialize Recovery OVMF variables: {error}"),
+        );
+    }
+
+    let recovery_undo_image_name = format!("nagi-0.1-m27-recovery-undo-{run_id}.img");
+    let recovery_undo_image_result =
+        execute_image_with_features(root, Some("m22-history"), &recovery_undo_image_name);
+    if recovery_undo_image_result.exit_code != EXIT_SUCCESS {
+        return recovery_undo_image_result;
+    }
+    let recovery_undo_image_path = root
+        .join("out")
+        .join("artifacts")
+        .join(&recovery_undo_image_name);
+    let committed_log = evidence.join("recovery-committed-undo-fixture.log");
+    let committed_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &recovery_undo_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &recovery_vars,
+        serial_log: &committed_log,
+        acceptance_marker: "Nagi M13 acceptance PASS",
+        timeout: Duration::from_secs(90),
+    };
+    let committed_status = run_m13_qemu_with_http_fixture(root, &committed_config);
+    let committed_status = match committed_status {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: Recovery Undo guest fixture: {error}"),
+            );
+        }
+    };
+    let committed_serial = match fs::read_to_string(&committed_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", committed_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M21 file.move Plan Validate Execute PASS",
+        "Nagi M22 AI Activity Ledger committed PASS",
+        "Nagi M22 move group persisted in guest VFS PASS",
+        "Nagi M13 acceptance PASS",
+    ] {
+        if !committed_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery Undo fixture did not print `{marker}` (QEMU exit {committed_status}; log {})",
+                    committed_log.display()
+                ),
+            );
+        }
+    }
+
+    let recovery_log = evidence.join("recovery-boot.log");
+    let recovery_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &recovery_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &recovery_vars,
+        serial_log: &recovery_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        timeout: Duration::from_secs(90),
+    };
+    const RECOVERY_MENU_EVENTS: [&str; 2] = [
+        r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"r"}}}]}}"#,
+        r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"r"}}}]}}"#,
+    ];
+    const RECOVERY_COMMANDS: &[u8] = b"check\nlog\nfiles\nslots\nundo\nhelp\n";
+    let recovery_status = match run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input(
+        &recovery_config,
+        "Nagi M27 Recovery boot menu READY",
+        &RECOVERY_MENU_EVENTS,
+        "Nagi M27 Recovery console READY",
+        RECOVERY_COMMANDS,
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(EXIT_CONFIG_ERROR, format!("m27: Recovery QEMU: {error}"));
+        }
+    };
+    let recovery_serial = match fs::read_to_string(&recovery_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", recovery_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+        "Nagi M27 Recovery Environment START",
+        "Nagi M27 Recovery VFS check PASS files=",
+        "Nagi M27 Recovery current-boot log PASS",
+        "Nagi M27 Recovery files PASS",
+        "Nagi M27 Recovery NH16 undo PASS",
+        "Nagi M27 Recovery command help PASS",
+    ] {
+        if !recovery_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery boot did not print `{marker}` (QEMU exit {recovery_status}; log {})",
+                    recovery_log.display()
+                ),
+            );
+        }
+    }
+    if recovery_serial.contains("Nagi M27 persistence decision:")
+        || recovery_serial.contains("Nagi M27 readiness persisted")
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m27: Recovery changed the A/B boot decision or reported trial readiness (log {})",
+                recovery_log.display()
+            ),
+        );
+    }
+
+    let restored_log = evidence.join("recovery-undo-restart-verification.log");
+    let restored_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &recovery_undo_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &recovery_vars,
+        serial_log: &restored_log,
+        acceptance_marker: "Nagi M13 acceptance PASS",
+        timeout: Duration::from_secs(90),
+    };
+    let restored_status = match run_m13_qemu_with_http_fixture(root, &restored_config) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: Recovery Undo restart verification: {error}"),
+            );
+        }
+    };
+    let restored_serial = match fs::read_to_string(&restored_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", restored_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M22 archive restart and restored files PASS",
+        "Nagi M22 AI Activity Ledger undo result PASS",
+        "Nagi M13 acceptance PASS",
+    ] {
+        if !restored_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery Undo restart did not print `{marker}` (QEMU exit {restored_status}; log {})",
+                    restored_log.display()
+                ),
+            );
+        }
+    }
+
+    let recovery_default_log = evidence.join("recovery-default-trial-probe.log");
+    let recovery_default_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &recovery_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &recovery_vars,
+        serial_log: &recovery_default_log,
+        acceptance_marker: "Nagi Loader: invalid ELF",
+        timeout: Duration::from_secs(90),
+    };
+    let recovery_default_status =
+        match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&recovery_default_config) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: Recovery journal follow-up boot: {error}"),
+                );
+            }
+        };
+    let recovery_default_serial = match fs::read_to_string(&recovery_default_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: cannot read {}: {error}",
+                    recovery_default_log.display()
+                ),
+            );
+        }
+    };
+    if !recovery_default_serial.contains("Nagi M27 persistence decision: trial attempt=1 slot=B")
+        || !m27_trial_failure_observed(&recovery_default_serial)
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m27: Recovery changed the initial trial journal or malformed System B was not rejected (QEMU exit {recovery_default_status}; log {})",
+                recovery_default_log.display()
+            ),
         );
     }
 
@@ -3941,7 +4271,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M27 A/B boot control: three malformed System B trials rolled back to persistent System A; a healthy System B trial persisted guest readiness, was promoted on the next boot, and remained confirmed through a third boot (evidence {})",
+            "PASS M27 A/B and Recovery: three malformed System B trials rolled back to persistent System A; a healthy System B trial was promoted after guest readiness; Recovery boot left the journal unchanged and undid a committed M22 file.move group across restart (evidence {})",
             evidence.display()
         ), format!("Final serial log: {}", final_log.display())],
     }

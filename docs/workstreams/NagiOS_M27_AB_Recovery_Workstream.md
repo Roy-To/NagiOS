@@ -10,9 +10,10 @@ trial whose guest readiness record is consumed before B is confirmed. A third
 launch retains confirmed B, and all relevant boots read the same persistent
 user-data disk. The current readiness gate is successful M10 desktop surface
 presentation after M6/M7 checks; Nagi 0.1 has no account login flow. The normal
-release image still uses the fixed `KERNEL.ELF` and `INIT.ELF` pair. The
-Recovery Environment and final partitioned release layout remain incomplete,
-so M27 remains PARTIAL.
+release image still uses the fixed `KERNEL.ELF` and `INIT.ELF` pair. A
+feature-scoped Recovery boot and guest Undo path now pass QEMU acceptance, but
+the final partitioned release layout, authenticated slot manifests, and viable
+update acceptance remain incomplete, so M27 remains PARTIAL.
 
 ## Read-only VFS integrity-check slice
 
@@ -34,7 +35,48 @@ persistent-data read. Host tests prove valid nested volumes pass, malformed
 superblocks, accounting, directory records, inode bitmap bits, and orphan
 parent chains are rejected, and image bytes plus write/flush counters remain
 unchanged by successful and failed checks. This does not yet provide a
-separately selectable Recovery boot or its diagnostics/repair UI.
+general repair tool; Recovery now reuses the checker as described below.
+
+## Recovery boot and persistent Undo slice
+
+The feature-scoped UEFI menu offers System A, System B, and Recovery for three
+seconds, then preserves the prior automatic A/B policy. Recovery uses separate
+kernel and init payloads and remains bootable when both system-slot kernels in
+the acceptance image are intentionally malformed. Selecting Recovery bypasses
+`stage_update`, `begin_boot`, and `mark_boot_success`; the following automatic
+boot proves the pending System B trial is still at attempt 1.
+
+The Recovery init runs `Vfs::check_existing` before `mount_existing`, which
+does not format an unknown volume. Its bounded serial console provides
+`help`, `check`, `log`, `files`, `slots`, and explicit `undo` commands. Undo
+loads the existing two-copy NH16 archive, writes `UndoPending` before applying
+the inverse group, flushes the volume, and then writes `Undone`. The log command
+shows only the current kernel's bounded in-memory ring; corrupt volumes stay
+unmounted and are not repaired automatically.
+
+Fresh `./nagi m27` QEMU acceptance creates a real three-file M21/M22
+`file.move` transaction in the guest and records NH16/NAL1 Committed state. It
+then boots Recovery from an image with invalid System A and B kernels and
+issues the explicit Undo command. A subsequent guest restart verifies all
+files returned to their original names and the Activity Ledger records
+Undone. The Recovery boot journal remained unchanged, and the next automatic
+boot began System B trial attempt 1. Logs and the shared user-data disk are
+preserved in
+`out/evidence/m27-ab-rollback-1790740066889678000/`.
+
+The fixture also exposed an assumption that the checked user volume had exactly
+one file and one directory. The M27 checker now accepts additional valid user
+data while the M7 acceptance still verifies its persistent marker byte for
+byte. Recovery remains a bounded console, not a polished repair environment;
+historical boot-log retrieval, filesystem repair, authenticated update
+manifests, and the final GPT release layout remain open.
+
+The completion-sweep rerun after the init entry-point and CLI request refactors
+passed on 2026-09-30. It repeated three malformed-B rollbacks, healthy-B
+readiness promotion, Recovery with both system kernels invalid, Recovery Undo
+of the committed guest transaction, restart verification, and the untouched
+trial-1/B default boot. Evidence is in
+`out/evidence/m27-ab-rollback-1790740066889678000/`.
 
 ## Implemented
 
@@ -173,10 +215,10 @@ they do not establish firmware persistence or guest boot behavior.
 
 1. Extend the current core-check + first-desktop readiness signal to the full
    authenticated session readiness gate when login/authentication exists.
-2. Add a bootable Recovery Environment with the specified slot selection,
-   boot logs, important-file/history restore, advanced terminal, and basic
-   repair operations. The current read-only VFS checker is one diagnostic
-   building block; it does not repair filesystems.
+2. Extend Recovery beyond its current bounded console with persistent boot-log
+   retrieval, the remaining important-file/history restore operations, an
+   advanced terminal, and basic filesystem repair; the current checker is
+   intentionally read-only.
 3. Integrate the paired slots and separate user data into the final
    partitioned release layout, and validate a viable update alongside the
    intentionally malformed-slot rollback acceptance.

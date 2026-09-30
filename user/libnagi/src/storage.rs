@@ -223,6 +223,20 @@ pub struct Vfs<D> {
 }
 
 impl<D: BlockDevice> Vfs<D> {
+    /// Mount an existing Nagi VFS without formatting or initializing it.
+    /// This only validates the fixed superblock geometry; callers that need
+    /// an integrity guarantee must run `check_existing` first.
+    pub fn mount_existing(device: D) -> Result<Self, StorageError> {
+        let mut volume = Self { device };
+        let mut superblock = [0; BLOCK_SIZE];
+        volume.read_block(SUPERBLOCK_BLOCK, &mut superblock)?;
+        if read_u16(&superblock, 56) != EXT2_MAGIC {
+            return Err(StorageError::Corrupt);
+        }
+        validate_superblock(&superblock)?;
+        Ok(volume)
+    }
+
     pub fn mount_or_format(device: D) -> Result<(Self, bool), StorageError> {
         let mut volume = Self { device };
         let mut superblock = [0; BLOCK_SIZE];
@@ -1708,6 +1722,35 @@ mod tests {
                 flushes: 0,
             }
         }
+    }
+
+    #[test]
+    fn mount_existing_accepts_a_valid_volume_without_writes_or_flushes() {
+        let (mut volume, formatted) =
+            Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format test volume");
+        assert!(formatted);
+        let handle = volume.create(b"recovery").expect("create test file");
+        volume.write(handle, b"keep me").expect("write test file");
+        let device = volume.into_device();
+        let writes_before = device.writes;
+        let flushes_before = device.flushes;
+        let sectors_before = device.sectors;
+
+        let mut mounted = Vfs::mount_existing(device).expect("mount existing volume");
+        assert_eq!(mounted.open(b"recovery"), Ok(handle));
+        let device = mounted.into_device();
+        assert_eq!(device.writes, writes_before);
+        assert_eq!(device.flushes, flushes_before);
+        assert_eq!(device.sectors, sectors_before);
+    }
+
+    #[test]
+    fn mount_existing_rejects_an_unformatted_device_instead_of_formatting_it() {
+        let device = MemoryBlockDevice::new();
+        assert_eq!(
+            Vfs::mount_existing(device).err(),
+            Some(StorageError::Corrupt)
+        );
     }
 
     impl super::ReadOnlyBlockDevice for MemoryBlockDevice {
