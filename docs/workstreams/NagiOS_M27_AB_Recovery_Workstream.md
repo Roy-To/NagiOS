@@ -74,7 +74,9 @@ one file and one directory. The M27 checker now accepts additional valid user
 data while the M7 acceptance still verifies its persistent marker byte for
 byte. Recovery remains a bounded console, not a polished repair environment;
 historical boot-log retrieval, filesystem repair, authenticated update
-manifests, and the final GPT release layout remain open.
+manifests, and updater installation remain open. GPT release-layout slot
+selection and Recovery behavior are covered by the integration acceptance
+below.
 
 The completion-sweep rerun after the init entry-point and CLI request refactors
 passed on 2026-09-30. It repeated three malformed-B rollbacks, healthy-B

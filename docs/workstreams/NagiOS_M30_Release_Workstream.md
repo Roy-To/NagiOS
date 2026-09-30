@@ -137,9 +137,8 @@ or booted, and no release readiness claim is made.
 
 That historical failure occurred before the reference disk existed. Do not run
 `./nagi clean` to simulate a clean checkout: it removes preserved M19/M22
-disks and other acceptance outputs. The next steps are release preflight,
-assembly, and verification from a clean committed source revision and GPT
-System B/Recovery acceptance.
+disks and other acceptance outputs. The later clean-commit assembly and package
+acceptance are recorded below; the authenticated update path remains open.
 
 Run the focused tests with:
 
@@ -184,3 +183,28 @@ post-boot `verify` and `qemu-img check` passed on the untouched assembled
 package. The generated release manifest deliberately retains
 `m30_acceptance: NOT_EVALUATED`; QEMU evidence is a separate test record. GPT
 System B/Recovery/update acceptance and license/notice review remain open.
+
+## Clean committed release and package-copy acceptance — 2026-09-30
+
+After commit `144cc0d` was pushed, the prior generated qcow2 was preserved at
+`out/evidence/m30-clean-release-144cc0d/preexisting-artifact.qcow2`. A new
+blank reference image was built with `./nagi m30`. Its disposable copy passed
+System A selection, User Data ext2 format/write, and then a second boot with
+mount/read and `Nagi M7 acceptance PASS`. Logs and both qcow2 checks are under
+`out/evidence/m30-release-1790751471624505000/`; the pristine image SHA-256 is
+`461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43`.
+
+On the clean committed tree, `release.py preflight`, `assemble`, and `verify`
+all passed. The assembled package image was copied byte-for-byte to
+`out/evidence/m30-clean-release-144cc0d/release-package-qemu-copy.qcow2`; that
+copy booted twice, passed first-boot format/write and restart persistence, and
+changed its own SHA-256 to
+`7e3266b576f129dabe2848bfc1c76f0a52b6ee19c4ab49aac85bc65867437725`. The
+untouched package retained SHA-256
+`461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43`; final
+`release.py verify` and `qemu-img check` passed on it. The two package-copy
+serial logs are `release-package-first-boot-1.log` and
+`release-package-first-boot-2.log` in the same evidence directory. As intended,
+the generated release manifest leaves `m30_acceptance` as `NOT_EVALUATED`; the
+external QEMU record is separate. M30 remains PARTIAL for authenticated update
+installation, remaining M18–M29 gates, and binary license/notice review.
