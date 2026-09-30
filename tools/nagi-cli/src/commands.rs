@@ -101,6 +101,7 @@ pub enum Command {
     M18,
     M19,
     M22,
+    M25,
     M27,
     Test,
     Clean,
@@ -168,6 +169,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m18" => Command::M18,
         "m19" => Command::M19,
         "m22" => Command::M22,
+        "m25" => Command::M25,
         "m27" => Command::M27,
         "test" => Command::Test,
         "clean" => Command::Clean,
@@ -205,6 +207,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M18
         | Command::M19
         | Command::M22
+        | Command::M25
         | Command::M27
         | Command::Test
         | Command::Clean
@@ -292,6 +295,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M18 => execute_m18(root, probe),
         Command::M19 => execute_m19(root, probe),
         Command::M22 => execute_m22(root, probe),
+        Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
     }
 }
@@ -1619,6 +1623,141 @@ fn execute_m15(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let _ = fixture.kill();
     let _ = fixture.wait();
     result
+}
+
+fn execute_m25(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let image_result =
+        execute_image_with_features(root, Some("m25-voice-acceptance"), "nagi-0.1-m25-voice.img");
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let host = match resolve_qemu_host(root, probe, "m25") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: {error}")),
+    };
+    let image_path = artifacts.join("nagi-0.1-m25-voice.img");
+    let persistent_disk = artifacts.join("nagi-0.1-m25-voice-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-m25-voice-vars.fd");
+    let bootstrap_log = logs.join("m25-voice-bootstrap.log");
+    let voice_log = logs.join("m25-voice.log");
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: {error}")),
+    };
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m25: initialize OVMF variables: {error}"),
+        );
+    }
+    let timeout = Duration::from_secs(90);
+    if !had_persistent_disk {
+        let bootstrap_config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &bootstrap_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        let status = match run_qemu(&bootstrap_config) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m25: storage bootstrap: {error}"),
+                )
+            }
+        };
+        let serial = match fs::read_to_string(&bootstrap_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m25: cannot read {}: {error}", bootstrap_log.display()),
+                );
+            }
+        };
+        for marker in [NAGI_WRITE_MARKER, "Nagi M7 reboot required PASS"] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m25: storage bootstrap did not print `{marker}` (QEMU exit {status}; log {})",
+                        bootstrap_log.display()
+                    ),
+                );
+            }
+        }
+    }
+
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &voice_log,
+        acceptance_marker: "Nagi M25 voice orchestration PASS",
+        timeout,
+    };
+    let status = match run_qemu(&config) {
+        Ok(status) => status,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: QEMU: {error}")),
+    };
+    let serial = match fs::read_to_string(&voice_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m25: cannot read {}: {error}", voice_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi Kernel started",
+        "Nagi M2 acceptance PASS",
+        "Nagi M3 acceptance PASS",
+        "Nagi M4 acceptance PASS",
+        "Nagi M5 user process START",
+        "Nagi M6 acceptance PASS",
+        "Nagi M7 ext2 mount PASS",
+        "Nagi M7 persistent read PASS",
+        "Nagi M25 permission fail-closed PASS",
+        "Nagi M25 indicator-before-provider PASS",
+        "Nagi M25 bounded PCM forwarding PASS",
+        "Nagi M25 unavailable cleanup PASS",
+        "Nagi M25 voice orchestration PASS",
+    ] {
+        if !serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m25: guest did not print `{marker}` (QEMU exit {status}; log {})",
+                    voice_log.display()
+                ),
+            );
+        }
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M25 guest voice orchestration: bounded fixture PCM, permission/indicator ordering, unavailable-provider cleanup, and no-transcript behavior passed; no real audio device or STT model was used (log {})",
+            voice_log.display()
+        )],
+    }
 }
 
 fn execute_m15_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -3694,7 +3833,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, m27, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, m25, m27, test, clean, fmt, lint"
                 .into(),
         ],
     }

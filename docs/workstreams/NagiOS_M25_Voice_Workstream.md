@@ -79,8 +79,39 @@ RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
 /Users/tozawa/.cargo/bin/cargo fmt --manifest-path user/nagi-audio/Cargo.toml -- --check
 ```
 
-The verification commands used separate target directories. No init
-configuration or guest acceptance was changed.
+The host-library verification commands used separate target directories.
+
+## Guest orchestration fixture acceptance — 2026-09-30
+
+Added the opt-in `m25-voice-acceptance` feature to `nagi-init` and exposed it
+through `./nagi m25`. The guest checks permission denial before capture,
+indicator visibility before provider activation, bounded fixture PCM delivery,
+and provider-unavailable cleanup without creating a transcript. The command
+boots the guest with its persistent VFS disk and requires the M25 serial markers
+alongside the existing kernel, M2–M7, and M13 acceptance markers.
+
+Verification passed:
+
+- `./nagi m25` — QEMU printed all four M25 fixture checks and
+  `Nagi M25 voice orchestration PASS`. Logs are
+  `out/logs/m25-voice-bootstrap.log` and `out/logs/m25-voice.log`; the boot
+  image, data disk, EFI variables, and serial logs are preserved in
+  `out/evidence/m25-voice-fixture-20260930/`.
+- Target `nagi-init` build and `cargo clippy --no-deps` with
+  `m25-voice-acceptance` — passed. Existing warnings from the separately
+  compiled `relibc` and `nagi-posix` dependencies are not treated as new
+  M25 diagnostics.
+- `nagi-audio`: 8 tests passed; `nagi-cli`: 119 unit and 18 integration tests
+  passed. Changed-package rustfmt checks passed.
+- `./nagi m19` and `./nagi m22` QEMU regressions passed after the M25 changes.
+  Their pre-regression disk snapshots, EFI variables, and logs are preserved
+  in `out/evidence/pre-m25-regressions-20260930/`.
+
+This fixture acceptance does not use a real microphone or STT model and does
+not demonstrate authenticated user/session permission, speech recognition,
+text-to-speech, or command execution. QEMU on this host reports that it cannot
+open `virtio-sound.in`; the voice fixture intentionally verifies orchestration
+without relying on host audio.
 
 ## Remaining acceptance blockers
 
@@ -95,9 +126,10 @@ configuration or guest acceptance was changed.
 4. Add a local TTS provider behind the Speech API and implement playback.
 5. Add QEMU acceptance proving real guest microphone capture, spoken Japanese
    command handling (including launching Albert or a basic Nagi command),
-   failure behavior, and the visible consumer indicator. The current fixture
-   tests prove orchestration only; they do not claim device or speech-model
-   behavior.
+   failure behavior, and the visible consumer indicator. The new guest fixture
+   acceptance proves orchestration only; it does not claim device or
+   speech-model behavior.
 
-M25 remains `PARTIAL` until real Japanese STT, local TTS, the system indicator,
-and guest command acceptance are connected and verified.
+M25 remains `PARTIAL` until authenticated permission, real Japanese STT, local
+TTS, the system indicator, and real guest voice-command acceptance are
+connected and verified.

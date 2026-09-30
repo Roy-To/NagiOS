@@ -72,6 +72,8 @@ mod m16_package;
 mod m19_search;
 #[cfg(all(target_os = "nagi", feature = "m22-history"))]
 mod m22_history;
+#[cfg(all(target_os = "nagi", feature = "m25-voice-acceptance"))]
+mod m25_voice;
 #[cfg(all(
     target_os = "nagi",
     feature = "m12-network",
@@ -770,6 +772,36 @@ pub extern "C" fn _start(
         )
     ))]
     let _ = volume;
+    #[cfg(feature = "m25-voice-acceptance")]
+    {
+        if exit_code != 0 {
+            libnagi::exit(exit_code);
+        }
+        libnagi::console_write(static_message!(
+            NAGI_INIT_M5_SYSCALL_PASS,
+            M5_SYSCALL_PASS_LEN
+        ));
+        libnagi::console_write(static_message!(
+            NAGI_INIT_M5_ACCEPTANCE_PASS,
+            M5_ACCEPTANCE_PASS_LEN
+        ));
+        libnagi::console_write(static_message!(
+            NAGI_INIT_M6_ACCEPTANCE_PASS,
+            M6_ACCEPTANCE_PASS_LEN
+        ));
+        libnagi::console_write(static_message!(
+            NAGI_INIT_M7_ACCEPTANCE_PASS,
+            M7_ACCEPTANCE_PASS_LEN
+        ));
+        if !m25_voice::run() {
+            libnagi::console_write(b"Nagi M25 voice orchestration FAIL\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M25 voice orchestration PASS\r\n");
+        loop {
+            unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)) };
+        }
+    }
     #[cfg(all(feature = "m11-security", not(feature = "m12-network")))]
     {
         if exit_code != 0 {
@@ -952,7 +984,8 @@ pub extern "C" fn _start(
         feature = "m10-desktop",
         feature = "m11-security",
         feature = "m12-network",
-        feature = "m13-posix"
+        feature = "m13-posix",
+        feature = "m25-voice-acceptance"
     )))]
     libnagi::exit(exit_code)
 }

@@ -250,15 +250,18 @@ where
         let length = match result {
             Ok(length) if length <= transcript_capacity => length,
             Ok(_) | Err(SpeechProviderError::OutputTooSmall) => {
+                self.provider.cancel();
                 output.fill(0);
                 return Err(SpeechError::OutputTooSmall);
             }
             Err(error) => {
+                self.provider.cancel();
                 output.fill(0);
                 return Err(map_provider_error(error));
             }
         };
         if core::str::from_utf8(&output[..length]).is_err() {
+            self.provider.cancel();
             output.fill(0);
             return Err(SpeechError::InvalidTranscript);
         }
@@ -447,6 +450,7 @@ mod tests {
         );
         assert!(transcript.iter().all(|byte| *byte == 0));
         assert!(!indicator_active.get());
+        assert_eq!(service.provider.cancel_calls, 1);
         assert_eq!(service.capture_next_chunk(), Err(SpeechError::NotActive));
     }
 

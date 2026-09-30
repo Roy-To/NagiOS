@@ -105,9 +105,13 @@ QEMU acceptance remain. See
 **M25 evidence:** Added a bounded no-std push-to-talk coordinator with explicit
 permission and indicator ordering, PCM framing limits, provider-unavailability
 cleanup, and a target AudioService adapter. Eight `nagi-audio` tests,
-warnings-denied Clippy, formatting, and Nagi target compilation pass.
-Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and
-real guest voice acceptance remain. See
+warnings-denied Clippy, target `nagi-init` Clippy/build, and changed-package
+formatting pass. The new `./nagi m25` QEMU fixture acceptance passes its
+permission-denial, indicator-order, bounded-PCM, and unavailable-provider
+cleanup markers; 119 CLI unit tests and 18 integration tests pass. M19 and M22
+QEMU regressions also passed after these changes. The fixture uses no real
+microphone or STT model. Authenticated permission/UI wiring, whisper.cpp
+Japanese STT, local TTS, and real guest voice-command acceptance remain. See
 `docs/workstreams/NagiOS_M25_Voice_Workstream.md`.
 **M26 evidence:** Added deterministic role/capability/resource/provider-health
 model routing, strict manual override checks, and unavailable-provider
@@ -187,6 +191,12 @@ authentication: the bootstrap still has one shared-address-space init process
 and no trusted process-to-AppId/session binding. M18–M23 production service
 identity remains an open shared prerequisite; see the M19 workstream and
 ADR-0002.
+The M25 guest orchestration fixture also passed `./nagi m25`: denied permission,
+indicator-before-provider ordering, bounded PCM forwarding, and cleanup after
+an unavailable provider were verified on QEMU without a real audio device or
+STT model. M19 and M22 QEMU regressions passed after the M25 changes; prior
+guest disks, EFI variables, and logs are preserved under
+`out/evidence/pre-m25-regressions-20260930/`.
 **Next action:** Continue M27 by connecting a trustworthy system-readiness
 signal to `mark_boot_success`, then implement and test the bootable Recovery
 Environment and integrate the slots into the final partitioned release image.
@@ -2274,7 +2284,7 @@ Use only these statuses:
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh-disk QEMU passed an M21 guest `file.move` plan with three-object NH16 and separate NAL1 Activity Ledger records: boot 1 Committed, boot 2 reverse-order Undo with `UndoPending`/`Undone`, boot 3 restored-file and ledger verification. Fourteen History/ledger tests, 24 AI tests, warnings-denied Clippy, changed-package formatting, Nagi target build, CLI/search regressions, and QEMU acceptance pass. Plan/policy remain fixture-only; real inference, authenticated production authority, general production move actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
 | M24 | Embedding / Semantic AI | PARTIAL | Added bounded multilingual UTF-8 chunking, embedding/provider and vector-index contracts, and visibility-filtered `SearchService` semantic indexing/query orchestration. Twenty-three `nagi-search` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. A real embedding model, durable vector index, producer synchronization, hybrid ranking/explanations, and natural-language QEMU acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
-| M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator with explicit permission/indicator ordering, PCM framing limits, provider unavailability cleanup, and a target AudioService adapter. Eight `nagi-audio` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and real guest voice acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
+| M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator with explicit permission/indicator ordering, PCM framing limits, provider unavailability cleanup, and a target AudioService adapter. Eight `nagi-audio` tests, 119 CLI unit tests, 18 CLI integration tests, warnings-denied host/target Clippy, changed-package formatting, and Nagi target build pass. `./nagi m25` QEMU fixture acceptance verifies denial, indicator ordering, bounded PCM forwarding, and unavailable-provider cleanup; it uses no real microphone or STT model. M19 and M22 QEMU regressions pass. Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and real guest voice-command acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
 | M27 | A/B / Recovery | PARTIAL | Added the bounded A/B state machine and checksummed two-copy journal, backed by two Nagi-namespaced UEFI non-volatile variables. Feature-scoped loader payload selection and fresh QEMU acceptance rejected malformed System B on attempts 1–3, rolled back to A, and read preserved user data on boot 4 and confirmed-A boot 5. A bounded read-only VFS integrity checker now validates the paired fixture's persistent-data volume before mount; 34 `libnagi` unit and 2 integration tests pass, including corrupt parent-chain rejection. Ten loader tests, 117 CLI unit tests, 18 CLI integration tests, warnings-denied Clippy, formatting, and the feature-enabled UEFI release build pass. A trustworthy readiness signal, Recovery Environment, and final partitioned release layout with viable update acceptance remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | After preserving existing outputs and disks under `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`, a fresh-disk M22 run verified separate NAL1 commit/Undo/restart evidence and a real one-repetition M28 run passed M19 ObjectId/Search plus all three M22 boots with the Activity Ledger marker. Shell syntax, self-test, and QEMU gate passed. Desktop/model/audio reference load, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
