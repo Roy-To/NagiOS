@@ -7,6 +7,7 @@ Usage: m28_integration_stress.sh [--dry-run|--run|--self-test]
 
 NAGI_M28_REPEAT_COUNT selects 1 through 5 repetitions (default: 2).
 --dry-run validates existing M19/M22 serial logs and reports write collisions.
+--run also repeats the M27 GPT A/B rollback, Recovery, and promotion gate.
 --run refuses to start if a named image, OVMF vars copy, or serial log exists.
 --self-test checks repeat-count and serial-marker validation without QEMU.
 EOF
@@ -76,6 +77,13 @@ validate_m22_log() {
         'Nagi M13 acceptance PASS'
 }
 
+validate_m27_output() {
+    case "$1" in
+        *'PASS M27 A/B and Recovery:'*) return 0 ;;
+        *) printf '%s\n' 'missing M27 A/B and Recovery acceptance result' >&2; return 1 ;;
+    esac
+}
+
 print_unmeasured_workload() {
     cat <<'EOF'
 M28 reference-load items not measured by this Search/History slice:
@@ -130,6 +138,11 @@ Nagi M13 acceptance PASS
 EOF
     validate_m19_log "$temporary_dir/m19.log" || fail 'valid M19 fixture rejected'
     validate_m22_log "$temporary_dir/m22.log" || fail 'valid M22 fixture rejected'
+    validate_m27_output 'PASS M27 A/B and Recovery: GPT slot rollback and promotion passed' \
+        || fail 'valid M27 acceptance output rejected'
+    if validate_m27_output 'FAIL M27: guest did not reach Recovery' >/dev/null 2>&1; then
+        fail 'M27 failure output accepted as a completed gate'
+    fi
     printf 'Nagi M19 guest search persistence PASS\n' >"$temporary_dir/incomplete.log"
     if validate_m19_log "$temporary_dir/incomplete.log" >/dev/null 2>&1; then
         fail 'incomplete M19 log accepted'
@@ -205,7 +218,7 @@ if [ "$mode" = --dry-run ]; then
     printf 'Planned real gate invocations (not executed):\n'
     iteration=1
     while [ "$iteration" -le "$repeat_count" ]; do
-        printf '  %s: ./nagi m19, then ./nagi m22\n' "$iteration"
+        printf '  %s: ./nagi m19, ./nagi m22, then ./nagi m27\n' "$iteration"
         iteration=$((iteration + 1))
     done
     printf 'Named outputs that --run would overwrite if present:\n'
@@ -218,6 +231,7 @@ if [ "$mode" = --dry-run ]; then
         out/logs/m19-vfs-objectid-restart.log \
         out/artifacts/nagi-0.1-m22-history.img \
         out/artifacts/nagi-0.1-m22-history-vars.fd \
+        out/logs/m22-history-bootstrap.log \
         out/logs/m22-history-boot-1.log \
         out/logs/m22-history-boot-2.log \
         out/logs/m22-history-boot-3.log; do
@@ -245,6 +259,7 @@ for output in \
     out/logs/m19-vfs-objectid-restart.log \
     out/artifacts/nagi-0.1-m22-history.img \
     out/artifacts/nagi-0.1-m22-history-vars.fd \
+    out/logs/m22-history-bootstrap.log \
     out/logs/m22-history-boot-1.log \
     out/logs/m22-history-boot-2.log \
     out/logs/m22-history-boot-3.log; do
@@ -272,6 +287,7 @@ archive_iteration_outputs() {
         "$m19_log" \
         out/artifacts/nagi-0.1-m22-history.img \
         out/artifacts/nagi-0.1-m22-history-vars.fd \
+        out/logs/m22-history-bootstrap.log \
         out/logs/m22-history-boot-1.log \
         out/logs/m22-history-boot-2.log \
         "$m22_log"; do
@@ -303,6 +319,21 @@ while [ "$iteration" -le "$repeat_count" ]; do
     ./nagi m22 || fail "./nagi m22 failed on repetition $iteration"
     validate_m22_log "$m22_log" || fail "M22 final serial gate failed on repetition $iteration"
     printf 'PASS M28 repetition %s M22 serial gate: %s\n' "$iteration" "$m22_log"
+
+    printf 'M28 repetition %s/%s: running ./nagi m27\n' "$iteration" "$repeat_count"
+    if m27_output=$(./nagi m27 2>&1); then
+        :
+    else
+        printf '%s\n' "$m27_output" >&2
+        fail "./nagi m27 failed on repetition $iteration"
+    fi
+    if ! validate_m27_output "$m27_output"; then
+        printf '%s\n' "$m27_output" >&2
+        fail "M27 A/B and Recovery acceptance output failed on repetition $iteration"
+    fi
+    printf '%s\n' "$m27_output"
+    printf 'PASS M28 repetition %s M27 GPT A/B and Recovery gate\n' "$iteration"
+
     if [ "$iteration" -lt "$repeat_count" ]; then
         archive_iteration_outputs "$iteration"
     fi

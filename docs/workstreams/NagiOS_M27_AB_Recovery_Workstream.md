@@ -288,3 +288,20 @@ promotion slice adds a positive guest signal for the current M10 gate. GPT
 partition selection is now covered by the separate integration acceptance
 above. Authenticated slot manifests and the full login readiness gate remain
 open.
+
+## Completion Sweep GPT rerun — 2026-10-01
+
+After the M24 completion-sweep checkpoint, `./nagi m27` passed again with the
+repository's pinned nightly on the ARM64 host. The run repeated three malformed
+System B trials and rollback to persistent System A, then exercised GPT
+Recovery without journal mutation, the post-Recovery rollback/confirmed-A
+boots, a healthy System B readiness promotion across Recovery, and confirmed
+System B. The legacy A/B + Recovery path and its guest M22 Undo/restart checks
+also passed. All outputs are in
+`out/evidence/m27-ab-rollback-1790782251041169000/`.
+
+The first invocation exposed a host PATH issue: Homebrew Cargo was ahead of the
+rustup shim and tried to link the host CLI for x86_64. The M0 POSIX launcher
+was corrected to select Cargo and rustc from the rustup shim directory; its
+mocked toolchain-selection regression and full image acceptance passed. This
+is a host launcher correction, not a change to the M27 boot policy.

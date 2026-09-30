@@ -31,9 +31,15 @@ desktop shell or complete Japanese localization.
 
 ## Verification
 
-- With the rustup shims in `~/.cargo/bin` before the Homebrew toolchain,
-  `./nagi --help` passed on the current macOS host and printed the actual
-  supported command list.
+- The POSIX root launcher now prefers Cargo beside the discovered rustup
+  executable and prepends that directory so Cargo also resolves its matching
+  rustc shim. This avoids an x86_64 Homebrew Cargo/rustc pair shadowing the
+  repository-pinned ARM64 nightly on this macOS host. The M0 acceptance uses
+  fake PATH entries to verify both shim selection and the rustc lookup.
+- `./nagi --help` printed the supported command list and `./nagi doctor`
+  reported 12/12 checks with the original PATH. The complete
+  `sh tests/acceptance/m0_launcher.sh` acceptance also passed, including its
+  image build.
 - A local Markdown-link audit checked 47 relative links across the root
   README, contribution guide, roadmap, Developer Preview guide, SDK README,
   and this workstream; all resolve.
@@ -67,6 +73,17 @@ desktop shell or complete Japanese localization.
   local macOS host is AArch64 and cannot compile the kernel's x86 inline
   assembly as a native host test. The real x86-64 guest acceptance above
   exercises the 1280×800 full-scanout path.
+
+## POSIX launcher toolchain selection — 2026-10-01
+
+The standard launcher initially selected `/usr/local/bin/cargo` from PATH,
+which attempted to link the CLI for x86_64 on an ARM64-only Command Line Tools
+installation. Selecting only the rustup Cargo proxy still allowed Cargo to
+find the Homebrew rustc by name. The launcher now selects Cargo next to rustup
+and places that shim directory first in PATH, keeping Cargo and rustc on the
+same pinned host toolchain. The mocked M0 regression failed before the fix and
+passed after it; the full M0 launcher/image acceptance, `./nagi doctor`
+(12/12), and `./nagi --help` passed after the change.
 
 ## Remaining M29 work
 

@@ -3,6 +3,18 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cargo_path=$(command -v cargo || true)
+rustup_path=$(command -v rustup || true)
+if [ -n "$rustup_path" ]; then
+    rustup_bin_dir=$(dirname "$rustup_path")
+    for rustup_cargo in "$rustup_bin_dir/cargo" "$rustup_bin_dir/cargo.exe"; do
+        if [ -x "$rustup_cargo" ]; then
+            cargo_path=$rustup_cargo
+            PATH="$rustup_bin_dir:$PATH"
+            export PATH
+            break
+        fi
+    done
+fi
 if [ -z "$cargo_path" ]; then
     printf '%s\n' 'FAIL cannot start nagi: Cargo was not found; install rust-toolchain.toml' >&2
     exit 4

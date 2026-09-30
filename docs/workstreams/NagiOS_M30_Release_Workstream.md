@@ -211,3 +211,18 @@ serial logs are `release-package-first-boot-1.log` and
 the generated release manifest leaves `m30_acceptance` as `NOT_EVALUATED`; the
 external QEMU record is separate. M30 remains PARTIAL for authenticated update
 installation, remaining M18–M29 gates, and binary license/notice review.
+
+## Completion Sweep reference-disk rerun — 2026-10-01
+
+On source `16c0b37`, `./nagi m30` accepted the existing validated 64 GiB GPT
+qcow2. The disposable QEMU copy passed System A selection, first-boot User Data
+format/write, and persistent read after restart. Both the untouched release
+input and the test copy passed `qemu-img check`. The source image retained SHA-
+256 `461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43`; the
+copy's SHA-256 changed as expected after guest writes. Evidence is in
+`out/evidence/m30-release-1790782378594368000/`.
+
+This rerun used the already-built release input; it did not rebuild the image
+or repeat clean-tree preflight/assembly. Those separate release checks remain
+the evidence recorded above. M30 remains PARTIAL for authenticated updates,
+remaining M18–M29 acceptance, and binary license/notice review.

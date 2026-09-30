@@ -195,3 +195,26 @@ NAGI_M28_REPEAT_COUNT=2 ./tests/acceptance/m28_integration_stress.sh --run
 The final command proceeds only when the required persistent disks exist and
 the named generated outputs are absent. M28 remains PARTIAL until the combined
 reference workload and its stability criteria are exercised and recorded.
+
+## GPT Recovery integration repetition — 2026-10-01
+
+The M28 runner now includes `./nagi m27` after the Search and grouped-Undo
+gates in every repetition. It requires the CLI's `PASS M27 A/B and Recovery:`
+result and its self-test rejects missing/failure output. The dry-run reports
+the three-gate sequence and the collision guard now includes the M22 bootstrap
+log as well as the guest boot logs, images, and OVMF variables.
+
+Before the real run, the prior M19/M22 fixed-name outputs and both current
+User Data disks were preserved in
+`out/evidence/pre-m28-m27-gpt-repeat-20261001/`. Then
+`NAGI_M28_REPEAT_COUNT=1 sh tests/acceptance/m28_integration_stress.sh --run`
+passed M19 live VFS/Search/semantic-index persistence, M22 three-boot grouped
+Undo and Activity Ledger restore, and M27 GPT A/B rollback/Recovery/healthy-B
+promotion. The available M19/M22 generated artifacts and serial logs are
+copied with verified hashes under
+`out/evidence/m28-gpt-recovery-integration-20261001/`; M27's full QEMU logs
+remain in `out/evidence/m27-ab-rollback-1790783216496413000/`.
+
+The runner self-test, dry-run, and shell syntax check pass. M28 remains PARTIAL:
+this integrated repetition does not include its desktop, multi-tab browser,
+real Granite, audio-pressure, OOM, fairness, or leak-soak workload.
