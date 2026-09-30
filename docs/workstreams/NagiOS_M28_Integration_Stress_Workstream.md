@@ -172,6 +172,18 @@ self-test, and dry-run passed again against those latest logs and current GPT
 User Data images. The dry-run remains a marker/overwrite preflight only and
 does not claim the combined M28 desktop/model/audio stress criteria.
 
+## M24 persistent semantic-index continuation — 2026-10-01
+
+The Completion Sweep added M24 semantic-index ready and persistence markers to
+the M28 M19/M22 log gates and self-test fixtures. `sh -n`, `--self-test`, and
+`--dry-run` pass against the updated M19 restart log and M22 third-boot log.
+The underlying `./nagi m19` run passed two boots, and `./nagi m22` passed three
+boots; the latter's third boot verified both the semantic index and the
+existing NH16/NAL1 Undo state. This run refreshed the guest Search/History
+slice only and did not execute M28's combined reference workload. Logs,
+artifacts, and disks are preserved under
+`out/evidence/m24-persistent-semantic-index-20261001/`.
+
 ## Commands
 
 ```sh

@@ -3726,6 +3726,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi M7 VirtIO Block PASS",
             "Nagi M13 Rust PAL PASS",
             "Nagi M13 C POSIX PASS",
+            "Nagi M24 semantic index ready PASS",
             "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M19 acceptance PASS",
@@ -3741,19 +3742,22 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         }
-        if serial.contains("Nagi M19 previous-boot snapshot PASS") {
+        let metadata_restored = serial.contains("Nagi M19 previous-boot snapshot PASS");
+        let semantic_restored = serial.contains("Nagi M24 semantic index persistence PASS");
+        if metadata_restored && semantic_restored {
             verified_restart = true;
             break;
         }
-        if boot_index == 0 && serial.contains("Nagi M19 initial snapshot/reopen PASS") {
+        if boot_index == 0
+            && (metadata_restored || serial.contains("Nagi M19 initial snapshot/reopen PASS"))
+        {
             continue;
         }
-        let expected_generation = "Nagi M19 previous-boot snapshot PASS";
-        if !serial.contains(expected_generation) {
+        if !metadata_restored || !semantic_restored {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m19: guest did not print `{expected_generation}` (QEMU exit {final_status}; log {})",
+                    "m19: guest did not verify M19 metadata and M24 semantic-index persistence after QEMU restart (QEMU exit {final_status}; log {})",
                     log_path.display()
                 ),
             );
@@ -3894,6 +3898,7 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi M3 acceptance PASS",
             "Nagi M7 VirtIO Block PASS",
             "Nagi M13 C POSIX PASS",
+            "Nagi M24 semantic index ready PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M13 acceptance PASS",
         ] {
@@ -3906,6 +3911,15 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     ),
                 );
             }
+        }
+        if boot_index == 2 && !serial.contains("Nagi M24 semantic index persistence PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: final restart did not verify the durable M24 semantic index (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
         }
         if boot_index == 0
             && !had_persistent_disk

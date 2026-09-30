@@ -16,12 +16,14 @@ use nagi_model::{AppId, AppSessionId, NodeId, ObjectId, WorkspaceId};
 use nagi_model_manager::CapabilityId;
 use nagi_search::{
     adapters::{FilesProducerAdapter, ProducerObject},
-    AccessContext, GuestSnapshotBackend, MetadataRecord, ObjectKind, SearchQuery, SearchService,
-    SnapshotFile, SnapshotFileStore, SnapshotSlot, VisibilityFilter, VisibilityScope, Workspace,
-    WorkspaceSession, GUEST_FILE_BYTES,
+    AccessContext, Embedding, EmbeddingProvider, EmbeddingPurpose, EmbeddingSpaceId,
+    GuestSnapshotBackend, IndexedChunk, MetadataRecord, ObjectKind, PersistentVectorIndex,
+    SearchQuery, SearchService, SemanticError, SnapshotFile, SnapshotFileStore, SnapshotSlot,
+    VectorIndex, VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession, GUEST_FILE_BYTES,
 };
 
 const STORE_ROOT: &[u8] = b"/var/lib/nagi-search";
+const SEMANTIC_STORE_ROOT: &[u8] = b"/var/lib/nagi-search-semantic";
 const OBJECT_ID: ObjectId = ObjectId(0x4e41_4749_4d19_0001);
 const WORKSPACE_ID: WorkspaceId = WorkspaceId(0x4e41_4749_4d19_0002);
 const APP_ID: AppId = AppId(0x4e41_4749_4d19_0003);
@@ -36,36 +38,102 @@ const LIVE_FILE_SOURCE: &[u8] = b"nagi-m19-live-source.txt";
 const LIVE_FILE_RENAMED: &[u8] = b"nagi-m19-live-file.txt";
 const LIVE_FILE_CONTENT: &[u8] = b"A real guest VFS file indexed by Nagi Search.\n";
 const MAX_M19_ROOT_ENTRIES: usize = 64;
+const M24_FIXTURE_HIDDEN_OBJECT: ObjectId = ObjectId(0x4e41_4749_4d24_ffff);
+const M24_FIXTURE_SPACE: EmbeddingSpaceId = EmbeddingSpaceId([0x24; 32]);
 
 const _: [(); BLOCK_SIZE] = [(); GUEST_FILE_BYTES];
 
 struct VfsSnapshotFiles<D: BlockDevice> {
     volume: Vfs<D>,
+    namespace: SnapshotNamespace,
+}
+
+#[derive(Clone, Copy)]
+enum SnapshotNamespace {
+    Metadata,
+    Semantic,
 }
 
 impl<D: BlockDevice> VfsSnapshotFiles<D> {
-    fn new(mut volume: Vfs<D>) -> Result<Self, nagi_search::BackendError> {
+    fn new(
+        mut volume: Vfs<D>,
+        namespace: SnapshotNamespace,
+    ) -> Result<Self, nagi_search::BackendError> {
+        let root = match namespace {
+            SnapshotNamespace::Metadata => STORE_ROOT,
+            SnapshotNamespace::Semantic => SEMANTIC_STORE_ROOT,
+        };
         volume
             .ensure_directory_path(b"/var")
             .and_then(|()| volume.ensure_directory_path(b"/var/lib"))
-            .and_then(|()| volume.ensure_directory_path(STORE_ROOT))
+            .and_then(|()| volume.ensure_directory_path(root))
             .map_err(|_| nagi_search::BackendError::Io)?;
-        Ok(Self { volume })
+        Ok(Self { volume, namespace })
     }
 
-    fn path(slot: SnapshotSlot, file: SnapshotFile) -> Option<&'static [u8]> {
-        match (slot, file) {
-            (SnapshotSlot::A, SnapshotFile::Manifest) => Some(b"/var/lib/nagi-search/am"),
-            (SnapshotSlot::A, SnapshotFile::Chunk(0)) => Some(b"/var/lib/nagi-search/a0"),
-            (SnapshotSlot::A, SnapshotFile::Chunk(1)) => Some(b"/var/lib/nagi-search/a1"),
-            (SnapshotSlot::A, SnapshotFile::Chunk(2)) => Some(b"/var/lib/nagi-search/a2"),
-            (SnapshotSlot::A, SnapshotFile::Chunk(3)) => Some(b"/var/lib/nagi-search/a3"),
-            (SnapshotSlot::B, SnapshotFile::Manifest) => Some(b"/var/lib/nagi-search/bm"),
-            (SnapshotSlot::B, SnapshotFile::Chunk(0)) => Some(b"/var/lib/nagi-search/b0"),
-            (SnapshotSlot::B, SnapshotFile::Chunk(1)) => Some(b"/var/lib/nagi-search/b1"),
-            (SnapshotSlot::B, SnapshotFile::Chunk(2)) => Some(b"/var/lib/nagi-search/b2"),
-            (SnapshotSlot::B, SnapshotFile::Chunk(3)) => Some(b"/var/lib/nagi-search/b3"),
-            (_, SnapshotFile::Chunk(_)) => None,
+    fn path(&self, slot: SnapshotSlot, file: SnapshotFile) -> Option<&'static [u8]> {
+        match (self.namespace, slot, file) {
+            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Manifest) => {
+                Some(b"/var/lib/nagi-search/am")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Chunk(0)) => {
+                Some(b"/var/lib/nagi-search/a0")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Chunk(1)) => {
+                Some(b"/var/lib/nagi-search/a1")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Chunk(2)) => {
+                Some(b"/var/lib/nagi-search/a2")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Chunk(3)) => {
+                Some(b"/var/lib/nagi-search/a3")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Manifest) => {
+                Some(b"/var/lib/nagi-search/bm")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Chunk(0)) => {
+                Some(b"/var/lib/nagi-search/b0")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Chunk(1)) => {
+                Some(b"/var/lib/nagi-search/b1")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Chunk(2)) => {
+                Some(b"/var/lib/nagi-search/b2")
+            }
+            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Chunk(3)) => {
+                Some(b"/var/lib/nagi-search/b3")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Manifest) => {
+                Some(b"/var/lib/nagi-search-semantic/am")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Chunk(0)) => {
+                Some(b"/var/lib/nagi-search-semantic/a0")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Chunk(1)) => {
+                Some(b"/var/lib/nagi-search-semantic/a1")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Chunk(2)) => {
+                Some(b"/var/lib/nagi-search-semantic/a2")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Chunk(3)) => {
+                Some(b"/var/lib/nagi-search-semantic/a3")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Manifest) => {
+                Some(b"/var/lib/nagi-search-semantic/bm")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Chunk(0)) => {
+                Some(b"/var/lib/nagi-search-semantic/b0")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Chunk(1)) => {
+                Some(b"/var/lib/nagi-search-semantic/b1")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Chunk(2)) => {
+                Some(b"/var/lib/nagi-search-semantic/b2")
+            }
+            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Chunk(3)) => {
+                Some(b"/var/lib/nagi-search-semantic/b3")
+            }
+            (_, _, SnapshotFile::Chunk(_)) => None,
         }
     }
 }
@@ -77,7 +145,7 @@ impl<D: BlockDevice> SnapshotFileStore for VfsSnapshotFiles<D> {
         file: SnapshotFile,
         buffer: &mut [u8; GUEST_FILE_BYTES],
     ) -> Result<Option<usize>, nagi_search::BackendError> {
-        let path = Self::path(slot, file).ok_or(nagi_search::BackendError::Io)?;
+        let path = self.path(slot, file).ok_or(nagi_search::BackendError::Io)?;
         let handle = match self.volume.open_path(path) {
             Ok(handle) => handle,
             Err(StorageError::NotFound) => return Ok(None),
@@ -96,7 +164,7 @@ impl<D: BlockDevice> SnapshotFileStore for VfsSnapshotFiles<D> {
         file: SnapshotFile,
         bytes: &[u8],
     ) -> Result<(), nagi_search::BackendError> {
-        let path = Self::path(slot, file).ok_or(nagi_search::BackendError::Io)?;
+        let path = self.path(slot, file).ok_or(nagi_search::BackendError::Io)?;
         let handle = match self.volume.open_path(path) {
             Ok(handle) => handle,
             Err(StorageError::NotFound) => self
@@ -118,7 +186,7 @@ impl<D: BlockDevice> SnapshotFileStore for VfsSnapshotFiles<D> {
         slot: SnapshotSlot,
         file: SnapshotFile,
     ) -> Result<(), nagi_search::BackendError> {
-        let path = Self::path(slot, file).ok_or(nagi_search::BackendError::Io)?;
+        let path = self.path(slot, file).ok_or(nagi_search::BackendError::Io)?;
         match self.volume.remove_path(path) {
             Ok(()) | Err(StorageError::NotFound) => Ok(()),
             Err(_) => Err(nagi_search::BackendError::Io),
@@ -170,6 +238,8 @@ type M19SearchService = SearchService<
     GuestSnapshotBackend<VfsSnapshotFiles<SyscallBlockDevice>>,
     M19AcceptanceVisibility,
 >;
+type M24SemanticIndex =
+    PersistentVectorIndex<GuestSnapshotBackend<VfsSnapshotFiles<SyscallBlockDevice>>>;
 
 struct M19ActionPolicy {
     live_file: ObjectId,
@@ -322,8 +392,157 @@ fn open_volume(block_capability: u64) -> Result<Vfs<SyscallBlockDevice>, Storage
 fn open_search(block_capability: u64) -> Result<M19SearchService, nagi_search::MetadataStoreError> {
     let volume = open_volume(block_capability)
         .map_err(|_| nagi_search::MetadataStoreError::Backend(nagi_search::BackendError::Io))?;
-    let files = VfsSnapshotFiles::new(volume).map_err(nagi_search::MetadataStoreError::Backend)?;
+    let files = VfsSnapshotFiles::new(volume, SnapshotNamespace::Metadata)
+        .map_err(nagi_search::MetadataStoreError::Backend)?;
     nagi_search::SearchService::open(GuestSnapshotBackend::new(files), M19AcceptanceVisibility)
+}
+
+fn open_semantic_index(
+    block_capability: u64,
+) -> Result<M24SemanticIndex, nagi_search::PersistentVectorIndexError> {
+    let volume = open_volume(block_capability).map_err(|_| {
+        nagi_search::PersistentVectorIndexError::Backend(nagi_search::BackendError::Io)
+    })?;
+    let files = VfsSnapshotFiles::new(volume, SnapshotNamespace::Semantic)
+        .map_err(nagi_search::PersistentVectorIndexError::Backend)?;
+    PersistentVectorIndex::open(GuestSnapshotBackend::new(files))
+}
+
+/// Deterministic test provider for guest persistence and visibility wiring.
+/// It is deliberately not an embedding model or natural-language provider.
+struct M24FixtureEmbeddingProvider;
+
+impl EmbeddingProvider for M24FixtureEmbeddingProvider {
+    fn embed(&self, _purpose: EmbeddingPurpose, text: &str) -> Result<Embedding, SemanticError> {
+        let values = if text.contains("Servo") || text.contains("browser") {
+            alloc::vec![1.0, 0.0]
+        } else {
+            alloc::vec![0.0, 1.0]
+        };
+        Embedding::try_from_values_in_space(values, M24_FIXTURE_SPACE)
+    }
+}
+
+fn matches_m24_fixture(hits: &[nagi_search::SemanticHit], live_file: ObjectId) -> bool {
+    hits.len() == 2
+        && hits[0].record.object_id == OBJECT_ID
+        && hits[0].similarity > 0.99
+        && hits[1].record.object_id == live_file
+        && hits[1].similarity < 0.01
+}
+
+fn run_m24_semantic_fixture(
+    service: &M19SearchService,
+    block_capability: u64,
+    live_file: ObjectId,
+) -> bool {
+    libnagi::console_write(b"Nagi M24 trace semantic index start\r\n");
+    let mut index = match open_semantic_index(block_capability) {
+        Ok(index) => index,
+        Err(_) => {
+            libnagi::console_write(b"Nagi M24 trace semantic index open FAIL\r\n");
+            return false;
+        }
+    };
+    libnagi::console_write(b"Nagi M24 trace semantic index opened\r\n");
+    let provider = M24FixtureEmbeddingProvider;
+    let query = "The Servo article I looked at yesterday";
+    let restored = match service.semantic_search(ACCESS, query, &provider, &index, 2) {
+        Ok(hits) => matches_m24_fixture(&hits, live_file),
+        Err(_) => {
+            libnagi::console_write(b"Nagi M24 trace initial semantic query FAIL\r\n");
+            false
+        }
+    };
+    if restored {
+        libnagi::console_write(b"Nagi M24 trace semantic index restored\r\n");
+    }
+
+    if service
+        .index_semantic_text(
+            ACCESS,
+            OBJECT_ID,
+            "The Servo browser article explains the rendering engine.",
+            &provider,
+            &mut index,
+        )
+        .is_err()
+    {
+        libnagi::console_write(b"Nagi M24 trace first passage index FAIL\r\n");
+        return false;
+    }
+    libnagi::console_write(b"Nagi M24 trace first passage indexed\r\n");
+    if service
+        .index_semantic_text(
+            ACCESS,
+            live_file,
+            "An administrative memo about office scheduling and invoices.",
+            &provider,
+            &mut index,
+        )
+        .is_err()
+    {
+        libnagi::console_write(b"Nagi M24 trace second passage index FAIL\r\n");
+        return false;
+    }
+    libnagi::console_write(b"Nagi M24 trace second passage indexed\r\n");
+
+    // Seed a high-scoring index entry without visible metadata. The real
+    // PersistentVectorIndex must exclude it using SearchService's allowlist.
+    let hidden_text = "Servo hidden passage";
+    let hidden_chunks = match nagi_search::chunk_text(M24_FIXTURE_HIDDEN_OBJECT, hidden_text) {
+        Ok(chunks) => chunks,
+        Err(_) => {
+            libnagi::console_write(b"Nagi M24 trace hidden chunk FAIL\r\n");
+            return false;
+        }
+    };
+    let Some(hidden_chunk) = hidden_chunks.into_iter().next() else {
+        libnagi::console_write(b"Nagi M24 trace hidden chunk missing\r\n");
+        return false;
+    };
+    let hidden_embedding = match provider.embed(EmbeddingPurpose::Passage, &hidden_chunk.text) {
+        Ok(embedding) => embedding,
+        Err(_) => {
+            libnagi::console_write(b"Nagi M24 trace hidden embedding FAIL\r\n");
+            return false;
+        }
+    };
+    if index
+        .replace_object(
+            M24_FIXTURE_HIDDEN_OBJECT,
+            &[IndexedChunk {
+                chunk: hidden_chunk,
+                embedding: hidden_embedding,
+            }],
+        )
+        .is_err()
+    {
+        libnagi::console_write(b"Nagi M24 trace hidden index write FAIL\r\n");
+        return false;
+    }
+    libnagi::console_write(b"Nagi M24 trace hidden passage indexed\r\n");
+
+    let hits = match service.semantic_search(ACCESS, query, &provider, &index, 2) {
+        Ok(hits) => hits,
+        Err(_) => {
+            libnagi::console_write(b"Nagi M24 trace semantic query FAIL\r\n");
+            return false;
+        }
+    };
+    let passed = matches_m24_fixture(&hits, live_file)
+        && !hits
+            .iter()
+            .any(|hit| hit.record.object_id == M24_FIXTURE_HIDDEN_OBJECT);
+    if passed {
+        libnagi::console_write(b"Nagi M24 semantic index ready PASS\r\n");
+        if restored {
+            libnagi::console_write(b"Nagi M24 semantic index persistence PASS\r\n");
+        }
+    } else {
+        libnagi::console_write(b"Nagi M24 trace semantic result mismatch\r\n");
+    }
+    passed
 }
 
 fn fixture_file(volume: &mut Vfs<SyscallBlockDevice>) -> Option<(FileHandle, &'static [u8])> {
@@ -623,8 +842,11 @@ pub fn run(block_capability: u64) -> bool {
                 .get(FILE_INODE_ATTRIBUTE)
                 == Some(&file_metadata.inode.to_string())
     });
+    let semantic_passed =
+        run_m24_semantic_fixture(&service, block_capability, object_id_after_rename);
     let action_passed = run_file_search_action(service, object_id_after_rename);
     let passed = action_passed
+        && semantic_passed
         && file_passed
         && object_id_before_rename == object_id_after_restart
         && response.objects.len() == 1

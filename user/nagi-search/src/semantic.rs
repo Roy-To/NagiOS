@@ -25,6 +25,8 @@ pub enum SemanticError {
     InvalidChunkSize,
     TooManyChunks,
     InvalidEmbedding,
+    InvalidEmbeddingSpace,
+    EmbeddingSpaceMismatch,
     DimensionMismatch,
     InvalidIndexResult,
     InvalidLimit,
@@ -40,15 +42,38 @@ pub enum EmbeddingPurpose {
     Passage,
 }
 
+/// Stable provider-neutral fingerprint for one compatible embedding space.
+/// It identifies vector compatibility without encoding a vendor or model name.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct EmbeddingSpaceId(pub [u8; 32]);
+
 /// A finite, non-zero, unit-length vector. Construction normalizes provider
 /// output once so indexes can use cosine similarity consistently.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Embedding {
     values: Vec<f32>,
+    space_id: Option<EmbeddingSpaceId>,
 }
 
 impl Embedding {
-    pub fn try_from_values(mut values: Vec<f32>) -> Result<Self, SemanticError> {
+    pub fn try_from_values(values: Vec<f32>) -> Result<Self, SemanticError> {
+        Self::try_from_values_with_space(values, None)
+    }
+
+    /// Construct a normalized vector with an explicit compatibility identity.
+    /// Persistent indexes require this form so vectors from different models
+    /// or incompatible configurations cannot be mixed accidentally.
+    pub fn try_from_values_in_space(
+        values: Vec<f32>,
+        space_id: EmbeddingSpaceId,
+    ) -> Result<Self, SemanticError> {
+        Self::try_from_values_with_space(values, Some(space_id))
+    }
+
+    fn try_from_values_with_space(
+        mut values: Vec<f32>,
+        space_id: Option<EmbeddingSpaceId>,
+    ) -> Result<Self, SemanticError> {
         if values.is_empty()
             || values.len() > MAX_SEMANTIC_EMBEDDING_DIMENSIONS
             || values.iter().any(|value| !value.is_finite())
@@ -76,10 +101,10 @@ impl Embedding {
         }
         let scaled_norm = bounded_sqrt(scaled_squared_norm);
         let norm = scale * scaled_norm;
-        for value in &mut values {
+        for value in values.iter_mut() {
             *value = (f64::from(*value) / norm) as f32;
         }
-        Ok(Self { values })
+        Ok(Self { values, space_id })
     }
 
     pub fn values(&self) -> &[f32] {
@@ -88,6 +113,10 @@ impl Embedding {
 
     pub fn dimensions(&self) -> usize {
         self.values.len()
+    }
+
+    pub const fn space_id(&self) -> Option<EmbeddingSpaceId> {
+        self.space_id
     }
 }
 
@@ -221,6 +250,10 @@ pub enum VectorIndexError {
     Unavailable,
     Capacity,
     DimensionMismatch,
+    InvalidEmbeddingSpace,
+    EmbeddingSpaceMismatch,
+    InvalidLimit,
+    InvalidChunkMetadata,
 }
 
 /// A replaceable inference boundary. A multilingual model may translate the

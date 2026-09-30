@@ -46,7 +46,7 @@ vector, and LLM retrieval are out of scope.
   `NagiPlan@1` is parsed, validated, and executed against it, and the action
   returns only the fixture file's visible ObjectId. Its caller/capability
   policy denies a foreign fixture caller but is private test authority, not
-production authority.
+  production authority.
 
 ## Authenticated IPC prerequisite audit — 2026-09-30
 
@@ -103,6 +103,23 @@ a production IPC Search Service.
   `out/evidence/m19-m21-action-failure-workspace-caller-20260930/`. The
   pre-run accepted artifacts are at
   `out/evidence/m19-m21-action-before-qemu-20260930/`.
+
+## M24 persistent-index integration — 2026-10-01
+
+The Completion Sweep now opens a separate exact semantic index from
+`/var/lib/nagi-search-semantic` through the same crash-recoverable guest VFS
+snapshot adapter. A deterministic fixture provider indexes one visible Servo
+article, one unrelated memo, and a high-scoring ObjectId with no visible
+metadata. `SearchService` returns the two visible records in stable score
+order and excludes the hidden ID. The following QEMU boot reopens the snapshot
+and repeats the query. This is storage and visibility-filtering evidence only;
+it does not alter M19's metadata-search acceptance or claim model inference.
+
+M19 passed `./nagi m19` across two boots, including the semantic-index restore
+marker on the second boot. The 29-test `nagi-search` suite, warnings-denied
+Search/CLI Clippy, changed-package formatting, and Nagi no-std target compile
+pass. Images, disks, OVMF vars, and serial logs are preserved under
+`out/evidence/m24-persistent-semantic-index-20261001/`.
 
 ## Verification evidence
 

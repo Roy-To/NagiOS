@@ -514,6 +514,16 @@ fn map_vector_index_error(error: crate::semantic::VectorIndexError) -> SemanticE
         crate::semantic::VectorIndexError::Unavailable => SemanticError::IndexUnavailable,
         crate::semantic::VectorIndexError::Capacity => SemanticError::IndexCapacity,
         crate::semantic::VectorIndexError::DimensionMismatch => SemanticError::DimensionMismatch,
+        crate::semantic::VectorIndexError::InvalidEmbeddingSpace => {
+            SemanticError::InvalidEmbeddingSpace
+        }
+        crate::semantic::VectorIndexError::EmbeddingSpaceMismatch => {
+            SemanticError::EmbeddingSpaceMismatch
+        }
+        crate::semantic::VectorIndexError::InvalidLimit => SemanticError::InvalidLimit,
+        crate::semantic::VectorIndexError::InvalidChunkMetadata => {
+            SemanticError::InvalidIndexResult
+        }
     }
 }
 

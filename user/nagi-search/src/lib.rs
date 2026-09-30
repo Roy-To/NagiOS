@@ -13,6 +13,7 @@ mod store;
 pub mod adapters;
 #[cfg(not(target_os = "nagi"))]
 pub mod host;
+pub mod persistent_semantic_index;
 pub mod semantic;
 
 pub use guest::{
@@ -25,11 +26,12 @@ pub use model::{
     SearchQuery, SearchResponse, SearchSort, SearchTimeRange, VisibilityFilter, VisibilityScope,
     Workspace, WorkspaceGroup, WorkspaceHit, WorkspaceSession, MAX_SEARCH_RESULTS,
 };
+pub use persistent_semantic_index::{PersistentVectorIndex, PersistentVectorIndexError};
 pub use search::{DenyAllVisibility, SearchService};
 pub use semantic::{
     chunk_text, chunk_text_with_limit, Embedding, EmbeddingProvider, EmbeddingPurpose,
-    IndexedChunk, SemanticError, SemanticHit, TextChunk, VectorIndex, VectorIndexError,
-    VectorMatch, DEFAULT_SEMANTIC_CHUNK_BYTES, MAX_SEMANTIC_CHUNKS_PER_OBJECT,
+    EmbeddingSpaceId, IndexedChunk, SemanticError, SemanticHit, TextChunk, VectorIndex,
+    VectorIndexError, VectorMatch, DEFAULT_SEMANTIC_CHUNK_BYTES, MAX_SEMANTIC_CHUNKS_PER_OBJECT,
     MAX_SEMANTIC_CHUNK_BYTES, MAX_SEMANTIC_EMBEDDING_DIMENSIONS, MAX_SEMANTIC_QUERY_BYTES,
     MAX_SEMANTIC_RESULTS, MAX_SEMANTIC_SOURCE_BYTES, MIN_SEMANTIC_CHUNK_BYTES,
 };

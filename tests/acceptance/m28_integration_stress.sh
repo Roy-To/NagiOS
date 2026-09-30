@@ -53,6 +53,8 @@ validate_m19_log() {
         'Nagi M7 VirtIO Block PASS' \
         'Nagi M13 Rust PAL PASS' \
         'Nagi M13 C POSIX PASS' \
+        'Nagi M24 semantic index ready PASS' \
+        'Nagi M24 semantic index persistence PASS' \
         'Nagi M19 live VFS file ObjectId rename/restart PASS' \
         'Nagi M19 previous-boot snapshot PASS' \
         'Nagi M19 guest search persistence PASS' \
@@ -66,6 +68,8 @@ validate_m22_log() {
         'Nagi M3 acceptance PASS' \
         'Nagi M7 VirtIO Block PASS' \
         'Nagi M13 C POSIX PASS' \
+        'Nagi M24 semantic index ready PASS' \
+        'Nagi M24 semantic index persistence PASS' \
         'Nagi M19 guest search persistence PASS' \
         'Nagi M22 AI Activity Ledger undo result PASS' \
         'Nagi M22 archive restart and restored files PASS' \
@@ -104,6 +108,8 @@ Nagi M3 acceptance PASS
 Nagi M7 VirtIO Block PASS
 Nagi M13 Rust PAL PASS
 Nagi M13 C POSIX PASS
+Nagi M24 semantic index ready PASS
+Nagi M24 semantic index persistence PASS
 Nagi M19 live VFS file ObjectId rename/restart PASS
 Nagi M19 previous-boot snapshot PASS
 Nagi M19 guest search persistence PASS
@@ -115,6 +121,8 @@ Nagi Kernel started
 Nagi M3 acceptance PASS
 Nagi M7 VirtIO Block PASS
 Nagi M13 C POSIX PASS
+Nagi M24 semantic index ready PASS
+Nagi M24 semantic index persistence PASS
 Nagi M19 guest search persistence PASS
 Nagi M22 AI Activity Ledger undo result PASS
 Nagi M22 archive restart and restored files PASS
