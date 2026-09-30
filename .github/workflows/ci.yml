@@ -103,7 +103,7 @@ jobs:
       - name: Install target build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm libc++-19-dev qemu-system-x86 ovmf cmake meson ninja-build python3 python3-venv flex bison build-essential
+          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm libc++-19-dev qemu-system-x86 qemu-utils ovmf cmake meson ninja-build python3 python3-venv flex bison build-essential
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 190
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 190
           sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-19 190
