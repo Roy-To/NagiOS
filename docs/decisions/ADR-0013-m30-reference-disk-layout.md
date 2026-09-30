@@ -70,6 +70,9 @@ is replaced, release preflight must reject model artifacts at or above 4 GiB.
 - Model Store and the system partitions have release-image placement, but
   package management, authenticated updates, Model Store installation, and
   System B/Recovery acceptance from this GPT image remain separate work.
-- M30 remains `PARTIAL` until the clean-tree release preflight, assembly, and
-  verification pass, and the assembled artifact completes the remaining
-  release acceptance and license/notice review.
+- The release tool's clean-tree preflight, assembly, and integrity checks pass.
+  Writable QEMU acceptance modified the assembled image's User Data and
+  invalidated its checksum, so final reassembly and read-only package
+  verification remain. M30 remains `PARTIAL` until that check, GPT System
+  B/Recovery and authenticated update acceptance, the remaining M18–M29 gates,
+  and license/notice review pass.

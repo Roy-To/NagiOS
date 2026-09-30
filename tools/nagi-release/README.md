@@ -49,4 +49,7 @@ recorded tool versions produces byte-identical manifests and sums.
 
 `verify` only checks artifact presence, provenance fields, and hashes. A real
 QEMU boot and complete M30 demo acceptance must be run and reviewed separately
-before anyone can claim a release is ready.
+before anyone can claim a release is ready. A writable guest boot changes
+User Data and invalidates the assembled image checksum; use a read-only boot
+for final package verification or boot a disposable copy and assemble again
+after any writable acceptance.

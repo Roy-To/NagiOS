@@ -57,8 +57,9 @@ complete and this evidence does not assert release readiness.
   review both serial logs and run `qemu-img check`.
 - [ ] Exercise System B, Recovery, and authenticated update from the GPT image
   using the persistent M27 boot-control policy.
-- [ ] Run release preflight, assembly, and verification from a clean supported
-  build environment; boot and accept the assembled package image.
+- [ ] Re-run release preflight, assembly, and verification from a clean
+  committed revision, then boot the assembled image read-only and verify that
+  `SHA256SUMS` still passes.
 
 ## Current limits and next steps
 
@@ -75,6 +76,14 @@ remains fixed at 8 MiB inside the 16 GiB User Data partition. System A and B
 currently carry identical payloads, and the default release loader boots
 System A. Journal-driven B selection, Recovery selection, and update
 acceptance have not yet been exercised from this GPT image.
+
+The first assembled bundle passed `verify` before QEMU testing. Two writable
+QEMU boots reached M7 acceptance but changed the qcow2 bytes in User Data, so
+the post-boot `verify` correctly rejected its stale checksum. The test-mutated
+bundle remains preserved at
+`out/evidence/m30-release-bundle-writable-boot-mutated-93b1d25/`. Reassemble
+from the committed reference image and use read-only boot acceptance for the
+final package integrity check.
 
 The §90 Definition of Done audit remains open across M18–M29: M18 lacks several
 browser providers; M19–M26 lack their production guest integrations or real
@@ -145,6 +154,15 @@ Verification on the pinned macOS ARM host: `cargo test -p nagi-cli --locked
 --target aarch64-apple-darwin` passed 133 unit and 18 CLI integration tests;
 warnings-denied CLI Clippy passed; the x86-64 Nagi kernel and default/M27 UEFI
 loader target builds passed; all 8 standard-library release-tool tests
-passed. Clean-source release preflight, assembly, verification, and assembled
-artifact acceptance remain to be run after the implementation checkpoint is
-committed.
+passed. On clean source commit
+`93b1d258669d4fa5f1ff83623a293be68334617f`, initial release preflight,
+assembly, and verification passed. The packaged qcow2 booted twice and both
+boots verified GPT System A, VFS mount, persistent read, and M7 acceptance;
+logs are in `out/evidence/m30-release-bundle-boot-93b1d25/`. Those writable
+boots changed the package image, and post-boot `verify` reported a SHA-256
+mismatch. The mutated package is preserved at
+`out/evidence/m30-release-bundle-writable-boot-mutated-93b1d25/`; a fresh
+assembly and read-only package boot are still required. The generated release
+manifest deliberately retains `m30_acceptance: NOT_EVALUATED`; QEMU evidence
+is a separate test record. GPT System B/Recovery/update acceptance and
+license/notice review remain open.

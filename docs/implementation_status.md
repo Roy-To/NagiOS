@@ -183,15 +183,25 @@ partitions. The UEFI loader locates System A by GPT partition GUID, while the
 kernel validates primary/backup GPT metadata and exposes a bounded User Data
 capability. QEMU booted the image and verified VFS format/write followed by
 mount/read and `Nagi M7 acceptance PASS` across restart; `qemu-img check`
-reported no errors. Evidence: initial format/write at
+reported no errors. Clean-source release preflight, assembly, and verification
+initially passed at commit `93b1d258669d4fa5f1ff83623a293be68334617f`. The
+assembled qcow2 passed two QEMU boots, but writable guest boots changed its
+SHA-256 and the post-boot `release.py verify` correctly failed. The modified
+test bundle is preserved at
+`out/evidence/m30-release-bundle-writable-boot-mutated-93b1d25/`; logs are at
+`out/evidence/m30-release-bundle-boot-93b1d25/`. Reassembly followed by
+read-only package boot and verification is still required. Evidence: initial
+format/write at
 `out/evidence/m30-release-1790743338835079000/reference-disk-boot.log` and
 restart acceptance at
 `out/evidence/m30-release-1790743948417762000/`. The qcow2 reports a 64 GiB
 virtual size. CLI tests (133 unit, 18 integration), warnings-denied CLI
 Clippy, kernel and loader target builds, and eight release-tool tests pass.
-M30 remains `PARTIAL`: clean-tree release preflight/assembly/verification,
-System B and Recovery acceptance from the GPT image, authenticated update
-manifests, M18–M29 completion, and binary license/notice review remain. See
+The release tool's manifest still records guest acceptance as
+`NOT_EVALUATED`; the external QEMU evidence is kept separately. M30 remains
+`PARTIAL`: clean reassembly and post-boot package verification, System B and
+Recovery acceptance from the GPT image, authenticated update manifests,
+M18–M29 completion, and binary license/notice review remain. See
 `docs/workstreams/NagiOS_M30_Release_Workstream.md` and
 `docs/decisions/ADR-0013-m30-reference-disk-layout.md`.
 **Completion Sweep audit — 2026-09-30:** M19 Search and M22 grouped Undo
@@ -214,11 +224,11 @@ search/ObjectId across rename and restart, and `./nagi m22` verified grouped
 Undo and the separate Activity Ledger across three QEMU boots. Current logs are
 `out/logs/m19-vfs-objectid-initial.log` and
 `out/logs/m22-history-boot-3.log`.
-**Next action:** Complete M30 release preflight, assembly, and verification
-from a clean committed source revision, then continue M27 integration by
-exercising System B and Recovery from the GPT release image with the existing
-UEFI journal policy. Continue independent M18–M29 service, runtime, action,
-voice, and stress work while authentic update and provider dependencies remain.
+**Next action:** Continue M27 integration by exercising System B and Recovery
+from the GPT release image with the existing UEFI journal policy. First rerun
+M30 assembly and post-boot integrity verification with read-only package
+acceptance. Continue independent M18–M29 service, runtime, action, voice, and
+stress work while authentic update and provider dependencies remain.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -2308,7 +2318,7 @@ Use only these statuses:
 | M27 | A/B / Recovery | PARTIAL | Fresh QEMU acceptance covers malformed-B rollback after three trials, healthy-B readiness promotion, and Recovery boot even with invalid A/B kernels. Recovery runs a read-only VFS check before a no-format mount and exposes bounded help/check/log/files/slots/undo commands; a real guest M22 three-file NH16/NAL1 transaction was undone in Recovery, then verified restored and Undone after guest restart. Recovery left the UEFI journal untouched and the following automatic boot began trial 1/B. BootInfo/ABI/CLI host tests (15/4/133 unit + 18 integration), 10 loader tests, target builds, warnings-denied loader Clippy, formatting, and QEMU pass. The GPT release layout and System A boot now pass M30 QEMU acceptance; paired-slot promotion/rollback and Recovery are not yet exercised from that same GPT image. M27 remains PARTIAL because account login readiness, authenticated slot manifests, and GPT-integrated update acceptance remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | After preserving existing outputs and disks under `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`, a fresh-disk M22 run verified separate NAL1 commit/Undo/restart evidence and a real one-repetition M28 run passed M19 ObjectId/Search plus all three M22 boots with the Activity Ledger marker. Shell syntax, self-test, and QEMU gate passed. Desktop/model/audio reference load, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Added cross-linked setup, SDK, contribution, and roadmap documentation; 47 local documentation links resolve and `./nagi --help` was verified with the pinned rustup toolchain. No Nagi screenshots or boot-time measurement; first-run, Settings, complete localization/accessibility, user-facing provider/recovery UX, and binary license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | PARTIAL | Built a self-contained 64 GiB GPT qcow2 with ESP, System A/B, bounded User Data, Recovery, and Model Store. Loader GPT selection, kernel GPT validation/partition capability, QEMU System A boot, User Data persistence across restart, and `qemu-img check` pass. CLI suite (133 unit + 18 integration), warnings-denied Clippy, kernel/loader target builds, and eight release-tool tests pass. Clean-source release preflight/assembly/verify, GPT System B/Recovery acceptance, M18–M29 completion, and binary license/notice review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
+| M30 | Nagi OS 0.1 Release | PARTIAL | Built a self-contained 64 GiB GPT qcow2 with ESP, System A/B, bounded User Data, Recovery, and Model Store. Loader GPT selection, kernel GPT validation/partition capability, QEMU System A boot, User Data persistence across restart, and `qemu-img check` pass. CLI suite (133 unit + 18 integration), warnings-denied Clippy, kernel/loader target builds, and eight release-tool tests pass. Initial clean-source preflight/assembly/verify passed; subsequent writable QEMU acceptance changed the bundled image and a later verify correctly caught the stale SHA-256. Fresh assembly/read-only package acceptance, GPT System B/Recovery acceptance, M18–M29 completion, and binary license/notice review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
 
