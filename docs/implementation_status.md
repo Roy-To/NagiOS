@@ -111,23 +111,20 @@ compile pass. Verified Qwen/Gemma artifacts, guest runtime/inference, switching
 UI, and real routing acceptance remain. See
 `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`.
 **M27 evidence:** Added a bounded A/B boot-control state machine with a
-three-attempt trial limit and a checksummed two-copy journal, now backed by two
+three-attempt trial limit and checksummed two-copy journal backed by two
 Nagi-namespaced UEFI non-volatile variables. The feature-scoped
-`m27-boot-control-smoke` and `./nagi m27` acceptance reused one OVMF variable
-image across five QEMU launches: initial guest storage bootstrap, trial
-attempts 1–3, journal rollback decision to confirmed A, and a subsequent
-confirmed-A decision. The four post-bootstrap boots also reached the existing
-M7 guest acceptance marker. QEMU logs, vars, and persistent data are preserved
-in `out/evidence/m27-uefi-persistence-1790725732395208000/`. The first harness
-attempt exposed that the M7 disk bootstrap exits before the normal acceptance
-marker; the runner now validates that bootstrap separately. Ten loader tests,
-115 CLI unit tests, 18 CLI integration tests, warnings-denied loader/CLI
-Clippy, formatting, and the UEFI release build with the smoke feature pass.
-M27 remains `PARTIAL`: the journal's trial decision does not select an
-alternate payload; matched A/B slots, a trustworthy boot-readiness signal,
-Recovery Environment, and broken-slot QEMU rollback with preserved user data
-remain. See
-`docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`.
+`m27-broken-slot-acceptance` loader selects matched kernel/init files from
+System A or B. Fresh `./nagi m27` QEMU acceptance bootstrapped a separate
+persistent user-data disk, rejected malformed System B on trials 1–3, then
+selected System A and read the saved data on rollback boot 4 and confirmed-A
+boot 5. The same OVMF variables and data disk were reused across all launches.
+Logs, vars, and the data disk are preserved in
+`out/evidence/m27-ab-rollback-1790727225721044000/`. Ten loader tests, 116 CLI
+unit tests, 18 CLI integration tests, warnings-denied loader/CLI Clippy,
+formatting, and the feature-enabled UEFI release build pass. M27 remains
+`PARTIAL`: a trustworthy readiness signal, bootable Recovery Environment, and
+the final partitioned release layout with viable update acceptance remain.
+See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`.
 **M28 evidence:** The stress harness uses the current M19 VFS/ObjectId artifact
 namespace, validates the live file/ObjectId marker, accepts a previous-boot
 marker from either initial or restart logs, and archives generated images,
@@ -166,10 +163,9 @@ the available M1 and M18 boot images are raw FAT images (1,474,560 and
 the image has not been assembled or booted, M18–M29 acceptance remains
 incomplete, and binary license/notice review is open. See
 `docs/workstreams/NagiOS_M30_Release_Workstream.md`.
-**Next action:** Continue M27 by wiring the durable decision to matched System
-A/B payloads in the image builder and UEFI loader. Then add a real readiness
-signal and bootable Recovery Environment before claiming M27 rollback
-acceptance.
+**Next action:** Continue M27 by connecting a trustworthy system-readiness
+signal to `mark_boot_success`, then implement and test the bootable Recovery
+Environment and integrate the slots into the final partitioned release image.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
 configuration probes GNU ELF link flags including `-latomic`, while Darwin's
@@ -2256,7 +2252,7 @@ Use only these statuses:
 | M24 | Embedding / Semantic AI | PARTIAL | Added bounded multilingual UTF-8 chunking, embedding/provider and vector-index contracts, and visibility-filtered `SearchService` semantic indexing/query orchestration. Twenty-three `nagi-search` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. A real embedding model, durable vector index, producer synchronization, hybrid ranking/explanations, and natural-language QEMU acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator with explicit permission/indicator ordering, PCM framing limits, provider unavailability cleanup, and a target AudioService adapter. Eight `nagi-audio` tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and real guest voice acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
-| M27 | A/B / Recovery | PARTIAL | Added the bounded A/B state machine and checksummed two-copy journal, backed by two Nagi-namespaced UEFI non-volatile variables. The five-launch QEMU smoke acceptance verified persisted attempts 1–3, the rollback decision, confirmed A, and guest M7 acceptance using one OVMF vars image. Ten loader tests, 115 CLI unit tests, 18 CLI integration tests, warnings-denied Clippy, formatting, and the feature-enabled UEFI release build pass. The loader still boots one fixed payload; matched A/B images, readiness, Recovery Environment, and actual broken-slot rollback remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
+| M27 | A/B / Recovery | PARTIAL | Added the bounded A/B state machine and checksummed two-copy journal, backed by two Nagi-namespaced UEFI non-volatile variables. Feature-scoped loader payload selection and fresh QEMU acceptance rejected malformed System B on attempts 1–3, rolled back to A, and read preserved user data on boot 4 and confirmed-A boot 5. Ten loader tests, 116 CLI unit tests, 18 CLI integration tests, warnings-denied Clippy, formatting, and the feature-enabled UEFI release build pass. A trustworthy readiness signal, Recovery Environment, and final partitioned release layout with viable update acceptance remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | After preserving existing outputs and disks under `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`, a fresh-disk M22 run verified separate NAL1 commit/Undo/restart evidence and a real one-repetition M28 run passed M19 ObjectId/Search plus all three M22 boots with the Activity Ledger marker. Shell syntax, self-test, and QEMU gate passed. Desktop/model/audio reference load, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Added cross-linked setup, SDK, contribution, and roadmap documentation; 47 local documentation links resolve and `./nagi --help` was verified with the pinned rustup toolchain. No Nagi screenshots or boot-time measurement; first-run, Settings, complete localization/accessibility, user-facing provider/recovery UX, and binary license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
 | M30 | Nagi OS 0.1 Release | PARTIAL | Added deterministic release preflight/assembly/verify with x86-64 kernel, pinned source, qcow2 size/format, docs, and checksum gates; 8 tests pass. No integrated 64 GiB qcow2 exists—the current M1/M18 images are raw FAT and data disks are separate. Guest boot, M18–M29 completion, and binary notice/license review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md`. |

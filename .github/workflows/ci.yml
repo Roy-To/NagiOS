@@ -276,5 +276,5 @@ jobs:
         run: ./nagi m19
       - name: M22 NH16 grouped Undo acceptance
         run: ./nagi m22
-      - name: M27 UEFI journal persistence acceptance
+      - name: M27 broken-slot rollback acceptance
         run: ./nagi m27

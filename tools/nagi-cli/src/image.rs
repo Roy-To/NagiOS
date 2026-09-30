@@ -323,6 +323,228 @@ pub fn write_m17_fat12_image(
     write_fat12_image_with_geometry(path, bootloader, kernel, init, geometry)
 }
 
+/// Build the M27 acceptance image with a valid System A and intentionally
+/// malformed System B kernel ELF.
+pub fn write_m27_broken_slot_image(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+) -> Result<ImageLayout, String> {
+    let geometry = Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)?;
+    let (image, layout) = build_fat12_ab_image(
+        bootloader,
+        kernel,
+        init,
+        b"Nagi M27 intentionally invalid slot B kernel ELF",
+        init,
+        geometry,
+    )?;
+    fs::write(path, image).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    Ok(layout)
+}
+
+fn build_fat12_ab_image(
+    bootloader: &[u8],
+    system_a_kernel: &[u8],
+    system_a_init: &[u8],
+    system_b_kernel: &[u8],
+    system_b_init: &[u8],
+    geometry: Fat12Geometry,
+) -> Result<(Vec<u8>, ImageLayout), String> {
+    for (name, contents) in [
+        ("UEFI bootloader", bootloader),
+        ("System A kernel", system_a_kernel),
+        ("System A init", system_a_init),
+        ("System B kernel", system_b_kernel),
+        ("System B init", system_b_init),
+    ] {
+        if contents.is_empty() {
+            return Err(format!("{name} is empty"));
+        }
+        if contents.len() > geometry.max_file_size() {
+            return Err(format!(
+                "{name} is {} bytes; FAT12 image capacity is {} bytes per file",
+                contents.len(),
+                geometry.max_file_size()
+            ));
+        }
+    }
+
+    let bootloader_clusters = clusters_for(bootloader.len(), geometry.cluster_size());
+    let a_kernel_clusters = clusters_for(system_a_kernel.len(), geometry.cluster_size());
+    let a_init_clusters = clusters_for(system_a_init.len(), geometry.cluster_size());
+    let b_kernel_clusters = clusters_for(system_b_kernel.len(), geometry.cluster_size());
+    let b_init_clusters = clusters_for(system_b_init.len(), geometry.cluster_size());
+    let required_clusters = [
+        5,
+        bootloader_clusters,
+        a_kernel_clusters,
+        a_init_clusters,
+        b_kernel_clusters,
+        b_init_clusters,
+    ]
+    .into_iter()
+    .try_fold(0usize, usize::checked_add)
+    .ok_or_else(|| "A/B image cluster count overflow".to_owned())?;
+    if required_clusters > geometry.data_clusters() {
+        return Err(format!(
+            "A/B guest files require {required_clusters} FAT12 clusters; image has {} data clusters",
+            geometry.data_clusters()
+        ));
+    }
+
+    const EFI_CLUSTER: u16 = 2;
+    const BOOT_CLUSTER: u16 = 3;
+    const NAGI_CLUSTER: u16 = 4;
+    const SYSTEM_A_CLUSTER: u16 = 5;
+    const SYSTEM_B_CLUSTER: u16 = 6;
+    let mut next_cluster = 7_u16;
+    let bootloader_start_cluster = allocate_chain_start(&mut next_cluster, bootloader_clusters)?;
+    let a_kernel_start_cluster = allocate_chain_start(&mut next_cluster, a_kernel_clusters)?;
+    let a_init_start_cluster = allocate_chain_start(&mut next_cluster, a_init_clusters)?;
+    let b_kernel_start_cluster = allocate_chain_start(&mut next_cluster, b_kernel_clusters)?;
+    let b_init_start_cluster = allocate_chain_start(&mut next_cluster, b_init_clusters)?;
+    let layout = ImageLayout {
+        bootloader_start_cluster,
+        bootloader_clusters,
+        kernel_start_cluster: a_kernel_start_cluster,
+        kernel_clusters: a_kernel_clusters,
+        init_start_cluster: a_init_start_cluster,
+        init_clusters: a_init_clusters,
+    };
+
+    let mut image = vec![0; geometry.image_size];
+    write_boot_sector(&mut image, geometry);
+    initialize_fats(&mut image, geometry);
+    for directory_cluster in [
+        EFI_CLUSTER,
+        BOOT_CLUSTER,
+        NAGI_CLUSTER,
+        SYSTEM_A_CLUSTER,
+        SYSTEM_B_CLUSTER,
+    ] {
+        write_chain(&mut image, geometry, directory_cluster, 1);
+    }
+    for (start_cluster, cluster_count) in [
+        (bootloader_start_cluster, bootloader_clusters),
+        (a_kernel_start_cluster, a_kernel_clusters),
+        (a_init_start_cluster, a_init_clusters),
+        (b_kernel_start_cluster, b_kernel_clusters),
+        (b_init_start_cluster, b_init_clusters),
+    ] {
+        write_chain(&mut image, geometry, start_cluster, cluster_count);
+    }
+
+    write_directory(
+        &mut image,
+        geometry,
+        EFI_CLUSTER,
+        0,
+        &[
+            (short_name("BOOT", ""), 0x10, BOOT_CLUSTER, 0),
+            (short_name("NAGI", ""), 0x10, NAGI_CLUSTER, 0),
+        ],
+    );
+    write_directory(
+        &mut image,
+        geometry,
+        BOOT_CLUSTER,
+        EFI_CLUSTER,
+        &[(
+            short_name("BOOTX64", "EFI"),
+            0x20,
+            bootloader_start_cluster,
+            u32::try_from(bootloader.len()).map_err(|_| "bootloader size overflow".to_owned())?,
+        )],
+    );
+    write_directory(
+        &mut image,
+        geometry,
+        NAGI_CLUSTER,
+        EFI_CLUSTER,
+        &[
+            (short_name("SYSTEMA", ""), 0x10, SYSTEM_A_CLUSTER, 0),
+            (short_name("SYSTEMB", ""), 0x10, SYSTEM_B_CLUSTER, 0),
+        ],
+    );
+    write_directory(
+        &mut image,
+        geometry,
+        SYSTEM_A_CLUSTER,
+        NAGI_CLUSTER,
+        &[
+            (
+                short_name("KERNEL", "ELF"),
+                0x20,
+                a_kernel_start_cluster,
+                u32::try_from(system_a_kernel.len())
+                    .map_err(|_| "System A kernel size overflow".to_owned())?,
+            ),
+            (
+                short_name("INIT", "ELF"),
+                0x20,
+                a_init_start_cluster,
+                u32::try_from(system_a_init.len())
+                    .map_err(|_| "System A init size overflow".to_owned())?,
+            ),
+        ],
+    );
+    write_directory(
+        &mut image,
+        geometry,
+        SYSTEM_B_CLUSTER,
+        NAGI_CLUSTER,
+        &[
+            (
+                short_name("KERNEL", "ELF"),
+                0x20,
+                b_kernel_start_cluster,
+                u32::try_from(system_b_kernel.len())
+                    .map_err(|_| "System B kernel size overflow".to_owned())?,
+            ),
+            (
+                short_name("INIT", "ELF"),
+                0x20,
+                b_init_start_cluster,
+                u32::try_from(system_b_init.len())
+                    .map_err(|_| "System B init size overflow".to_owned())?,
+            ),
+        ],
+    );
+    write_root_directory(
+        &mut image,
+        geometry,
+        &[(short_name("EFI", ""), 0x10, EFI_CLUSTER, 0)],
+    );
+    write_file(&mut image, geometry, bootloader_start_cluster, bootloader);
+    write_file(
+        &mut image,
+        geometry,
+        a_kernel_start_cluster,
+        system_a_kernel,
+    );
+    write_file(&mut image, geometry, a_init_start_cluster, system_a_init);
+    write_file(
+        &mut image,
+        geometry,
+        b_kernel_start_cluster,
+        system_b_kernel,
+    );
+    write_file(&mut image, geometry, b_init_start_cluster, system_b_init);
+    Ok((image, layout))
+}
+
+fn allocate_chain_start(next_cluster: &mut u16, cluster_count: usize) -> Result<u16, String> {
+    let start_cluster = *next_cluster;
+    let cluster_count = u16::try_from(cluster_count)
+        .map_err(|_| "A/B image chain length exceeds the FAT12 cluster range".to_owned())?;
+    *next_cluster = next_cluster
+        .checked_add(cluster_count)
+        .ok_or_else(|| "A/B image cluster allocation overflow".to_owned())?;
+    Ok(start_cluster)
+}
+
 fn write_fat12_image_with_geometry(
     path: &Path,
     bootloader: &[u8],
@@ -553,6 +775,13 @@ pub fn run_qemu_with_read_only_boot_disk(config: &QemuConfig<'_>) -> Result<i32,
 /// Launch QEMU without replacing the existing OVMF variable store.
 pub fn run_qemu_reusing_ovmf_vars(config: &QemuConfig<'_>) -> Result<i32, String> {
     run_qemu_with_vars_mode(config, false, true)
+}
+
+/// Launch QEMU with an existing OVMF variable store and a read-only boot image.
+pub fn run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(
+    config: &QemuConfig<'_>,
+) -> Result<i32, String> {
+    run_qemu_with_vars_mode(config, true, true)
 }
 
 /// Initialize a per-run OVMF variable image from the configured template.
@@ -1332,11 +1561,12 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        build_fat12_image, build_m17_fat12_image, ensure_persistent_disk, guest_reached_acceptance,
-        guest_reached_failure, image_drive_argument, initialize_fats, prepare_ovmf_vars,
-        qemu_audio_driver_for_host, write_chain, Fat12Geometry, DATA_OFFSET, FAT_COUNT,
-        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER,
-        PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
+        build_fat12_ab_image, build_fat12_image, build_m17_fat12_image, cluster_offset,
+        ensure_persistent_disk, guest_reached_acceptance, guest_reached_failure,
+        image_drive_argument, initialize_fats, prepare_ovmf_vars, qemu_audio_driver_for_host,
+        write_chain, Fat12Geometry, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
+        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, ROOT_ENTRY_COUNT,
+        ROOT_OFFSET, SECTOR_SIZE,
     };
 
     #[test]
@@ -1499,6 +1729,62 @@ mod tests {
             init
         );
         assert_eq!(&first[DATA_OFFSET..DATA_OFFSET + 3], b".  ");
+    }
+
+    #[test]
+    fn m27_ab_image_keeps_each_kernel_and_init_under_its_slot_directory() {
+        let geometry =
+            Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)
+                .expect("M27 FAT12 geometry");
+        let (image, layout) = build_fat12_ab_image(
+            b"loader",
+            b"kernel A",
+            b"init A",
+            b"broken B kernel",
+            b"init B",
+            geometry,
+        )
+        .expect("build A/B image");
+
+        assert_eq!(image.len(), M17_IMAGE_SIZE);
+        let nagi_directory = cluster_offset(4, geometry);
+        assert_eq!(
+            &image[nagi_directory + 64..nagi_directory + 75],
+            &super::short_name("SYSTEMA", "")
+        );
+        assert_eq!(
+            &image[nagi_directory + 96..nagi_directory + 107],
+            &super::short_name("SYSTEMB", "")
+        );
+        let a_directory = cluster_offset(5, geometry);
+        let b_directory = cluster_offset(6, geometry);
+        for (directory, kernel_cluster, init_cluster) in
+            [(a_directory, 8, 9), (b_directory, 10, 11)]
+        {
+            assert_eq!(
+                &image[directory + 64..directory + 75],
+                &super::short_name("KERNEL", "ELF")
+            );
+            assert_eq!(
+                u16::from_le_bytes([image[directory + 64 + 26], image[directory + 64 + 27]]),
+                kernel_cluster
+            );
+            assert_eq!(
+                &image[directory + 96..directory + 107],
+                &super::short_name("INIT", "ELF")
+            );
+            assert_eq!(
+                u16::from_le_bytes([image[directory + 96 + 26], image[directory + 96 + 27]]),
+                init_cluster
+            );
+        }
+        let a_kernel_offset = cluster_offset(layout.kernel_start_cluster, geometry);
+        assert_eq!(&image[a_kernel_offset..a_kernel_offset + 8], b"kernel A");
+        let b_kernel_offset = cluster_offset(10, geometry);
+        assert_eq!(
+            &image[b_kernel_offset..b_kernel_offset + b"broken B kernel".len()],
+            b"broken B kernel"
+        );
     }
 
     #[test]

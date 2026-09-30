@@ -10,8 +10,10 @@ use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPo
 use crate::image::{
     ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui, run_qemu_gui_with_events,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker, run_qemu_interactive,
-    run_qemu_reusing_ovmf_vars, run_qemu_with_read_only_boot_disk, write_fat12_image,
-    write_m17_fat12_image, ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
+    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image,
+    write_m27_broken_slot_image, ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER,
+    NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -3461,7 +3463,12 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             );
         }
     };
-    let image_name = format!("nagi-0.1-m27-uefi-smoke-{run_id}.img");
+    let bootstrap_image_name = format!("nagi-0.1-m27-bootstrap-{run_id}.img");
+    let slots_image_name = format!("nagi-0.1-m27-ab-slots-{run_id}.img");
+    let bootstrap_image_result = execute_image_with_features(root, None, &bootstrap_image_name);
+    if bootstrap_image_result.exit_code != EXIT_SUCCESS {
+        return bootstrap_image_result;
+    }
     let init_args = [
         "build",
         "-p",
@@ -3475,12 +3482,12 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         root,
         &init_args,
         None,
-        &image_name,
+        &slots_image_name,
         &[],
-        write_fat12_image,
+        write_m27_broken_slot_image,
         ImageBuildFeatures {
             kernel: &[],
-            loader: &["m27-boot-control-smoke"],
+            loader: &["m27-broken-slot-acceptance"],
         },
     );
     if image_result.exit_code != EXIT_SUCCESS {
@@ -3495,12 +3502,16 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         root,
         Path::new("out")
             .join("evidence")
-            .join(format!("m27-uefi-persistence-{run_id}")),
+            .join(format!("m27-ab-rollback-{run_id}")),
     ) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m27: {error}")),
     };
-    let image_path = root.join("out").join("artifacts").join(&image_name);
+    let bootstrap_image_path = root
+        .join("out")
+        .join("artifacts")
+        .join(&bootstrap_image_name);
+    let slots_image_path = root.join("out").join("artifacts").join(&slots_image_name);
     let persistent_disk = evidence.join("user-data.img");
     let vars_copy = evidence.join("OVMF_VARS.fd");
     if let Err(error) = ensure_persistent_disk(&persistent_disk) {
@@ -3521,7 +3532,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         qemu: &host.qemu,
         ovmf_code: &host.ovmf_code,
         ovmf_vars_template: &host.ovmf_vars,
-        disk_image: &image_path,
+        disk_image: &bootstrap_image_path,
         persistent_disk: &persistent_disk,
         vars_copy: &vars_copy,
         serial_log: &bootstrap_log,
@@ -3546,12 +3557,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             );
         }
     };
-    for marker in [
-        "Nagi M27 persistence decision: trial attempt=1 slot=B",
-        "Nagi M27 UEFI variable journal persistence PASS",
-        NAGI_WRITE_MARKER,
-        "Nagi M7 reboot required PASS",
-    ] {
+    for marker in [NAGI_WRITE_MARKER, "Nagi M7 reboot required PASS"] {
         if !bootstrap_serial.contains(marker) {
             return failure(
                 EXIT_CONFIG_ERROR,
@@ -3562,8 +3568,15 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             );
         }
     }
+    if bootstrap_serial.contains("Nagi M27 UEFI variable journal persistence PASS") {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m27: normal bootstrap loader unexpectedly modified the boot-control journal",
+        );
+    }
 
     let expected_decisions = [
+        "Nagi M27 persistence decision: trial attempt=1 slot=B",
         "Nagi M27 persistence decision: trial attempt=2 slot=B",
         "Nagi M27 persistence decision: trial attempt=3 slot=B",
         "Nagi M27 persistence decision: rollback slot=A",
@@ -3572,18 +3585,23 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let mut final_log = PathBuf::new();
     for (index, expected_decision) in expected_decisions.iter().enumerate() {
         let log_path = evidence.join(format!("boot-{}.log", index + 1));
+        let acceptance_marker = if index < 3 {
+            "Nagi M27 trial payload rejected slot=B"
+        } else {
+            GUEST_ACCEPTANCE_MARKER
+        };
         let config = QemuConfig {
             qemu: &host.qemu,
             ovmf_code: &host.ovmf_code,
             ovmf_vars_template: &host.ovmf_vars,
-            disk_image: &image_path,
+            disk_image: &slots_image_path,
             persistent_disk: &persistent_disk,
             vars_copy: &vars_copy,
             serial_log: &log_path,
-            acceptance_marker: GUEST_ACCEPTANCE_MARKER,
+            acceptance_marker,
             timeout: Duration::from_secs(90),
         };
-        let status = match run_qemu_reusing_ovmf_vars(&config) {
+        let status = match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&config) {
             Ok(status) => status,
             Err(error) => {
                 return failure(
@@ -3604,7 +3622,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         for marker in [
             *expected_decision,
             "Nagi M27 UEFI variable journal persistence PASS",
-            GUEST_ACCEPTANCE_MARKER,
+            acceptance_marker,
         ] {
             if !serial.contains(marker) {
                 return failure(
@@ -3617,13 +3635,23 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         }
+        if index >= 3 && !serial.contains("Nagi M7 persistent read PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: fallback boot {} did not verify persistent user data (QEMU exit {status}; log {})",
+                    index + 1,
+                    log_path.display()
+                ),
+            );
+        }
         final_log = log_path;
     }
 
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M27 UEFI variable persistence smoke: trial attempts 1–3 and rollback survived five QEMU launches using one OVMF variable image; the existing fixed guest payload reached acceptance (evidence {})",
+            "PASS M27 broken-slot rollback: three malformed System B trials were rejected; the loader selected System A and the guest read persistent user data after rollback using one OVMF variables image (evidence {})",
             evidence.display()
         ), format!("Final serial log: {}", final_log.display())],
     }

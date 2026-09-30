@@ -8,7 +8,7 @@ autobins = false
 [workspace]
 
 [features]
-m27-boot-control-smoke = []
+m27-broken-slot-acceptance = []
 
 [lib]
 path = "src/lib.rs"

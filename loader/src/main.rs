@@ -8,6 +8,7 @@ use nagi_bootinfo::{
     firmware_time_to_unix_ns, BootInfo, FirmwareDateTime, FramebufferInfo, InitImageInfo,
     MemoryMapInfo, REALTIME_UNAVAILABLE_NS,
 };
+use nagi_loader::ab::SystemSlot;
 use nagi_loader::elf::{parse, LoadPlan};
 use uefi::boot::{AllocateType, MemoryType};
 use uefi::mem::memory_map::MemoryMap;
@@ -33,28 +34,41 @@ fn main() -> Status {
         return fail(error_message("Nagi Loader: helper init failed"));
     }
 
-    #[cfg(feature = "m27-boot-control-smoke")]
-    if let Err(message) = m27_boot_control_smoke() {
-        return fail(error_message(message));
-    }
+    #[cfg(feature = "m27-broken-slot-acceptance")]
+    let selected_slot = match m27_boot_control_decision() {
+        Ok(slot) => Some(slot),
+        Err(message) => return fail(error_message(message)),
+    };
+    #[cfg(not(feature = "m27-broken-slot-acceptance"))]
+    let selected_slot = None;
 
-    let kernel_size = match read_kernel(boot::image_handle()) {
+    let kernel_size = match read_kernel(boot::image_handle(), selected_slot) {
         Ok(size) => size,
-        Err(message) => return fail(message),
+        Err(message) => {
+            report_m27_trial_payload_rejection(selected_slot);
+            return fail(message);
+        }
     };
     let plan = {
         let bytes = unsafe { &KERNEL_IMAGE[..kernel_size] };
         match parse(bytes) {
             Ok(plan) => plan,
-            Err(_) => return fail(error_message("Nagi Loader: invalid ELF")),
+            Err(_) => {
+                report_m27_trial_payload_rejection(selected_slot);
+                return fail(error_message("Nagi Loader: invalid ELF"));
+            }
         }
     };
     if let Err(message) = load_segments(plan, kernel_size) {
+        report_m27_trial_payload_rejection(selected_slot);
         return fail(message);
     }
-    let init_image = match read_init(boot::image_handle()) {
+    let init_image = match read_init(boot::image_handle(), selected_slot) {
         Ok(info) => info,
-        Err(message) => return fail(message),
+        Err(message) => {
+            report_m27_trial_payload_rejection(selected_slot);
+            return fail(message);
+        }
     };
 
     let framebuffer = match gather_framebuffer() {
@@ -112,11 +126,9 @@ fn main() -> Status {
     }
 }
 
-#[cfg(feature = "m27-boot-control-smoke")]
-fn m27_boot_control_smoke() -> Result<(), &'static str> {
-    use nagi_loader::ab::{
-        uefi_store::UefiVariableBootControlStore, BootControlJournal, SystemSlot,
-    };
+#[cfg(feature = "m27-broken-slot-acceptance")]
+fn m27_boot_control_decision() -> Result<SystemSlot, &'static str> {
+    use nagi_loader::ab::{uefi_store::UefiVariableBootControlStore, BootControlJournal};
 
     let mut journal = BootControlJournal::new(UefiVariableBootControlStore::new());
     let state = journal
@@ -142,21 +154,34 @@ fn m27_boot_control_smoke() -> Result<(), &'static str> {
         );
     }
     uefi::println!("Nagi M27 UEFI variable journal persistence PASS");
-    Ok(())
+    Ok(decision.slot)
 }
 
-fn read_kernel(image_handle: Handle) -> Result<usize, &'static str> {
+fn report_m27_trial_payload_rejection(selected_slot: Option<SystemSlot>) {
+    #[cfg(feature = "m27-broken-slot-acceptance")]
+    if selected_slot == Some(SystemSlot::B) {
+        uefi::println!("Nagi M27 trial payload rejected slot=B");
+    }
+    #[cfg(not(feature = "m27-broken-slot-acceptance"))]
+    let _ = selected_slot;
+}
+
+fn read_kernel(
+    image_handle: Handle,
+    selected_slot: Option<SystemSlot>,
+) -> Result<usize, &'static str> {
     let mut filesystem = boot::get_image_file_system(image_handle)
         .map_err(|_| error_message("Nagi Loader: filesystem unavailable"))?;
     let mut root = filesystem
         .open_volume()
         .map_err(|_| error_message("Nagi Loader: volume unavailable"))?;
+    let path = match selected_slot {
+        Some(SystemSlot::A) => cstr16!("\\EFI\\NAGI\\SYSTEMA\\KERNEL.ELF"),
+        Some(SystemSlot::B) => cstr16!("\\EFI\\NAGI\\SYSTEMB\\KERNEL.ELF"),
+        None => cstr16!("\\EFI\\NAGI\\KERNEL.ELF"),
+    };
     let handle = root
-        .open(
-            cstr16!("\\EFI\\NAGI\\KERNEL.ELF"),
-            FileMode::Read,
-            FileAttribute::empty(),
-        )
+        .open(path, FileMode::Read, FileAttribute::empty())
         .map_err(|_| error_message("Nagi Loader: KERNEL.ELF not found"))?;
     let mut file = match handle
         .into_type()
@@ -182,18 +207,22 @@ fn read_kernel(image_handle: Handle) -> Result<usize, &'static str> {
     )
 }
 
-fn read_init(image_handle: Handle) -> Result<InitImageInfo, &'static str> {
+fn read_init(
+    image_handle: Handle,
+    selected_slot: Option<SystemSlot>,
+) -> Result<InitImageInfo, &'static str> {
     let mut filesystem = boot::get_image_file_system(image_handle)
         .map_err(|_| error_message("Nagi Loader: filesystem unavailable"))?;
     let mut root = filesystem
         .open_volume()
         .map_err(|_| error_message("Nagi Loader: volume unavailable"))?;
+    let path = match selected_slot {
+        Some(SystemSlot::A) => cstr16!("\\EFI\\NAGI\\SYSTEMA\\INIT.ELF"),
+        Some(SystemSlot::B) => cstr16!("\\EFI\\NAGI\\SYSTEMB\\INIT.ELF"),
+        None => cstr16!("\\EFI\\NAGI\\INIT.ELF"),
+    };
     let handle = root
-        .open(
-            cstr16!("\\EFI\\NAGI\\INIT.ELF"),
-            FileMode::Read,
-            FileAttribute::empty(),
-        )
+        .open(path, FileMode::Read, FileAttribute::empty())
         .map_err(|_| error_message("Nagi Loader: INIT.ELF not found"))?;
     let mut file = match handle
         .into_type()
