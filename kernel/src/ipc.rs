@@ -101,8 +101,38 @@ mod tests {
                 flags: 0,
             }
         );
+        assert_eq!(received.sender_process_id(), 1);
         assert_eq!(received.payload(), b"hello from A");
         assert_eq!(received.handle_count(), 0);
+    }
+
+    #[test]
+    fn received_sender_identity_comes_from_the_kernel_process_not_payload() {
+        let mut fixture = fixture();
+        let forged_process_id = fixture.receiver.id().to_le_bytes();
+        fixture
+            .channel
+            .send(
+                &mut fixture.registry,
+                &mut fixture.sender,
+                fixture.sender_endpoint,
+                message(&forged_process_id),
+                &mut fixture.waiters,
+            )
+            .expect("send");
+        let received = fixture
+            .channel
+            .receive(
+                &mut fixture.registry,
+                &mut fixture.receiver,
+                fixture.receiver_endpoint,
+            )
+            .expect("receive")
+            .expect("message");
+
+        assert_eq!(received.sender_process_id(), fixture.sender.id());
+        assert_eq!(received.sender_process_id(), 1);
+        assert_eq!(received.payload(), &forged_process_id);
     }
 
     #[test]
@@ -627,6 +657,7 @@ impl OutgoingMessage {
 }
 
 pub struct ReceivedMessage {
+    sender_process_id: u32,
     header: MessageHeader,
     payload: [u8; MAX_INLINE_PAYLOAD],
     payload_len: usize,
@@ -635,6 +666,11 @@ pub struct ReceivedMessage {
 }
 
 impl ReceivedMessage {
+    /// Kernel-selected identity of the process that enqueued the message.
+    pub fn sender_process_id(&self) -> u32 {
+        self.sender_process_id
+    }
+
     pub fn header(&self) -> MessageHeader {
         self.header
     }
@@ -653,6 +689,7 @@ impl ReceivedMessage {
 }
 
 struct QueuedMessage {
+    sender_process_id: u32,
     header: MessageHeader,
     payload: [u8; MAX_INLINE_PAYLOAD],
     payload_len: usize,
@@ -818,6 +855,7 @@ impl ChannelPair {
                 .map_err(ChannelError::from)?;
         }
         let mut queued = QueuedMessage {
+            sender_process_id: sender.id(),
             header: message.header,
             payload: message.payload,
             payload_len: message.payload_len,
@@ -865,6 +903,7 @@ impl ChannelPair {
             return Ok(None);
         };
         let header = queued.header;
+        let sender_process_id = queued.sender_process_id;
         let payload = queued.payload;
         let payload_len = queued.payload_len;
         let token_count = queued.token_count;
@@ -904,6 +943,7 @@ impl ChannelPair {
             return Err(ChannelError::Empty);
         }
         Ok(Some(ReceivedMessage {
+            sender_process_id,
             header,
             payload,
             payload_len,

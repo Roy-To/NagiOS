@@ -172,6 +172,15 @@ the available M1 and M18 boot images are raw FAT images (1,474,560 and
 the image has not been assembled or booted, M18–M29 acceptance remains
 incomplete, and binary license/notice review is open. See
 `docs/workstreams/NagiOS_M30_Release_Workstream.md`.
+**Completion Sweep audit — 2026-09-30:** M19 Search and M22 grouped Undo
+passed QEMU regression after the M27 read-only VFS checker changes. The
+low-level Channel core now attaches the sending kernel `ProcessId` as receive
+metadata, with a regression proving a forged payload ID does not alter it.
+This does not add user Channel syscalls or establish application/session
+authentication: the bootstrap still has one shared-address-space init process
+and no trusted process-to-AppId/session binding. M18–M23 production service
+identity remains an open shared prerequisite; see the M19 workstream and
+ADR-0002.
 **Next action:** Continue M27 by connecting a trustworthy system-readiness
 signal to `mark_boot_success`, then implement and test the bootable Recovery
 Environment and integrate the slots into the final partitioned release image.

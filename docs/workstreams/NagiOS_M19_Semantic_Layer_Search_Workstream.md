@@ -46,7 +46,26 @@ vector, and LLM retrieval are out of scope.
   `NagiPlan@1` is parsed, validated, and executed against it, and the action
   returns only the fixture file's visible ObjectId. Its caller/capability
   policy denies a foreign fixture caller but is private test authority, not
-  production authority.
+production authority.
+
+## Authenticated IPC prerequisite audit — 2026-09-30
+
+The shared M18–M23 service audit found no production caller identity at the
+user-space service boundary: `ServiceRegistry` invokes in-process handlers
+without a kernel-authenticated caller context, and the bootstrap does not
+expose Channel send/receive syscalls. The Channel core now records the process
+ID supplied by its kernel `Process` argument when enqueuing a message and
+returns it separately from the untrusted header and payload. An IPC regression
+test puts the receiver's ID in the payload and verifies that receive metadata
+still reports the sender's kernel Process ID.
+
+This is an M4 kernel-core improvement, not an authentication claim for M19:
+the current bootstrap has one shared-address-space init process, no app/session
+identity binding, and no user Channel syscall path. A trusted supervisor,
+isolated processes, and capability-bound production Search IPC remain
+necessary before the M19 fixture policy can be replaced by production
+authority. The post-M27 storage-check regression also passed `./nagi m19` and
+the three-boot `./nagi m22` QEMU flow on 2026-09-30; logs are in `out/logs/`.
 
 The host acceptance uses the explicitly host-only `HostFileBackend` and a
 fixture visibility policy. It proves the provider-neutral contract and
