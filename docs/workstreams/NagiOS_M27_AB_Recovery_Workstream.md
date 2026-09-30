@@ -11,6 +11,27 @@ release image still uses the fixed `KERNEL.ELF` and `INIT.ELF` pair. A positive
 readiness signal, the Recovery Environment, and the final partitioned release
 layout remain incomplete, so M27 remains PARTIAL.
 
+## Read-only VFS integrity-check slice
+
+`libnagi::storage::Vfs::check_existing` inspects the existing Nagi VFS through
+the separate `ReadOnlyBlockDevice` interface. It validates the fixed
+superblock and group-descriptor geometry, reserved and allocated bitmap bits,
+free counts, inode/block ownership, the reachable directory tree, directory
+records, and `.` / `..` links. It reports counts or `Corrupt`; it has no
+formatting, repair, write, or flush path and must run while the volume is
+quiescent. This is a bounded checker for Nagi's current custom ext2-like
+layout, not a general ext2 `fsck` implementation.
+
+The `m27-ro-vfs-check` init feature runs this check before `mount_or_format`
+on the paired-slot QEMU fixture's persistent user-data disk. The refreshed
+`./nagi m27` acceptance passed: rollback boot 4 and confirmed boot 5 each
+reported `Nagi M27 read-only VFS check PASS` before the normal M7 mount and
+persistent-data read. Host tests prove valid nested volumes pass, malformed
+superblocks, accounting, directory records, inode bitmap bits, and orphan
+parent chains are rejected, and image bytes plus write/flush counters remain
+unchanged by successful and failed checks. This does not yet provide a
+separately selectable Recovery boot or its diagnostics/repair UI.
+
 ## Implemented
 
 - The confirmed slot is retained while the other slot is staged as pending.
@@ -73,6 +94,9 @@ Using the pinned `nightly-2025-08-01` toolchain:
   warnings-denied target Clippy passed.
 - CLI tests passed (117 unit and 18 integration); warnings-denied Clippy and
   formatting passed.
+- `libnagi` storage regression tests passed on the x86-64 macOS target (34
+  unit and 2 integration tests); warnings-denied Clippy passed. The Nagi user
+  target check passed for `nagi-init --features m27-ro-vfs-check`.
 - Fresh `./nagi m27` acceptance passed on 2026-09-30. The bootstrap wrote the
   persistent guest disk. QEMU boots 1–3 selected B and printed
   `Nagi M27 trial payload rejected slot=B` followed by
@@ -86,6 +110,9 @@ Using the pinned `nightly-2025-08-01` toolchain:
   failure markers, and rejects any trial log containing `Nagi Kernel started`.
   A CLI regression test covers those conditions; the fresh QEMU run above
   passed with all three full failure paths observed.
+- The latest `./nagi m27` run built the checker into the slot init and
+  confirmed it on both rollback and confirmed boots. Evidence is preserved in
+  `out/evidence/m27-ab-rollback-1790729662262827000/`.
 - The QEMU host logged that it has no `virtio-sound.in` audio driver. The M27
   acceptance does not exercise audio; all boot-control and persistent-data
   markers passed.
@@ -105,8 +132,9 @@ they do not establish firmware persistence or guest boot behavior.
 1. Connect a trustworthy system-readiness signal to `mark_boot_success` so a
    viable update can become the confirmed slot.
 2. Add a bootable Recovery Environment with the specified slot selection,
-   boot logs, filesystem check, important-file/history restore, advanced
-   terminal, and basic repair operations.
+   boot logs, important-file/history restore, advanced terminal, and basic
+   repair operations. The current read-only VFS checker is one diagnostic
+   building block; it does not repair filesystems.
 3. Integrate the paired slots and separate user data into the final
    partitioned release layout, and validate a viable update alongside the
    intentionally malformed-slot rollback acceptance.

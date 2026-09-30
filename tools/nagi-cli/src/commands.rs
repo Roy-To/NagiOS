@@ -3473,6 +3473,8 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "build",
         "-p",
         "nagi-init",
+        "--features",
+        "m27-ro-vfs-check",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -3654,6 +3656,16 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 EXIT_CONFIG_ERROR,
                 format!(
                     "m27: fallback boot {} did not verify persistent user data (QEMU exit {status}; log {})",
+                    index + 1,
+                    log_path.display()
+                ),
+            );
+        }
+        if index >= 3 && !serial.contains("Nagi M27 read-only VFS check PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: fallback boot {} did not complete the read-only VFS integrity check (QEMU exit {status}; log {})",
                     index + 1,
                     log_path.display()
                 ),

@@ -30,6 +30,7 @@ m19-search = [
     "dep:nagi-search",
 ]
 m22-history = ["m19-search"]
+m27-ro-vfs-check = []
 
 [[bin]]
 name = "nagi-init"

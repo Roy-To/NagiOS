@@ -42,13 +42,15 @@ pub enum StorageError {
     Capacity,
 }
 
-pub trait BlockDevice {
+pub trait ReadOnlyBlockDevice {
     fn read_sector(
         &mut self,
         sector: u64,
         destination: &mut [u8; SECTOR_SIZE],
     ) -> Result<(), StorageError>;
+}
 
+pub trait BlockDevice: ReadOnlyBlockDevice {
     fn write_sector(&mut self, sector: u64, source: &[u8; SECTOR_SIZE])
         -> Result<(), StorageError>;
 
@@ -66,7 +68,7 @@ impl SyscallBlockDevice {
     }
 }
 
-impl BlockDevice for SyscallBlockDevice {
+impl ReadOnlyBlockDevice for SyscallBlockDevice {
     fn read_sector(
         &mut self,
         sector: u64,
@@ -78,7 +80,9 @@ impl BlockDevice for SyscallBlockDevice {
             Err(StorageError::Block)
         }
     }
+}
 
+impl BlockDevice for SyscallBlockDevice {
     fn write_sector(
         &mut self,
         sector: u64,
@@ -169,6 +173,18 @@ pub struct FileMetadata {
     pub blocks: u32,
 }
 
+/// Counts from a bounded, read-only check of Nagi's ext2-like VFS layout.
+/// The directory count includes root. The entry count excludes dot entries
+/// and tombstones. Allocated data blocks exclude reserved blocks and root's
+/// block. This checks the current Nagi format, not general ext2.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VfsIntegrityReport {
+    pub regular_files: u32,
+    pub directories: u32,
+    pub allocated_data_blocks: u32,
+    pub directory_entries: u32,
+}
+
 #[derive(Clone, Copy)]
 pub struct FileMapping {
     handle: FileHandle,
@@ -202,7 +218,7 @@ impl FileMapping {
     }
 }
 
-pub struct Vfs<D: BlockDevice> {
+pub struct Vfs<D> {
     device: D,
 }
 
@@ -1126,6 +1142,14 @@ impl<D: BlockDevice> Vfs<D> {
     }
 }
 
+impl<D: ReadOnlyBlockDevice> Vfs<D> {
+    /// Inspect an existing volume without formatting, writing, or flushing it.
+    /// Invalid or unsupported on-disk state returns `StorageError::Corrupt`.
+    pub fn check_existing(device: &mut D) -> Result<VfsIntegrityReport, StorageError> {
+        check_vfs_integrity(device)
+    }
+}
+
 fn metadata_from_inode(inode: u32, info: InodeInfo) -> FileMetadata {
     FileMetadata {
         inode,
@@ -1177,6 +1201,347 @@ fn validate_superblock(superblock: &[u8; BLOCK_SIZE]) -> Result<(), StorageError
         return Err(StorageError::Corrupt);
     }
     Ok(())
+}
+
+fn check_vfs_integrity<D: ReadOnlyBlockDevice>(
+    device: &mut D,
+) -> Result<VfsIntegrityReport, StorageError> {
+    let mut superblock = [0; BLOCK_SIZE];
+    read_device_block(device, SUPERBLOCK_BLOCK, &mut superblock)?;
+    if read_u16(&superblock, 56) != EXT2_MAGIC {
+        return Err(StorageError::Corrupt);
+    }
+    validate_superblock(&superblock)?;
+
+    let mut group = [0; BLOCK_SIZE];
+    read_device_block(device, GROUP_DESCRIPTOR_BLOCK, &mut group)?;
+    if read_u32(&group, 0) != BLOCK_BITMAP
+        || read_u32(&group, 4) != INODE_BITMAP
+        || read_u32(&group, 8) != INODE_TABLE
+    {
+        return Err(StorageError::Corrupt);
+    }
+
+    let mut block_bitmap = [0; BLOCK_SIZE];
+    let mut inode_bitmap = [0; BLOCK_SIZE];
+    read_device_block(device, BLOCK_BITMAP, &mut block_bitmap)?;
+    read_device_block(device, INODE_BITMAP, &mut inode_bitmap)?;
+
+    let mut used_blocks = 0u32;
+    let mut block = 0;
+    while block < EXT2_BLOCK_COUNT {
+        if !is_bit_set(&block_bitmap, block) {
+            if block < 15 {
+                return Err(StorageError::Corrupt);
+            }
+        } else {
+            used_blocks += 1;
+        }
+        block += 1;
+    }
+
+    let mut used_inodes = 0u32;
+    let mut inode_index = 0;
+    while inode_index < EXT2_INODE_COUNT {
+        if is_bit_set(&inode_bitmap, inode_index) {
+            used_inodes += 1;
+        }
+        inode_index += 1;
+    }
+    while inode_index < (BLOCK_SIZE * 8) as u32 {
+        if is_bit_set(&inode_bitmap, inode_index) {
+            return Err(StorageError::Corrupt);
+        }
+        inode_index += 1;
+    }
+    if !is_bit_set(&inode_bitmap, 0) || !is_bit_set(&inode_bitmap, ROOT_INODE - 1) {
+        return Err(StorageError::Corrupt);
+    }
+
+    let free_blocks = EXT2_BLOCK_COUNT - used_blocks;
+    let free_inodes = EXT2_INODE_COUNT - used_inodes;
+    if read_u32(&superblock, 12) != free_blocks
+        || read_u32(&superblock, 16) != free_inodes
+        || u32::from(read_u16(&group, 12)) != free_blocks
+        || u32::from(read_u16(&group, 14)) != free_inodes
+    {
+        return Err(StorageError::Corrupt);
+    }
+
+    let mut inode_info = [None; EXT2_INODE_COUNT as usize];
+    let mut inode_modes = [0u16; EXT2_INODE_COUNT as usize];
+    let mut referenced_blocks = [0u8; BLOCK_SIZE];
+    let mut regular_files = 0u32;
+    let mut directories = 0u32;
+
+    let mut inode_number = ROOT_INODE;
+    while inode_number <= EXT2_INODE_COUNT {
+        if is_bit_set(&inode_bitmap, inode_number - 1) {
+            let info = read_inode_from_device(device, inode_number)?;
+            let kind = info.mode & 0xf000;
+            if kind != 0x4000 && kind != 0x8000 {
+                return Err(StorageError::Corrupt);
+            }
+            if info.direct_block >= EXT2_BLOCK_COUNT {
+                return Err(StorageError::Corrupt);
+            }
+
+            if inode_number == ROOT_INODE {
+                if kind != 0x4000
+                    || info.size != BLOCK_SIZE as u32
+                    || info.blocks != 2
+                    || info.direct_block != ROOT_DIRECTORY_BLOCK
+                {
+                    return Err(StorageError::Corrupt);
+                }
+            } else {
+                if info.direct_block < 15 || info.size > MAX_FILE_SIZE as u32 {
+                    return Err(StorageError::Corrupt);
+                }
+                if (kind == 0x4000 && (info.size != BLOCK_SIZE as u32 || info.blocks != 2))
+                    || (kind == 0x8000 && info.blocks != 2 && !(info.blocks == 0 && info.size == 0))
+                {
+                    return Err(StorageError::Corrupt);
+                }
+                if !is_bit_set(&block_bitmap, info.direct_block)
+                    || is_bit_set(&referenced_blocks, info.direct_block)
+                {
+                    return Err(StorageError::Corrupt);
+                }
+                set_bit(&mut referenced_blocks, info.direct_block);
+                if kind == 0x4000 {
+                    directories += 1;
+                } else {
+                    regular_files += 1;
+                }
+            }
+
+            inode_modes[(inode_number - 1) as usize] = info.mode;
+            inode_info[(inode_number - 1) as usize] = Some(info);
+        }
+        inode_number += 1;
+    }
+
+    let root_info = inode_info[(ROOT_INODE - 1) as usize].ok_or(StorageError::Corrupt)?;
+    let mut root = [0; BLOCK_SIZE];
+    read_device_block(device, root_info.direct_block, &mut root)?;
+
+    let mut parent_by_inode = [0u32; EXT2_INODE_COUNT as usize];
+    let mut parent_directory = [0u32; EXT2_INODE_COUNT as usize];
+    let mut dot_dot_parent = [0u32; EXT2_INODE_COUNT as usize];
+    let mut inbound_entries = [0u8; EXT2_INODE_COUNT as usize];
+    let mut directory_entries = 0u32;
+    let mut current_inode = ROOT_INODE;
+    while current_inode <= EXT2_INODE_COUNT {
+        let Some(info) = inode_info[(current_inode - 1) as usize] else {
+            current_inode += 1;
+            continue;
+        };
+        if inode_modes[(current_inode - 1) as usize] & 0xf000 != 0x4000 {
+            current_inode += 1;
+            continue;
+        }
+
+        let directory = if current_inode == ROOT_INODE {
+            root
+        } else {
+            let mut bytes = [0; BLOCK_SIZE];
+            read_device_block(device, info.direct_block, &mut bytes)?;
+            bytes
+        };
+        let mut offset = 0usize;
+        let mut dot_count = 0u8;
+        let mut dot_dot_count = 0u8;
+        let mut dot_dot_inode = 0u32;
+        while offset < BLOCK_SIZE {
+            let target = read_u32(&directory, offset);
+            let record_length = usize::from(read_u16(&directory, offset + 4));
+            let name_length = usize::from(read_u8(&directory, offset + 6));
+            if record_length < 8
+                || record_length % 4 != 0
+                || offset + record_length > BLOCK_SIZE
+                || name_length > record_length - 8
+                || name_length > MAX_NAME_LENGTH
+            {
+                return Err(StorageError::Corrupt);
+            }
+
+            if target != 0 {
+                if name_length == 0 {
+                    return Err(StorageError::Corrupt);
+                }
+                let name = &directory[offset + 8..offset + 8 + name_length];
+                if name.iter().any(|byte| *byte == 0 || *byte == b'/') {
+                    return Err(StorageError::Corrupt);
+                }
+                if name != b"." && name != b".." {
+                    let mut previous_offset = 0usize;
+                    while previous_offset < offset {
+                        let previous_target = read_u32(&directory, previous_offset);
+                        let previous_length =
+                            usize::from(read_u16(&directory, previous_offset + 4));
+                        let previous_name_length =
+                            usize::from(read_u8(&directory, previous_offset + 6));
+                        if previous_target != 0
+                            && previous_name_length == name_length
+                            && !is_dot_entry(&directory, previous_offset, previous_name_length)
+                        {
+                            let previous_name = &directory
+                                [previous_offset + 8..previous_offset + 8 + previous_name_length];
+                            if previous_name == name {
+                                return Err(StorageError::Corrupt);
+                            }
+                        }
+                        previous_offset += previous_length;
+                    }
+                }
+                let target_index =
+                    usize::try_from(target - 1).map_err(|_| StorageError::Corrupt)?;
+                if target == 0
+                    || target > EXT2_INODE_COUNT
+                    || !is_bit_set(&inode_bitmap, target - 1)
+                {
+                    return Err(StorageError::Corrupt);
+                }
+                let target_kind = inode_modes[target_index] & 0xf000;
+                let entry_kind = read_u8(&directory, offset + 7);
+                if (target_kind == 0x8000 && entry_kind != 1)
+                    || (target_kind == 0x4000 && entry_kind != 2)
+                    || (target_kind != 0x8000 && target_kind != 0x4000)
+                {
+                    return Err(StorageError::Corrupt);
+                }
+
+                if name == b"." {
+                    dot_count += 1;
+                    if target != current_inode || target_kind != 0x4000 {
+                        return Err(StorageError::Corrupt);
+                    }
+                } else if name == b".." {
+                    dot_dot_count += 1;
+                    dot_dot_inode = target;
+                    if target_kind != 0x4000 {
+                        return Err(StorageError::Corrupt);
+                    }
+                } else {
+                    if target == ROOT_INODE {
+                        return Err(StorageError::Corrupt);
+                    }
+                    let target_slot = target_index;
+                    if parent_by_inode[target_slot] != 0 {
+                        return Err(StorageError::Corrupt);
+                    }
+                    parent_by_inode[target_slot] = current_inode;
+                    parent_directory[target_slot] = current_inode;
+                    inbound_entries[target_slot] = inbound_entries[target_slot]
+                        .checked_add(1)
+                        .ok_or(StorageError::Corrupt)?;
+                    directory_entries += 1;
+                }
+            }
+            offset += record_length;
+        }
+        if dot_count != 1 || dot_dot_count != 1 {
+            return Err(StorageError::Corrupt);
+        }
+        dot_dot_parent[(current_inode - 1) as usize] = dot_dot_inode;
+        current_inode += 1;
+    }
+
+    let mut inode_number = ROOT_INODE;
+    while inode_number <= EXT2_INODE_COUNT {
+        let slot = (inode_number - 1) as usize;
+        if inode_info[slot].is_some() {
+            if inode_number == ROOT_INODE {
+                if dot_dot_parent[slot] != ROOT_INODE || inbound_entries[slot] != 0 {
+                    return Err(StorageError::Corrupt);
+                }
+            } else {
+                let parent = parent_directory[slot];
+                if parent == 0 || inbound_entries[slot] != 1 {
+                    return Err(StorageError::Corrupt);
+                }
+                if inode_modes[slot] & 0xf000 == 0x4000 && dot_dot_parent[slot] != parent {
+                    return Err(StorageError::Corrupt);
+                }
+                let mut ancestor = parent;
+                let mut depth = 0;
+                while ancestor != ROOT_INODE && depth < EXT2_INODE_COUNT {
+                    if ancestor == 0 || ancestor > EXT2_INODE_COUNT {
+                        return Err(StorageError::Corrupt);
+                    }
+                    let ancestor_slot = (ancestor - 1) as usize;
+                    if inode_modes[ancestor_slot] & 0xf000 != 0x4000 {
+                        return Err(StorageError::Corrupt);
+                    }
+                    ancestor = parent_directory[ancestor_slot];
+                    depth += 1;
+                }
+                if ancestor != ROOT_INODE {
+                    return Err(StorageError::Corrupt);
+                }
+            }
+        }
+        inode_number += 1;
+    }
+
+    let mut allocated_data_blocks = 0u32;
+    let mut block = 15;
+    while block < EXT2_BLOCK_COUNT {
+        let allocated = is_bit_set(&block_bitmap, block);
+        let referenced = is_bit_set(&referenced_blocks, block);
+        if allocated != referenced {
+            return Err(StorageError::Corrupt);
+        }
+        if allocated {
+            allocated_data_blocks += 1;
+        }
+        block += 1;
+    }
+
+    Ok(VfsIntegrityReport {
+        regular_files,
+        directories: directories + 1,
+        allocated_data_blocks,
+        directory_entries,
+    })
+}
+
+fn read_inode_from_device<D: ReadOnlyBlockDevice>(
+    device: &mut D,
+    inode: u32,
+) -> Result<InodeInfo, StorageError> {
+    if inode == 0 || inode > EXT2_INODE_COUNT {
+        return Err(StorageError::Corrupt);
+    }
+    let block = INODE_TABLE + (inode - 1) / 8;
+    let offset = ((inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+    let mut bytes = [0; BLOCK_SIZE];
+    read_device_block(device, block, &mut bytes)?;
+    Ok(InodeInfo {
+        mode: read_u16(&bytes, offset),
+        uid: read_u16(&bytes, offset + 2),
+        size: read_u32(&bytes, offset + 4),
+        atime: read_u32(&bytes, offset + 8),
+        ctime: read_u32(&bytes, offset + 12),
+        mtime: read_u32(&bytes, offset + 16),
+        gid: read_u16(&bytes, offset + 24),
+        blocks: read_u32(&bytes, offset + 28),
+        direct_block: read_u32(&bytes, offset + 40),
+    })
+}
+
+fn read_device_block<D: ReadOnlyBlockDevice>(
+    device: &mut D,
+    block: u32,
+    destination: &mut [u8; BLOCK_SIZE],
+) -> Result<(), StorageError> {
+    let sector = u64::from(block).checked_mul(2).ok_or(StorageError::Block)?;
+    let (first, second) = destination.split_at_mut(SECTOR_SIZE);
+    let first: &mut [u8; SECTOR_SIZE] = first.try_into().map_err(|_| StorageError::Block)?;
+    let second: &mut [u8; SECTOR_SIZE] = second.try_into().map_err(|_| StorageError::Block)?;
+    device.read_sector(sector, first)?;
+    device.read_sector(sector + 1, second)
 }
 
 fn validate_name(name: &[u8]) -> Result<(), StorageError> {
@@ -1326,22 +1691,26 @@ fn clear_bit_value(bitmap: &mut [u8; BLOCK_SIZE], bit: u32) {
 mod tests {
     use super::{
         BlockDevice, DirectoryEntry, FileHandle, FileMapping, StorageError, Vfs, BLOCK_SIZE,
-        SECTOR_SIZE,
+        ROOT_DIRECTORY_BLOCK, SECTOR_SIZE,
     };
 
     struct MemoryBlockDevice {
         sectors: [[u8; SECTOR_SIZE]; 64],
+        writes: u32,
+        flushes: u32,
     }
 
     impl MemoryBlockDevice {
         fn new() -> Self {
             Self {
                 sectors: [[0; SECTOR_SIZE]; 64],
+                writes: 0,
+                flushes: 0,
             }
         }
     }
 
-    impl BlockDevice for MemoryBlockDevice {
+    impl super::ReadOnlyBlockDevice for MemoryBlockDevice {
         fn read_sector(
             &mut self,
             sector: u64,
@@ -1354,7 +1723,9 @@ mod tests {
             destination.copy_from_slice(source);
             Ok(())
         }
+    }
 
+    impl BlockDevice for MemoryBlockDevice {
         fn write_sector(
             &mut self,
             sector: u64,
@@ -1365,12 +1736,173 @@ mod tests {
                 return Err(StorageError::Block);
             };
             destination.copy_from_slice(source);
+            self.writes += 1;
             Ok(())
         }
 
         fn flush(&mut self) -> Result<(), StorageError> {
+            self.flushes += 1;
             Ok(())
         }
+    }
+
+    #[test]
+    fn read_only_integrity_check_accepts_nested_vfs_and_never_writes() {
+        let (mut volume, formatted) =
+            Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        assert!(formatted);
+        let root_file = volume.create_path(b"/readme.txt").expect("root file");
+        volume
+            .write(root_file, b"read-only check")
+            .expect("write root file");
+        volume.mkdir_path(b"/docs").expect("create directory");
+        let nested_file = volume.create_path(b"/docs/page.txt").expect("nested file");
+        volume
+            .write(nested_file, b"nested data")
+            .expect("write nested file");
+        let mut device = volume.into_device();
+        let writes_before = device.writes;
+        let flushes_before = device.flushes;
+        let image_before = device.sectors;
+
+        let report =
+            Vfs::<MemoryBlockDevice>::check_existing(&mut device).expect("valid volume check");
+
+        assert_eq!(report.regular_files, 2);
+        assert_eq!(report.directories, 2);
+        assert_eq!(report.allocated_data_blocks, 3);
+        assert_eq!(report.directory_entries, 3);
+        assert_eq!(device.writes, writes_before);
+        assert_eq!(device.flushes, flushes_before);
+        assert_eq!(device.sectors, image_before);
+    }
+
+    #[test]
+    fn read_only_integrity_check_rejects_invalid_volume_without_formatting() {
+        let (volume, formatted) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        assert!(formatted);
+        let mut device = volume.into_device();
+        device.sectors[2][56] = 0;
+        let writes_before = device.writes;
+        let flushes_before = device.flushes;
+        let image_before = device.sectors;
+
+        assert_eq!(
+            Vfs::<MemoryBlockDevice>::check_existing(&mut device),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(device.writes, writes_before);
+        assert_eq!(device.flushes, flushes_before);
+        assert_eq!(device.sectors, image_before);
+    }
+
+    #[test]
+    fn read_only_integrity_check_detects_accounting_corruption_without_writes() {
+        let (volume, formatted) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        assert!(formatted);
+        let mut device = volume.into_device();
+        device.sectors[2][12] ^= 1;
+        let writes_before = device.writes;
+        let flushes_before = device.flushes;
+        let image_before = device.sectors;
+
+        assert_eq!(
+            Vfs::<MemoryBlockDevice>::check_existing(&mut device),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(device.writes, writes_before);
+        assert_eq!(device.flushes, flushes_before);
+        assert_eq!(device.sectors, image_before);
+    }
+
+    #[test]
+    fn read_only_integrity_check_detects_directory_record_corruption_without_writes() {
+        let (volume, formatted) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        assert!(formatted);
+        let mut device = volume.into_device();
+        device.sectors[ROOT_DIRECTORY_BLOCK as usize * 2][4] = 0;
+        device.sectors[ROOT_DIRECTORY_BLOCK as usize * 2][5] = 0;
+        let writes_before = device.writes;
+        let flushes_before = device.flushes;
+        let image_before = device.sectors;
+
+        assert_eq!(
+            Vfs::<MemoryBlockDevice>::check_existing(&mut device),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(device.writes, writes_before);
+        assert_eq!(device.flushes, flushes_before);
+        assert_eq!(device.sectors, image_before);
+    }
+
+    #[test]
+    fn read_only_integrity_check_rejects_out_of_range_inode_bits_without_writes() {
+        let (volume, formatted) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        assert!(formatted);
+        let mut device = volume.into_device();
+        device.sectors[8][8] = 1;
+        let writes_before = device.writes;
+        let flushes_before = device.flushes;
+        let image_before = device.sectors;
+
+        assert_eq!(
+            Vfs::<MemoryBlockDevice>::check_existing(&mut device),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(device.writes, writes_before);
+        assert_eq!(device.flushes, flushes_before);
+        assert_eq!(device.sectors, image_before);
+    }
+
+    #[test]
+    fn read_only_integrity_check_rejects_orphan_parent_chain_without_writes() {
+        let (mut volume, formatted) =
+            Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        assert!(formatted);
+        volume
+            .create_path(b"/reused")
+            .expect("allocate first inode");
+        volume
+            .mkdir_path(b"/orphan")
+            .expect("allocate higher directory inode");
+        volume.remove_path(b"/reused").expect("free first inode");
+        volume
+            .create_path(b"/orphan/child")
+            .expect("reuse lower inode under orphan directory");
+        let mut device = volume.into_device();
+
+        let root_start = ROOT_DIRECTORY_BLOCK as usize * 2;
+        let root = &mut device.sectors[root_start];
+        let mut offset = 0usize;
+        let mut orphan_offset = None;
+        while offset < SECTOR_SIZE {
+            let record_length =
+                usize::from(u16::from_le_bytes([root[offset + 4], root[offset + 5]]));
+            let name_length = usize::from(root[offset + 6]);
+            if name_length == b"orphan".len()
+                && &root[offset + 8..offset + 8 + name_length] == b"orphan"
+            {
+                orphan_offset = Some(offset);
+                break;
+            }
+            if record_length < 8 {
+                break;
+            }
+            offset += record_length;
+        }
+        let orphan_offset = orphan_offset.expect("root entry for orphan directory");
+        root[orphan_offset..orphan_offset + 4].fill(0);
+
+        let writes_before = device.writes;
+        let flushes_before = device.flushes;
+        let image_before = device.sectors;
+        assert_eq!(
+            Vfs::<MemoryBlockDevice>::check_existing(&mut device),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(device.writes, writes_before);
+        assert_eq!(device.flushes, flushes_before);
+        assert_eq!(device.sectors, image_before);
     }
 
     #[test]

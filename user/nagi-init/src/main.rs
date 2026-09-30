@@ -453,6 +453,22 @@ type GuestVolume = libnagi::storage::Vfs<libnagi::storage::SyscallBlockDevice>;
 fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<GuestVolume>)> {
     let file_name = static_message!(NAGI_INIT_M7_FILE_NAME, M7_FILE_NAME_LEN);
     let payload = static_message!(NAGI_INIT_M7_PAYLOAD, M7_PAYLOAD_LEN);
+    #[cfg(feature = "m27-ro-vfs-check")]
+    {
+        let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
+        let report = libnagi::storage::Vfs::<libnagi::storage::SyscallBlockDevice>::check_existing(
+            &mut device,
+        )
+        .ok()?;
+        if report.regular_files != 1
+            || report.directories != 1
+            || report.allocated_data_blocks != 1
+            || report.directory_entries != 1
+        {
+            return None;
+        }
+        libnagi::console_write(b"Nagi M27 read-only VFS check PASS\r\n");
+    }
     let device = libnagi::storage::SyscallBlockDevice::new(block_capability);
     let (mut volume, formatted) = libnagi::storage::Vfs::mount_or_format(device).ok()?;
 
