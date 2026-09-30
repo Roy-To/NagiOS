@@ -254,7 +254,9 @@ Artifact names are stable 8.3 names derived from the artifact ID, not from a
 host path. The reader returns no pre-verified integrity metadata, so
 `ModelRuntime::load` must still hash the model's actual bytes before invoking
 any backend. Host tests cover name stability, fragmented reads, offsets,
-truncated chains, and absent files.
+truncated chains, and absent files. A new integration fixture also passes the
+FAT32 reader directly into `ModelRuntime::load`, verifies the matching SHA-256,
+and proves a wrong digest is rejected before the backend is called.
 
 The M30 init acceptance build probes the real Model Store GPT capability,
 checks the FAT32 BPB/root directory, rejects a block write using the Model
@@ -264,14 +266,14 @@ successfully. After GPT/User Data initialization succeeds, a missing or
 unreadable Model Store capability or invalid FAT32 volume produces a bounded
 FAIL diagnostic but does not stop ordinary OS boot; structurally invalid GPT
 metadata remains fail-closed. The M30 acceptance gate still requires the PASS
-marker. The accepted two-boot QEMU run is
-`out/evidence/m30-release-1790805673208395000/`. The immediately previous
+marker. The latest two-boot QEMU run is
+`out/evidence/m30-release-1790806574616038000/`. The immediately previous
 accepted image is preserved there as
-`reference-disk-before-nonfatal-store.qcow2`. The Model Store is empty in that
-image; this is capability and discovery acceptance, not model loading or
-inference.
+`reference-disk-before-runtime-verification.qcow2`. The Model Store is empty
+in that image; this is capability and discovery acceptance, not model loading
+or inference.
 
-The focused Model Manager suite passes with 47 unit, 2 manifest/schema, and 1
+The focused Model Manager suite passes with 48 unit, 2 manifest/schema, and 1
 Store API test. The pinned Nagi no_std target check, `./nagi fmt`, `./nagi
 lint`, `./nagi test`, `./nagi build`, and two-boot `./nagi m30` acceptance pass.
 An initial M30 run placed the new check before the M5 FPU-state gate and
@@ -281,3 +283,24 @@ acceptance. The failed image and serial log are preserved under
 the 2.24 GB Granite artifact is absent, no installer/catalog service or
 complete llama backend exists, and no real in-guest inference has been
 accepted.
+
+## FAT32-to-runtime digest gate — 2026-10-01
+
+`ModelRuntime::validate` previously treated a reader with no cached integrity
+metadata as an immediate `IntegrityMismatch`. `Fat32ArtifactReader` correctly
+returns no such metadata because the file bytes have not been read yet, so the
+real runtime hash gate could never run for that reader. Runtime validation now
+rejects cached integrity only when one is present and differs from the
+manifest. `ModelRuntime::load` still streams and hashes the actual bytes before
+invoking the backend, and missing manifest integrity remains an error.
+
+A deterministic FAT32 fixture reaches `ModelRuntime::load`. The matching
+manifest digest succeeds only after sector reads; a wrong digest also performs
+the reads, returns `IntegrityMismatch`, and leaves the fake backend load count
+at zero. This fake backend test covers orchestration and does not claim model
+inference. The focused Model Manager suite passes 48 unit, 2 manifest/schema,
+and 1 Store API tests; `no_std` target compilation, repository format/lint/
+test/build, and a fresh two-boot M30 target rebuild pass. M20 remains
+`PARTIAL` because the actual Granite artifact, complete llama backend,
+production catalogue/installer, model service, and real guest inference are
+still absent.

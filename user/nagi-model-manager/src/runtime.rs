@@ -303,6 +303,11 @@ impl<B: ModelBackend> ModelRuntime<B> {
         self.backend.resource_report()
     }
 
+    /// Check manifest identity and backend compatibility before loading.
+    ///
+    /// If the reader has cached verified integrity metadata, it must match the
+    /// manifest. A reader without cached metadata remains untrusted here;
+    /// [`Self::load`] hashes its actual bytes before calling the backend.
     pub fn validate(
         &self,
         manifest: &ModelManifest,
@@ -330,13 +335,13 @@ impl<B: ModelBackend> ModelRuntime<B> {
         {
             return Err(RuntimeError::ArtifactMismatch);
         }
-        if manifest
-            .artifact
-            .integrity
-            .as_ref()
-            .is_some_and(|expected| artifact.verified_integrity() != Some(expected))
-        {
-            return Err(RuntimeError::IntegrityMismatch);
+        if let (Some(expected), Some(verified)) = (
+            manifest.artifact.integrity.as_ref(),
+            artifact.verified_integrity(),
+        ) {
+            if verified != expected {
+                return Err(RuntimeError::IntegrityMismatch);
+            }
         }
         let descriptor = self.backend.descriptor();
         if !manifest

@@ -422,18 +422,31 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
 mod tests {
     extern crate std;
 
+    use alloc::format;
+    use core::cell::Cell;
     use std::vec;
     use std::vec::Vec;
+    use std::{rc::Rc, string::String};
 
     use super::{
         model_store_short_name, Fat32ArtifactError, Fat32ArtifactReader, ModelStoreSectorReader,
         FAT32_SECTOR_SIZE,
     };
-    use crate::{ArtifactId, ArtifactReadError, ModelArtifactReader};
+    use crate::testing::FakeModelBackend;
+    use crate::{
+        ArtifactId, ArtifactReadError, IntegrityMetadata, ModelArtifactReader, ModelManifest,
+        ModelRuntime, RuntimeError,
+    };
+    use sha2::{Digest, Sha256};
 
     const TEST_SECTORS: usize = 128;
 
     struct MemoryPartition(Vec<u8>);
+
+    struct CountingPartition {
+        inner: MemoryPartition,
+        reads: Rc<Cell<usize>>,
+    }
 
     impl ModelStoreSectorReader for MemoryPartition {
         fn read_sector(
@@ -451,6 +464,18 @@ mod tests {
                 .ok_or(ArtifactReadError::OutOfRange)?;
             destination.copy_from_slice(source);
             Ok(())
+        }
+    }
+
+    impl ModelStoreSectorReader for CountingPartition {
+        fn read_sector(
+            &mut self,
+            partition_relative_sector: u64,
+            destination: &mut [u8; FAT32_SECTOR_SIZE],
+        ) -> Result<(), ArtifactReadError> {
+            self.reads.set(self.reads.get().saturating_add(1));
+            self.inner
+                .read_sector(partition_relative_sector, destination)
         }
     }
 
@@ -557,5 +582,62 @@ mod tests {
             artifact.read_at(0, &mut all),
             Err(ArtifactReadError::Unavailable)
         );
+    }
+
+    #[test]
+    fn runtime_hashes_fat32_artifact_bytes_before_backend_load() {
+        let artifact_id = ArtifactId::new("ibm.granite-4.2-3b").unwrap();
+        let content = b"GGUF deterministic test artifact";
+        let mut manifest = ModelManifest::parse_json(
+            include_str!("../tests/fixtures/granite-4.2-3b.json").as_bytes(),
+        )
+        .unwrap();
+        manifest.artifact.size_bytes = Some(content.len() as u64);
+        manifest.artifact.integrity = Some(IntegrityMetadata {
+            algorithm: String::from("sha256"),
+            digest: format!("{:x}", Sha256::digest(content)),
+        });
+
+        let reads = Rc::new(Cell::new(0));
+        let reader = CountingPartition {
+            inner: fixture_partition(&artifact_id, content),
+            reads: reads.clone(),
+        };
+        let mut artifact =
+            Fat32ArtifactReader::open(reader, TEST_SECTORS as u64, artifact_id.clone()).unwrap();
+        assert!(artifact.verified_integrity().is_none());
+        let reads_before_load = reads.get();
+        let mut runtime = ModelRuntime::new(FakeModelBackend::for_manifest(&manifest));
+
+        let session = runtime.load(&manifest, &mut artifact, "x86_64").unwrap();
+        session.unload().unwrap();
+        assert!(reads.get() > reads_before_load);
+        assert_eq!(runtime.backend().load_count, 1);
+
+        let mut bad_digest_manifest = manifest;
+        bad_digest_manifest
+            .artifact
+            .integrity
+            .as_mut()
+            .unwrap()
+            .digest = "0".repeat(64);
+        let reads = Rc::new(Cell::new(0));
+        let reader = CountingPartition {
+            inner: fixture_partition(&artifact_id, content),
+            reads: reads.clone(),
+        };
+        let mut artifact =
+            Fat32ArtifactReader::open(reader, TEST_SECTORS as u64, artifact_id).unwrap();
+        let reads_before_load = reads.get();
+        let mut runtime = ModelRuntime::new(FakeModelBackend::for_manifest(&bad_digest_manifest));
+
+        assert_eq!(
+            runtime
+                .load(&bad_digest_manifest, &mut artifact, "x86_64")
+                .err(),
+            Some(RuntimeError::IntegrityMismatch)
+        );
+        assert!(reads.get() > reads_before_load);
+        assert_eq!(runtime.backend().load_count, 0);
     }
 }
