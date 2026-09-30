@@ -226,3 +226,29 @@ This rerun used the already-built release input; it did not rebuild the image
 or repeat clean-tree preflight/assembly. Those separate release checks remain
 the evidence recorded above. M30 remains PARTIAL for authenticated updates,
 remaining M18–M29 acceptance, and binary license/notice review.
+
+
+## Clean-source release assembly/QEMU checkpoint — 2026-10-01
+
+From clean source commit `284dbf1`, release preflight, assembly, and
+verification passed. The current-head bundle is
+`out/artifacts/m30-release-bundle-284dbf1/`; its image has the same SHA-256 as
+the validated reference input:
+`461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43`.
+`qemu-img check` found no errors on the bundled disk. The generated release
+manifest correctly leaves `m30_acceptance` at `NOT_EVALUATED`.
+
+A current-head `./nagi m30` rerun passed System A selection, first-boot User
+Data format/write, and persistent read after a fresh QEMU restart. The
+command booted a disposable image copy and confirmed both qcow2 structures.
+The invocation log is
+`out/logs/m30-284dbf1-qemu.log`; QEMU copies and serial logs are preserved at
+`out/evidence/m30-release-1790795417285158000/`. All eight release-tool tests
+passed.
+
+The release assembly and QEMU rerun reused the existing kernel and reference
+qcow2; they did not rebuild either payload. They establish current-source
+release provenance/integrity plus current-head acceptance of the byte-identical
+disk, not a clean payload rebuild. Authenticated GPT update installation,
+M18–M29 remaining acceptance, and binary license/notice review remain
+unverified. M30 remains `PARTIAL`.
