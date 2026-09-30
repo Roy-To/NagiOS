@@ -5,6 +5,9 @@ pub const ENTRY_ARRAY_SECTORS: u64 = (ENTRY_COUNT * ENTRY_SIZE / SECTOR_SIZE) as
 pub const USER_DATA_TYPE_GUID: [u8; 16] = [
     0x01, 0x47, 0x41, 0x4e, 0x01, 0x00, 0x41, 0x4e, 0x47, 0x49, 0, 0, 0, 0, 0, 3,
 ];
+pub const MODEL_STORE_TYPE_GUID: [u8; 16] = [
+    0x01, 0x47, 0x41, 0x4e, 0x01, 0x00, 0x41, 0x4e, 0x47, 0x49, 0, 0, 0, 0, 0, 5,
+];
 
 const HEADER_SIGNATURE: &[u8; 8] = b"EFI PART";
 const GPT_REVISION_1_0: u32 = 0x0001_0000;
@@ -15,6 +18,12 @@ const MBR_PARTITION_OFFSET: usize = 446;
 pub struct PartitionRange {
     pub start_lba: u64,
     pub sector_count: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PartitionLayout {
+    pub user_data: PartitionRange,
+    pub model_store: Option<PartitionRange>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,6 +39,7 @@ pub enum GptError {
     DuplicateGuid,
     MissingUserData,
     MultipleUserData,
+    MultipleModelStore,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,6 +61,16 @@ struct Extent {
 }
 
 pub fn find_user_data<F>(mut read_sector: F, disk_sectors: u64) -> Result<PartitionRange, GptError>
+where
+    F: FnMut(u64, &mut [u8; SECTOR_SIZE]) -> Result<(), ()>,
+{
+    find_partitions(&mut read_sector, disk_sectors).map(|partitions| partitions.user_data)
+}
+
+pub fn find_partitions<F>(
+    mut read_sector: F,
+    disk_sectors: u64,
+) -> Result<PartitionLayout, GptError>
 where
     F: FnMut(u64, &mut [u8; SECTOR_SIZE]) -> Result<(), ()>,
 {
@@ -92,7 +112,9 @@ where
 
     let mut extents: [Option<Extent>; ENTRY_COUNT] = [None; ENTRY_COUNT];
     let mut user_data = None;
+    let mut model_store = None;
     let mut user_data_count = 0usize;
+    let mut model_store_count = 0usize;
     let mut crc = !0u32;
     for sector_index in 0..ENTRY_ARRAY_SECTORS {
         let mut bytes = [0u8; SECTOR_SIZE];
@@ -147,6 +169,15 @@ where
                         .and_then(|sectors| sectors.checked_add(1))
                         .ok_or(GptError::PartitionBounds)?,
                 });
+            } else if bytes_equal(&type_guid, &MODEL_STORE_TYPE_GUID) {
+                model_store_count += 1;
+                model_store = Some(PartitionRange {
+                    start_lba: first_lba,
+                    sector_count: last_lba
+                        .checked_sub(first_lba)
+                        .and_then(|sectors| sectors.checked_add(1))
+                        .ok_or(GptError::PartitionBounds)?,
+                });
             }
         }
     }
@@ -175,7 +206,13 @@ where
     if user_data_count != 1 {
         return Err(GptError::MultipleUserData);
     }
-    user_data.ok_or(GptError::MissingUserData)
+    if model_store_count > 1 {
+        return Err(GptError::MultipleModelStore);
+    }
+    Ok(PartitionLayout {
+        user_data: user_data.ok_or(GptError::MissingUserData)?,
+        model_store,
+    })
 }
 
 fn validate_protective_mbr(mbr: &[u8; SECTOR_SIZE], disk_sectors: u64) -> Result<(), GptError> {
@@ -295,11 +332,16 @@ mod tests {
     use std::vec;
     use std::vec::Vec;
 
-    use super::{find_user_data, GptError, ENTRY_ARRAY_SECTORS, SECTOR_SIZE, USER_DATA_TYPE_GUID};
+    use super::{
+        find_partitions, find_user_data, GptError, ENTRY_ARRAY_SECTORS, MODEL_STORE_TYPE_GUID,
+        SECTOR_SIZE, USER_DATA_TYPE_GUID,
+    };
 
     const DISK_SECTORS: u64 = 128;
     const DATA_START: u64 = 40;
     const DATA_END: u64 = 80;
+    const MODEL_START: u64 = 82;
+    const MODEL_END: u64 = 88;
 
     fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
@@ -333,6 +375,11 @@ mod tests {
         data[16..32].copy_from_slice(&[3; 16]);
         write_u64(data, 32, DATA_START);
         write_u64(data, 40, DATA_END);
+        let model = &mut disk[entries_start + 128..entries_start + 256];
+        model[..16].copy_from_slice(&MODEL_STORE_TYPE_GUID);
+        model[16..32].copy_from_slice(&[5; 16]);
+        write_u64(model, 32, MODEL_START);
+        write_u64(model, 40, MODEL_END);
         let entries_crc = crc32(
             &disk[entries_start..entries_start + (ENTRY_ARRAY_SECTORS as usize * SECTOR_SIZE)],
         );
@@ -391,6 +438,18 @@ mod tests {
         )
     }
 
+    fn find_layout(disk: &[u8], disk_sectors: u64) -> Result<super::PartitionLayout, GptError> {
+        find_partitions(
+            |lba, output| {
+                let start = usize::try_from(lba).map_err(|_| ())? * SECTOR_SIZE;
+                let sector = disk.get(start..start + SECTOR_SIZE).ok_or(())?;
+                output.copy_from_slice(sector);
+                Ok(())
+            },
+            disk_sectors,
+        )
+    }
+
     #[test]
     fn returns_only_a_checksum_valid_user_data_extent() {
         let disk = test_disk();
@@ -400,6 +459,48 @@ mod tests {
                 start_lba: DATA_START,
                 sector_count: DATA_END - DATA_START + 1,
             })
+        );
+    }
+
+    #[test]
+    fn exposes_the_model_store_as_a_separate_validated_extent() {
+        let disk = test_disk();
+        assert_eq!(
+            find_layout(&disk, DISK_SECTORS),
+            Ok(super::PartitionLayout {
+                user_data: super::PartitionRange {
+                    start_lba: DATA_START,
+                    sector_count: DATA_END - DATA_START + 1,
+                },
+                model_store: Some(super::PartitionRange {
+                    start_lba: MODEL_START,
+                    sector_count: MODEL_END - MODEL_START + 1,
+                }),
+            })
+        );
+    }
+
+    #[test]
+    fn keeps_legacy_user_data_images_valid_without_a_model_store() {
+        let mut disk = test_disk();
+        disk[2 * SECTOR_SIZE + 128..2 * SECTOR_SIZE + 256].fill(0);
+        refresh_entries_crc(&mut disk);
+        assert_eq!(find_layout(&disk, DISK_SECTORS).unwrap().model_store, None);
+        assert!(find(&disk, DISK_SECTORS).is_ok());
+    }
+
+    #[test]
+    fn rejects_multiple_model_store_entries() {
+        let mut disk = test_disk();
+        let second_entry = 2 * SECTOR_SIZE + 2 * super::ENTRY_SIZE;
+        disk[second_entry..second_entry + 16].copy_from_slice(&MODEL_STORE_TYPE_GUID);
+        disk[second_entry + 16..second_entry + 32].copy_from_slice(&[6; 16]);
+        write_u64(&mut disk, second_entry + 32, 90);
+        write_u64(&mut disk, second_entry + 40, 92);
+        refresh_entries_crc(&mut disk);
+        assert_eq!(
+            find_layout(&disk, DISK_SECTORS),
+            Err(GptError::MultipleModelStore)
         );
     }
 

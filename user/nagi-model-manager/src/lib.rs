@@ -2,12 +2,14 @@
 
 extern crate alloc;
 
+mod fat32;
 mod manifest;
 mod registry;
 mod routing;
 mod runtime;
 mod store;
 
+pub use fat32::*;
 pub use manifest::*;
 pub use registry::*;
 pub use routing::*;

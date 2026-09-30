@@ -72,6 +72,7 @@ pub struct UserContext {
     pub input_capability: u64,
     pub net_capability: u64,
     pub audio_capability: u64,
+    pub model_store_capability: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1159,6 +1160,7 @@ fn build_user_context(
         input_capability: crate::input::user_capability(),
         net_capability: crate::net::user_capability(),
         audio_capability: crate::audio::user_capability(),
+        model_store_capability: crate::virtio::model_store_capability(),
     })
 }
 
@@ -1700,6 +1702,7 @@ pub unsafe fn enter(context: UserContext) -> ! {
         "push {user_rflags}",
         "push {user_cs}",
         "push {user_rip}",
+        "push {model_store_capability}",
         "push {audio_capability}",
         "push {net_capability}",
         "push {input_capability}",
@@ -1725,6 +1728,7 @@ pub unsafe fn enter(context: UserContext) -> ! {
         "pop rdx",
         "pop rcx",
         "pop r8",
+        "pop r9",
         "fninit",
         "fldz",
         "fldz",
@@ -1766,6 +1770,7 @@ pub unsafe fn enter(context: UserContext) -> ! {
         input_capability = in(reg) context.input_capability,
         net_capability = in(reg) context.net_capability,
         audio_capability = in(reg) context.audio_capability,
+        model_store_capability = in(reg) context.model_store_capability,
         options(noreturn)
     );
 }
@@ -2595,9 +2600,12 @@ mod tests {
         assert!(entry.contains("push {block_capability}"));
         assert!(entry.contains("push {net_capability}"));
         assert!(entry.contains("push {audio_capability}"));
+        assert!(entry.contains("push {model_store_capability}"));
         assert!(entry.contains("pop rdi"));
+        assert!(entry.contains("pop r9"));
         assert!(entry.contains("block_capability = in(reg) context.block_capability"));
         assert!(entry.contains("net_capability = in(reg) context.net_capability"));
         assert!(entry.contains("audio_capability = in(reg) context.audio_capability"));
+        assert!(entry.contains("model_store_capability = in(reg) context.model_store_capability"));
     }
 }

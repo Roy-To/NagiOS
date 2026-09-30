@@ -48,6 +48,7 @@ pub enum BlockError {
     SectorOutOfRange,
     InvalidPartitionTable,
     UserDataPartitionTooSmall,
+    InvalidCapability,
     Busy,
     UnsupportedFeature,
 }
@@ -119,6 +120,8 @@ struct DeviceState {
     data_start_lba: u64,
     capacity_sectors: u64,
     capability: u64,
+    model_store: Option<crate::gpt::PartitionRange>,
+    model_store_capability: u64,
     flush_supported: bool,
 }
 
@@ -188,15 +191,18 @@ pub fn initialize() -> Result<(), BlockError> {
         data_start_lba: 0,
         capacity_sectors: candidate.capacity_sectors,
         capability: 0,
+        model_store: None,
+        model_store_capability: 0,
         flush_supported,
     };
-    let data_extent = crate::gpt::find_user_data(
+    let partitions = crate::gpt::find_partitions(
         |sector, destination| unsafe {
             transfer_locked(raw_device, sector, destination, false).map_err(|_| ())
         },
         candidate.capacity_sectors,
     )
     .map_err(|_| BlockError::InvalidPartitionTable)?;
+    let data_extent = partitions.user_data;
     if data_extent.sector_count < MAX_USER_DATA_SECTORS {
         return Err(BlockError::UserDataPartitionTooSmall);
     }
@@ -208,6 +214,19 @@ pub fn initialize() -> Result<(), BlockError> {
         data_extent.start_lba,
         exposed_sectors,
     );
+    let model_store_capability = partitions.model_store.map_or(0, |extent| {
+        let mut model_capability = make_capability(
+            candidate.bus,
+            candidate.device,
+            candidate.function,
+            extent.start_lba,
+            extent.sector_count,
+        ) ^ 0x4d4f_4445_4c53_544f;
+        while model_capability == 0 || model_capability == capability {
+            model_capability = model_capability.wrapping_add(1);
+        }
+        model_capability
+    });
     unsafe {
         ptr::write_volatile(
             ptr::addr_of_mut!(DEVICE),
@@ -217,6 +236,8 @@ pub fn initialize() -> Result<(), BlockError> {
                 data_start_lba: data_extent.start_lba,
                 capacity_sectors: exposed_sectors,
                 capability,
+                model_store: partitions.model_store,
+                model_store_capability,
                 flush_supported,
             }),
         );
@@ -234,7 +255,36 @@ pub fn user_capability() -> u64 {
 }
 
 pub fn capability_matches(capability: u64) -> bool {
-    capability != 0 && capability == user_capability()
+    unsafe {
+        ptr::addr_of!(DEVICE)
+            .read_volatile()
+            .is_some_and(|device| is_writable_capability(capability, device.capability))
+    }
+}
+
+pub fn model_store_capability() -> u64 {
+    unsafe {
+        ptr::addr_of!(DEVICE)
+            .read_volatile()
+            .map(|device| device.model_store_capability)
+            .unwrap_or(0)
+    }
+}
+
+pub fn readable_capability_matches(capability: u64) -> bool {
+    if capability == 0 {
+        return false;
+    }
+    unsafe {
+        ptr::addr_of!(DEVICE).read_volatile().is_some_and(|device| {
+            is_readable_capability(
+                capability,
+                device.capability,
+                device.model_store_capability,
+                device.model_store.is_some(),
+            )
+        })
+    }
 }
 
 pub fn capacity_sectors() -> Option<u64> {
@@ -250,6 +300,32 @@ pub fn read_sector(
     destination: &mut [u8; BLOCK_SECTOR_SIZE],
 ) -> Result<(), BlockError> {
     transfer(sector, destination, false)
+}
+
+pub fn read_sector_for_capability(
+    capability: u64,
+    sector: u64,
+    destination: &mut [u8; BLOCK_SECTOR_SIZE],
+) -> Result<(), BlockError> {
+    let Some(device) = (unsafe { ptr::addr_of!(DEVICE).read_volatile() }) else {
+        return Err(BlockError::NotInitialized);
+    };
+    let (start_lba, capacity_sectors) = if capability != 0 && capability == device.capability {
+        (device.data_start_lba, device.capacity_sectors)
+    } else if capability != 0 && capability == device.model_store_capability {
+        let extent = device.model_store.ok_or(BlockError::InvalidCapability)?;
+        (extent.start_lba, extent.sector_count)
+    } else {
+        return Err(BlockError::InvalidCapability);
+    };
+    transfer_extent(
+        device,
+        start_lba,
+        capacity_sectors,
+        sector,
+        destination,
+        false,
+    )
 }
 
 pub fn write_sector(sector: u64, source: &[u8; BLOCK_SECTOR_SIZE]) -> Result<(), BlockError> {
@@ -337,10 +413,28 @@ fn transfer(
     let Some(device) = (unsafe { ptr::addr_of!(DEVICE).read_volatile() }) else {
         return Err(BlockError::NotInitialized);
     };
-    let physical_sector = translate_user_sector(
-        sector,
+    transfer_extent(
+        device,
         device.data_start_lba,
         device.capacity_sectors,
+        sector,
+        buffer,
+        write_request,
+    )
+}
+
+fn transfer_extent(
+    device: DeviceState,
+    start_lba: u64,
+    capacity_sectors: u64,
+    sector: u64,
+    buffer: &mut [u8; BLOCK_SECTOR_SIZE],
+    write_request: bool,
+) -> Result<(), BlockError> {
+    let physical_sector = translate_user_sector(
+        sector,
+        start_lba,
+        capacity_sectors,
         device.physical_capacity_sectors,
     )?;
     if REQUEST_LOCK
@@ -537,6 +631,21 @@ const fn make_capability(bus: u8, device: u8, function: u8, start_lba: u64, capa
     }
 }
 
+const fn is_readable_capability(
+    capability: u64,
+    user_data_capability: u64,
+    model_store_capability: u64,
+    has_model_store: bool,
+) -> bool {
+    capability != 0
+        && (capability == user_data_capability
+            || has_model_store && capability == model_store_capability)
+}
+
+const fn is_writable_capability(capability: u64, user_data_capability: u64) -> bool {
+    capability != 0 && capability == user_data_capability
+}
+
 fn validate_sector(sector: u64, capacity: u64) -> Result<(), BlockError> {
     if sector < capacity {
         Ok(())
@@ -627,10 +736,10 @@ unsafe fn io_write32(port: u16, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        choose_largest_writable_block_device, descriptor_flags, make_capability,
-        pci_config_address, request_header, translate_user_sector, validate_sector,
-        BlockRequestHeader, DeviceCandidate, LegacyQueue, BLOCK_IN, DESC_F_NEXT, DESC_F_WRITE,
-        QUEUE_SIZE, QUEUE_USED_RING_OFFSET,
+        choose_largest_writable_block_device, descriptor_flags, is_readable_capability,
+        is_writable_capability, make_capability, pci_config_address, request_header,
+        translate_user_sector, validate_sector, BlockRequestHeader, DeviceCandidate, LegacyQueue,
+        BLOCK_IN, DESC_F_NEXT, DESC_F_WRITE, QUEUE_SIZE, QUEUE_USED_RING_OFFSET,
     };
 
     #[test]
@@ -669,6 +778,22 @@ mod tests {
             make_capability(0, 2, 0, 2048, 16_384),
             make_capability(0, 2, 0, 4096, 16_384)
         );
+    }
+
+    #[test]
+    fn model_store_capability_is_readable_but_not_writable() {
+        let user_data = make_capability(0, 2, 0, 2048, 16_384);
+        let model_store = make_capability(0, 2, 0, 4_194_304, 67_108_864) ^ 0x4d4f_4445_4c53_544f;
+        assert_ne!(model_store, 0);
+        assert_ne!(model_store, user_data);
+        assert!(is_readable_capability(
+            model_store,
+            user_data,
+            model_store,
+            true
+        ));
+        assert!(!is_writable_capability(model_store, user_data));
+        assert!(!is_readable_capability(model_store, user_data, 0, false));
     }
 
     #[test]

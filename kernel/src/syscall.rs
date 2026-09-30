@@ -1191,14 +1191,13 @@ fn copy_kernel_bytes_to_user<T>(address: u64, value: &T) {
 
 #[cfg(not(test))]
 fn block_read(capability: u64, sector: u64, address: u64) -> u64 {
-    if !nagi_kernel::virtio::capability_matches(capability)
-        || !nagi_kernel::virtio::capacity_sectors().is_some_and(|capacity| sector < capacity)
+    if !nagi_kernel::virtio::readable_capability_matches(capability)
         || !nagi_kernel::user_process::is_user_writable_range_mapped(address, BLOCK_SECTOR_SIZE)
     {
         return u64::MAX;
     }
     let mut buffer = [0_u8; BLOCK_SECTOR_SIZE];
-    if nagi_kernel::virtio::read_sector(sector, &mut buffer).is_err() {
+    if nagi_kernel::virtio::read_sector_for_capability(capability, sector, &mut buffer).is_err() {
         return u64::MAX;
     }
     for (index, byte) in buffer.iter().enumerate() {

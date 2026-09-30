@@ -571,6 +571,88 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     Some((0, Some(volume)))
 }
 
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m20-model-store-acceptance",
+    not(feature = "m27-recovery")
+))]
+struct SyscallModelStoreReader(u64);
+
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m20-model-store-acceptance",
+    not(feature = "m27-recovery")
+))]
+impl nagi_model_manager::ModelStoreSectorReader for SyscallModelStoreReader {
+    fn read_sector(
+        &mut self,
+        partition_relative_sector: u64,
+        destination: &mut [u8; nagi_model_manager::FAT32_SECTOR_SIZE],
+    ) -> Result<(), nagi_model_manager::ArtifactReadError> {
+        if libnagi::block_read(self.0, partition_relative_sector, destination) {
+            Ok(())
+        } else {
+            Err(nagi_model_manager::ArtifactReadError::Unavailable)
+        }
+    }
+}
+
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m20-model-store-acceptance",
+    not(feature = "m27-recovery")
+))]
+fn run_m20_model_store_capability_acceptance(model_store_capability: u64) -> bool {
+    if model_store_capability == 0 {
+        return false;
+    }
+    let mut boot_sector = [0u8; libnagi::BLOCK_SECTOR_SIZE];
+    if !libnagi::block_read(model_store_capability, 0, &mut boot_sector)
+        || boot_sector[11..13] != [0, 2]
+        || &boot_sector[82..87] != b"FAT32"
+        || boot_sector[510..512] != [0x55, 0xaa]
+    {
+        return false;
+    }
+    if libnagi::block_write(model_store_capability, 0, &boot_sector) {
+        return false;
+    }
+    let mut after_rejected_write = [0u8; libnagi::BLOCK_SECTOR_SIZE];
+    if !libnagi::block_read(model_store_capability, 0, &mut after_rejected_write)
+        || !bytes_equal(&boot_sector, &after_rejected_write)
+    {
+        return false;
+    }
+    let artifact_id = match nagi_model_manager::ArtifactId::new("ibm.granite-4.2-3b") {
+        Ok(artifact_id) => artifact_id,
+        Err(_) => return false,
+    };
+    // ADR-0013 fixes the reference Model Store at 32 GiB, or 67,108,864
+    // 512-byte sectors. The kernel still enforces the exact GPT extent on
+    // every read.
+    const M30_MODEL_STORE_SECTORS: u64 = 67_108_864;
+    let artifact = nagi_model_manager::Fat32ArtifactReader::open(
+        SyscallModelStoreReader(model_store_capability),
+        M30_MODEL_STORE_SECTORS,
+        artifact_id,
+    );
+    match artifact {
+        Ok(mut artifact) => {
+            let mut header = [0u8; 4];
+            if nagi_model_manager::ModelArtifactReader::read_at(&mut artifact, 0, &mut header)
+                != Ok(4)
+                || &header != b"GGUF"
+            {
+                return false;
+            }
+        }
+        Err(nagi_model_manager::Fat32ArtifactError::ArtifactNotFound) => {}
+        Err(_) => return false,
+    }
+    libnagi::console_write(b"Nagi M20 Model Store capability PASS\r\n")
+        == b"Nagi M20 Model Store capability PASS\r\n".len()
+}
+
 #[cfg(target_os = "nagi")]
 unsafe fn run_elf_initializers() {
     unsafe extern "C" {
@@ -605,6 +687,7 @@ pub extern "C" fn _start(
     input_capability: u64,
     net_capability: u64,
     audio_capability: u64,
+    model_store_capability: u64,
 ) -> ! {
     unsafe { run_elf_initializers() };
     let _ = (
@@ -612,6 +695,7 @@ pub extern "C" fn _start(
         input_capability,
         net_capability,
         audio_capability,
+        model_store_capability,
     );
     recovery::run(block_capability)
 }
@@ -624,8 +708,12 @@ pub extern "C" fn _start(
     input_capability: u64,
     net_capability: u64,
     audio_capability: u64,
+    model_store_capability: u64,
 ) -> ! {
     unsafe { run_elf_initializers() };
+
+    #[cfg(not(feature = "m20-model-store-acceptance"))]
+    let _ = model_store_capability;
 
     #[cfg(all(feature = "m13-std", not(feature = "m17-servo")))]
     return m13_std::run(block_capability, net_capability);
@@ -732,6 +820,10 @@ pub extern "C" fn _start(
         NAGI_INIT_FPU_STATE_ROUND_TRIP_PASS,
         FPU_STATE_ROUND_TRIP_PASS_LEN
     ));
+    #[cfg(feature = "m20-model-store-acceptance")]
+    if !run_m20_model_store_capability_acceptance(model_store_capability) {
+        libnagi::console_write(b"Nagi M20 Model Store capability FAIL\r\n");
+    }
     #[cfg(all(
         feature = "m10-desktop",
         not(any(

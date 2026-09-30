@@ -33,9 +33,11 @@ complete and this evidence does not assert release readiness.
   System A's root `KERNEL.ELF` and `INIT.ELF`; the legacy M-stage directory
   image path remains available for regression acceptance. The kernel checks
   both GPT headers and entry-array checksums, bounds and overlap, then gives
-  user storage only an 8 MiB User Data-relative block capability. Invalid GPT
-  metadata fails closed. M-stage persistent disks migrate to a GPT data
-  partition while retaining the original raw image as `.legacy-raw`.
+  user storage an 8 MiB writable User Data-relative block capability and a
+  separate read-only capability for the exact Model Store extent. Invalid or
+  missing Model Store entries expose no read capability. M-stage persistent
+  disks migrate to a GPT data partition while retaining the original raw image
+  as `.legacy-raw`.
 - The M30 QEMU path copies the reference qcow2 into its run evidence directory,
   stops on either first-format or existing-data acceptance, restarts the copy
   with the same OVMF variables, and requires a successful VFS persistent read
@@ -283,3 +285,40 @@ acceptance record. The host's missing `virtio-sound.in` driver was reported by
 QEMU, so this evidence does not cover audio. Authenticated update installation,
 M18–M29 remaining gates, and binary license/notice review remain incomplete;
 M30 stays `PARTIAL`.
+
+## M20 read-only Model Store QEMU gate — 2026-10-01
+
+The M30 acceptance init is now built with `m20-model-store-acceptance`. It
+receives the sixth bootstrap argument as the Model Store capability, reads the
+32 GiB partition's FAT32 boot sector through the capability-relative block
+syscall, and passes the root directory through `Fat32ArtifactReader`. The
+current image has no Granite file, which is an accepted optional-model state;
+when present, this gate checks the `GGUF` header. A block-write attempt using
+the Model Store capability is rejected, and a follow-up read confirms the
+sector is unchanged. User Data retains its existing writable capability.
+
+The first rebuilt image placed this check before the M5 FPU-state gate, so QEMU
+reported M20 PASS and then failed `Nagi M5 FPU state`. That failed image and
+serial log are preserved under
+`out/evidence/m30-release-1790804891726864000/`. The check was moved after the
+initial and round-trip FPU checks. A later reliability adjustment made a
+missing/unreadable Model Store capability or invalid FAT32 volume emit an M20
+FAIL marker without terminating ordinary boot after GPT/User Data
+initialization; structurally invalid GPT metadata remains fail-closed. The M30
+CLI still requires the M20 PASS marker. The latest
+two-boot `./nagi m30` run passed System A selection, M20 read-only/FAT32
+discovery, User Data format/write/restart-read, and M7 acceptance. Both serial
+logs and the disposable QEMU copy are in
+`out/evidence/m30-release-1790805673208395000/`. The immediately previous
+accepted reference image is preserved there as
+`reference-disk-before-nonfatal-store.qcow2`. The latest image hash is
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`; `qemu-img
+check` passed on source and acceptance copy.
+
+The previous fixed-path image and release bundle were copied, SHA-256 checked,
+and bundle-verified before rebuilding. They are preserved at
+`out/evidence/m30-pre-m20-store-20260930T214713Z/`. The latest rebuilt image
+has not yet been assembled into a clean-source release bundle. Release
+manifest acceptance remains `NOT_EVALUATED`; this gate verifies Model Store
+capability and discovery only, not artifact installation, model loading,
+authenticated updates, or inference. M30 remains `PARTIAL`.

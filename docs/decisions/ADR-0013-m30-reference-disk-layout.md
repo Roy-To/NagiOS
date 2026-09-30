@@ -44,14 +44,17 @@ volume, boot fails closed. The existing directory-based FAT acceptance images
 remain a separate compatibility path while the GPT release path is introduced.
 
 The kernel validates both GPT headers and entry-array checksums, checks the
-User Data extent against usable LBAs and all other non-empty entries, and then
-creates the user block capability for only the first 16,384 sectors (8 MiB) of
-that extent, matching the current fixed VFS geometry. Block syscalls take User
-Data-relative sector numbers and reject out-of-range requests before adding
-the validated starting LBA. Invalid or missing GPT metadata yields no user
-block capability; there is no raw-disk fallback. VFS formatting and
-normal storage syscalls therefore cannot address the MBR, either GPT header,
-the entry arrays, ESP, system slots, Recovery, or Model Store.
+User Data and optional Model Store extents against usable LBAs and all other
+non-empty entries, then creates a User Data block capability for only the
+first 16,384 sectors (8 MiB) of that extent, matching the current fixed VFS
+geometry. If exactly one Model Store entry is present, it creates a separate
+read-only capability for that exact extent. Block reads use capability-relative
+sector numbers and reject out-of-range requests before adding the validated
+starting LBA. Block writes and flush continue to accept only the User Data
+capability. Invalid or missing GPT metadata yields no corresponding
+capability; there is no raw-disk fallback. VFS formatting and normal storage
+syscalls therefore cannot address the MBR, either GPT header, the entry
+arrays, ESP, system slots, Recovery, or Model Store.
 
 The existing custom VFS uses a fixed 8 MiB on-disk geometry. The 16 GiB User
 Data partition reserves room for a later growable filesystem, while the initial
@@ -70,8 +73,10 @@ is replaced, release preflight must reject model artifacts at or above 4 GiB.
   image remains a clean release input instead of inheriting acceptance data.
 - M-stage acceptance disks must be converted to GPT images with a User Data
   partition before the kernel can remove its whole-disk fallback.
-- Model Store and the system partitions have release-image placement, but
-  package management, authenticated updates, Model Store installation, and
+- Model Store and the system partitions have release-image placement. The
+  kernel now exposes the Model Store extent to bootstrap user space as a
+  read-only capability; FAT32 artifact discovery/reading is implemented in
+  M20. Model installation, package management, authenticated updates, and
   System B/Recovery acceptance from this GPT image remain separate work.
 - The release tool's clean-tree preflight, assembly, and integrity checks pass.
   Two QEMU boots of a byte-identical disposable copy passed GPT System A and

@@ -29,6 +29,7 @@ m19-search = [
     "dep:nagi-model-manager",
     "dep:nagi-search",
 ]
+m20-model-store-acceptance = ["m19-search"]
 m22-history = ["m19-search"]
 m27-ro-vfs-check = []
 m27-recovery = []

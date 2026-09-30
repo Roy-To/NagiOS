@@ -895,7 +895,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "-p",
             "nagi-init",
             "--features",
-            "m10-desktop,m19-search,m22-history",
+            "m10-desktop,m19-search,m20-model-store-acceptance,m22-history",
             "--target",
             "targets/x86_64-unknown-nagi-user.json",
             "-Zbuild-std=core,alloc,compiler_builtins",
@@ -969,6 +969,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     };
     for marker in [
         "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M20 Model Store capability PASS",
         "Nagi M27 persistence decision: confirmed slot=A",
         "Nagi M27 UEFI variable journal persistence PASS",
         "Nagi Kernel started",
@@ -1032,6 +1033,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     };
     for marker in [
         "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M20 Model Store capability PASS",
         "Nagi M27 persistence decision: confirmed slot=A",
         "Nagi M27 UEFI variable journal persistence PASS",
         "Nagi Kernel started",

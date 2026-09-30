@@ -26,7 +26,9 @@ bytes before calling any backend.
   unregistering active or transitional models.
 - Bounded artifact reads, provider-neutral generation/session interfaces,
   cancellation/deadline results, and local Model Store install/update/removal
-  metadata contracts.
+  metadata contracts. The guest Model Store now has a separate read-only GPT
+  capability and a no_std FAT32 artifact reader; the writable User Data
+  capability remains unchanged.
 - Runtime load streams artifact bytes through a fixed 8 KiB SHA-256 buffer and
   rejects a content mismatch before invoking the backend. Tests cover changed
   bytes, digest comparison, and short reads over a multi-chunk artifact.
@@ -150,9 +152,13 @@ Nagi `no_std` target.
    runtime. The latest fresh full-target attempt identifies 28 failing object
    targets after backend registration now compiles; the checkout has no Nagi C
    ABI adapter, complete target build, or backend session.
-2. Add a large-artifact Model Store path. Current guest VFS files are 1 KiB
-   bounded and cannot contain the pinned 2.24 GB model; no guest model artifact
-   reader or installer is registered.
+2. Connect the artifact reader to a trusted Model Store catalog/installer and
+   provide the external placement workflow. Model Store files use the root
+   short name formed from the first 40 bits of `SHA256(UTF8(artifact_id))` as
+   Crockford Base32 plus `.GGF`; the manifest digest remains authoritative.
+   The current M30 image has an empty Model Store, and no installer or model
+   bytes are bundled. The existing User Data VFS remains 1 KiB bounded and is
+   not used for model artifacts.
 3. Activate a user-space model service that loads the model lazily, enforces
    measured bounded resource use, and fails safely when the model or backend is absent.
    Granite absence must not prevent Nagi from booting.
@@ -227,3 +233,51 @@ grammar, memory/KV, Unicode, and related error paths because Nagi has no
 exception unwinder. There is still no complete llama backend or real local
 inference, so M20 remains `PARTIAL` and no QEMU inference acceptance is
 claimed.
+
+## Read-only guest Model Store and FAT32 artifact reader — 2026-10-01
+
+Added `ADR-0014` for a separate Model Store capability. Kernel GPT parsing
+continues to require exactly one User Data partition, permits at most one
+Model Store partition, and validates both extents against all partition
+bounds/overlap checks. Syscall block reads translate sectors relative to the
+selected capability. Model Store reads are bounded by its exact extent;
+block-write and flush still accept only the 8 MiB User Data capability. The
+Model Store token is distinct from the writable token and is absent when the
+GPT entry is absent. The current bootstrap process receives this capability
+alongside existing platform caps; per-service authenticated authority is not
+claimed.
+
+`Fat32ArtifactReader` reads 512-byte sectors through a read-only
+`ModelStoreSectorReader` trait, validates FAT32 geometry and root entries, and
+supports bounded sequential and random reads across fragmented cluster chains.
+Artifact names are stable 8.3 names derived from the artifact ID, not from a
+host path. The reader returns no pre-verified integrity metadata, so
+`ModelRuntime::load` must still hash the model's actual bytes before invoking
+any backend. Host tests cover name stability, fragmented reads, offsets,
+truncated chains, and absent files.
+
+The M30 init acceptance build probes the real Model Store GPT capability,
+checks the FAT32 BPB/root directory, rejects a block write using the Model
+Store token, and confirms the boot sector remains unchanged. If the Granite
+GGUF is present it checks the file header; if it is absent, boot continues
+successfully. After GPT/User Data initialization succeeds, a missing or
+unreadable Model Store capability or invalid FAT32 volume produces a bounded
+FAIL diagnostic but does not stop ordinary OS boot; structurally invalid GPT
+metadata remains fail-closed. The M30 acceptance gate still requires the PASS
+marker. The accepted two-boot QEMU run is
+`out/evidence/m30-release-1790805673208395000/`. The immediately previous
+accepted image is preserved there as
+`reference-disk-before-nonfatal-store.qcow2`. The Model Store is empty in that
+image; this is capability and discovery acceptance, not model loading or
+inference.
+
+The focused Model Manager suite passes with 47 unit, 2 manifest/schema, and 1
+Store API test. The pinned Nagi no_std target check, `./nagi fmt`, `./nagi
+lint`, `./nagi test`, `./nagi build`, and two-boot `./nagi m30` acceptance pass.
+An initial M30 run placed the new check before the M5 FPU-state gate and
+failed; moving it after the FPU round-trip restored the existing startup
+acceptance. The failed image and serial log are preserved under
+`out/evidence/m30-release-1790804891726864000/`. M20 remains `PARTIAL` because
+the 2.24 GB Granite artifact is absent, no installer/catalog service or
+complete llama backend exists, and no real in-guest inference has been
+accepted.
