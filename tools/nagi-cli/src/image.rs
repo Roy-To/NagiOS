@@ -1756,21 +1756,7 @@ pub fn run_qemu_gui_with_events_and_screenshot(
     events: &[&str],
     screenshot_path: &Path,
 ) -> Result<QemuGuiOutcome, String> {
-    match fs::symlink_metadata(screenshot_path) {
-        Ok(_) => {
-            return Err(format!(
-                "refusing to overwrite existing QEMU screenshot {}",
-                screenshot_path.display()
-            ));
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(format!(
-                "cannot inspect QEMU screenshot path {}: {error}",
-                screenshot_path.display()
-            ));
-        }
-    }
+    ensure_new_screenshot_path(screenshot_path)?;
     let outcome = run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
         config,
         ready_marker,
@@ -1791,6 +1777,49 @@ pub fn run_qemu_gui_with_events_and_screenshot(
         validate_png_screenshot(screenshot_path)?;
     }
     Ok(outcome)
+}
+
+/// Run a read-only boot-disk GUI acceptance and save its accepted display
+/// through QMP without replacing an existing screenshot.
+pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    failure_marker: &str,
+    screenshot_path: &Path,
+) -> Result<QemuGuiOutcome, String> {
+    ensure_new_screenshot_path(screenshot_path)?;
+    let outcome = run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
+        config,
+        ready_marker,
+        events,
+        Some(failure_marker),
+        GuiQemuMode {
+            boot_disk_read_only: true,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::from_millis(100),
+        },
+        None,
+        Some(screenshot_path),
+    )?;
+    if outcome.acceptance_reached {
+        validate_png_screenshot(screenshot_path)?;
+    }
+    Ok(outcome)
+}
+
+fn ensure_new_screenshot_path(screenshot_path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(screenshot_path) {
+        Ok(_) => Err(format!(
+            "refusing to overwrite existing QEMU screenshot {}",
+            screenshot_path.display()
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "cannot inspect QEMU screenshot path {}: {error}",
+            screenshot_path.display()
+        )),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2754,13 +2783,14 @@ mod tests {
     use super::{
         append_qmp_timeout_diagnostics, build_fat12_ab_image, build_fat12_image,
         build_m17_fat12_image, capture_qmp_timeout_diagnostics, cluster_offset,
-        ensure_persistent_disk, guest_reached_acceptance, guest_reached_any_acceptance,
-        guest_reached_failure, image_drive_argument, initialize_fats, json_string_field,
-        json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host, qmp_json_quote,
-        read_qmp_line, reference_partitions, write_chain, AbSlotImages, Fat12Geometry, SlotPayload,
-        DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE,
-        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, QMP_MAX_LINE_BYTES,
-        REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
+        ensure_new_screenshot_path, ensure_persistent_disk, guest_reached_acceptance,
+        guest_reached_any_acceptance, guest_reached_failure, image_drive_argument, initialize_fats,
+        json_string_field, json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host,
+        qmp_json_quote, read_qmp_line, reference_partitions, write_chain, AbSlotImages,
+        Fat12Geometry, SlotPayload, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
+        LEGACY_PERSISTENT_DISK_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE,
+        QMP_MAX_LINE_BYTES, REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
+        USER_DATA_START_LBA,
     };
 
     #[test]
@@ -2770,6 +2800,21 @@ mod tests {
             "\"line\\n\\\"C:\\\\tmp\\\"\""
         );
         assert_eq!(qmp_json_quote("日本語"), "\"日本語\"");
+    }
+
+    #[test]
+    fn qemu_screenshot_path_refuses_to_replace_an_existing_file() {
+        let path = unique_persistent_disk_path("qemu-screenshot");
+        std::fs::write(&path, b"preserved screenshot evidence").expect("write existing file");
+
+        let error = ensure_new_screenshot_path(&path).expect_err("existing file is protected");
+        assert!(error.contains("refusing to overwrite existing QEMU screenshot"));
+        assert_eq!(
+            std::fs::read(&path).expect("read preserved file"),
+            b"preserved screenshot evidence"
+        );
+
+        std::fs::remove_file(path).expect("remove screenshot fixture");
     }
 
     #[test]

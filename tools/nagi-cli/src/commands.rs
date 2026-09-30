@@ -12,7 +12,7 @@ use crate::image::{
     run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
     run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
     run_qemu_gui_with_events, run_qemu_gui_with_events_and_screenshot,
-    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker,
+    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
     run_qemu_until_any_acceptance_marker, run_qemu_with_read_only_boot_disk,
@@ -3618,6 +3618,25 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: {error}")),
     };
+    let evidence_run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: system clock: {error}")),
+    };
+    let evidence_directory = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m29-browser-{evidence_run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m18: evidence directory: {error}"),
+            )
+        }
+    };
+    let screenshot_path = evidence_directory.join("nagi-m18-browser.png");
     let image_path = artifacts.join("nagi-0.1-m18-albert.img");
     let persistent_disk = artifacts.join("nagi-0.1-m18-user-data.img");
     let vars_copy = artifacts.join("nagi-0.1-m18-vars.fd");
@@ -3679,24 +3698,26 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         acceptance_marker: "Nagi M18 browser scenario complete pages=3",
         timeout,
     };
-    let status = match run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker(
-        &config,
-        "Nagi M18 browser READY",
-        &M18_INPUT_EVENTS,
-        "Nagi M18 browser FAIL",
-    ) {
-        Ok(status) => status,
-        Err(error) => {
-            return failure(
-                EXIT_CONFIG_ERROR,
-                format!(
-                    "m18: QEMU: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
-                    serial_log_m17_trace_excerpt(&log_path, 256),
-                    serial_log_tail(&log_path, 64),
-                ),
-            );
-        }
-    };
+    let outcome =
+        match run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot(
+            &config,
+            "Nagi M18 browser READY",
+            &M18_INPUT_EVENTS,
+            "Nagi M18 browser FAIL",
+            &screenshot_path,
+        ) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m18: QEMU: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
+                        serial_log_m17_trace_excerpt(&log_path, 256),
+                        serial_log_tail(&log_path, 64),
+                    ),
+                );
+            }
+        };
     let serial = match fs::read_to_string(&log_path) {
         Ok(serial) => serial,
         Err(error) => {
@@ -3710,7 +3731,18 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "m18: guest browser acceptance failed: {error} (QEMU exit {status}; log {})",
+                "m18: guest browser acceptance failed: {error} (QEMU exit {}; log {})",
+                outcome.exit_status,
+                log_path.display()
+            ),
+        );
+    }
+    if !outcome.acceptance_reached {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m18: guest reached no complete three-page browser acceptance (exit {}; log {})",
+                outcome.exit_status,
                 log_path.display()
             ),
         );
@@ -3718,8 +3750,10 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU (exit {status}; log {})",
-            log_path.display()
+            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU (exit {}; log {}; screenshot {})",
+            outcome.exit_status,
+            log_path.display(),
+            screenshot_path.display(),
         )],
     }
 }
@@ -5484,8 +5518,10 @@ mod tests {
             .find("fn help() -> CommandResult")
             .map(|offset| m18_start + offset)
             .expect("next command helper");
-        assert!(commands[m18_start..m18_end]
-            .contains("run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker("));
+        assert!(commands[m18_start..m18_end].contains(
+            "run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot("
+        ));
+        assert!(commands[m18_start..m18_end].contains("m29-browser-{evidence_run_id}"));
 
         let image = include_str!("image.rs");
         assert!(image.contains("Duration::from_millis(100)"));

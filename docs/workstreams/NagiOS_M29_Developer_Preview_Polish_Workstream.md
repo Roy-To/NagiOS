@@ -18,7 +18,7 @@ finished consumer onboarding flow or complete product UX.
 | Diagnostics and debug output | `./nagi doctor` is host diagnostics; it recognizes `python3` as well as the `python` and Windows launcher names. Milestone commands save guest serial logs. The M17 acceptance requires bounded startup trace markers, and `m17_trace_excerpt` elides middle lines past its configured cap. | The guide documents log paths and marker-based evidence. The Python 3 alias regression is covered by an integration test, and the current macOS host reports 12/12 checks passing. M17 traces were retained because they support and are consumed by startup acceptance; no indiscriminate trace deletion was made. A `nagi diagnose bundle` command is absent. |
 | Developer and SDK docs | Root README, Japanese Developer Preview guide, SDK README, contribution guide, and roadmap now cross-link the verified command surface and known limitations. The SDK README describes the IDL-backed Rust/C APIs and the Hello Nagi sample package flow. | Documentation is present. The SDK remains an early surface; no general app lifecycle, IPC, or capability API is claimed. |
 | Package metadata and notices | `nagi.toml` records version `0.1.0-dev` and the QEMU reference machine. `THIRD_PARTY_NOTICES.md` now covers all 18 `sources.lock` components, their exact version/revision/toolchain pins, declared license expressions, and unresolved binary redistribution reviews. A `nagi-cli` regression checks that new pins are added to the notice inventory. `cargo metadata --locked` reports license expressions for all 673 external Cargo packages (41 distinct expressions), including dev and target-specific packages. | The guides link the notices and avoid assigning a project license. Cargo metadata is not a license-text or redistribution review or an image bill of materials. Nagi's license is still undecided; Rust std, Mesa component notices, transitive native sources, and asset provenance need human review before binary redistribution. |
-| Screenshots and performance | `docs/assets/screenshots/nagi-m10-qemu-desktop.png` is a PNG captured from the final framebuffer of the M10 QEMU guest after its real keyboard/mouse acceptance markers. Three repeated persistent-data QEMU boots on macOS aarch64 reached the guest READY marker in 2,466–2,568 ms (median 2,486 ms), measured from QEMU process spawn to the host receiving the serial marker. | This is the fixed M10 acceptance surface, not a finished desktop experience. The timing includes QEMU/UEFI startup and serial delivery; it is not a clean-install or cross-host performance benchmark. |
+| Screenshots and performance | `docs/assets/screenshots/nagi-m10-qemu-desktop.png` is the M10 QEMU desktop after keyboard/mouse acceptance. `docs/assets/screenshots/nagi-m18-qemu-browser.png` is Albert after three verified HTTPS pages reached the guest surface. Three repeated persistent-data M10 QEMU boots on macOS aarch64 reached READY in 2,466–2,568 ms (median 2,486 ms), measured from QEMU spawn to host receipt of the marker. | These are fixed M10/M18 acceptance surfaces, not finished product UIs. The timing includes QEMU/UEFI startup and serial delivery; it is not a clean-install or cross-host performance benchmark. |
 | Clean build | CI checks build from fresh checkouts. This local documentation checkpoint did not run `./nagi clean`, which removes `target/` and `out/` including preserved acceptance logs and persistent disks. | Existing evidence remains preserved. A clean release build and artifact reproducibility are part of the M30 release gate. |
 
 ## Captured M10 acceptance surface
@@ -28,6 +28,16 @@ documents the current fixed four-panel surface and does not imply a complete
 desktop shell or complete Japanese localization.
 
 ![Nagi M10 fixed QEMU acceptance desktop](../assets/screenshots/nagi-m10-qemu-desktop.png)
+
+## Captured M18 Albert browser acceptance
+
+The M18 acceptance runner now captures QEMU's display over QMP after the
+guest reports all three HTTPS pages rendered. The saved image is from the
+last accepted page (`example.net`) and shows Albert's tab, navigation controls,
+address bar, and rendered Example Domain content. It is an acceptance snapshot,
+not a claim that browser UX or localization is complete.
+
+![Nagi M18 Albert browser after three-page HTTPS acceptance](../assets/screenshots/nagi-m18-qemu-browser.png)
 
 ## Verification
 
@@ -116,8 +126,9 @@ path.
 
 ## Remaining M29 work
 
-1. Expand genuine QEMU screenshots beyond the fixed M10 acceptance surface
-   when more of the preview UI is implemented.
+1. Capture additional genuine QEMU screenshots as more preview UI surfaces
+   are implemented; the current tracked images cover M10 desktop and M18
+   Albert browser acceptance.
 2. Complete a first-run flow, end-user provider/error presentation, Settings,
    accessibility, and localization work in their owning milestones.
 3. Measure clean-install boot and broader clean-checkout/release reproducibility;
@@ -126,3 +137,19 @@ path.
    Developer Preview is distributed.
 
 These open items keep M29 `PARTIAL` and are not release-ready claims.
+
+## M18 QEMU browser screenshot — 2026-10-01
+
+`./nagi m18` passed after the M18 target build and real QEMU boot. The guest
+verified TLS, presented browser chrome, and rendered pages for `example.com`,
+`example.org`, and `example.net`, then reported
+`Nagi M18 browser scenario complete pages=3`. QMP captured the accepted
+1280×800 display as `docs/assets/screenshots/nagi-m18-qemu-browser.png`
+(SHA-256
+`ede8a7967a1634c393aa53252749af22d8d98aa91e4d4711402de0e860c7e097`). The
+original is preserved at
+`out/evidence/m29-browser-1790798334374076000/nagi-m18-browser.png`; the
+serial log is `out/logs/m18-albert.log`. This QEMU build emitted a host
+audio-backend diagnostic (`virtio-sound.in` unavailable), but browser
+acceptance exited 0. Host audio playback is not covered by this run. This
+evidence adds a browser acceptance surface; M29 remains `PARTIAL`.

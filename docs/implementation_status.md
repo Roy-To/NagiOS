@@ -6429,3 +6429,28 @@ M19/M22 outputs and post-run disk copies are preserved at
 diagnostic is to capture bounded per-CPU timer/workload progress around M3
 startup and compare a replay of the saved rollback state before changing
 scheduler behavior. M27 and M28 remain `PARTIAL`.
+
+
+## Completion sweep — M18 browser screenshot evidence (2026-10-01)
+
+`tools/nagi-cli` now saves the QMP display after the real M18 three-page
+HTTPS acceptance marker. The QEMU run kept the ESP read-only, used a unique
+`out/evidence/m29-browser-<run-id>/` directory, and refused to overwrite an
+existing screenshot. The run passed on the local macOS aarch64 host with
+`PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and
+QEMU` (exit 0). The guest serial log contains verified TLS, presented chrome,
+and rendered-page markers for `example.com`, `example.org`, and `example.net`,
+followed by `Nagi M18 browser scenario complete pages=3`.
+
+The accepted 1280×800 PNG is tracked as
+`docs/assets/screenshots/nagi-m18-qemu-browser.png` (SHA-256
+`ede8a7967a1634c393aa53252749af22d8d98aa91e4d4711402de0e860c7e097`). The
+original capture is preserved under
+`out/evidence/m29-browser-1790798334374076000/`; invocation and serial logs
+are `out/logs/m18-screenshot-attempt-1790799000000000000.log` and
+`out/logs/m18-albert.log`. The host QEMU build emitted an audio-backend
+diagnostic because `virtio-sound.in` could not be opened, but browser
+acceptance passed; host audio playback was not tested. Host CLI tests,
+warnings-denied Clippy, and formatting checks passed before the target run.
+M29 remains `PARTIAL`; the screenshot adds evidence without changing any
+milestone status.
