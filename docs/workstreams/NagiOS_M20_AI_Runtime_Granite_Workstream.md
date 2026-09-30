@@ -195,3 +195,35 @@ generated checkout is preserved at
 focused llama patch/lock tests passed. M20 QEMU inference acceptance was not
 run because the complete `llama` target and provider backend are not available;
 no inference result is claimed. M20 remains `PARTIAL`.
+
+## Nagi RTTI and path-capacity boundary — 2026-10-01
+
+Added numbered patch
+`third_party/llama-cpp-patches/0003-nagi-model-boundaries.patch`. Under
+`__NAGI__`, model-base identification now uses a virtual query whose base
+implementation returns null and whose `llama_model_base` implementation
+returns itself. This preserves the prior invalid-model failure check without
+requiring RTTI; other targets retain upstream `dynamic_cast` behavior. The
+same patch makes `llama_path_max()` return 257 bytes for Nagi: the user VFS
+accepts paths up to `MAX_PATH_LENGTH = 256`, and POSIX callers need one extra
+byte for the NUL terminator. The CLI regression binds that constant to the
+patch contract and passed after failing before patch 0003 existed.
+
+`./nagi fetch` generated and validated the full numbered patch series while
+the raw pinned llama.cpp checkout stayed clean. The fresh Nagi target build
+used the existing static CPU configuration and Ninja keep-going. It no longer
+reports the two RTTI failures or the missing `PATH_MAX`; 28 object targets
+still fail on exception syntax, with 57 distinct source paths producing 289
+`throw` and 15 `try` diagnostics. No throw was converted to abort and no model
+source was omitted. The CMake log, patch, generated-checkout marker, cache,
+toolchain, and SHA-256 manifest are preserved in
+`out/evidence/m20-nagi-boundaries-0003-20261001/`.
+
+The new boundary test and all CLI tests passed (145 unit and 21 integration
+tests); warnings-denied Clippy, pinned-nightly formatting, `./nagi fmt`,
+`./nagi test`, `./nagi lint`, `./nagi build`, and `./nagi fetch` passed.
+Full llama target compilation still fails in the upstream model-loader,
+grammar, memory/KV, Unicode, and related error paths because Nagi has no
+exception unwinder. There is still no complete llama backend or real local
+inference, so M20 remains `PARTIAL` and no QEMU inference acceptance is
+claimed.

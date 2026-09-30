@@ -1,0 +1,82 @@
+diff --git a/src/llama-mmap.cpp b/src/llama-mmap.cpp
+index 715a6e3..2d64edc 100644
+--- a/src/llama-mmap.cpp
++++ b/src/llama-mmap.cpp
+@@ -822,5 +822,10 @@ const bool llama_mlock::SUPPORTED = false;
+ #endif
+ 
+ size_t llama_path_max() {
++#if defined(__NAGI__)
++    // Nagi paths allow 256 bytes, with an extra byte for the trailing NUL.
++    return 257;
++#else
+     return PATH_MAX;
++#endif
+ }
+diff --git a/src/llama-model.h b/src/llama-model.h
+index a0f9f11..fb160de 100644
+--- a/src/llama-model.h
++++ b/src/llama-model.h
+@@ -17,6 +17,7 @@
+ struct llama_cparams;
+ struct llama_ubatch;
+ struct llama_model_loader;
++struct llama_model_base;
+ struct llama_model;
+ 
+ // available models
+@@ -788,6 +789,11 @@ struct llama_model {
+     virtual void load_arch_tensors(llama_model_loader & ml) = 0;
+     virtual std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const = 0;
+ 
++#if defined(__NAGI__)
++    // Keep the base-model check available when Nagi builds without RTTI.
++    virtual llama_model_base * as_model_base() { return nullptr; }
++#endif
++
+ protected:
+     llama_model_params params;
+ 
+@@ -802,6 +808,10 @@ llama_model * llama_model_create(llama_model_loader & ml, const llama_model_para
+ struct llama_model_base : public llama_model {
+     friend struct llama_model;
+ 
++#if defined(__NAGI__)
++    llama_model_base * as_model_base() override { return this; }
++#endif
++
+     llama_model * model;
+     llama_model_loader * ml = nullptr;
+     const LLM_TN tn;
+diff --git a/src/llama-quant.cpp b/src/llama-quant.cpp
+index 34ff25d..cf22109 100644
+--- a/src/llama-quant.cpp
++++ b/src/llama-quant.cpp
+@@ -941,7 +941,11 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
+     auto mparams = llama_model_default_params();
+     std::unique_ptr<llama_model> model_ptr(llama_model_create(ml, mparams));
+ 
++#if defined(__NAGI__)
++    auto * model = model_ptr ? model_ptr->as_model_base() : nullptr;
++#else
+     auto * model = dynamic_cast<llama_model_base *>(model_ptr.get());
++#endif
+     if (model == nullptr) {
+         GGML_ABORT("fatal error: model does not implement llama_model_base");
+     }
+diff --git a/src/llama.cpp b/src/llama.cpp
+index e97272c..8e9d483 100644
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -329,7 +329,11 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
+             return {-1, nullptr};
+         }
+ 
++#if defined(__NAGI__)
++        auto * model = model_ptr ? model_ptr->as_model_base() : nullptr;
++#else
+         auto * model = dynamic_cast<llama_model_base *>(model_ptr.get());
++#endif
+         if (model == nullptr) {
+             GGML_ABORT("fatal error: model does not implement llama_model_base");
+         }

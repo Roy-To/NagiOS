@@ -650,6 +650,22 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_nagi_boundary_patch_avoids_rtti_and_matches_path_capacity() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0003-nagi-model-boundaries.patch"),
+        )
+        .expect("Nagi C++ boundary patch");
+        let storage = fs::read_to_string(root.join("user/libnagi/src/storage.rs"))
+            .expect("Nagi storage path contract");
+
+        assert!(patch.contains("model_ptr ? model_ptr->as_model_base() : nullptr"));
+        assert!(patch.contains("return 257;"));
+        assert!(patch.contains("Nagi paths allow 256 bytes"));
+        assert!(storage.contains("MAX_PATH_LENGTH: usize = 256"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

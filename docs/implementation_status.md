@@ -6454,3 +6454,27 @@ acceptance passed; host audio playback was not tested. Host CLI tests,
 warnings-denied Clippy, and formatting checks passed before the target run.
 M29 remains `PARTIAL`; the screenshot adds evidence without changing any
 milestone status.
+
+
+## Completion sweep — M20 llama.cpp target boundary repair (2026-10-01)
+
+Added llama.cpp patch `0003-nagi-model-boundaries.patch`. Its Nagi-only
+virtual model-base query removes two RTTI compile errors while preserving a
+null check; non-Nagi builds keep the upstream casts. `llama_path_max()` now
+matches Nagi's 256-byte VFS path limit plus the C-string terminator. A CLI
+regression for the Nagi no-RTTI and path-capacity contract failed before the
+patch existed and passes after it.
+
+`./nagi fetch` applied and validated patches 0001–0003 without modifying the
+raw pinned source. The static CPU llama target was retried with Ninja
+keep-going: the RTTI and `PATH_MAX` diagnostics are gone, but 28 object targets
+still fail on C++ exceptions. The new run reports 57 distinct source paths,
+289 `throw` diagnostics, and 15 `try` diagnostics. Full target build and M20
+QEMU inference acceptance remain incomplete; no exception behavior was
+replaced with an abort or stub. Build inputs, patch, generated marker, log, and
+hash manifest are preserved in
+`out/evidence/m20-nagi-boundaries-0003-20261001/`. M20 remains `PARTIAL`.
+
+Verification: CLI tests passed (145 unit and 21 integration tests), as did
+warnings-denied Clippy, pinned-nightly formatting, `./nagi fmt`, `./nagi test`,
+`./nagi lint`, `./nagi build`, `./nagi fetch`, and `git diff --check`.
