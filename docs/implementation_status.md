@@ -233,7 +233,9 @@ changed to SHA-256
 `7e3266b576f129dabe2848bfc1c76f0a52b6ee19c4ab49aac85bc65867437725`; the
 assembled package remained
 `461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43`, and
-post-boot `release.py verify` plus `qemu-img check` passed. M30 remains
+post-boot `release.py verify` plus `qemu-img check` passed. The target CI job
+now runs `./nagi m30` after M27 to build or validate the reference qcow2 and
+exercise its two-boot System A/User Data persistence acceptance. M30 remains
 `PARTIAL`: authenticated update/slot manifests, M18–M29 completion, and binary
 license/notice review remain. The production M27 loader boots confirmed GPT
 System A, and the M27 QEMU acceptance covers malformed/healthy System B,

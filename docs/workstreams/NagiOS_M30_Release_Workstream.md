@@ -40,6 +40,9 @@ complete and this evidence does not assert release readiness.
   stops on either first-format or existing-data acceptance, restarts the copy
   with the same OVMF variables, and requires a successful VFS persistent read
   and M7 acceptance marker. QEMU writes cannot mutate the release input image.
+- The GitHub Actions Nagi target job runs `./nagi m30` after M27 acceptance,
+  so the reference disk build/validation, two guest boots, persistent User Data
+  read, and qcow2 checks are part of the target CI gate.
 - The release image builds the loader with `m27-ab-slot-boot-control`, so the
   persistent M27 journal selects GPT System A/B/Recovery in production. The
   release build does not include the acceptance-only empty-journal pending-B
