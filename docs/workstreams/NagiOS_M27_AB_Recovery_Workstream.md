@@ -361,3 +361,30 @@ QMP output with a verified SHA-256 manifest are preserved in
 `out/evidence/m27-ab-rollback-1790788040114277000/`. A useful next diagnostic
 is bounded per-CPU timer and workload progress on this boot path, followed by
 a replay from the preserved rollback inputs before modifying scheduler code.
+
+## Completion sweep rollback-sequence replay — 2026-10-01
+
+A fresh `./nagi m27` run completed successfully at
+`out/evidence/m27-ab-rollback-1790800250176976000/`. It passed the three
+malformed-System-B rollback attempts, confirmed-A boots, healthy-System-B
+readiness and promotion, GPT Recovery, persistent User Data checks, and the
+Recovery restart/Undo of the committed M22 grouped `file.move` transaction.
+The invocation output, serial logs, and OVMF state have a verified
+`SHA256SUMS` manifest in that directory.
+
+This replay generated new inputs and OVMF state; it was not a byte-for-byte
+replay of the preceding failed boot's firmware state. The prior boot-4 timeout
+did not recur, so the source of its `CR2=0xfffffffffffffff8` snapshot remains
+unconfirmed. The ELF extracted from the preserved failing System A image maps
+RIP `0x4005d90` to the first instruction of `smp::thread_entry`; that
+instruction only checks its two arguments. This narrows the snapshot but does
+not establish that this instruction caused the fault. M27 remains `PARTIAL`
+for authenticated slot/update authority and the remaining Recovery features.
+
+The subsequent M28 integration attempts also passed the full M27 GPT gate in
+repetition 1 twice, at
+`out/evidence/m27-ab-rollback-1790800692151516000/` and
+`out/evidence/m27-ab-rollback-1790801054740594000/`. Together with the fresh
+standalone pass above, the boot-4 timeout has not recurred in three new full
+acceptance sequences. These runs used fresh input/firmware state and do not
+identify the earlier timeout's cause.

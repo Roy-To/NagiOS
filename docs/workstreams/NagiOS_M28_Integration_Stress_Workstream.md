@@ -313,3 +313,39 @@ bounded per-CPU timer/workload progress around M3 startup, followed by a replay
 from the saved rollback inputs before changing scheduler behavior. M28's
 combined Desktop/Files/Notes/Albert, real Granite, audio, OOM, fairness, and
 leak workload remains unmeasured.
+
+The standalone `./nagi m27` acceptance sequence was then rerun with fresh
+inputs and OVMF state and passed at
+`out/evidence/m27-ab-rollback-1790800250176976000/`; the earlier M3 timeout
+did not recur. This does not convert the failed integrated M28 repetition into
+a pass, and it does not establish the timeout's root cause. The next integrated
+M28 run should still preserve its inputs and exercise both repetitions.
+
+## Two-repetition reruns and repeated firmware-start timeout — 2026-10-01
+
+Two fresh `NAGI_M28_REPEAT_COUNT=2 tests/acceptance/m28_integration_stress.sh
+--run` attempts each completed repetition 1 across M19 ObjectId/Search,
+three-boot M22 grouped Undo/Activity Ledger, and M27 GPT A/B/Recovery. In both
+attempts, repetition 2 passed M19 and then timed out during M22 boot 1 before
+`Nagi Kernel started`. QMP reported `status=running` and CPU#0 RIP
+`0x7eb84171`, with the same register/stack layout on both failures; serial
+output stopped after the 87-byte UEFI screen-clear sequence. This is outside
+the Nagi kernel's linked address range and indicates a repeatable firmware
+startup failure, but the precise OVMF instruction and root cause have not been
+established.
+
+The M22 boot image hash is identical across successful and failed repetitions,
+and the M22 User Data hash after each timeout matches that attempt's successful
+repetition-1 snapshot. The guest therefore did not reach the M22 acceptance
+path or change that disk on either failed boot. Both run archives, including
+their partial M19/M22 outputs and disk snapshots, have verified manifests at
+`out/evidence/m28-run-20260930T203759Z-48306/` and
+`out/evidence/m28-run-20260930T204402Z-48900/`. The fixed-name M19/M22 outputs
+were moved into those archives before retrying, and the pre-run persistent
+disks are preserved at
+`out/evidence/pre-m28-repeat-20261001-m27-replay/`.
+
+M28 remains `PARTIAL`: neither run completed repetition 2, and the combined
+Desktop/Files/Notes/Albert, real Granite, audio-pressure, OOM, CPU-fairness,
+and leak-soak workload remains unmeasured. The prior M27 boot-4 failure remains
+unexplained even though M27 passed three subsequent full sequences.
