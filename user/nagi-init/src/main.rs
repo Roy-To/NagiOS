@@ -11,6 +11,7 @@ extern crate alloc;
 
 #[cfg(all(
     target_os = "nagi",
+    not(feature = "m17-servo"),
     any(
         feature = "m16-package",
         feature = "m19-search",
@@ -21,6 +22,7 @@ struct GuestAllocator;
 
 #[cfg(all(
     target_os = "nagi",
+    not(feature = "m17-servo"),
     any(
         feature = "m16-package",
         feature = "m19-search",
@@ -47,6 +49,7 @@ unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
 
 #[cfg(all(
     target_os = "nagi",
+    not(feature = "m17-servo"),
     any(
         feature = "m16-package",
         feature = "m19-search",
