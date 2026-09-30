@@ -1740,6 +1740,49 @@ pub fn run_qemu_gui_with_events(
     )
 }
 
+/// Run a GUI acceptance and save the guest's final display through QMP.
+/// The screenshot is captured after the acceptance marker and before QEMU exits.
+pub fn run_qemu_gui_with_events_and_screenshot(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    screenshot_path: &Path,
+) -> Result<i32, String> {
+    match fs::symlink_metadata(screenshot_path) {
+        Ok(_) => {
+            return Err(format!(
+                "refusing to overwrite existing QEMU screenshot {}",
+                screenshot_path.display()
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect QEMU screenshot path {}: {error}",
+                screenshot_path.display()
+            ));
+        }
+    }
+    let status = run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
+        config,
+        ready_marker,
+        events,
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: false,
+            reuse_ovmf_vars: false,
+            // VirtIO input devices are polled independently, so QMP mouse
+            // and keyboard events need time to reach their guest queues in
+            // the requested order.
+            inter_event_delay: Duration::from_millis(100),
+        },
+        None,
+        Some(screenshot_path),
+    )?;
+    validate_png_screenshot(screenshot_path)?;
+    Ok(status)
+}
+
 pub fn run_qemu_gui_with_read_only_boot_disk_and_events(
     config: &QemuConfig<'_>,
     ready_marker: &str,
@@ -1869,6 +1912,26 @@ fn run_qemu_gui_with_events_mode_and_serial_input(
     failure_marker: Option<&str>,
     mode: GuiQemuMode,
     serial_input: Option<(&str, &[u8])>,
+) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
+        config,
+        ready_marker,
+        events,
+        failure_marker,
+        mode,
+        serial_input,
+        None,
+    )
+}
+
+fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    failure_marker: Option<&str>,
+    mode: GuiQemuMode,
+    serial_input: Option<(&str, &[u8])>,
+    screenshot_path: Option<&Path>,
 ) -> Result<i32, String> {
     let serial_listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|error| format!("cannot reserve GUI serial TCP port: {error}"))?;
@@ -2030,6 +2093,26 @@ fn run_qemu_gui_with_events_mode_and_serial_input(
                     return Err(format!("GUI QEMU guest printed failure marker `{marker}`"));
                 }
                 if bytes_contain(&serial, marker) {
+                    if let Some(screenshot_path) = screenshot_path {
+                        let Some(path) = screenshot_path.to_str() else {
+                            terminate_qemu(&mut child, config.serial_log, &serial);
+                            return Err(format!(
+                                "QEMU screenshot path is not valid UTF-8: {}",
+                                screenshot_path.display()
+                            ));
+                        };
+                        let filename = qmp_json_quote(&external_path(Path::new(path)));
+                        let command = format!(
+                            r#"{{"execute":"screendump","arguments":{{"filename":{filename},"format":"png"}}}}"#
+                        );
+                        if let Err(error) = qmp_exchange(&mut qmp_stream, &command, deadline) {
+                            terminate_qemu(&mut child, config.serial_log, &serial);
+                            return Err(format!(
+                                "cannot capture QEMU screenshot {}: {error}",
+                                screenshot_path.display()
+                            ));
+                        }
+                    }
                     return quit_qemu_after_acceptance(
                         &mut child,
                         &mut qmp_stream,
@@ -2438,6 +2521,65 @@ fn qmp_exchange_response(
     }
 }
 
+fn qmp_json_quote(value: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\u{08}' => escaped.push_str("\\b"),
+            '\u{0c}' => escaped.push_str("\\f"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            control if control <= '\u{1f}' => {
+                let _ = write!(escaped, "\\u{:04x}", control as u32);
+            }
+            other => escaped.push(other),
+        }
+    }
+    escaped.push('"');
+    escaped
+}
+
+fn validate_png_screenshot(path: &Path) -> Result<(), String> {
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("cannot inspect QEMU screenshot {}: {error}", path.display()))?;
+    if metadata.len() < 24 {
+        return Err(format!(
+            "QEMU screenshot is too short to be a PNG: {}",
+            path.display()
+        ));
+    }
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("cannot open QEMU screenshot {}: {error}", path.display()))?;
+    let mut header = [0_u8; 24];
+    file.read_exact(&mut header).map_err(|error| {
+        format!(
+            "cannot read QEMU screenshot header {}: {error}",
+            path.display()
+        )
+    })?;
+    if header[..8] != [137, 80, 78, 71, 13, 10, 26, 10] || &header[12..16] != b"IHDR" {
+        return Err(format!(
+            "QEMU screenshot has an invalid PNG header: {}",
+            path.display()
+        ));
+    }
+    let width = u32::from_be_bytes(header[16..20].try_into().expect("four-byte width"));
+    let height = u32::from_be_bytes(header[20..24].try_into().expect("four-byte height"));
+    if width == 0 || height == 0 {
+        return Err(format!(
+            "QEMU screenshot has invalid dimensions {width}x{height}: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty()
         && haystack
@@ -2478,12 +2620,21 @@ mod tests {
         build_fat12_ab_image, build_fat12_image, build_m17_fat12_image, cluster_offset,
         ensure_persistent_disk, guest_reached_acceptance, guest_reached_any_acceptance,
         guest_reached_failure, image_drive_argument, initialize_fats, json_string_field,
-        json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host, reference_partitions,
-        write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET, FAT_COUNT,
-        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE, M17_IMAGE_SIZE,
-        M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT,
-        ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
+        json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host, qmp_json_quote,
+        reference_partitions, write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET,
+        FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE,
+        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, REFERENCE_DISK_SECTORS,
+        ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
     };
+
+    #[test]
+    fn qmp_json_quote_escapes_control_and_path_characters() {
+        assert_eq!(
+            qmp_json_quote("line\n\"C:\\tmp\""),
+            "\"line\\n\\\"C:\\\\tmp\\\"\""
+        );
+        assert_eq!(qmp_json_quote("日本語"), "\"日本語\"");
+    }
 
     #[test]
     fn qemu_audio_backend_is_supported_by_the_host_platform() {

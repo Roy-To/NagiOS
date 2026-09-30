@@ -11,7 +11,8 @@ use crate::image::{
     ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui,
     run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
     run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
-    run_qemu_gui_with_events, run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker,
+    run_qemu_gui_with_events, run_qemu_gui_with_events_and_screenshot,
+    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
     run_qemu_until_any_acceptance_marker, run_qemu_with_read_only_boot_disk,
@@ -1184,6 +1185,22 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
     };
+    let screenshot_run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(EXIT_CONFIG_ERROR, format!("desktop: system clock: {error}"));
+        }
+    };
+    let screenshot_directory = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m29-desktop-{screenshot_run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+    };
+    let screenshot_path = screenshot_directory.join("nagi-m10-desktop.png");
     let image_path = artifacts.join("nagi-0.1-m10-desktop.img");
     let persistent_disk = artifacts.join("nagi-0.1-user-data.img");
     let vars_copy = artifacts.join("nagi-0.1-m10-desktop-vars.fd");
@@ -1236,11 +1253,15 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         acceptance_marker: "Nagi M10 acceptance PASS",
         timeout,
     };
-    let status =
-        match run_qemu_gui_with_events(&config, "Nagi M10 desktop READY", &M10_DESKTOP_EVENTS) {
-            Ok(status) => status,
-            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
-        };
+    let status = match run_qemu_gui_with_events_and_screenshot(
+        &config,
+        "Nagi M10 desktop READY",
+        &M10_DESKTOP_EVENTS,
+        &screenshot_path,
+    ) {
+        Ok(status) => status,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+    };
     let serial = match fs::read_to_string(&desktop_log) {
         Ok(serial) => serial,
         Err(error) => {
@@ -1284,8 +1305,9 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS desktop: QEMU guest rendered and interacted with the Nagi desktop (exit {status}; log {})",
-            desktop_log.display()
+            "PASS desktop: QEMU guest rendered and interacted with the Nagi desktop (exit {status}; log {}; screenshot {})",
+            desktop_log.display(),
+            screenshot_path.display(),
         )],
     }
 }

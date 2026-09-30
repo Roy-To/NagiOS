@@ -1,5 +1,8 @@
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
 pub mod acpi;
 pub mod audio;
 pub mod boot_control;

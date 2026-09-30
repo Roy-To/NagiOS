@@ -6238,3 +6238,39 @@ site-permission provider. Existing M6 ServiceRegistry calls are in-process
 and do not provide the isolated IPC/capability boundary needed to invent
 providers inside Albert. M18 stays `PARTIAL`; its formal HTTPS/QEMU Acceptance
 is `PASS` locally and in CI.
+
+## Completion sweep — M29 QEMU display evidence (2026-09-30)
+
+The M10 logical surface is now aspect-fitted across the GOP framebuffer and
+centered with cleared letterbox bars. At the QEMU reference mode (1280×800),
+the 320×200 guest surface fills the scanout, replacing the previous small
+upper-left surface and residual UEFI pixels. Pixel-format conversion remains
+in the kernel scanout path. The M10 bitmap font now draws the visible ASCII
+lowercase letters distinctly, includes the additional punctuation used by its
+labels, and uses separate six-bit Latin and seven-bit Japanese glyph widths.
+This remains a small fixed glyph table, not a complete localization font.
+
+`nagi desktop` now asks QEMU's QMP `screendump` to save a PNG only after the
+guest has printed its M10 acceptance marker. The command refuses to overwrite
+an existing screenshot and checks the PNG signature and nonzero dimensions.
+The accepted run on 2026-09-30 printed the M10 READY and nonzero surface
+checksum, Calculator/Notes/Files/Terminal focus, Japanese input, and final
+acceptance markers. `docs/assets/screenshots/nagi-m10-qemu-desktop.png` is the
+resulting 1280×800 guest image (SHA-256
+`061c02741343026c2b6974ae846fbbf26bde48b8e00d0160abe918da2744932e`); the
+full local command output and original capture remain under `out/logs/` and
+`out/evidence/` in the worktree.
+
+Verification on the local macOS host: `./nagi desktop` passed; `cargo test
+--locked --offline -p nagi-cli --all-targets` passed (135 unit tests and 19
+integration tests); `cargo clippy --locked --offline -p nagi-cli --all-targets
+-- -D warnings` passed; pinned-nightly formatting for `nagi-cli`,
+`nagi-kernel`, and `nagi-init` passed; and `git diff --check` passed. The
+scanout geometry unit test was added to Ubuntu-host CI because this AArch64
+macOS host cannot execute the kernel's x86-only inline assembly as a native
+test. The real x86-64 M10 guest acceptance exercises the 1280×800 path.
+
+M29 remains `PARTIAL`: this is the fixed M10 acceptance surface, not a
+finished desktop UX. Settings, first-run setup, accessibility, complete
+localization, boot-time measurement, and additional preview screenshots are
+still outstanding. No milestone was promoted to `PASS` by this checkpoint.

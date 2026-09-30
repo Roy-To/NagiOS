@@ -11,6 +11,14 @@ pub const USER_SURFACE_BASE: u64 = crate::user_elf::USER_IMAGE_LIMIT + 0x0060_00
 const PIXEL_BYTES: usize = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ScanoutViewport {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DisplayError {
     InvalidFramebuffer,
     UnsupportedPixelFormat,
@@ -85,35 +93,92 @@ pub fn present_surface(capability: u64) -> Result<(), DisplayError> {
     }
     let framebuffer = unsafe { ptr::addr_of!(FRAMEBUFFER).read_volatile() }
         .ok_or(DisplayError::NotInitialized)?;
-    let source = USER_SURFACE_BASE as *const u8;
-    let destination = framebuffer.address as *mut u8;
-    let width = SURFACE_WIDTH.min(framebuffer.width);
-    let height = SURFACE_HEIGHT.min(framebuffer.height);
-    let destination_stride = framebuffer.pixels_per_scanline as usize * PIXEL_BYTES;
-    let source_stride = SURFACE_WIDTH as usize * PIXEL_BYTES;
-    for y in 0..height as usize {
-        for x in 0..width as usize {
-            let source_pixel = unsafe { source.add(y * source_stride + x * PIXEL_BYTES) };
-            let destination_pixel =
-                unsafe { destination.add(y * destination_stride + x * PIXEL_BYTES) };
-            let red = unsafe { source_pixel.read_volatile() };
-            let green = unsafe { source_pixel.add(1).read_volatile() };
-            let blue = unsafe { source_pixel.add(2).read_volatile() };
-            let alpha = unsafe { source_pixel.add(3).read_volatile() };
-            let (first, third) = if framebuffer.pixel_format == 1 {
-                (blue, red)
-            } else {
-                (red, blue)
-            };
-            unsafe {
-                destination_pixel.write_volatile(first);
-                destination_pixel.add(1).write_volatile(green);
-                destination_pixel.add(2).write_volatile(third);
-                destination_pixel.add(3).write_volatile(alpha);
+    let viewport = scanout_viewport(framebuffer.width, framebuffer.height)
+        .ok_or(DisplayError::InvalidFramebuffer)?;
+    let source = USER_SURFACE_BASE as *const u32;
+    let destination = framebuffer.address as *mut u32;
+    let destination_stride = framebuffer.pixels_per_scanline as usize;
+
+    // Clear only the letterbox bars. A full-size viewport overwrites all UEFI
+    // pixels when the scaled logical surface is copied below.
+    if viewport.x != 0
+        || viewport.y != 0
+        || viewport.width != framebuffer.width
+        || viewport.height != framebuffer.height
+    {
+        let right = viewport.x + viewport.width;
+        let bottom = viewport.y + viewport.height;
+        let opaque_black = u32::from_le_bytes([0, 0, 0, 255]);
+        for y in 0..framebuffer.height {
+            for x in 0..framebuffer.width {
+                if x < viewport.x || x >= right || y < viewport.y || y >= bottom {
+                    let destination_pixel =
+                        unsafe { destination.add(y as usize * destination_stride + x as usize) };
+                    unsafe { destination_pixel.write_volatile(opaque_black) };
+                }
             }
         }
     }
+
+    for y in 0..viewport.height {
+        let source_y = scale_coordinate(y, SURFACE_HEIGHT, viewport.height) as usize;
+        for x in 0..viewport.width {
+            let source_x = scale_coordinate(x, SURFACE_WIDTH, viewport.width) as usize;
+            let source_pixel = unsafe { source.add(source_y * SURFACE_WIDTH as usize + source_x) };
+            let destination_x = (viewport.x + x) as usize;
+            let destination_y = (viewport.y + y) as usize;
+            let destination_pixel =
+                unsafe { destination.add(destination_y * destination_stride + destination_x) };
+            let pixel = unsafe { source_pixel.read_volatile() };
+            unsafe {
+                destination_pixel.write_volatile(convert_pixel(pixel, framebuffer.pixel_format))
+            };
+        }
+    }
     Ok(())
+}
+
+fn convert_pixel(pixel: u32, pixel_format: u32) -> u32 {
+    if pixel_format == 1 {
+        (pixel & 0xff00_ff00) | ((pixel & 0x0000_00ff) << 16) | ((pixel & 0x00ff_0000) >> 16)
+    } else {
+        pixel
+    }
+}
+
+fn scanout_viewport(framebuffer_width: u32, framebuffer_height: u32) -> Option<ScanoutViewport> {
+    if framebuffer_width == 0 || framebuffer_height == 0 {
+        return None;
+    }
+
+    let framebuffer_width = u64::from(framebuffer_width);
+    let framebuffer_height = u64::from(framebuffer_height);
+    let surface_width = u64::from(SURFACE_WIDTH);
+    let surface_height = u64::from(SURFACE_HEIGHT);
+
+    let (width, height) =
+        if framebuffer_width * surface_height <= framebuffer_height * surface_width {
+            (
+                framebuffer_width,
+                (framebuffer_width * surface_height / surface_width).max(1),
+            )
+        } else {
+            (
+                (framebuffer_height * surface_width / surface_height).max(1),
+                framebuffer_height,
+            )
+        };
+
+    Some(ScanoutViewport {
+        x: ((framebuffer_width - width) / 2) as u32,
+        y: ((framebuffer_height - height) / 2) as u32,
+        width: width as u32,
+        height: height as u32,
+    })
+}
+
+fn scale_coordinate(output_coordinate: u32, source_size: u32, output_size: u32) -> u32 {
+    ((u64::from(output_coordinate) * u64::from(source_size)) / u64::from(output_size)) as u32
 }
 
 fn validate_framebuffer(framebuffer: FramebufferInfo) -> Result<(), DisplayError> {
@@ -154,7 +219,10 @@ const fn make_capability(framebuffer: FramebufferInfo) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{make_capability, validate_framebuffer, DisplayError};
+    use super::{
+        convert_pixel, make_capability, scale_coordinate, scanout_viewport, validate_framebuffer,
+        DisplayError, ScanoutViewport,
+    };
     use nagi_bootinfo::FramebufferInfo;
 
     fn framebuffer() -> FramebufferInfo {
@@ -188,5 +256,32 @@ mod tests {
             validate_framebuffer(info),
             Err(DisplayError::InvalidFramebuffer)
         );
+    }
+
+    #[test]
+    fn scales_the_logical_surface_to_the_full_scanout_without_stretching() {
+        assert_eq!(
+            scanout_viewport(1280, 800),
+            Some(ScanoutViewport {
+                x: 0,
+                y: 0,
+                width: 1280,
+                height: 800,
+            })
+        );
+        assert_eq!(
+            scanout_viewport(1024, 768),
+            Some(ScanoutViewport {
+                x: 0,
+                y: 64,
+                width: 1024,
+                height: 640,
+            })
+        );
+        assert_eq!(scanout_viewport(0, 800), None);
+        assert_eq!(scale_coordinate(1279, 320, 1280), 319);
+        assert_eq!(scale_coordinate(799, 200, 800), 199);
+        assert_eq!(convert_pixel(0xff03_0201, 0), 0xff03_0201);
+        assert_eq!(convert_pixel(0xff03_0201, 1), 0xff01_0203);
     }
 }
