@@ -8,7 +8,7 @@ autobins = false
 [workspace]
 
 [features]
-m27-broken-slot-acceptance = []
+m27-ab-slot-acceptance = []
 
 [lib]
 path = "src/lib.rs"

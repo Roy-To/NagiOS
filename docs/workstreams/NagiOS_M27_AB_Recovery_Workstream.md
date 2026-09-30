@@ -4,12 +4,15 @@
 
 The UEFI loader now persists its A/B decision in two Nagi-namespaced firmware
 variables and, in the feature-scoped acceptance image, loads matched kernel and
-init files from the selected System A or System B directory. The QEMU
-acceptance has exercised three malformed System B trials, rollback to System
-A, and a read of the same persistent user-data disk after rollback. The normal
-release image still uses the fixed `KERNEL.ELF` and `INIT.ELF` pair. A positive
-readiness signal, the Recovery Environment, and the final partitioned release
-layout remain incomplete, so M27 remains PARTIAL.
+init files from the selected System A or System B directory. QEMU acceptance
+covers three malformed System B trials and rollback to A, plus a healthy B
+trial whose guest readiness record is consumed before B is confirmed. A third
+launch retains confirmed B, and all relevant boots read the same persistent
+user-data disk. The current readiness gate is successful M10 desktop surface
+presentation after M6/M7 checks; Nagi 0.1 has no account login flow. The normal
+release image still uses the fixed `KERNEL.ELF` and `INIT.ELF` pair. The
+Recovery Environment and final partitioned release layout remain incomplete,
+so M27 remains PARTIAL.
 
 ## Read-only VFS integrity-check slice
 
@@ -24,8 +27,9 @@ layout, not a general ext2 `fsck` implementation.
 
 The `m27-ro-vfs-check` init feature runs this check before `mount_or_format`
 on the paired-slot QEMU fixture's persistent user-data disk. The refreshed
-`./nagi m27` acceptance passed: rollback boot 4 and confirmed boot 5 each
-reported `Nagi M27 read-only VFS check PASS` before the normal M7 mount and
+`./nagi m27` acceptance passed: rollback boot 4, confirmed boot 5, the healthy
+trial, promotion, and stable confirmed-B boots each reported
+`Nagi M27 read-only VFS check PASS` before the normal M7 mount and
 persistent-data read. Host tests prove valid nested volumes pass, malformed
 superblocks, accounting, directory records, inode bitmap bits, and orphan
 parent chains are rejected, and image bytes plus write/flush counters remain
@@ -51,13 +55,24 @@ separately selectable Recovery boot or its diagnostics/repair UI.
   non-volatile variables under a Nagi-owned vendor GUID. It requires
   non-volatile, boot-service, and runtime attributes and fails closed on
   missing/unsupported operations or unexpected attributes.
-- The `m27-broken-slot-acceptance` loader feature seeds a pending B trial only
-  when the journal is empty, then opens both kernel and init from the selected
-  slot directory. The CLI `m27` fixture keeps one OVMF variables file and one
-  separate persistent user-data disk across five QEMU launches. Three malformed
-  B kernels are rejected before loading; the next launch selects A and reaches
-  the guest's persistent-data read marker; a fifth launch confirms A remains
-  selected.
+- The `m27-ab-slot-acceptance` loader feature seeds a pending B trial only when
+  the journal is empty, then opens matched kernel/init payloads from the
+  selected slot directory. The CLI `m27` fixture preserves a malformed-B
+  image for three-attempt rollback and a healthy A/B image for promotion tests.
+- BootInfo v4 carries the candidate slot, attempt, journal generation, and UEFI
+  Runtime Services `SetVariable` entry point only on trial boots. The kernel
+  validates the pointer against a runtime-code memory descriptor. Its
+  no-argument `SYS_BOOT_READY` derives all record data from BootInfo, writes a
+  versioned and checksummed `NagiBootReady` variable once, and exposes no
+  caller-selected firmware operation. See ADR-0011.
+- Init reports readiness only after the first M10 surface present succeeds.
+  On the next loader entry, only a record matching the pending slot, attempt,
+  generation, and required UEFI attributes can call the existing
+  `mark_boot_success`; stale or malformed records are discarded. Persistence
+  failure keeps the trial pending and stops init before desktop-ready.
+- The current guest has no authentication/login flow; this readiness slice
+  proves core checks and initial desktop presentation only. The release gate
+  must extend it to the specification's full session readiness point.
 
 ## UEFI persistence foundation
 
@@ -90,7 +105,7 @@ Using the pinned `nightly-2025-08-01` toolchain:
 - `cargo clippy --manifest-path loader/Cargo.toml --lib --locked -- -D warnings
   -A clippy::derivable_impls` — passed; the allow covers an existing manual
   `Default` implementation in `loader/src/elf.rs`.
-- The UEFI release build with `--features m27-broken-slot-acceptance` and
+- The UEFI release build with `--features m27-ab-slot-acceptance` and
   warnings-denied target Clippy passed.
 - CLI tests passed (117 unit and 18 integration); warnings-denied Clippy and
   formatting passed.
@@ -113,6 +128,33 @@ Using the pinned `nightly-2025-08-01` toolchain:
 - The latest `./nagi m27` run built the checker into the slot init and
   confirmed it on both rollback and confirmed boots. Evidence is preserved in
   `out/evidence/m27-ab-rollback-1790729662262827000/`.
+- The completion-sweep `./nagi m27` run passed on 2026-09-30 with BootInfo v4
+  and `SYS_BOOT_READY`. The healthy System B trial persisted slot B, attempt 1,
+  generation 3 before `Nagi M10 desktop READY`; the next launch printed
+  `Nagi M27 readiness record consumed slot=B PASS` before the confirmed-B
+  decision; the following launch still selected confirmed B. The same run
+  repeated the three-malformed-B rollback path. All nine launch logs, OVMF
+  variables, and the persistent data disk are in
+  `out/evidence/m27-ab-rollback-1790734306736600000/`.
+- Focused host tests passed: BootInfo (15), ABI (4), CLI (121 unit and 18
+  integration), and loader (10). The feature-enabled UEFI loader Clippy build,
+  loader release build, Nagi kernel target build, and
+  `nagi-init --features m10-desktop,m27-ro-vfs-check` target build passed.
+- Host `libnagi` unit tests could not compile on this arm64 macOS host because
+  the crate's x86-64 syscall register names are invalid for the host target.
+  Host kernel unit tests also fail on the pinned nightly because existing
+  kernel sources use unstable `unsigned_is_multiple_of` APIs without the crate
+  feature gate. The new kernel readiness path is exercised by the QEMU target
+  acceptance above.
+- A warnings-denied kernel target Clippy attempt reports existing diagnostics
+  in audio, scheduler, user_process, smp, syscall, and main; none point to the
+  new `boot_control.rs` readiness implementation. The target build and QEMU
+  acceptance pass.
+- The follow-up `./nagi m27` run also passed after the CLI gate began checking
+  the ordering of guest persistence before desktop readiness and loader record
+  consumption before promotion. The loader now also requires exact UEFI
+  variable attributes on the readiness record. Current evidence is in
+  `out/evidence/m27-ab-rollback-1790735315934886000/`.
 - The QEMU host logged that it has no `virtio-sound.in` audio driver. The M27
   acceptance does not exercise audio; all boot-control and persistent-data
   markers passed.
@@ -129,8 +171,8 @@ they do not establish firmware persistence or guest boot behavior.
 
 ## Remaining M27 work
 
-1. Connect a trustworthy system-readiness signal to `mark_boot_success` so a
-   viable update can become the confirmed slot.
+1. Extend the current core-check + first-desktop readiness signal to the full
+   authenticated session readiness gate when login/authentication exists.
 2. Add a bootable Recovery Environment with the specified slot selection,
    boot logs, important-file/history restore, advanced terminal, and basic
    repair operations. The current read-only VFS checker is one diagnostic
@@ -139,7 +181,8 @@ they do not establish firmware persistence or guest boot behavior.
    partitioned release layout, and validate a viable update alongside the
    intentionally malformed-slot rollback acceptance.
 
-Until those pieces and the acceptance pass, M27 remains PARTIAL.
+Until those pieces and the final partitioned release acceptance pass, M27
+remains PARTIAL.
 
 ## Matched-payload rollback slice (completed)
 
@@ -154,9 +197,10 @@ as a rejected trial on each of three separate QEMU processes. The next launch
 selected A and read its M7 persistent-storage marker. The same OVMF variables
 and user-data disk were reused throughout.
 
-The acceptance passed with the preserved evidence above. It proves firmware-
-backed selection of paired payloads and rollback to A while preserving data on
-the separate user-data disk. It does not provide the final partitioned release
-layout, a positive health/readiness signal for a viable update, authenticated
-slot manifests, or the Recovery Environment; those remain separate M27/M30
-work.
+The original malformed-payload acceptance passed with the preserved evidence
+above. It proves firmware-backed selection of paired payloads and rollback to
+A while preserving data on the separate user-data disk. The later readiness
+promotion slice adds a positive guest signal for the current M10 gate; neither
+slice provides the final partitioned release layout, authenticated slot
+manifests, the full login readiness gate, or the Recovery Environment. Those
+remain separate M27/M30 work.

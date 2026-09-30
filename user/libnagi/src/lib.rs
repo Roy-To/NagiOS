@@ -19,11 +19,12 @@ pub use nagi_abi::{
     MAX_NET_FRAME_SIZE, MAX_PROCESS_NAME, MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888, PROT_EXEC,
     PROT_NONE, PROT_READ, PROT_WRITE, SURFACE_BYTES, SURFACE_HEIGHT, SURFACE_WIDTH,
     SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE,
-    SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ,
-    SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT,
-    SYS_MEMORY_UNMAP, SYS_NET_RECEIVE, SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO,
-    SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN,
-    SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
+    SYS_BOOT_READY, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT,
+    SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT,
+    SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_NET_RECEIVE, SYS_NET_SEND, SYS_PROCESS_EXIT,
+    SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT,
+    SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
+    THREAD_CREATE_DETACHED,
 };
 
 #[cfg(target_os = "nagi")]
@@ -259,6 +260,24 @@ pub fn display_present(capability: u64) -> bool {
         );
     }
     result != u64::MAX
+}
+
+/// Notify the kernel that Nagi's initial desktop surface has been presented.
+/// On an ordinary confirmed boot this is a successful no-op. For an A/B trial
+/// the kernel records the candidate coordinates supplied by the loader.
+#[inline]
+pub fn report_boot_ready() -> bool {
+    let mut result = SYS_BOOT_READY;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
 }
 
 #[inline]

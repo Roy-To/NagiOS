@@ -344,6 +344,20 @@ pub fn write_m27_broken_slot_image(
     Ok(layout)
 }
 
+/// Build an M27 acceptance image with the same valid kernel and init in both
+/// System A and the System B trial candidate.
+pub fn write_m27_healthy_slot_image(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+) -> Result<ImageLayout, String> {
+    let geometry = Fat12Geometry::new(M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, ROOT_ENTRY_COUNT)?;
+    let (image, layout) = build_fat12_ab_image(bootloader, kernel, init, kernel, init, geometry)?;
+    fs::write(path, image).map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    Ok(layout)
+}
+
 fn build_fat12_ab_image(
     bootloader: &[u8],
     system_a_kernel: &[u8],

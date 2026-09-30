@@ -228,6 +228,10 @@ pub fn run(display_capability: u64, input_capability: u64) -> ! {
         print(message!(NAGI_M10_FAIL, 26));
         libnagi::exit(1);
     }
+    if !libnagi::report_boot_ready() {
+        print(message!(NAGI_M10_FAIL, 26));
+        libnagi::exit(1);
+    }
     let initial_checksum = checksum(surface);
     print(message!(NAGI_M10_READY, 24));
     print_checksum(initial_checksum);

@@ -29,6 +29,9 @@ pub const SYS_RANDOM_GET: u64 = 26;
 pub const SYS_MEMORY_MAP_AT: u64 = 27;
 pub const SYS_BLOCK_FLUSH: u64 = 28;
 pub const SYS_THREAD_DETACH: u64 = 29;
+/// Request kernel confirmation of the current A/B boot candidate after the
+/// guest readiness gate has completed. The kernel derives all coordinates.
+pub const SYS_BOOT_READY: u64 = 30;
 
 /// Optional `SYS_THREAD_CREATE` flag for a child that should be detached
 /// before it can be scheduled.

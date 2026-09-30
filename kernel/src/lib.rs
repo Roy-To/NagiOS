@@ -2,6 +2,7 @@
 
 pub mod acpi;
 pub mod audio;
+pub mod boot_control;
 pub mod display;
 pub mod handles;
 pub mod input;

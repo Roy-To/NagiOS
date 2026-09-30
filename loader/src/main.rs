@@ -5,8 +5,8 @@ use core::mem;
 use core::ptr;
 
 use nagi_bootinfo::{
-    firmware_time_to_unix_ns, BootInfo, FirmwareDateTime, FramebufferInfo, InitImageInfo,
-    MemoryMapInfo, REALTIME_UNAVAILABLE_NS,
+    firmware_time_to_unix_ns, BootControlInfo, BootInfo, BootReadyRecord, FirmwareDateTime,
+    FramebufferInfo, InitImageInfo, MemoryMapInfo, BOOT_READY_RECORD_SIZE, REALTIME_UNAVAILABLE_NS,
 };
 use nagi_loader::ab::SystemSlot;
 use nagi_loader::elf::{parse, LoadPlan};
@@ -34,13 +34,13 @@ fn main() -> Status {
         return fail(error_message("Nagi Loader: helper init failed"));
     }
 
-    #[cfg(feature = "m27-broken-slot-acceptance")]
-    let selected_slot = match m27_boot_control_decision() {
-        Ok(slot) => Some(slot),
+    #[cfg(feature = "m27-ab-slot-acceptance")]
+    let (selected_slot, boot_control) = match m27_boot_control_decision() {
+        Ok((slot, context)) => (Some(slot), context),
         Err(message) => return fail(error_message(message)),
     };
-    #[cfg(not(feature = "m27-broken-slot-acceptance"))]
-    let selected_slot = None;
+    #[cfg(not(feature = "m27-ab-slot-acceptance"))]
+    let (selected_slot, boot_control) = (None, BootControlInfo::default());
 
     let kernel_size = match read_kernel(boot::image_handle(), selected_slot) {
         Ok(size) => size,
@@ -116,6 +116,7 @@ fn main() -> Status {
         acpi_rsdp,
         init_image,
         realtime_epoch_ns,
+        boot_control,
     };
     unsafe {
         ptr::write_volatile(&raw mut BOOT_INFO, boot_info);
@@ -126,14 +127,65 @@ fn main() -> Status {
     }
 }
 
-#[cfg(feature = "m27-broken-slot-acceptance")]
-fn m27_boot_control_decision() -> Result<SystemSlot, &'static str> {
-    use nagi_loader::ab::{uefi_store::UefiVariableBootControlStore, BootControlJournal};
+#[cfg(feature = "m27-ab-slot-acceptance")]
+fn m27_boot_control_decision() -> Result<(SystemSlot, BootControlInfo), &'static str> {
+    use nagi_loader::ab::uefi_store::{
+        UefiVariableBootControlStore, NAGI_BOOT_CONTROL_VENDOR, NAGI_BOOT_READY_VARIABLE,
+    };
+    use nagi_loader::ab::{BootControlJournal, BootControlState};
+    use uefi::runtime::{self, VariableAttributes};
 
     let mut journal = BootControlJournal::new(UefiVariableBootControlStore::new());
-    let state = journal
+    let mut state = journal
         .load()
         .map_err(|_| "Nagi Loader: M27 boot-control journal read failed")?;
+
+    if runtime::variable_exists(NAGI_BOOT_READY_VARIABLE, &NAGI_BOOT_CONTROL_VENDOR)
+        .unwrap_or(false)
+    {
+        let mut bytes = [0; BOOT_READY_RECORD_SIZE];
+        let record = runtime::get_variable(
+            NAGI_BOOT_READY_VARIABLE,
+            &NAGI_BOOT_CONTROL_VENDOR,
+            &mut bytes,
+        )
+        .ok()
+        .and_then(|(value, attributes)| {
+            let required = VariableAttributes::NON_VOLATILE
+                .union(VariableAttributes::BOOTSERVICE_ACCESS)
+                .union(VariableAttributes::RUNTIME_ACCESS);
+            (attributes == required)
+                .then(|| BootReadyRecord::decode(value))
+                .flatten()
+        });
+        if let Some(record) = record {
+            let matching_pending = match state.pending_slot() {
+                Some(SystemSlot::A) => record.slot == SystemSlot::A as u8,
+                Some(SystemSlot::B) => record.slot == SystemSlot::B as u8,
+                None => false,
+            } && record.attempt == state.attempts()
+                && record.journal_generation == state.generation();
+            if matching_pending {
+                let slot = if record.slot == SystemSlot::A as u8 {
+                    SystemSlot::A
+                } else {
+                    SystemSlot::B
+                };
+                journal
+                    .mark_boot_success(slot)
+                    .map_err(|_| "Nagi Loader: M27 readiness promotion failed")?;
+                uefi::println!(
+                    "Nagi M27 readiness record consumed slot={} PASS",
+                    if slot == SystemSlot::A { "A" } else { "B" }
+                );
+                state = journal
+                    .load()
+                    .map_err(|_| "Nagi Loader: M27 promoted journal read failed")?;
+            }
+        }
+        let _ = runtime::delete_variable(NAGI_BOOT_READY_VARIABLE, &NAGI_BOOT_CONTROL_VENDOR);
+    }
+
     if state.generation() == 0 {
         journal
             .stage_update(SystemSlot::B)
@@ -146,23 +198,65 @@ fn m27_boot_control_decision() -> Result<SystemSlot, &'static str> {
     if decision.rolled_back {
         uefi::println!("Nagi M27 persistence decision: rollback slot=A");
     } else if decision.trial_attempt == 0 {
-        uefi::println!("Nagi M27 persistence decision: confirmed slot=A");
+        let state = journal
+            .load()
+            .map_err(|_| "Nagi Loader: M27 confirmed journal read failed")?;
+        uefi::println!(
+            "Nagi M27 persistence decision: confirmed slot={}",
+            if state.confirmed_slot() == SystemSlot::A {
+                "A"
+            } else {
+                "B"
+            }
+        );
     } else {
         uefi::println!(
-            "Nagi M27 persistence decision: trial attempt={} slot=B",
-            decision.trial_attempt
+            "Nagi M27 persistence decision: trial attempt={} slot={}",
+            decision.trial_attempt,
+            if decision.slot == SystemSlot::A {
+                "A"
+            } else {
+                "B"
+            }
         );
     }
     uefi::println!("Nagi M27 UEFI variable journal persistence PASS");
-    Ok(decision.slot)
+
+    let context = if decision.trial_attempt == 0 {
+        BootControlInfo::default()
+    } else {
+        let state: BootControlState = journal
+            .load()
+            .map_err(|_| "Nagi Loader: M27 trial context read failed")?;
+        if state.pending_slot() != Some(decision.slot) || state.attempts() != decision.trial_attempt
+        {
+            return Err("Nagi Loader: M27 trial context mismatch");
+        }
+        let system_table =
+            uefi::table::system_table_raw().ok_or("Nagi Loader: M27 runtime table unavailable")?;
+        // SAFETY: UEFI initialized the system table, which remains valid while
+        // the loader is running with boot services active.
+        let system_table = unsafe { system_table.as_ref() };
+        // SAFETY: the firmware supplies a valid runtime-services table.
+        let runtime_services = unsafe { system_table.runtime_services.as_ref() }
+            .ok_or("Nagi Loader: M27 runtime services unavailable")?;
+        BootControlInfo {
+            set_variable_address: runtime_services.set_variable as *const () as u64,
+            journal_generation: state.generation(),
+            slot: decision.slot as u8,
+            attempt: decision.trial_attempt,
+            reserved: [0; 6],
+        }
+    };
+    Ok((decision.slot, context))
 }
 
 fn report_m27_trial_payload_rejection(selected_slot: Option<SystemSlot>) {
-    #[cfg(feature = "m27-broken-slot-acceptance")]
+    #[cfg(feature = "m27-ab-slot-acceptance")]
     if selected_slot == Some(SystemSlot::B) {
         uefi::println!("Nagi M27 trial payload rejected slot=B");
     }
-    #[cfg(not(feature = "m27-broken-slot-acceptance"))]
+    #[cfg(not(feature = "m27-ab-slot-acceptance"))]
     let _ = selected_slot;
 }
 

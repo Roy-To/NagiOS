@@ -12,8 +12,8 @@ use crate::image::{
     run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker, run_qemu_interactive,
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
     run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image,
-    write_m27_broken_slot_image, ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER,
-    NAGI_WRITE_MARKER,
+    write_m27_broken_slot_image, write_m27_healthy_slot_image, ImageLayout, QemuConfig,
+    GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -3604,6 +3604,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     };
     let bootstrap_image_name = format!("nagi-0.1-m27-bootstrap-{run_id}.img");
     let slots_image_name = format!("nagi-0.1-m27-ab-slots-{run_id}.img");
+    let healthy_slots_image_name = format!("nagi-0.1-m27-ab-healthy-slots-{run_id}.img");
     let bootstrap_image_result = execute_image_with_features(root, None, &bootstrap_image_name);
     if bootstrap_image_result.exit_code != EXIT_SUCCESS {
         return bootstrap_image_result;
@@ -3613,7 +3614,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "-p",
         "nagi-init",
         "--features",
-        "m27-ro-vfs-check",
+        "m10-desktop,m27-ro-vfs-check",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -3628,11 +3629,26 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         write_m27_broken_slot_image,
         ImageBuildFeatures {
             kernel: &[],
-            loader: &["m27-broken-slot-acceptance"],
+            loader: &["m27-ab-slot-acceptance"],
         },
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
+    }
+    let healthy_image_result = execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        &healthy_slots_image_name,
+        &[],
+        write_m27_healthy_slot_image,
+        ImageBuildFeatures {
+            kernel: &[],
+            loader: &["m27-ab-slot-acceptance"],
+        },
+    );
+    if healthy_image_result.exit_code != EXIT_SUCCESS {
+        return healthy_image_result;
     }
 
     let host = match resolve_qemu_host(root, probe, "m27") {
@@ -3653,6 +3669,10 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         .join("artifacts")
         .join(&bootstrap_image_name);
     let slots_image_path = root.join("out").join("artifacts").join(&slots_image_name);
+    let healthy_slots_image_path = root
+        .join("out")
+        .join("artifacts")
+        .join(&healthy_slots_image_name);
     let persistent_disk = evidence.join("user-data.img");
     let vars_copy = evidence.join("OVMF_VARS.fd");
     if let Err(error) = ensure_persistent_disk(&persistent_disk) {
@@ -3813,10 +3833,115 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         final_log = log_path;
     }
 
+    let readiness_relative = Path::new("out/evidence")
+        .join(format!("m27-ab-rollback-{run_id}"))
+        .join("readiness-promotion");
+    let readiness_evidence = match ensure_owned_directory(root, readiness_relative) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m27: {error}")),
+    };
+    let readiness_vars = readiness_evidence.join("OVMF_VARS.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &readiness_vars) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m27: initialize readiness OVMF variables: {error}"),
+        );
+    }
+    let readiness_boots = [
+        (
+            "trial-boot.log",
+            "Nagi M27 persistence decision: trial attempt=1 slot=B",
+            false,
+        ),
+        (
+            "promotion-boot.log",
+            "Nagi M27 persistence decision: confirmed slot=B",
+            true,
+        ),
+        (
+            "confirmed-boot.log",
+            "Nagi M27 persistence decision: confirmed slot=B",
+            false,
+        ),
+    ];
+    for (index, (log_name, expected_decision, expect_consumed_readiness)) in
+        readiness_boots.iter().enumerate()
+    {
+        let log_path = readiness_evidence.join(log_name);
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &healthy_slots_image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &readiness_vars,
+            serial_log: &log_path,
+            acceptance_marker: "Nagi M10 desktop READY",
+            timeout: Duration::from_secs(90),
+        };
+        let status = match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&config) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: readiness QEMU boot {} failed: {error}", index + 1),
+                );
+            }
+        };
+        let serial = match fs::read_to_string(&log_path) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: cannot read {}: {error}", log_path.display()),
+                );
+            }
+        };
+        for marker in [*expected_decision, "Nagi M10 desktop READY"] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m27: readiness boot {} did not print `{marker}` (QEMU exit {status}; log {})",
+                        index + 1,
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        if index == 0 && !m27_readiness_persisted_before_desktop(&serial) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: healthy trial did not persist readiness before desktop readiness (QEMU exit {status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if *expect_consumed_readiness && !m27_readiness_consumed_before_promotion(&serial) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: loader did not consume the guest readiness record (QEMU exit {status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if serial.contains("Nagi M27 readiness persistence FAIL") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: readiness persistence failed during promotion acceptance (log {})",
+                    log_path.display()
+                ),
+            );
+        }
+    }
+
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M27 broken-slot rollback: three malformed System B trials were rejected; the loader selected System A and the guest read persistent user data after rollback using one OVMF variables image (evidence {})",
+            "PASS M27 A/B boot control: three malformed System B trials rolled back to persistent System A; a healthy System B trial persisted guest readiness, was promoted on the next boot, and remained confirmed through a third boot (evidence {})",
             evidence.display()
         ), format!("Final serial log: {}", final_log.display())],
     }
@@ -3826,6 +3951,28 @@ fn m27_trial_failure_observed(serial: &str) -> bool {
     serial.contains("Nagi M27 trial payload rejected slot=B")
         && serial.contains("Nagi Loader: invalid ELF")
         && !serial.contains("Nagi Kernel started")
+        && !serial.contains("Nagi M27 readiness persisted")
+}
+
+fn m27_readiness_persisted_before_desktop(serial: &str) -> bool {
+    let readiness_line = serial.lines().position(|line| {
+        line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 generation=")
+            && line.ends_with(" PASS")
+    });
+    let desktop_ready_line = serial
+        .lines()
+        .position(|line| line == "Nagi M10 desktop READY");
+    matches!((readiness_line, desktop_ready_line), (Some(record), Some(desktop)) if record < desktop)
+}
+
+fn m27_readiness_consumed_before_promotion(serial: &str) -> bool {
+    let consumed_line = serial
+        .lines()
+        .position(|line| line == "Nagi M27 readiness record consumed slot=B PASS");
+    let promotion_line = serial
+        .lines()
+        .position(|line| line == "Nagi M27 persistence decision: confirmed slot=B");
+    matches!((consumed_line, promotion_line), (Some(consumed), Some(promotion)) if consumed < promotion)
 }
 
 fn help() -> CommandResult {
@@ -3850,6 +3997,7 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 mod tests {
     use super::{
         append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt,
+        m27_readiness_consumed_before_promotion, m27_readiness_persisted_before_desktop,
         m27_trial_failure_observed,
     };
     use std::path::Path;
@@ -3872,6 +4020,29 @@ mod tests {
         ));
         assert!(!m27_trial_failure_observed(
             "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\nNagi Kernel started\n"
+        ));
+    }
+
+    #[test]
+    fn m27_readiness_must_be_persisted_before_desktop_ready() {
+        assert!(m27_readiness_persisted_before_desktop(
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\nNagi M10 desktop READY\r\n"
+        ));
+        assert!(!m27_readiness_persisted_before_desktop(
+            "Nagi M10 desktop READY\r\nNagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\n"
+        ));
+        assert!(!m27_readiness_persisted_before_desktop(
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=3 FAIL\r\nNagi M10 desktop READY\r\n"
+        ));
+    }
+
+    #[test]
+    fn m27_readiness_must_be_consumed_before_candidate_promotion() {
+        assert!(m27_readiness_consumed_before_promotion(
+            "Nagi M27 readiness record consumed slot=B PASS\r\nNagi M27 persistence decision: confirmed slot=B\r\n"
+        ));
+        assert!(!m27_readiness_consumed_before_promotion(
+            "Nagi M27 persistence decision: confirmed slot=B\r\nNagi M27 readiness record consumed slot=B PASS\r\n"
         ));
     }
 

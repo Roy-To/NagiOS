@@ -37,10 +37,18 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
                 BootInfoError::MissingFramebuffer => b"reason: framebuffer\r\n",
                 BootInfoError::MissingAcpi => b"reason: acpi\r\n",
                 BootInfoError::MissingInitImage => b"reason: init-image\r\n",
+                BootInfoError::InvalidBootControl => b"reason: boot-control\r\n",
             });
             halt_forever();
         }
     };
+    if boot_info.boot_control.is_trial()
+        && !unsafe { boot_info.boot_control_writer_is_runtime_code() }
+    {
+        serial_write(b"Nagi Kernel rejected BootInfo\r\nreason: boot-control-writer\r\n");
+        halt_forever();
+    }
+    nagi_kernel::boot_control::initialize(boot_info.boot_control);
     syscall::set_realtime_epoch_ns(boot_info.realtime_epoch_ns);
 
     serial_write(b"Nagi Kernel started\r\n");

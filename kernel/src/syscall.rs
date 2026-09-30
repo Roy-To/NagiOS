@@ -31,11 +31,11 @@ use nagi_kernel::scheduler::{BootstrapUserThreads, JoinOutcome};
 pub use nagi_abi::{
     BLOCK_SECTOR_SIZE, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_RANDOM_BYTES,
     SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE,
-    SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ,
-    SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT,
-    SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE,
-    SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP,
-    SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
+    SYS_BOOT_READY, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT,
+    SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT,
+    SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET,
+    SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF,
+    SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
 };
 
 #[cfg(not(test))]
@@ -501,7 +501,32 @@ extern "sysv64" fn dispatch(frame: &SyscallFrame) -> u64 {
         SYS_AUDIO_PLAY => audio_play(frame.arg1, frame.arg2, frame.arg3, frame.arg4),
         SYS_AUDIO_CAPTURE => audio_capture(frame.arg1, frame.arg2, frame.arg3, frame.arg4),
         SYS_RANDOM_GET => random_get(frame.arg1, frame.arg2),
+        SYS_BOOT_READY => boot_ready(),
         _ => u64::MAX,
+    }
+}
+
+#[cfg(not(test))]
+fn boot_ready() -> u64 {
+    use nagi_kernel::boot_control::BootReadinessOutcome;
+
+    match nagi_kernel::boot_control::report() {
+        BootReadinessOutcome::NoTrial => 0,
+        BootReadinessOutcome::Persisted(record)
+        | BootReadinessOutcome::AlreadyPersisted(record) => {
+            serial_write(b"Nagi M27 readiness persisted slot=");
+            serial_write(if record.slot == 0 { b"A" } else { b"B" });
+            serial_write(b" attempt=");
+            serial_write_decimal(usize::from(record.attempt));
+            serial_write(b" generation=");
+            serial_write_decimal(usize::try_from(record.journal_generation).unwrap_or(usize::MAX));
+            serial_write(b" PASS\r\n");
+            0
+        }
+        BootReadinessOutcome::PersistenceFailed(_) | BootReadinessOutcome::InProgress => {
+            serial_write(b"Nagi M27 readiness persistence FAIL\r\n");
+            u64::MAX
+        }
     }
 }
 
@@ -1326,11 +1351,11 @@ mod tests {
     use super::{
         efer_with_sce, is_valid_user_console_read, is_valid_user_read, star_value,
         BLOCK_SECTOR_SIZE, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, SYS_AUDIO_CAPTURE,
-        SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ,
-        SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ,
-        SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP,
-        SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_THREAD_CREATE, SYS_THREAD_EXIT, SYS_THREAD_JOIN,
-        SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
+        SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_BOOT_READY,
+        SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ,
+        SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT,
+        SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_THREAD_CREATE, SYS_THREAD_EXIT,
+        SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
     };
     use crate::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
     use crate::user_process::{USER_MMAP_BASE, USER_MMAP_LIMIT};
@@ -1440,6 +1465,7 @@ mod tests {
         assert_eq!(SYS_BLOCK_READ, 3);
         assert_eq!(SYS_BLOCK_WRITE, 4);
         assert_eq!(SYS_BLOCK_FLUSH, 28);
+        assert_eq!(SYS_BOOT_READY, 30);
         assert_eq!(BLOCK_SECTOR_SIZE, 512);
         assert_eq!(SYS_CONSOLE_READ, 5);
         assert_eq!(SYS_PROCESS_INFO, 6);
