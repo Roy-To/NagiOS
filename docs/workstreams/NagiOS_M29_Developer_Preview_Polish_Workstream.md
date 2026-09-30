@@ -101,6 +101,19 @@ changed CLI package passed `cargo fmt --manifest-path
 tools/nagi-cli/Cargo.toml -- --check`. `./nagi fmt` now matches the CI source
 selection and passes without checking or reformatting the vendored Servo tree.
 
+## QEMU timeout diagnostics — 2026-10-01
+
+Headless and GUI/VNC QEMU marker waits now attempt one bounded `query-status`
+and CPU-register request after an acceptance timeout, then append returned
+data, query errors, or a skipped request to the serial log. QMP response lines
+are capped at 64 KiB and the combined query budget is three seconds. Four CLI tests cover the
+queries, serial-log append, and line bound. The focused suite passed 138 unit
+tests and 21 integration tests; `./nagi test`, `./nagi lint`, `./nagi build`,
+and `./nagi fmt` passed. A fresh M28 one-repetition QEMU run also passed M19,
+M22, and M27 after a prior M27 Recovery timeout. That timeout remains
+unexplained; the successful rerun did not exercise the diagnostic-on-timeout
+path.
+
 ## Remaining M29 work
 
 1. Expand genuine QEMU screenshots beyond the fixed M10 acceptance surface

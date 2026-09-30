@@ -41,6 +41,8 @@ const REFERENCE_DISK_SIZE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 const REFERENCE_DISK_SECTORS: u64 = REFERENCE_DISK_SIZE_BYTES / 512;
 const MIB_SECTORS: u64 = 1024 * 1024 / 512;
 const GIB_SECTORS: u64 = 1024 * MIB_SECTORS;
+const QMP_MAX_LINE_BYTES: usize = 64 * 1024;
+const QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Fat12Geometry {
@@ -1579,10 +1581,16 @@ fn wait_for_qemu_any_with_qmp(
             return Ok(status.code().unwrap_or(-1));
         }
         if Instant::now() >= deadline {
+            let diagnostics = capture_qmp_timeout_diagnostics(qmp_stream);
             terminate_qemu(child, serial_log, &serial);
+            let log_result = append_qmp_timeout_diagnostics(serial_log, &diagnostics);
+            let persisted = match log_result {
+                Ok(()) => format!("diagnostics appended to {}", serial_log.display()),
+                Err(error) => format!("could not append timeout diagnostics: {error}"),
+            };
             return Err(format!(
-                "QEMU did not reach acceptance within {} seconds",
-                timeout.as_secs()
+                "QEMU did not reach acceptance within {} seconds; {persisted}",
+                timeout.as_secs(),
             ));
         }
         thread::sleep(Duration::from_millis(2));
@@ -2194,12 +2202,39 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
             });
         }
         if Instant::now() >= deadline {
+            if let Some(diagnostics) = qmp_diagnostics.as_mut() {
+                let _ = diagnostics.flush();
+            }
+            drop(qmp_diagnostics);
+            let timeout_diagnostics = capture_qmp_timeout_diagnostics(&mut qmp_stream);
+            let _ = serial_log.flush();
             let _ = child.kill();
             let _ = child.wait();
-            let _ = fs::write(config.serial_log, &serial);
+            drop(serial_log);
+            let serial_write = fs::write(config.serial_log, &serial).map_err(|error| {
+                format!(
+                    "cannot write timed-out GUI serial log {}: {error}",
+                    config.serial_log.display()
+                )
+            });
+            let diagnostics_write =
+                append_qmp_timeout_diagnostics(config.serial_log, &timeout_diagnostics);
+            let persisted = match (serial_write, diagnostics_write) {
+                (Ok(()), Ok(())) => {
+                    format!(
+                        "QMP diagnostics appended to {}",
+                        config.serial_log.display()
+                    )
+                }
+                (Err(serial_error), Ok(())) => serial_error,
+                (Ok(()), Err(diagnostics_error)) => diagnostics_error,
+                (Err(serial_error), Err(diagnostics_error)) => {
+                    format!("{serial_error}; {diagnostics_error}")
+                }
+            };
             return Err(format!(
-                "GUI QEMU did not reach acceptance within {} seconds",
-                config.timeout.as_secs()
+                "GUI QEMU did not reach acceptance within {} seconds; {persisted}",
+                config.timeout.as_secs(),
             ));
         }
         if last_qmp_trace.elapsed() >= Duration::from_secs(20) {
@@ -2530,6 +2565,11 @@ fn read_qmp_line(stream: &mut TcpStream, deadline: Instant) -> Result<String, St
         match stream.read(&mut byte) {
             Ok(0) => return Err("QMP closed before sending a response".into()),
             Ok(1) => {
+                if bytes.len() >= QMP_MAX_LINE_BYTES {
+                    return Err(format!(
+                        "QMP response exceeds the {QMP_MAX_LINE_BYTES}-byte line limit"
+                    ));
+                }
                 bytes.push(byte[0]);
                 if byte[0] == b'\n' {
                     return Ok(String::from_utf8_lossy(&bytes).into_owned());
@@ -2547,6 +2587,45 @@ fn read_qmp_line(stream: &mut TcpStream, deadline: Instant) -> Result<String, St
             Err(error) => return Err(format!("cannot read QMP response: {error}")),
         }
     }
+}
+
+fn capture_qmp_timeout_diagnostics(stream: &mut TcpStream) -> Vec<String> {
+    let queries = [
+        ("QMP query-status", r#"{"execute":"query-status"}"#),
+        (
+            "QMP CPU registers",
+            r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
+        ),
+    ];
+    let deadline = Instant::now() + QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT;
+    let mut diagnostics = Vec::with_capacity(queries.len());
+    for (label, command) in queries {
+        if Instant::now() >= deadline {
+            diagnostics.push(format!("{label} skipped: diagnostic time budget exhausted"));
+            break;
+        }
+        match qmp_exchange_response(stream, command, deadline) {
+            Ok(response) => diagnostics.push(format!("{label}: {}", response.trim_end())),
+            Err(error) => diagnostics.push(format!("{label} failed: {error}")),
+        }
+    }
+    diagnostics
+}
+
+fn append_qmp_timeout_diagnostics(path: &Path, diagnostics: &[String]) -> Result<(), String> {
+    let mut log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| format!("cannot open {} for diagnostics: {error}", path.display()))?;
+    writeln!(log, "\nNagi QEMU timeout diagnostics:")
+        .and_then(|()| {
+            for diagnostic in diagnostics {
+                writeln!(log, "{diagnostic}")?;
+            }
+            log.flush()
+        })
+        .map_err(|error| format!("cannot append to {}: {error}", path.display()))
 }
 
 fn qmp_exchange(stream: &mut TcpStream, command: &str, deadline: Instant) -> Result<(), String> {
@@ -2673,14 +2752,15 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        build_fat12_ab_image, build_fat12_image, build_m17_fat12_image, cluster_offset,
+        append_qmp_timeout_diagnostics, build_fat12_ab_image, build_fat12_image,
+        build_m17_fat12_image, capture_qmp_timeout_diagnostics, cluster_offset,
         ensure_persistent_disk, guest_reached_acceptance, guest_reached_any_acceptance,
         guest_reached_failure, image_drive_argument, initialize_fats, json_string_field,
         json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host, qmp_json_quote,
-        reference_partitions, write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET,
-        FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE,
-        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, REFERENCE_DISK_SECTORS,
-        ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
+        read_qmp_line, reference_partitions, write_chain, AbSlotImages, Fat12Geometry, SlotPayload,
+        DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE,
+        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, QMP_MAX_LINE_BYTES,
+        REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
     };
 
     #[test]
@@ -2690,6 +2770,91 @@ mod tests {
             "\"line\\n\\\"C:\\\\tmp\\\"\""
         );
         assert_eq!(qmp_json_quote("日本語"), "\"日本語\"");
+    }
+
+    #[test]
+    fn qmp_timeout_diagnostics_capture_vm_status_and_cpu_registers() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind QMP fixture");
+        let address = listener.local_addr().expect("QMP fixture address");
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept QMP fixture");
+            let mut reader = BufReader::new(stream);
+
+            let mut command = String::new();
+            reader.read_line(&mut command).expect("read query-status");
+            assert_eq!(command.trim(), r#"{"execute":"query-status"}"#);
+            reader
+                .get_mut()
+                .write_all(br#"{"return":{"status":"running","running":true}}"#)
+                .expect("write status response");
+            reader
+                .get_mut()
+                .write_all(b"\r\n")
+                .expect("terminate status response");
+
+            command.clear();
+            reader.read_line(&mut command).expect("read info registers");
+            assert!(command.contains("info registers"));
+            reader
+                .get_mut()
+                .write_all(br#"{"return":"CPU#0: RIP=0x1234\nRAX=0x5678"}"#)
+                .expect("write register response");
+            reader
+                .get_mut()
+                .write_all(b"\r\n")
+                .expect("terminate register response");
+        });
+
+        let mut qmp = TcpStream::connect(address).expect("connect QMP fixture");
+        qmp.set_read_timeout(Some(std::time::Duration::from_millis(100)))
+            .expect("set QMP read timeout");
+        let diagnostics = capture_qmp_timeout_diagnostics(&mut qmp);
+        server.join().expect("QMP fixture thread");
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(diagnostics[0].contains(r#""status":"running""#));
+        assert!(diagnostics[1].contains("RIP=0x1234"));
+    }
+
+    #[test]
+    fn qmp_timeout_diagnostics_append_to_the_serial_log() {
+        let path = unique_persistent_disk_path("qmp-timeout");
+        std::fs::write(&path, b"guest serial output\n").expect("write serial fixture");
+        append_qmp_timeout_diagnostics(&path, &["QMP query-status: running".to_owned()])
+            .expect("append QMP diagnostics");
+        let log = std::fs::read_to_string(&path).expect("read serial fixture");
+        assert!(log.starts_with("guest serial output\n"));
+        assert!(log.contains("Nagi QEMU timeout diagnostics:"));
+        assert!(log.contains("QMP query-status: running"));
+        std::fs::remove_file(path).expect("remove serial fixture");
+    }
+
+    #[test]
+    fn qmp_response_lines_are_bounded() {
+        use std::io::Write;
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind QMP fixture");
+        let address = listener.local_addr().expect("QMP fixture address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept QMP fixture");
+            let line = vec![b'x'; QMP_MAX_LINE_BYTES + 1];
+            stream.write_all(&line).expect("write oversized QMP line");
+        });
+
+        let mut qmp = TcpStream::connect(address).expect("connect QMP fixture");
+        qmp.set_read_timeout(Some(std::time::Duration::from_millis(100)))
+            .expect("set QMP read timeout");
+        let error = read_qmp_line(
+            &mut qmp,
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .expect_err("reject oversized QMP line");
+        server.join().expect("QMP fixture thread");
+        assert!(error.contains("line limit"));
     }
 
     #[test]

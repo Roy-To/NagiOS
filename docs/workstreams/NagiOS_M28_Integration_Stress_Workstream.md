@@ -249,3 +249,36 @@ before guest code, but does not establish their root cause. Therefore this
 two-repetition harness attempt did not pass and is not counted as one. The
 single complete integrated repetition remains valid evidence. M28 stays
 PARTIAL until the full combined workload and stability criteria are measured.
+
+## QEMU timeout diagnostics and fresh three-gate repetition — 2026-10-01
+
+A fresh one-repetition run first passed M19 and M22, then the M27 Recovery
+launch with a pending System B trial timed out after 90 seconds. That GUI/VNC
+run ended without a guest acceptance marker; its evidence is preserved under
+`out/evidence/m27-ab-rollback-1790787806085590000/`. The fixed-name M19/M22
+outputs, OVMF variables, logs, and both User Data disks were preserved and
+hash-verified before the next attempt under
+`out/evidence/m28-qmp-diagnostics-pre-run-20261001/`.
+
+The QEMU marker waiters now attempt to collect `query-status` and CPU-register
+output once when a headless or GUI/VNC run times out. Both requests share a
+three-second total time budget, each QMP response line is capped at 64 KiB,
+and the response, query error, or skipped request is appended to the guest
+serial log. The timeout still fails acceptance. Host tests cover both queries,
+bounded lines, and serial-log append behavior. The change did not alter marker
+acceptance.
+
+The next fresh one-repetition run passed all three gates: M19 live VFS/Search
+and semantic-index persistence, M22 three-boot grouped Undo/Activity Ledger,
+and M27 GPT A/B rollback, Recovery, and healthy-B promotion. Full QEMU
+evidence is under `out/evidence/m27-ab-rollback-1790788040114277000/`; the
+M19/M22 images, vars, data disks, and logs were copied with verified hashes to
+`out/evidence/m28-qmp-diagnostics-pass-20261001/` and remain in `out/logs/` and
+`out/artifacts/`. The prior timed-out attempt is retained as a failure and not
+counted as a pass. The cause is unconfirmed, and the new
+timeout query path was not exercised by the successful rerun. M28 remains
+PARTIAL because this three-gate repetition did not measure its Desktop,
+multi-tab browser, real Granite, audio-pressure, OOM, CPU-fairness, or leak
+soak workload. Before the rerun, its fixed-name inputs were preserved and
+hash-verified under
+`out/evidence/m28-qmp-diagnostics-pre-rerun-20261001/`.

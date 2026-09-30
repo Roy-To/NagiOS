@@ -329,3 +329,16 @@ not established, so they are recorded as flaky local boot evidence rather than
 counted as additional M27 passes. Authenticated manifests, updater
 authorization, and the remaining Recovery functions continue to keep M27
 PARTIAL.
+
+## Completion Sweep rerun after GUI timeout — 2026-10-01
+
+The next integrated one-repetition M28 run passed the complete M27 GPT A/B and
+Recovery gate, including malformed-B rollback, pending-journal Recovery,
+healthy-B readiness promotion, and confirmed-B startup. Its QEMU evidence is
+at `out/evidence/m27-ab-rollback-1790788040114277000/`. The preceding
+90-second GUI Recovery timeout remains preserved at
+`out/evidence/m27-ab-rollback-1790787806085590000/`; its root cause remains
+unconfirmed. Host QEMU timeout handling now attempts to record bounded status
+and CPU-register details on future headless or GUI timeouts; this passing run
+did not exercise that failure path. M27 remains PARTIAL for the authenticated
+update, full session-readiness, and Recovery features listed above.
