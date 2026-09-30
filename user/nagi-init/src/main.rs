@@ -98,6 +98,9 @@ mod m15_history;
 mod m16_package;
 #[cfg(all(target_os = "nagi", feature = "m19-search"))]
 mod m19_search;
+#[cfg(feature = "m20-fixture-acceptance")]
+#[path = "../../../tests/fixtures/m20_model_store_reader.rs"]
+mod m20_model_store_fixture;
 #[cfg(all(target_os = "nagi", feature = "m22-history"))]
 mod m22_history;
 #[cfg(all(target_os = "nagi", feature = "m25-voice-acceptance"))]
@@ -649,8 +652,75 @@ fn run_m20_model_store_capability_acceptance(model_store_capability: u64) -> boo
         Err(nagi_model_manager::Fat32ArtifactError::ArtifactNotFound) => {}
         Err(_) => return false,
     }
-    libnagi::console_write(b"Nagi M20 Model Store capability PASS\r\n")
-        == b"Nagi M20 Model Store capability PASS\r\n".len()
+    #[cfg(feature = "m20-fixture-acceptance")]
+    {
+        let fixture_id =
+            match nagi_model_manager::ArtifactId::new(m20_model_store_fixture::ARTIFACT_ID) {
+                Ok(artifact_id) => artifact_id,
+                Err(_) => return false,
+            };
+        let mut fixture = match nagi_model_manager::Fat32ArtifactReader::open(
+            SyscallModelStoreReader(model_store_capability),
+            M30_MODEL_STORE_SECTORS,
+            fixture_id,
+        ) {
+            Ok(fixture) => fixture,
+            Err(_) => return false,
+        };
+        let fixture_len = nagi_model_manager::ModelArtifactReader::len(&fixture);
+        if fixture_len != m20_model_store_fixture::FIXTURE_LEN as u64 {
+            return false;
+        }
+        let mut offset = 0u64;
+        let mut chunk = [0u8; 512];
+        while offset < fixture_len {
+            let expected_len = (fixture_len - offset).min(chunk.len() as u64) as usize;
+            if nagi_model_manager::ModelArtifactReader::read_at(
+                &mut fixture,
+                offset,
+                &mut chunk[..expected_len],
+            ) != Ok(expected_len)
+            {
+                return false;
+            }
+            for (index, actual) in chunk[..expected_len].iter().copied().enumerate() {
+                if actual != m20_model_store_fixture::fixture_byte_at(offset as usize + index) {
+                    return false;
+                }
+            }
+            offset += expected_len as u64;
+        }
+
+        let mut boundary = [0u8; 64];
+        if nagi_model_manager::ModelArtifactReader::read_at(&mut fixture, 4_075, &mut boundary)
+            != Ok(boundary.len())
+        {
+            return false;
+        }
+        for (index, actual) in boundary.iter().copied().enumerate() {
+            if actual != m20_model_store_fixture::fixture_byte_at(4_075 + index) {
+                return false;
+            }
+        }
+        let mut eof = [0u8; 1];
+        if nagi_model_manager::ModelArtifactReader::read_at(&mut fixture, fixture_len, &mut eof)
+            != Ok(0)
+        {
+            return false;
+        }
+    }
+    if libnagi::console_write(b"Nagi M20 Model Store capability PASS\r\n")
+        != b"Nagi M20 Model Store capability PASS\r\n".len()
+    {
+        return false;
+    }
+    #[cfg(feature = "m20-fixture-acceptance")]
+    {
+        return libnagi::console_write(b"Nagi M20 FAT32 fixture read PASS\r\n")
+            == b"Nagi M20 FAT32 fixture read PASS\r\n".len();
+    }
+    #[cfg(not(feature = "m20-fixture-acceptance"))]
+    true
 }
 
 #[cfg(target_os = "nagi")]

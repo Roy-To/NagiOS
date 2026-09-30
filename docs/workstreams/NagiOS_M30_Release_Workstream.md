@@ -408,3 +408,24 @@ This bundles only license texts already tracked in this checkout. Fetched or
 ignored source texts, Cargo/native component notices, and human redistribution
 review remain open. The release manifest retains
 `m30_acceptance=NOT_EVALUATED`; M30 remains `PARTIAL`.
+
+## Separate M20 guest FAT32 reader fixture — 2026-10-01
+
+`./nagi m30` continued to boot the existing 64 GiB reference image without
+modifying it, then booted a separate Model Store fixture image built through
+the same GPT/FAT32 disk writer. The reference image SHA-256 is still
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`; the
+release-image copy passed User Data format/write/restart-read acceptance.
+
+The dedicated fixture boot emitted `Nagi M20 Model Store capability PASS` and
+`Nagi M20 FAT32 fixture read PASS`. It read and byte-checked the 5,000-byte
+`nagi.m20.reader-fixture` artifact, including a range across a FAT32 cluster
+boundary and EOF. This test-only payload has a GGUF magic prefix but is not a
+valid model. `qemu-img check` passed for the reference image, the mutable
+release acceptance copy, and the fixture qcow2. Evidence and checksums are in
+`out/evidence/m30-release-1790809848636521000/`.
+
+This is guest artifact-reader evidence only. It does not make
+`m30_acceptance` anything other than `NOT_EVALUATED`, and it does not claim
+artifact installation, GGUF loading, Granite, or inference. Host audio capture
+was unavailable (`virtio-sound.in`); M30 remains `PARTIAL`.

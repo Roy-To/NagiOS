@@ -13,3 +13,5 @@ path = "src/lib.rs"
 name = "nagi"
 path = "src/main.rs"
 
+[dependencies]
+nagi-model-manager = { path = "../../user/nagi-model-manager" }

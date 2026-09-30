@@ -11,7 +11,7 @@ const MAX_FAT32_CLUSTER: u32 = 0x0fff_ffef;
 
 #[derive(Clone, Copy)]
 pub struct VolumeFile<'a> {
-    pub path: &'static str,
+    pub path: &'a str,
     pub contents: &'a [u8],
 }
 

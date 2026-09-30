@@ -12,6 +12,8 @@ pub(crate) mod llama_cpp;
 #[cfg(test)]
 mod m17_storage_contract_tests;
 pub(crate) mod m18_acceptance;
+#[path = "../../../tests/fixtures/m20_model_store_reader.rs"]
+pub(crate) mod m20_model_store_fixture;
 pub(crate) mod mesa;
 pub(crate) mod mio_servo;
 pub(crate) mod mozjs_sys_nagi;

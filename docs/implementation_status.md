@@ -26,6 +26,8 @@ The 2026-09-30 Completion Sweep rerun of `./nagi m19` passed; its invocation
 log is `out/evidence/completion-sweep-regression-20260930/m19-qemu.log` and
 pre-run artifacts are SHA-256 preserved under
 `out/evidence/completion-sweep-regression-20260930/pre-m19-m22/`.
+The post-M20-fixture regression rerun on 2026-10-01 also passed; its guest log
+is `out/logs/m19-vfs-objectid-initial.log`.
 **M20 evidence:** The provider-neutral `no_std` model manager verifies actual
 artifact bytes with streaming SHA-256 before backend load. Its catalog pins the
 IBM Granite 4.2 3B Q4_K_M source revision, size, digest, and Apache notice;
@@ -58,7 +60,16 @@ llama.cpp backend, installed Granite artifact, active model service, or real
 in-guest Granite response exists, so M20 remains
 `PARTIAL`; build evidence is in
 `out/evidence/m20-backend-reg-noexceptions-20261001/` and reader acceptance is
-in `out/evidence/m30-release-1790806831243045000/`.
+in `out/evidence/m30-release-1790806831243045000/`. A separate 2026-10-01
+guest reader fixture now uses the actual Model Store read-only capability to
+read and byte-check a 5,000-byte multi-cluster FAT32 test artifact in bounded
+chunks, including a cluster-boundary reread and EOF. It is not a valid model;
+the production/reference image still has an empty Model Store. The release
+image SHA-256 is unchanged, and the reference, persistence copy, and dedicated
+fixture image passed `qemu-img check`. Logs, images, OVMF variables, README,
+and hashes are under `out/evidence/m30-release-1790809848636521000/`. This does
+not change M20 from `PARTIAL` or claim inference. Both baseline and fixture-
+enabled M20 init variants compile for the Nagi target.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
@@ -103,6 +114,9 @@ The 2026-09-30 Completion Sweep rerun of `./nagi m22` also passed all three
 boots; its invocation log is
 `out/evidence/completion-sweep-regression-20260930/m22-qemu.log`. The prior
 M19/M22 artifacts and serial logs were copied and hash-verified before rerun.
+After the M20 reader-fixture changes, `./nagi m22` passed all three boots again
+on 2026-10-01; the serial logs are
+`out/logs/m22-history-boot-1.log` through `out/logs/m22-history-boot-3.log`.
 Fourteen History/Activity Ledger tests and 24 AI tests pass, along with
 warnings-denied Clippy, changed-package formatting, CLI tests, and the Nagi
 target build. `NH15` remains the M15 compatibility serializer. M22 remains

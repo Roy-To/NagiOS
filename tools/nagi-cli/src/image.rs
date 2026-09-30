@@ -432,6 +432,31 @@ pub fn write_reference_disk_qcow2(
     )
 }
 
+/// Build a disposable GPT image containing the deterministic M20 FAT32 reader
+/// fixture in Model Store. Release images continue to use the empty store.
+pub fn write_m20_model_store_fixture_reference_disk_qcow2(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+    recovery_init: Option<&[u8]>,
+) -> Result<ImageLayout, String> {
+    let filename = m20_model_store_fixture_filename()?;
+    let files = [super::fat32::VolumeFile {
+        path: &filename,
+        contents: &super::m20_model_store_fixture::FIXTURE_BYTES,
+    }];
+    write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
+        path,
+        bootloader,
+        kernel,
+        kernel,
+        init,
+        recovery_init,
+        &files,
+    )
+}
+
 /// Build a GPT acceptance image with a deliberately malformed System B
 /// kernel while keeping System A and Recovery bootable.
 pub fn write_m27_gpt_broken_system_b_qcow2(
@@ -458,6 +483,26 @@ fn write_reference_disk_qcow2_with_system_b_kernel(
     system_b_kernel: &[u8],
     init: &[u8],
     recovery_init: Option<&[u8]>,
+) -> Result<ImageLayout, String> {
+    write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
+        path,
+        bootloader,
+        kernel,
+        system_b_kernel,
+        init,
+        recovery_init,
+        &[],
+    )
+}
+
+fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    system_b_kernel: &[u8],
+    init: &[u8],
+    recovery_init: Option<&[u8]>,
+    model_store_files: &[super::fat32::VolumeFile<'_>],
 ) -> Result<ImageLayout, String> {
     if bootloader.is_empty() || kernel.is_empty() || system_b_kernel.is_empty() || init.is_empty() {
         return Err("GPT image requires non-empty loader, system kernels, and init ELF".to_owned());
@@ -587,7 +632,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel(
         model_store.first_lba,
         partition_sector_count(model_store)?,
         "NAGI MODELS",
-        &[],
+        model_store_files,
     )?;
     raw.sync_all()
         .map_err(|error| format!("cannot flush raw release image: {error}"))?;
@@ -646,6 +691,18 @@ fn write_reference_disk_qcow2_with_system_b_kernel(
             .map_err(|_| "System A init cluster exceeds the diagnostic field".to_owned())?,
         init_clusters: init.cluster_count as usize,
     })
+}
+
+fn m20_model_store_fixture_filename() -> Result<String, String> {
+    let artifact_id =
+        nagi_model_manager::ArtifactId::new(super::m20_model_store_fixture::ARTIFACT_ID)
+            .map_err(|error| format!("invalid M20 fixture artifact ID: {error}"))?;
+    let short_name = nagi_model_manager::model_store_short_name(&artifact_id);
+    let basename = std::str::from_utf8(&short_name[..8])
+        .map_err(|error| format!("invalid M20 fixture short name: {error}"))?;
+    let extension = std::str::from_utf8(&short_name[8..])
+        .map_err(|error| format!("invalid M20 fixture extension: {error}"))?;
+    Ok(format!("{basename}.{extension}"))
 }
 
 pub fn validate_reference_disk_qcow2(path: &Path) -> Result<(), String> {
@@ -2789,13 +2846,36 @@ mod tests {
         build_m17_fat12_image, capture_qmp_timeout_diagnostics, cluster_offset,
         ensure_new_screenshot_path, ensure_persistent_disk, guest_reached_acceptance,
         guest_reached_any_acceptance, guest_reached_failure, image_drive_argument, initialize_fats,
-        json_string_field, json_u64_field, prepare_ovmf_vars, qemu_audio_driver_for_host,
-        qmp_json_quote, read_qmp_line, reference_partitions, write_chain, AbSlotImages,
-        Fat12Geometry, SlotPayload, DATA_OFFSET, FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE,
-        LEGACY_PERSISTENT_DISK_SIZE, M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE,
-        QMP_MAX_LINE_BYTES, REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE,
-        USER_DATA_START_LBA,
+        json_string_field, json_u64_field, m20_model_store_fixture_filename, prepare_ovmf_vars,
+        qemu_audio_driver_for_host, qmp_json_quote, read_qmp_line, reference_partitions,
+        write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET, FAT_COUNT,
+        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE, M17_IMAGE_SIZE,
+        M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, QMP_MAX_LINE_BYTES, REFERENCE_DISK_SECTORS,
+        ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
     };
+
+    #[test]
+    fn m20_fixture_filename_uses_the_model_manager_artifact_id_contract() {
+        let artifact_id =
+            nagi_model_manager::ArtifactId::new(super::super::m20_model_store_fixture::ARTIFACT_ID)
+                .expect("valid M20 fixture artifact ID");
+        let short_name = nagi_model_manager::model_store_short_name(&artifact_id);
+        let expected = format!(
+            "{}.{}",
+            std::str::from_utf8(&short_name[..8]).expect("ASCII basename"),
+            std::str::from_utf8(&short_name[8..]).expect("ASCII extension")
+        );
+
+        assert_eq!(m20_model_store_fixture_filename().unwrap(), expected);
+        assert_eq!(
+            super::super::m20_model_store_fixture::FIXTURE_BYTES.len(),
+            5_000
+        );
+        assert_eq!(
+            &super::super::m20_model_store_fixture::FIXTURE_BYTES[..4],
+            b"GGUF"
+        );
+    }
 
     #[test]
     fn qmp_json_quote_escapes_control_and_path_characters() {

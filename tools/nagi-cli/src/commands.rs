@@ -17,9 +17,10 @@ use crate::image::{
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
     run_qemu_until_any_acceptance_marker, run_qemu_with_read_only_boot_disk,
     validate_reference_disk_qcow2, write_fat12_image, write_m17_fat12_image,
-    write_m27_broken_slot_image, write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image,
-    write_m27_recovery_image, write_reference_disk_qcow2, ImageLayout, QemuConfig,
-    GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
+    write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
+    write_reference_disk_qcow2, ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER,
+    NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -1052,7 +1053,146 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             );
         }
     }
-    for checked_image in [&image_path, &qemu_test_image] {
+
+    let evidence_vars_copy = evidence.join("reference-disk-OVMF_VARS.fd");
+    if let Err(error) = fs::copy(&vars_copy, &evidence_vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: cannot preserve final OVMF variables at {}: {error}",
+                evidence_vars_copy.display()
+            ),
+        );
+    }
+
+    let recovery_init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m27-recovery",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let recovery_init_build = run_cargo(root, "M20 fixture Recovery init", &recovery_init_args);
+    if recovery_init_build.exit_code != EXIT_SUCCESS {
+        return recovery_init_build;
+    }
+    let recovery_init_path = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release")
+        .join("nagi-init");
+    let recovery_init = match fs::read(&recovery_init_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", recovery_init_path.display()),
+            );
+        }
+    };
+    let fixture_image_name = format!("nagi-0.1-m20-reader-{run_id}.qcow2");
+    let fixture_init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m10-desktop,m19-search,m20-fixture-acceptance,m22-history",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let fixture_image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &fixture_init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &fixture_image_name,
+            cargo_env: &[],
+            recovery_init: Some(&recovery_init),
+            image_writer: write_m20_model_store_fixture_reference_disk_qcow2,
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-boot-control"],
+            },
+        },
+    );
+    if fixture_image_result.exit_code != EXIT_SUCCESS {
+        return fixture_image_result;
+    }
+    let fixture_image_artifact = artifacts.join(&fixture_image_name);
+    let fixture_image = evidence.join("m20-model-store-reader-fixture.qcow2");
+    if let Err(error) = fs::copy(&fixture_image_artifact, &fixture_image) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: cannot preserve M20 reader fixture {}: {error}",
+                fixture_image.display()
+            ),
+        );
+    }
+    let fixture_vars_copy = evidence.join("m20-model-store-reader-fixture-vars.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &fixture_vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m30: initialize M20 fixture OVMF variables: {error}"),
+        );
+    }
+    let fixture_serial_log = evidence.join("m20-model-store-reader-fixture.log");
+    let fixture_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &fixture_image,
+        persistent_disk: &fixture_image,
+        vars_copy: &fixture_vars_copy,
+        serial_log: &fixture_serial_log,
+        acceptance_marker: "Nagi M20 FAT32 fixture read PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let fixture_status = match run_qemu_until_any_acceptance_marker(
+        &fixture_config,
+        &["Nagi M20 FAT32 fixture read PASS"],
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: M20 Model Store fixture QEMU boot: {error}"),
+            );
+        }
+    };
+    let fixture_serial = match fs::read_to_string(&fixture_serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", fixture_serial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M20 Model Store capability PASS",
+        "Nagi M20 FAT32 fixture read PASS",
+    ] {
+        if !fixture_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: M20 fixture guest did not print `{marker}` (QEMU exit {fixture_status}; log {})",
+                    fixture_serial_log.display()
+                ),
+            );
+        }
+    }
+    for checked_image in [&image_path, &qemu_test_image, &fixture_image] {
         let image_check = ProcessCommand::new("qemu-img")
             .args(["check", "-f", "qcow2"])
             .arg(checked_image)
@@ -1080,10 +1220,12 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M30 64 GiB GPT qcow2 passed System A and User Data persistence acceptance on a disposable copy (image {}; QEMU copy {}; serial log {})",
+            "PASS M30 64 GiB GPT qcow2 passed System A and User Data persistence acceptance; separate M20 guest FAT32 fixture read passed (image {}; QEMU copy {}; serial log {}; M20 fixture {}; M20 log {})",
             image_path.display(),
             qemu_test_image.display(),
-            serial_log.display()
+            serial_log.display(),
+            fixture_image.display(),
+            fixture_serial_log.display()
         )],
     }
 }

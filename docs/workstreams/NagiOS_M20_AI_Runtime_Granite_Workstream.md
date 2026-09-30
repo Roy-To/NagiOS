@@ -284,6 +284,34 @@ the 2.24 GB Granite artifact is absent, no installer/catalog service or
 complete llama backend exists, and no real in-guest inference has been
 accepted.
 
+## Dedicated guest FAT32 reader fixture — 2026-10-01
+
+Added a test-only `m20-fixture-acceptance` init feature and shared deterministic
+5,000-byte artifact fixture with ID `nagi.m20.reader-fixture`. The disposable
+fixture image writer derives the FAT32 short name using
+`nagi-model-manager::model_store_short_name`; the normal reference/release
+image writer still leaves Model Store empty. The payload begins with the
+`GGUF` magic followed by deterministic bytes, but it is not a valid model.
+
+`./nagi m30` booted the separate 64 GiB fixture qcow2, read the whole artifact
+through the guest's read-only Model Store capability in 512-byte chunks,
+verified every byte, reread a range across the 4 KiB cluster boundary, and
+checked EOF behavior. Serial output contains both the Model Store capability
+and fixture-read PASS markers. `qemu-img check` passed on the untouched source
+release image, its persistence-test copy, and the fixture image. The source
+image SHA-256 remains
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`.
+README, serial logs, qcow2 files, OVMF variables, and `SHA256SUMS` are retained
+under `out/evidence/m30-release-1790809848636521000/`.
+
+This acceptance verifies guest FAT32 artifact discovery and bounded reads
+only. It does not exercise GGUF parsing, digest/manifest loading, the llama.cpp
+backend, or inference. Both the ordinary Model Store acceptance init and the
+dedicated fixture init compiled for the Nagi target. The 146 CLI unit tests,
+`./nagi fmt`, `./nagi test`, `./nagi lint`, `./nagi build`, M19/M22 QEMU
+regressions, and the three-image M30 QEMU/image checks passed. M20 remains
+`PARTIAL`.
+
 ## FAT32-to-runtime digest gate — 2026-10-01
 
 `ModelRuntime::validate` previously treated a reader with no cached integrity
