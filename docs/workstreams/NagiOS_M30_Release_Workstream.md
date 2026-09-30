@@ -57,9 +57,9 @@ complete and this evidence does not assert release readiness.
   review both serial logs and run `qemu-img check`.
 - [ ] Exercise System B, Recovery, and authenticated update from the GPT image
   using the persistent M27 boot-control policy.
-- [ ] Re-run release preflight, assembly, and verification from a clean
-  committed revision, then boot the assembled image read-only and verify that
-  `SHA256SUMS` still passes.
+- [x] Run release preflight, assembly, and verification from a clean committed
+  revision. Boot a byte-identical disposable qcow2 copy twice, then verify the
+  untouched assembled package checksums and qcow2 structure.
 
 ## Current limits and next steps
 
@@ -79,11 +79,14 @@ acceptance have not yet been exercised from this GPT image.
 
 The first assembled bundle passed `verify` before QEMU testing. Two writable
 QEMU boots reached M7 acceptance but changed the qcow2 bytes in User Data, so
-the post-boot `verify` correctly rejected its stale checksum. The test-mutated
+the post-boot `verify` correctly rejected the stale checksum. The test-mutated
 bundle remains preserved at
-`out/evidence/m30-release-bundle-writable-boot-mutated-93b1d25/`. Reassemble
-from the committed reference image and use read-only boot acceptance for the
-final package integrity check.
+`out/evidence/m30-release-bundle-writable-boot-mutated-93b1d25/`. A clean
+assembly, two boots of a byte-identical disposable copy, post-boot `verify`,
+and `qemu-img check` then passed. Direct read-only QEMU boot reaches GPT
+System A but M7 deliberately excludes a read-only block device from writable
+storage discovery; failure evidence is at
+`out/evidence/m30-release-bundle-readonly-bb61283/`.
 
 The §90 Definition of Done audit remains open across M18–M29: M18 lacks several
 browser providers; M19–M26 lack their production guest integrations or real
@@ -161,8 +164,9 @@ boots verified GPT System A, VFS mount, persistent read, and M7 acceptance;
 logs are in `out/evidence/m30-release-bundle-boot-93b1d25/`. Those writable
 boots changed the package image, and post-boot `verify` reported a SHA-256
 mismatch. The mutated package is preserved at
-`out/evidence/m30-release-bundle-writable-boot-mutated-93b1d25/`; a fresh
-assembly and read-only package boot are still required. The generated release
-manifest deliberately retains `m30_acceptance: NOT_EVALUATED`; QEMU evidence
-is a separate test record. GPT System B/Recovery/update acceptance and
-license/notice review remain open.
+`out/evidence/m30-release-bundle-writable-boot-mutated-93b1d25/`. A later
+clean assembly and two boots of its byte-identical disposable copy passed;
+post-boot `verify` and `qemu-img check` passed on the untouched assembled
+package. The generated release manifest deliberately retains
+`m30_acceptance: NOT_EVALUATED`; QEMU evidence is a separate test record. GPT
+System B/Recovery/update acceptance and license/notice review remain open.

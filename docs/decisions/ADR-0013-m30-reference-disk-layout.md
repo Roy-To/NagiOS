@@ -71,8 +71,11 @@ is replaced, release preflight must reject model artifacts at or above 4 GiB.
   package management, authenticated updates, Model Store installation, and
   System B/Recovery acceptance from this GPT image remain separate work.
 - The release tool's clean-tree preflight, assembly, and integrity checks pass.
-  Writable QEMU acceptance modified the assembled image's User Data and
-  invalidated its checksum, so final reassembly and read-only package
-  verification remain. M30 remains `PARTIAL` until that check, GPT System
-  B/Recovery and authenticated update acceptance, the remaining M18–M29 gates,
-  and license/notice review pass.
+  Two QEMU boots of a byte-identical disposable copy passed GPT System A and
+  M7 persistence acceptance; the untouched assembled package retained its
+  SHA-256 and passed `release.py verify` and `qemu-img check` afterward. Direct
+  read-only boot is not supported by the current M7 initialization path,
+  because the kernel excludes read-only devices when selecting writable
+  storage. M30 remains `PARTIAL` until GPT System B/Recovery and authenticated
+  update acceptance, the remaining M18–M29 gates, and license/notice review
+  pass.

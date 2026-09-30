@@ -50,6 +50,8 @@ recorded tool versions produces byte-identical manifests and sums.
 `verify` only checks artifact presence, provenance fields, and hashes. A real
 QEMU boot and complete M30 demo acceptance must be run and reviewed separately
 before anyone can claim a release is ready. A writable guest boot changes
-User Data and invalidates the assembled image checksum; use a read-only boot
-for final package verification or boot a disposable copy and assemble again
-after any writable acceptance.
+User Data and invalidates that image's checksum. For package acceptance, boot
+a byte-identical disposable copy, then run `verify` on the untouched assembled
+directory. A direct read-only boot currently fails M7 block discovery because
+the kernel intentionally excludes read-only devices when selecting writable
+storage.
