@@ -214,7 +214,12 @@ also passed the same reference GPT layout: malformed B failed three trials,
 Recovery preserved the journal and passed its read-only VFS check, A rollback
 read the GPT User Data volume, and a healthy B trial was promoted after
 Recovery. Evidence for the full run is in
-`out/evidence/m27-ab-rollback-1790750679606495000/`. M27 remains `PARTIAL`:
+`out/evidence/m27-ab-rollback-1790750679606495000/`. A 2026-10-01 QEMU rerun
+adds a read-only Recovery `history` command that lists the NH16 sequence,
+transaction, operation, state, and Object ID for at most 16 records. The
+acceptance displayed the three real `file.move` records as `COMMITTED` before
+Undo; the full acceptance evidence is in
+`out/evidence/m27-ab-rollback-1790810805162353000/`. M27 remains `PARTIAL`:
 the current readiness point is before account login, slot manifests are not
 authenticated, and no authenticated GPT updater exists. See
 `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`.

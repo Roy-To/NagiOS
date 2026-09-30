@@ -6,7 +6,8 @@ use nagi_history::guest::{
     GUEST_ARCHIVE_FILE_BYTES, MAX_GUEST_ARCHIVE_BYTES,
 };
 use nagi_history::{
-    HistoryError, HistoryRecord, HistoryService, TransactionState, UndoAction, UndoOperation,
+    HistoryError, HistoryRecord, HistoryService, Operation, TransactionState, UndoAction,
+    UndoOperation, MAX_RECORDS,
 };
 
 type GuestVolume = Vfs<SyscallBlockDevice>;
@@ -148,7 +149,7 @@ fn dispatch(command: &[u8], volume: &mut Option<GuestVolume>, block_capability: 
     match command {
         b"help" | b"" => {
             libnagi::console_write(
-                b"Commands: check, files, help, log, slots, undo\r\n\
+                b"Commands: check, files, help, history, log, slots, undo\r\n\
                   slots are selected in the UEFI boot menu; undo applies the latest committed NH16 transaction\r\n",
             );
             libnagi::console_write(b"Nagi M27 Recovery command help PASS\r\n");
@@ -185,6 +186,14 @@ fn dispatch(command: &[u8], volume: &mut Option<GuestVolume>, block_capability: 
             libnagi::console_write(&log[..length]);
             libnagi::console_write(b"\r\nNagi M27 Recovery current-boot log PASS\r\n");
         }
+        b"history" => match volume.as_mut() {
+            Some(volume) => show_history(volume),
+            None => {
+                libnagi::console_write(
+                    b"Nagi M27 Recovery history unavailable (volume not mounted)\r\n",
+                );
+            }
+        },
         b"slots" => {
             libnagi::console_write(
                 b"Select System A, System B, or Recovery from the UEFI boot menu.\r\n",
@@ -226,6 +235,94 @@ enum UndoResult {
     NoArchive,
     NoCommittedTransaction,
     Failed,
+}
+
+fn show_history(volume: &mut GuestVolume) {
+    let mut backend = HistoryArchiveBackend::new(RecoveryFiles { volume });
+    let mut archive = [0; MAX_GUEST_ARCHIVE_BYTES];
+    let length = match backend.load_archive(&mut archive) {
+        Ok(Some(length)) => length,
+        Ok(None) => {
+            libnagi::console_write(b"Nagi M27 Recovery history unavailable (no NH16 archive)\r\n");
+            return;
+        }
+        Err(_) => {
+            libnagi::console_write(b"Nagi M27 Recovery history FAIL\r\n");
+            return;
+        }
+    };
+    let history = match HistoryService::restore_recoverable(&archive[..length]) {
+        Ok(history) => history,
+        Err(_) => {
+            libnagi::console_write(b"Nagi M27 Recovery history FAIL\r\n");
+            return;
+        }
+    };
+    let start = history.len().saturating_sub(MAX_RECORDS);
+    for index in start..history.len() {
+        let Some(record) = history.record_at(index) else {
+            continue;
+        };
+        libnagi::console_write(b"NH16 sequence=");
+        write_decimal_u64(record.sequence);
+        libnagi::console_write(b" transaction=");
+        write_decimal_u64(record.transaction_id.0);
+        libnagi::console_write(b" operation=");
+        libnagi::console_write(operation_name(record.operation));
+        libnagi::console_write(b" state=");
+        libnagi::console_write(transaction_state_name(record.transaction_state));
+        libnagi::console_write(b" object=");
+        write_hex_u64(record.object_id.0);
+        libnagi::console_write(b"\r\n");
+    }
+    libnagi::console_write(b"Nagi M27 Recovery history PASS entries=");
+    write_decimal(history.len() - start);
+    libnagi::console_write(b"\r\n");
+}
+
+fn operation_name(operation: Operation) -> &'static [u8] {
+    match operation {
+        Operation::Create => b"CREATE",
+        Operation::Edit => b"EDIT",
+        Operation::Move => b"MOVE",
+        Operation::Delete => b"DELETE",
+        Operation::Restore => b"RESTORE",
+    }
+}
+
+fn transaction_state_name(state: TransactionState) -> &'static [u8] {
+    match state {
+        TransactionState::Prepared => b"PREPARED",
+        TransactionState::Committed => b"COMMITTED",
+        TransactionState::UndoPending => b"UNDO_PENDING",
+        TransactionState::Undone => b"UNDONE",
+    }
+}
+
+fn write_decimal_u64(value: u64) {
+    let mut digits = [0; 20];
+    let mut cursor = digits.len();
+    let mut remaining = value;
+    loop {
+        cursor -= 1;
+        digits[cursor] = b'0' + (remaining % 10) as u8;
+        remaining /= 10;
+        if remaining == 0 {
+            break;
+        }
+    }
+    libnagi::console_write(&digits[cursor..]);
+}
+
+fn write_hex_u64(value: u64) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut digits = [0; 16];
+    for (index, digit) in digits.iter_mut().enumerate() {
+        let shift = (16 - index - 1) * 4;
+        *digit = HEX[((value >> shift) & 0x0f) as usize];
+    }
+    libnagi::console_write(b"0x");
+    libnagi::console_write(&digits);
 }
 
 fn undo_latest(volume: &mut GuestVolume) -> UndoResult {

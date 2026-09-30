@@ -4592,7 +4592,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"r"}}}]}}"#,
         r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"r"}}}]}}"#,
     ];
-    const RECOVERY_COMMANDS: &[u8] = b"check\nlog\nfiles\nslots\nundo\nhelp\n";
+    const RECOVERY_COMMANDS: &[u8] = b"check\nlog\nfiles\nslots\nhistory\nundo\nhelp\n";
     let recovery_status = match run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input(
         &recovery_config,
         "Nagi M27 Recovery boot menu READY",
@@ -4620,6 +4620,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "Nagi M27 Recovery VFS check PASS files=",
         "Nagi M27 Recovery current-boot log PASS",
         "Nagi M27 Recovery files PASS",
+        "Nagi M27 Recovery history PASS entries=",
         "Nagi M27 Recovery NH16 undo PASS",
         "Nagi M27 Recovery command help PASS",
     ] {

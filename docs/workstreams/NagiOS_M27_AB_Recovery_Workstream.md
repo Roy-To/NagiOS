@@ -398,3 +398,16 @@ Recovery journal preservation, persistent User Data, and Recovery Undo of the
 M22 grouped transaction. The original boot-4 fault remains unexplained; M27
 remains `PARTIAL` for account-authenticated readiness, authenticated slot
 manifests/update installation, and remaining Recovery repair/log features.
+
+## Read-only NH16 history view — 2026-10-01
+
+Recovery now accepts `history`. It loads the checksummed NH16 archive through
+the existing read-only path and prints at most the latest 16 entries with
+sequence, transaction ID, operation, transaction state, and Object ID. It does
+not update the archive or the A/B boot journal. The M27 QEMU acceptance first
+creates three actual guest `file.move` records, requires the new history PASS
+marker before issuing `undo`, then verifies the undo from a subsequent guest
+restart. Output showed all three rows as `MOVE / COMMITTED`; the complete run
+is preserved at `out/evidence/m27-ab-rollback-1790810805162353000/`. This adds
+Recovery diagnostics, not filesystem repair or authenticated slot/update
+authority; M27 remains `PARTIAL`.
