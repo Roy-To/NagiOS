@@ -1,11 +1,11 @@
 use std::fs;
 use std::path::Path;
 
-use nagi_cli::commands::{Command, EXIT_SUCCESS, EXIT_USAGE, parse_command};
+use nagi_cli::commands::{parse_command, Command, EXIT_SUCCESS, EXIT_USAGE};
 use nagi_cli::config::load_toolchain_requirements;
 use nagi_cli::doctor::{
-    CommandEvidence, DoctorPolicy, HostProbe, OvmfEvidence, SystemProbe, ToolchainRequirements,
-    run_doctor, run_doctor_with_requirements,
+    run_doctor, run_doctor_with_requirements, CommandEvidence, DoctorPolicy, HostProbe,
+    OvmfEvidence, SystemProbe, ToolchainRequirements,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,10 +140,9 @@ fn rejects_unknown_commands_with_usage_exit_code() {
 fn host_workspace_commands_exclude_kernel() {
     for command in ["build", "test", "clippy"] {
         let args = nagi_cli::commands::host_workspace_args(command);
-        assert!(
-            args.windows(2)
-                .any(|pair| pair == ["--exclude", "nagi-kernel"])
-        );
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["--exclude", "nagi-kernel"]));
         assert!(args.contains(&"--locked"));
     }
 }
@@ -238,12 +237,10 @@ fn configured_minimums_are_enforced_by_the_doctor() {
     let report = run_doctor_with_requirements(&probe, DoctorPolicy::Strict, &requirements);
 
     assert_eq!(report.exit_code, nagi_cli::commands::EXIT_DOCTOR_FAILURE);
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|check| check.name == "LLVM/Clang" && check.is_fail())
-    );
+    assert!(report
+        .checks
+        .iter()
+        .any(|check| check.name == "LLVM/Clang" && check.is_fail()));
 }
 
 #[test]
@@ -259,12 +256,10 @@ fn project_manifest_supplies_the_pinned_host_requirements() {
     assert_eq!(requirements.lld_min_version, (17, 0, 0));
     assert_eq!(requirements.qemu_min_version, (8, 0, 0));
     assert_eq!(requirements.python_min_version, (3, 10, 0));
-    assert!(
-        requirements
-            .ovmf_pairs
-            .iter()
-            .any(|(code, vars)| { code == "edk2-x86_64-code.fd" && vars == "edk2-i386-vars.fd" })
-    );
+    assert!(requirements
+        .ovmf_pairs
+        .iter()
+        .any(|(code, vars)| { code == "edk2-x86_64-code.fd" && vars == "edk2-i386-vars.fd" }));
 }
 
 #[test]
@@ -296,12 +291,10 @@ fn wrong_program_output_is_not_a_pass() {
     let report = run_doctor(&probe, DoctorPolicy::Strict);
 
     assert_eq!(report.exit_code, nagi_cli::commands::EXIT_DOCTOR_FAILURE);
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|check| check.name == "LLVM/Clang" && check.is_fail())
-    );
+    assert!(report
+        .checks
+        .iter()
+        .any(|check| check.name == "LLVM/Clang" && check.is_fail()));
 }
 
 #[test]
@@ -315,12 +308,10 @@ fn nonzero_tool_exit_is_not_a_pass() {
     let report = run_doctor(&probe, DoctorPolicy::Strict);
 
     assert_eq!(report.exit_code, nagi_cli::commands::EXIT_DOCTOR_FAILURE);
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|check| check.name == "QEMU" && check.is_fail())
-    );
+    assert!(report
+        .checks
+        .iter()
+        .any(|check| check.name == "QEMU" && check.is_fail()));
 }
 
 #[test]
@@ -346,12 +337,10 @@ fn an_incomplete_ovmf_pair_is_not_a_pass() {
     let report = run_doctor(&probe, DoctorPolicy::Strict);
 
     assert_eq!(report.exit_code, nagi_cli::commands::EXIT_DOCTOR_FAILURE);
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|check| check.name == "OVMF CODE/VARS" && check.is_fail())
-    );
+    assert!(report
+        .checks
+        .iter()
+        .any(|check| check.name == "OVMF CODE/VARS" && check.is_fail()));
 }
 
 #[test]
@@ -364,12 +353,10 @@ fn mismatched_ovmf_families_are_not_a_pass() {
     let report = run_doctor(&probe, DoctorPolicy::Strict);
 
     assert_eq!(report.exit_code, nagi_cli::commands::EXIT_DOCTOR_FAILURE);
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|check| check.name == "OVMF CODE/VARS" && check.is_fail())
-    );
+    assert!(report
+        .checks
+        .iter()
+        .any(|check| check.name == "OVMF CODE/VARS" && check.is_fail()));
 }
 
 #[test]
@@ -384,24 +371,20 @@ fn unreadable_or_non_executable_tool_is_not_a_pass() {
     let _ = fs::remove_dir_all(&directory);
 
     assert_eq!(report.exit_code, nagi_cli::commands::EXIT_DOCTOR_FAILURE);
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|check| check.name == "QEMU" && check.is_fail())
-    );
+    assert!(report
+        .checks
+        .iter()
+        .any(|check| check.name == "QEMU" && check.is_fail()));
 }
 
 #[test]
 fn repository_paths_are_not_used_by_probe_contract() {
     let report = run_doctor(&StaticProbe::default(), DoctorPolicy::AllowMissing);
 
-    assert!(
-        report
-            .checks
-            .iter()
-            .all(|check| !Path::new(check.detail.as_str()).is_absolute())
-    );
+    assert!(report
+        .checks
+        .iter()
+        .all(|check| !Path::new(check.detail.as_str()).is_absolute()));
 }
 
 #[test]

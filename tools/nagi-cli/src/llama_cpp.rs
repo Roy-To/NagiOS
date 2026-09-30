@@ -183,16 +183,18 @@ fn ensure_patched_checkout(
     }
 
     let result = (|| {
-        let source = source.to_str().ok_or_else(|| {
+        let source_path = external_command_path(source);
+        let source = source_path.to_str().ok_or_else(|| {
             format!(
                 "llama.cpp source path is not valid UTF-8: {}",
-                source.display()
+                source_path.display()
             )
         })?;
-        let temporary_path = temporary.to_str().ok_or_else(|| {
+        let temporary_path = external_command_path(&temporary);
+        let temporary_path = temporary_path.to_str().ok_or_else(|| {
             format!(
                 "llama.cpp patch path is not valid UTF-8: {}",
-                temporary.display()
+                temporary_path.display()
             )
         })?;
         git_output(
@@ -470,7 +472,7 @@ fn add_git_exclude(checkout: &Path, entry: &str) -> Result<(), String> {
             return Err(format!(
                 "cannot read Git exclude {}: {error}",
                 exclude.display()
-            ))
+            ));
         }
     };
     let line = format!("/{entry}");
@@ -649,7 +651,7 @@ mod tests {
 
     #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
-        let root = temporary_root("patch-apply");
+        let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
         fs::create_dir_all(&source).expect("source directory");
         git(&source, &["init", "--quiet"]);

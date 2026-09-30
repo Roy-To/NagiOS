@@ -504,7 +504,7 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 mod tests {
     use std::io::{Read, Seek, SeekFrom};
 
-    use super::{SECTOR_SIZE, SECTORS_PER_CLUSTER, VolumeFile, format_partition, geometry};
+    use super::{format_partition, geometry, VolumeFile, SECTORS_PER_CLUSTER, SECTOR_SIZE};
 
     const ESP_SECTORS: u64 = 1_048_576;
     const ESP_START_LBA: u64 = 2048;

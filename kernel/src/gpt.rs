@@ -295,7 +295,7 @@ mod tests {
     use std::vec;
     use std::vec::Vec;
 
-    use super::{ENTRY_ARRAY_SECTORS, GptError, SECTOR_SIZE, USER_DATA_TYPE_GUID, find_user_data};
+    use super::{find_user_data, GptError, ENTRY_ARRAY_SECTORS, SECTOR_SIZE, USER_DATA_TYPE_GUID};
 
     const DISK_SECTORS: u64 = 128;
     const DATA_START: u64 = 40;

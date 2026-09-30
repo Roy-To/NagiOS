@@ -1,7 +1,7 @@
 use core::arch::asm;
 use core::mem::size_of;
 use core::ptr;
-use core::sync::atomic::{AtomicBool, Ordering, fence};
+use core::sync::atomic::{fence, AtomicBool, Ordering};
 
 const PCI_CONFIG_ADDRESS: u16 = 0x0cf8;
 const PCI_CONFIG_DATA: u16 = 0x0cfc;
@@ -530,7 +530,11 @@ const fn make_capability(bus: u8, device: u8, function: u8, start_lba: u64, capa
         ^ bdf.rotate_left(17)
         ^ start_lba.rotate_left(31)
         ^ capacity.rotate_right(11);
-    if capability == 0 { 1 } else { capability }
+    if capability == 0 {
+        1
+    } else {
+        capability
+    }
 }
 
 fn validate_sector(sector: u64, capacity: u64) -> Result<(), BlockError> {
@@ -623,10 +627,10 @@ unsafe fn io_write32(port: u16, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        BLOCK_IN, BlockRequestHeader, DESC_F_NEXT, DESC_F_WRITE, DeviceCandidate, LegacyQueue,
-        QUEUE_SIZE, QUEUE_USED_RING_OFFSET, choose_largest_writable_block_device, descriptor_flags,
-        make_capability, pci_config_address, request_header, translate_user_sector,
-        validate_sector,
+        choose_largest_writable_block_device, descriptor_flags, make_capability,
+        pci_config_address, request_header, translate_user_sector, validate_sector,
+        BlockRequestHeader, DeviceCandidate, LegacyQueue, BLOCK_IN, DESC_F_NEXT, DESC_F_WRITE,
+        QUEUE_SIZE, QUEUE_USED_RING_OFFSET,
     };
 
     #[test]

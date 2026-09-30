@@ -441,9 +441,9 @@ mod tests {
     use std::io::Cursor;
 
     use super::{
+        crc32, efi_system_partition, read_user_data_partition, user_data_partition, write_gpt,
         GPT_ENTRY_ARRAY_SECTORS, GPT_ENTRY_COUNT, GPT_ENTRY_SIZE, GPT_FIRST_USABLE_LBA,
-        SECTOR_SIZE, crc32, efi_system_partition, read_user_data_partition, user_data_partition,
-        write_gpt,
+        SECTOR_SIZE,
     };
 
     const DISK_SECTORS: u64 = 32_768;
@@ -517,11 +517,9 @@ mod tests {
 
         let mut corrupt = Cursor::new(image.into_inner());
         corrupt.get_mut()[SECTOR_SIZE as usize + 56] ^= 1;
-        assert!(
-            read_user_data_partition(&mut corrupt, DISK_SECTORS)
-                .unwrap_err()
-                .contains("checksum")
-        );
+        assert!(read_user_data_partition(&mut corrupt, DISK_SECTORS)
+            .unwrap_err()
+            .contains("checksum"));
 
         let mut disagreeing = Cursor::new(vec![0; (DISK_SECTORS * SECTOR_SIZE) as usize]);
         write_gpt(
@@ -532,11 +530,9 @@ mod tests {
         .expect("write GPT");
         let backup_entries = ((DISK_SECTORS - GPT_ENTRY_ARRAY_SECTORS - 1) * SECTOR_SIZE) as usize;
         disagreeing.get_mut()[backup_entries + 128 + 40] ^= 1;
-        assert!(
-            read_user_data_partition(&mut disagreeing, DISK_SECTORS)
-                .unwrap_err()
-                .contains("disagree")
-        );
+        assert!(read_user_data_partition(&mut disagreeing, DISK_SECTORS)
+            .unwrap_err()
+            .contains("disagree"));
     }
 
     #[test]
@@ -546,22 +542,18 @@ mod tests {
             efi_system_partition(2048, 4095, [1; 16]),
             user_data_partition(4095, DISK_SECTORS - 34, [2; 16]),
         ];
-        assert!(
-            write_gpt(&mut image, DISK_SECTORS, &overlapping)
-                .unwrap_err()
-                .contains("overlap")
-        );
+        assert!(write_gpt(&mut image, DISK_SECTORS, &overlapping)
+            .unwrap_err()
+            .contains("overlap"));
 
         let out_of_bounds = [user_data_partition(
             GPT_FIRST_USABLE_LBA,
             DISK_SECTORS - 1,
             [3; 16],
         )];
-        assert!(
-            write_gpt(&mut image, DISK_SECTORS, &out_of_bounds)
-                .unwrap_err()
-                .contains("invalid bounds")
-        );
+        assert!(write_gpt(&mut image, DISK_SECTORS, &out_of_bounds)
+            .unwrap_err()
+            .contains("invalid bounds"));
     }
 
     #[test]
@@ -570,9 +562,7 @@ mod tests {
         assert_eq!(partition.type_guid, super::NAGI_USER_DATA_TYPE_GUID);
         assert_eq!(
             partition.type_guid,
-            [
-                1, 0x47, 0x41, 0x4e, 1, 0, 0x41, 0x4e, 0x47, 0x49, 0, 0, 0, 0, 0, 3
-            ]
+            [1, 0x47, 0x41, 0x4e, 1, 0, 0x41, 0x4e, 0x47, 0x49, 0, 0, 0, 0, 0, 3]
         );
     }
 }
