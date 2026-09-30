@@ -252,34 +252,55 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
 }
 
 pub fn host_workspace_args(command: &str) -> Vec<&'static str> {
-    match command {
-        "build" => vec![
-            "build",
-            "--workspace",
-            "--exclude",
-            "nagi-kernel",
-            "--locked",
-        ],
-        "test" => vec![
-            "test",
-            "--workspace",
-            "--exclude",
-            "nagi-kernel",
-            "--locked",
-        ],
-        "clippy" => vec![
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--exclude",
-            "nagi-kernel",
-            "--locked",
-            "--",
-            "-D",
-            "warnings",
-        ],
+    host_workspace_args_for_arch(command, std::env::consts::ARCH)
+}
+
+pub fn host_workspace_args_for_arch(command: &str, host_arch: &str) -> Vec<&'static str> {
+    let command_name = match command {
+        "build" => "build",
+        "test" => "test",
+        "clippy" => "clippy",
         _ => panic!("unsupported host workspace command: {command}"),
+    };
+    let mut args = vec![command_name];
+    if host_arch == "x86_64" {
+        args.push("--workspace");
+    } else {
+        // Nagi user-space syscall stubs currently use the x86_64 register ABI.
+        // On other hosts, check the host-compatible workspace crates while
+        // leaving those target-only crates to the Nagi target build.
+        for package in [
+            "nagi-cli",
+            "nagi-idl",
+            "nagi-bootinfo",
+            "nagi-abi",
+            "nagi-model",
+            "nagi-audio",
+            "nagi-history",
+            "nagi-package",
+            "nagi-model-manager",
+            "nagi-search",
+            "nagi-ai",
+            "nagi-servo-adapter",
+        ] {
+            args.extend(["--package", package]);
+        }
     }
+
+    if command == "clippy" {
+        args.push("--all-targets");
+    }
+
+    if host_arch == "x86_64" {
+        args.extend(["--exclude", "nagi-kernel"]);
+    }
+
+    args.push("--locked");
+    if command == "clippy" {
+        args.extend(["--", "-D", "warnings"]);
+    }
+
+    args
 }
 
 pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandResult {

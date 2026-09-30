@@ -305,3 +305,27 @@ rustup shim and tried to link the host CLI for x86_64. The M0 POSIX launcher
 was corrected to select Cargo and rustc from the rustup shim directory; its
 mocked toolchain-selection regression and full image acceptance passed. This
 is a host launcher correction, not a change to the M27 boot policy.
+
+## Completion sweep QEMU reruns — 2026-10-01
+
+The current source passed the full M27 gate as repetition 1 of the integrated
+M28 run; evidence is at
+`out/evidence/m27-ab-rollback-1790784019407773000/`. A subsequent standalone
+run timed out on the healthy-B readiness promotion boot 2. Its serial log
+contains only the 87-byte UEFI screen-clear sequence and no BDS or Nagi kernel
+marker. The same saved A/B image and post-trial OVMF variables were then booted
+from a disposable copy with the equivalent QEMU devices; that run consumed the
+readiness record, selected confirmed B, and reached M10 desktop READY. This
+targeted replay is preserved under
+`out/evidence/m27-ab-rollback-1790784716290030000/readiness-promotion-diagnostic/`.
+
+A full M27 rerun then passed the preceding A/B and M22 transaction stages but
+timed out before BDS output during the Recovery QEMU launch. Its 87-byte log
+and full run evidence remain at
+`out/evidence/m27-ab-rollback-1790785017110028000/`. These two failures are
+host-QEMU/OVMF startup timeouts observed before guest code ran; the targeted
+replay shows the healthy-B journal state remains valid. Their root cause is
+not established, so they are recorded as flaky local boot evidence rather than
+counted as additional M27 passes. Authenticated manifests, updater
+authorization, and the remaining Recovery functions continue to keep M27
+PARTIAL.

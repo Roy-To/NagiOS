@@ -139,7 +139,7 @@ fn rejects_unknown_commands_with_usage_exit_code() {
 #[test]
 fn host_workspace_commands_exclude_kernel() {
     for command in ["build", "test", "clippy"] {
-        let args = nagi_cli::commands::host_workspace_args(command);
+        let args = nagi_cli::commands::host_workspace_args_for_arch(command, "x86_64");
         assert!(args
             .windows(2)
             .any(|pair| pair == ["--exclude", "nagi-kernel"]));
@@ -149,9 +149,47 @@ fn host_workspace_commands_exclude_kernel() {
 
 #[test]
 fn host_clippy_command_keeps_warning_deny_boundary() {
-    let args = nagi_cli::commands::host_workspace_args("clippy");
+    let args = nagi_cli::commands::host_workspace_args_for_arch("clippy", "x86_64");
     assert!(args.windows(2).any(|pair| pair == ["--", "-D"]));
     assert_eq!(args.last(), Some(&"warnings"));
+}
+
+#[test]
+fn arm64_host_commands_select_only_host_compatible_packages() {
+    let host_packages = [
+        "nagi-cli",
+        "nagi-idl",
+        "nagi-bootinfo",
+        "nagi-abi",
+        "nagi-model",
+        "nagi-audio",
+        "nagi-history",
+        "nagi-package",
+        "nagi-model-manager",
+        "nagi-search",
+        "nagi-ai",
+        "nagi-servo-adapter",
+    ];
+
+    for command in ["build", "test", "clippy"] {
+        let args = nagi_cli::commands::host_workspace_args_for_arch(command, "aarch64");
+        assert_eq!(args.first(), Some(&command));
+        assert!(!args.contains(&"--workspace"));
+        assert!(args.contains(&"--locked"));
+        for package in host_packages {
+            assert!(args.windows(2).any(|pair| pair == ["--package", package]));
+        }
+        for target_only_package in ["libnagi", "nagi-net", "nagi-pal", "nagi-posix", "nagi-init"] {
+            assert!(!args
+                .windows(2)
+                .any(|pair| pair == ["--package", target_only_package]));
+        }
+    }
+
+    let clippy = nagi_cli::commands::host_workspace_args_for_arch("clippy", "aarch64");
+    assert!(clippy.contains(&"--all-targets"));
+    assert!(clippy.windows(2).any(|pair| pair == ["--", "-D"]));
+    assert_eq!(clippy.last(), Some(&"warnings"));
 }
 
 #[test]

@@ -218,3 +218,34 @@ remain in `out/evidence/m27-ab-rollback-1790783216496413000/`.
 The runner self-test, dry-run, and shell syntax check pass. M28 remains PARTIAL:
 this integrated repetition does not include its desktop, multi-tab browser,
 real Granite, audio-pressure, OOM, fairness, or leak-soak workload.
+
+## Two-repetition GPT Recovery attempt — 2026-10-01
+
+Before the run, fixed-name M19/M22 images, OVMF variables, serial logs, and
+both persistent User Data disks were preserved and hash-verified under
+`out/evidence/pre-m28-three-gate-repeat-20261001/`.
+`NAGI_M28_REPEAT_COUNT=2 ... --run` completed all three gates in repetition
+1: M19 Search/ObjectId persistence, M22 three-boot grouped Undo/Activity
+Ledger, and M27 GPT rollback/Recovery/healthy-B promotion. Repetition 2 passed
+M19, then its M22 boot 1 timed out after 90 seconds. That serial log contains
+only the 87-byte UEFI screen-clear sequence; no kernel marker was printed.
+The failed inputs and log are preserved under
+`out/evidence/m28-repetition-2-m22-timeout-20261001/`. The ESP image and
+User Data disk matched repetition 1's accepted files byte-for-byte.
+
+Two disposable QMP replays from copies of those M22 inputs reached the guest
+kernel within seconds, including with the same CoreAudio/virtio-sound QEMU
+configuration. The subsequent standalone `./nagi m22` rerun passed all three
+boots. Repetition 2 then passed the M27 healthy-B trial boot, but its promotion
+boot timed out before BDS output. A QMP replay using the saved OVMF state
+consumed the readiness record, confirmed B, and reached M10 desktop READY.
+The full `./nagi m27` retry later passed its earlier stages and timed out at
+Recovery boot before BDS output; both full-run records are documented in the
+M27 workstream. Diagnostic screenshots, serial logs, copied disks, OVMF
+variables, and SHA-256 manifests are retained with those evidence directories.
+
+The repeated evidence points to intermittent local QEMU/OVMF startup stalls
+before guest code, but does not establish their root cause. Therefore this
+two-repetition harness attempt did not pass and is not counted as one. The
+single complete integrated repetition remains valid evidence. M28 stays
+PARTIAL until the full combined workload and stability criteria are measured.

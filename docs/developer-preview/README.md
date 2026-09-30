@@ -56,9 +56,11 @@ Windows PowerShell:
 代替しません。`fetch` はロックされた外部ソースを取得・検証するため、
 ネットワーク接続と大きな空き容量が必要になる場合があります。
 
-`build`、`test`、`lint` はホスト互換 Cargo workspace を対象にし、
-`nagi-kernel` を除外します。Nagi ターゲットのカーネル・init・UEFI を
-含む既定イメージは `image` が作り、`run` はそのイメージを QEMU で起動します。
+`build`、`test`、`lint` はホスト互換 Cargo package を対象にします。
+x86-64 ホストでは `nagi-kernel` を除く workspace を確認し、ARM64 など
+非 x86-64 ホストでは x86-64 syscall stub に依存しない明示的な package
+集合を確認します。Nagi ターゲットのカーネル・init・UEFI を含む既定
+イメージは `image` が作り、`run` はそのイメージを QEMU で起動します。
 
 ```sh
 ./nagi image

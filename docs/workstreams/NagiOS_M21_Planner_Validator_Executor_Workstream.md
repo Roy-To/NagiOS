@@ -137,3 +137,27 @@ capability provider; no local model inference was involved.
 
 M21 stays `PARTIAL`; test-only policy or action mocks cannot satisfy the guest
 acceptance gate.
+
+## Completion sweep Priority A audit — 2026-10-01
+
+The existing M4 Channel implementation is a kernel-internal primitive with
+rights attenuation and sender-process stamping, and the kernel M4 acceptance
+exercises it. The current user syscall dispatcher exposes no Channel create,
+send, receive, or wait operations, so user-space services cannot obtain a
+kernel-authenticated caller identity through that Channel path.
+
+The user-space ServiceRegistry in libnagi stores handler function pointers and
+invokes them directly. Its guest echo acceptance registers and calls a handler
+inside nagi-init; it is not cross-process IPC or an application service
+boundary. The AI CallerIdentity contains caller-provided logical AppId and
+AppSessionId fields, while ContextAuthority and ActionPolicy are intentionally
+trusted-provider interfaces with no allow-all production implementation.
+
+Therefore adding a production ActionPolicy by trusting plan/request identity,
+or treating the in-process registry as authenticated IPC, would weaken the
+capability boundary. The missing prerequisite is the production process and
+launch authority boundary: distinct process identities and address spaces,
+supervisor-authorized endpoint creation/transfer, and a provider that derives
+policy from kernel-authenticated handles and the launch record. Keep the
+current guest M19/M22 fixtures as orchestration evidence only. No user Channel
+or production caller-authentication claim is made by this audit.
