@@ -6563,3 +6563,29 @@ Albert reference load, real Granite inference, audio pressure, OOM, fairness,
 or leak soak. `./nagi test`, `./nagi lint`, `./nagi fmt`, and `./nagi build`
 passed, as did the focused QMP test and M28 harness syntax, self-test, and
 dry-run.
+
+
+## Completion sweep — M30 tracked license texts and release verification (2026-10-01)
+
+Commit `16e0cd4` updates the M30 assembler to copy the eight non-empty license
+texts currently tracked under `third_party/` into the release bundle and record
+their source paths, package paths, and SHA-256 hashes. Twelve release-tool tests
+pass, including deterministic selection, tamper detection, symlink rejection,
+and compatibility with earlier schema-v1 bundles. The license inventory is
+limited to tracked checkout files; fetched/generated and transitive/native
+license texts and human redistribution review remain incomplete, so M29 and
+M30 remain `PARTIAL`.
+
+Clean-source preflight, assembly, and verification passed for
+`out/artifacts/m30-release-bundle-16e0cd4/`. The bundle has 24 files, eight
+tracked license texts, and 23 verified `SHA256SUMS` entries. Its qcow2 matches
+the source reference image at SHA-256
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`; after a
+two-boot `./nagi m30` run on a disposable copy of that image, release
+verification, every bundle checksum, and `qemu-img check` passed again on the
+untouched package. The QEMU acceptance logs and verified evidence checksums are
+in `out/evidence/m30-release-1790807691542412000/`. The run passed System A,
+M20 Model Store capability checks, User Data format/write/restart-read, and M7
+acceptance; the host lacked `virtio-sound.in`. The bundle's
+`m30_acceptance=NOT_EVALUATED` is unchanged. See
+`docs/workstreams/NagiOS_M30_Release_Workstream.md`.

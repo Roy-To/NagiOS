@@ -381,3 +381,30 @@ The FAT32 reader/runtime integration remains an orchestration test using a
 fake backend. The M30 image still contains no model artifact; this bundle does
 not claim Granite load or inference. M30 remains `PARTIAL` for authenticated
 updates, remaining M18–M29 acceptance, and binary license/notice review.
+
+
+## Tracked third-party license text bundle — 2026-10-01
+
+Commit `16e0cd4` adds deterministic inclusion of non-empty, tracked
+`LICENSE`/`LICENCE`/`COPYING`/`NOTICE` files under `third_party/`. The release
+tool records each source path, package path, and SHA-256 in the build manifest,
+copies each text byte-for-byte under `licenses/source-tree/`, and checks the
+complete file set while verifying the package. Twelve release-tool tests
+passed, including stable discovery, hash tampering, symlink rejection, and
+legacy schema-v1 verification without the additive inventory field.
+
+Clean-source preflight and assembly passed for
+`out/artifacts/m30-release-bundle-16e0cd4/`. It contains eight tracked license
+texts and 24 total files; all 23 `SHA256SUMS` entries verified. Its 64 GiB
+qcow2 has the same SHA-256 as the reference image,
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`, and
+`qemu-img check` found no errors. `./nagi m30` passed the two-boot System A and
+User Data persistence acceptance using a disposable copy of that identical
+image. Logs and the verified evidence manifest are in
+`out/evidence/m30-release-1790807691542412000/`; post-boot verification and
+all package checksums passed on the untouched bundle.
+
+This bundles only license texts already tracked in this checkout. Fetched or
+ignored source texts, Cargo/native component notices, and human redistribution
+review remain open. The release manifest retains
+`m30_acceptance=NOT_EVALUATED`; M30 remains `PARTIAL`.
