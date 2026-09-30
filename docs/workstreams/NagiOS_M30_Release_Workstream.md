@@ -15,6 +15,12 @@ complete and this evidence does not assert release readiness.
   directory layout. It includes every checked-in architecture Markdown
   document, writes sorted JSON and SHA-256 records, records files' source paths
   and hashes, and refuses to overwrite an output directory.
+- Assembly copies tracked `LICENSE`, `LICENCE`, `COPYING`, and `NOTICE` text
+  files under `third_party/` into `licenses/source-tree/`, preserving their
+  paths and recording SHA-256 digests in the build manifest. Verification
+  checks this exact inventory. Fetched or ignored sources, transitive/native
+  license texts, and binary redistribution clearance remain outside this
+  inventory and require further review.
 - Verification checks required artifacts, manifest provenance fields, exact
   checksum coverage, and file hashes. Both generated manifests keep M30 guest
   acceptance at `NOT_EVALUATED`; integrity verification cannot turn fixture
@@ -62,6 +68,9 @@ complete and this evidence does not assert release readiness.
 - [x] Kernel and qcow2 formats, source pins, and model digest are checked against
   repository provenance.
 - [x] Focused standard-library tests cover failure paths and reproducibility.
+- [x] Bundle and verify the tracked third-party license/notice text files.
+- [ ] Complete human license and binary redistribution review; tracked source
+  texts do not establish permission to redistribute the assembled image.
 - [x] Include the §80 release notes, all architecture docs, third-party
   notices, SDK documentation, `CONTRIBUTING.md`, and `ROADMAP.md`.
 - [x] Add and locally link-check the M29 SDK, contribution, roadmap, and

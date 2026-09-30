@@ -47,6 +47,15 @@ release artifact index, and `SHA256SUMS`. The sums file covers every output
 file except itself. Re-running with byte-identical inputs and the same
 recorded tool versions produces byte-identical manifests and sums.
 
+The bundle also copies tracked files under `third_party/` whose basenames are
+`LICENSE`, `LICENCE`, `COPYING`, or `NOTICE`, including common extension and
+suffix forms, to `licenses/source-tree/` with their original paths. Their
+source paths and SHA-256 hashes are recorded in `build-manifest.json` and
+checked by `verify`. This inventory contains only non-empty regular files
+tracked in the repository; it does not collect fetched or ignored source
+caches, transitive Cargo or native license texts, or prove that any binary may
+be redistributed. Human license and notice review remains required.
+
 `verify` only checks artifact presence, provenance fields, and hashes. A real
 QEMU boot and complete M30 demo acceptance must be run and reviewed separately
 before anyone can claim a release is ready. A writable guest boot changes

@@ -33,6 +33,11 @@ BUILD_MANIFEST_NAME = "build-manifest.json"
 SOURCE_REVISION_NAME = "source-revision.txt"
 SUMS_NAME = "SHA256SUMS"
 SCHEMA_VERSION = 1
+TRACKED_LICENSE_ROOT = Path("licenses/source-tree")
+LICENSE_FILENAME_PATTERN = re.compile(
+    r"^(?:LICENSE|LICENCE|COPYING|NOTICE)(?:$|[._-].*)",
+    re.IGNORECASE,
+)
 
 DOC_INPUTS = (
     ("RELEASE_NOTES.md", "RELEASE_NOTES.md"),
@@ -104,6 +109,17 @@ def _within(root: Path, candidate: Path, label: str) -> Path:
     return resolved
 
 
+def _reject_symlink_components(root: Path, relative: PurePosixPath, label: str) -> Path:
+    candidate = root
+    if candidate.is_symlink():
+        raise ReleaseError(f"{label} must not use a symlink root: {candidate}")
+    for part in relative.parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ReleaseError(f"{label} must not pass through a symlink: {candidate}")
+    return candidate
+
+
 def _rooted(root: Path, path: Path) -> Path:
     return path if path.is_absolute() else root / path
 
@@ -120,6 +136,59 @@ def required_document_inputs(root: Path) -> list[tuple[Path, str]]:
     if missing:
         raise ReleaseError("missing required release documentation: " + ", ".join(missing))
     return found
+
+
+def tracked_license_inputs(root: Path) -> list[tuple[Path, str]]:
+    root = root.resolve(strict=True)
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z", "--", "third_party"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        detail = getattr(error, "stderr", b"") or str(error)
+        if isinstance(detail, bytes):
+            detail = detail.decode("utf-8", errors="replace")
+        raise ReleaseError(f"cannot enumerate tracked third-party files: {detail.strip()}") from error
+
+    found: list[tuple[Path, str]] = []
+    for raw_path in result.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        try:
+            relative_text = raw_path.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ReleaseError("tracked third-party path is not valid UTF-8") from error
+        relative = PurePosixPath(relative_text)
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or relative.parts[0] != "third_party"
+            or ".." in relative.parts
+        ):
+            raise ReleaseError(f"unsafe tracked third-party path: {relative_text}")
+        if LICENSE_FILENAME_PATTERN.fullmatch(relative.name) is None:
+            continue
+        if (
+            "\\" in relative_text
+            or ":" in relative_text
+            or any(ord(character) < 32 or ord(character) == 127 for character in relative_text)
+        ):
+            raise ReleaseError(f"unsafe tracked third-party license path: {relative_text}")
+        source = _reject_symlink_components(root, relative, "tracked third-party license text")
+        if source.is_symlink() or not source.is_file() or source.stat().st_size == 0:
+            raise ReleaseError(
+                "tracked third-party license text is not a non-empty regular file: "
+                f"{relative_text}"
+            )
+        package_path = (TRACKED_LICENSE_ROOT / Path(*relative.parts)).as_posix()
+        found.append((source, package_path))
+
+    if not found:
+        raise ReleaseError("no tracked third-party license or notice texts were found")
+    return sorted(found, key=lambda item: item[0].relative_to(root).as_posix())
 
 
 def git_source_revision(root: Path) -> str:
@@ -395,6 +464,81 @@ def verify_checksum_index(directory: Path) -> None:
             raise ReleaseError(f"SHA-256 mismatch: {relative}")
 
 
+def verify_tracked_license_inventory(directory: Path, build_manifest: dict[str, Any]) -> None:
+    inventory = build_manifest.get("tracked_license_texts")
+    directory = directory.resolve(strict=True)
+    source_tree_relative = PurePosixPath(TRACKED_LICENSE_ROOT.as_posix())
+    source_tree = _reject_symlink_components(
+        directory, source_tree_relative, "tracked license inventory"
+    )
+    if inventory is None:
+        if source_tree.exists():
+            raise ReleaseError("release build manifest lacks its tracked license text inventory")
+        return
+    if not isinstance(inventory, list) or not inventory:
+        raise ReleaseError("release build manifest has an invalid tracked license text inventory")
+
+    expected_paths: set[str] = set()
+    for record in inventory:
+        if not isinstance(record, dict):
+            raise ReleaseError("release build manifest contains an invalid license record")
+        source_text = record.get("source_path")
+        package_text = record.get("package_path")
+        digest = record.get("sha256")
+        if not isinstance(source_text, str) or not isinstance(package_text, str):
+            raise ReleaseError("release build manifest contains an invalid license path")
+        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise ReleaseError("release build manifest contains an invalid license digest")
+
+        source = PurePosixPath(source_text)
+        package = PurePosixPath(package_text)
+        if (
+            source.is_absolute()
+            or not source.parts
+            or source.parts[0] != "third_party"
+            or ".." in source.parts
+            or "\\" in source_text
+            or ":" in source_text
+            or any(ord(character) < 32 or ord(character) == 127 for character in source_text)
+            or LICENSE_FILENAME_PATTERN.fullmatch(source.name) is None
+        ):
+            raise ReleaseError(f"unsafe or unsupported tracked license source path: {source_text}")
+        expected_package = TRACKED_LICENSE_ROOT / Path(*source.parts)
+        if (
+            package.is_absolute()
+            or ".." in package.parts
+            or "\\" in package_text
+            or ":" in package_text
+            or any(ord(character) < 32 or ord(character) == 127 for character in package_text)
+            or package != PurePosixPath(expected_package.as_posix())
+            or package_text in expected_paths
+        ):
+            raise ReleaseError(f"unsafe or duplicate tracked license package path: {package_text}")
+        expected_paths.add(package_text)
+
+        packaged_file = _reject_symlink_components(
+            directory, package, "tracked license package path"
+        )
+        if not packaged_file.is_file() or packaged_file.stat().st_size == 0:
+            raise ReleaseError(f"tracked license text is missing or unsafe: {package_text}")
+        if sha256_file(packaged_file) != digest:
+            raise ReleaseError(f"tracked license text SHA-256 mismatch: {package_text}")
+
+    actual_paths: set[str] = set()
+    if source_tree.exists():
+        for path in source_tree.rglob("*"):
+            if path.is_symlink():
+                raise ReleaseError(f"tracked license inventory contains a symlink: {path}")
+            if path.is_file():
+                actual_paths.add(path.relative_to(directory).as_posix())
+    if actual_paths != expected_paths:
+        missing = sorted(expected_paths - actual_paths)
+        extra = sorted(actual_paths - expected_paths)
+        raise ReleaseError(
+            f"tracked license text file set mismatch; missing={missing}, extra={extra}"
+        )
+
+
 def verify_release(directory: Path) -> None:
     _regular_file(directory / MANIFEST_NAME, "release manifest")
     _regular_file(directory / BUILD_MANIFEST_NAME, "build manifest")
@@ -427,6 +571,7 @@ def verify_release(directory: Path) -> None:
         raise ReleaseError(f"cannot read build manifest: {error}") from error
     if not isinstance(build_manifest, dict):
         raise ReleaseError("build manifest root must be a JSON object")
+    verify_tracked_license_inventory(directory, build_manifest)
     required_build_fields = {
         "nagi_version",
         "source_revision",
@@ -505,6 +650,7 @@ def assemble(root: Path, image_path: Path, kernel_path: Path, output: Path) -> N
         raise ReleaseError(f"output directory already exists; refusing to overwrite: {output}")
 
     documents = required_document_inputs(root)
+    license_inputs = tracked_license_inputs(root)
     revision = git_source_revision(root)
     metadata = repository_metadata(root, kernel_path)
     validate_qcow2(image_path, root, metadata["reference_disk_gib"])
@@ -525,6 +671,14 @@ def assemble(root: Path, image_path: Path, kernel_path: Path, output: Path) -> N
         "granite_model_bytes_bundled": metadata["granite_model_bytes_bundled"],
         "reference_disk_gib": metadata["reference_disk_gib"],
         "toolchain_versions": versions,
+        "tracked_license_texts": [
+            {
+                "source_path": source.relative_to(root).as_posix(),
+                "package_path": package_name,
+                "sha256": sha256_file(source),
+            }
+            for source, package_name in license_inputs
+        ],
     }
 
     output = output.absolute()
@@ -537,6 +691,11 @@ def assemble(root: Path, image_path: Path, kernel_path: Path, output: Path) -> N
         shutil.copyfile(image_path, stage / IMAGE_NAME)
         copied.append((Path(IMAGE_NAME), "built reference-machine qcow2"))
         for source, package_name in documents:
+            destination = stage / package_name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+            copied.append((Path(package_name), source.relative_to(root).as_posix()))
+        for source, package_name in license_inputs:
             destination = stage / package_name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, destination)
@@ -586,6 +745,7 @@ def main(argv: list[str] | None = None) -> int:
         root = args.root.resolve(strict=True)
         if args.command == "preflight":
             required_document_inputs(root)
+            tracked_license_inputs(root)
             git_source_revision(root)
             kernel = _rooted(root, args.kernel)
             image = _rooted(root, args.image)

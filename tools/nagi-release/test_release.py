@@ -1,6 +1,7 @@
 import hashlib
 import json
 import struct
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,97 @@ import release
 
 
 class ReleaseToolTests(unittest.TestCase):
+    def test_tracked_third_party_license_texts_are_selected_stably(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            tracked_paths = (
+                "third_party/zeta/NOTICE.md",
+                "third_party/alpha/LICENSE-MIT",
+                "third_party/alpha/COPYING",
+                "third_party/alpha/README.md",
+                "LICENSE",
+            )
+            for relative in tracked_paths:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fixture text\n", encoding="utf-8")
+            subprocess.run(["git", "add", "--all"], cwd=root, check=True)
+
+            inputs = release.tracked_license_inputs(root)
+
+            self.assertEqual(
+                [
+                    (source.relative_to(root.resolve()).as_posix(), package)
+                    for source, package in inputs
+                ],
+                [
+                    (
+                        "third_party/alpha/COPYING",
+                        "licenses/source-tree/third_party/alpha/COPYING",
+                    ),
+                    (
+                        "third_party/alpha/LICENSE-MIT",
+                        "licenses/source-tree/third_party/alpha/LICENSE-MIT",
+                    ),
+                    (
+                        "third_party/zeta/NOTICE.md",
+                        "licenses/source-tree/third_party/zeta/NOTICE.md",
+                    ),
+                ],
+            )
+
+    def test_tracked_license_inventory_checks_files_and_hashes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            package = "licenses/source-tree/third_party/example/LICENSE-MIT"
+            license_file = directory / package
+            license_file.parent.mkdir(parents=True)
+            license_file.write_bytes(b"MIT license fixture\n")
+            build_manifest = {
+                "tracked_license_texts": [
+                    {
+                        "source_path": "third_party/example/LICENSE-MIT",
+                        "package_path": package,
+                        "sha256": hashlib.sha256(license_file.read_bytes()).hexdigest(),
+                    }
+                ]
+            }
+
+            release.verify_tracked_license_inventory(directory, build_manifest)
+
+            license_file.write_bytes(b"tampered license fixture\n")
+            with self.assertRaisesRegex(release.ReleaseError, "SHA-256 mismatch"):
+                release.verify_tracked_license_inventory(directory, build_manifest)
+
+    def test_legacy_tracked_license_inventory_is_optional_without_payloads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            release.verify_tracked_license_inventory(Path(temporary), {})
+
+    def test_tracked_license_inventory_rejects_symlink_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            external = directory / "external"
+            external.mkdir()
+            license_file = external / "LICENSE-MIT"
+            license_file.write_bytes(b"MIT license fixture\n")
+            package_dir = directory / "licenses/source-tree/third_party/example"
+            package_dir.parent.mkdir(parents=True)
+            package_dir.symlink_to(external, target_is_directory=True)
+            package = "licenses/source-tree/third_party/example/LICENSE-MIT"
+            manifest = {
+                "tracked_license_texts": [
+                    {
+                        "source_path": "third_party/example/LICENSE-MIT",
+                        "package_path": package,
+                        "sha256": hashlib.sha256(license_file.read_bytes()).hexdigest(),
+                    }
+                ]
+            }
+
+            with self.assertRaisesRegex(release.ReleaseError, "symlink"):
+                release.verify_tracked_license_inventory(directory, manifest)
+
     def test_missing_required_documents_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
