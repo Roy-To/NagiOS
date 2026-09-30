@@ -6272,5 +6272,31 @@ test. The real x86-64 M10 guest acceptance exercises the 1280×800 path.
 
 M29 remains `PARTIAL`: this is the fixed M10 acceptance surface, not a
 finished desktop UX. Settings, first-run setup, accessibility, complete
-localization, boot-time measurement, and additional preview screenshots are
-still outstanding. No milestone was promoted to `PASS` by this checkpoint.
+localization, clean-install/cross-host boot-time benchmarks, and additional
+preview screenshots are still outstanding. No milestone was promoted to
+`PASS` by this checkpoint.
+
+### M29 QEMU startup timing (2026-09-30)
+
+The M10 GUI QEMU helper now returns the host monotonic duration from the QEMU
+child spawn to receipt of the guest's `Nagi M10 desktop READY` serial marker.
+Successful `nagi desktop` output reports this value. An early QEMU exit keeps
+the measurement absent and retains the ordered-marker failure path.
+
+Three repeated `./nagi desktop` runs on the local macOS aarch64 host all passed
+their real guest acceptance. Start-to-READY samples were 2,486 ms, 2,466 ms,
+and 2,568 ms; median 2,486 ms, range 2,466–2,568 ms. The runs used the existing
+persistent User Data image and the standard QEMU reference-machine settings.
+Each run's boot image, variables, serial logs, persistent-disk snapshot,
+screenshot, and measurement record is preserved in
+`out/evidence/m29-desktop-timing-sample-1/` through `sample-3/`. These are
+host-observed repeat-boot timings that include QEMU/UEFI startup and serial
+delivery, not clean-install or cross-platform performance claims.
+
+After adding the timing result, `cargo test --locked --offline -p nagi-cli
+--all-targets` passed (135 unit tests and 19 integration tests),
+`cargo clippy --locked --offline -p nagi-cli --all-targets -- -D warnings`
+passed, pinned-nightly formatting and `git diff --check` passed, and all three
+QEMU M10 desktop acceptances passed. M29 remains `PARTIAL`; this measurement
+does not cover first installation, the M30 release image, or a multi-host
+performance matrix.

@@ -1747,7 +1747,7 @@ pub fn run_qemu_gui_with_events_and_screenshot(
     ready_marker: &str,
     events: &[&str],
     screenshot_path: &Path,
-) -> Result<i32, String> {
+) -> Result<QemuGuiOutcome, String> {
     match fs::symlink_metadata(screenshot_path) {
         Ok(_) => {
             return Err(format!(
@@ -1763,7 +1763,7 @@ pub fn run_qemu_gui_with_events_and_screenshot(
             ));
         }
     }
-    let status = run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
+    let outcome = run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
         config,
         ready_marker,
         events,
@@ -1779,8 +1779,18 @@ pub fn run_qemu_gui_with_events_and_screenshot(
         None,
         Some(screenshot_path),
     )?;
-    validate_png_screenshot(screenshot_path)?;
-    Ok(status)
+    if outcome.acceptance_reached {
+        validate_png_screenshot(screenshot_path)?;
+    }
+    Ok(outcome)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct QemuGuiOutcome {
+    pub exit_status: i32,
+    /// Host wall time from spawning QEMU to receiving the guest READY marker.
+    pub ready_after: Option<Duration>,
+    pub acceptance_reached: bool,
 }
 
 pub fn run_qemu_gui_with_read_only_boot_disk_and_events(
@@ -1933,6 +1943,27 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
     serial_input: Option<(&str, &[u8])>,
     screenshot_path: Option<&Path>,
 ) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
+        config,
+        ready_marker,
+        events,
+        failure_marker,
+        mode,
+        serial_input,
+        screenshot_path,
+    )
+    .map(|outcome| outcome.exit_status)
+}
+
+fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    failure_marker: Option<&str>,
+    mode: GuiQemuMode,
+    serial_input: Option<(&str, &[u8])>,
+    screenshot_path: Option<&Path>,
+) -> Result<QemuGuiOutcome, String> {
     let serial_listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|error| format!("cannot reserve GUI serial TCP port: {error}"))?;
     let serial_port = serial_listener
@@ -1972,7 +2003,8 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
         mode.reuse_ovmf_vars,
         true,
     )?;
-    let deadline = Instant::now() + config.timeout;
+    let qemu_started_at = Instant::now();
+    let deadline = qemu_started_at + config.timeout;
     let mut serial = Vec::new();
     let mut serial_log = match fs::File::create(config.serial_log) {
         Ok(file) => file,
@@ -2048,6 +2080,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
     let mut buffer = [0_u8; 4096];
     let mut events_sent = false;
     let mut serial_input_sent = false;
+    let mut ready_after = None;
     loop {
         match serial_stream.read(&mut buffer) {
             Ok(0) => break,
@@ -2063,7 +2096,11 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
                         config.serial_log.display()
                     ));
                 }
-                if !events_sent && bytes_contain(&serial, ready_marker.as_bytes()) {
+                let guest_ready = bytes_contain(&serial, ready_marker.as_bytes());
+                if guest_ready && ready_after.is_none() {
+                    ready_after = Some(qemu_started_at.elapsed());
+                }
+                if !events_sent && guest_ready {
                     for (index, event) in events.iter().enumerate() {
                         if let Err(error) = qmp_exchange(&mut qmp_stream, event, deadline) {
                             terminate_qemu(&mut child, config.serial_log, &serial);
@@ -2093,6 +2130,12 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
                     return Err(format!("GUI QEMU guest printed failure marker `{marker}`"));
                 }
                 if bytes_contain(&serial, marker) {
+                    let Some(ready_after) = ready_after else {
+                        terminate_qemu(&mut child, config.serial_log, &serial);
+                        return Err(format!(
+                            "GUI QEMU guest printed acceptance marker before READY marker `{ready_marker}`"
+                        ));
+                    };
                     if let Some(screenshot_path) = screenshot_path {
                         let Some(path) = screenshot_path.to_str() else {
                             terminate_qemu(&mut child, config.serial_log, &serial);
@@ -2113,12 +2156,17 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
                             ));
                         }
                     }
-                    return quit_qemu_after_acceptance(
+                    let exit_status = quit_qemu_after_acceptance(
                         &mut child,
                         &mut qmp_stream,
                         config.serial_log,
                         &serial,
-                    );
+                    )?;
+                    return Ok(QemuGuiOutcome {
+                        exit_status,
+                        ready_after: Some(ready_after),
+                        acceptance_reached: true,
+                    });
                 }
             }
             Err(error)
@@ -2139,7 +2187,11 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
                     config.serial_log.display()
                 )
             })?;
-            return Ok(status.code().unwrap_or(-1));
+            return Ok(QemuGuiOutcome {
+                exit_status: status.code().unwrap_or(-1),
+                ready_after,
+                acceptance_reached: false,
+            });
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
@@ -2176,11 +2228,15 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
         }
     }
     let _ = fs::write(config.serial_log, &serial);
-    Ok(child
-        .wait()
-        .ok()
-        .and_then(|status| status.code())
-        .unwrap_or(-1))
+    Ok(QemuGuiOutcome {
+        exit_status: child
+            .wait()
+            .ok()
+            .and_then(|status| status.code())
+            .unwrap_or(-1),
+        ready_after,
+        acceptance_reached: false,
+    })
 }
 
 fn spawn_qemu(config: &QemuConfig<'_>, serial_device: &str) -> Result<Child, String> {

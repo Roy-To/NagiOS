@@ -1253,7 +1253,7 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         acceptance_marker: "Nagi M10 acceptance PASS",
         timeout,
     };
-    let status = match run_qemu_gui_with_events_and_screenshot(
+    let outcome = match run_qemu_gui_with_events_and_screenshot(
         &config,
         "Nagi M10 desktop READY",
         &M10_DESKTOP_EVENTS,
@@ -1295,17 +1295,39 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "desktop: guest did not print ordered marker `{marker}` (QEMU exit {status}; log {})",
+                    "desktop: guest did not print ordered marker `{marker}` (QEMU exit {}; log {})",
+                    outcome.exit_status,
                     desktop_log.display()
                 ),
             );
         };
         last_marker_end += relative + marker.len();
     }
+    if !outcome.acceptance_reached {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "desktop: guest markers are present but QEMU did not reach its acceptance marker (exit {}; log {})",
+                outcome.exit_status,
+                desktop_log.display()
+            ),
+        );
+    }
+    let Some(ready_after) = outcome.ready_after else {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "desktop: QEMU acceptance completed without observing the READY marker (log {})",
+                desktop_log.display()
+            ),
+        );
+    };
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS desktop: QEMU guest rendered and interacted with the Nagi desktop (exit {status}; log {}; screenshot {})",
+            "PASS desktop: QEMU guest rendered and interacted with the Nagi desktop (exit {}; guest READY after {} ms; log {}; screenshot {})",
+            outcome.exit_status,
+            ready_after.as_millis(),
             desktop_log.display(),
             screenshot_path.display(),
         )],
