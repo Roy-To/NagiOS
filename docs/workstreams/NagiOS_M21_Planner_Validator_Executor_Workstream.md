@@ -44,6 +44,16 @@
   then the next boot undoes the three moves through History. This is
   deterministic acceptance input, not model inference, and the caller/policy
   is private to this fixture rather than authenticated production authority.
+- On a fresh-disk M22 boot, the guest also verifies malformed/incomplete JSON,
+  unsupported plan version, unregistered action, out-of-context Object ID,
+  policy-denied Modify access, and denied `files.delete` capability. The
+  validator returns the expected typed error for each parsed plan, and the
+  test-only registered handlers record zero executions for all rejected
+  plans. A separate two-step orchestration probe succeeds once, then returns
+  `HandlerError::Unavailable`; the guest checks `ExecutionStatus::Partial`, the
+  completed step, failing step index, error, and both handler calls. These
+  handlers have no product side effects and do not represent production
+  actions.
 - No production guest init service currently constructs this registry. General
   app launch, file copy/move, and volume handlers remain absent; the production
   target policy and Context authorities are not connected.
@@ -61,7 +71,7 @@ CARGO_TARGET_DIR=/tmp/nagi-m21-host-arm64 \
 /Users/tozawa/.cargo/bin/cargo test --locked --offline -p nagi-ai
 ```
 
-Result: 23 orchestration and SearchService integration tests passed; no doc
+Result: 24 orchestration and SearchService integration tests passed; no doc
 tests are defined.
 
 ```sh
@@ -97,11 +107,14 @@ CARGO_TARGET_DIR=/tmp/nagi-m21-target \
 ```
 
 The `nagi-ai` service, including the SearchService action adapter, compiles
-for the Nagi `no_std` user target. The later 2026-09-30 integration run passed
-`./nagi m19` with the M21 Plan/Validate/Execute marker in
-`out/logs/m19-vfs-objectid-initial.log`. The three-boot `./nagi m22`
-regression also passed and included the action marker on every boot in
-`out/logs/m22-history-boot-1.log` through `m22-history-boot-3.log`. This uses a
+for the Nagi `no_std` user target. On 2026-09-30, `./nagi m19` passed the
+guest Search/ObjectId persistence regression. A fresh-disk `./nagi m22` run
+passed the M21 rejection and partial-failure checks on boot 1, the real
+fixture `file.move` transaction and NAL1 commit, reverse-order Undo on boot 2,
+and restored-file/NH16/NAL1 verification on boot 3. The M21 markers are
+required on the first fresh boot, not on the later recovery boots. Logs, image,
+OVMF vars, and persistent data are preserved under
+`out/evidence/m22-m21-negative-and-partial-pass-20260930/`. This uses a
 fixture-scoped policy, not an authenticated app identity or production
 capability provider; no local model inference was involved.
 
@@ -117,8 +130,10 @@ capability provider; no local model inference was involved.
    against their existing first-party services.
 3. Connect Context Resolver and Planner to the running Nagi AI/model service,
    including provider-unavailability fallback in the UI/service path.
-4. Add guest acceptance for malformed and unsupported plans, capability and
-   object denial, successful real action execution, and partial failure.
+4. Extend authenticated production-path acceptance to malformed and
+   unsupported plans, object/capability denial, successful real action
+   execution, and partial failure of a real subsystem action. The current
+   guest checks prove the Validator/Executor orchestration boundary only.
 
 M21 stays `PARTIAL`; test-only policy or action mocks cannot satisfy the guest
 acceptance gate.

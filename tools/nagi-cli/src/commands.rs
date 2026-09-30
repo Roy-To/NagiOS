@@ -3919,6 +3919,30 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 ),
             );
         }
+        if boot_index == 0
+            && !had_persistent_disk
+            && !serial.contains("Nagi M21 plan rejection validation PASS")
+        {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: fresh guest did not reject malformed, unsupported, out-of-context, and capability-denied plans before execution (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if boot_index == 0
+            && !had_persistent_disk
+            && !serial.contains("Nagi M21 partial execution failure validation PASS")
+        {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: fresh guest did not verify Executor partial-failure reporting (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
         saw_activity_ledger_commit |= serial.contains("Nagi M22 AI Activity Ledger committed PASS");
         saw_activity_ledger_undo |= serial.contains("Nagi M22 AI Activity Ledger undo result PASS");
         saw_move |= serial.contains("Nagi M22 move group persisted in guest VFS PASS")

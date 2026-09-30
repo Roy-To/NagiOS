@@ -51,6 +51,14 @@ persists UndoPending, applies inverse moves in reverse order, then persists
 Undone. UndoPending replay is idempotent across a reboot partway through the
 inverse batch.
 
+The fresh-disk boot also runs M21-only orchestration acceptance before the
+real move: malformed/incomplete plan JSON, unsupported version/action,
+out-of-context and policy-denied objects, and denied capability are rejected
+before a test handler can execute. A no-side-effect two-step probe confirms
+that an unavailable second handler yields `Partial` with the first step
+retained. These probes do not add production handlers or change the real
+three-file transaction.
+
 This caller comparison is an identity consistency check, not an authority
 source. Production must supply caller context from the authenticated M21
 policy/capability boundary.
@@ -81,8 +89,10 @@ persistence while leaving those production boundaries open.
   PASS.
 - `cargo -Z build-std=core,alloc check --locked --offline -p nagi-init
   --features m22-history --target targets/x86_64-unknown-nagi-user.json` — PASS.
-- `cargo test --locked --offline -p nagi-cli` — PASS, 114 unit tests and 18
-  integration tests, including the `m22` command surface.
+- `cargo test --locked --offline -p nagi-cli --all-targets` — PASS, 135 unit
+  tests and 19 integration tests, including the `m22` command surface.
+- `cargo clippy --locked --offline -p nagi-cli --all-targets -- -D warnings` —
+  PASS.
 - `./nagi m22` — PASS for durable guest History recovery across QEMU boots.
   The first attempt wrote and committed all three VFS moves, then exposed an
   unrelated M7 acceptance limit: its root-directory lookup buffer held only
@@ -110,6 +120,23 @@ persistence while leaving those production boundaries open.
   disks, OVMF vars, and logs are preserved under
   `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`. The subsequent M28
   repetition's latest M22 serial logs remain in `out/logs/`.
+- The latest 2026-09-30 fresh-disk run adds guest validation of incomplete
+  plan JSON, unsupported version/action, `ObjectOutsideContext`, `ObjectDenied`,
+  `CapabilityDenied`, and no handler execution for rejected plans. It also
+  checks a two-step Executor partial failure. Boot 1 printed both new M21
+  acceptance markers and committed the real `file.move`; boot 2 persisted
+  composite Undo; boot 3 verified restored files and the NAL1 outcome history.
+  `./nagi m19` passed afterward. The image, data disk, OVMF vars, bootstrap
+  log, and M19/M22 serial logs with SHA-256 manifest are preserved under
+  `out/evidence/m22-m21-negative-and-partial-pass-20260930/`.
+- One intervening fresh-disk attempt timed out on boot 3 before reaching M22,
+  at the existing M13 C POSIX fixture after `Nagi M13 Rust PAL PASS`. Its
+  disk and serial logs remain under
+  `out/evidence/m22-partial-validation-timeout-20260930/`. Bounded stage
+  markers were added to `tests/apps/m13_posix.c` without changing assertions
+  or timeouts; the next full three-boot run passed every stage, including the
+  network test. QEMU also printed its unavailable host audio-input warning;
+  that did not prevent M19/M22 acceptance.
 - This remains a deterministic guest acceptance fixture, not real AI
   inference, authenticated production capability authority, or a separate
   production Activity Ledger integration. NH16 preserves AppId, AppSessionId,

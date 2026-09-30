@@ -43,6 +43,9 @@ extern int nagi_posix_spawn_wait(unsigned long long thread,
 #define SOCK_STREAM 1
 #define POLLIN 0x0001
 #define POLLOUT 0x0004
+#define TRACE_M13_STAGE(message) \
+    (nagi_posix_write(1, (const unsigned char *)(message), sizeof(message) - 1) == \
+     (long)(sizeof(message) - 1))
 
 struct nagi_ipv4_address {
     unsigned char octets[4];
@@ -276,27 +279,57 @@ int nagi_m13_c_posix_test(void) {
         return 2;
     }
     nagi_posix_free(buffer);
+    if (!TRACE_M13_STAGE("Nagi M13 checkpoint free PASS\r\n")) {
+        return 10;
+    }
     if (nagi_posix_fork() != -1) {
         return 3;
+    }
+    if (!TRACE_M13_STAGE("Nagi M13 checkpoint fork PASS\r\n") ||
+        !TRACE_M13_STAGE("Nagi M13 checkpoint mapping START\r\n")) {
+        return 11;
     }
     if (mapping_test() != 0) {
         return 4;
     }
+    if (!TRACE_M13_STAGE("Nagi M13 checkpoint mapping PASS\r\n") ||
+        !TRACE_M13_STAGE("Nagi M13 checkpoint thread START\r\n")) {
+        return 12;
+    }
     if (thread_tls_test() != 0) {
         return 8;
+    }
+    if (!TRACE_M13_STAGE("Nagi M13 checkpoint thread PASS\r\n") ||
+        !TRACE_M13_STAGE("Nagi M13 checkpoint spawn START\r\n")) {
+        return 13;
     }
     if (native_spawn_test() != 0) {
         return 9;
     }
+    if (!TRACE_M13_STAGE("Nagi M13 checkpoint spawn PASS\r\n") ||
+        !TRACE_M13_STAGE("Nagi M13 checkpoint timing START\r\n")) {
+        return 14;
+    }
     if (elapsed_time_test() != 0) {
         return 5;
+    }
+    if (!TRACE_M13_STAGE("Nagi M13 checkpoint timing PASS\r\n") ||
+        !TRACE_M13_STAGE("Nagi M13 checkpoint poll START\r\n")) {
+        return 15;
     }
     if (nagi_posix_poll(0) != 0) {
         return 6;
     }
+    if (!TRACE_M13_STAGE("Nagi M13 checkpoint poll PASS\r\n") ||
+        !TRACE_M13_STAGE("Nagi M13 checkpoint network START\r\n")) {
+        return 16;
+    }
     int network_result = socket_dns_http_test();
     if (network_result != 0) {
         return 70 + network_result;
+    }
+    if (!TRACE_M13_STAGE("Nagi M13 checkpoint network PASS\r\n")) {
+        return 17;
     }
     return 0;
 }

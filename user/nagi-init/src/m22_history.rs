@@ -1,10 +1,11 @@
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{rc::Rc, string::String, vec, vec::Vec};
+use core::cell::Cell;
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_FILE_SIZE};
 use nagi_ai::{
     execute_plan, validate_plan, ActionDescriptor, ActionHandler, ActionInvocation, ActionOutput,
     ActionPolicy, ActionRegistry, CallerIdentity, ContextAuthority, ContextRequest,
-    ContextResolver, ExecutionStatus, HandlerError, NagiPlan, ObjectAccess, ParameterKind,
-    ParameterRule, PolicyDenied,
+    ContextResolver, ExecutionError, ExecutionStatus, HandlerError, NagiPlan, ObjectAccess,
+    ParameterKind, ParameterRule, PlanParseError, PolicyDenied, ResolvedContext, ValidationError,
 };
 use nagi_history::activity_ledger::{
     ActivityLedger, ActivityLedgerArchiveBackend, ActivityLedgerError, ActivityLedgerFileStore,
@@ -61,8 +62,10 @@ struct M22FileHandle {
 /// Authority for the private M22 acceptance fixture only. Production caller
 /// identity and capabilities must come from the authenticated service
 /// boundary, which is not available to guest applications yet.
-#[derive(Clone, Copy)]
-struct M22FixturePolicy;
+#[derive(Clone, Copy, Default)]
+struct M22FixturePolicy {
+    deny_modifications: bool,
+}
 
 impl M22FixturePolicy {
     fn caller_is_fixture(caller: CallerIdentity) -> bool {
@@ -119,7 +122,9 @@ impl ActionPolicy for M22FixturePolicy {
         object_id: ObjectId,
         access: ObjectAccess,
     ) -> Result<(), PolicyDenied> {
-        if matches!(access, ObjectAccess::Read | ObjectAccess::Modify)
+        if self.deny_modifications && access == ObjectAccess::Modify {
+            Err(PolicyDenied::Object)
+        } else if matches!(access, ObjectAccess::Read | ObjectAccess::Modify)
             && Self::caller_is_fixture(caller)
             && Self::file_handle(object_id).is_some()
         {
@@ -156,6 +161,31 @@ struct M22MoveAction {
     backend: HistoryArchiveBackend<M22Files>,
     history: HistoryService,
     activity_ledger: ActivityLedger,
+}
+
+/// Test-only action handler for the M21 guest orchestration checks. It can
+/// succeed or fail deterministically and never performs product side effects.
+struct M22ValidationProbeAction {
+    execution_count: Rc<Cell<usize>>,
+    succeed: bool,
+}
+
+impl ActionHandler<M22FixturePolicy> for M22ValidationProbeAction {
+    fn execute(
+        &mut self,
+        _invocation: ActionInvocation<'_, M22FixturePolicy>,
+    ) -> Result<ActionOutput, HandlerError> {
+        self.execution_count
+            .set(self.execution_count.get().saturating_add(1));
+        if self.succeed {
+            Ok(ActionOutput {
+                summary: String::from("M21 orchestration probe completed"),
+                object_ids: vec![],
+            })
+        } else {
+            Err(HandlerError::Unavailable)
+        }
+    }
 }
 
 struct M22Files {
@@ -401,7 +431,7 @@ fn run_file_move_action(
     history: HistoryService,
     activity_ledger: ActivityLedger,
 ) -> bool {
-    let policy = M22FixturePolicy;
+    let policy = M22FixturePolicy::default();
     let caller = CallerIdentity {
         app_id: CALLER.app_id,
         app_session_id: CALLER.app_session_id,
@@ -445,6 +475,15 @@ fn run_file_move_action(
     {
         return false;
     }
+
+    if !verify_m21_plan_rejections(&context) {
+        return false;
+    }
+    libnagi::console_write(b"Nagi M21 plan rejection validation PASS\r\n");
+    if !verify_m21_partial_execution(&context, &policy) {
+        return false;
+    }
+    libnagi::console_write(b"Nagi M21 partial execution failure validation PASS\r\n");
 
     let plan = r#"{"plan_version":1,"intent":"move the three M22 fixture files","steps":[{"action":"file.move","object_ids":[8721,8722,8723],"parameters":{"destination_a":"m22-A","destination_b":"m22-B","destination_c":"m22-C"}}]}"#;
     let Ok(plan) = NagiPlan::parse_complete(plan) else {
@@ -529,6 +568,185 @@ fn run_file_move_action(
     libnagi::console_write(b"Nagi M21 file.move Plan Validate Execute PASS\r\n");
     libnagi::console_write(b"Nagi M22 move group persisted in guest VFS PASS\r\n");
     true
+}
+
+fn verify_m21_plan_rejections(context: &ResolvedContext) -> bool {
+    if !matches!(
+        NagiPlan::parse_complete(
+            r#"{"plan_version":1,"intent":"incomplete","steps":[{"action":"file.move"}"#
+        ),
+        Err(PlanParseError::InvalidJson)
+    ) {
+        return false;
+    }
+
+    let Ok(move_capability) = CapabilityId::new(M22_MOVE_CAPABILITY) else {
+        return false;
+    };
+    let Ok(move_descriptor) = ActionDescriptor::new(
+        M22_MOVE_ACTION,
+        vec![move_capability],
+        ObjectAccess::Modify,
+        MOVES.len(),
+        MOVES.len(),
+        DESTINATION_PARAMETERS
+            .iter()
+            .map(|name| ParameterRule::new(*name, ParameterKind::String { max_bytes: 32 }, true))
+            .collect(),
+    ) else {
+        return false;
+    };
+    let Ok(delete_capability) = CapabilityId::new("files.delete") else {
+        return false;
+    };
+    let Ok(capability_probe_descriptor) = ActionDescriptor::new(
+        "test.capability_probe",
+        vec![delete_capability],
+        ObjectAccess::Modify,
+        0,
+        0,
+        vec![],
+    ) else {
+        return false;
+    };
+
+    let execution_count = Rc::new(Cell::new(0));
+    let mut registry = ActionRegistry::new();
+    if registry
+        .register(
+            move_descriptor,
+            M22ValidationProbeAction {
+                execution_count: Rc::clone(&execution_count),
+                succeed: false,
+            },
+        )
+        .is_err()
+        || registry
+            .register(
+                capability_probe_descriptor,
+                M22ValidationProbeAction {
+                    execution_count: Rc::clone(&execution_count),
+                    succeed: false,
+                },
+            )
+            .is_err()
+    {
+        return false;
+    }
+
+    let rejected_plans = [
+        (
+            r#"{"plan_version":2,"intent":"unsupported version","steps":[{"action":"file.move","object_ids":[8721,8722,8723],"parameters":{"destination_a":"m22-A","destination_b":"m22-B","destination_c":"m22-C"}}]}"#,
+            ValidationError::UnsupportedVersion,
+        ),
+        (
+            r#"{"plan_version":1,"intent":"unregistered action","steps":[{"action":"file.unregistered","object_ids":[8721,8722,8723],"parameters":{"destination_a":"m22-A","destination_b":"m22-B","destination_c":"m22-C"}}]}"#,
+            ValidationError::UnsupportedAction,
+        ),
+        (
+            r#"{"plan_version":1,"intent":"outside fixture context","steps":[{"action":"file.move","object_ids":[8721,8722,8724],"parameters":{"destination_a":"m22-A","destination_b":"m22-B","destination_c":"m22-C"}}]}"#,
+            ValidationError::ObjectOutsideContext,
+        ),
+        (
+            r#"{"plan_version":1,"intent":"denied object modification","steps":[{"action":"file.move","object_ids":[8721,8722,8723],"parameters":{"destination_a":"m22-A","destination_b":"m22-B","destination_c":"m22-C"}}]}"#,
+            ValidationError::ObjectDenied,
+        ),
+        (
+            r#"{"plan_version":1,"intent":"denied capability","steps":[{"action":"test.capability_probe","object_ids":[],"parameters":{}}]}"#,
+            ValidationError::CapabilityDenied,
+        ),
+    ];
+    for (json, expected) in rejected_plans {
+        let denial_policy = M22FixturePolicy {
+            deny_modifications: expected == ValidationError::ObjectDenied,
+        };
+        if !m21_plan_rejected_as(json, context, &registry, &denial_policy, expected) {
+            return false;
+        }
+    }
+
+    execution_count.get() == 0
+}
+
+fn m21_plan_rejected_as(
+    json: &str,
+    context: &ResolvedContext,
+    registry: &ActionRegistry<M22FixturePolicy>,
+    policy: &M22FixturePolicy,
+    expected: ValidationError,
+) -> bool {
+    let Ok(plan) = NagiPlan::parse_complete(json) else {
+        return false;
+    };
+    matches!(
+        validate_plan(plan, context, registry, policy),
+        Err(error) if error == expected
+    )
+}
+
+fn verify_m21_partial_execution(context: &ResolvedContext, policy: &M22FixturePolicy) -> bool {
+    let Ok(capability) = CapabilityId::new(M22_MOVE_CAPABILITY) else {
+        return false;
+    };
+    let Ok(first_descriptor) = ActionDescriptor::new(
+        "test.partial_success",
+        vec![capability.clone()],
+        ObjectAccess::Read,
+        0,
+        0,
+        vec![],
+    ) else {
+        return false;
+    };
+    let Ok(failing_descriptor) = ActionDescriptor::new(
+        "test.partial_failure",
+        vec![capability],
+        ObjectAccess::Read,
+        0,
+        0,
+        vec![],
+    ) else {
+        return false;
+    };
+
+    let execution_count = Rc::new(Cell::new(0));
+    let mut registry = ActionRegistry::new();
+    if registry
+        .register(
+            first_descriptor,
+            M22ValidationProbeAction {
+                execution_count: Rc::clone(&execution_count),
+                succeed: true,
+            },
+        )
+        .is_err()
+        || registry
+            .register(
+                failing_descriptor,
+                M22ValidationProbeAction {
+                    execution_count: Rc::clone(&execution_count),
+                    succeed: false,
+                },
+            )
+            .is_err()
+    {
+        return false;
+    }
+
+    let json = r#"{"plan_version":1,"intent":"exercise partial executor failure","steps":[{"action":"test.partial_success","object_ids":[],"parameters":{}},{"action":"test.partial_failure","object_ids":[],"parameters":{}}]}"#;
+    let Ok(plan) = NagiPlan::parse_complete(json) else {
+        return false;
+    };
+    let Ok(validated) = validate_plan(plan, context, &registry, policy) else {
+        return false;
+    };
+    let report = execute_plan(validated, &mut registry, policy);
+    report.status == ExecutionStatus::Partial
+        && report.completed.len() == 1
+        && report.completed[0].action_id == "test.partial_success"
+        && report.failed_step == Some(1)
+        && report.error == Some(ExecutionError::Handler(HandlerError::Unavailable))
+        && execution_count.get() == 2
 }
 
 fn activity_context(caller: CallerIdentity) -> ActivityContext {
