@@ -348,3 +348,27 @@ The source and reference image are real build outputs. The Model Store is
 empty, so this acceptance does not claim artifact installation, Granite load,
 or inference. M30 remains `PARTIAL` for authenticated updates, incomplete
 M18–M29 acceptance, and binary license/notice review.
+
+## Runtime digest-gate source release — 2026-10-01
+
+After the FAT32-to-`ModelRuntime` digest test and runtime validation fix were
+committed as `0d0ae8a`, clean-source release preflight passed again. The eight
+release-tool tests passed, and assembly plus verification produced
+`out/artifacts/m30-release-bundle-0d0ae8a/`. Its 64 GiB qcow2 matches the
+reference-image SHA-256
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`.
+
+The post-assembly `./nagi m30` run passed two QEMU boots using a disposable
+copy: System A, M20 capability-relative Model Store read/write denial, empty
+root artifact discovery, User Data format/write/restart persistence, and M7
+acceptance. Evidence, README, and checksums are in
+`out/evidence/m30-release-1790806831243045000/`. Post-boot release verification,
+all 15 package checksums, and `qemu-img check` passed on the untouched bundle.
+The release manifest keeps `m30_acceptance=NOT_EVALUATED`; the separate QEMU
+acceptance is not converted into a release-manifest claim. QEMU again reported
+the missing host `virtio-sound.in` driver.
+
+The FAT32 reader/runtime integration remains an orchestration test using a
+fake backend. The M30 image still contains no model artifact; this bundle does
+not claim Granite load or inference. M30 remains `PARTIAL` for authenticated
+updates, remaining M18–M29 acceptance, and binary license/notice review.

@@ -58,7 +58,7 @@ llama.cpp backend, installed Granite artifact, active model service, or real
 in-guest Granite response exists, so M20 remains
 `PARTIAL`; build evidence is in
 `out/evidence/m20-backend-reg-noexceptions-20261001/` and reader acceptance is
-in `out/evidence/m30-release-1790806574616038000/`.
+in `out/evidence/m30-release-1790806831243045000/`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
@@ -265,7 +265,7 @@ still lets ordinary boot continue after successful GPT initialization.
 acceptance copy. The image SHA-256 is
 `e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`, and
 the latest evidence is in
-`out/evidence/m30-release-1790806574616038000/`. The immediately previous
+`out/evidence/m30-release-1790806831243045000/`. The immediately previous
 accepted image is preserved in
 `out/evidence/m30-release-1790806188358089000/` as
 `reference-disk-before-runtime-verification.qcow2`; earlier source/bundle backups are
@@ -274,10 +274,12 @@ regression and its failed evidence remain at
 `out/evidence/m30-release-1790804891726864000/`. The release loader enables
 production `m27-ab-slot-boot-control` without an acceptance-only pending-B
 seed. Clean-source release preflight, assembly, and verify passed at commit
-`7144949`; the bundle is `out/artifacts/m30-release-bundle-7144949/`. Its
-64 GiB qcow2 is byte-identical to the tested reference image. QEMU booted a
-disposable copy after assembly; all 15 bundle checksums, post-boot release
-verification, and `qemu-img check` passed on the untouched package. The
+`0d0ae8a`; the current bundle is
+`out/artifacts/m30-release-bundle-0d0ae8a/`. Its 64 GiB qcow2 is byte-identical
+to the tested reference image. QEMU booted a disposable copy after assembly;
+all 15 bundle checksums, post-boot release verification, and `qemu-img check`
+passed on the untouched package. The earlier bundle from commit `7144949` is
+preserved at `out/artifacts/m30-release-bundle-7144949/`. The
 `m30_acceptance` field in a release manifest remains `NOT_EVALUATED`; eight
 release-tool tests pass.
 The release tool's manifest still records guest acceptance as
@@ -2436,7 +2438,7 @@ Use only these statuses:
 | M27 | A/B / Recovery | PARTIAL | The latest full GPT A/B/Recovery gates passed twice inside the successful M28 repetition run at `out/evidence/m27-ab-rollback-1790802782930760000/` and `out/evidence/m27-ab-rollback-1790802894479757000/`; each has a verified 31-file SHA-256 manifest. Together with earlier replays, these passes still do not establish the cause of the earlier boot-4 timeout (RIP `0x4005d90`, CR2 `0xfffffffffffffff8`). Account-authenticated readiness, authenticated slot manifests, GPT update installation, and remaining Recovery repair/log features remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | A third `NAGI_M28_REPEAT_COUNT=2 ... --run` completed both repetitions across M19 ObjectId/Search, three-boot M22 grouped Undo/Activity Ledger, and M27 GPT A/B/Recovery. The complete gate and 22-file evidence manifest are at `out/evidence/m28-run-20260930T211250Z-51667/`; both M27 run archives also have verified manifests. The two preceding attempts timed out before M22 boot 1 reached the Nagi kernel; that OVMF/QEMU stall did not recur and its root cause remains unknown. Shell syntax, self-test, and dry-run pass. The full Desktop/Files/Notes/Albert workload, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Added cross-linked setup, SDK, contribution, and roadmap documentation; 47 local documentation links resolve. The POSIX launcher now selects the Cargo and rustc rustup shims together even when a system Cargo appears first in PATH; the mocked toolchain-selection regression, `./nagi --help`, `./nagi doctor` (12/12), and full M0 launcher/image acceptance pass. `./nagi build`, `./nagi test`, and `./nagi lint` now use a host-compatible package allowlist on non-x86_64 hosts; all three passed on ARM64 macOS. `THIRD_PARTY_NOTICES.md` lists all 18 source-lock components, exact version/revision/toolchain pins, and declared license expressions; a regression test checks the inventory. Cargo metadata reports declared license expressions for 673 external packages with no missing declarations; this includes dev/target-specific packages and is not an image bill of materials. The host doctor recognizes `python3` without a `python` alias; its regression and local 12/12 run pass. CLI suite (145 unit + 21 integration) and warnings-denied Clippy pass. QEMU timeout diagnostics record QMP status, CPU registers, and a bounded 12-instruction window at `$rip`; the focused fixture and live QEMU/QMP smoke pass. License-text and redistribution review remain incomplete. Three M10 screenshots and a persistent-boot timing sample exist, but first-run, Settings, complete localization/accessibility, broader UI evidence, and user-facing provider/recovery UX remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | PARTIAL | Current-source `./nagi m30` rebuilt the x86-64 payloads and self-contained 64 GiB GPT qcow2; image SHA-256 is `e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`. Two QEMU boots passed System A, M20 read-only Model Store/FAT32 discovery, User Data format/write/restart-read, and M7 acceptance; `qemu-img check` found no errors. Clean-source release preflight, assembly, verify, and a post-assembly two-boot QEMU run passed for commit `7144949`; the bundle is `out/artifacts/m30-release-bundle-7144949/`, byte-identical to the tested reference image, with all 15 checksums and post-boot verification passing. A fresh target rebuild and QEMU acceptance after the Runtime hash-path change passed at `out/evidence/m30-release-1790806574616038000/`; the reference image remains byte-identical because Runtime is not linked into this boot image. The immediately previous accepted image is preserved in `out/evidence/m30-release-1790806188358089000/`, and prior bundle backups remain in `out/evidence/m30-pre-m20-store-20260930T214713Z/`. After successful GPT/User Data initialization, missing or unreadable Model Store content or an invalid FAT32 volume does not prevent ordinary boot; structurally invalid GPT remains fail-closed. The M30 gate requires an M20 PASS marker. An initial FPU-order regression and its failed evidence are recorded separately at `out/evidence/m30-release-1790804891726864000/`. Manifest status stays `m30_acceptance=NOT_EVALUATED`; authenticated updates, M18–M29 gaps, and binary license review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
+| M30 | Nagi OS 0.1 Release | PARTIAL | Current-source `./nagi m30` rebuilt the x86-64 payloads and self-contained 64 GiB GPT qcow2; image SHA-256 is `e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`. Two QEMU boots passed System A, M20 read-only Model Store/FAT32 discovery, User Data format/write/restart-read, and M7 acceptance; `qemu-img check` found no errors. Clean-source release preflight, assembly, verify, and a post-assembly two-boot QEMU run passed for commit `0d0ae8a`; the bundle is `out/artifacts/m30-release-bundle-0d0ae8a/`, byte-identical to the tested reference image, with all 15 checksums and post-boot verification passing. Evidence is in `out/evidence/m30-release-1790806831243045000/`; the immediately previous accepted image is preserved in `out/evidence/m30-release-1790806188358089000/`, and prior bundle backups remain in `out/evidence/m30-pre-m20-store-20260930T214713Z/`. After successful GPT/User Data initialization, missing or unreadable Model Store content or an invalid FAT32 volume does not prevent ordinary boot; structurally invalid GPT remains fail-closed. The M30 gate requires an M20 PASS marker. An initial FPU-order regression and its failed evidence are recorded separately at `out/evidence/m30-release-1790804891726864000/`. Manifest status stays `m30_acceptance=NOT_EVALUATED`; authenticated updates, M18–M29 gaps, and binary license review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
 

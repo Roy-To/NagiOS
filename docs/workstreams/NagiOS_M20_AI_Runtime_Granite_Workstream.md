@@ -266,12 +266,12 @@ successfully. After GPT/User Data initialization succeeds, a missing or
 unreadable Model Store capability or invalid FAT32 volume produces a bounded
 FAIL diagnostic but does not stop ordinary OS boot; structurally invalid GPT
 metadata remains fail-closed. The M30 acceptance gate still requires the PASS
-marker. The latest two-boot QEMU run is
-`out/evidence/m30-release-1790806574616038000/`. The immediately previous
-accepted image is preserved there as
-`reference-disk-before-runtime-verification.qcow2`. The Model Store is empty
-in that image; this is capability and discovery acceptance, not model loading
-or inference.
+marker. The latest post-assembly two-boot QEMU run is
+`out/evidence/m30-release-1790806831243045000/`. The immediately previous
+accepted image is preserved at
+`out/evidence/m30-release-1790806188358089000/reference-disk-before-runtime-verification.qcow2`.
+The Model Store is empty in that image; this is capability and discovery
+acceptance, not model loading or inference.
 
 The focused Model Manager suite passes with 48 unit, 2 manifest/schema, and 1
 Store API test. The pinned Nagi no_std target check, `./nagi fmt`, `./nagi
