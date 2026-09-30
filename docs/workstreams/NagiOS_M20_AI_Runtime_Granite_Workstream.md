@@ -32,8 +32,13 @@ bytes before calling any backend.
   bytes, digest comparison, and short reads over a multi-chunk artifact.
 - `third_party/sources.lock` pins llama.cpp release commit
   `c85b92c69c955961621193cd51da194f3cbcedf3`; `nagi fetch` retrieves that exact
-  clean source checkout. This is reproducible source acquisition, not a claim
-  that the C++ backend is built for Nagi.
+  clean source checkout. Nagi-owned patches now have a numbered patch
+  directory and deterministic application path: the pinned upstream checkout
+  remains clean, while a generated patched tree is kept under ignored
+  `out/cache/llama-cpp-nagi` and validated against both the patch fingerprint
+  and generated tree state. The patch directory currently contains no
+  compatibility patch, so this is patch infrastructure, not a claim that the
+  C++ backend is built for Nagi.
 - A 2026-09-30 CMake configuration probe using the Nagi x86-64 target compiler
   and CPU-only/static options passed compiler detection and configuration.
   Building target `llama` then failed in upstream `ggml/src/gguf.cpp`: its
@@ -42,16 +47,17 @@ bytes before calling any backend.
   unwinder. Exact configure/build logs are retained under
   `out/m20-llama-target-probe-2026-09-30/`. The pinned checkout remains clean;
   no target library was linked and no runtime/inference is claimed.
-- A follow-up audit of that configured target's `compile_commands.json` found
-  exception syntax/tokens in 22 selected CPU-path translation units, including
+- A scan of the configured target's 73-entry `compile_commands.json` found
+  exception syntax/tokens in 20 selected CPU-path translation units, including
   `gguf.cpp`, `llama-context.cpp`, `llama-grammar.cpp`,
   `llama-model-loader.cpp`, and `unicode.cpp`. The checkout has no
   `GGML_NO_EXCEPTIONS` compatibility branch. The failure therefore extends
   beyond the first parser file; removing catches or turning throws into
   no-ops would discard upstream allocation, parse, and I/O error handling.
-  No Nagi-owned patch was made because a correct conversion needs an explicit
-  no-exception error path across the selected loader/inference sources, not a
-  syntax shim. The next safe experiment is to adapt one bounded upstream API
+  No Nagi-owned compatibility patch was made because a correct conversion
+  needs an explicit no-exception error path across the selected loader/inference
+  sources, not a syntax shim. The earlier count of 22 was not accurate. The next safe
+  experiment is to adapt one bounded upstream API
   boundary with explicit status returns, then rebuild and test that slice
   before expanding the patch.
 - Granite Q4_K_M source metadata pins repository commit
@@ -115,9 +121,15 @@ CARGO_TARGET_DIR=/tmp/nagi-m20-target \
 The Granite source bytes were streamed to a local SHA-256 process without
 writing a 2.24 GB artifact file; the calculated digest matched the pinned
 profile. `./nagi fetch` also passed and validated the clean llama.cpp checkout
-at the locked revision. No M20 QEMU inference acceptance was run. The runtime
-hash check was additionally tested against deterministic host artifacts and
-compiled for the Nagi `no_std` target.
+at the locked revision with the currently empty Nagi patch directory. The new
+patch applier was separately exercised against a temporary Git source tree:
+numeric-order patches applied to an isolated clone, the pristine source stayed
+unchanged, and tampering with the generated tree was rejected. Three focused
+llama.cpp patch/lock tests, all 119 CLI unit tests, and all 18 CLI integration
+tests passed; CLI Clippy with warnings denied, formatting, `git diff --check`,
+and `./nagi fetch` passed. No M20 QEMU inference acceptance was run. The
+runtime hash check was additionally tested against deterministic host artifacts
+and compiled for the Nagi `no_std` target.
 
 ## Remaining acceptance blockers
 

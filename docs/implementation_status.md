@@ -28,17 +28,23 @@ pins the IBM Granite 4.2 3B Q4_K_M source revision, size, digest, and Apache
 notice metadata; the upstream stream matched the declared SHA-256 and was not
 retained or installed. `./nagi fetch`
 checked out the exact clean llama.cpp commit recorded in
-`third_party/sources.lock`. The 40 model-manager unit tests, 2 manifest/schema
-tests, 1 Store API test, 114 CLI unit tests, and 18 CLI integration tests pass;
+`third_party/sources.lock`. Nagi now has a numbered llama.cpp patch boundary:
+`./nagi fetch` keeps the pinned checkout pristine and validates any generated,
+fingerprinted patch tree under `out/cache/llama-cpp-nagi`; the boundary is
+currently empty because the required no-exceptions conversion is not yet
+safe. Three patch-pipeline tests, 119 CLI unit tests, and 18 CLI integration
+tests pass, along with the 40 model-manager unit tests, 2 manifest/schema
+tests, and 1 Store API test;
 formatting, warnings-denied Clippy, and the Nagi user-target compile pass. No
 Nagi llama.cpp backend, guest Model Store path, active model service, or real
 in-guest Granite response exists, so M20 remains `PARTIAL`. A Nagi-target
 CMake configure for pinned llama.cpp passed, but compiling `llama` stopped at
 exception syntax in `gguf.cpp` under the target's intentional
 `-fno-exceptions`; logs are in `out/m20-llama-target-probe-2026-09-30/`.
-The follow-up scan found exception syntax in 22 selected CPU-path translation
-units and no upstream no-exceptions branch. Correct adaptation needs explicit
-error propagation across those sources; no exception-stripping shim was added.
+The target compile database contains 73 translation units; direct scanning
+found exception syntax in 20 selected CPU-path translation units and no
+upstream no-exceptions branch. Correct adaptation needs explicit error
+propagation across those sources; no exception-stripping shim was added.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
