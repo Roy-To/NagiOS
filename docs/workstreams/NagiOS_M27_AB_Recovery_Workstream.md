@@ -388,3 +388,13 @@ repetition 1 twice, at
 standalone pass above, the boot-4 timeout has not recurred in three new full
 acceptance sequences. These runs used fresh input/firmware state and do not
 identify the earlier timeout's cause.
+
+The next two complete M27 gates passed as both repetitions of the successful
+M28 run: `out/evidence/m27-ab-rollback-1790802782930760000/` and
+`out/evidence/m27-ab-rollback-1790802894479757000/`. Each archive now has a
+README and verified 31-file `SHA256SUMS` manifest. These additional fresh
+acceptance runs passed three-trial rollback, readiness-based B promotion,
+Recovery journal preservation, persistent User Data, and Recovery Undo of the
+M22 grouped transaction. The original boot-4 fault remains unexplained; M27
+remains `PARTIAL` for account-authenticated readiness, authenticated slot
+manifests/update installation, and remaining Recovery repair/log features.

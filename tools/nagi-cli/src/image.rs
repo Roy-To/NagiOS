@@ -2625,6 +2625,10 @@ fn capture_qmp_timeout_diagnostics(stream: &mut TcpStream) -> Vec<String> {
             "QMP CPU registers",
             r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
         ),
+        (
+            "QMP CPU instruction window",
+            r#"{"execute":"human-monitor-command","arguments":{"command-line":"x/12i $rip"}}"#,
+        ),
     ];
     let deadline = Instant::now() + QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT;
     let mut diagnostics = Vec::with_capacity(queries.len());
@@ -2818,7 +2822,7 @@ mod tests {
     }
 
     #[test]
-    fn qmp_timeout_diagnostics_capture_vm_status_and_cpu_registers() {
+    fn qmp_timeout_diagnostics_capture_vm_status_registers_and_instruction_window() {
         use std::io::{BufRead, BufReader, Write};
         use std::net::{TcpListener, TcpStream};
 
@@ -2851,6 +2855,20 @@ mod tests {
                 .get_mut()
                 .write_all(b"\r\n")
                 .expect("terminate register response");
+
+            command.clear();
+            reader
+                .read_line(&mut command)
+                .expect("read instruction window");
+            assert!(command.contains(r#"x/12i $rip"#));
+            reader
+                .get_mut()
+                .write_all(br#"{"return":"=> 0x1234:  mov %rax,%rbx\n   0x1237:  jmp 0x1234"}"#)
+                .expect("write instruction response");
+            reader
+                .get_mut()
+                .write_all(b"\r\n")
+                .expect("terminate instruction response");
         });
 
         let mut qmp = TcpStream::connect(address).expect("connect QMP fixture");
@@ -2859,9 +2877,10 @@ mod tests {
         let diagnostics = capture_qmp_timeout_diagnostics(&mut qmp);
         server.join().expect("QMP fixture thread");
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert!(diagnostics[0].contains(r#""status":"running""#));
         assert!(diagnostics[1].contains("RIP=0x1234"));
+        assert!(diagnostics[2].contains("mov %rax,%rbx"));
     }
 
     #[test]

@@ -124,6 +124,15 @@ M22, and M27 after a prior M27 Recovery timeout. That timeout remains
 unexplained; the successful rerun did not exercise the diagnostic-on-timeout
 path.
 
+The QMP timeout request now also asks the HMP monitor for `x/12i $rip`, adding
+a bounded instruction window to the same three-second total budget. The QMP
+fixture test now validates the additional request. A live QEMU/QMP smoke
+returned the bounded disassembly and is preserved at
+`out/evidence/m28-run-20260930T211250Z-51667/qmp-instruction-smoke.log`.
+`./nagi test`, lint, formatting, and build pass with the change. The successful
+two-repetition M28 gate did not time out, so the additional diagnostic has not
+yet been observed on an actual firmware hang.
+
 ## Remaining M29 work
 
 1. Capture additional genuine QEMU screenshots as more preview UI surfaces

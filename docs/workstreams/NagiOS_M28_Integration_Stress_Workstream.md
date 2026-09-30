@@ -345,7 +345,31 @@ were moved into those archives before retrying, and the pre-run persistent
 disks are preserved at
 `out/evidence/pre-m28-repeat-20261001-m27-replay/`.
 
-M28 remains `PARTIAL`: neither run completed repetition 2, and the combined
+Neither of those two attempts completed repetition 2. The combined
 Desktop/Files/Notes/Albert, real Granite, audio-pressure, OOM, CPU-fairness,
-and leak-soak workload remains unmeasured. The prior M27 boot-4 failure remains
-unexplained even though M27 passed three subsequent full sequences.
+and leak-soak workload also remained unmeasured; the prior M27 boot-4 failure
+remained unexplained despite three subsequent full M27 passes at that point.
+
+## Two-repetition M19/M22/M27 gate passed — 2026-10-01
+
+A third `NAGI_M28_REPEAT_COUNT=2 tests/acceptance/m28_integration_stress.sh
+--run` completed both repetitions. Each repetition passed M19 ObjectId/Search,
+all three M22 NH16 grouped Undo/Activity Ledger boots, and the full M27 GPT
+A/B/Recovery acceptance. The artifacts for both repetitions, including the
+fixed-name outputs from repetition 2, are archived and hash-verified at
+`out/evidence/m28-run-20260930T211250Z-51667/`; all 22 files verify against
+its `SHA256SUMS`. The M27 sub-runs at
+`out/evidence/m27-ab-rollback-1790802782930760000/` and
+`out/evidence/m27-ab-rollback-1790802894479757000/` each have a verified
+31-file manifest.
+
+The two earlier repetition-2 M22 boot-1 firmware timeouts did not recur; the
+reason for those hangs is still unknown. Timeout diagnostics now request a
+bounded 12-instruction window at `$rip` in addition to QMP status and registers.
+A QMP fixture test and live HMP smoke passed, recorded at
+`qmp-instruction-smoke.log`; this run did not trigger timeout diagnostics.
+
+This closes the runner's two-repetition M19/M22/M27 gate, not the formal full
+M28 workload. Desktop/Files/Notes/Albert with concurrent tabs, real Granite
+load/unload and CPU fairness, audio pressure, OOM, and memory/handle leak soak
+remain unmeasured. M28 remains `PARTIAL`.
