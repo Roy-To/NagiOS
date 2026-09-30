@@ -145,11 +145,11 @@ Nagi `no_std` target.
 ## Remaining acceptance blockers
 
 1. Extend the tested GGUF slice into explicit no-exception status propagation
-   through the pinned llama.cpp backend registration, tokenizer, grammar,
-   memory/KV, mapping, loader, and supported model paths. Then build the CPU
-   backend and connect it through the provider-neutral runtime. The current
-   full-target diagnostics identify 29 failing object targets; the checkout has
-   no Nagi C ABI adapter, complete target build, or backend session.
+   through tokenizer, grammar, memory/KV, mapping, loader, and supported model
+   paths. Then build the CPU backend and connect it through the provider-neutral
+   runtime. The latest fresh full-target attempt identifies 28 failing object
+   targets after backend registration now compiles; the checkout has no Nagi C
+   ABI adapter, complete target build, or backend session.
 2. Add a large-artifact Model Store path. Current guest VFS files are 1 KiB
    bounded and cannot contain the pinned 2.24 GB model; no guest model artifact
    reader or installer is registered.
@@ -164,3 +164,34 @@ Nagi `no_std` target.
 M20 remains `PARTIAL` until a real local Granite response is accepted inside
 Nagi. The provider-neutral boundary leaves Decision Providers free to use
 future runtimes and does not make Jev or cloud access a dependency.
+
+## Backend-registration no-exception compile slice — 2026-10-01
+
+The preceding fresh llama.cpp target build had one isolated failure in
+`ggml-backend-reg.cpp`: its logging-only `path_str()` helper used `try/catch`
+to turn filesystem encoding conversion errors into an empty diagnostic string.
+That C++ exception syntax is unavailable to Nagi's no-unwinder target. Patch
+`third_party/llama-cpp-patches/0002-nagi-backend-reg-noexceptions.patch` now
+uses the filesystem's native UTF-8 bytes only under `__NAGI__`; other targets
+retain the original `u8string()` conversion and exception fallback. This keeps
+the logged path bytes unchanged for Nagi and leaves the clean pinned upstream
+checkout untouched.
+
+The target compiler reproduced the original exception-syntax error before the
+patch, then compiled the same translation unit after it. `./nagi fetch` applied
+both numbered patches and regenerated the checkout. A fresh CPU-only CMake
+configuration with `GGML_BACKEND_DL=OFF` built the static Nagi-target `ggml`
+target 31/31, including `ggml-base`, `ggml-cpu`, and `ggml-backend-reg.cpp`.
+The full `llama` target was then built with Ninja keep-going: backend
+registration no longer fails, but 28 object targets still fail. Exception
+diagnostics span 63 source files; the same attempt also found two explicit RTTI
+use sites and a missing target `PATH_MAX` definition. The build and CMake
+evidence is preserved in
+`out/evidence/m20-backend-reg-noexceptions-20261001/`, and the previous
+generated checkout is preserved at
+`out/cache/llama-cpp-nagi-before-backend-reg-20261001/`.
+
+`./nagi fmt`, `./nagi lint`, `./nagi test`, `./nagi build`, and the three
+focused llama patch/lock tests passed. M20 QEMU inference acceptance was not
+run because the complete `llama` target and provider backend are not available;
+no inference result is claimed. M20 remains `PARTIAL`.

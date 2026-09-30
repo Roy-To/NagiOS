@@ -33,16 +33,18 @@ the upstream stream matched the digest and was not retained. Nagi now has a
 numbered GGUF patch that bounds parser metadata, returns parse errors without
 C++ exceptions, writes tensor data in 8 KiB chunks, and surfaces buffered write
 and flush failures. `./nagi fetch` applied it while preserving the clean pinned
-llama.cpp checkout. Nagi-target `ggml-base` compiled under `-fno-exceptions`;
-host GGUF tests passed 101/101, and a host build with Nagi limits enabled
-passed 103/103. The full Nagi-target `llama` build still fails in 29 object
-targets across 57 source files with exception paths spanning model loading,
-tokenization, grammar, memory/KV, mapping, backend registration, and model
-constructors. STL allocator OOM recovery remains unsupported in the current
-no-unwinder ABI. No complete llama.cpp backend, guest Model Store path, active
-model service, or real in-guest Granite response exists, so M20 remains
-`PARTIAL`; evidence is in `out/evidence/m20-gguf-noexcept-20260930/` and the
-M20 workstream.
+llama.cpp checkout. Nagi-target `ggml-base` and the static CPU `ggml` library
+compiled under `-fno-exceptions`; the latter includes the new Nagi path-format
+adapter for backend registration. Host GGUF tests passed 101/101, and a host
+build with Nagi limits enabled passed 103/103. The fresh Nagi-target `llama`
+build now passes backend registration but still fails in 28 object targets;
+exception diagnostics span 63 source files, and separate RTTI and `PATH_MAX`
+target gaps remain. STL allocator OOM recovery is also unsupported in the
+current no-unwinder ABI. No complete llama.cpp backend, guest Model Store path,
+active model service, or real in-guest Granite response exists, so M20 remains
+`PARTIAL`; the new build evidence is in
+`out/evidence/m20-backend-reg-noexceptions-20261001/`, alongside the earlier
+GGUF evidence in `out/evidence/m20-gguf-noexcept-20260930/`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
@@ -2414,7 +2416,7 @@ Use only these statuses:
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Twenty-nine Search tests, warnings-denied Clippy, format, Nagi target compile, and QEMU persistence/rename acceptance pass. Guest now also executes bounded M21 `file.search` through ContextResolver, Validator, Action Registry, and Executor against this SearchService; its caller policy is fixture-only. Real Files/page producer synchronization and authenticated production IPC remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
-| M20 | AI Runtime / Granite | PARTIAL | The model manager hashes artifact bytes through an 8 KiB buffer before backend load; IBM Granite Q4_K_M metadata and pinned llama.cpp source are recorded. A Nagi-owned GGUF patch adds metadata caps, exception-free parser checks, 8 KiB tensor writes, flush error reporting, and regression tests. The generated patch clone normalizes Git source/destination paths for Windows; its canonical-root regression and the current 138-unit/21-integration CLI suite pass on the host. `./nagi fetch`, Nagi-target `ggml-base` build, host GGUF tests (101/101; Nagi-limit branch 103/103), 40 model-manager tests, 2 manifest/schema tests, 1 Store API test, formatting, warnings-denied Clippy, and `no_std` target compile pass. Full target `llama` still fails in 29 object targets spanning 57 source files with exception paths; no complete target backend/service, guest large-artifact store, or real Granite inference exists. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
+| M20 | AI Runtime / Granite | PARTIAL | The model manager hashes artifact bytes through an 8 KiB buffer before backend load; IBM Granite Q4_K_M metadata and pinned llama.cpp source are recorded. Nagi-owned GGUF and backend-registry patches preserve bounded parsing/writes and make the CPU-only static `ggml` target compile with exceptions disabled. `./nagi fetch`, static Nagi-target `ggml` build, host GGUF tests (101/101; Nagi-limit branch 103/103), 40 model-manager tests, 2 manifest/schema tests, 1 Store API test, formatting, warnings-denied Clippy, and `no_std` target compile pass. Full target `llama` still fails in 28 object targets with exception paths across 63 source files; RTTI and `PATH_MAX` target gaps and the unsupported allocation-failure path also remain. No complete backend/service, guest large-artifact store, or real Granite inference exists. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
 | M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; bounded `file.search` and M22 fixture-scoped `file.move` actions run through guest ContextResolver, Validator, Action Registry, capability/object checks, and Executor against real VFS state. Fresh-disk guest acceptance now checks malformed/unsupported plans, out-of-context and policy-denied objects, capability denial without handler execution, and Executor `Partial` reporting after an unavailable second probe action; the real three-file move still persists NH16 Prepared/Committed and NAL1 intent. Twenty-four `nagi-ai` tests, formatting, CLI warnings-denied Clippy, Nagi target compile, and M19/M22 QEMU regressions pass. Policies and probe handlers remain fixture-only; production AI service registration, general first-party actions, and authenticated caller authority remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh-disk QEMU passed the expanded M21 guest validation plus real `file.move` plan with three-object NH16 and separate NAL1 Activity Ledger records: boot 1 Committed, boot 2 reverse-order Undo with `UndoPending`/`Undone`, boot 3 restored-file and ledger verification. Fourteen History/ledger tests, 24 AI tests, 138 CLI unit tests + 21 integration tests, warnings-denied CLI Clippy, changed-package formatting, Nagi target build, M19 Search regression, and QEMU acceptance pass. Acceptance logs, image, vars, and data disk are preserved under `out/evidence/m22-m21-negative-and-partial-pass-20260930/`. Plan/policy remain fixture-only; real inference, authenticated production authority, general production move actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
@@ -4851,7 +4853,7 @@ Record exact pinned revisions once introduced.
 | libc (Servo) | `0.2.189`, sha256 pinned in `sources.lock` | Nagi target patch `0001`; guest not yet accepted | Servo dependency |
 | relibc | `69bb008af1f6d93758631cf0df250500d53a065b` | Nagi backend present; Mesa C headers/archive not yet accepted | Initial POSIX libc candidate |
 | cc (cc-rs) | `1.4.6`, sha256 pinned in `sources.lock` | Nagi target patch `0001`; target C++ objects remain target-built without host runtime inference | Shared C/C++ build boundary |
-| llama.cpp | `c85b92c69c955961621193cd51da194f3cbcedf3` | Pinned in `sources.lock`; exception-free GGUF patch; full target build still fails | Generative LLM runtime; Decision and Embedding providers are not fixed to it |
+| llama.cpp | `c85b92c69c955961621193cd51da194f3cbcedf3` | Pinned in `sources.lock`; patches `0001` (bounded no-exception GGUF) and `0002` (Nagi native path formatting); static CPU `ggml` target builds, full `llama` target still fails | Generative LLM runtime; Decision and Embedding providers are not fixed to it |
 | whisper.cpp | `927cfce34f31707e17f2bff35c349632fb9e2c3a` | Clean raw source pin plus Nagi-owned no-exception patch; generated CPU-only `whisper` target builds, no STT provider | STT |
 | smoltcp | Not pinned yet | 遯ｶ繝ｻ| Network stack |
 
@@ -6353,3 +6355,23 @@ passed, pinned-nightly formatting and `git diff --check` passed, and all three
 QEMU M10 desktop acceptances passed. M29 remains `PARTIAL`; this measurement
 does not cover first installation, the M30 release image, or a multi-host
 performance matrix.
+
+## Completion sweep — M20 backend-registration target compile (2026-10-01)
+
+Added numbered llama.cpp patch `0002` for the exception-only path conversion
+in `ggml-backend-reg.cpp`. Nagi uses its native UTF-8 path bytes; non-Nagi
+builds retain the upstream conversion and fallback. The raw pinned checkout
+remains clean. `./nagi fetch` passed, the focused target translation unit
+changed from its reproduced `try`/`-fno-exceptions` failure to a successful
+compile, and a fresh CPU-only static Nagi-target `ggml` CMake build passed
+31/31. Full `llama` compilation now passes backend registration but still fails
+in 28 object targets with exception diagnostics across 63 source files, two
+RTTI uses, and one missing `PATH_MAX` definition. The CMake cache, generated
+source marker, patch, and build logs are preserved in
+`out/evidence/m20-backend-reg-noexceptions-20261001/`; the prior generated
+source checkout is retained under `out/cache/`.
+
+The three llama patch/lock tests and repository `./nagi fmt`, `./nagi lint`,
+`./nagi test`, and `./nagi build` passed. No M20 QEMU inference attempt is
+claimed because the complete llama target/provider backend is still absent.
+M20 remains `PARTIAL`.
