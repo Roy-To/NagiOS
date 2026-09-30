@@ -3585,8 +3585,12 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let mut final_log = PathBuf::new();
     for (index, expected_decision) in expected_decisions.iter().enumerate() {
         let log_path = evidence.join(format!("boot-{}.log", index + 1));
-        let acceptance_marker = if index < 3 {
-            "Nagi M27 trial payload rejected slot=B"
+        let is_trial_boot = index < 3;
+        let acceptance_marker = if is_trial_boot {
+            // Stop only after the loader has printed its actual invalid-ELF
+            // failure. The preceding rejection marker alone is not enough:
+            // wait_for_qemu kills QEMU as soon as its acceptance marker appears.
+            "Nagi Loader: invalid ELF"
         } else {
             GUEST_ACCEPTANCE_MARKER
         };
@@ -3635,6 +3639,16 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         }
+        if is_trial_boot && !m27_trial_failure_observed(&serial) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: boot {} did not complete the broken-slot failure path (QEMU exit {status}; log {})",
+                    index + 1,
+                    log_path.display()
+                ),
+            );
+        }
         if index >= 3 && !serial.contains("Nagi M7 persistent read PASS") {
             return failure(
                 EXIT_CONFIG_ERROR,
@@ -3657,6 +3671,12 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 }
 
+fn m27_trial_failure_observed(serial: &str) -> bool {
+    serial.contains("Nagi M27 trial payload rejected slot=B")
+        && serial.contains("Nagi Loader: invalid ELF")
+        && !serial.contains("Nagi Kernel started")
+}
+
 fn help() -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
@@ -3677,7 +3697,10 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt};
+    use super::{
+        append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt,
+        m27_trial_failure_observed,
+    };
     use std::path::Path;
 
     #[test]
@@ -3686,6 +3709,19 @@ mod tests {
             last_serial_lines("first\r\nsecond\r\nthird\r\n", 2),
             "second\nthird"
         );
+    }
+
+    #[test]
+    fn m27_trial_acceptance_waits_for_loader_failure_after_rejection() {
+        assert!(m27_trial_failure_observed(
+            "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\n"
+        ));
+        assert!(!m27_trial_failure_observed(
+            "Nagi M27 trial payload rejected slot=B\n"
+        ));
+        assert!(!m27_trial_failure_observed(
+            "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\nNagi Kernel started\n"
+        ));
     }
 
     #[test]

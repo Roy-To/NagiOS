@@ -71,15 +71,21 @@ Using the pinned `nightly-2025-08-01` toolchain:
   `Default` implementation in `loader/src/elf.rs`.
 - The UEFI release build with `--features m27-broken-slot-acceptance` and
   warnings-denied target Clippy passed.
-- CLI tests passed (116 unit and 18 integration); warnings-denied Clippy and
+- CLI tests passed (117 unit and 18 integration); warnings-denied Clippy and
   formatting passed.
 - Fresh `./nagi m27` acceptance passed on 2026-09-30. The bootstrap wrote the
   persistent guest disk. QEMU boots 1–3 selected B and printed
-  `Nagi M27 trial payload rejected slot=B`; boot 4 selected rollback slot A,
-  read the saved user-data marker, and reached M7 acceptance; boot 5 again
-  selected confirmed A and verified the same data. The shared OVMF variables,
-  separate user-data disk, and all six serial logs are preserved in
-  `out/evidence/m27-ab-rollback-1790727225721044000/`.
+  `Nagi M27 trial payload rejected slot=B` followed by
+  `Nagi Loader: invalid ELF`; none reached `Nagi Kernel started`. Boot 4
+  selected rollback slot A, read the saved user-data marker, and reached M7
+  acceptance; boot 5 again selected confirmed A and verified the same data.
+  The shared OVMF variables, separate user-data disk, and all six serial logs
+  are preserved in `out/evidence/m27-ab-rollback-1790727880353946000/`.
+- A review found the earlier runner stopped on the pre-failure rejection
+  marker. It now waits for the loader's invalid-ELF diagnostic, requires both
+  failure markers, and rejects any trial log containing `Nagi Kernel started`.
+  A CLI regression test covers those conditions; the fresh QEMU run above
+  passed with all three full failure paths observed.
 - The QEMU host logged that it has no `virtio-sound.in` audio driver. The M27
   acceptance does not exercise audio; all boot-control and persistent-data
   markers passed.

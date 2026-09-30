@@ -119,7 +119,7 @@ persistent user-data disk, rejected malformed System B on trials 1–3, then
 selected System A and read the saved data on rollback boot 4 and confirmed-A
 boot 5. The same OVMF variables and data disk were reused across all launches.
 Logs, vars, and the data disk are preserved in
-`out/evidence/m27-ab-rollback-1790727225721044000/`. Ten loader tests, 116 CLI
+`out/evidence/m27-ab-rollback-1790727880353946000/`. Ten loader tests, 117 CLI
 unit tests, 18 CLI integration tests, warnings-denied loader/CLI Clippy,
 formatting, and the feature-enabled UEFI release build pass. M27 remains
 `PARTIAL`: a trustworthy readiness signal, bootable Recovery Environment, and
