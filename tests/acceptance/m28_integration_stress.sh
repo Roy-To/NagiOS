@@ -24,6 +24,13 @@ validate_repeat_count() {
     esac
 }
 
+validate_user_data_disk_size() {
+    case "$1" in
+        16777216|18874368) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 validate_log() {
     log_path=$1
     shift
@@ -84,6 +91,11 @@ self_test() {
     validate_repeat_count 5 || fail 'repeat count 5 rejected'
     if validate_repeat_count 0 || validate_repeat_count 6 || validate_repeat_count many; then
         fail 'repeat-count bounds accepted an invalid value'
+    fi
+    validate_user_data_disk_size 16777216 || fail 'legacy 16 MiB disk size rejected'
+    validate_user_data_disk_size 18874368 || fail 'current 18 MiB GPT disk size rejected'
+    if validate_user_data_disk_size 16777215 || validate_user_data_disk_size 18874369; then
+        fail 'unsupported persistent disk size accepted'
     fi
 
     cat >"$temporary_dir/m19.log" <<'EOF'
@@ -164,7 +176,7 @@ validate_latest_m19_log() {
 for disk in "$m19_disk" "$m22_disk"; do
     [ -f "$disk" ] || fail "required existing persistent guest disk is missing: $disk"
     disk_bytes=$(wc -c <"$disk" | tr -d '[:space:]')
-    [ "$disk_bytes" = 16777216 ] || fail "unexpected persistent disk size ($disk_bytes bytes): $disk"
+    validate_user_data_disk_size "$disk_bytes" || fail "unexpected persistent disk size ($disk_bytes bytes; expected legacy 16 MiB or current 18 MiB GPT): $disk"
 done
 
 printf 'M28 slice repository: %s\n' "$repo_root"

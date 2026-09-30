@@ -22,29 +22,27 @@ capability-bound caller context.
 The guest fixture also now runs a bounded M21 `file.search` plan through
 ContextResolver, Validator, Action Registry, and Executor against that real
 SearchService, but its caller/capability policy remains fixture-only.
-**M20 evidence:** The provider-neutral `no_std` model manager now verifies
-actual artifact bytes with streaming SHA-256 before backend load. Its catalog
-pins the IBM Granite 4.2 3B Q4_K_M source revision, size, digest, and Apache
-notice metadata; the upstream stream matched the declared SHA-256 and was not
-retained or installed. `./nagi fetch`
-checked out the exact clean llama.cpp commit recorded in
-`third_party/sources.lock`. Nagi now has a numbered llama.cpp patch boundary:
-`./nagi fetch` keeps the pinned checkout pristine and validates any generated,
-fingerprinted patch tree under `out/cache/llama-cpp-nagi`; the boundary is
-currently empty because the required no-exceptions conversion is not yet
-safe. Three patch-pipeline tests, 119 CLI unit tests, and 18 CLI integration
-tests pass, along with the 40 model-manager unit tests, 2 manifest/schema
-tests, and 1 Store API test;
-formatting, warnings-denied Clippy, and the Nagi user-target compile pass. No
-Nagi llama.cpp backend, guest Model Store path, active model service, or real
-in-guest Granite response exists, so M20 remains `PARTIAL`. A Nagi-target
-CMake configure for pinned llama.cpp passed, but compiling `llama` stopped at
-exception syntax in `gguf.cpp` under the target's intentional
-`-fno-exceptions`; logs are in `out/m20-llama-target-probe-2026-09-30/`.
-The target compile database contains 73 translation units; direct scanning
-found exception syntax in 20 selected CPU-path translation units and no
-upstream no-exceptions branch. Correct adaptation needs explicit error
-propagation across those sources; no exception-stripping shim was added.
+The 2026-09-30 Completion Sweep rerun of `./nagi m19` passed; its invocation
+log is `out/evidence/completion-sweep-regression-20260930/m19-qemu.log` and
+pre-run artifacts are SHA-256 preserved under
+`out/evidence/completion-sweep-regression-20260930/pre-m19-m22/`.
+**M20 evidence:** The provider-neutral `no_std` model manager verifies actual
+artifact bytes with streaming SHA-256 before backend load. Its catalog pins the
+IBM Granite 4.2 3B Q4_K_M source revision, size, digest, and Apache notice;
+the upstream stream matched the digest and was not retained. Nagi now has a
+numbered GGUF patch that bounds parser metadata, returns parse errors without
+C++ exceptions, writes tensor data in 8 KiB chunks, and surfaces buffered write
+and flush failures. `./nagi fetch` applied it while preserving the clean pinned
+llama.cpp checkout. Nagi-target `ggml-base` compiled under `-fno-exceptions`;
+host GGUF tests passed 101/101, and a host build with Nagi limits enabled
+passed 103/103. The full Nagi-target `llama` build still fails in 29 object
+targets across 57 source files with exception paths spanning model loading,
+tokenization, grammar, memory/KV, mapping, backend registration, and model
+constructors. STL allocator OOM recovery remains unsupported in the current
+no-unwinder ABI. No complete llama.cpp backend, guest Model Store path, active
+model service, or real in-guest Granite response exists, so M20 remains
+`PARTIAL`; evidence is in `out/evidence/m20-gguf-noexcept-20260930/` and the
+M20 workstream.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
@@ -79,6 +77,10 @@ are preserved under `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`;
 the later M28 rerun's current logs remain in `out/logs/`. The outputs replaced
 by the fresh-disk run are preserved under
 `out/evidence/pre-m22-ai-activity-ledger-20260930/`.
+The 2026-09-30 Completion Sweep rerun of `./nagi m22` also passed all three
+boots; its invocation log is
+`out/evidence/completion-sweep-regression-20260930/m22-qemu.log`. The prior
+M19/M22 artifacts and serial logs were copied and hash-verified before rerun.
 Fourteen History/Activity Ledger tests and 24 AI tests pass, along with
 warnings-denied Clippy, changed-package formatting, CLI tests, and the Nagi
 target build. `NH15` remains the M15 compatibility serializer. M22 remains
@@ -2343,11 +2345,11 @@ Use only these statuses:
 | M13 | Rust std / POSIX | PASS | Corrective closure implemented; focused host tests, target builds, formatting checks, and unified PowerShell/Git Bash real-QEMU POSIX/relibc + Rust std acceptance passed |
 | M14 | Audio | PASS | Revalidated after review: QEMU `dsound` backend, real VirtIO Sound playback/capture with non-zero capture signal, modern VERSION_1/FEATURES_OK negotiation, bounded AudioService/mixer, volume/mute, session gates, invalid-capability denial, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m14-audio.log`. |
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
-| M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, Git Bash wrapper, and `out/logs/m16-package.log` passed on 2026-09-19. |
+| M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, and QEMU acceptance passed on 2026-09-19. Completion Sweep found and fixed an allocator cfg omission for the standalone `m16-package` feature; the target then linked and reached QEMU. The macOS rerun stopped at the prerequisite M14 capture check (`Nagi M14 capture FAIL`, no CoreAudio input); M16 install/update markers were not reached. SDK/package/IDL artifacts and the failed local run are preserved under `out/evidence/completion-sweep-regression-20260930/`; the prior M16 acceptance remains the PASS evidence. |
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Twenty-three Search tests, warnings-denied Clippy, format, Nagi target compile, and QEMU persistence/rename acceptance pass. Guest now also executes bounded M21 `file.search` through ContextResolver, Validator, Action Registry, and Executor against this SearchService; its caller policy is fixture-only. Real Files/page producer synchronization and authenticated production IPC remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
-| M20 | AI Runtime / Granite | PARTIAL | The model manager hashes artifact bytes through an 8 KiB buffer before backend load; IBM Granite Q4_K_M metadata and pinned llama.cpp source are recorded. `./nagi fetch`, 40 model-manager unit tests, 2 manifest/schema tests, 1 Store API test, 114 CLI unit tests, 18 CLI integration tests, formatting, warnings-denied Clippy, and `no_std` target compile pass. Nagi-target CMake configuration passed; the CPU-path audit found exception syntax in 22 selected translation units under Nagi's intentional no-unwinder ABI, with no upstream no-exceptions branch. No target backend/service, guest large-artifact store, or real Granite inference exists. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
+| M20 | AI Runtime / Granite | PARTIAL | The model manager hashes artifact bytes through an 8 KiB buffer before backend load; IBM Granite Q4_K_M metadata and pinned llama.cpp source are recorded. A Nagi-owned GGUF patch adds metadata caps, exception-free parser checks, 8 KiB tensor writes, flush error reporting, and regression tests. `./nagi fetch`, Nagi-target `ggml-base` build, host GGUF tests (101/101; Nagi-limit branch 103/103), 40 model-manager tests, 2 manifest/schema tests, 1 Store API test, 114 CLI unit tests, 18 CLI integration tests, formatting, warnings-denied Clippy, and `no_std` target compile pass. Full target `llama` still fails in 29 object targets spanning 57 source files with exception paths; no complete target backend/service, guest large-artifact store, or real Granite inference exists. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
 | M21 | Planner / Validator / Executor | PARTIAL | Added `services/nagi-ai` no_std orchestration contracts and `schemas/NagiPlan@1.json`; bounded `file.search` and M22 fixture-scoped `file.move` actions run through guest ContextResolver, Validator, Action Registry, capability/object checks, and Executor against real VFS state. The three-file move persists NH16 Prepared/Committed, and the Executor forwards validated plan intent for the NAL1 fixture ledger. Twenty-four `nagi-ai` tests, formatting, warnings-denied target Clippy, Nagi target compile, and QEMU acceptance pass. Policies remain fixture-only; real AI service registration, general first-party actions, and authenticated guest acceptance remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`. |
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh-disk QEMU passed an M21 guest `file.move` plan with three-object NH16 and separate NAL1 Activity Ledger records: boot 1 Committed, boot 2 reverse-order Undo with `UndoPending`/`Undone`, boot 3 restored-file and ledger verification. Fourteen History/ledger tests, 24 AI tests, warnings-denied Clippy, changed-package formatting, Nagi target build, CLI/search regressions, and QEMU acceptance pass. Plan/policy remain fixture-only; real inference, authenticated production authority, general production move actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
@@ -2355,7 +2357,7 @@ Use only these statuses:
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator with explicit permission/indicator ordering, PCM framing limits, provider unavailability cleanup, and a target AudioService adapter. Eight `nagi-audio` tests, 119 CLI unit tests, 18 CLI integration tests, warnings-denied host/target Clippy, changed-package formatting, and Nagi target build pass. `./nagi m25` QEMU fixture acceptance verifies denial, indicator ordering, bounded PCM forwarding, and unavailable-provider cleanup; it uses no real microphone or STT model. M19 and M22 QEMU regressions pass. Authenticated permission/UI wiring, whisper.cpp Japanese STT, local TTS, and real guest voice-command acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
 | M27 | A/B / Recovery | PARTIAL | Fresh QEMU acceptance covers malformed-B rollback after three trials, healthy-B readiness promotion, and Recovery boot even with invalid A/B kernels. Recovery runs a read-only VFS check before a no-format mount and exposes bounded help/check/log/files/slots/undo commands; a real guest M22 three-file NH16/NAL1 transaction was undone in Recovery, then verified restored and Undone after guest restart. Recovery left the UEFI journal untouched and the following automatic boot began trial 1/B. GPT-layout QEMU acceptance now covers malformed-B rollback, healthy-B promotion, Recovery with a pending journal, and confirmed A/B boot on the same six-partition layout. BootInfo/ABI/CLI host tests (15/4/133 unit + 18 integration), 10 loader tests, target builds, warnings-denied loader Clippy, formatting, and QEMU pass. M27 remains PARTIAL because account login readiness, authenticated slot manifests, and GPT-integrated update installation remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
-| M28 | Integration / Stress | PARTIAL | After preserving existing outputs and disks under `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`, a fresh-disk M22 run verified separate NAL1 commit/Undo/restart evidence and a real one-repetition M28 run passed M19 ObjectId/Search plus all three M22 boots with the Activity Ledger marker. Shell syntax, self-test, and QEMU gate passed. Desktop/model/audio reference load, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
+| M28 | Integration / Stress | PARTIAL | After preserving existing outputs and disks under `out/evidence/pre-m22-ai-activity-ledger-m28-20260930/`, a fresh-disk M22 run verified separate NAL1 commit/Undo/restart evidence and a real one-repetition M28 run passed M19 ObjectId/Search plus all three M22 boots with the Activity Ledger marker. The completion-sweep rerun migrated legacy 16 MiB User Data images to the current 18 MiB GPT format; the M28 size guard now accepts both explicitly supported sizes. Shell syntax check, harness self-test, and dry-run pass against the current GPT disks and latest M19/M22 logs without invoking QEMU. Desktop/model/audio reference load, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Added cross-linked setup, SDK, contribution, and roadmap documentation; 47 local documentation links resolve and `./nagi --help` was verified with the pinned rustup toolchain. No Nagi screenshots or boot-time measurement; first-run, Settings, complete localization/accessibility, user-facing provider/recovery UX, and binary license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
 | M30 | Nagi OS 0.1 Release | PARTIAL | Built a self-contained 64 GiB GPT qcow2 with ESP, System A/B, bounded User Data, Recovery, and Model Store. Loader GPT selection, kernel GPT validation/partition capability, clean blank-image QEMU format/write and persistent read, and `qemu-img check` pass. On clean source commit `144cc0d`, release preflight/assembly/verify passed; two QEMU boots of a disposable copy of the assembled package passed M7 acceptance, and the untouched package retained SHA-256 `461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43` with post-boot verify/check passing. CLI suite (133 unit + 18 integration), warnings-denied Clippy, kernel/loader target builds, and eight release-tool tests pass. Authenticated updates, M18–M29 completion, and binary license/notice review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
@@ -2379,20 +2381,34 @@ focused evidence and remaining production acceptance criteria.
 
 # M20 - AI Runtime / Granite (`PARTIAL`)
 
-The `nagi-model-manager` package now streams artifact bytes through a fixed
-8 KiB buffer and checks their SHA-256 before any backend load. Its Granite
-profile identifies IBM's Q4_K_M GGUF snapshot, upstream byte count/digest, and
+The `nagi-model-manager` package streams artifact bytes through a fixed 8 KiB
+buffer and checks their SHA-256 before any backend load. Its Granite profile
+identifies IBM's Q4_K_M GGUF snapshot, upstream byte count/digest, and
 Apache-2.0 notice. Streaming the pinned public artifact produced the expected
 SHA-256; no model file is retained or bundled in the repository. The exact
-llama.cpp revision is in `third_party/sources.lock` and `./nagi fetch` validated
-a clean checkout.
+llama.cpp revision is in `third_party/sources.lock`.
 
-Host coverage passes with 40 model-manager unit tests, 2 manifest/schema tests,
-and 1 Store API test; 114 CLI unit tests and 18 CLI integration tests also
-pass. Formatting, Clippy, and the Nagi `no_std` target compile pass. M20
-remains `PARTIAL`: there is no Nagi-compatible llama.cpp target backend, no
-guest artifact store for a 2.24 GB GGUF, no active lazy-loading model service,
-and no in-guest Granite response/QEMU inference acceptance.
+Nagi's numbered `0001-nagi-gguf-noexceptions.patch` adds Nagi-only metadata
+caps, exception-free parser status checks, chunked 8 KiB tensor writes, and
+buffered write/flush error reporting. `./nagi fetch` applied the patch and
+validated the generated tree while keeping `third_party/llama.cpp` clean.
+Nagi-target `ggml-base` compilation passed; upstream host `test-gguf` passed
+101/101 and 103/103 with `__NAGI__` enabled, covering the Nagi tensor/KV count
+limits and buffered flush failure.
+
+Host coverage also passes with 40 model-manager unit tests, 2 manifest/schema
+tests, and 1 Store API test; 114 CLI unit tests and 18 CLI integration tests
+pass. Formatting, Clippy, and the Nagi `no_std` target compile pass. Full
+Nagi-target `llama` compilation remains blocked: `ninja -k 0` reported 29
+failed object targets and exception paths in 57 source files across model
+loading, tokenizer/grammar, memory/KV, mmap, backend registration, and model
+constructors. The compiler log and focused GGUF evidence are in
+`out/evidence/m20-gguf-noexcept-20260930/`. STL allocator OOM recovery also
+remains unsupported under the no-unwinder ABI.
+
+M20 remains `PARTIAL`: there is no complete Nagi-compatible llama.cpp target
+backend, guest artifact store for a 2.24 GB GGUF, active lazy-loading model
+service, or in-guest Granite response/QEMU inference acceptance.
 
 See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md` for exact
 commands, provenance, and the concrete runtime acceptance gap.

@@ -20,7 +20,9 @@ slice using the existing independent persistent disks:
 For each repetition, `--run` invokes the real `./nagi m19` and `./nagi m22`
 commands, then validates the latest M19 boot log and M22 third-boot log for
 their required kernel, VFS, Search, NH16, and restart PASS markers. Both disks
-must already exist and have the expected 16 MiB size. `NAGI_M28_REPEAT_COUNT`
+must already exist and have a supported size: legacy 16 MiB or current 18 MiB
+GPT-backed User Data. The M19/M22 commands migrate supported legacy disks
+before guest use while preserving the old raw image. `NAGI_M28_REPEAT_COUNT`
 accepts 1–5 (default 2).
 
 The runner uses `git rev-parse` from its own location to find the repository.
@@ -147,6 +149,19 @@ marker required by the harness. Latest M19 and M22 serial logs remain in
 driver; this Search/History run does not measure audio. M28 remains PARTIAL
 because its combined desktop/model/audio workload and stability criteria are
 still unmeasured.
+
+## Legacy User Data migration regression — 2026-09-30
+
+The Completion Sweep reran M19 and M22 against preserved 16 MiB User Data
+images. Both guest acceptances passed and `ensure_persistent_disk` migrated the
+legacy images to the current 18 MiB GPT-backed form, preserving the original
+images in the pre-run evidence directory. This exposed a stale 16 MiB-only size
+check in the M28 dry-run harness. The guard now accepts only the two supported
+sizes, and its self-test checks both boundaries. After the fix, `sh -n`,
+`--self-test`, and `--dry-run` all passed against the migrated disks and latest
+M19/M22 logs without building, writing disks, or invoking QEMU. The full M28
+slice remains PARTIAL because the desktop/model/audio stress workload is still
+unmeasured.
 
 ## Commands
 

@@ -1,0 +1,428 @@
+--- a/ggml/src/gguf.cpp
++++ b/ggml/src/gguf.cpp
+@@ -17,8 +17,17 @@
+ #include <unordered_set>
+ #include <vector>
+ 
++#if defined(__NAGI__)
++// Bound untrusted metadata before the exception-free target parser allocates.
++#define GGUF_MAX_STRING_LENGTH  (1024*1024)
++#define GGUF_MAX_ARRAY_ELEMENTS (1024*1024)
++#define GGUF_MAX_TENSOR_COUNT   (32*1024)
++#define GGUF_MAX_KV_COUNT       (4*1024)
++#define GGUF_MAX_METADATA_BYTES (64ull*1024*1024)
++#else
+ #define GGUF_MAX_STRING_LENGTH  (1024*1024*1024)
+ #define GGUF_MAX_ARRAY_ELEMENTS (1024*1024*1024)
++#endif
+ 
+ #ifdef _WIN32
+ #    define gguf_ftell _ftelli64
+@@ -296,6 +305,9 @@
+                 return false;
+             }
+         }
++        if (n > dst.max_size()) {
++            return false;
++        }
+         dst.resize(n);
+         for (size_t i = 0; i < dst.size(); ++i) {
+             if constexpr (std::is_same<T, bool>::value) {
+@@ -353,6 +365,9 @@
+             GGML_LOG_ERROR("%s: string length %" PRIu64 " exceeds remaining file size %" PRIu64 " bytes\n", __func__, size, nbytes_remain);
+             return false;
+         }
++        if (size > SIZE_MAX || static_cast<size_t>(size) > dst.max_size()) {
++            return false;
++        }
+         dst.resize(static_cast<size_t>(size));
+         return read_raw(dst.data(), static_cast<size_t>(size)) == size;
+     }
+@@ -371,6 +386,12 @@
+     // position in the file where the GGUF data starts, alignment is relative to it, not to the file
+     uint64_t start() const {
+         return start_offset;
++    }
++
++    void allow_tensor_data_reads() const {
++#if defined(__NAGI__)
++        metadata_reading = false;
++#endif
+     }
+ 
+     bool seek(uint64_t absolute_offset) const {
+@@ -390,6 +411,18 @@
+         if (callback == nullptr || size == 0) {
+             return 0;
+         }
++#if defined(__NAGI__)
++        if (metadata_reading) {
++            if (data_offset < start_offset) {
++                return 0;
++            }
++            const uint64_t metadata_bytes = data_offset - start_offset;
++            if (metadata_bytes > GGUF_MAX_METADATA_BYTES ||
++                size > GGUF_MAX_METADATA_BYTES - metadata_bytes) {
++                return 0;
++            }
++        }
++#endif
+ 
+         uint8_t * data = static_cast<uint8_t *>(dst);
+         size_t total_nread = 0;
+@@ -425,6 +458,9 @@
+     uint64_t start_offset = 0;
+     mutable uint64_t data_offset = 0;
+     mutable uint64_t nbytes_remain = 0;
++#if defined(__NAGI__)
++    mutable bool metadata_reading = true;
++#endif
+ };
+ 
+ struct gguf_context * gguf_init_empty(void) {
+@@ -435,6 +471,12 @@
+ bool gguf_read_emplace_helper(const struct gguf_reader & gr, std::vector<struct gguf_kv> & kv, const std::string & key, const bool is_array, const size_t n) {
+     if (is_array) {
+         std::vector<T> value;
++#if defined(__NAGI__)
++        if (!gr.read(value, n)) {
++            GGML_LOG_ERROR("%s: failed to read bounded array value for key '%s'\n", __func__, key.c_str());
++            return false;
++        }
++#else
+         try {
+             if (!gr.read(value, n)) {
+                 return false;
+@@ -446,6 +488,7 @@
+             GGML_LOG_ERROR("%s: encountered bad_alloc error while reading value for key '%s'\n", __func__, key.c_str());
+             return false;
+         }
++#endif
+         kv.emplace_back(key, value);
+     } else {
+         T value;
+@@ -528,6 +571,13 @@
+                 __func__, n_tensors, SIZE_MAX/sizeof(gguf_tensor_info));
+             ok = false;
+         }
++#if defined(__NAGI__)
++        if (n_tensors > GGUF_MAX_TENSOR_COUNT) {
++            GGML_LOG_ERROR("%s: number of tensors is %" PRIi64 " and exceeds the Nagi limit %d\n",
++                __func__, n_tensors, GGUF_MAX_TENSOR_COUNT);
++            ok = false;
++        }
++#endif
+     } else {
+         ok = false;
+     }
+@@ -537,8 +587,15 @@
+         if (n_kv < 0 || n_kv > int64_t(SIZE_MAX/sizeof(gguf_kv))) {
+             GGML_LOG_ERROR("%s: number of key value pairs is %" PRIi64 " but must be in [0, %zu]\n",
+                     __func__, n_kv, SIZE_MAX/sizeof(gguf_kv));
++            ok = false;
++        }
++#if defined(__NAGI__)
++        if (n_kv > GGUF_MAX_KV_COUNT) {
++            GGML_LOG_ERROR("%s: number of key value pairs is %" PRIi64 " and exceeds the Nagi limit %d\n",
++                __func__, n_kv, GGUF_MAX_KV_COUNT);
+             ok = false;
+         }
++#endif
+     } else {
+         ok = false;
+     }
+@@ -559,6 +616,9 @@
+             bool        is_array = false;
+             uint64_t    n        = 1;
+ 
++#if defined(__NAGI__)
++            ok = ok && gr.read(key);
++#else
+             try {
+                 ok = ok && gr.read(key);
+             } catch (std::length_error &) {
+@@ -568,6 +628,7 @@
+                 GGML_LOG_ERROR("%s: encountered bad_alloc error while reading key %" PRIi64 "\n", __func__, i);
+                 ok = false;
+             }
++#endif
+             if (ok && key.empty()) {
+                 GGML_LOG_ERROR("%s: key %" PRIi64 " is empty\n", __func__, i);
+                 ok = false;
+@@ -645,6 +706,9 @@
+         // tensor name
+         {
+             std::string name;
++#if defined(__NAGI__)
++            ok = ok && gr.read(name);
++#else
+             try {
+                 ok = ok && gr.read(name);
+             } catch (std::length_error &) {
+@@ -654,6 +718,7 @@
+                 GGML_LOG_ERROR("%s: encountered bad_alloc error while reading tensor name %" PRIi64 "\n", __func__, i);
+                 ok = false;
+             }
++#endif
+             if (name.length() >= GGML_MAX_NAME) {
+                 GGML_LOG_ERROR("%s: tensor name %" PRIi64 " is too long: %zu >= %d\n", __func__, i, name.length(), GGML_MAX_NAME);
+                 ok = false;
+@@ -779,6 +844,7 @@
+ 
+     // store the current file offset - this is where the data section starts
+     ctx->offset = gr.tell();
++    gr.allow_tensor_data_reads();
+ 
+     // compute the total size of the data section, taking into account the alignment
+     {
+@@ -1448,6 +1514,9 @@
+     virtual void write(int8_t val) = 0;
+     virtual void write(const std::vector<int8_t> & val) = 0;
+     virtual void write_tensor_data(const struct gguf_tensor_info & info, size_t offset_data, size_t alignment) = 0;
++    virtual bool is_ok() const {
++        return true;
++    }
+ 
+     template <typename T>
+     void write(const T & val) {
+@@ -1538,7 +1607,7 @@
+     }
+ 
+     void pad(const size_t alignment) {
+-        while (written_bytes % alignment != 0) {
++        while (is_ok() && written_bytes % alignment != 0) {
+             const int8_t zero = 0;
+             write(zero);
+         }
+@@ -1585,45 +1654,70 @@
+ 
+ // file based writer
+ struct gguf_writer_file final : public gguf_writer_base {
++    static constexpr size_t chunk_capacity = 8 * 1024;
++
+     FILE * file;
++    bool success = true;
+ 
+     gguf_writer_file(FILE* file) : file(file) {}
+ 
+     using gguf_writer_base::write;
+ 
++    bool is_ok() const override {
++        return success;
++    }
++
+     void write(const int8_t val) override {
++        if (!success) {
++            return;
++        }
+         const auto real_val = static_cast<uint8_t>(val);
+-        const auto ret = fputc(real_val, file);
+-        written_bytes++;
+-        if (ret != real_val) {
+-            throw std::runtime_error("unexpected fputc result '" + std::to_string(ret) + "' instead of '" + std::to_string((int)real_val) + "'");
++        if (fputc(real_val, file) == EOF) {
++            success = false;
++            return;
+         }
++        written_bytes++;
+     }
+ 
+     void write(const std::vector<int8_t> & val) override {
++        if (!success) {
++            return;
++        }
+         const auto ret = fwrite(val.data(), 1, val.size(), file);
+-        written_bytes += val.size();
++        written_bytes += ret;
+         if (ret != val.size()) {
+-            throw std::runtime_error("unexpected fwrite number of bytes written, '" + std::to_string(ret) + "' instead of '" + std::to_string(val.size()) + "'");
++            success = false;
+         }
+     }
+ 
+     void write_tensor_data(const struct gguf_tensor_info & info, const size_t offset_data, const size_t alignment) override {
++        if (!success) {
++            return;
++        }
+         GGML_ASSERT(written_bytes - offset_data == info.offset);
+-
+         GGML_ASSERT(ggml_is_contiguous(&info.t));
+-        const size_t nbytes = ggml_nbytes(&info.t);
+ 
+-        std::vector<int8_t> buf(nbytes);
+-        if (info.t.buffer) {
+-            ggml_backend_tensor_get(&info.t, buf.data(), 0, nbytes);
+-        } else {
+-            GGML_ASSERT(info.t.data);
+-            memcpy(buf.data(), info.t.data, nbytes);
++        uint8_t buffer[chunk_capacity];
++        const size_t nbytes = ggml_nbytes(&info.t);
++        size_t offset = 0;
++        while (offset < nbytes && success) {
++            const size_t chunk_size = std::min(chunk_capacity, nbytes - offset);
++            if (info.t.buffer) {
++                ggml_backend_tensor_get(&info.t, buffer, offset, chunk_size);
++            } else {
++                GGML_ASSERT(info.t.data);
++                memcpy(buffer, static_cast<const uint8_t *>(info.t.data) + offset, chunk_size);
++            }
++            const size_t written = fwrite(buffer, 1, chunk_size, file);
++            written_bytes += written;
++            offset += written;
++            if (written != chunk_size) {
++                success = false;
++            }
+         }
+-        write(buf);
+-
+-        pad(alignment);
++        if (success) {
++            pad(alignment);
++        }
+     }
+ };
+ 
+@@ -1674,13 +1768,16 @@
+ bool gguf_write_to_file_ptr(const struct gguf_context * ctx, FILE * file, bool only_meta) {
+     GGML_ASSERT(file);
+ 
+-    try {
+-        gguf_writer_file gw(file);
+-        gguf_write_out(ctx, gw, only_meta);
+-    } catch (const std::runtime_error& ex) {
+-        GGML_LOG_ERROR("%s: failed to write GGUF data: %s\n", __func__, ex.what());
++    gguf_writer_file gw(file);
++    gguf_write_out(ctx, gw, only_meta);
++    if (!gw.is_ok()) {
++        GGML_LOG_ERROR("%s: failed to write GGUF data: output stream error\n", __func__);
+         return false;
+     }
++    if (fflush(file) != 0) {
++        GGML_LOG_ERROR("%s: failed to flush GGUF data: output stream error\n", __func__);
++        return false;
++    }
+     return true;
+ }
+ 
+--- a/tests/test-gguf.cpp
++++ b/tests/test-gguf.cpp
+@@ -12,6 +12,10 @@
+ #include <string>
+ #include <vector>
+ 
++#if !defined(_WIN32)
++#include <unistd.h>
++#endif
++
+ constexpr int offset_has_kv      = 1000;
+ constexpr int offset_has_tensors = 2000;
+ constexpr int offset_has_data    = 3000;
+@@ -23,6 +27,8 @@
+     HANDCRAFTED_HEADER_BAD_VERSION_FUTURE  =  30,
+     HANDCRAFTED_HEADER_BAD_N_TENSORS       =  40,
+     HANDCRAFTED_HEADER_BAD_N_KV            =  50,
++    HANDCRAFTED_HEADER_NAGI_TENSOR_LIMIT   =  60,
++    HANDCRAFTED_HEADER_NAGI_KV_LIMIT       =  70,
+     HANDCRAFTED_HEADER_EMPTY               = 800,
+ 
+     HANDCRAFTED_KV_BAD_KEY_SIZE            =  10 + offset_has_kv,
+@@ -64,6 +70,8 @@
+         case HANDCRAFTED_HEADER_BAD_VERSION_FUTURE:  return "HEADER_BAD_VERSION_FUTURE";
+         case HANDCRAFTED_HEADER_BAD_N_KV:            return "HEADER_BAD_N_KV";
+         case HANDCRAFTED_HEADER_BAD_N_TENSORS:       return "HEADER_BAD_N_TENSORS";
++        case HANDCRAFTED_HEADER_NAGI_TENSOR_LIMIT:  return "HEADER_NAGI_TENSOR_LIMIT";
++        case HANDCRAFTED_HEADER_NAGI_KV_LIMIT:      return "HEADER_NAGI_KV_LIMIT";
+         case HANDCRAFTED_HEADER_EMPTY:               return "HEADER_EMPTY";
+ 
+         case HANDCRAFTED_KV_BAD_KEY_SIZE:            return "KV_BAD_KEY_SIZE";
+@@ -253,6 +261,9 @@
+     if (hft == HANDCRAFTED_HEADER_BAD_N_TENSORS) {
+         const uint64_t n_tensors = -1;
+         helper_write(file, n_tensors);
++    } else if (hft == HANDCRAFTED_HEADER_NAGI_TENSOR_LIMIT) {
++        const uint64_t n_tensors = 32 * 1024 + 1;
++        helper_write(file, n_tensors);
+     } else {
+         const uint64_t n_tensors = tensor_configs.size();
+         helper_write(file, n_tensors);
+@@ -271,6 +282,8 @@
+             n_kv += 1;
+         } else if (hft == HANDCRAFTED_HEADER_BAD_N_KV) {
+             n_kv = -1;
++        } else if (hft == HANDCRAFTED_HEADER_NAGI_KV_LIMIT) {
++            n_kv = 4 * 1024 + 1;
+         }
+         helper_write(file, n_kv);
+     }
+@@ -758,6 +771,10 @@
+         HANDCRAFTED_HEADER_BAD_VERSION_FUTURE,
+         HANDCRAFTED_HEADER_BAD_N_KV,
+         HANDCRAFTED_HEADER_BAD_N_TENSORS,
++#if defined(__NAGI__)
++        HANDCRAFTED_HEADER_NAGI_TENSOR_LIMIT,
++        HANDCRAFTED_HEADER_NAGI_KV_LIMIT,
++#endif
+         HANDCRAFTED_HEADER_EMPTY,
+ 
+         HANDCRAFTED_KV_BAD_KEY_SIZE,
+@@ -1426,6 +1443,45 @@
+     return std::make_pair(npass, ntest);
+ }
+ 
++#if !defined(_WIN32)
++static std::pair<int, int> test_writer_reports_flush_error() {
++    FILE * file = tmpfile();
++    struct gguf_context * ctx = gguf_init_empty();
++    if (file == nullptr || ctx == nullptr) {
++        if (file != nullptr) {
++            fclose(file);
++        }
++        gguf_free(ctx);
++        printf("test_writer_reports_flush_error: FAIL (setup)\n");
++        return std::make_pair(0, 1);
++    }
++
++    gguf_set_val_u32(ctx, "nagi.writer.flush_probe", 1);
++    if (setvbuf(file, nullptr, _IOFBF, 4096) != 0) {
++        fclose(file);
++        gguf_free(ctx);
++        printf("test_writer_reports_flush_error: FAIL (setvbuf)\n");
++        return std::make_pair(0, 1);
++    }
++
++    const int fd = fileno(file);
++    if (fd < 0 || close(fd) != 0) {
++        fclose(file);
++        gguf_free(ctx);
++        printf("test_writer_reports_flush_error: FAIL (close descriptor)\n");
++        return std::make_pair(0, 1);
++    }
++
++    const bool write_succeeded = gguf_write_to_file_ptr(ctx, file, /*only_meta=*/true);
++    const bool detected_flush_error = !write_succeeded && ferror(file);
++    fclose(file);
++    gguf_free(ctx);
++
++    printf("test_writer_reports_flush_error: %s\n", detected_flush_error ? "OK" : "FAIL");
++    return std::make_pair(detected_flush_error ? 1 : 0, 1);
++}
++#endif
++
+ static void print_usage() {
+     printf("usage: test-gguf [seed]\n");
+     printf("  if no seed is unspecified then a random seed is used\n");
+@@ -1446,7 +1502,14 @@
+ 
+     int npass = 0;
+     int ntest = 0;
++#if !defined(_WIN32)
+     {
++        std::pair<int, int> result = test_writer_reports_flush_error();
++        npass += result.first;
++        ntest += result.second;
++    }
++#endif
++    {
+         std::pair<int, int> result = test_handcrafted_file(seed);
+         npass += result.first;
+         ntest += result.second;

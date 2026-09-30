@@ -2,18 +2,30 @@
 #![cfg_attr(target_os = "nagi", no_main)]
 #![cfg_attr(all(target_os = "nagi", feature = "m13-std"), feature(restricted_std))]
 
-#[cfg(any(feature = "m19-search", feature = "m27-recovery"))]
+#[cfg(any(
+    feature = "m16-package",
+    feature = "m19-search",
+    feature = "m27-recovery"
+))]
 extern crate alloc;
 
 #[cfg(all(
     target_os = "nagi",
-    any(feature = "m19-search", feature = "m27-recovery")
+    any(
+        feature = "m16-package",
+        feature = "m19-search",
+        feature = "m27-recovery"
+    )
 ))]
 struct GuestAllocator;
 
 #[cfg(all(
     target_os = "nagi",
-    any(feature = "m19-search", feature = "m27-recovery")
+    any(
+        feature = "m16-package",
+        feature = "m19-search",
+        feature = "m27-recovery"
+    )
 ))]
 unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
@@ -35,7 +47,11 @@ unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
 
 #[cfg(all(
     target_os = "nagi",
-    any(feature = "m19-search", feature = "m27-recovery")
+    any(
+        feature = "m16-package",
+        feature = "m19-search",
+        feature = "m27-recovery"
+    )
 ))]
 #[global_allocator]
 static GUEST_ALLOCATOR: GuestAllocator = GuestAllocator;

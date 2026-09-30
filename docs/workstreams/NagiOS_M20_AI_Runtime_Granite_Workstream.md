@@ -36,30 +36,35 @@ bytes before calling any backend.
   directory and deterministic application path: the pinned upstream checkout
   remains clean, while a generated patched tree is kept under ignored
   `out/cache/llama-cpp-nagi` and validated against both the patch fingerprint
-  and generated tree state. The patch directory currently contains no
-  compatibility patch, so this is patch infrastructure, not a claim that the
-  C++ backend is built for Nagi.
-- A 2026-09-30 CMake configuration probe using the Nagi x86-64 target compiler
-  and CPU-only/static options passed compiler detection and configuration.
-  Building target `llama` then failed in upstream `ggml/src/gguf.cpp`: its
-  parser and writer use C++ exception syntax, while the Nagi target wrapper
-  intentionally passes `-fno-exceptions` because Nagi has no exception
-  unwinder. Exact configure/build logs are retained under
-  `out/m20-llama-target-probe-2026-09-30/`. The pinned checkout remains clean;
-  no target library was linked and no runtime/inference is claimed.
-- A scan of the configured target's 73-entry `compile_commands.json` found
-  exception syntax/tokens in 20 selected CPU-path translation units, including
-  `gguf.cpp`, `llama-context.cpp`, `llama-grammar.cpp`,
-  `llama-model-loader.cpp`, and `unicode.cpp`. The checkout has no
-  `GGML_NO_EXCEPTIONS` compatibility branch. The failure therefore extends
-  beyond the first parser file; removing catches or turning throws into
-  no-ops would discard upstream allocation, parse, and I/O error handling.
-  No Nagi-owned compatibility patch was made because a correct conversion
-  needs an explicit no-exception error path across the selected loader/inference
-  sources, not a syntax shim. The earlier count of 22 was not accurate. The next safe
-  experiment is to adapt one bounded upstream API
-  boundary with explicit status returns, then rebuild and test that slice
-  before expanding the patch.
+  and generated tree state. Patch `0001-nagi-gguf-noexceptions.patch` is now a
+  bounded adaptation of `ggml/src/gguf.cpp` plus its upstream `test-gguf.cpp`
+  tests; the pinned upstream checkout remains clean.
+- The GGUF adaptation applies stricter Nagi-only limits (1 MiB strings, 1 MiB
+  array elements, 32K tensors, 4K key/value pairs, and 64 MiB serialized
+  metadata), checks allocation sizes before resizing, and returns parser
+  failures without C++ exceptions. File writing reports `fwrite` and `fflush`
+  failures and copies tensor data in 8 KiB chunks rather than allocating a
+  whole-tensor temporary buffer. A closed-descriptor regression verifies a
+  buffered flush error is surfaced. STL allocator exhaustion still cannot be
+  recovered safely under the current no-unwinder ABI, so these bounds do not
+  establish full model-loader OOM safety.
+- On 2026-09-30, `./nagi fetch` applied and validated the numbered patch while
+  leaving `third_party/llama.cpp` clean. CPU-only Nagi-target CMake build of
+  `ggml-base` passed with `-fno-exceptions`; host `test-gguf` passed 101/101,
+  and a host build with `__NAGI__` enabled exercised the target-only count
+  limits and passed 103/103. Logs are retained under
+  `out/evidence/m20-gguf-noexcept-20260930/`.
+- The full Nagi-target `llama` build still fails. With `ninja -k 0`, 29 object
+  targets failed and diagnostics covered 57 distinct source files, including
+  backend registration, shared model loading, vocabulary/tokenizer parsing,
+  grammar, memory/KV-cache, mmap, and model constructors. Unity builds repeat
+  some diagnostics; the exact compiler log is
+  `out/evidence/m20-gguf-noexcept-20260930/build-llama-attempt2.log`. These
+  paths include ordinary malformed-model and runtime failure handling. A
+  blanket throw-to-abort conversion, disabled checks, or omitted model sources
+  would not preserve the required behavior. The correct next step is explicit
+  no-exception status propagation across those APIs; no complete target backend
+  or inference is claimed.
 - Granite Q4_K_M source metadata pins repository commit
   `c40945d71cd90f249a56985e8155551a9188dc30`, upstream size
   `2,244,011,552` bytes, digest
@@ -120,24 +125,26 @@ CARGO_TARGET_DIR=/tmp/nagi-m20-target \
 
 The Granite source bytes were streamed to a local SHA-256 process without
 writing a 2.24 GB artifact file; the calculated digest matched the pinned
-profile. `./nagi fetch` also passed and validated the clean llama.cpp checkout
-at the locked revision with the currently empty Nagi patch directory. The new
-patch applier was separately exercised against a temporary Git source tree:
-numeric-order patches applied to an isolated clone, the pristine source stayed
-unchanged, and tampering with the generated tree was rejected. Three focused
-llama.cpp patch/lock tests, all 119 CLI unit tests, and all 18 CLI integration
-tests passed; CLI Clippy with warnings denied, formatting, `git diff --check`,
-and `./nagi fetch` passed. No M20 QEMU inference acceptance was run. The
-runtime hash check was additionally tested against deterministic host artifacts
-and compiled for the Nagi `no_std` target.
+profile. The patch applier was separately exercised against a temporary Git
+source tree: numeric-order patches applied to an isolated clone, the pristine
+source stayed unchanged, and tampering with the generated tree was rejected.
+Three focused llama.cpp patch/lock tests, all 119 CLI unit tests, and all 18
+CLI integration tests passed; CLI Clippy with warnings denied, formatting,
+`git diff --check`, and `./nagi fetch` passed. The 2026-09-30 GGUF parser and
+writer slice added afterward passed the `test-gguf` results above, and
+`ggml-base` compiled for the Nagi target. Full `llama` target compilation and
+M20 QEMU inference acceptance have not passed. The runtime hash check was
+additionally tested against deterministic host artifacts and compiled for the
+Nagi `no_std` target.
 
 ## Remaining acceptance blockers
 
-1. Add and test a reproducible Nagi-owned no-exception adaptation for the
-   pinned llama.cpp source, then build its CPU backend and connect it through
-   the provider-neutral runtime. The current parser compile failure is concrete
-   evidence for this compatibility work; the checkout has no Nagi C ABI
-   adapter, target build, or backend session.
+1. Extend the tested GGUF slice into explicit no-exception status propagation
+   through the pinned llama.cpp backend registration, tokenizer, grammar,
+   memory/KV, mapping, loader, and supported model paths. Then build the CPU
+   backend and connect it through the provider-neutral runtime. The current
+   full-target diagnostics identify 29 failing object targets; the checkout has
+   no Nagi C ABI adapter, complete target build, or backend session.
 2. Add a large-artifact Model Store path. Current guest VFS files are 1 KiB
    bounded and cannot contain the pinned 2.24 GB model; no guest model artifact
    reader or installer is registered.
