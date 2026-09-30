@@ -505,7 +505,7 @@ fn execute_fetch(root: &Path) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, Mesa/Softpipe, llama.cpp, and whisper.cpp sources validated with Whisper small model metadata ({}, {}, {}, {}, {}, {}, {}, {})",
+            "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, Mesa/Softpipe, and llama.cpp sources validated; pinned whisper.cpp source and Nagi patch validated with Whisper small model metadata ({}, {}, {}, {}, {}, {}, {}, {})",
             llama_cpp
                 .strip_prefix(root)
                 .unwrap_or(Path::new("third_party/llama.cpp"))
@@ -530,7 +530,7 @@ fn execute_fetch(root: &Path) -> CommandResult {
             mesa_relative.display(),
             whisper_cpp
                 .strip_prefix(root)
-                .unwrap_or(Path::new("third_party/whisper.cpp"))
+                .unwrap_or(Path::new("out/cache/whisper-cpp-nagi"))
                 .display()
         )],
     }

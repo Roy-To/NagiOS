@@ -121,24 +121,25 @@ aligned PCM through a target AudioService playback sink, and clear buffers on
 failure. Thirteen `nagi-audio` tests, warnings-denied host Clippy, Nagi-target
 audio compile, target `nagi-init` build, and changed-package formatting pass.
 The `./nagi m25` QEMU fixture verifies permission/indicator order, bounded
-capture, unavailable STT cleanup, and fixture TTS playback through the provider
-contract; it uses no real microphone, STT model, or TTS engine. whisper.cpp is
-now pinned at `927cfce34f31707e17f2bff35c349632fb9e2c3a` and materialized by
-`./nagi fetch`, which validates its clean checkout and MIT license. The
-Whisper small multilingual model metadata is pinned at immutable repository
-revision `5359861c739e955e79d9a303bcbc70fb988958b1`, 487,601,967 bytes, SHA-256
+fixture capture, unavailable STT cleanup, and fixture TTS playback through the
+provider contract; it uses no real microphone, STT model, or TTS engine.
+whisper.cpp is pinned at `927cfce34f31707e17f2bff35c349632fb9e2c3a`; a
+Nagi-owned no-exception/CPU-backend patch is applied to a generated checkout by
+`./nagi fetch`, while the raw upstream checkout remains clean. On 2026-10-01,
+`./nagi fetch`, `./nagi test`, `./nagi fmt`, `./nagi lint`, `./nagi build`, the
+Nagi-target `whisper` CMake build, the host GGUF metadata/writer regression,
+and the `./nagi m25` QEMU fixture passed. CMake and regression evidence is in
+`out/evidence/m25-whisper-target-compile-20261001/`; before/after guest images,
+disks, OVMF variables, and logs with verified SHA-256 manifests are in
+`out/evidence/m25-whisper-noexceptions-pre-final-rerun-20261001/` and
+`out/evidence/m25-whisper-noexceptions-final-pass-20261001/`. The Whisper small
+multilingual metadata remains pinned to immutable repository revision
+`5359861c739e955e79d9a303bcbc70fb988958b1`, 487,601,967 bytes, SHA-256
 `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b`, and MIT
-in `third_party/models.lock`; no model bytes are downloaded or loaded. On
-2026-10-01, `./nagi fetch`, `./nagi test` (140 CLI unit and 21 integration
-tests), `./nagi fmt`, `./nagi lint`, `./nagi build`, and the `./nagi m25` QEMU
-fixture passed. Before/after images, disks, OVMF variables, and logs with
-verified SHA-256 manifests are in
-`out/evidence/m25-whisper-pin-pre-rerun-20261001/` and
-`out/evidence/m25-whisper-pin-pass-20261001/`. The target whisper library
-configure passed but its build fails on 18 exception-syntax sites in upstream
-GGUF; details are in the M25 workstream. M25 remains PARTIAL: authenticated
-permission/UI wiring, a real whisper.cpp Japanese provider, a concrete local
-TTS engine, and real guest voice-command acceptance remain. See
+in `third_party/models.lock`; no model bytes were downloaded or loaded. The
+QEMU host has no `virtio-sound.in` driver. M25 remains PARTIAL: authenticated
+permission/UI wiring, a real Japanese STT provider and inference, a concrete
+local TTS engine, and real guest voice-command acceptance remain. See
 `docs/workstreams/NagiOS_M25_Voice_Workstream.md`.
 **M26 evidence:** Added deterministic role/capability/resource/provider-health
 model routing, strict manual override checks, and unavailable-provider
@@ -2418,7 +2419,7 @@ Use only these statuses:
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh-disk QEMU passed the expanded M21 guest validation plus real `file.move` plan with three-object NH16 and separate NAL1 Activity Ledger records: boot 1 Committed, boot 2 reverse-order Undo with `UndoPending`/`Undone`, boot 3 restored-file and ledger verification. Fourteen History/ledger tests, 24 AI tests, 138 CLI unit tests + 21 integration tests, warnings-denied CLI Clippy, changed-package formatting, Nagi target build, M19 Search regression, and QEMU acceptance pass. Acceptance logs, image, vars, and data disk are preserved under `out/evidence/m22-m21-negative-and-partial-pass-20260930/`. Plan/policy remain fixture-only; real inference, authenticated production authority, general production move actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
 | M24 | Embedding / Semantic AI | PARTIAL | Added a bounded exact `PersistentVectorIndex` over `SnapshotBackend`, opaque embedding-space identity checks, versioned/checksummed snapshots, atomic object replacement, stable top-k ranking, and visible-ObjectId filtering. Twenty-nine `nagi-search` tests, warnings-denied Search and CLI Clippy, 135 CLI unit + 21 integration tests, formatting, and Nagi no-std target compile pass. M19 two-boot QEMU restored the semantic index after restart; M22 three-boot QEMU revalidated index restore with NH16/NAL1 Undo. Logs, disk images, user-data disks, and OVMF variables are preserved under `out/evidence/m24-persistent-semantic-index-20261001/`. Guest inference uses a deterministic test provider. A multilingual embedding model, content-producer synchronization, hybrid ranking/explanations, stale-index invalidation, reference-scale performance evidence, and the formal natural-language acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
-| M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator and a replaceable TTS provider/synthesis service with 1 KiB UTF-8 input, 4 KiB PCM chunks, a 1 MiB output cap, frame checks, empty-output rejection, failure cleanup, and a target AudioService playback sink. whisper.cpp is pinned and fetched by `./nagi fetch`; the Whisper small multilingual artifact has immutable source, exact size, SHA-256, MIT metadata, and Model Store ID in `third_party/models.lock`. On 2026-10-01 fetch, 140 CLI unit + 21 integration tests, format, lint, build, and the M25 QEMU orchestration fixture passed; input/output artifacts and logs have verified SHA-256 manifests. A Nagi cross-CMake configure succeeded, while target `whisper` compilation failed on 18 upstream GGUF exception-syntax sites under `-fno-exceptions`. No model bytes were downloaded or loaded. Authenticated permission/UI wiring, a real Japanese STT provider, concrete local TTS, and guest voice-command acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
+| M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator and a replaceable TTS provider/synthesis service with 1 KiB UTF-8 input, 4 KiB PCM chunks, a 1 MiB output cap, frame checks, empty-output rejection, failure cleanup, and a target AudioService playback sink. whisper.cpp is pinned; `./nagi fetch` validates the clean upstream source and generates a separate Nagi-patched checkout. On 2026-10-01, `./nagi fetch`, `./nagi test`, format, lint, build, the Nagi-target `whisper` CMake build, host GGUF parser/writer regression, and M25 QEMU orchestration fixture passed. SHA-256 verified before/after artifacts and logs are preserved under `out/evidence/m25-whisper-noexceptions-{pre-final-rerun,final-pass}-20261001/`; target/host CMake evidence is under `out/evidence/m25-whisper-target-compile-20261001/`. The Whisper small multilingual metadata has immutable source, exact size, SHA-256, MIT metadata, and Model Store ID in `third_party/models.lock`; no model bytes were downloaded or loaded, and QEMU had no host `virtio-sound.in` driver. Authenticated permission/UI wiring, a real Japanese STT provider and inference, concrete local TTS, and guest voice-command acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
 | M27 | A/B / Recovery | PARTIAL | Fresh QEMU acceptance covers malformed-B rollback after three trials, healthy-B readiness promotion, and Recovery boot even with invalid A/B kernels. Recovery runs a read-only VFS check before a no-format mount and exposes bounded help/check/log/files/slots/undo commands; a real guest M22 three-file NH16/NAL1 transaction was undone in Recovery, then verified restored and Undone after guest restart. Recovery left the UEFI journal untouched and the following automatic boot began trial 1/B. GPT-layout QEMU acceptance now covers malformed-B rollback, healthy-B promotion, Recovery with a pending journal, and confirmed A/B boot on the same six-partition layout. The latest full acceptance passed on 2026-10-01 at `out/evidence/m27-ab-rollback-1790788040114277000/`; a preceding GUI Recovery timeout remains unconfirmed at `out/evidence/m27-ab-rollback-1790787806085590000/`. Bounded QMP timeout diagnostics were added to host QEMU paths but were not exercised by the passing rerun. Account login readiness, authenticated slot manifests, and GPT-integrated update installation remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | The harness runs M19 Search, M22 three-boot grouped Undo/Activity Ledger, and M27 GPT rollback/Recovery/readiness-promotion gates for each of 1–5 repetitions. A fresh one-repetition integrated QEMU run passed all three on 2026-10-01; M19/M22 outputs and SHA-256 manifest are in `out/evidence/m28-qmp-diagnostics-pass-20261001/`, and M27 evidence is in `out/evidence/m27-ab-rollback-1790788040114277000/`. Pre-run inputs and both disks were SHA-256 verified under `out/evidence/m28-qmp-diagnostics-pre-run-20261001/` and `out/evidence/m28-qmp-diagnostics-pre-rerun-20261001/`. One preceding M27 Recovery attempt timed out after 90 seconds and remains unconfirmed at `out/evidence/m27-ab-rollback-1790787806085590000/`; QEMU timeout diagnostics now attempt to capture bounded status and CPU registers. M19/M22 serial gates, harness self-test/dry-run, and the integrated QEMU run pass. Desktop/model/audio reference load, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
@@ -4851,7 +4852,7 @@ Record exact pinned revisions once introduced.
 | relibc | `69bb008af1f6d93758631cf0df250500d53a065b` | Nagi backend present; Mesa C headers/archive not yet accepted | Initial POSIX libc candidate |
 | cc (cc-rs) | `1.4.6`, sha256 pinned in `sources.lock` | Nagi target patch `0001`; target C++ objects remain target-built without host runtime inference | Shared C/C++ build boundary |
 | llama.cpp | `c85b92c69c955961621193cd51da194f3cbcedf3` | Pinned in `sources.lock`; exception-free GGUF patch; full target build still fails | Generative LLM runtime; Decision and Embedding providers are not fixed to it |
-| whisper.cpp | `927cfce34f31707e17f2bff35c349632fb9e2c3a` | Source pin and fetch validation; no target STT provider | STT |
+| whisper.cpp | `927cfce34f31707e17f2bff35c349632fb9e2c3a` | Clean raw source pin plus Nagi-owned no-exception patch; generated CPU-only `whisper` target builds, no STT provider | STT |
 | smoltcp | Not pinned yet | 遯ｶ繝ｻ| Network stack |
 
 Model artifact hashes/revisions are recorded separately in
