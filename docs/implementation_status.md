@@ -2429,7 +2429,7 @@ Use only these statuses:
 | M27 | A/B / Recovery | PARTIAL | The latest fresh `./nagi m27` QEMU acceptance passed at `out/evidence/m27-ab-rollback-1790800250176976000/`; the full GPT A/B/Recovery gate also passed in repetition 1 of both M28 reruns at `out/evidence/m27-ab-rollback-1790800692151516000/` and `out/evidence/m27-ab-rollback-1790801054740594000/`. These three new full runs did not reproduce the earlier boot-4 timeout. Its exact failing ELF maps RIP `0x4005d90` to the first instruction of `smp::thread_entry`, while CR2 is `0xfffffffffffffff8`; the cause remains unconfirmed. Failure and successful replay evidence have verified manifests. Account-authenticated readiness, authenticated slot manifests, GPT update installation, and remaining Recovery repair/log features remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | Two fresh `NAGI_M28_REPEAT_COUNT=2 ... --run` attempts each passed the complete M19/M22/M27 gate in repetition 1; repetition 2 passed M19 but timed out at M22 boot 1 before the Nagi kernel marker. Both QMP snapshots show `status=running`, RIP `0x7eb84171` outside the Nagi kernel range, and the same firmware stack state after only the 87-byte UEFI screen-clear output. Identical M22 image hashes and unchanged post-timeout M22 data-disk hashes point to an OVMF/QEMU startup failure before guest acceptance; the exact root cause is unconfirmed. Both run archives with verified manifests are `out/evidence/m28-run-20260930T203759Z-48306/` and `out/evidence/m28-run-20260930T204402Z-48900/`; pre-run disks are at `out/evidence/pre-m28-repeat-20261001-m27-replay/`. The runner shell check, self-test, and dry-run pass. Desktop/model/audio reference load, OOM, CPU fairness, and leak telemetry remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Added cross-linked setup, SDK, contribution, and roadmap documentation; 47 local documentation links resolve. The POSIX launcher now selects the Cargo and rustc rustup shims together even when a system Cargo appears first in PATH; the mocked toolchain-selection regression, `./nagi --help`, `./nagi doctor` (12/12), and full M0 launcher/image acceptance pass. `./nagi build`, `./nagi test`, and `./nagi lint` now use a host-compatible package allowlist on non-x86_64 hosts; all three passed on ARM64 macOS. `THIRD_PARTY_NOTICES.md` lists all 18 source-lock components, exact version/revision/toolchain pins, and declared license expressions; a regression test checks the inventory. Cargo metadata reports declared license expressions for 673 external packages with no missing declarations; this includes dev/target-specific packages and is not an image bill of materials. The host doctor recognizes `python3` without a `python` alias; its regression and local 12/12 run pass. CLI suite (138 unit + 21 integration) and warnings-denied Clippy pass. QEMU timeout paths now record QMP status and CPU registers with bounded reads. License-text and redistribution review remain incomplete. Three M10 screenshots and a persistent-boot timing sample exist, but first-run, Settings, complete localization/accessibility, broader UI evidence, and user-facing provider/recovery UX remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | PARTIAL | Built a self-contained 64 GiB GPT qcow2 with ESP, System A/B, bounded User Data, Recovery, and Model Store; M27 QEMU acceptance covers rollback, Recovery, and readiness promotion on the same layout. On clean source commit `284dbf1`, release preflight, assembly, and verify passed into `out/artifacts/m30-release-bundle-284dbf1/`; the packaged disk matches the accepted reference image SHA-256 `461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43`, and `qemu-img check` passed. `./nagi m30` passed again on that source using a disposable copy for System A plus User Data format/write and restart persistence; logs are under `out/evidence/m30-release-1790795417285158000/`. Release-tool tests pass 8/8. The assembly and rerun reused the existing kernel/image inputs; they did not rebuild the payloads. The release manifest correctly keeps `m30_acceptance=NOT_EVALUATED`. Authenticated updates, M18–M29 acceptance gaps, and binary license/notice review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
+| M30 | Nagi OS 0.1 Release | PARTIAL | From clean source revision `d2cbff3ed9bde82bf6dde910b3b5bf5e30c6cfb7`, `./nagi m30` rebuilt the x86-64 kernel/init/loader payloads and self-contained 64 GiB GPT qcow2 after preserving the prior image. The new image SHA-256 is `f76088e25cea65176035940930dd3b9fd2df796614d0e554fb8d345271558bb9`; its release bundle is `out/artifacts/m30-release-bundle-d2cbff3/`. Release-tool tests pass 8/8; clean-tree preflight, assembly, and verification passed. A post-assembly M30 QEMU run passed System A, User Data format/write, and persistent read after restart on a disposable copy whose source image is byte-identical to the bundled disk. Afterward, all 15 package checksums, release verification, and bundled `qemu-img check` passed. Evidence and verified logs are in `out/evidence/m30-release-1790802137948877000/`; the prior image and checksum are preserved at `out/evidence/m30-pre-current-rebuild-20261001/`. The manifest correctly retains `m30_acceptance=NOT_EVALUATED`. Authenticated updates, M18–M29 acceptance gaps, and binary license/notice review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
 
@@ -6498,3 +6498,32 @@ hash manifest are preserved in
 Verification: CLI tests passed (145 unit and 21 integration tests), as did
 warnings-denied Clippy, pinned-nightly formatting, `./nagi fmt`, `./nagi test`,
 `./nagi lint`, `./nagi build`, `./nagi fetch`, and `git diff --check`.
+
+
+## Completion sweep — M30 current-source payload and release rebuild (2026-10-01)
+
+The earlier 64 GiB image was preserved before rebuilding at
+`out/evidence/m30-pre-current-rebuild-20261001/original-reference.qcow2`; its
+verified SHA-256 remains
+`461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43`. With
+that fixed-path image moved aside, `./nagi m30` rebuilt the production payloads
+and six-partition reference disk from clean source revision
+`d2cbff3ed9bde82bf6dde910b3b5bf5e30c6cfb7`. The generated 64 GiB qcow2 has
+SHA-256 `f76088e25cea65176035940930dd3b9fd2df796614d0e554fb8d345271558bb9`;
+its kernel build ID is `sha256:2c899885d4569d58cb29ab028bc9923e44519c8fa25009f6fce836cc6e982343`.
+
+Both fresh M30 QEMU runs passed GPT System A selection, first-boot User Data
+format/write, and a restart with persistent read and `Nagi M7 acceptance PASS`.
+After release assembly, the second run exercised a disposable copy from the
+same reference image whose SHA-256 exactly matches the bundled qcow2. Its logs,
+copy, README, and verified `SHA256SUMS` are at
+`out/evidence/m30-release-1790802137948877000/`. The eight release-tool tests,
+clean-tree preflight, assembly to `out/artifacts/m30-release-bundle-d2cbff3/`,
+and release verification passed. Post-acceptance checksum verification
+reported all 15 package entries valid, and `qemu-img check` found no errors on
+the bundled 64 GiB image. The release manifest intentionally keeps
+`m30_acceptance` at `NOT_EVALUATED`; guest acceptance is separately evidenced
+above. M30 remains `PARTIAL` for authenticated update installation, remaining
+M18–M29 acceptance, and binary license/notice review. The QEMU host also has
+no `virtio-sound.in` audio backend; this run does not establish audio
+acceptance.

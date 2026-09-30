@@ -252,3 +252,34 @@ release provenance/integrity plus current-head acceptance of the byte-identical
 disk, not a clean payload rebuild. Authenticated GPT update installation,
 M18–M29 remaining acceptance, and binary license/notice review remain
 unverified. M30 remains `PARTIAL`.
+
+## Completion sweep current-source payload and release rebuild — 2026-10-01
+
+The prior fixed-path reference image was moved to
+`out/evidence/m30-pre-current-rebuild-20261001/original-reference.qcow2` before
+the rebuild, with verified SHA-256
+`461c644d48e4b0d33b937ce6852eb9a6034abe391ea74c4c24e1ac0b99ca2d43`. The
+fixed path was then absent, so `./nagi m30` rebuilt the current kernel, loader,
+init images, and dedicated six-partition 64 GiB GPT qcow2 from clean revision
+`d2cbff3ed9bde82bf6dde910b3b5bf5e30c6cfb7`. The new reference image SHA-256
+is `f76088e25cea65176035940930dd3b9fd2df796614d0e554fb8d345271558bb9` and
+the target kernel build ID is
+`sha256:2c899885d4569d58cb29ab028bc9923e44519c8fa25009f6fce836cc6e982343`.
+
+Two current-source `./nagi m30` runs passed System A selection, User Data
+format/write, and persistent read after restart; the second run followed
+release assembly and used a disposable copy of the reference image. The
+reference image and packaged image have the same SHA-256. Its serial logs,
+QEMU copy, README, and verified `SHA256SUMS` are in
+`out/evidence/m30-release-1790802137948877000/`. The eight release-tool tests
+passed. On the clean source revision, preflight, assembly to
+`out/artifacts/m30-release-bundle-d2cbff3/`, and verification passed. After
+QEMU acceptance, all 15 bundle checksums passed again, release verification
+passed, and `qemu-img check` found no errors on the bundled 64 GiB qcow2.
+
+The generated `release-manifest.json` deliberately retains
+`m30_acceptance: NOT_EVALUATED`; the real guest QEMU result remains a separate
+acceptance record. The host's missing `virtio-sound.in` driver was reported by
+QEMU, so this evidence does not cover audio. Authenticated update installation,
+M18–M29 remaining gates, and binary license/notice review remain incomplete;
+M30 stays `PARTIAL`.
