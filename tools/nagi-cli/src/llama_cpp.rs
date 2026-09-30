@@ -696,7 +696,9 @@ mod tests {
             "base\n"
         );
         assert_eq!(
-            fs::read_to_string(checkout.join("sample.txt")).unwrap(),
+            fs::read_to_string(checkout.join("sample.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
             "second\n"
         );
 
