@@ -264,7 +264,14 @@ pub fn run_doctor_with_requirements(
     check_command(
         &mut checks,
         "Python",
-        &["python", "python.exe", "py", "py.exe"],
+        &[
+            "python3",
+            "python3.exe",
+            "python",
+            "python.exe",
+            "py",
+            "py.exe",
+        ],
         &["--version"],
         requirements.python_min_version,
         "Python 3.",

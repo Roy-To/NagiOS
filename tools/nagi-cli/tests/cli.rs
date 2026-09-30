@@ -196,6 +196,35 @@ fn complete_probe_report_passes_and_reports_every_dependency() {
 }
 
 #[test]
+fn doctor_recognizes_python3_without_a_python_alias() {
+    let probe = StaticProbe {
+        commands: vec![
+            "git",
+            "rustc",
+            "cargo",
+            "rustup",
+            "clang",
+            "ld.lld",
+            "qemu-system-x86_64",
+            "cmake",
+            "meson",
+            "ninja",
+            "python3",
+        ],
+        ovmf_mode: OvmfMode::Compatible,
+        bad_output: false,
+        exit_code: None,
+    };
+
+    let report = run_doctor(&probe, DoctorPolicy::Strict);
+
+    assert_eq!(report.exit_code, EXIT_SUCCESS);
+    assert!(report.checks.iter().any(|check| {
+        check.name == "Python" && check.is_pass() && check.detail.contains("python3")
+    }));
+}
+
+#[test]
 fn configured_minimums_are_enforced_by_the_doctor() {
     let probe = StaticProbe {
         commands: vec!["clang"],
