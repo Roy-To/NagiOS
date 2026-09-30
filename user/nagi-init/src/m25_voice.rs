@@ -2,8 +2,10 @@ use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 use nagi_audio::speech::{
     CaptureSourceError, IndicatorError, MicrophoneActivityIndicator, PcmCaptureSource,
-    PushToTalkService, SpeechConsumer, SpeechError, SpeechLanguage, SpeechOptions,
-    SpeechPermissionAuthority, SpeechPermissionDecision, SpeechProviderError, SpeechToTextProvider,
+    PlaybackError, PushToTalkService, SpeechConsumer, SpeechError, SpeechLanguage, SpeechOptions,
+    SpeechPermissionAuthority, SpeechPermissionDecision, SpeechPlaybackSink, SpeechProviderError,
+    SpeechSynthesisLanguage, SpeechSynthesisOptions, SpeechSynthesisService, SpeechToTextProvider,
+    SynthesisPcmChunk, TextToSpeechProvider,
 };
 use nagi_audio::PcmFormat;
 
@@ -22,6 +24,12 @@ static CAPTURE_CALLS: AtomicUsize = AtomicUsize::new(0);
 static FORWARDED_BYTES: AtomicUsize = AtomicUsize::new(0);
 static PCM_DIGEST: AtomicUsize = AtomicUsize::new(0);
 static PROVIDER_CANCELS: AtomicUsize = AtomicUsize::new(0);
+static TTS_PLAYBACK_CHUNKS: AtomicUsize = AtomicUsize::new(0);
+static TTS_PLAYBACK_BYTES: AtomicUsize = AtomicUsize::new(0);
+static TTS_PCM_DIGEST: AtomicUsize = AtomicUsize::new(0);
+static TTS_PROVIDER_CANCELS: AtomicUsize = AtomicUsize::new(0);
+
+const FIXTURE_TTS_PCM: [[u8; 4]; 2] = [[0x10, 0x20, 0x30, 0x40], [0x50, 0x60, 0x70, 0x80]];
 
 struct FixtureAuthority {
     allow: bool,
@@ -163,6 +171,66 @@ impl SpeechToTextProvider for FixtureProvider {
     }
 }
 
+struct FixtureTtsProvider {
+    next_chunk: usize,
+}
+
+impl TextToSpeechProvider for FixtureTtsProvider {
+    fn begin(
+        &mut self,
+        text: &str,
+        options: SpeechSynthesisOptions,
+    ) -> Result<(), SpeechProviderError> {
+        if text != "こんにちは"
+            || options.language != SpeechSynthesisLanguage::Japanese
+            || options.pcm_format != PcmFormat::stereo_48khz()
+        {
+            return Err(SpeechProviderError::Failed);
+        }
+        self.next_chunk = 0;
+        Ok(())
+    }
+
+    fn next_pcm_chunk(
+        &mut self,
+        destination: &mut [u8],
+    ) -> Result<SynthesisPcmChunk, SpeechProviderError> {
+        let Some(chunk) = FIXTURE_TTS_PCM.get(self.next_chunk) else {
+            return Ok(SynthesisPcmChunk::End);
+        };
+        if destination.len() < chunk.len() {
+            return Err(SpeechProviderError::OutputTooSmall);
+        }
+        destination[..chunk.len()].copy_from_slice(chunk);
+        self.next_chunk += 1;
+        Ok(SynthesisPcmChunk::Data(chunk.len()))
+    }
+
+    fn cancel(&mut self) {
+        TTS_PROVIDER_CANCELS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+struct FixtureAudioSink;
+
+impl SpeechPlaybackSink for FixtureAudioSink {
+    fn play_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), PlaybackError> {
+        // `usize::is_multiple_of` is not available on the pinned nightly.
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
+        if format != PcmFormat::stereo_48khz() || bytes.is_empty() || bytes.len() % 4 != 0 {
+            return Err(PlaybackError::Unavailable);
+        }
+        let mut digest = TTS_PCM_DIGEST.load(Ordering::Relaxed);
+        for byte in bytes {
+            digest = digest.wrapping_mul(16_777_619) ^ usize::from(*byte);
+        }
+        TTS_PCM_DIGEST.store(digest, Ordering::Relaxed);
+        TTS_PLAYBACK_BYTES.fetch_add(bytes.len(), Ordering::Relaxed);
+        TTS_PLAYBACK_CHUNKS.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 type FixtureService =
     PushToTalkService<FixtureCapture, FixtureAuthority, FixtureIndicator, FixtureProvider>;
 
@@ -237,5 +305,30 @@ pub fn run() -> bool {
     {
         return false;
     }
-    marker(b"Nagi M25 unavailable cleanup PASS\r\n")
+    if !marker(b"Nagi M25 unavailable cleanup PASS\r\n") {
+        return false;
+    }
+
+    TTS_PLAYBACK_CHUNKS.store(0, Ordering::Relaxed);
+    TTS_PLAYBACK_BYTES.store(0, Ordering::Relaxed);
+    TTS_PCM_DIGEST.store(0, Ordering::Relaxed);
+    TTS_PROVIDER_CANCELS.store(0, Ordering::Relaxed);
+    let mut synthesis =
+        SpeechSynthesisService::new(FixtureTtsProvider { next_chunk: 0 }, FixtureAudioSink);
+    if synthesis.speak(
+        "こんにちは".as_bytes(),
+        SpeechSynthesisOptions {
+            language: SpeechSynthesisLanguage::Japanese,
+            pcm_format: PcmFormat::stereo_48khz(),
+        },
+    ) != Ok(FIXTURE_TTS_PCM.len() * FIXTURE_TTS_PCM[0].len())
+        || TTS_PLAYBACK_CHUNKS.load(Ordering::Relaxed) != FIXTURE_TTS_PCM.len()
+        || TTS_PLAYBACK_BYTES.load(Ordering::Relaxed)
+            != FIXTURE_TTS_PCM.len() * FIXTURE_TTS_PCM[0].len()
+        || TTS_PCM_DIGEST.load(Ordering::Relaxed) == 0
+        || TTS_PROVIDER_CANCELS.load(Ordering::Relaxed) != 0
+    {
+        return false;
+    }
+    marker(b"Nagi M25 TTS provider contract PASS\r\n")
 }

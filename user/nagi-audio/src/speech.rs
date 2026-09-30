@@ -12,6 +12,8 @@ use crate::PcmFormat;
 pub const MAX_SPEECH_PCM_CHUNK_BYTES: usize = 4096;
 pub const MAX_SPEECH_UTTERANCE_BYTES: usize = 1_048_576;
 pub const MAX_SPEECH_TRANSCRIPT_BYTES: usize = 1024;
+pub const MAX_SPEECH_SYNTHESIS_TEXT_BYTES: usize = 1024;
+pub const MAX_SPEECH_SYNTHESIS_UTTERANCE_BYTES: usize = 1_048_576;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpeechConsumer {
@@ -25,9 +27,24 @@ pub enum SpeechLanguage {
     Japanese,
 }
 
+/// Language hint for a spoken output utterance. This is independent of the
+/// system display locale and Albert conversation-language preference.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpeechSynthesisLanguage {
+    Auto,
+    English,
+    Japanese,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SpeechOptions {
     pub language: SpeechLanguage,
+    pub pcm_format: PcmFormat,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SpeechSynthesisOptions {
+    pub language: SpeechSynthesisLanguage,
     pub pcm_format: PcmFormat,
 }
 
@@ -71,6 +88,31 @@ pub enum SpeechError {
     InvalidTranscript,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpeechSynthesisError {
+    EmptyText,
+    TextTooLong,
+    InvalidText,
+    ProviderUnavailable,
+    ProviderFailed,
+    ProviderOutputTooSmall,
+    NoAudioProduced,
+    InvalidPcmData,
+    UtteranceTooLong,
+    PlaybackUnavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlaybackError {
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SynthesisPcmChunk {
+    Data(usize),
+    End,
+}
+
 /// The trusted policy adapter must check the authenticated session, trusted
 /// foreground consumer, and explicit user action that invoked push-to-talk.
 /// Only the system-owned input path (for example, Super+V) should call begin.
@@ -98,6 +140,141 @@ pub trait SpeechToTextProvider {
     fn push_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), SpeechProviderError>;
     fn finish(&mut self, transcript: &mut [u8]) -> Result<usize, SpeechProviderError>;
     fn cancel(&mut self);
+}
+
+/// A replaceable local TTS engine. Implementations receive only bounded UTF-8
+/// text and a format request; they have no OS authority. PCM is pulled in
+/// caller-owned chunks and must be signed 16-bit little-endian samples.
+pub trait TextToSpeechProvider {
+    fn begin(
+        &mut self,
+        text: &str,
+        options: SpeechSynthesisOptions,
+    ) -> Result<(), SpeechProviderError>;
+    fn next_pcm_chunk(
+        &mut self,
+        destination: &mut [u8],
+    ) -> Result<SynthesisPcmChunk, SpeechProviderError>;
+    fn cancel(&mut self);
+}
+
+/// The service-owned playback boundary. The sink owns any AudioService
+/// capability and never exposes it to the provider or synthesis caller.
+pub trait SpeechPlaybackSink {
+    fn play_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), PlaybackError>;
+}
+
+/// Streams one bounded utterance from a TTS provider into the system audio
+/// service without allocating an utterance-sized PCM buffer.
+pub struct SpeechSynthesisService<P, S> {
+    provider: P,
+    sink: S,
+    pcm_chunk: [u8; MAX_SPEECH_PCM_CHUNK_BYTES],
+}
+
+impl<P, S> SpeechSynthesisService<P, S>
+where
+    P: TextToSpeechProvider,
+    S: SpeechPlaybackSink,
+{
+    pub const fn new(provider: P, sink: S) -> Self {
+        Self {
+            provider,
+            sink,
+            pcm_chunk: [0; MAX_SPEECH_PCM_CHUNK_BYTES],
+        }
+    }
+
+    /// Synthesizes validated UTF-8 input as bounded PCM chunks. The total
+    /// output is capped at 1 MiB and each chunk must contain whole stereo
+    /// signed-16-bit frames. The returned count is bytes accepted by playback.
+    pub fn speak(
+        &mut self,
+        text: &[u8],
+        options: SpeechSynthesisOptions,
+    ) -> Result<usize, SpeechSynthesisError> {
+        if text.is_empty() {
+            return Err(SpeechSynthesisError::EmptyText);
+        }
+        if text.len() > MAX_SPEECH_SYNTHESIS_TEXT_BYTES {
+            return Err(SpeechSynthesisError::TextTooLong);
+        }
+        let text = core::str::from_utf8(text).map_err(|_| SpeechSynthesisError::InvalidText)?;
+        if let Err(error) = self.provider.begin(text, options) {
+            return Err(self.abort(map_synthesis_provider_error(error)));
+        }
+
+        let frame_bytes = usize::from(options.pcm_format.channels()) * 2;
+        let mut total_bytes = 0usize;
+        loop {
+            self.pcm_chunk.fill(0);
+            match self.provider.next_pcm_chunk(&mut self.pcm_chunk) {
+                Ok(SynthesisPcmChunk::End) => {
+                    self.pcm_chunk.fill(0);
+                    if total_bytes == 0 {
+                        return Err(self.abort(SpeechSynthesisError::NoAudioProduced));
+                    }
+                    return Ok(total_bytes);
+                }
+                Ok(SynthesisPcmChunk::Data(bytes)) => {
+                    if bytes == 0 || bytes > self.pcm_chunk.len() || bytes % frame_bytes != 0 {
+                        return Err(self.abort(SpeechSynthesisError::InvalidPcmData));
+                    }
+                    let Some(next_total) = total_bytes.checked_add(bytes) else {
+                        return Err(self.abort(SpeechSynthesisError::UtteranceTooLong));
+                    };
+                    if next_total > MAX_SPEECH_SYNTHESIS_UTTERANCE_BYTES {
+                        return Err(self.abort(SpeechSynthesisError::UtteranceTooLong));
+                    }
+                    if self
+                        .sink
+                        .play_pcm(options.pcm_format, &self.pcm_chunk[..bytes])
+                        .is_err()
+                    {
+                        return Err(self.abort(SpeechSynthesisError::PlaybackUnavailable));
+                    }
+                    total_bytes = next_total;
+                    self.pcm_chunk.fill(0);
+                }
+                Err(error) => return Err(self.abort(map_synthesis_provider_error(error))),
+            }
+        }
+    }
+
+    fn abort(&mut self, error: SpeechSynthesisError) -> SpeechSynthesisError {
+        self.provider.cancel();
+        self.pcm_chunk.fill(0);
+        error
+    }
+}
+
+#[cfg(target_os = "nagi")]
+pub struct AudioServicePlaybackSink {
+    audio: AudioService,
+    stream_id: u32,
+}
+
+#[cfg(target_os = "nagi")]
+impl AudioServicePlaybackSink {
+    pub const fn new(audio: AudioService, stream_id: u32) -> Self {
+        Self { audio, stream_id }
+    }
+}
+
+#[cfg(target_os = "nagi")]
+impl SpeechPlaybackSink for AudioServicePlaybackSink {
+    fn play_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), PlaybackError> {
+        // `usize::is_multiple_of` is not available on the pinned nightly.
+        #[allow(unknown_lints, clippy::manual_is_multiple_of)]
+        if format != PcmFormat::stereo_48khz() || bytes.is_empty() || bytes.len() % 4 != 0 {
+            return Err(PlaybackError::Unavailable);
+        }
+        if self.audio.play(self.stream_id, bytes) {
+            Ok(())
+        } else {
+            Err(PlaybackError::Unavailable)
+        }
+    }
 }
 
 /// The target adapter keeps the device capability inside AudioService and
@@ -298,12 +475,20 @@ fn map_provider_error(error: SpeechProviderError) -> SpeechError {
     }
 }
 
+fn map_synthesis_provider_error(error: SpeechProviderError) -> SpeechSynthesisError {
+    match error {
+        SpeechProviderError::Unavailable => SpeechSynthesisError::ProviderUnavailable,
+        SpeechProviderError::Failed => SpeechSynthesisError::ProviderFailed,
+        SpeechProviderError::OutputTooSmall => SpeechSynthesisError::ProviderOutputTooSmall,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
 
     use super::*;
-    use std::{cell::Cell, rc::Rc};
+    use std::{cell::Cell, rc::Rc, vec::Vec};
 
     #[derive(Clone)]
     struct FixtureInput {
@@ -493,5 +678,213 @@ mod tests {
         assert!(!indicator_active.get());
         assert!(service.pcm_chunk.iter().all(|byte| *byte == 0));
         assert_eq!(service.captured_bytes, 0);
+    }
+
+    #[derive(Clone, Copy)]
+    enum TtsFixtureMode {
+        Normal,
+        MalformedFrame,
+        Endless,
+        Empty,
+    }
+
+    struct FixtureTts {
+        mode: TtsFixtureMode,
+        next_chunk: usize,
+        begin_calls: usize,
+        cancel_calls: usize,
+        text: Vec<u8>,
+        language: Option<SpeechSynthesisLanguage>,
+    }
+
+    impl FixtureTts {
+        fn new(mode: TtsFixtureMode) -> Self {
+            Self {
+                mode,
+                next_chunk: 0,
+                begin_calls: 0,
+                cancel_calls: 0,
+                text: Vec::new(),
+                language: None,
+            }
+        }
+    }
+
+    impl TextToSpeechProvider for FixtureTts {
+        fn begin(
+            &mut self,
+            text: &str,
+            options: SpeechSynthesisOptions,
+        ) -> Result<(), SpeechProviderError> {
+            self.begin_calls += 1;
+            self.text.extend_from_slice(text.as_bytes());
+            self.language = Some(options.language);
+            Ok(())
+        }
+
+        fn next_pcm_chunk(
+            &mut self,
+            destination: &mut [u8],
+        ) -> Result<SynthesisPcmChunk, SpeechProviderError> {
+            match self.mode {
+                TtsFixtureMode::Empty => Ok(SynthesisPcmChunk::End),
+                TtsFixtureMode::MalformedFrame if self.next_chunk == 0 => {
+                    destination[..3].copy_from_slice(&[1, 2, 3]);
+                    self.next_chunk += 1;
+                    Ok(SynthesisPcmChunk::Data(3))
+                }
+                TtsFixtureMode::Endless => {
+                    destination.fill(0x55);
+                    Ok(SynthesisPcmChunk::Data(destination.len()))
+                }
+                _ => match self.next_chunk {
+                    0 => {
+                        destination[..4].copy_from_slice(&[1, 2, 3, 4]);
+                        self.next_chunk += 1;
+                        Ok(SynthesisPcmChunk::Data(4))
+                    }
+                    1 => {
+                        destination[..4].copy_from_slice(&[5, 6, 7, 8]);
+                        self.next_chunk += 1;
+                        Ok(SynthesisPcmChunk::Data(4))
+                    }
+                    _ => Ok(SynthesisPcmChunk::End),
+                },
+            }
+        }
+
+        fn cancel(&mut self) {
+            self.cancel_calls += 1;
+        }
+    }
+
+    #[derive(Default)]
+    struct FixturePlayback {
+        calls: usize,
+        bytes: Vec<u8>,
+        fail: bool,
+    }
+
+    impl SpeechPlaybackSink for FixturePlayback {
+        fn play_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), PlaybackError> {
+            assert_eq!(format, PcmFormat::stereo_48khz());
+            self.calls += 1;
+            if self.fail {
+                return Err(PlaybackError::Unavailable);
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
+
+    fn tts_options() -> SpeechSynthesisOptions {
+        SpeechSynthesisOptions {
+            language: SpeechSynthesisLanguage::Japanese,
+            pcm_format: PcmFormat::stereo_48khz(),
+        }
+    }
+
+    #[test]
+    fn tts_streams_bounded_japanese_text_as_pcm_chunks() {
+        let mut service = SpeechSynthesisService::new(
+            FixtureTts::new(TtsFixtureMode::Normal),
+            FixturePlayback::default(),
+        );
+        assert_eq!(service.speak("こんにちは".as_bytes(), tts_options()), Ok(8));
+        assert_eq!(service.provider.begin_calls, 1);
+        assert_eq!(service.provider.text, "こんにちは".as_bytes());
+        assert_eq!(
+            service.provider.language,
+            Some(SpeechSynthesisLanguage::Japanese)
+        );
+        assert_eq!(service.sink.calls, 2);
+        assert_eq!(service.sink.bytes, [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(service.provider.cancel_calls, 0);
+        assert!(service.pcm_chunk.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn tts_rejects_empty_oversized_and_invalid_utf8_before_provider_start() {
+        let mut service = SpeechSynthesisService::new(
+            FixtureTts::new(TtsFixtureMode::Normal),
+            FixturePlayback::default(),
+        );
+        assert_eq!(
+            service.speak(b"", tts_options()),
+            Err(SpeechSynthesisError::EmptyText)
+        );
+        assert_eq!(
+            service.speak(&[0xff], tts_options()),
+            Err(SpeechSynthesisError::InvalidText)
+        );
+        let oversized = [b'x'; MAX_SPEECH_SYNTHESIS_TEXT_BYTES + 1];
+        assert_eq!(
+            service.speak(&oversized, tts_options()),
+            Err(SpeechSynthesisError::TextTooLong)
+        );
+        assert_eq!(service.provider.begin_calls, 0);
+        assert_eq!(service.sink.calls, 0);
+    }
+
+    #[test]
+    fn tts_rejects_malformed_pcm_and_clears_provider_buffer() {
+        let mut service = SpeechSynthesisService::new(
+            FixtureTts::new(TtsFixtureMode::MalformedFrame),
+            FixturePlayback::default(),
+        );
+        assert_eq!(
+            service.speak("短い文".as_bytes(), tts_options()),
+            Err(SpeechSynthesisError::InvalidPcmData)
+        );
+        assert_eq!(service.sink.calls, 0);
+        assert_eq!(service.provider.cancel_calls, 1);
+        assert!(service.pcm_chunk.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn tts_does_not_report_success_when_provider_returns_no_audio() {
+        let mut service = SpeechSynthesisService::new(
+            FixtureTts::new(TtsFixtureMode::Empty),
+            FixturePlayback::default(),
+        );
+        assert_eq!(
+            service.speak(b"bounded", tts_options()),
+            Err(SpeechSynthesisError::NoAudioProduced)
+        );
+        assert_eq!(service.sink.calls, 0);
+        assert_eq!(service.provider.cancel_calls, 1);
+        assert!(service.pcm_chunk.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn tts_caps_total_pcm_output_and_cancels_on_playback_failure() {
+        let mut endless = SpeechSynthesisService::new(
+            FixtureTts::new(TtsFixtureMode::Endless),
+            FixturePlayback::default(),
+        );
+        assert_eq!(
+            endless.speak(b"bounded", tts_options()),
+            Err(SpeechSynthesisError::UtteranceTooLong)
+        );
+        assert_eq!(
+            endless.sink.calls,
+            MAX_SPEECH_SYNTHESIS_UTTERANCE_BYTES / 4096
+        );
+        assert_eq!(endless.provider.cancel_calls, 1);
+        assert!(endless.pcm_chunk.iter().all(|byte| *byte == 0));
+
+        let mut playback_failure = SpeechSynthesisService::new(
+            FixtureTts::new(TtsFixtureMode::Normal),
+            FixturePlayback {
+                fail: true,
+                ..FixturePlayback::default()
+            },
+        );
+        assert_eq!(
+            playback_failure.speak(b"bounded", tts_options()),
+            Err(SpeechSynthesisError::PlaybackUnavailable)
+        );
+        assert_eq!(playback_failure.provider.cancel_calls, 1);
+        assert!(playback_failure.pcm_chunk.iter().all(|byte| *byte == 0));
     }
 }

@@ -163,6 +163,15 @@ M19/M22 logs without building, writing disks, or invoking QEMU. The full M28
 slice remains PARTIAL because the desktop/model/audio stress workload is still
 unmeasured.
 
+## Cross-workstream regression — 2026-09-30
+
+After the M25 TTS provider contract and QEMU fixture changed the shared audio
+package, the Completion Sweep reran `./nagi m19` and `./nagi m22`; Search/ObjectId
+persistence and three-boot grouped Undo both passed. The shell check, harness
+self-test, and dry-run passed again against those latest logs and current GPT
+User Data images. The dry-run remains a marker/overwrite preflight only and
+does not claim the combined M28 desktop/model/audio stress criteria.
+
 ## Commands
 
 ```sh
