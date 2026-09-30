@@ -69,7 +69,12 @@ image SHA-256 is unchanged, and the reference, persistence copy, and dedicated
 fixture image passed `qemu-img check`. Logs, images, OVMF variables, README,
 and hashes are under `out/evidence/m30-release-1790809848636521000/`. This does
 not change M20 from `PARTIAL` or claim inference. Both baseline and fixture-
-enabled M20 init variants compile for the Nagi target.
+enabled M20 init variants compile for the Nagi target. The first CI run for
+the guest-reader fixture found that `nagi-bootstrap` compiles the shared CLI
+source from its own manifest, which also needs the direct
+`nagi-model-manager` dependency. That manifest and its lockfile now include it;
+the locked bootstrap build and all 146 CLI unit tests pass locally. M20 remains
+`PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure

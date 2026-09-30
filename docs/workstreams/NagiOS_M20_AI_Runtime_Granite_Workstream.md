@@ -332,3 +332,20 @@ test/build, and a fresh two-boot M30 target rebuild pass. M20 remains
 `PARTIAL` because the actual Granite artifact, complete llama backend,
 production catalogue/installer, model service, and real guest inference are
 still absent.
+
+## Bootstrap workspace dependency closure — 2026-10-01
+
+CI run `36789984546` failed on Ubuntu, Windows, and Nagi-target bootstrap
+jobs because `tools/nagi-bootstrap` compiles the shared `nagi-cli` source with
+its own manifest. The M20 fixture filename helper references
+`nagi-model-manager`, but only the normal CLI manifest declared that direct
+dependency. Added the same path dependency to the bootstrap manifest and
+updated its lockfile. `cargo check --locked --offline` and the exact CI
+`cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p
+nagi-bootstrap -- fetch` both compile the bootstrap successfully; the 146 CLI
+unit tests and bootstrap formatting check also pass.
+
+The local fetch then stopped at the existing Servo checkout validation, which
+reported a dirty pinned checkout and refused to modify it. No Servo files were
+changed by this repair. A clean-run CI result is still pending, and this does
+not change M20's `PARTIAL` status.

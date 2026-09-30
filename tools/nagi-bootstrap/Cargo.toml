@@ -13,3 +13,6 @@ path = "../nagi-cli/src/lib.rs"
 [[bin]]
 name = "nagi-bootstrap"
 path = "../nagi-cli/src/main.rs"
+
+[dependencies]
+nagi-model-manager = { path = "../../user/nagi-model-manager" }
