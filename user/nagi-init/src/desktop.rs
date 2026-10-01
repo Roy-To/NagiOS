@@ -15,6 +15,10 @@ const PANEL: u32 = rgba(228, 235, 240);
 const TITLE: u32 = rgba(38, 166, 154);
 const BORDER: u32 = rgba(8, 12, 20);
 const TEXT: u32 = rgba(15, 23, 42);
+const SETTINGS_BUTTON: Rect = Rect::new(252, 1, 66, 18);
+const SETTINGS_PANEL: Rect = Rect::new(34, 34, 252, 132);
+const ENGLISH_OPTION: Rect = Rect::new(48, 83, 224, 25);
+const JAPANESE_OPTION: Rect = Rect::new(48, 116, 224, 25);
 
 #[no_mangle]
 static NAGI_M10_READY: [u8; b"Nagi M10 desktop READY\r\n".len()] = *b"Nagi M10 desktop READY\r\n";
@@ -44,19 +48,13 @@ static NAGI_M10_ACCEPTANCE: [u8; b"Nagi M10 acceptance PASS\r\n".len()] =
 #[no_mangle]
 static NAGI_M10_FAIL: [u8; b"Nagi M10 acceptance FAIL\r\n".len()] =
     *b"Nagi M10 acceptance FAIL\r\n";
+#[no_mangle]
+static NAGI_M29_JAPANESE_SELECTED: [u8; b"Nagi M29 settings locale PASS locale=ja-JP\r\n".len()] =
+    *b"Nagi M29 settings locale PASS locale=ja-JP\r\n";
+#[no_mangle]
+static NAGI_M29_ACCEPTANCE: [u8; b"Nagi M29 settings acceptance PASS\r\n".len()] =
+    *b"Nagi M29 settings acceptance PASS\r\n";
 
-#[no_mangle]
-static CALCULATOR_TITLE: [u8; 10] = *b"Calculator";
-#[no_mangle]
-static NOTES_TITLE: [u8; 5] = *b"Notes";
-#[no_mangle]
-static FILES_TITLE: [u8; 5] = *b"Files";
-#[no_mangle]
-static TERMINAL_TITLE: [u8; 8] = *b"Terminal";
-#[no_mangle]
-static CALCULATOR_TEXT: [u8; 9] = *b"1 + 2 = 3";
-#[no_mangle]
-static NOTES_TEXT: [u8; 8] = *b"\xe3\x83\xa1\xe3\x83\xa2: ";
 #[no_mangle]
 static NOTES_KANA: [u8; 3] = *b"\xe3\x81\x82";
 #[no_mangle]
@@ -85,6 +83,8 @@ pub struct Desktop {
     pointer_x: i32,
     pointer_y: i32,
     notes_has_input: bool,
+    locale: nagi_localization::Locale,
+    settings_open: bool,
 }
 
 impl Desktop {
@@ -100,23 +100,37 @@ impl Desktop {
             pointer_x: POINTER_START_X,
             pointer_y: POINTER_START_Y,
             notes_has_input: false,
+            locale: nagi_localization::Locale::EnUs,
+            settings_open: false,
         }
     }
 
     pub fn render(&self, surface: &mut [u32]) {
         let mut painter = Painter::new(surface);
         painter.fill(Rect::new(0, 0, 320, 200), BACKGROUND);
+        painter.fill(Rect::new(0, 0, 320, 20), rgba(24, 36, 56));
+        painter.fill(
+            SETTINGS_BUTTON,
+            if self.settings_open { TITLE } else { PANEL },
+        );
+        painter.frame(SETTINGS_BUTTON, BORDER);
+        painter.text(
+            SETTINGS_BUTTON.x + 4,
+            SETTINGS_BUTTON.y + 5,
+            nagi_localization::text(self.locale, "desktop.settings.button").as_bytes(),
+            TEXT,
+        );
         self.render_app(
             &mut painter,
             0,
-            message!(CALCULATOR_TITLE, 10),
-            message!(CALCULATOR_TEXT, 9),
+            nagi_localization::text(self.locale, "desktop.calculator.title").as_bytes(),
+            b"1 + 2 = 3",
         );
         self.render_app(
             &mut painter,
             1,
-            message!(NOTES_TITLE, 5),
-            message!(NOTES_TEXT, 8),
+            nagi_localization::text(self.locale, "desktop.notes.title").as_bytes(),
+            nagi_localization::text(self.locale, "desktop.notes.content").as_bytes(),
         );
         if self.notes_has_input {
             painter.text(176, 57, message!(NOTES_KANA, 3), TEXT);
@@ -124,15 +138,18 @@ impl Desktop {
         self.render_app(
             &mut painter,
             2,
-            message!(FILES_TITLE, 5),
+            nagi_localization::text(self.locale, "desktop.files.title").as_bytes(),
             message!(FILES_TEXT, 19),
         );
         self.render_app(
             &mut painter,
             3,
-            message!(TERMINAL_TITLE, 8),
+            nagi_localization::text(self.locale, "desktop.terminal.title").as_bytes(),
             message!(TERMINAL_TEXT, 9),
         );
+        if self.settings_open {
+            self.render_settings(&mut painter);
+        }
         painter.fill(
             Rect::new(self.pointer_x - 1, self.pointer_y - 1, 3, 3),
             rgba(245, 158, 11),
@@ -152,6 +169,28 @@ impl Desktop {
         }
         if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 {
             if event.code == libnagi::INPUT_KEY_LEFT {
+                if SETTINGS_BUTTON.contains(self.pointer_x, self.pointer_y) {
+                    self.settings_open = !self.settings_open;
+                    return true;
+                }
+                if self.settings_open {
+                    if ENGLISH_OPTION.contains(self.pointer_x, self.pointer_y) {
+                        self.locale = nagi_localization::Locale::EnUs;
+                        return true;
+                    }
+                    if JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y) {
+                        self.locale = nagi_localization::Locale::JaJp;
+                        if cfg!(feature = "m29-settings-acceptance") {
+                            print(message!(NAGI_M29_JAPANESE_SELECTED, 44));
+                        }
+                        return true;
+                    }
+                    if !SETTINGS_PANEL.contains(self.pointer_x, self.pointer_y) {
+                        self.settings_open = false;
+                        return true;
+                    }
+                    return true;
+                }
                 if self.windows[0].contains(self.pointer_x, self.pointer_y) {
                     if !self.focused[0] {
                         self.focused[0] = true;
@@ -190,7 +229,70 @@ impl Desktop {
     }
 
     pub fn acceptance_ready(&self) -> bool {
-        self.focused.iter().all(|focused| *focused) && self.notes_has_input
+        let desktop_ready = self.focused.iter().all(|focused| *focused) && self.notes_has_input;
+        if cfg!(feature = "m29-settings-acceptance") {
+            desktop_ready
+                && self.settings_open
+                && self.locale == nagi_localization::Locale::JaJp
+                && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
+        } else {
+            desktop_ready
+        }
+    }
+
+    fn render_settings(&self, painter: &mut Painter<'_>) {
+        painter.fill(SETTINGS_PANEL, PANEL);
+        painter.frame(SETTINGS_PANEL, BORDER);
+        painter.fill(
+            Rect::new(
+                SETTINGS_PANEL.x + 1,
+                SETTINGS_PANEL.y + 1,
+                SETTINGS_PANEL.width - 2,
+                TITLE_HEIGHT + 2,
+            ),
+            TITLE,
+        );
+        painter.text(
+            SETTINGS_PANEL.x + 8,
+            SETTINGS_PANEL.y + 5,
+            nagi_localization::text(self.locale, "desktop.settings.title").as_bytes(),
+            PANEL,
+        );
+        painter.text(
+            SETTINGS_PANEL.x + 14,
+            SETTINGS_PANEL.y + 37,
+            nagi_localization::text(self.locale, "desktop.settings.language").as_bytes(),
+            TEXT,
+        );
+        self.render_locale_option(
+            painter,
+            ENGLISH_OPTION,
+            nagi_localization::Locale::EnUs,
+            "desktop.settings.option.en-US",
+        );
+        self.render_locale_option(
+            painter,
+            JAPANESE_OPTION,
+            nagi_localization::Locale::JaJp,
+            "desktop.settings.option.ja-JP",
+        );
+    }
+
+    fn render_locale_option(
+        &self,
+        painter: &mut Painter<'_>,
+        rect: Rect,
+        locale: nagi_localization::Locale,
+        key: &str,
+    ) {
+        painter.fill(rect, rgba(245, 248, 250));
+        painter.frame(rect, if self.locale == locale { TITLE } else { BORDER });
+        painter.text(
+            rect.x + 8,
+            rect.y + 8,
+            nagi_localization::text(self.locale, key).as_bytes(),
+            TEXT,
+        );
     }
 
     fn render_app(&self, painter: &mut Painter<'_>, index: usize, title: &[u8], content: &[u8]) {
@@ -255,6 +357,9 @@ pub fn run(display_capability: u64, input_capability: u64) -> ! {
         }
         if desktop.acceptance_ready() {
             print(message!(NAGI_M10_ACCEPTANCE, 26));
+            if cfg!(feature = "m29-settings-acceptance") {
+                print(message!(NAGI_M29_ACCEPTANCE, 35));
+            }
             loop {
                 unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)) };
             }

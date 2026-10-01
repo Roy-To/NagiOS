@@ -411,3 +411,15 @@ restart. Output showed all three rows as `MOVE / COMMITTED`; the complete run
 is preserved at `out/evidence/m27-ab-rollback-1790810805162353000/`. This adds
 Recovery diagnostics, not filesystem repair or authenticated slot/update
 authority; M27 remains `PARTIAL`.
+
+## M29 completion-sweep regression — 2026-10-01
+
+After adding the shared localization dependency to the M10 desktop build,
+`./nagi m27` passed again. The fresh acceptance repeated three malformed
+System B trials and rollback, healthy System B readiness/promotion, GPT
+Recovery, persistent User Data checks, and Recovery Undo of the committed
+three-file M22 group across restart. The last verification boot is
+`out/evidence/m27-ab-rollback-1790812676859868000/boot-5.log`; the complete
+run's serial logs, OVMF variables, and User Data image are in that directory.
+The prior boot-4 timeout remains unexplained, and the authenticated update and
+remaining Recovery work keep M27 `PARTIAL`.

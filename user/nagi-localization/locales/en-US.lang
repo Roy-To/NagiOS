@@ -1,0 +1,10 @@
+desktop.settings.button=Settings
+desktop.settings.title=Settings
+desktop.settings.language=Language
+desktop.settings.option.en-US=English
+desktop.settings.option.ja-JP=Japanese
+desktop.calculator.title=Calculator
+desktop.notes.title=Notes
+desktop.notes.content=Memo:
+desktop.files.title=Files
+desktop.terminal.title=Terminal

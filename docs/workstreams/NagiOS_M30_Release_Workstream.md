@@ -119,11 +119,12 @@ The §90 Definition of Done audit remains open across M18–M29: M18 lacks sever
 browser providers; M19–M26 lack their production guest integrations or real
 providers; M27 lacks account-authenticated readiness, authenticated slot
 manifests, and an authorized GPT update installer; M28 has not measured the
-combined reference workload; and M29 lacks screenshots, boot-time evidence,
-complete Settings/accessibility/localization, and binary notice clearance. M22
-remains blocked at authenticated AI mutation/Activity Ledger integration. The
-M16 sample package acceptance and M17/M18 browser acceptance do not close
-these gaps.
+combined reference workload; and M29 now has an in-session Desktop language
+preview, QEMU screenshot, and persistent-boot timing sample but lacks a
+first-run flow, persistent settings, complete localization/accessibility, and
+binary notice clearance. M22 remains blocked at authenticated AI
+mutation/Activity Ledger integration. The M16 sample package acceptance and
+M17/M18 browser acceptance do not close these gaps.
 
 ## Historical clean-tree preflight evidence — 2026-09-30
 
@@ -429,3 +430,17 @@ This is guest artifact-reader evidence only. It does not make
 `m30_acceptance` anything other than `NOT_EVALUATED`, and it does not claim
 artifact installation, GGUF loading, Granite, or inference. Host audio capture
 was unavailable (`virtio-sound.in`); M30 remains `PARTIAL`.
+
+## M29 completion-sweep release regression — 2026-10-01
+
+After the Desktop Settings/localization change, `./nagi m30` passed again on
+the same self-contained 64 GiB GPT qcow2. Two disposable-copy boots passed
+System A, Model Store read-only/FAT32 discovery, User Data write and
+restart-read, and M7 acceptance. `qemu-img check` reported no image errors;
+the reference qcow2 SHA-256 remains
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`.
+Evidence is under `out/evidence/m30-release-1790812803135254000/`. The
+separate M20 fixture again passed the 5,000-byte Model Store reader test; it
+remains test data rather than an installable model or inference result. M30
+remains `PARTIAL` for release preflight on the current commit, authenticated
+updates, M18–M29 gaps, and binary license review.

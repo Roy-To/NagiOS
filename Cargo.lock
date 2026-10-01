@@ -3459,6 +3459,7 @@ dependencies = [
  "nagi-albert",
  "nagi-audio",
  "nagi-history",
+ "nagi-localization",
  "nagi-model",
  "nagi-model-manager",
  "nagi-net",
@@ -3477,6 +3478,10 @@ dependencies = [
  "nagi-abi",
  "nagi-bootinfo",
 ]
+
+[[package]]
+name = "nagi-localization"
+version = "0.1.0"
 
 [[package]]
 name = "nagi-model"

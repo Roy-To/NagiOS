@@ -120,7 +120,12 @@ of the selected presentation language.
 
 The existing M10 Japanese UTF-8 rendering/input path is compatible with this
 architecture, but it is not by itself the shared localization framework.
-At this checkpoint no full `en-US`/`ja-JP` resource catalog or language
-settings service is claimed. Future localization work must use this document
-as the common contract and must add focused lookup, fallback, invalid-locale,
-and Unicode tests before claiming the relevant milestone complete.
+The `nagi-localization` no-std library now embeds an initial shared `en-US` and
+`ja-JP` catalog, parses the two canonical locale codes, resolves stable keys,
+and falls back to English without exposing unknown keys. The M10 desktop uses
+that catalog for its Settings overlay and four panel titles; its language
+choice applies only to the current desktop run. This is not a persistent
+language settings service or cross-process locale propagation. First-party UI
+coverage remains partial, and the desktop still has no accessibility tree or
+keyboard focus model. Focused host tests cover catalog keys, UTF-8 Japanese,
+locale validation, safe missing-key behavior, and fallback behavior.

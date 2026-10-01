@@ -280,5 +280,7 @@ jobs:
         run: ./nagi m22
       - name: M27 broken-slot rollback acceptance
         run: ./nagi m27
+      - name: M29 Desktop language Settings acceptance
+        run: ./nagi m29
       - name: M30 reference release disk acceptance
         run: ./nagi m30

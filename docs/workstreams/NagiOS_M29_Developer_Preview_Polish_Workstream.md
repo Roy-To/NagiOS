@@ -11,14 +11,14 @@ finished consumer onboarding flow or complete product UX.
 | Surface | Current evidence | M29 result / remaining work |
 | --- | --- | --- |
 | First boot and onboarding | `./nagi image` and `./nagi run` create and boot the QEMU reference image; the implementation status records QEMU acceptance by milestone. | The Japanese guide documents the host and first QEMU workflow. No first-run setup wizard, physical installer, or onboarding screenshots are present. |
-| Desktop, defaults, and Settings | `user/nagi-init/src/desktop.rs` draws four fixed M10 acceptance panels for Calculator, Notes, Files, and Terminal. | The guide labels this as an acceptance surface. A real app launcher, default-app selection, and integrated Settings experience are not evidenced. |
+| Desktop, defaults, and Settings | `user/nagi-init/src/desktop.rs` draws four M10 acceptance panels and a Settings overlay with an in-session `en-US` / `ja-JP` selector. `./nagi m29` selects Japanese in a real QEMU guest and captures the accepted surface. | This is a narrow Desktop acceptance surface, not a complete app launcher, default-app selector, persistent settings service, or integrated system settings experience. |
 | Errors and missing providers | CLI commands expose host diagnostics and per-acceptance serial logs; M20–M26 workstreams record typed provider boundaries and unavailable paths. | The guide separates host failures from guest providers and says when a capability is not available. There is no shared end-user error center or provider-management UI. |
 | Recovery and update | M16 verifies a sample package install/list/info/launch/atomic-update/remove fixture. M27 QEMU acceptance covers GPT-backed A/B trial rollback/promotion and a read-only Recovery path, including recovery with a pending journal. | Documentation distinguishes the M16 fixture from M27 guest recovery. Authenticated slot manifests, GPT-integrated update installation, account-login readiness, and a user-facing recovery flow remain. |
-| Language and accessibility | `docs/architecture/language-architecture.md` defines `en-US` and `ja-JP` as equal first-class languages. The M10 desktop has fixed English labels and a Japanese sample string; Albert's view model exposes localization keys. | The guide does not imply complete translation or accessibility. Full locale controls, complete first-party translations, an accessibility tree, and assistive-technology acceptance remain unverified. |
+| Language and accessibility | `user/nagi-localization` supplies embedded UTF-8 `en-US` and `ja-JP` resources, canonical locale parsing, stable-key lookup, English fallback, and safe unknown-key text. The M29 Settings overlay changes the four Desktop panel titles and its own labels in the current run. | Persistent settings, propagation to other services/apps, complete first-party translations, keyboard focus, an accessibility tree, and assistive-technology acceptance remain unverified. Region/locale, input language/keyboard, and Albert conversation language remain separate concepts. |
 | Diagnostics and debug output | `./nagi doctor` is host diagnostics; it recognizes `python3` as well as the `python` and Windows launcher names. Milestone commands save guest serial logs. The M17 acceptance requires bounded startup trace markers, and `m17_trace_excerpt` elides middle lines past its configured cap. | The guide documents log paths and marker-based evidence. The Python 3 alias regression is covered by an integration test, and the current macOS host reports 12/12 checks passing. M17 traces were retained because they support and are consumed by startup acceptance; no indiscriminate trace deletion was made. A `nagi diagnose bundle` command is absent. |
 | Developer and SDK docs | Root README, Japanese Developer Preview guide, SDK README, contribution guide, and roadmap now cross-link the verified command surface and known limitations. The SDK README describes the IDL-backed Rust/C APIs and the Hello Nagi sample package flow. | Documentation is present. The SDK remains an early surface; no general app lifecycle, IPC, or capability API is claimed. |
 | Package metadata and notices | `nagi.toml` records version `0.1.0-dev` and the QEMU reference machine. `THIRD_PARTY_NOTICES.md` now covers all 18 `sources.lock` components, their exact version/revision/toolchain pins, declared license expressions, and unresolved binary redistribution reviews. A `nagi-cli` regression checks that new pins are added to the notice inventory. `cargo metadata --locked` reports license expressions for all 673 external Cargo packages (41 distinct expressions), including dev and target-specific packages. | The guides link the notices and avoid assigning a project license. Cargo metadata is not a license-text or redistribution review or an image bill of materials. Nagi's license is still undecided; Rust std, Mesa component notices, transitive native sources, and asset provenance need human review before binary redistribution. |
-| Screenshots and performance | `docs/assets/screenshots/nagi-m10-qemu-desktop.png` is the M10 QEMU desktop after keyboard/mouse acceptance. `docs/assets/screenshots/nagi-m18-qemu-browser.png` is Albert after three verified HTTPS pages reached the guest surface. Three repeated persistent-data M10 QEMU boots on macOS aarch64 reached READY in 2,466–2,568 ms (median 2,486 ms), measured from QEMU spawn to host receipt of the marker. | These are fixed M10/M18 acceptance surfaces, not finished product UIs. The timing includes QEMU/UEFI startup and serial delivery; it is not a clean-install or cross-host performance benchmark. |
+| Screenshots and performance | `docs/assets/screenshots/nagi-m10-qemu-desktop.png` is the M10 QEMU desktop after keyboard/mouse acceptance; `nagi-m18-qemu-browser.png` shows Albert after three verified HTTPS pages; `nagi-m29-settings-ja-jp.png` shows the guest Settings surface after Japanese selection. Three repeated persistent-data M10 QEMU boots on macOS aarch64 reached READY in 2,466–2,568 ms (median 2,486 ms), measured from QEMU spawn to host receipt of the marker. | These are acceptance surfaces, not finished product UIs. The timing includes QEMU/UEFI startup and serial delivery; it is not a clean-install or cross-host performance benchmark. |
 | Clean build | CI checks build from fresh checkouts. This local documentation checkpoint did not run `./nagi clean`, which removes `target/` and `out/` including preserved acceptance logs and persistent disks. | Existing evidence remains preserved. A clean release build and artifact reproducibility are part of the M30 release gate. |
 
 ## Captured M10 acceptance surface
@@ -28,6 +28,16 @@ documents the current fixed four-panel surface and does not imply a complete
 desktop shell or complete Japanese localization.
 
 ![Nagi M10 fixed QEMU acceptance desktop](../assets/screenshots/nagi-m10-qemu-desktop.png)
+
+## Captured M29 Settings language selection
+
+`./nagi m29` replays the existing M10 panel interactions, opens Settings,
+selects Japanese, and waits for the guest to report both the `ja-JP` selection
+and the M29 acceptance marker before saving this QEMU display. The screenshot
+shows the Japanese Settings labels and translated panel titles; the selection
+is session-only.
+
+![Nagi M29 Settings with Japanese selected](../assets/screenshots/nagi-m29-settings-ja-jp.png)
 
 ## Captured M18 Albert browser acceptance
 
@@ -67,6 +77,21 @@ not a claim that browser UX or localization is complete.
 - `cargo test --locked --offline -p nagi-cli --all-targets` — passed (135 unit
   tests, 21 integration tests); `cargo clippy --locked --offline -p nagi-cli
   --all-targets -- -D warnings` — passed.
+- `cargo test --locked --offline -p nagi-localization -p nagi-cli --lib` —
+  passed (5 localization tests and 147 CLI tests); focused warnings-denied
+  Clippy for both packages passed.
+- The M29 desktop target compiled with
+  `m10-desktop,m29-settings-acceptance`; `./nagi m29` passed after selecting
+  `ja-JP` in the guest, preserving all M10 focus/input markers. Its QEMU log
+  and raw screenshot are under
+  `out/evidence/m29-settings-1790812427414735000/`.
+- `./nagi desktop` passed after the Settings UI was added, preserving the M10
+  Calculator, Notes, Files, Terminal, and Japanese input acceptance path.
+- `./nagi m27` and `./nagi m30` also passed after the change. M27 exercised
+  three-trial rollback, healthy-slot promotion, Recovery, and grouped Undo;
+  M30 booted the unchanged 64 GiB reference qcow2 twice and passed its separate
+  M20 Model Store reader fixture. Their detailed evidence is recorded in the
+  corresponding M27/M30 workstreams.
 - `rustfmt --check` for the changed Rust files and `git diff --check` — passed.
 - `./nagi desktop` — passed on 2026-09-30 after the scanout and bitmap-font
   changes; the guest reported READY, four app-focus markers, Japanese input,

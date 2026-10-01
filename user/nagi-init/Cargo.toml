@@ -34,6 +34,7 @@ m20-fixture-acceptance = ["m20-model-store-acceptance"]
 m22-history = ["m19-search"]
 m27-ro-vfs-check = []
 m27-recovery = []
+m29-settings-acceptance = ["m10-desktop"]
 m25-voice-acceptance = []
 
 [[bin]]
@@ -48,6 +49,7 @@ nagi-audio = { path = "../nagi-audio" }
 nagi-history = { path = "../nagi-history" }
 nagi-model = { path = "../../crates/nagi-model" }
 nagi-model-manager = { path = "../nagi-model-manager", optional = true }
+nagi-localization = { path = "../nagi-localization" }
 nagi-package = { path = "../nagi-package" }
 nagi-sdk = { path = "../../sdk/rust" }
 nagi-net = { path = "../nagi-net" }

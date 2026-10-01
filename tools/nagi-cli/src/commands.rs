@@ -53,6 +53,20 @@ struct ImageBuildRequest<'a> {
     build_features: ImageBuildFeatures<'a>,
 }
 
+struct DesktopAcceptanceConfig {
+    label: &'static str,
+    features: &'static str,
+    image_name: &'static str,
+    persistent_disk_name: &'static str,
+    vars_name: &'static str,
+    first_log_name: &'static str,
+    run_log_name: &'static str,
+    evidence_prefix: &'static str,
+    screenshot_name: &'static str,
+    acceptance_marker: &'static str,
+    required_markers: &'static [&'static str],
+}
+
 const M18_INPUT_EVENTS: [&str; 2] = [
     r#"{
         "execute":"input-send-event",
@@ -126,6 +140,7 @@ pub enum Command {
     M17,
     M18,
     M19,
+    M29,
     M22,
     M25,
     M27,
@@ -195,6 +210,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m17" => Command::M17,
         "m18" => Command::M18,
         "m19" => Command::M19,
+        "m29" => Command::M29,
         "m22" => Command::M22,
         "m25" => Command::M25,
         "m27" => Command::M27,
@@ -234,6 +250,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M17
         | Command::M18
         | Command::M19
+        | Command::M29
         | Command::M22
         | Command::M25
         | Command::M27
@@ -386,6 +403,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::Shell => execute_shell(root, probe),
         Command::Gui => execute_gui(root, probe),
         Command::Desktop => execute_desktop(root, probe),
+        Command::M29 => execute_m29(root, probe),
         Command::Security => execute_security(root, probe),
         Command::Network => execute_network(root, probe),
         Command::Posix => execute_posix(root, probe),
@@ -1284,6 +1302,58 @@ const M10_DESKTOP_EVENTS: [&str; 8] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
 ];
 
+const M29_SETTINGS_EVENTS: [&str; 7] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"x","value":100}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":-115}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"x","value":-120}},{"type":"rel","data":{"axis":"y","value":103}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"x","value":100}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":38}}]}}"#,
+];
+
+const M10_DESKTOP_REQUIRED_MARKERS: &[&str] = &[
+    "Nagi boot stage PLATFORM 15",
+    "Nagi boot stage CORE_SERVICES 30",
+    "Nagi boot stage STORAGE 50",
+    "Nagi boot stage GRAPHICS 70",
+    "Nagi boot stage SESSION 90",
+    "Nagi boot lock READY",
+    "Nagi boot collapse COMPLETE",
+    "Nagi boot frame checksum=",
+    "Nagi boot lock checksum=",
+    "Nagi M10 desktop READY",
+    "Nagi M10 surface checksum=",
+    "Nagi M10 Calculator focus PASS",
+    "Nagi M10 Notes focus PASS",
+    "Nagi M10 Japanese input PASS",
+    "Nagi M10 Files focus PASS",
+    "Nagi M10 GUI Terminal focus PASS",
+    "Nagi M10 acceptance PASS",
+];
+
+const M29_SETTINGS_REQUIRED_MARKERS: &[&str] = &[
+    "Nagi boot stage PLATFORM 15",
+    "Nagi boot stage CORE_SERVICES 30",
+    "Nagi boot stage STORAGE 50",
+    "Nagi boot stage GRAPHICS 70",
+    "Nagi boot stage SESSION 90",
+    "Nagi boot lock READY",
+    "Nagi boot collapse COMPLETE",
+    "Nagi boot frame checksum=",
+    "Nagi boot lock checksum=",
+    "Nagi M10 desktop READY",
+    "Nagi M10 surface checksum=",
+    "Nagi M10 Calculator focus PASS",
+    "Nagi M10 Notes focus PASS",
+    "Nagi M10 Japanese input PASS",
+    "Nagi M10 Files focus PASS",
+    "Nagi M10 GUI Terminal focus PASS",
+    "Nagi M29 settings locale PASS locale=ja-JP",
+    "Nagi M10 acceptance PASS",
+    "Nagi M29 settings acceptance PASS",
+];
+
 fn execute_gui(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let image_result =
         execute_image_with_features(root, Some("m9-window"), "nagi-0.1-m9-window.img");
@@ -1395,47 +1465,100 @@ fn execute_gui(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    execute_desktop_acceptance(
+        root,
+        probe,
+        DesktopAcceptanceConfig {
+            label: "desktop",
+            features: "m10-desktop",
+            image_name: "nagi-0.1-m10-desktop.img",
+            persistent_disk_name: "nagi-0.1-user-data.img",
+            vars_name: "nagi-0.1-m10-desktop-vars.fd",
+            first_log_name: "m10-first-boot.log",
+            run_log_name: "m10-desktop.log",
+            evidence_prefix: "m29-desktop",
+            screenshot_name: "nagi-m10-desktop.png",
+            acceptance_marker: "Nagi M10 acceptance PASS",
+            required_markers: M10_DESKTOP_REQUIRED_MARKERS,
+        },
+        &M10_DESKTOP_EVENTS,
+    )
+}
+
+fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let mut events = M10_DESKTOP_EVENTS.to_vec();
+    events.extend_from_slice(&M29_SETTINGS_EVENTS);
+    execute_desktop_acceptance(
+        root,
+        probe,
+        DesktopAcceptanceConfig {
+            label: "m29",
+            features: "m10-desktop,m29-settings-acceptance",
+            image_name: "nagi-0.1-m29-settings.img",
+            persistent_disk_name: "nagi-0.1-m29-settings-user-data.img",
+            vars_name: "nagi-0.1-m29-settings-vars.fd",
+            first_log_name: "m29-settings-first-boot.log",
+            run_log_name: "m29-settings.log",
+            evidence_prefix: "m29-settings",
+            screenshot_name: "nagi-m29-settings-ja-jp.png",
+            acceptance_marker: "Nagi M29 settings acceptance PASS",
+            required_markers: M29_SETTINGS_REQUIRED_MARKERS,
+        },
+        &events,
+    )
+}
+
+fn execute_desktop_acceptance(
+    root: &Path,
+    probe: &dyn HostProbe,
+    acceptance: DesktopAcceptanceConfig,
+    events: &[&str],
+) -> CommandResult {
     let image_result =
-        execute_image_with_features(root, Some("m10-desktop"), "nagi-0.1-m10-desktop.img");
+        execute_image_with_features(root, Some(acceptance.features), acceptance.image_name);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
-    let host = match resolve_qemu_host(root, probe, "desktop") {
+    let host = match resolve_qemu_host(root, probe, acceptance.label) {
         Ok(host) => host,
         Err(error) => return failure(EXIT_CONFIG_ERROR, error),
     };
     let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let screenshot_run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_nanos().to_string(),
         Err(error) => {
-            return failure(EXIT_CONFIG_ERROR, format!("desktop: system clock: {error}"));
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: system clock: {error}", acceptance.label),
+            );
         }
     };
     let screenshot_directory = match ensure_owned_directory(
         root,
-        Path::new("out")
-            .join("evidence")
-            .join(format!("m29-desktop-{screenshot_run_id}")),
+        Path::new("out").join("evidence").join(format!(
+            "{}-{screenshot_run_id}",
+            acceptance.evidence_prefix
+        )),
     ) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
-    let screenshot_path = screenshot_directory.join("nagi-m10-desktop.png");
-    let image_path = artifacts.join("nagi-0.1-m10-desktop.img");
-    let persistent_disk = artifacts.join("nagi-0.1-user-data.img");
-    let vars_copy = artifacts.join("nagi-0.1-m10-desktop-vars.fd");
-    let first_log = logs.join("m10-first-boot.log");
-    let desktop_log = logs.join("m10-desktop.log");
+    let screenshot_path = screenshot_directory.join(acceptance.screenshot_name);
+    let image_path = artifacts.join(acceptance.image_name);
+    let persistent_disk = artifacts.join(acceptance.persistent_disk_name);
+    let vars_copy = artifacts.join(acceptance.vars_name);
+    let first_log = logs.join(acceptance.first_log_name);
+    let desktop_log = logs.join(acceptance.run_log_name);
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let timeout = Duration::from_secs(45);
     if !had_persistent_disk {
@@ -1451,21 +1574,31 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             timeout,
         };
         if let Err(error) = run_qemu(&first_config) {
-            return failure(EXIT_CONFIG_ERROR, format!("desktop: first boot: {error}"));
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: first boot: {error}", acceptance.label),
+            );
         }
         let first_serial = match fs::read_to_string(&first_log) {
             Ok(serial) => serial,
             Err(error) => {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("desktop: cannot read {}: {error}", first_log.display()),
+                    format!(
+                        "{}: cannot read {}: {error}",
+                        acceptance.label,
+                        first_log.display()
+                    ),
                 );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("desktop: first boot did not print `{NAGI_WRITE_MARKER}`"),
+                format!(
+                    "{}: first boot did not print `{NAGI_WRITE_MARKER}`",
+                    acceptance.label
+                ),
             );
         }
     }
@@ -1477,52 +1610,39 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         persistent_disk: &persistent_disk,
         vars_copy: &vars_copy,
         serial_log: &desktop_log,
-        acceptance_marker: "Nagi M10 acceptance PASS",
+        acceptance_marker: acceptance.acceptance_marker,
         timeout,
     };
     let outcome = match run_qemu_gui_with_events_and_screenshot(
         &config,
         "Nagi M10 desktop READY",
-        &M10_DESKTOP_EVENTS,
+        events,
         &screenshot_path,
     ) {
         Ok(status) => status,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let serial = match fs::read_to_string(&desktop_log) {
         Ok(serial) => serial,
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("desktop: cannot read {}: {error}", desktop_log.display()),
+                format!(
+                    "{}: cannot read {}: {error}",
+                    acceptance.label,
+                    desktop_log.display()
+                ),
             );
         }
     };
     let mut last_marker_end = 0;
-    for marker in [
-        "Nagi boot stage PLATFORM 15",
-        "Nagi boot stage CORE_SERVICES 30",
-        "Nagi boot stage STORAGE 50",
-        "Nagi boot stage GRAPHICS 70",
-        "Nagi boot stage SESSION 90",
-        "Nagi boot lock READY",
-        "Nagi boot collapse COMPLETE",
-        "Nagi boot frame checksum=",
-        "Nagi boot lock checksum=",
-        "Nagi M10 desktop READY",
-        "Nagi M10 surface checksum=",
-        "Nagi M10 Calculator focus PASS",
-        "Nagi M10 Notes focus PASS",
-        "Nagi M10 Japanese input PASS",
-        "Nagi M10 Files focus PASS",
-        "Nagi M10 GUI Terminal focus PASS",
-        "Nagi M10 acceptance PASS",
-    ] {
+    for marker in acceptance.required_markers {
         let Some(relative) = serial[last_marker_end..].find(marker) else {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "desktop: guest did not print ordered marker `{marker}` (QEMU exit {}; log {})",
+                    "{}: guest did not print ordered marker `{marker}` (QEMU exit {}; log {})",
+                    acceptance.label,
                     outcome.exit_status,
                     desktop_log.display()
                 ),
@@ -1534,7 +1654,8 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "desktop: guest markers are present but QEMU did not reach its acceptance marker (exit {}; log {})",
+                "{}: guest markers are present but QEMU did not reach its acceptance marker (exit {}; log {})",
+                acceptance.label,
                 outcome.exit_status,
                 desktop_log.display()
             ),
@@ -1544,7 +1665,8 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "desktop: QEMU acceptance completed without observing the READY marker (log {})",
+                "{}: QEMU acceptance completed without observing the READY marker (log {})",
+                acceptance.label,
                 desktop_log.display()
             ),
         );
@@ -1552,7 +1674,8 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS desktop: QEMU guest rendered and interacted with the Nagi desktop (exit {}; guest READY after {} ms; log {}; screenshot {})",
+            "PASS {}: QEMU guest rendered and interacted with the Nagi desktop (exit {}; guest READY after {} ms; log {}; screenshot {})",
+            acceptance.label,
             outcome.exit_status,
             ready_after.as_millis(),
             desktop_log.display(),
@@ -5490,7 +5613,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, m25, m27, m30, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, m25, m27, m29, m30, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -5508,9 +5631,15 @@ mod tests {
     use super::{
         append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt,
         m27_readiness_consumed_before_promotion, m27_readiness_persisted_before_desktop,
-        m27_trial_failure_observed,
+        m27_trial_failure_observed, parse_command, Command,
     };
     use std::path::Path;
+
+    #[test]
+    fn m29_command_selects_the_settings_acceptance() {
+        assert_eq!(parse_command(&["m29".into()]), Ok(Command::M29));
+        assert!(parse_command(&["m29".into(), "extra".into()]).is_err());
+    }
 
     #[test]
     fn serial_log_excerpt_keeps_the_last_lines_in_order() {
