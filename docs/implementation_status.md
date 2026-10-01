@@ -6624,3 +6624,27 @@ M20 Model Store capability checks, User Data format/write/restart-read, and M7
 acceptance; the host lacked `virtio-sound.in`. The bundle's
 `m30_acceptance=NOT_EVALUATED` is unchanged. See
 `docs/workstreams/NagiOS_M30_Release_Workstream.md`.
+
+
+## Completion sweep — current-commit M30 release bundle QEMU acceptance (2026-10-01)
+
+On clean commit `637f5755a57eaa14adc379fdddfaeebb5dea6387`, release preflight,
+assembly, and verification passed; all 12 release-tool tests passed. The
+assembled package at `out/artifacts/m30-release-bundle-637f575/` has 23
+verified checksum entries and the expected source revision. Its qcow2 SHA-256
+is `e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`.
+
+A byte-identical copy of the package qcow2 booted twice with shared OVMF
+variables. System A, the Model Store read-only capability, and the M27
+confirmed-A journal passed; boot 1 formatted and wrote User Data, and boot 2
+read the persisted data and reached `Nagi M7 acceptance PASS`. The disposable
+copy's SHA-256 changed to
+`0eafa697f6a918486eeb9bd3b6cf673d3792d1698461c76ca3ea88a47b26940a` after
+guest writes. The untouched package retained its original hash and passed
+post-boot `release.py verify`; `qemu-img check` passed on both images. Evidence
+is under `out/evidence/m30-clean-release-637f575/`, including both serial logs,
+the QEMU runner, OVMF variables, and before/after hashes. The package manifest
+still records `m30_acceptance=NOT_EVALUATED`; guest acceptance is separate.
+
+M30 remains `PARTIAL` for authenticated GPT update installation, remaining
+M18–M29 acceptance, and human binary redistribution review.

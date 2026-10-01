@@ -444,3 +444,29 @@ separate M20 fixture again passed the 5,000-byte Model Store reader test; it
 remains test data rather than an installable model or inference result. M30
 remains `PARTIAL` for release preflight on the current commit, authenticated
 updates, M18–M29 gaps, and binary license review.
+
+## Clean-source release bundle copy acceptance — 2026-10-01
+
+On clean commit `637f5755a57eaa14adc379fdddfaeebb5dea6387`, release preflight,
+assembly, and verification passed. The release-tool suite passed all 12 tests.
+The bundle is `out/artifacts/m30-release-bundle-637f575/`; it contains 23
+`SHA256SUMS` entries and records the full source revision. The bundled qcow2
+SHA-256 is
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`.
+
+The bundled qcow2 was copied byte-for-byte to
+`out/evidence/m30-clean-release-637f575/package-qemu-copy.qcow2` and booted
+twice with the same writable OVMF variables. The first boot selected GPT
+System A, passed the read-only Model Store and M27 journal checks, and
+formatted/wrote User Data. The second boot mounted and read the persisted data
+and printed `Nagi M7 acceptance PASS`. The disposable copy changed to SHA-256
+`0eafa697f6a918486eeb9bd3b6cf673d3792d1698461c76ca3ea88a47b26940a` after
+guest writes; the assembled package remained at its original digest. Both
+qcow2 images passed `qemu-img check`, and post-boot `release.py verify` passed
+on the untouched package. Serial logs, QEMU stderr, OVMF variables, the exact
+runner, and before/after hashes are preserved in the evidence directory.
+
+The bundle's `m30_acceptance` remains `NOT_EVALUATED`; the separate two-boot
+QEMU evidence does not promote the manifest field. M30 remains `PARTIAL` for
+authenticated GPT update installation, outstanding M18–M29 acceptance, and
+human binary redistribution review.
