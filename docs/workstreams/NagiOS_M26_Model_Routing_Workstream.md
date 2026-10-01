@@ -1,6 +1,6 @@
 # Nagi OS M26 — Model and Provider Routing Workstream
 
-Status: `PARTIAL` (deterministic routing contract; bundled-model and guest runtime acceptance pending)
+Status: `PARTIAL` (deterministic routing contract; Qwen artifact integrity verified in a disposable guest; Gemma acceptance and runtime/inference pending)
 
 ## Scope
 
@@ -64,9 +64,28 @@ fail-closed behavior for an unreported provider.
   (`out/logs/m22-history-1790873102354253000-boot-1.log` through
   `out/logs/m22-history-1790873102354253000-boot-3.log`).
 
-Host tests use the existing orchestration-only in-memory artifact catalog and
-synthetic integrity metadata. They do not install, download, or claim to verify
-Qwen or Gemma model bytes.
+On 2026-10-02, `./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build`
+passed. The configured `nagi-cli` target test run passed 167 unit tests and 21
+integration tests. The Qwen and Gemma model-lock/manifest contract test passed.
+The `nagi-init` Nagi target build passed for both M26 artifact-acceptance
+features.
+
+The M26 Qwen guest artifact acceptance and the M19/M22 guest regressions are
+recorded under the 2026-10-02 checkpoints below. Host orchestration tests still
+use the existing in-memory artifact catalog and synthetic integrity metadata;
+they do not claim model loading or inference.
+
+Fresh regression run evidence:
+
+- `./nagi m19` verified the previous-boot snapshot, live VFS Object ID rename
+  and restart, Search persistence, and semantic-index persistence. Its evidence
+  and before/after fixed-name User Data copies are under
+  `out/evidence/m19-qwen-regression-pass-20261002/`; the pre-existing M19 User
+  Data file was restored byte-for-byte after the run.
+- `./nagi m22` passed three boots covering VFS Move/Copy, grouped NH16
+  transactions, Activity Ledger, Undo, and restored state. Its verified
+  evidence manifest is at
+  `out/evidence/m22-regression-m26-qwen-20261002/`.
 
 ## 2026-10-02 artifact pin checkpoint
 
@@ -89,19 +108,37 @@ ensure each lock entry matches its corresponding fixture.
   acknowledgement is required.
 
 The sizes and digests above came from upstream repository file metadata. The
-model files were not downloaded, so neither digest has been independently
-verified against streamed bytes. The weights are not included in this
-repository or installed in a guest. The Gemma distribution terms/notice package
-has not been completed or reviewed, and neither model has passed installation,
-loading, or inference acceptance.
+Qwen artifact was subsequently downloaded at its locked revision into the
+ignored host cache and independently hashed. On 2026-10-02,
+`./nagi m26-qwen out/cache/models/Qwen3-4B-Q4_K_M-bc640142c66e1fdd12af0bd68f40445458f3869b.gguf`
+passed: host size/SHA-256 validation, QEMU System A boot, guest read-only Model
+Store size and GGUF-magic checks, and full guest SHA-256 verification. Evidence
+and its verified four-file manifest are at
+`out/evidence/m26-qwen-artifact-1790897766859340000/`; the disposable image is
+`out/artifacts/nagi-0.1-m26-qwen-1790897766859340000.qcow2`. The Qwen weights
+were not added to the repository or M30 release image. This proves artifact
+integrity and guest readability only; it does not load a backend or perform
+inference.
+
+The Qwen/Gemma Model Store command and guest verification paths are covered by
+`nagi-cli` tests. The M26 Gemma target feature compiled, but the Gemma weights
+were not downloaded, copied into a guest, or used. The CLI requires
+`--accept-gemma-terms` from its invoker before artifact acceptance; no such
+acknowledgement was given during this run. Google's current Gemma Terms of Use
+state that using or reproducing Gemma is subject to the agreement and require
+an accompanying terms/use-restrictions package for distribution
+([official terms](https://ai.google.dev/gemma/terms)). The Gemma terms and
+notice distribution package has not been completed or reviewed.
 
 ## Remaining blockers
 
-- Qwen3 4B and Gemma 3 1B now have immutable source pins and repository-
-  advertised artifact metadata, but the model bytes are not present and the
-  digests are not independently verified. The manifests remain examples rather
-  than installable packages; Gemma's required distribution terms/notice package
-  also needs completion and review. No weights were added to this repository.
+- Qwen3 4B has an independently verified digest and passed read-only guest
+  Model Store acceptance, but it has not been loaded or used for inference. The
+  model package and user-facing installation path remain incomplete. Gemma 3
+  1B still needs a user terms acknowledgement before its weights can be
+  obtained or tested, and its required distribution terms/notice package needs
+  completion and review. No model weights were added to the repository or M30
+  release image.
 - Granite has a pinned upstream artifact revision and verified digest, but no
   installed guest artifact or production Nagi-target llama.cpp/GGUF backend is
   available for inference acceptance.

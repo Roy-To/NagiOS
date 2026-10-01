@@ -18,6 +18,7 @@ pub(crate) mod m20_model_store_fixture;
 mod m29_language_contract_tests;
 pub(crate) mod mesa;
 pub(crate) mod mio_servo;
+pub(crate) mod model_artifact;
 pub(crate) mod mozjs_sys_nagi;
 pub mod paths;
 pub(crate) mod registry_source;

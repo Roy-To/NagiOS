@@ -28,6 +28,7 @@ use crate::image::{
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
+use crate::model_artifact::{validate_m26_model_lock, validate_m26_model_manifest, M26Model};
 use crate::mozjs_sys_nagi::ensure_mozjs_sys_nagi_checkout;
 use crate::paths::{clean_owned_outputs, ensure_owned_directory};
 use crate::servo::ensure_servo_checkout;
@@ -163,6 +164,8 @@ pub enum Command {
     M27,
     M30,
     M20Granite,
+    M26Qwen,
+    M26Gemma,
     M25Whisper,
     Test,
     Clean,
@@ -235,6 +238,8 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m27" => Command::M27,
         "m30" => Command::M30,
         "m20-granite" => Command::M20Granite,
+        "m26-qwen" => Command::M26Qwen,
+        "m26-gemma" => Command::M26Gemma,
         "m25-whisper" => Command::M25Whisper,
         "test" => Command::Test,
         "clean" => Command::Clean,
@@ -253,6 +258,8 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
             args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--allow-missing")
         }
         Command::M20Granite => args.len() == 2,
+        Command::M26Qwen => args.len() == 2,
+        Command::M26Gemma => args.len() == 3 && args[2] == "--accept-gemma-terms",
         Command::M25Whisper => args.len() == 2,
         Command::Help
         | Command::Fetch
@@ -443,6 +450,8 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
         Command::M20Granite => execute_m20_granite(&args[1..], root, probe),
+        Command::M26Qwen => execute_m26_model(&args[1..], root, probe, M26Model::Qwen),
+        Command::M26Gemma => execute_m26_model(&args[1..], root, probe, M26Model::Gemma),
         Command::M25Whisper => execute_m25_whisper(&args[1..], root, probe),
     }
 }
@@ -956,6 +965,78 @@ fn execute_m25_whisper(args: &[String], root: &Path, probe: &dyn HostProbe) -> C
             vars_name: "whisper-OVMF_VARS.fd",
             serial_name: "m25-whisper-qemu.log",
             digest_marker: "Nagi M25 Whisper artifact digest PASS",
+        },
+    )
+}
+
+fn execute_m26_model(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+    model: M26Model,
+) -> CommandResult {
+    let command_name = match model {
+        M26Model::Qwen => "m26-qwen",
+        M26Model::Gemma => "m26-gemma",
+    };
+    let pin = match validate_m26_model_lock(root, model) {
+        Ok(pin) => pin,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{command_name}: {error}")),
+    };
+    if let Err(error) = validate_m26_model_manifest(root, model, pin) {
+        return failure(EXIT_CONFIG_ERROR, format!("{command_name}: {error}"));
+    }
+    let init_feature = match model {
+        M26Model::Qwen => "m26-qwen-artifact-acceptance",
+        M26Model::Gemma => "m26-gemma-artifact-acceptance",
+    };
+    let artifact_args = match model {
+        M26Model::Qwen => args,
+        M26Model::Gemma if args.get(1).map(String::as_str) == Some("--accept-gemma-terms") => {
+            &args[..1]
+        }
+        M26Model::Gemma => {
+            return failure(
+                EXIT_USAGE,
+                "m26-gemma: user must explicitly pass --accept-gemma-terms after reviewing the Gemma Terms of Use",
+            )
+        }
+    };
+    execute_model_store_artifact(
+        artifact_args,
+        root,
+        probe,
+        ModelStoreArtifactProfile {
+            command_name,
+            model_id: pin.model_id.to_owned(),
+            artifact_id: pin.artifact_id.to_owned(),
+            source_uri: pin.repository.to_owned(),
+            source_revision: pin.revision.to_owned(),
+            file_name: pin.file_name.to_owned(),
+            format: pin.format.to_owned(),
+            size_bytes: pin.size_bytes,
+            sha256: pin.sha256.to_owned(),
+            init_feature,
+            image_prefix: match model {
+                M26Model::Qwen => "nagi-0.1-m26-qwen",
+                M26Model::Gemma => "nagi-0.1-m26-gemma",
+            },
+            evidence_prefix: match model {
+                M26Model::Qwen => "m26-qwen-artifact",
+                M26Model::Gemma => "m26-gemma-artifact",
+            },
+            vars_name: match model {
+                M26Model::Qwen => "qwen-OVMF_VARS.fd",
+                M26Model::Gemma => "gemma-OVMF_VARS.fd",
+            },
+            serial_name: match model {
+                M26Model::Qwen => "m26-qwen-qemu.log",
+                M26Model::Gemma => "m26-gemma-qemu.log",
+            },
+            digest_marker: match model {
+                M26Model::Qwen => "Nagi M26 Qwen artifact digest PASS",
+                M26Model::Gemma => "Nagi M26 Gemma artifact digest PASS",
+            },
         },
     )
 }
@@ -6792,7 +6873,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m22, m25, m25-whisper <artifact.bin>, m27, m29, m30, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m22, m25, m25-whisper <artifact.bin>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -6845,6 +6926,31 @@ mod tests {
         assert!(
             parse_command(&["m25-whisper".into(), "model.bin".into(), "extra".into()]).is_err()
         );
+    }
+
+    #[test]
+    fn m26_model_commands_require_exact_artifact_and_gemma_terms_acknowledgement() {
+        assert_eq!(
+            parse_command(&["m26-qwen".into(), "qwen.gguf".into()]),
+            Ok(Command::M26Qwen)
+        );
+        assert!(parse_command(&["m26-qwen".into()]).is_err());
+        assert!(parse_command(&["m26-qwen".into(), "qwen.gguf".into(), "extra".into()]).is_err());
+        assert_eq!(
+            parse_command(&[
+                "m26-gemma".into(),
+                "gemma.gguf".into(),
+                "--accept-gemma-terms".into()
+            ]),
+            Ok(Command::M26Gemma)
+        );
+        assert!(parse_command(&["m26-gemma".into(), "gemma.gguf".into()]).is_err());
+        assert!(parse_command(&[
+            "m26-gemma".into(),
+            "gemma.gguf".into(),
+            "--wrong-flag".into()
+        ])
+        .is_err());
     }
 
     #[test]

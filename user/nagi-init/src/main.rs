@@ -685,6 +685,26 @@ fn run_m20_model_store_capability_acceptance(model_store_capability: u64) -> boo
     if !run_m25_whisper_artifact_acceptance(model_store_capability) {
         return false;
     }
+    #[cfg(feature = "m26-qwen-artifact-acceptance")]
+    if !run_m26_model_store_artifact_acceptance(
+        model_store_capability,
+        "qwen.qwen3-4b",
+        2_497_280_256,
+        "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+        b"Nagi M26 Qwen artifact digest PASS\r\n",
+    ) {
+        return false;
+    }
+    #[cfg(feature = "m26-gemma-artifact-acceptance")]
+    if !run_m26_model_store_artifact_acceptance(
+        model_store_capability,
+        "google.gemma-3-1b",
+        806_058_240,
+        "8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135",
+        b"Nagi M26 Gemma artifact digest PASS\r\n",
+    ) {
+        return false;
+    }
     #[cfg(feature = "m20-fixture-acceptance")]
     {
         let fixture_id =
@@ -798,6 +818,53 @@ fn run_m25_whisper_artifact_acceptance(model_store_capability: u64) -> bool {
         return false;
     }
     let marker = b"Nagi M25 Whisper artifact digest PASS\r\n";
+    libnagi::console_write(marker) == marker.len()
+}
+
+#[cfg(all(
+    target_os = "nagi",
+    any(
+        feature = "m26-qwen-artifact-acceptance",
+        feature = "m26-gemma-artifact-acceptance"
+    ),
+    not(feature = "m27-recovery")
+))]
+fn run_m26_model_store_artifact_acceptance(
+    model_store_capability: u64,
+    artifact_id: &str,
+    expected_size: u64,
+    expected_sha256: &str,
+    marker: &[u8],
+) -> bool {
+    const MODEL_STORE_SECTORS: u64 = 67_108_864;
+    let artifact_id = match nagi_model_manager::ArtifactId::new(artifact_id) {
+        Ok(artifact_id) => artifact_id,
+        Err(_) => return false,
+    };
+    let mut artifact = match nagi_model_manager::Fat32ArtifactReader::open(
+        SyscallModelStoreReader(model_store_capability),
+        MODEL_STORE_SECTORS,
+        artifact_id,
+    ) {
+        Ok(artifact) => artifact,
+        Err(_) => return false,
+    };
+    if nagi_model_manager::ModelArtifactReader::len(&artifact) != expected_size {
+        return false;
+    }
+    let mut magic = [0u8; 4];
+    if nagi_model_manager::ModelArtifactReader::read_at(&mut artifact, 0, &mut magic) != Ok(4)
+        || &magic != b"GGUF"
+    {
+        return false;
+    }
+    let integrity = nagi_model_manager::IntegrityMetadata {
+        algorithm: "sha256".into(),
+        digest: expected_sha256.into(),
+    };
+    if nagi_model_manager::verify_model_artifact_integrity(&mut artifact, &integrity).is_err() {
+        return false;
+    }
     libnagi::console_write(marker) == marker.len()
 }
 
