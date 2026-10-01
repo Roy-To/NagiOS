@@ -517,3 +517,22 @@ OVMF template passed the M13/M21/M22 markers. Both integrated runs remain
 `PARTIAL`; a two-consecutive-repetition pass has not been recorded. Formal
 Desktop/Files/Notes/Albert load, real Granite inference, audio pressure, OOM,
 CPU fairness, and leak soak remain unmeasured.
+
+## Completion Sweep — second M27 boot-5 timeout and diagnostic replay (2026-10-02)
+
+Fresh two-repetition run
+`out/evidence/m28-run-20261001T211548Z-133/` completed repetition 1 across
+M19 Search, the three-boot M22 transaction/Undo gate, and M27 A/B/Recovery.
+Repetition 2 passed M19 and M22, then its M27 run
+`1790889480617050000` timed out on boot 5 before guest output. QMP recorded
+RIP `0x7eb84171` in the OVMF loop `jmp 0x7eb84150`. The M28 archive and failed
+M27 sub-run have verified manifests.
+
+A diagnostic replay used the saved A/B boot image and User Data, plus the
+post-failure OVMF variables. The variable file was not captured before boot 5,
+so this was not an exact-state replay. The replay reached `confirmed slot=A`
+and `Nagi M7 acceptance PASS`; it does not retroactively pass repetition 2.
+Evidence is under
+`out/evidence/m27-replay-system-a-1790889480617050000/`. M28 remains `PARTIAL`:
+there is still no two-consecutive-repetition pass, and the formal desktop,
+model, resource pressure, fairness, and leak-soak criteria remain unmeasured.

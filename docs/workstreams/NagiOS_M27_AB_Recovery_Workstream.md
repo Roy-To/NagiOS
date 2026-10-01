@@ -596,3 +596,22 @@ M28 result. These failures are consistent with an intermittent pre-guest OVMF
 startup issue, but the firmware root cause remains unknown. M27 remains
 `PARTIAL` for authenticated update/readiness authority, authenticated slot
 manifests, and remaining Recovery work.
+
+## M28 final System A boot timeout replay — 2026-10-02
+
+In M28 run `out/evidence/m28-run-20261001T211548Z-133/`, repetition 2 passed
+M19 and the three-boot M22 gate before the M27 A/B sequence timed out at boot 5.
+The required final `confirmed slot=A` guest marker was not reached. QMP recorded
+RIP `0x7eb84171` in the same OVMF loop seen in earlier pre-guest timeouts. The
+failed sub-run is
+`out/evidence/m27-ab-rollback-1790889480617050000/` with its own manifest.
+
+A diagnostic replay used a byte-for-byte copy of the failed run's A/B image and
+User Data. The saved OVMF variable file was the post-failure copy; a pre-boot
+snapshot was unavailable, so the replay is not an exact-state reconstruction.
+With fresh copies of those saved inputs, QEMU reached
+`Nagi M27 persistence decision: confirmed slot=A` and `Nagi M7 acceptance
+PASS`. The replay manifest is at
+`out/evidence/m27-replay-system-a-1790889480617050000/SHA256SUMS`. This does
+not convert the original M27 stage or M28 repetition to a pass, and the root
+cause remains unconfirmed. M27 remains `PARTIAL`.

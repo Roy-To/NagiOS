@@ -162,8 +162,10 @@ intentionally verifies orchestration without relying on host audio.
    to immutable Hugging Face revision
    `5359861c739e955e79d9a303bcbc70fb988958b1`, size 487,601,967 bytes, SHA-256
    `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b`, and
-   upstream MIT metadata. This metadata does not download the model, place it
-   into Model Store, or implement inference.
+   upstream MIT metadata. The exact artifact bytes were later downloaded into
+   the ignored local cache and SHA-256 verified (see the 2026-10-02 evidence
+   below); they are not
+   installed in the guest Model Store, loaded, or used for inference.
 4. Add a concrete local TTS engine behind the new provider contract, select it
    using the documented quality/CPU/RAM/portability/license criteria, and
    verify real playback. The contract and target AudioService sink exist, but
@@ -281,3 +283,18 @@ driver, which this orchestration fixture does not need.
 Authenticated permission and system-indicator wiring, a real Japanese STT
 provider/inference, concrete local TTS, and spoken-command acceptance remain
 incomplete. M25 remains `PARTIAL`.
+
+## Pinned model download verification — 2026-10-02
+
+Downloaded the exact Whisper small multilingual artifact pinned by
+`third_party/models.lock` to the ignored local cache at
+`out/cache/whisper-models/ggml-small-5359861c739e955e79d9a303bcbc70fb988958b1.bin`.
+Its size is 487,601,967 bytes and its SHA-256 is
+`1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b`; both
+match the immutable lock. The evidence manifest at
+`out/evidence/m25-whisper-model-download-20261002/SHA256SUMS` covers the
+README and cached model bytes.
+
+This makes the pinned artifact available for future integration work only.
+It has not been copied into guest storage, registered with the guest Model
+Store, loaded on Nagi, or used for inference. M25 remains `PARTIAL`.
