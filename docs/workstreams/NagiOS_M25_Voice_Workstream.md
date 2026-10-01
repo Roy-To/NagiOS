@@ -254,3 +254,30 @@ Verification passed:
 Authenticated permission, real Japanese STT and inference, concrete local TTS,
 the system microphone indicator, and spoken-command QEMU acceptance remain
 incomplete. M25 remains `PARTIAL`.
+
+## Fixture transcript delivery — 2026-10-02
+
+The fixture provider now has an opt-in fixed Japanese transcript result while
+its default remains `Unavailable`; the empty-result case remains independently
+covered. The host regression confirms successful bounded transcript delivery,
+cleared output tail and internal PCM buffer, hidden activity indicator, and
+completed capture lifecycle. The target fixture passes the fixed phrase
+`アルバートを開いて` through `PushToTalkService::finish_into` and checks the
+output bytes, cleared tail, indicator state, captured/forwarded PCM counts,
+and cleanup state. The QEMU gate now requires the additional
+`Nagi M25 fixture transcript delivery PASS` marker.
+
+This fixture proves only provider-to-caller orchestration. It does not run
+whisper.cpp, infer Japanese, execute Albert or another command, use a real
+microphone, or synthesize speech. `./nagi m25` passed on 2026-10-02; its
+run-stamped image, User Data disk, OVMF variables, bootstrap log, and voice log
+are preserved with a verified manifest at
+`out/evidence/m25-fixture-transcript-1790868293848130000/manifest.sha256`.
+The full host results are 15 `nagi-audio` tests and 155 `nagi-cli` unit plus 21
+integration tests; `./nagi fmt`, `./nagi test`, `./nagi lint`, and
+`./nagi build` passed. QEMU reports that this host has no `virtio-sound.in`
+driver, which this orchestration fixture does not need.
+
+Authenticated permission and system-indicator wiring, a real Japanese STT
+provider/inference, concrete local TTS, and spoken-command acceptance remain
+incomplete. M25 remains `PARTIAL`.

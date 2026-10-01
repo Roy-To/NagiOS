@@ -2654,6 +2654,7 @@ fn execute_m25(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "Nagi M25 bounded PCM forwarding PASS",
         "Nagi M25 unavailable cleanup PASS",
         "Nagi M25 empty transcript rejected PASS",
+        "Nagi M25 fixture transcript delivery PASS",
         "Nagi M25 TTS provider contract PASS",
         "Nagi M25 voice orchestration PASS",
     ] {
@@ -2670,7 +2671,7 @@ fn execute_m25(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M25 guest voice orchestration: bounded fixture capture and TTS PCM, permission/indicator ordering, provider cleanup, and no-transcript behavior passed; no real audio device, STT model, or TTS engine was used (log {})",
+            "PASS M25 guest voice orchestration: bounded fixture capture and TTS PCM, permission/indicator ordering, provider cleanup, empty-result rejection, and fixed Japanese fixture transcript handoff passed; no real audio device, STT model, or TTS engine was used (log {})",
             voice_log.display()
         )],
     }

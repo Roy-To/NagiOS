@@ -552,6 +552,7 @@ mod tests {
         digest: u64,
         language: Option<SpeechLanguage>,
         return_empty_transcript: bool,
+        transcript: Option<&'static [u8]>,
     }
 
     impl SpeechToTextProvider for FixtureProvider {
@@ -573,11 +574,17 @@ mod tests {
             Ok(())
         }
 
-        fn finish(&mut self, _transcript: &mut [u8]) -> Result<usize, SpeechProviderError> {
-            // The fixture validates orchestration and audio delivery only. It
-            // deliberately does not invent a transcript.
+        fn finish(&mut self, transcript: &mut [u8]) -> Result<usize, SpeechProviderError> {
+            // Configured fixture text validates handoff only; it is not STT
+            // inference. No transcript remains the default fixture behavior.
             if self.return_empty_transcript {
                 Ok(0)
+            } else if let Some(fixture) = self.transcript {
+                if fixture.len() > transcript.len() {
+                    return Err(SpeechProviderError::OutputTooSmall);
+                }
+                transcript[..fixture.len()].copy_from_slice(fixture);
+                Ok(fixture.len())
             } else {
                 Err(SpeechProviderError::Unavailable)
             }
@@ -647,6 +654,27 @@ mod tests {
         assert!(transcript.iter().all(|byte| *byte == 0));
         assert!(!indicator_active.get());
         assert_eq!(service.provider.cancel_calls, 1);
+        assert_eq!(service.capture_next_chunk(), Err(SpeechError::NotActive));
+    }
+
+    #[test]
+    fn successful_fixture_transcript_is_delivered_and_audio_state_is_cleared() {
+        static FIXTURE: [u8; 8] = [0x10, 0x20, 0x30, 0x40, 0xfe, 0xdc, 0xba, 0x98];
+        static TRANSCRIPT: &[u8] = "fixture transcript".as_bytes();
+        let (mut service, _, indicator_active) = service(SpeechPermissionDecision::Allow, &FIXTURE);
+        service.provider.transcript = Some(TRANSCRIPT);
+        service
+            .begin(SpeechConsumer::NagiBar, SpeechLanguage::Japanese)
+            .expect("authorized PTT starts");
+        service.capture_next_chunk().expect("fixture frame");
+
+        let mut transcript = [0xa5; 32];
+        assert_eq!(service.finish_into(&mut transcript), Ok(TRANSCRIPT.len()));
+        assert_eq!(&transcript[..TRANSCRIPT.len()], TRANSCRIPT);
+        assert!(transcript[TRANSCRIPT.len()..].iter().all(|byte| *byte == 0));
+        assert!(!indicator_active.get());
+        assert!(service.pcm_chunk.iter().all(|byte| *byte == 0));
+        assert_eq!(service.provider.cancel_calls, 0);
         assert_eq!(service.capture_next_chunk(), Err(SpeechError::NotActive));
     }
 

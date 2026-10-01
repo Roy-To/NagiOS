@@ -17,6 +17,7 @@ const PROVIDER_FINISHED: u8 = 4;
 const CLEANED_UP: u8 = 5;
 const INVALID_ORDER: u8 = u8::MAX;
 const FIXTURE_PCM: [u8; 8] = [0x10, 0x20, 0x30, 0x40, 0xfe, 0xdc, 0xba, 0x98];
+const FIXTURE_TRANSCRIPT: &[u8] = "アルバートを開いて".as_bytes();
 
 static PIPELINE_STAGE: AtomicU8 = AtomicU8::new(PIPELINE_IDLE);
 static INDICATOR_VISIBLE: AtomicBool = AtomicBool::new(false);
@@ -114,6 +115,7 @@ impl PcmCaptureSource for FixtureCapture {
 
 struct FixtureProvider {
     empty_transcript: bool,
+    transcript: Option<&'static [u8]>,
 }
 
 impl SpeechToTextProvider for FixtureProvider {
@@ -151,7 +153,7 @@ impl SpeechToTextProvider for FixtureProvider {
         Ok(())
     }
 
-    fn finish(&mut self, _transcript: &mut [u8]) -> Result<usize, SpeechProviderError> {
+    fn finish(&mut self, transcript: &mut [u8]) -> Result<usize, SpeechProviderError> {
         if PIPELINE_STAGE
             .compare_exchange(
                 PROVIDER_ACTIVE,
@@ -165,6 +167,13 @@ impl SpeechToTextProvider for FixtureProvider {
         }
         if self.empty_transcript {
             return Ok(0);
+        }
+        if let Some(fixture) = self.transcript {
+            if fixture.len() > transcript.len() {
+                return Err(SpeechProviderError::OutputTooSmall);
+            }
+            transcript[..fixture.len()].copy_from_slice(fixture);
+            return Ok(fixture.len());
         }
         // This fixture verifies the target orchestration only. It deliberately
         // provides no transcript and does not represent STT model inference.
@@ -244,11 +253,22 @@ fn service(allow: bool) -> FixtureService {
 }
 
 fn service_with_empty_transcript(allow: bool, empty_transcript: bool) -> FixtureService {
+    service_with_transcript(allow, empty_transcript, None)
+}
+
+fn service_with_transcript(
+    allow: bool,
+    empty_transcript: bool,
+    transcript: Option<&'static [u8]>,
+) -> FixtureService {
     PushToTalkService::new(
         FixtureCapture,
         FixtureAuthority { allow },
         FixtureIndicator,
-        FixtureProvider { empty_transcript },
+        FixtureProvider {
+            empty_transcript,
+            transcript,
+        },
     )
 }
 
@@ -342,6 +362,38 @@ pub fn run() -> bool {
         return false;
     }
     if !marker(b"Nagi M25 empty transcript rejected PASS\r\n") {
+        return false;
+    }
+
+    PIPELINE_STAGE.store(PIPELINE_IDLE, Ordering::Relaxed);
+    INDICATOR_VISIBLE.store(false, Ordering::Relaxed);
+    CAPTURE_CALLS.store(0, Ordering::Relaxed);
+    FORWARDED_BYTES.store(0, Ordering::Relaxed);
+    PCM_DIGEST.store(0, Ordering::Relaxed);
+    PROVIDER_CANCELS.store(0, Ordering::Relaxed);
+    let mut transcript_service = service_with_transcript(true, false, Some(FIXTURE_TRANSCRIPT));
+    if transcript_service
+        .begin(SpeechConsumer::NagiBar, SpeechLanguage::Japanese)
+        .is_err()
+        || transcript_service.capture_next_chunk() != Ok(FIXTURE_PCM.len())
+    {
+        return false;
+    }
+    let mut delivered_transcript = [0xa5; 64];
+    if transcript_service.finish_into(&mut delivered_transcript) != Ok(FIXTURE_TRANSCRIPT.len())
+        || &delivered_transcript[..FIXTURE_TRANSCRIPT.len()] != FIXTURE_TRANSCRIPT
+        || delivered_transcript[FIXTURE_TRANSCRIPT.len()..]
+            .iter()
+            .any(|byte| *byte != 0)
+        || INDICATOR_VISIBLE.load(Ordering::Relaxed)
+        || PIPELINE_STAGE.load(Ordering::Relaxed) != CLEANED_UP
+        || CAPTURE_CALLS.load(Ordering::Relaxed) != 1
+        || FORWARDED_BYTES.load(Ordering::Relaxed) != FIXTURE_PCM.len()
+        || PROVIDER_CANCELS.load(Ordering::Relaxed) != 0
+    {
+        return false;
+    }
+    if !marker(b"Nagi M25 fixture transcript delivery PASS\r\n") {
         return false;
     }
 
