@@ -707,3 +707,43 @@ of the pristine image and its sidecar. QEMU reported no host
 `virtio-sound.in` input driver, so audio I/O is not covered. M30 remains
 `PARTIAL` for authenticated updates, remaining M18–M29 acceptance, and human
 binary redistribution review.
+
+## Completion Sweep — quiescent M13/M19/M22 restart and Recovery gate — 2026-10-02
+
+The M30 restart gate now waits for `Nagi M13 acceptance PASS` before it stops
+System A. M13 runs after the M19 Search and M22 History fixtures and writes
+their state to User Data; stopping at the earlier M7 marker left an incomplete
+inode, which correctly caused Recovery's read-only VFS check to fail. The
+restart also starts the M13 HTTP fixture and requires M19 Search and M22
+Activity Ledger/Move/Copy markers. The first failure and mutable copy are
+preserved at `out/evidence/m30-release-1790885889238875000/`.
+
+A subsequent run showed the post-Recovery System A restart also needs the M13
+HTTP fixture and must require M13/M19/M22 completion markers. Its M13 HTTP
+failure and the prior gate's premature success summary are preserved, not
+counted as acceptance, at
+`out/evidence/m30-release-1790886615318484000/`. Both failed-run evidence
+manifests verify. The post-Recovery runner now starts the same HTTP fixture and
+requires the M22 Activity Ledger Undo/composite Undo and M13 completion
+markers.
+
+On clean source revision
+`b66fabb1388e67eb4e35fa9cf72d231e61bf097f`, fresh `./nagi m30` run
+`1790886957142079000` passed System A and User Data persistence, M19 Search,
+M22 grouped Move/Copy and Activity Ledger, Recovery from the GPT Recovery
+partition (`files=20 directories=5`), Recovery help and unchanged A/B journal,
+rejection of unstaged System B, post-Recovery persistent read and M22 Undo,
+M13 completion, and the separate M20 5,000-byte FAT32 fixture. The verified
+17-entry evidence manifest is
+`out/evidence/m30-release-1790886957142079000/SHA256SUMS`.
+
+The pristine source-bound image has SHA-256
+`54390507a4e975ad30ee94d7efb7b4c81758854ccbbdcc7f12b39bfb70fc6748` and
+virtual size 64 GiB. `qemu-img check` passed on the pristine, mutable,
+fixture, and bundle images. All 14 release-tool tests passed; preflight,
+assembly to `out/artifacts/m30-release-bundle-b66fabb/`, verification, all 23
+checksums, and pristine/bundle byte-identity passed. The bundle correctly
+records `m30_acceptance=NOT_EVALUATED`. QEMU lacked host `virtio-sound.in`, so
+host audio input remains untested. M30 remains `PARTIAL` for authenticated
+updates and System B acceptance, remaining M18–M29 work, and human binary
+redistribution review.
