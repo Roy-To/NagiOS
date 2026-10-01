@@ -12,6 +12,7 @@ use crate::config::{load_toolchain_requirements, validate_project};
 use crate::doctor::{ovmf_pair_is_allowed, run_doctor_with_requirements, DoctorPolicy, HostProbe};
 use crate::image::{
     ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui,
+    run_qemu_gui_reusing_ovmf_vars_with_events,
     run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
     run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
     run_qemu_gui_with_events, run_qemu_gui_with_events_and_screenshot,
@@ -124,6 +125,13 @@ const M27_BOOTSTRAP_COMPLETION_MARKER: &str = "Nagi M7 reboot required PASS";
 const M27_RECOVERY_MENU_EVENTS: [&str; 2] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"r"}}}]}}"#,
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"r"}}}]}}"#,
+];
+
+const M30_UNSTAGED_SYSTEM_B_MENU_EVENTS: [&str; 4] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"b"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"b"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}}]}}"#,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1159,6 +1167,63 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         );
     }
 
+    let unstaged_b_log = evidence.join("reference-disk-unstaged-system-b.log");
+    let unstaged_b_config = QemuConfig {
+        serial_log: &unstaged_b_log,
+        acceptance_marker: "Nagi M30 GPT partition boot: System A PASS",
+        ..restart_config
+    };
+    let unstaged_b_status = match run_qemu_gui_reusing_ovmf_vars_with_events(
+        &unstaged_b_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M30_UNSTAGED_SYSTEM_B_MENU_EVENTS,
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: unstaged System B selection QEMU: {error}"),
+            );
+        }
+    };
+    let unstaged_b_serial = match fs::read_to_string(&unstaged_b_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", unstaged_b_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 boot menu: confirmed=A pending=none",
+        "Nagi M27 boot menu: System B unavailable (no staged image)",
+        "Nagi M27 manual selection: confirmed slot=A (pending trial preserved) PASS",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi M30 GPT partition boot: System A PASS",
+    ] {
+        if !unstaged_b_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: unstaged System B selection did not print `{marker}` (QEMU exit {unstaged_b_status}; log {})",
+                    unstaged_b_log.display()
+                ),
+            );
+        }
+    }
+    if unstaged_b_serial.contains("Nagi M27 persistence decision:")
+        || unstaged_b_serial.contains("Nagi M27 readiness persisted")
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: an unstaged System B selection changed boot policy state (log {})",
+                unstaged_b_log.display()
+            ),
+        );
+    }
+
     let post_recovery_log = evidence.join("reference-disk-post-recovery-boot.log");
     let post_recovery_config = QemuConfig {
         serial_log: &post_recovery_log,
@@ -1366,11 +1431,12 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M30 64 GiB GPT qcow2 passed System A, User Data persistence, Recovery selection, and post-Recovery restart acceptance; separate M20 guest FAT32 fixture read passed (image {}; QEMU copy {}; System A log {}; Recovery log {}; post-Recovery log {}; M20 fixture {}; M20 log {})",
+            "PASS M30 64 GiB GPT qcow2 passed System A, User Data persistence, Recovery, unstaged System B rejection, and post-Recovery restart acceptance; separate M20 guest FAT32 fixture read passed (image {}; QEMU copy {}; System A log {}; Recovery log {}; unstaged System B log {}; post-Recovery log {}; M20 fixture {}; M20 log {})",
             image_path.display(),
             qemu_test_image.display(),
             serial_log.display(),
             recovery_log.display(),
+            unstaged_b_log.display(),
             post_recovery_log.display(),
             fixture_image.display(),
             fixture_serial_log.display()

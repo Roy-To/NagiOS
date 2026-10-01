@@ -1930,6 +1930,26 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input(
 }
 
 /// Launch writable integrated GPT media with the existing OVMF journal state.
+pub fn run_qemu_gui_reusing_ovmf_vars_with_events(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode(
+        config,
+        ready_marker,
+        events,
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: false,
+            reuse_ovmf_vars: true,
+            inter_event_delay: Duration::from_millis(100),
+        },
+    )
+}
+
+/// Launch writable integrated GPT media with the existing OVMF journal state
+/// and send serial input after the guest's console is ready.
 pub fn run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
     config: &QemuConfig<'_>,
     ready_marker: &str,
