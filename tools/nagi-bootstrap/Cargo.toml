@@ -16,3 +16,4 @@ path = "../nagi-cli/src/main.rs"
 
 [dependencies]
 nagi-model-manager = { path = "../../user/nagi-model-manager" }
+sha2 = { version = "=0.10.9", default-features = false }

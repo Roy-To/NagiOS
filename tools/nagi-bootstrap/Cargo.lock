@@ -79,6 +79,7 @@ name = "nagi-bootstrap"
 version = "0.1.0"
 dependencies = [
  "nagi-model-manager",
+ "sha2",
 ]
 
 [[package]]
