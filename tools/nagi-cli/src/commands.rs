@@ -1238,7 +1238,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         serial_log: &post_recovery_log,
         ..restart_config
     };
-    let post_recovery_status = match run_qemu_reusing_ovmf_vars(&post_recovery_config) {
+    let post_recovery_status = match run_m13_qemu_with_http_fixture(root, &post_recovery_config) {
         Ok(status) => status,
         Err(error) => {
             return failure(
@@ -1262,6 +1262,12 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "Nagi M27 UEFI variable journal persistence PASS",
         "Nagi M7 persistent read PASS",
         "Nagi M7 acceptance PASS",
+        "Nagi M19 live VFS file ObjectId rename/restart PASS",
+        "Nagi M19 guest search persistence PASS",
+        "Nagi M22 file.search Activity Ledger PASS",
+        "Nagi M22 AI Activity Ledger undo result PASS",
+        "Nagi M22 composite undo applied and persisted PASS",
+        "Nagi M13 acceptance PASS",
     ] {
         if !post_recovery_serial.contains(marker) {
             return failure(
