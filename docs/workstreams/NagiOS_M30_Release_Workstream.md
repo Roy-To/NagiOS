@@ -645,3 +645,22 @@ separate guest checks do not authenticate updates or slot manifests. M30
 remains `PARTIAL` for authenticated GPT update installation, remaining M18–M29
 acceptance, and human binary redistribution review. QEMU reported no host
 `virtio-sound.in` driver, so audio I/O remains untested.
+
+## Completion Sweep — source-bound image reuse guard (2026-10-02)
+
+The M30 CLI now requires a clean committed source tree and writes an adjacent
+`.build-info` sidecar after creating the reference image. The record binds the
+full Git revision to the exact qcow2 SHA-256. Existing images are reused only
+when both fields match; an older image without a sidecar, or one built from a
+different revision, is rejected before QEMU acceptance. Release preflight and
+assembly validate the same sidecar, and the generated `build-manifest.json`
+records its values. Existing assembled manifests without the additive field
+remain verifiable; new assemblies require the sidecar.
+
+The 14 release-tool tests pass, including missing/stale provenance and image
+tampering; all 159 `nagi-cli` unit and 21 integration tests, warnings-denied
+Clippy, formatting, and whitespace checks pass. The full target build and
+current-commit M30 run are being repeated after this change; prior M30 QEMU
+evidence from before the sidecar contract does not verify this change. M30
+remains `PARTIAL` pending those checks and its existing update, cross-milestone,
+and license-review gaps.

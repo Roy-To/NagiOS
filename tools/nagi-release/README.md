@@ -27,9 +27,14 @@ python3 tools/nagi-release/release.py verify \
 Assembly fails unless the Git tree is clean, the kernel is a real x86-64 ELF
 inside the repository, the qcow2 image is self-contained and has the virtual
 size in `nagi.toml`, all required documents exist, and the pinned sources and
-tool versions can be recorded. The kernel build ID in the manifest is defined
-as `sha256:<digest of the kernel ELF bytes>`; the build manifest also binds
-the reference image by SHA-256. The Granite digest is the upstream Q4_K_M pin
+tool versions can be recorded. `./nagi m30` writes an adjacent
+`Nagi-OS-0.1-devpreview.qcow2.build-info` record containing the clean Git
+revision and exact image SHA-256. It refuses to reuse an existing image unless
+both values still match. Preflight verifies this record, and assembly binds its
+values into `build-manifest.json`; an image without current-source provenance
+cannot be packaged. The kernel build ID in the manifest is defined as
+`sha256:<digest of the kernel ELF bytes>`; the build manifest also binds the
+reference image by SHA-256. The Granite digest is the upstream Q4_K_M pin
 from the M20 workstream; that workstream explicitly says
 the model bytes are not included.
 

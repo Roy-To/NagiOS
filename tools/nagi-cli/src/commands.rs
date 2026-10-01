@@ -1,8 +1,11 @@
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use sha2::{Digest, Sha256};
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
@@ -832,6 +835,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(host) => host,
         Err(error) => return failure(EXIT_CONFIG_ERROR, error),
     };
+    let source_revision = match m30_clean_source_revision(root) {
+        Ok(revision) => revision,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+    };
     let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_nanos().to_string(),
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: system clock: {error}")),
@@ -858,6 +865,14 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m30: existing release image is invalid: {error}"),
+                );
+            }
+            if let Err(error) = verify_m30_image_build_info(&image_path, &source_revision) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m30: refusing to accept an image without matching current-source provenance ({error}); preserve the existing image, move it and its `.build-info` file out of `out/artifacts`, then rerun `./nagi m30`"
+                    ),
                 );
             }
             false
@@ -943,6 +958,12 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         );
         if image_result.exit_code != EXIT_SUCCESS {
             return image_result;
+        }
+        if let Err(error) = write_m30_image_build_info(&image_path, &source_revision) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot write current-source image provenance: {error}"),
+            );
         }
     }
 
@@ -1251,6 +1272,143 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             fixture_serial_log.display()
         )],
     }
+}
+
+fn m30_clean_source_revision(root: &Path) -> Result<String, String> {
+    let revision = ProcessCommand::new("git")
+        .args(["rev-parse", "--verify", "HEAD"])
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("cannot read Git source revision: {error}"))?;
+    if !revision.status.success() {
+        return Err(format!(
+            "cannot read Git source revision: {}",
+            String::from_utf8_lossy(&revision.stderr).trim()
+        ));
+    }
+    let revision = String::from_utf8(revision.stdout)
+        .map_err(|error| format!("Git source revision is not UTF-8: {error}"))?;
+    let revision = revision.trim();
+    if !valid_m30_source_revision(revision) {
+        return Err("Git returned an invalid full source revision".to_owned());
+    }
+
+    let status = ProcessCommand::new("git")
+        .args(["status", "--porcelain=v1", "--untracked-files=all"])
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("cannot verify Git source tree cleanliness: {error}"))?;
+    if !status.status.success() {
+        return Err(format!(
+            "cannot verify Git source tree cleanliness: {}",
+            String::from_utf8_lossy(&status.stderr).trim()
+        ));
+    }
+    if !status.stdout.is_empty() {
+        return Err("M30 image acceptance requires a clean committed source tree".to_owned());
+    }
+    Ok(revision.to_owned())
+}
+
+fn valid_m30_source_revision(revision: &str) -> bool {
+    matches!(revision.len(), 40 | 64)
+        && revision
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn m30_image_build_info_path(image_path: &Path) -> Result<PathBuf, String> {
+    let Some(file_name) = image_path.file_name() else {
+        return Err(format!(
+            "image path has no filename: {}",
+            image_path.display()
+        ));
+    };
+    let mut build_info_name = file_name.to_os_string();
+    build_info_name.push(".build-info");
+    Ok(image_path.with_file_name(build_info_name))
+}
+
+fn m30_image_sha256(image_path: &Path) -> Result<String, String> {
+    let mut image = fs::File::open(image_path)
+        .map_err(|error| format!("cannot open {}: {error}", image_path.display()))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let length = image
+            .read(&mut buffer)
+            .map_err(|error| format!("cannot hash {}: {error}", image_path.display()))?;
+        if length == 0 {
+            break;
+        }
+        digest.update(&buffer[..length]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn m30_image_build_info_matches(contents: &str, source_revision: &str, image_sha256: &str) -> bool {
+    valid_m30_source_revision(source_revision)
+        && image_sha256.len() == 64
+        && image_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        && contents
+            == format!(
+                "format_version=1\nsource_revision={source_revision}\nimage_sha256={image_sha256}\n"
+            )
+}
+
+fn verify_m30_image_build_info(image_path: &Path, source_revision: &str) -> Result<(), String> {
+    let image_sha256 = m30_image_sha256(image_path)?;
+    let build_info_path = m30_image_build_info_path(image_path)?;
+    let metadata = fs::symlink_metadata(&build_info_path)
+        .map_err(|error| format!("cannot inspect {}: {error}", build_info_path.display()))?;
+    if !metadata.file_type().is_file() {
+        return Err(format!(
+            "{} is not a regular file",
+            build_info_path.display()
+        ));
+    }
+    let contents = fs::read_to_string(&build_info_path)
+        .map_err(|error| format!("cannot read {}: {error}", build_info_path.display()))?;
+    if !m30_image_build_info_matches(&contents, source_revision, &image_sha256) {
+        return Err(format!(
+            "{} does not match source revision {source_revision} and image SHA-256 {image_sha256}",
+            build_info_path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn write_m30_image_build_info(image_path: &Path, source_revision: &str) -> Result<(), String> {
+    if !valid_m30_source_revision(source_revision) {
+        return Err("invalid source revision".to_owned());
+    }
+    let image_sha256 = m30_image_sha256(image_path)?;
+    let build_info_path = m30_image_build_info_path(image_path)?;
+    match fs::symlink_metadata(&build_info_path) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => {
+            return Err(format!(
+                "{} is not a regular file",
+                build_info_path.display()
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect {}: {error}",
+                build_info_path.display()
+            ));
+        }
+    }
+    fs::write(
+        &build_info_path,
+        format!(
+            "format_version=1\nsource_revision={source_revision}\nimage_sha256={image_sha256}\n"
+        ),
+    )
+    .map_err(|error| format!("cannot write {}: {error}", build_info_path.display()))
 }
 
 struct QemuHost {
@@ -5895,8 +6053,9 @@ mod tests {
     use super::{
         append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt,
         m27_bootstrap_markers_present, m27_readiness_consumed_before_promotion,
-        m27_readiness_persisted_before_desktop, m27_trial_failure_observed, parse_command,
-        scoped_artifact_name, Command, NAGI_WRITE_MARKER,
+        m27_readiness_persisted_before_desktop, m27_trial_failure_observed,
+        m30_image_build_info_matches, parse_command, scoped_artifact_name, Command,
+        NAGI_WRITE_MARKER,
     };
     use std::path::Path;
 
@@ -5916,6 +6075,35 @@ mod tests {
             scoped_artifact_name("settings.log", "run-123", false),
             "settings.log"
         );
+    }
+
+    #[test]
+    fn m30_image_build_info_binds_the_source_revision_and_image_digest() {
+        let revision = "a".repeat(40);
+        let digest = "b".repeat(64);
+        let build_info =
+            format!("format_version=1\nsource_revision={revision}\nimage_sha256={digest}\n");
+
+        assert!(m30_image_build_info_matches(
+            &build_info,
+            &revision,
+            &digest
+        ));
+        assert!(!m30_image_build_info_matches(
+            &build_info,
+            &"c".repeat(40),
+            &digest
+        ));
+        assert!(!m30_image_build_info_matches(
+            &build_info,
+            &revision,
+            &"d".repeat(64)
+        ));
+        assert!(!m30_image_build_info_matches(
+            &format!("{build_info}unexpected=value\n"),
+            &revision,
+            &digest
+        ));
     }
 
     #[test]

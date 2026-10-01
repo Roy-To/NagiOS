@@ -116,6 +116,48 @@ class ReleaseToolTests(unittest.TestCase):
             with self.assertRaisesRegex(release.ReleaseError, "missing release qcow2 image"):
                 release.validate_qcow2(Path(temporary) / "missing.qcow2", Path(temporary), 64)
 
+    def test_image_build_provenance_binds_source_revision_and_image_digest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image = root / "out/artifacts/reference.qcow2"
+            image.parent.mkdir(parents=True)
+            image.write_bytes(b"built release image")
+            revision = "a" * 40
+            digest = hashlib.sha256(image.read_bytes()).hexdigest()
+            info_path = image.with_name(image.name + release.IMAGE_BUILD_INFO_SUFFIX)
+            info_path.write_text(
+                f"format_version=1\nsource_revision={revision}\nimage_sha256={digest}\n",
+                encoding="ascii",
+            )
+
+            provenance = release.image_build_provenance(root, image, revision)
+
+            self.assertEqual(provenance["source_revision"], revision)
+            self.assertEqual(provenance["image_sha256"], digest)
+            image.write_bytes(b"changed image")
+            with self.assertRaisesRegex(release.ReleaseError, "disagrees with its build provenance"):
+                release.image_build_provenance(root, image, revision)
+
+    def test_image_build_provenance_rejects_missing_and_stale_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image = root / "out/artifacts/reference.qcow2"
+            image.parent.mkdir(parents=True)
+            image.write_bytes(b"built release image")
+            revision = "a" * 40
+            digest = hashlib.sha256(image.read_bytes()).hexdigest()
+            info_path = image.with_name(image.name + release.IMAGE_BUILD_INFO_SUFFIX)
+
+            with self.assertRaisesRegex(release.ReleaseError, "missing release image build provenance"):
+                release.image_build_provenance(root, image, revision)
+
+            info_path.write_text(
+                f"format_version=1\nsource_revision={'b' * 40}\nimage_sha256={digest}\n",
+                encoding="ascii",
+            )
+            with self.assertRaisesRegex(release.ReleaseError, "different source revision"):
+                release.image_build_provenance(root, image, revision)
+
     def test_checksum_verification_detects_modified_payload(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

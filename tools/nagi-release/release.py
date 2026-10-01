@@ -28,6 +28,7 @@ except ModuleNotFoundError:  # Python 3.10 is still supported by nagi.toml.
 
 
 IMAGE_NAME = "Nagi-OS-0.1-devpreview.qcow2"
+IMAGE_BUILD_INFO_SUFFIX = ".build-info"
 MANIFEST_NAME = "release-manifest.json"
 BUILD_MANIFEST_NAME = "build-manifest.json"
 SOURCE_REVISION_NAME = "source-revision.txt"
@@ -107,6 +108,47 @@ def _within(root: Path, candidate: Path, label: str) -> Path:
     except ValueError as error:
         raise ReleaseError(f"{label} must be inside the repository: {candidate}") from error
     return resolved
+
+
+def image_build_provenance(root: Path, image_path: Path, expected_revision: str) -> dict[str, Any]:
+    root = root.resolve(strict=True)
+    image = _regular_file(image_path, "release qcow2 image")
+    image = _within(root, image, "release qcow2 image")
+    info_path = image.with_name(image.name + IMAGE_BUILD_INFO_SUFFIX)
+    info_path = _regular_file(info_path, "release image build provenance")
+    info_path = _within(root, info_path, "release image build provenance")
+    try:
+        lines = info_path.read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise ReleaseError(f"cannot read release image build provenance: {error}") from error
+
+    fields: dict[str, str] = {}
+    for line in lines:
+        if line.count("=") != 1:
+            raise ReleaseError("release image build provenance has a malformed field")
+        key, value = line.split("=", 1)
+        if key in fields:
+            raise ReleaseError(f"release image build provenance repeats {key}")
+        fields[key] = value
+    if set(fields) != {"format_version", "source_revision", "image_sha256"}:
+        raise ReleaseError("release image build provenance has unsupported fields")
+    revision = fields["source_revision"]
+    image_sha256 = fields["image_sha256"]
+    if fields["format_version"] != "1":
+        raise ReleaseError("unsupported release image build provenance version")
+    if len(revision) not in {40, 64} or re.fullmatch(r"[0-9a-f]+", revision) is None:
+        raise ReleaseError("release image provenance lacks a full source revision")
+    if revision != expected_revision:
+        raise ReleaseError("release image was built from a different source revision")
+    if re.fullmatch(r"[0-9a-f]{64}", image_sha256) is None:
+        raise ReleaseError("release image provenance lacks a valid image SHA-256")
+    if sha256_file(image) != image_sha256:
+        raise ReleaseError("release image SHA-256 disagrees with its build provenance")
+    return {
+        "format_version": 1,
+        "source_revision": revision,
+        "image_sha256": image_sha256,
+    }
 
 
 def _reject_symlink_components(root: Path, relative: PurePosixPath, label: str) -> Path:
@@ -210,7 +252,7 @@ def git_source_revision(root: Path) -> str:
     except (OSError, subprocess.CalledProcessError) as error:
         detail = getattr(error, "stderr", "") or str(error)
         raise ReleaseError(f"cannot establish Git source provenance: {detail.strip()}") from error
-    if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+    if len(revision) not in {40, 64} or re.fullmatch(r"[0-9a-f]+", revision) is None:
         raise ReleaseError("Git returned an invalid source revision")
     if dirty:
         raise ReleaseError(
@@ -591,6 +633,15 @@ def verify_release(directory: Path) -> None:
         raise ReleaseError("source revision record disagrees with the build manifest")
     if build_manifest["reference_image_sha256"] != sha256_file(directory / IMAGE_NAME):
         raise ReleaseError("build manifest image hash disagrees with the release qcow2")
+    if "image_build_provenance" in build_manifest:
+        image_provenance = build_manifest["image_build_provenance"]
+        if (
+            not isinstance(image_provenance, dict)
+            or image_provenance.get("format_version") != 1
+            or image_provenance.get("source_revision") != build_manifest["source_revision"]
+            or image_provenance.get("image_sha256") != build_manifest["reference_image_sha256"]
+        ):
+            raise ReleaseError("build manifest image provenance disagrees with source or qcow2")
 
     records = manifest.get("artifacts")
     if not isinstance(records, list):
@@ -654,6 +705,7 @@ def assemble(root: Path, image_path: Path, kernel_path: Path, output: Path) -> N
     revision = git_source_revision(root)
     metadata = repository_metadata(root, kernel_path)
     validate_qcow2(image_path, root, metadata["reference_disk_gib"])
+    image_provenance = image_build_provenance(root, image_path, revision)
     versions = toolchain_versions(root)
 
     image_path = _regular_file(image_path, "release qcow2 image").resolve(strict=True)
@@ -663,6 +715,7 @@ def assemble(root: Path, image_path: Path, kernel_path: Path, output: Path) -> N
         "source_revision": revision,
         "kernel_build_id": metadata["kernel_build_id"],
         "reference_image_sha256": sha256_file(image_path),
+        "image_build_provenance": image_provenance,
         "servo_revision": metadata["servo_revision"],
         "mesa_revision": metadata["mesa_revision"],
         "llama_cpp_revision": metadata["llama_cpp_revision"],
@@ -746,11 +799,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "preflight":
             required_document_inputs(root)
             tracked_license_inputs(root)
-            git_source_revision(root)
+            revision = git_source_revision(root)
             kernel = _rooted(root, args.kernel)
             image = _rooted(root, args.image)
             metadata = repository_metadata(root, kernel)
             validate_qcow2(image, root, metadata["reference_disk_gib"])
+            image_build_provenance(root, image, revision)
             toolchain_versions(root)
             print(
                 "Release inputs and provenance verified; M30 guest acceptance is a separate, "
