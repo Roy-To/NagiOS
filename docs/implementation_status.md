@@ -2498,7 +2498,7 @@ Use only these statuses:
 | M27 | A/B / Recovery | PARTIAL | The M27 bootstrap QEMU gate now waits for the later `Nagi M7 reboot required PASS` marker, preventing shutdown between the earlier persistent-write and restart-required markers. The complete two-repetition M19/M22/M27 run at `out/evidence/m28-run-20261001T130826Z-2523/` includes two full M27 passes; both 31-file M27 manifests verify. Later Recovery attempts still include intermittent OVMF loops at RIP `0x7eb84171`; they are preserved but not counted as passes. Authenticated readiness/update authority, slot manifests, Move content identity, and remaining Recovery work remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`.
 | M28 | Integration / Stress | PARTIAL | The two-repetition gate was rerun after the M19 Search-to-NAL1 record at `out/evidence/m28-run-20261001T141428Z-9953/`: repetition 1 passed M19/M22/M27, while repetition 2 passed M19 and timed out in M22 bootstrap before guest acceptance. All archive entries and the M27 sub-run manifest verify. A preceding attempt at `out/evidence/m28-run-20261001T140924Z-9410/` timed out on M22 boot 3 with QEMU running at RIP `0x7eb84171`; its QMP log is preserved. A fresh standalone M22 three-boot run passed after that timeout. The M28 harness now preserves run-ID-specific M22 boot-3 failure logs; syntax, self-test, and dry-run pass. Earlier run archives remain under `out/evidence/m28-run-20261001T130826Z-2523/`, `out/evidence/m28-run-20261001T131752Z-3830/`, `out/evidence/m28-run-20261001T132819Z-4650/`, `out/evidence/m28-run-20261001T133248Z-5339/`, and `out/evidence/m28-run-20261001T133549Z-5668/`. Desktop/Files/Notes/Albert load, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | QEMU run `out/evidence/m29-settings-1790865253807326000/` passed keyboard focus traversal through Settings and all four M10 panels, existing Desktop interactions and Japanese input, `ja-JP` persistence, and same-disk restart restoration; READY arrived in 2,481 ms and the nine-entry SHA-256 manifest verifies. The screenshot matches the tracked Japanese Settings image. A host source-contract regression covers all four panel focus markers. Six localization tests and 155 CLI unit / 21 integration tests pass; format, lint, build, and M29 QEMU acceptance pass. Earlier Windows CI run `36802487593` on `e2b9d48` passed all Windows, Ubuntu, and Nagi-target jobs, including M17/M18 and M19/M22/M27/M29/M30 acceptance. Focus remains bounded to the four fixed panels and Settings; cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | PARTIAL | On clean current source commit `9db7e0f`, `./nagi m30` rebuilt the self-contained 64 GiB GPT qcow2 (SHA-256 `cb63509d4d221320cf2dec1637b5acdcf662cd22e6436717660185389624d5f5`) and passed System A, Model Store capability, User Data write/restart-read, and the M20 5,000-byte FAT32 fixture. Release preflight, assembly, verification, and all 12 release-tool tests passed; the bundle is at `out/artifacts/m30-release-bundle-9db7e0f/` and its qcow2 is byte-identical to the QEMU-tested pristine reference image. `qemu-img check` passed on the source, QEMU copy, fixture, and bundled image. The 15-entry run manifest verifies at `out/evidence/m30-release-1790855765560052000/SHA256SUMS`; the prior reference image and its manifest are preserved under `out/evidence/m30-current-source-rebuild-pre-9db7e0f/`. `m30_acceptance=NOT_EVALUATED`. Authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
+| M30 | Nagi OS 0.1 Release | PARTIAL | A current-source rerun found the fixed-path image still matched old commit `9db7e0f`; that exact qcow2 was copied, SHA-verified, and preserved at `out/evidence/m30-pre-current-rebuild-39234a6/`. After clearing only that generated artifact path, `./nagi m30` built a fresh self-contained 64 GiB GPT qcow2 from clean source `39234a68208fe849461904f5a68cea1daae2f772` (SHA-256 `839eee861a444f2dea447c1f0b5a9dd2a0db4672fa2d8c7ee6290ab5cc3648cf`). QEMU passed System A, read-only Model Store capability, User Data write/restart-read, M7 storage, and the separate M20 5,000-byte FAT32 fixture. Release preflight, assembly to `out/artifacts/m30-release-bundle-39234a6/`, verification, all 12 release-tool tests, package checksums, and `qemu-img check` passed; the bundle image is byte-identical to pristine current-source qcow2. A 13-entry run manifest verifies at `out/evidence/m30-release-1790868798244504000/SHA256SUMS`. `m30_acceptance=NOT_EVALUATED`. Authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
 
@@ -7120,3 +7120,28 @@ verified manifest at
 QEMU has no host `virtio-sound.in` driver; the fixture does not use host audio.
 No microphone, real STT inference, TTS engine, authenticated permission adapter,
 or spoken-command execution was exercised. M25 remains `PARTIAL`.
+
+## Completion Sweep — M30 current-source release rebuild (2026-10-02)
+
+The fixed-path release qcow2 was first confirmed to be from old commit `9db7e0f`
+by its SHA-256, then copied and verified at
+`out/evidence/m30-pre-current-rebuild-39234a6/`. With that prior generated
+artifact preserved and the fixed path clear, `./nagi m30` rebuilt the
+self-contained 64 GiB GPT image from clean current source `39234a68208fe849461904f5a68cea1daae2f772`.
+The pristine qcow2 SHA-256 is
+`839eee861a444f2dea447c1f0b5a9dd2a0db4672fa2d8c7ee6290ab5cc3648cf`.
+
+QEMU passed System A, the read-only Model Store capability, User Data format
+and write, persistent read after restart, and M7 acceptance. The separate M20
+fixture passed a 5,000-byte FAT32 read over a cluster boundary and EOF. The
+M30 run image, QEMU copy, logs, variables, fixture, and provenance manifests
+have a verified 13-entry `SHA256SUMS` at
+`out/evidence/m30-release-1790868798244504000/`.
+
+Release preflight, assembly to `out/artifacts/m30-release-bundle-39234a6/`,
+release verification, all 12 release-tool tests, package SHA-256 checks, and
+`qemu-img check` passed. The release package image matches the pristine QEMU-
+tested image byte-for-byte. Its `m30_acceptance` field remains
+`NOT_EVALUATED`; M30 stays `PARTIAL` for authenticated updates, remaining
+M18–M29 acceptance, and human binary redistribution review. QEMU has no host
+`virtio-sound.in` driver, so audio I/O remains untested.
