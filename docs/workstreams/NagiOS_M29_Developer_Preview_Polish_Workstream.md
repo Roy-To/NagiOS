@@ -232,3 +232,32 @@ serial log is `out/logs/m18-albert.log`. This QEMU build emitted a host
 audio-backend diagnostic (`virtio-sound.in` unavailable), but browser
 acceptance exited 0. Host audio playback is not covered by this run. This
 evidence adds a browser acceptance surface; M29 remains `PARTIAL`.
+
+## Windows CRLF localization fix and persistence rerun — 2026-10-01
+
+Windows CI run `36800687313` on baseline commit `d0ff15c` found that
+`lookup_resource` retained the carriage return from CRLF catalog lines; the
+Japanese resource test received `"設定\r"` instead of `"設定"`. A regression
+test with a CRLF resource reproduced the failure. The parser now strips one
+terminal `\r` from each line before interpreting its key and value.
+
+After the change, all six `nagi-localization` host tests pass. The CLI suite
+passes 151 unit and 21 integration tests, and formatting, repository tests,
+lint, build, and the Nagi-target `nagi-localization` compile pass. The baseline
+CI also passed Ubuntu-host checks; its Windows result was a real test failure
+and the Nagi-target job had not finished when this note was written. CI on the
+fix commit is required before the regression is considered closed.
+
+`./nagi m29` passed again with the CRLF fix present. Run ID
+`1790818615588652000` passed the User Data bootstrap, Japanese Settings
+selection with the M10 focus/input markers, and a restart using the same User
+Data disk that restored `ja-JP`. Guest READY arrived after 2,448 ms. The
+screenshot is SHA-256
+`974ab722fdc40b855ed97d9ab92c2c69f800c373544fbc7825b2146ef5fbd3cc`,
+byte-identical to `docs/assets/screenshots/nagi-m29-settings-ja-jp.png`.
+`out/evidence/m29-settings-1790818615588652000/README.md` and its seven-entry
+`SHA256SUMS` cover the screenshot, QEMU image, OVMF variables, User Data disk,
+and all three serial logs; all entries verify. This proves the fixed Desktop
+acceptance path only. Cross-process language propagation, complete
+localization/accessibility, onboarding, and user-facing provider/recovery
+polish remain open; M29 remains `PARTIAL`.

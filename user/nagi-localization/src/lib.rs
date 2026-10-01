@@ -45,7 +45,12 @@ fn lookup_resource<'a>(resource: &'a [u8], key: &str) -> Option<&'a str> {
     if key.is_empty() {
         return None;
     }
-    for line in resource.split(|byte| *byte == b'\n') {
+    for raw_line in resource.split(|byte| *byte == b'\n') {
+        let line = if raw_line.last() == Some(&b'\r') {
+            &raw_line[..raw_line.len() - 1]
+        } else {
+            raw_line
+        };
         let Some(separator) = line.iter().position(|byte| *byte == b'=') else {
             continue;
         };
@@ -80,6 +85,12 @@ mod tests {
             text(Locale::JaJp, "desktop.settings.option.ja-JP"),
             "日本語"
         );
+    }
+
+    #[test]
+    fn lookup_resource_accepts_windows_crlf_line_endings() {
+        static CRLF_RESOURCE: &[u8] = b"common.ok=OK\r\n";
+        assert_eq!(lookup_resource(CRLF_RESOURCE, "common.ok"), Some("OK"));
     }
 
     #[test]

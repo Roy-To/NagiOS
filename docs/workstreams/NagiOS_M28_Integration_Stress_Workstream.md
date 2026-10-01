@@ -373,3 +373,28 @@ This closes the runner's two-repetition M19/M22/M27 gate, not the formal full
 M28 workload. Desktop/Files/Notes/Albert with concurrent tabs, real Granite
 load/unload and CPU fairness, audio pressure, OOM, and memory/handle leak soak
 remain unmeasured. M28 remains `PARTIAL`.
+
+## Fresh two-repetition M19/M22/M27 gate — 2026-10-01
+
+Before the run, the fixed-name M19/M22 artifacts, OVMF variables, serial logs,
+and both starting User Data disks were preserved under
+`out/evidence/pre-m28-m29-persistence-20261001T012622Z/`; its README and
+10-entry SHA-256 manifest verify. The collision-free dry-run, shell syntax,
+and self-test passed before starting QEMU.
+
+`NAGI_M28_REPEAT_COUNT=2 tests/acceptance/m28_integration_stress.sh --run`
+then completed both repetitions. Each passed the real M19 VFS/ObjectId/Search
+restart gate, all three M22 NH16 grouped-Undo and NAL1 Activity Ledger boots,
+and the full M27 GPT A/B/Recovery gate. The run archive is
+`out/evidence/m28-run-20261001T012645Z-75535/`; all 20 files in its
+`SHA256SUMS` verify. M27 acceptance runs
+`out/evidence/m27-ab-rollback-1790818018301818000/` and
+`out/evidence/m27-ab-rollback-1790818130409530000/` each have a verified
+37-entry manifest.
+
+The prior intermittent pre-guest OVMF/QEMU startup timeouts were not observed
+in these two repetitions; their cause remains unknown. QEMU reported no host
+`virtio-sound.in` input driver, and these gates do not measure audio. The
+Desktop/Files/Notes/Albert combined load, real Granite load/unload, audio
+pressure, OOM, CPU fairness, and memory/handle leak soak remain unmeasured.
+This advances the repeated integration slice only; M28 remains `PARTIAL`.

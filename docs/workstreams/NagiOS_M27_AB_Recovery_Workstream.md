@@ -441,3 +441,17 @@ CPU#0 in an OVMF instruction loop. The successful run used new image and
 firmware state, so the earlier timeout's cause remains unknown. M27 remains
 `PARTIAL` for authenticated slot/update authority, full session readiness,
 and remaining Recovery features.
+
+## M28 repeated-gate sub-runs — 2026-10-01
+
+The M28 two-repetition Search/Undo/Recovery run passed both full M27 QEMU
+acceptances. Run `1790818018301818000` and run `1790818130409530000` each
+verified three malformed System B rollbacks to persistent A, promoted healthy
+B after guest readiness, booted Recovery without changing the journal, and
+undid the committed M22 `file.move` group across restart. Both evidence
+directories include a README and verified 37-entry SHA-256 manifest. Their
+logs and images are cross-linked from
+`out/evidence/m28-run-20261001T012645Z-75535/`. The separate earlier OVMF
+startup timeout remains unexplained; M27 remains `PARTIAL` for authenticated
+slot/update authority, full session readiness, and remaining Recovery
+features.

@@ -2473,9 +2473,9 @@ Use only these statuses:
 | M24 | Embedding / Semantic AI | PARTIAL | Added a bounded exact `PersistentVectorIndex` over `SnapshotBackend`, opaque embedding-space identity checks, versioned/checksummed snapshots, atomic object replacement, stable top-k ranking, and visible-ObjectId filtering. Twenty-nine `nagi-search` tests, warnings-denied Search and CLI Clippy, 135 CLI unit + 21 integration tests, formatting, and Nagi no-std target compile pass. M19 two-boot QEMU restored the semantic index after restart; M22 three-boot QEMU revalidated index restore with NH16/NAL1 Undo. Logs, disk images, user-data disks, and OVMF variables are preserved under `out/evidence/m24-persistent-semantic-index-20261001/`. Guest inference uses a deterministic test provider. A multilingual embedding model, content-producer synchronization, hybrid ranking/explanations, stale-index invalidation, reference-scale performance evidence, and the formal natural-language acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator and a replaceable TTS provider/synthesis service with 1 KiB UTF-8 input, 4 KiB PCM chunks, a 1 MiB output cap, frame checks, empty-output rejection, failure cleanup, and a target AudioService playback sink. whisper.cpp is pinned; `./nagi fetch` validates the clean upstream source and generates a separate Nagi-patched checkout. On 2026-10-01, `./nagi fetch`, `./nagi test`, format, lint, build, the Nagi-target `whisper` CMake build, host GGUF parser/writer regression, and M25 QEMU orchestration fixture passed. SHA-256 verified before/after artifacts and logs are preserved under `out/evidence/m25-whisper-noexceptions-{pre-final-rerun,final-pass}-20261001/`; target/host CMake evidence is under `out/evidence/m25-whisper-target-compile-20261001/`. The Whisper small multilingual metadata has immutable source, exact size, SHA-256, MIT metadata, and Model Store ID in `third_party/models.lock`; no model bytes were downloaded or loaded, and QEMU had no host `virtio-sound.in` driver. Authenticated permission/UI wiring, a real Japanese STT provider and inference, concrete local TTS, and guest voice-command acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
-| M27 | A/B / Recovery | PARTIAL | The full GPT A/B, Recovery, and M22 grouped-Undo acceptance passed after the M29 persistence change at `out/evidence/m27-ab-rollback-1790816764088451000/`; its SHA-256 manifest is verified. A preceding fresh run timed out in an OVMF loop before guest output; its cause remains unknown. Account-authenticated readiness, authenticated slot manifests/update installation, and remaining Recovery repair/log features remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
-| M28 | Integration / Stress | PARTIAL | A third `NAGI_M28_REPEAT_COUNT=2 ... --run` completed both repetitions across M19 ObjectId/Search, three-boot M22 grouped Undo/Activity Ledger, and M27 GPT A/B/Recovery. The complete gate and 22-file evidence manifest are at `out/evidence/m28-run-20260930T211250Z-51667/`; both M27 run archives also have verified manifests. The two preceding attempts timed out before M22 boot 1 reached the Nagi kernel; that OVMF/QEMU stall did not recur and its root cause remains unknown. Shell syntax, self-test, and dry-run pass. The full Desktop/Files/Notes/Albert workload, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
-| M29 | Developer Preview Polish | PARTIAL | The M10 Settings selector now persists canonical `en-US` / `ja-JP` in User Data and restores it before the first Desktop frame; `./nagi m29` passed Japanese selection and same-disk restart restoration at `out/evidence/m29-settings-1790816404401513000/`. The tracked screenshot matches the accepted QEMU capture. Five localization tests and 151 CLI unit tests pass; M10 desktop, M19, M22, M27, and M30 QEMU regressions pass. Cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
+| M27 | A/B / Recovery | PARTIAL | The full GPT A/B, Recovery, and M22 grouped-Undo acceptance passed after the M29 persistence change at `out/evidence/m27-ab-rollback-1790816764088451000/`, then passed in both repetitions of the fresh M28 two-repetition gate at `out/evidence/m27-ab-rollback-1790818018301818000/` and `out/evidence/m27-ab-rollback-1790818130409530000/`. Both new 37-entry SHA-256 manifests verify. A separate preceding run timed out in an OVMF loop before guest output; its cause remains unknown. Account-authenticated readiness, authenticated slot manifests/update installation, and remaining Recovery repair/log features remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
+| M28 | Integration / Stress | PARTIAL | A fresh `NAGI_M28_REPEAT_COUNT=2 ... --run` completed both repetitions across M19 ObjectId/Search, three-boot M22 grouped Undo/Activity Ledger, and M27 GPT A/B/Recovery. The 20-entry evidence manifest is at `out/evidence/m28-run-20261001T012645Z-75535/`; both M27 sub-runs have verified 37-entry manifests. Fixed-name inputs and starting disks were preserved before the run. Earlier OVMF/QEMU startup timeouts remain unexplained. The full Desktop/Files/Notes/Albert workload, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
+| M29 | Developer Preview Polish | PARTIAL | The M10 Settings selector persists canonical `en-US` / `ja-JP` in User Data and restores the selected language after restart. A fresh `./nagi m29` run passed selection and same-disk restoration at `out/evidence/m29-settings-1790818615588652000/`; its seven-file SHA-256 manifest verifies, and its screenshot is byte-identical to the tracked capture. Localization has six passing tests; the CLI suite has 151 unit and 21 integration tests. Windows CI on the preceding commit exposed a CRLF resource parsing bug (`設定\r`); the parser fix and regression test pass locally, with CI for the fix pending. Cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
 | M30 | Nagi OS 0.1 Release | PARTIAL | Clean-source release preflight, assembly, and verification passed for `805f2bb`; the bundle contains 23 valid checksums and a byte-identical 64 GiB GPT qcow2. Its disposable package copy passed two System A/User Data boots, Model Store read-only and M27 confirmed-A checks, and M7 persistence acceptance; post-boot verification, checksums, and `qemu-img check` passed. Evidence is in `out/evidence/m30-clean-release-805f2bb/`. The manifest retains `m30_acceptance=NOT_EVALUATED`. Authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
@@ -6730,3 +6730,39 @@ manifest are in `out/evidence/m30-clean-release-805f2bb/`. The host lacked
 `virtio-sound.in`, so audio I/O was not tested. `m30_acceptance` remains
 `NOT_EVALUATED`; M30 remains `PARTIAL` for authenticated updates, M18–M29
 gaps, and human binary redistribution review.
+
+## Completion sweep — repeated M28/M27 acceptance and Windows locale fix (2026-10-01)
+
+The fresh two-repetition `NAGI_M28_REPEAT_COUNT=2
+tests/acceptance/m28_integration_stress.sh --run` gate passed in both
+repetitions. Each passed the real M19 VFS/ObjectId/Search restart gate, all
+three M22 grouped NH16 Undo/Activity Ledger boots, and the full M27 GPT
+A/B/Recovery gate. M28 evidence and its 20-entry SHA-256 manifest are in
+`out/evidence/m28-run-20261001T012645Z-75535/`; M27 sub-run evidence and
+37-entry manifests are in
+`out/evidence/m27-ab-rollback-1790818018301818000/` and
+`out/evidence/m27-ab-rollback-1790818130409530000/`. Existing fixed-name
+M19/M22 outputs and both starting User Data disks were preserved under
+`out/evidence/pre-m28-m29-persistence-20261001T012622Z/` before the run.
+
+The two-repetition pass covers only the existing Search/Undo/Recovery slice.
+The combined Desktop/Files/Notes/Albert load, real Granite, audio playback,
+OOM, CPU fairness, and memory/handle leak soak remain unmeasured. QEMU did not
+have a host `virtio-sound.in` driver; this acceptance does not claim host audio
+I/O. M27 and M28 remain `PARTIAL`.
+
+Windows CI run `36800687313` on `d0ff15c` found that a CRLF resource line left
+the terminal carriage return in a Japanese localization value. A regression
+test reproduced `Some("設定\r")`; `lookup_resource` now removes one trailing
+carriage return from each line before parsing. Six `nagi-localization` tests,
+151 CLI unit tests, 21 CLI integration tests, formatting, repository tests,
+lint, build, and the `nagi-localization` Nagi-target compile pass locally.
+
+A fresh `./nagi m29` run then passed Japanese selection and restoration on the
+same User Data disk. Run `1790818615588652000` is documented at
+`out/evidence/m29-settings-1790818615588652000/README.md`; all seven screenshot,
+disk, OVMF, and serial-log files verify against its `SHA256SUMS`. The screenshot
+SHA-256 is
+`974ab722fdc40b855ed97d9ab92c2c69f800c373544fbc7825b2146ef5fbd3cc` and
+matches the tracked image. M29 remains `PARTIAL`; CI for the CRLF fix is
+pending.
