@@ -491,3 +491,29 @@ confirm the fixture paths still work but do not satisfy the consecutive
 combined M28 gate. M28 remains `PARTIAL`; Desktop/Files/Notes/Albert
 concurrency, real Granite, audio pressure, OOM, CPU fairness, and memory/handle
 leak soak remain unmeasured.
+
+## Completion Sweep — M27 failure evidence capture and replay (2026-10-02)
+
+The M28 M27-failure parser now extracts the M27 run ID from absolute or
+relative QEMU timeout diagnostics and reconstructs the repository-relative
+evidence path. The self-test covers both forms. This fixes a real artifact gap:
+the failed M27 run was previously absent from the M28 README and had no local
+README or checksum even though QEMU preserved its log. Shell syntax, self-test,
+and dry-run pass.
+
+Fresh run `out/evidence/m28-run-20261001T205917Z-97811/` passed M19 and the
+three-boot M22 gate in both repetitions; repetition 1 also passed the M27 gate.
+Repetition 2's M27 Recovery GUI timed out before guest output at OVMF RIP
+`0x7eb84171`. The fixed harness recorded the failed sub-run and its own
+SHA-256 manifest. Replaying copies of its exact Recovery image, User Data, and
+OVMF variables reached the Recovery menu and command console and passed
+`Nagi M27 Recovery command help PASS`. This does not retroactively pass the
+original repetition. The archive and both M27 sub-run manifests verify.
+
+The prior run `out/evidence/m28-run-20261001T204558Z-96383/` passed repetition
+1 and timed out before the M13 marker in repetition 2's M27 Recovery Undo
+fixture. A replay from that exact boot image and User Data with the pinned
+OVMF template passed the M13/M21/M22 markers. Both integrated runs remain
+`PARTIAL`; a two-consecutive-repetition pass has not been recorded. Formal
+Desktop/Files/Notes/Albert load, real Granite inference, audio pressure, OOM,
+CPU fairness, and leak soak remain unmeasured.

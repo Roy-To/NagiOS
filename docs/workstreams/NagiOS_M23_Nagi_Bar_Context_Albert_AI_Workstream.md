@@ -86,3 +86,12 @@ results.
 Therefore the M23 acceptance criterion (“Summarize this page” through the
 public Browser Context API) remains unmet; this slice advances the fail-closed
 contract but does not claim M23 complete.
+
+## Completion Sweep — shared IPC and capability boundary audit (2026-10-02)
+
+The cross-milestone audit in `docs/implementation_status.md` confirms that
+`ContextAuthority` remains an interface and the shared service layer does not
+authenticate a caller or deliver capabilities across isolated processes.
+Albert page context must stay filtered by a trusted provider when a production
+service path is added. Caller-supplied identity and local function-pointer
+dispatch do not establish that authority; M23 remains `PARTIAL`.

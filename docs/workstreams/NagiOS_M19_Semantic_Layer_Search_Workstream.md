@@ -188,3 +188,13 @@ transaction ID. M22 verifies the same entry after restart without adding
 duplicates. This connects Search execution to the existing Activity Ledger
 fixture; the caller context remains unauthenticated fixture data, so this does
 not activate Search as a production IPC service. M19 remains `PARTIAL`.
+
+## Completion Sweep — shared IPC and capability boundary audit (2026-10-02)
+
+The cross-milestone audit in `docs/implementation_status.md` confirms that
+M19 Search and M21/M22 Action/Activity paths still use the single PID 1
+bootstrap process and fixture caller context. User `wait`/`wait_many`, isolated
+service processes, authenticated endpoint delivery, production Files/page
+producers, and a production Activity Ledger bridge remain prerequisites. The
+guest Search and restart tests remain valid orchestration evidence; M19 remains
+`PARTIAL`.

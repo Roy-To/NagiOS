@@ -267,3 +267,13 @@ hash-verified in `out/evidence/m22-search-activity-1790863264739984000/`.
 This is still fixture integration. App/session/object identities are not
 provided by an authenticated user-space service boundary, and the NAL1 archive
 is not a production Activity Ledger service. M22 remains `PARTIAL`.
+
+## Completion Sweep — shared IPC and capability boundary audit (2026-10-02)
+
+The cross-milestone audit in `docs/implementation_status.md` confirms that
+the three-boot NH16/NAL1 grouped-Undo path is fixture orchestration inside the
+single PID 1 process. It does not provide authenticated service callers,
+supervisor-delivered capability endpoints, or a production Activity Ledger
+bridge. Preserve the guest result as acceptance evidence for the fixture
+scope; production service authority remains incomplete and M22 remains
+`PARTIAL`.

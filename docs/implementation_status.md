@@ -2522,8 +2522,8 @@ Use only these statuses:
 | M24 | Embedding / Semantic AI | PARTIAL | Added a bounded exact `PersistentVectorIndex` over `SnapshotBackend`, opaque embedding-space identity checks, versioned/checksummed snapshots, atomic object replacement, stable top-k ranking, and visible-ObjectId filtering. Twenty-nine `nagi-search` tests, warnings-denied Search and CLI Clippy, 135 CLI unit + 21 integration tests, formatting, and Nagi no-std target compile pass. M19 two-boot QEMU restored the semantic index after restart; M22 three-boot QEMU revalidated index restore with NH16/NAL1 Undo. Logs, disk images, user-data disks, and OVMF variables are preserved under `out/evidence/m24-persistent-semantic-index-20261001/`. Guest inference uses a deterministic test provider. A multilingual embedding model, content-producer synchronization, hybrid ranking/explanations, stale-index invalidation, reference-scale performance evidence, and the formal natural-language acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator and a replaceable TTS provider/synthesis service with 1 KiB UTF-8 input, 4 KiB PCM chunks, a 1 MiB output cap, frame checks, empty-output rejection, failure cleanup, and a target AudioService playback sink. `SpeechToTextProvider::finish() == Ok(0)` fails closed as `EmptyTranscript`, cancels provider state, clears output, and cleans up the pipeline. Fifteen audio tests pass. A fresh target fixture verifies delivery of a fixed Japanese transcript through the authorized PTT output path, without claiming inference or executing the transcript. The M25 QEMU gate requires `Nagi M25 fixture transcript delivery PASS`; the run has a verified manifest at `out/evidence/m25-fixture-transcript-1790868293848130000/manifest.sha256`. On 2026-10-02, CLI tests passed (155 unit, 21 integration), as did `./nagi fmt`, `./nagi test`, `./nagi lint`, `./nagi build`, and `./nagi m25`. whisper.cpp is pinned; `./nagi fetch` validates the clean upstream source and generates a separate Nagi-patched checkout. The Nagi-target `whisper` CMake build and host GGUF parser/writer regression passed on 2026-10-01; related evidence is under `out/evidence/m25-whisper-noexceptions-{pre-final-rerun,final-pass}-20261001/` and `out/evidence/m25-whisper-target-compile-20261001/`. The Whisper small multilingual metadata has immutable source, exact size, SHA-256, MIT metadata, and Model Store ID in `third_party/models.lock`; no model bytes were downloaded or loaded, and QEMU had no host `virtio-sound.in` driver. Authenticated permission/UI wiring, a real Japanese STT provider and inference, concrete local TTS, and spoken-command acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. The full configured host workspace suite passed (including 57 Model Manager unit, 2 manifest/schema, and 1 store API tests); lint, format, host build, Nagi-target Model Manager check, and M19/M22 guest regressions pass. Qwen/Gemma source revisions, filenames, upstream-advertised sizes/digests, and license/notice metadata are pinned and checked against manifest fixtures. Model bytes and independent digest verification, installable/legal packages, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
-| M27 | A/B / Recovery | PARTIAL | Earlier standalone `./nagi m27` run `1790869370028356000` passed rollback, promotion, Recovery, and committed M22 Move Undo across restart; its 38-entry manifest verifies. The Completion Sweep hashes Move contents and the same-path replacement conflict subtest passed in `out/evidence/m27-ab-rollback-1790881641572651000/recovery-boot.log`. Two subsequent fresh full runs, `1790881641572651000` and `1790884455740214000`, each timed out before guest output on Recovery with pending System B; QMP showed OVMF RIP `0x7eb84171`. A single-stage replay from copied Recovery image, User Data, and the second run's post-timeout OVMF variables passed in 2.313 seconds, so that state alone does not reproduce the timeout. Both failures and replay inputs/logs have verified SHA-256 manifests. Authenticated update/readiness authority, authenticated slot manifests, and remaining Recovery work remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
-| M28 | Integration / Stress | PARTIAL | The harness self-test, syntax, and dry-run pass. Two fresh 2026-10-02 two-repetition attempts are preserved: `out/evidence/m28-run-20261001T153942Z-38390/` passed M19 and M22 boot 1 before boot 2 timed out at OVMF RIP `0x7eb84171`; `out/evidence/m28-run-20261001T154452Z-38953/` passed M19 before M22 bootstrap timed out at the same RIP. Their 13- and 11-entry archive manifests verify; neither reached M27 or completed a repetition. Standalone M22 three-boot and M27 A/B/Recovery regressions passed afterward, but do not satisfy the combined consecutive gate. Desktop/Files/Notes/Albert load, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
+| M27 | A/B / Recovery | PARTIAL | Standalone `./nagi m27` run `1790869370028356000` passed rollback, promotion, Recovery, and committed M22 Move Undo; its manifest verifies. In M28 run `97811`, repetition 1's M27 run `1790888373129951000` passed; repetition 2's run `1790888490534092000` timed out before Recovery guest output at OVMF RIP `0x7eb84171`. A replay from the exact Recovery image, User Data, and saved OVMF variables reached the menu and `Nagi M27 Recovery command help PASS`; it does not retroactively pass the original run. A second M28 attempt's M27 run `1790887692970332000` timed out before the M13 fixture marker; a replay from its exact boot image and User Data with the pinned OVMF template passed M13/M21/M22 markers. Both replay sets and failures have SHA-256 manifests. Authenticated update/readiness authority, authenticated slot manifests, and remaining Recovery work remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
+| M28 | Integration / Stress | PARTIAL | The harness now reconstructs failed M27 evidence paths from run IDs and its self-test covers absolute and relative timeout logs. Two fresh two-repetition attempts are preserved: run `96383` completed repetition 1 and failed M27 Recovery Undo boot before guest output in repetition 2; exact-state replay reached M13/M21/M22 markers. Run `97811` completed repetition 1 across M19, three-boot M22, and M27; repetition 2 passed M19/M22 before M27 Recovery GUI timed out at OVMF RIP `0x7eb84171`. Exact-state replay reached the Recovery menu, accepted the console commands, and passed the help marker. The original timeouts remain failed, and neither two-repetition gate completed. Manifests for both M28 archives and all M27/replay directories verify. Desktop/Files/Notes/Albert load, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Fresh `./nagi m29` run `out/evidence/m29-settings-1790869645429869000/` passed keyboard focus traversal for Settings and all four M10 panels, Japanese locale selection, persistence, and same-disk restart restoration; READY arrived in 2,605 ms and its eight-entry SHA-256 manifest verifies. The tracked Japanese Settings screenshot is preserved. Six localization tests and 155 CLI unit / 21 integration tests pass; format, lint, build, and M29 QEMU acceptance pass. Earlier Windows CI run `36802487593` on `e2b9d48` passed all Windows, Ubuntu, and Nagi-target jobs, including M17/M18 and M19/M22/M27/M29/M30 acceptance. Focus remains bounded to the four fixed panels and Settings; cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
 | M30 | Nagi OS 0.1 Release | PARTIAL | Clean source commit `b66fabb1388e67eb4e35fa9cf72d231e61bf097f` rebuilt the 64 GiB GPT qcow2 (SHA-256 `54390507a4e975ad30ee94d7efb7b4c81758854ccbbdcc7f12b39bfb70fc6748`) with source-bound `.build-info`. Fresh `./nagi m30` run `1790886957142079000` passed System A and User Data restart-read; M19 Search; M22 Activity Ledger, grouped Move/Copy and post-Recovery Undo; GPT Recovery VFS/help with unchanged journal; rejection of unstaged System B; post-Recovery M13 completion; and the separate M20 FAT32 fixture. `qemu-img check` passed on pristine, mutable, fixture, and bundle images. All 14 release-tool tests, preflight, assembly, verify, 23 bundle checksums, and byte-identity passed. Evidence manifest: `out/evidence/m30-release-1790886957142079000/SHA256SUMS`; bundle: `out/artifacts/m30-release-bundle-b66fabb/`. QEMU lacked host `virtio-sound.in`; host audio is untested. The bundle records `m30_acceptance=NOT_EVALUATED`. System B update acceptance, authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
@@ -7425,3 +7425,79 @@ The bundle retains `m30_acceptance=NOT_EVALUATED`. QEMU had no host
 `virtio-sound.in` driver, so host audio input is untested. M30 remains
 `PARTIAL` for authenticated updates and System B acceptance, remaining
 M18–M29 work, and human binary redistribution review.
+
+## Completion Sweep — Priority A Service, IPC, and Capability audit (2026-10-02)
+
+The existing foundations were inspected before considering integration across
+M18, M19, and M21–M23. The bootstrap Channel path exposes bounded create, send,
+nonblocking receive, and close syscalls. `kernel/src/user_ipc.rs` initializes
+one `Process` with PID 1 in one address space; it stamps Channel sends with
+that process identity and checks attenuated handle transfers. `WaitRegistry`
+is used inside the kernel IPC implementation, but no user `wait` or
+`wait_many` syscall is published in `nagi-abi` or dispatched by the kernel.
+This agrees with spec §9.6 and ADR-0002: the current path demonstrates ABI and
+capability mechanics, not an authenticated inter-process service boundary.
+
+`libnagi::ServiceRegistry` resolves manifests to local function pointers and
+invokes handlers in the same process. It has bounded capacity and health
+states, but no endpoint transport, authenticated client identity, or
+supervisor-authorized launch binding. The M19 Search provider and M21/M22
+fixture caller contexts therefore remain orchestration inputs, not authority.
+M19 runs a real guest VFS Search fixture and M21 executes `file.search` through
+its validator/executor; M22 persists the resulting typed Search event and
+fixture `file.move`/`file.copy` transactions in NH16/NAL1 across restarts.
+These guest results do not establish production Files/page producers,
+authenticated Action Registry callers, or a production Activity Ledger
+service. General copy/move, rename, metadata-update, and app-launch handlers
+remain absent.
+
+Albert's clipboard, IME composition, upload/picker, and site-permission code
+has typed state/provider interfaces, but no Nagi service implementation is
+connected. M18's embedder explicitly denies site requests when no trusted
+prompt service exists and reports clipboard and IME unavailable; upload
+selection depends on an injected picker adapter. This preserves fail-closed
+behavior and does not provide interactive permission, clipboard, text/IME, or
+opaque file-handle providers.
+
+The shared blocker is architectural: isolated process/address-space launch,
+user-visible wait semantics, supervisor-authorized endpoint delivery bound to
+kernel process identity and a launch record, and service adapters that receive
+capabilities rather than caller-supplied identity fields are not in place.
+Implementing only a policy callback or treating a PID/App ID in a request as
+authentication would weaken the stated capability boundary. Keep the existing
+M18–M23 guest fixtures as orchestration evidence until that trusted service
+path exists. M18, M19, and M21–M23 remain `PARTIAL`; M22's persistent fixture
+acceptance remains valid but does not change that status. No milestone was
+added or promoted by this audit.
+
+## Completion Sweep — M28 M27 timeout evidence and replay (2026-10-02)
+
+The M28 failure-path parser previously extracted only the `/out/evidence/...`
+suffix from an absolute QEMU log path, while its path check expected either the
+full repository path or a relative `out/evidence/...` path. Thus a failed M27
+sub-run could be omitted from the M28 README and left without its own
+README/checksum. It now extracts the run ID and reconstructs the repository-
+relative evidence directory. The M28 self-test covers both absolute and
+relative diagnostic paths. Shell syntax, self-test, and dry-run pass.
+
+Fresh two-repetition run
+`out/evidence/m28-run-20261001T205917Z-97811/` passed M19 Search and the full
+three-boot M22 grouped-Undo path in both repetitions. Repetition 1 also passed
+M27 rollback, promotion, Recovery, and committed M22 Undo. Repetition 2's M27
+Recovery GUI stage timed out after 90 seconds before a guest marker. QMP showed
+OVMF looping at RIP `0x7eb84171` (`jmp 0x7eb84150`). The corrected harness
+recorded the failed M27 run `1790888490534092000` in the M28 README and
+generated its own README/SHA-256 manifest. The archive has 26 hashed files;
+the passing M27 sub-run has 31, and the failed one has 8.
+
+The exact failing Recovery boot image, User Data, and OVMF variables were
+copied to `out/evidence/m27-replay-recovery-gui-1790888490534092000/`. That
+state subsequently reached the Recovery menu; the replay sent the `r` key,
+sent the full serial command batch, and passed `Nagi M27 Recovery command help
+PASS`. This supports an intermittent pre-guest OVMF startup failure; it does
+not convert the original M28 repetition to a pass. The earlier M28 run
+`out/evidence/m28-run-20261001T204558Z-96383/` also failed M27 before its M13
+fixture marker in repetition 2; replay from its exact boot image and User Data
+with a fresh copy of the pinned OVMF variable template reached M13, M21, and
+M22 markers. Both original attempts remain failed evidence, and M28 remains
+`PARTIAL`.

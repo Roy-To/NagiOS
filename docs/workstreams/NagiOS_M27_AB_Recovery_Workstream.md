@@ -574,3 +574,25 @@ it does not identify the full-run failure cause or replace full M27
 acceptance. QEMU reported no host `virtio-sound.in` input driver. M27 remains
 `PARTIAL` for authenticated update/readiness authority, authenticated slot
 manifests, and remaining Recovery work.
+
+## Completion Sweep — M28 Recovery startup replay (2026-10-02)
+
+M28's first M27 sub-run in `out/evidence/m28-run-20261001T205917Z-97811/`
+passed the full A/B, Recovery, and committed M22 Undo gate. The second M27
+sub-run timed out in the Recovery GUI boot before guest output; QMP again
+reported the OVMF loop at RIP `0x7eb84171`. The failure directory
+`out/evidence/m27-ab-rollback-1790888490534092000/` retains the exact Recovery
+image, User Data, OVMF variables, and QMP diagnostic log with a verified
+manifest.
+
+A replay using copies of that exact image, User Data, and OVMF variable state
+reached the Recovery menu, received the `r` key events and command batch, and
+passed the Recovery help marker. Evidence and script are under
+`out/evidence/m27-replay-recovery-gui-1790888490534092000/` with a verified
+manifest. A separate M28 failure at the Recovery Undo fixture also replayed
+successfully from its preserved boot image/User Data and fresh pinned OVMF
+variables, reaching M13/M21/M22 markers. Neither replay changes the original
+M28 result. These failures are consistent with an intermittent pre-guest OVMF
+startup issue, but the firmware root cause remains unknown. M27 remains
+`PARTIAL` for authenticated update/readiness authority, authenticated slot
+manifests, and remaining Recovery work.

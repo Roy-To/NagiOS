@@ -237,3 +237,14 @@ rejection, and close/reuse. The manager supports only the single bootstrap
 Process and has no blocking wait. This is IPC plumbing evidence; it does not
 bind the fixture's App/Session identity to a trusted supervisor, production
 ActionPolicy, or production ContextAuthority. M21 remains `PARTIAL`.
+
+## Completion Sweep — shared IPC and capability boundary audit (2026-10-02)
+
+The cross-milestone audit in `docs/implementation_status.md` confirms that the
+current `ServiceRegistry` is an in-process function-pointer registry and the
+guest ActionPolicy caller context is fixture data. The published bootstrap
+Channel syscalls do not expose waiting, isolated processes, or
+supervisor-authorized endpoint delivery. Production handlers require
+authenticated process/launch context and capability-backed service endpoints;
+a caller-supplied PID or App ID is insufficient. The current Search and VFS
+mutation fixtures remain valid, and M21 stays `PARTIAL`.

@@ -122,11 +122,11 @@ extract_m27_evidence_path() {
 }
 
 extract_m27_diagnostic_evidence_path() {
-    extracted_path=$(printf '%s\n' "$1" \
-        | sed -n 's#.*\(/out/evidence/m27-ab-rollback-[^/ ]*\)/.*#\1#p' \
+    extracted_run_id=$(printf '%s\n' "$1" \
+        | sed -n 's#.*m27-ab-rollback-\([0-9][0-9]*\).*#\1#p' \
         | tail -n 1)
-    [ -n "$extracted_path" ] || return 1
-    printf '%s\n' "$extracted_path"
+    [ -n "$extracted_run_id" ] || return 1
+    printf 'out/evidence/m27-ab-rollback-%s\n' "$extracted_run_id"
 }
 
 validate_m27_output() {
@@ -320,6 +320,14 @@ EOF
     m27_output='PASS M27 A/B and Recovery: acceptance (evidence /tmp/m27-ab-rollback-self-test)'
     [ "$(extract_m27_evidence_path "$m27_output")" = '/tmp/m27-ab-rollback-self-test' ] \
         || fail 'M27 evidence path extraction returned the wrong path'
+    m27_absolute_failure='FAIL m27: Recovery Undo guest fixture: QEMU timeout; diagnostics appended to /Users/test/NagiOS/out/evidence/m27-ab-rollback-123456789/recovery-committed-undo-fixture.log'
+    [ "$(extract_m27_diagnostic_evidence_path "$m27_absolute_failure")" = \
+        'out/evidence/m27-ab-rollback-123456789' ] \
+        || fail 'M27 absolute diagnostic path did not resolve to its evidence directory'
+    m27_relative_failure='FAIL m27: Recovery Undo guest fixture: QEMU timeout; diagnostics appended to out/evidence/m27-ab-rollback-987654321/recovery-committed-undo-fixture.log'
+    [ "$(extract_m27_diagnostic_evidence_path "$m27_relative_failure")" = \
+        'out/evidence/m27-ab-rollback-987654321' ] \
+        || fail 'M27 relative diagnostic path did not resolve to its evidence directory'
     first_archive_root=$(archive_root_for_run self-test-run-1)
     second_archive_root=$(archive_root_for_run self-test-run-2)
     [ "$first_archive_root" != "$second_archive_root" ] || fail 'run archive namespaces collide'
