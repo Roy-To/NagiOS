@@ -584,3 +584,30 @@ QEMU coverage does not authenticate updates or slot manifests. M30 remains
 `PARTIAL` for authenticated GPT update installation, remaining M18–M29
 acceptance, and human binary redistribution review. QEMU reported no host
 `virtio-sound.in` input driver, so audio I/O is not covered.
+
+## Current-source release rebuild and QEMU acceptance — 2026-10-01
+
+On clean commit `9db7e0f8d083c7d7ef32d641f7a4c48c45a598bb`, `./nagi m30`
+rebuilt the kernel, loader, init payloads, and self-contained 64 GiB GPT
+reference qcow2. Before the rebuild, the prior accepted image was moved to
+`out/evidence/m30-current-source-rebuild-pre-9db7e0f/` and its preserved bytes
+verified against SHA-256
+`ca4c04f5c540bf59cef13b93b301a9fe31134080650977b1a57e760567ce4cff`. The new
+image SHA-256 is
+`cb63509d4d221320cf2dec1637b5acdcf662cd22e6436717660185389624d5f5`.
+
+The fresh QEMU copy passed GPT System A selection, Model Store capability
+checks, User Data format/write, and persistent read after restart. The separate
+M20 FAT32 fixture passed the bounded 5,000-byte read across a cluster boundary
+and EOF. All 12 release-tool tests passed. On the clean revision, release
+preflight, assembly to `out/artifacts/m30-release-bundle-9db7e0f/`, and
+verification passed. The bundle image is byte-identical to the pristine
+QEMU-tested reference image; release checksums and `qemu-img check` passed for
+the pristine image, QEMU copy, fixture, and bundled qcow2. The 15-entry run
+manifest verifies at `out/evidence/m30-release-1790855765560052000/SHA256SUMS`.
+
+The bundle still records `m30_acceptance=NOT_EVALUATED`: release integrity and
+guest acceptance are recorded separately from full release readiness. M30
+remains `PARTIAL` for authenticated GPT updates, remaining M18–M29 acceptance,
+and human binary redistribution review. QEMU reported no host
+`virtio-sound.in` driver, so audio I/O remains untested.
