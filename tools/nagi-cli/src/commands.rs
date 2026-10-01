@@ -1063,10 +1063,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let serial_log = evidence.join("reference-disk-restart.log");
     let restart_config = QemuConfig {
         serial_log: &serial_log,
-        acceptance_marker: "Nagi M7 acceptance PASS",
+        acceptance_marker: "Nagi M13 acceptance PASS",
         ..first_config
     };
-    let qemu_status = match run_qemu_reusing_ovmf_vars(&restart_config) {
+    let qemu_status = match run_m13_qemu_with_http_fixture(root, &restart_config) {
         Ok(status) => status,
         Err(error) => {
             return failure(
@@ -1094,6 +1094,15 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "Nagi M7 ext2 mount PASS",
         "Nagi M7 persistent read PASS",
         "Nagi M7 acceptance PASS",
+        "Nagi M19 live VFS file ObjectId rename/restart PASS",
+        "Nagi M19 guest search persistence PASS",
+        "Nagi M22 file.search Activity Ledger PASS",
+        "Nagi M22 AI Activity Ledger committed PASS",
+        "Nagi M21 file.move Plan Validate Execute PASS",
+        "Nagi M22 move group persisted in guest VFS PASS",
+        "Nagi M21 file.copy Plan Validate Execute PASS",
+        "Nagi M22 file.copy prepared transaction persisted PASS",
+        "Nagi M13 acceptance PASS",
     ] {
         if !serial.contains(marker) {
             return failure(
