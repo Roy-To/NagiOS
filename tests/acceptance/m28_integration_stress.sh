@@ -77,6 +77,7 @@ validate_m22_log() {
         'Nagi M24 semantic index ready PASS' \
         'Nagi M24 semantic index persistence PASS' \
         'Nagi M19 guest search persistence PASS' \
+        'Nagi M22 file.search Activity Ledger PASS' \
         'Nagi M22 AI Activity Ledger undo result PASS' \
         'Nagi M22 archive restart and restored files PASS' \
         'Nagi M13 acceptance PASS'
@@ -106,6 +107,10 @@ extract_m22_run_id() {
     fi
     [ -n "$extracted_run_id" ] || return 1
     printf '%s\n' "$extracted_run_id"
+}
+
+m22_final_boot_log_path() {
+    printf 'out/logs/m22-history-%s-boot-3.log' "$1"
 }
 
 extract_m27_evidence_path() {
@@ -160,6 +165,12 @@ write_evidence_manifest() {
     ) || fail "cannot write evidence manifest: $evidence_dir/SHA256SUMS"
 }
 
+write_source_worktree_patch() {
+    evidence_dir=$1
+    git diff --binary HEAD >"$evidence_dir/source-worktree.diff" \
+        || fail "cannot preserve source worktree diff: $evidence_dir/source-worktree.diff"
+}
+
 verify_evidence_manifest() {
     evidence_dir=$1
     if command -v shasum >/dev/null 2>&1; then
@@ -201,6 +212,7 @@ write_m28_evidence_metadata() {
     completed_repetitions=$7
     failed_repetition=$8
     failure_summary=$9
+    write_source_worktree_patch "$evidence_dir"
     cat >"$evidence_dir/README.md" <<EOF
 # M28 persistent Search/History/Recovery gate
 
@@ -228,8 +240,9 @@ EOF
     fi
     cat >>"$evidence_dir/README.md" <<'EOF'
 
-The archive SHA256SUMS covers this README and all archived per-repetition
-files. Each M27 sub-run directory has its own README and SHA256SUMS.
+The archive SHA256SUMS covers this README, `source-worktree.diff` (the tracked
+changes from the source revision above), and all archived per-repetition files.
+Each M27 sub-run directory has its own README and SHA256SUMS.
 
 ## Source worktree changes
 EOF
@@ -277,6 +290,7 @@ Nagi M13 C POSIX PASS
 Nagi M24 semantic index ready PASS
 Nagi M24 semantic index persistence PASS
 Nagi M19 guest search persistence PASS
+Nagi M22 file.search Activity Ledger PASS
 Nagi M22 AI Activity Ledger undo result PASS
 Nagi M22 archive restart and restored files PASS
 Nagi M13 acceptance PASS
@@ -300,6 +314,9 @@ EOF
     m22_boot_failure_output='FAIL m22: guest boot timed out; diagnostics appended to /tmp/m22-history-123456789-boot-1.log'
     [ "$(extract_m22_run_id "$m22_boot_failure_output")" = 123456789 ] \
         || fail 'M22 run ID was not extracted from a numbered boot failure'
+    [ "$(m22_final_boot_log_path 123456789)" = \
+        'out/logs/m22-history-123456789-boot-3.log' ] \
+        || fail 'M22 final boot diagnostic path was not generated from the run ID'
     m27_output='PASS M27 A/B and Recovery: acceptance (evidence /tmp/m27-ab-rollback-self-test)'
     [ "$(extract_m27_evidence_path "$m27_output")" = '/tmp/m27-ab-rollback-self-test' ] \
         || fail 'M27 evidence path extraction returned the wrong path'
@@ -327,6 +344,8 @@ EOF
     verify_evidence_manifest "$temporary_dir/archive"
     [ -f "$temporary_dir/archive/README.md" ] || fail 'M28 archive README was not written'
     [ -f "$temporary_dir/archive/SHA256SUMS" ] || fail 'M28 archive manifest was not written'
+    [ -f "$temporary_dir/archive/source-worktree.diff" ] \
+        || fail 'M28 source worktree diff was not preserved'
     mkdir "$temporary_dir/m27"
     printf 'M27 self-test evidence\n' >"$temporary_dir/m27/fixture.log"
     write_m27_evidence_metadata "$temporary_dir/m27" 1 PASS 'fixture accepted'
@@ -513,6 +532,7 @@ archive_iteration_outputs() {
         out/logs/m22-history-bootstrap-"$m22_run_id".log \
         out/logs/m22-history-"$m22_run_id"-boot-1.log \
         out/logs/m22-history-"$m22_run_id"-boot-2.log \
+        "$(m22_final_boot_log_path "$m22_run_id")" \
         "$m22_log"; do
         if [ -e "$output" ]; then
             output_destination="$archive_dir/${output##*/}"

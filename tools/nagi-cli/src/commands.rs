@@ -4523,6 +4523,7 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi M13 C POSIX PASS",
             "Nagi M24 semantic index ready PASS",
             "Nagi M19 guest search persistence PASS",
+            "Nagi M22 file.search Activity Ledger PASS",
             "Nagi M13 acceptance PASS",
         ] {
             if !serial.contains(marker) {
@@ -5039,6 +5040,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
     };
     for marker in [
+        "Nagi M22 file.search Activity Ledger PASS",
         "Nagi M22 archive restart and restored files PASS",
         "Nagi M22 AI Activity Ledger undo result PASS",
         "Nagi M13 acceptance PASS",

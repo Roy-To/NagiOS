@@ -1,3 +1,4 @@
+use crate::m19_search::M19SearchActivity;
 use alloc::{rc::Rc, string::String, vec, vec::Vec};
 use core::cell::Cell;
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_FILE_SIZE};
@@ -52,6 +53,7 @@ const M22_COPY_CAPABILITY: &str = "files.copy";
 const M22_COPY_INTENT: &str = "copy the first M22 fixture file";
 const M22_COPY_PLAN_SUMMARY: &str = "source=8721;destination=m22-copy";
 const M22_COPY_MAX_BYTES: usize = 512;
+const M19_SEARCH_ACTION: &str = "file.search";
 const M22_MOVE_OBJECT_IDS: [ObjectId; 3] = [ObjectId(0x2211), ObjectId(0x2212), ObjectId(0x2213)];
 const M22_COPY_OBJECT_IDS: [ObjectId; 1] = [M22_COPY_SOURCE_OBJECT_ID];
 
@@ -190,6 +192,7 @@ struct M22MoveAction {
     backend: HistoryArchiveBackend<M22Files>,
     history: HistoryService,
     activity_ledger: ActivityLedger,
+    search_activity: M19SearchActivity,
 }
 
 struct M22CopyAction {
@@ -407,6 +410,11 @@ impl ActionHandler<M22FixturePolicy> for M22MoveAction {
             return Err(HandlerError::Failed);
         }
 
+        if ensure_search_activity_record(&mut self.activity_ledger, self.search_activity).is_none()
+        {
+            return Err(HandlerError::Failed);
+        }
+
         let activity_sequence = self
             .activity_ledger
             .record_action(ActivityRecordInput {
@@ -612,6 +620,7 @@ fn run_file_move_action(
     backend: HistoryArchiveBackend<M22Files>,
     history: HistoryService,
     activity_ledger: ActivityLedger,
+    search_activity: M19SearchActivity,
 ) -> bool {
     let policy = M22FixturePolicy::default();
     let caller = CallerIdentity {
@@ -692,6 +701,7 @@ fn run_file_move_action(
                 backend,
                 history,
                 activity_ledger,
+                search_activity,
             },
         )
         .is_err()
@@ -743,18 +753,21 @@ fn run_file_move_action(
         return false;
     };
     let move_object_ids = MOVES.map(|(object_id, _, _, _)| object_id);
-    if !verify_activity_record(
-        &ledger,
-        first.transaction_id,
-        M22_MOVE_ACTION,
-        M22_MOVE_INTENT,
-        M22_MOVE_PLAN_SUMMARY,
-        &move_object_ids,
-        ActivityOutcome::Committed,
-    ) {
+    if !verify_search_activity_record(&ledger, search_activity)
+        || !verify_activity_record(
+            &ledger,
+            first.transaction_id,
+            M22_MOVE_ACTION,
+            M22_MOVE_INTENT,
+            M22_MOVE_PLAN_SUMMARY,
+            &move_object_ids,
+            ActivityOutcome::Committed,
+        )
+    {
         return false;
     }
 
+    libnagi::console_write(b"Nagi M22 file.search Activity Ledger PASS\r\n");
     libnagi::console_write(b"Nagi M22 AI Activity Ledger committed PASS\r\n");
     libnagi::console_write(b"Nagi M21 file.move Plan Validate Execute PASS\r\n");
     libnagi::console_write(b"Nagi M22 move group persisted in guest VFS PASS\r\n");
@@ -1162,7 +1175,7 @@ fn valid_fixture_basename(name: &[u8]) -> bool {
 /// validates storage and restart recovery only; it is not a production AI
 /// service or authenticated production policy. Its initial grouped mutation
 /// is deliberately exercised through the M21 Executor fixture boundary.
-pub fn run(block_capability: u64) -> bool {
+pub fn run(block_capability: u64, search_activity: M19SearchActivity) -> bool {
     let Ok((volume, _)) = Vfs::mount_or_format(SyscallBlockDevice::new(block_capability)) else {
         return false;
     };
@@ -1189,20 +1202,38 @@ pub fn run(block_capability: u64) -> bool {
         if ledger_was_present || !ensure_original_fixture(&mut backend.file_store_mut().volume) {
             return false;
         }
-        return run_file_move_action(block_capability, backend, history, activity_ledger)
-            && run_file_copy_action(block_capability);
+        return run_file_move_action(
+            block_capability,
+            backend,
+            history,
+            activity_ledger,
+            search_activity,
+        ) && run_file_copy_action(block_capability);
     }
-    resume_m22_history(&mut backend, &mut history, &mut activity_ledger)
+    resume_m22_history(
+        &mut backend,
+        &mut history,
+        &mut activity_ledger,
+        search_activity,
+    )
 }
 
 fn resume_m22_history(
     backend: &mut HistoryArchiveBackend<M22Files>,
     history: &mut HistoryService,
     activity_ledger: &mut ActivityLedger,
+    search_activity: M19SearchActivity,
 ) -> bool {
     if !verify_full_history(history) {
         return false;
     }
+    if ensure_search_activity_record(activity_ledger, search_activity).is_none()
+        || !save_activity_ledger(backend.file_store_mut(), activity_ledger)
+        || !verify_search_activity_record(activity_ledger, search_activity)
+    {
+        return false;
+    }
+    libnagi::console_write(b"Nagi M22 file.search Activity Ledger PASS\r\n");
     let Some(move_record) = history.record_at(0) else {
         return false;
     };
@@ -1444,6 +1475,85 @@ fn save_activity_ledger<F: ActivityLedgerFileStore>(
     ActivityLedgerArchiveBackend::new(files)
         .write_archive(&archive[..length])
         .is_ok()
+}
+
+fn ensure_search_activity_record(
+    ledger: &mut ActivityLedger,
+    activity: M19SearchActivity,
+) -> Option<u64> {
+    let mut existing_sequence = None;
+    for index in 0..ledger.len() {
+        let record = ledger.record_at(index)?;
+        if record.action_id() == M19_SEARCH_ACTION {
+            if record.transaction_id().is_some()
+                || existing_sequence.is_some()
+                || !search_activity_record_matches(record, activity)
+            {
+                return None;
+            }
+            existing_sequence = Some(record.sequence());
+        }
+    }
+
+    let sequence = match existing_sequence {
+        Some(sequence) => sequence,
+        None => {
+            let object_ids = [activity.object_id];
+            ledger
+                .record_action(ActivityRecordInput {
+                    occurred_at: activity.occurred_at,
+                    context: activity.context,
+                    transaction_id: None,
+                    user_intent: activity.user_intent,
+                    selected_model: None,
+                    action_id: M19_SEARCH_ACTION,
+                    plan_summary: activity.plan_summary,
+                    object_ids: &object_ids,
+                })
+                .ok()?
+        }
+    };
+
+    if !set_activity_outcome(ledger, sequence, ActivityOutcome::Committed)
+        || !verify_search_activity_record(ledger, activity)
+    {
+        return None;
+    }
+    Some(sequence)
+}
+
+fn search_activity_record_matches(record: &ActivityRecord, activity: M19SearchActivity) -> bool {
+    record.context() == activity.context
+        && record.transaction_id().is_none()
+        && record.user_intent() == activity.user_intent
+        && record.selected_model().is_none()
+        && record.action_id() == M19_SEARCH_ACTION
+        && record.plan_summary() == activity.plan_summary
+        && record.object_ids() == [activity.object_id]
+}
+
+fn verify_search_activity_record(ledger: &ActivityLedger, activity: M19SearchActivity) -> bool {
+    let mut search_record = None;
+    for index in 0..ledger.len() {
+        let Some(record) = ledger.record_at(index) else {
+            return false;
+        };
+        if record.action_id() == M19_SEARCH_ACTION {
+            if record.transaction_id().is_some() {
+                return false;
+            }
+            if search_record.is_some() {
+                return false;
+            }
+            search_record = Some(record);
+        }
+    }
+    let Some(record) = search_record else {
+        return false;
+    };
+    search_activity_record_matches(record, activity)
+        && record.current_outcome() == ActivityOutcome::Committed
+        && record.outcomes() == [ActivityOutcome::Prepared, ActivityOutcome::Committed]
 }
 
 fn ensure_activity_record(

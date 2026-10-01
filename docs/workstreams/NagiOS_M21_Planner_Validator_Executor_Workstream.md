@@ -181,3 +181,18 @@ supervisor-authorized endpoint creation/transfer, and a provider that derives
 policy from kernel-authenticated handles and the launch record. Keep the
 current guest M19/M22 fixtures as orchestration evidence only. No user Channel
 or production caller-authentication claim is made by this audit.
+
+## Completion Sweep: record the M19 `file.search` result — 2026-10-01
+
+After the M19 M21 `file.search` plan succeeds through the guest Validator and
+Executor, M19 returns a typed bounded event containing its occurrence tick,
+fixture App/Session/Node/Workspace context, user intent, query summary, and the
+single Object ID returned by the action. M13 passes that actual event into the
+M22 fixture; M22 does not reconstruct a synthetic search result.
+
+M22 persists it in NAL1 as `file.search`, with no transaction ID and the normal
+Prepared-to-Committed result path. The three-boot QEMU acceptance verifies the
+record at boot 1 and reopens the same record at boots 2 and 3. This is an
+end-to-end orchestration and archive regression only: the caller identity and
+policy remain fixture values, and no authenticated production service or
+caller boundary is claimed. M21 remains `PARTIAL`.

@@ -177,3 +177,14 @@ Verification after the repair:
   `36588249000`: Ubuntu host and Windows launcher passed, and `nagi-target`
   built init and UEFI before starting the M17 first-web-pixel regression. The
   M17 and following M18 gates were still in progress at this checkpoint.
+
+## Completion Sweep: preserve the executed Search result for M22 — 2026-10-01
+
+After the guest M21 `file.search` plan succeeds against the real SearchService,
+M19 now returns a bounded typed event with the matched Object ID, query
+summary, fixture caller context, intent, and occurrence tick. M13 passes that
+event to M22, which records it as a read-only NAL1 activity with no
+transaction ID. M22 verifies the same entry after restart without adding
+duplicates. This connects Search execution to the existing Activity Ledger
+fixture; the caller context remains unauthenticated fixture data, so this does
+not activate Search as a production IPC service. M19 remains `PARTIAL`.

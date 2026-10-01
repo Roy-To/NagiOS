@@ -379,8 +379,10 @@ fn valid_transition(current: ActivityOutcome, next: ActivityOutcome) -> bool {
 }
 
 fn record_encoded_length(record: &ActivityRecord) -> usize {
-    16 + 42
-        + 9
+    16 + 24
+        + optional_id_encoded_length(record.context.surface_id.map(|id| id.0))
+        + optional_id_encoded_length(record.context.workspace_id.map(|id| id.0))
+        + optional_id_encoded_length(record.transaction_id.map(|id| id.0))
         + 6
         + usize::from(record.outcome_count)
         + usize::from(record.object_count) * 8
@@ -388,6 +390,10 @@ fn record_encoded_length(record: &ActivityRecord) -> usize {
         + record.selected_model.as_bytes().len()
         + record.action_id.as_bytes().len()
         + record.plan_summary.as_bytes().len()
+}
+
+fn optional_id_encoded_length(value: Option<u64>) -> usize {
+    1 + if value.is_some() { 8 } else { 0 }
 }
 
 fn encode_record(record: &ActivityRecord, output: &mut [u8], offset: &mut usize) {
@@ -845,6 +851,48 @@ mod tests {
                 ActivityOutcome::UndoPending,
                 ActivityOutcome::Undone,
             ]
+        );
+    }
+
+    #[test]
+    fn read_only_action_without_transaction_round_trips_committed_result() {
+        let mut ledger = ActivityLedger::new();
+        let object_ids = [ObjectId(0x19_0000_0019)];
+        let sequence = ledger
+            .record_action(ActivityRecordInput {
+                occurred_at: 0x19_0000_0020,
+                context: CONTEXT,
+                transaction_id: None,
+                user_intent: "find the live VFS fixture",
+                selected_model: None,
+                action_id: "file.search",
+                plan_summary: "query=nagi-m19-live-file.txt",
+                object_ids: &object_ids,
+            })
+            .expect("record a bounded read-only action");
+        ledger
+            .transition(sequence, ActivityOutcome::Committed)
+            .expect("record the completed search result");
+
+        let mut bytes = [0; MAX_ACTIVITY_ARCHIVE_BYTES];
+        let length = ledger
+            .serialize_recoverable(&mut bytes)
+            .expect("serialize the activity archive");
+        let restored = ActivityLedger::restore_recoverable(&bytes[..length])
+            .expect("restore the activity archive");
+        let record = restored.record_at(0).expect("search record restored");
+        assert_eq!(record.sequence(), sequence);
+        assert_eq!(record.occurred_at(), 0x19_0000_0020);
+        assert_eq!(record.context(), CONTEXT);
+        assert_eq!(record.transaction_id(), None);
+        assert_eq!(record.user_intent(), "find the live VFS fixture");
+        assert_eq!(record.selected_model(), None);
+        assert_eq!(record.action_id(), "file.search");
+        assert_eq!(record.plan_summary(), "query=nagi-m19-live-file.txt");
+        assert_eq!(record.object_ids(), object_ids);
+        assert_eq!(
+            record.outcomes(),
+            &[ActivityOutcome::Prepared, ActivityOutcome::Committed]
         );
     }
 

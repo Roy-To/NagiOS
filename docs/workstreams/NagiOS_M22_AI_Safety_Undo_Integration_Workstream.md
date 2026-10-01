@@ -212,3 +212,35 @@ Undo, and restart verification now pass through a private QEMU fixture. Real
 AI inference, authenticated caller and capability providers, general
 production move actions, and production Activity Ledger/restart acceptance
 remain incomplete, so the formal milestone is not PASS.
+
+## Completion Sweep: persist M19 Search activity in NAL1 — 2026-10-01
+
+The M19 fixture now returns a typed event only after its actual `file.search`
+plan passes ContextResolver, Validator, the Action Registry, and Executor.
+M13 passes that event to M22. The initial Move action records a distinct
+NAL1 `file.search` entry with the M19 App/Session/Node/Workspace context,
+intent, query summary, matched Object ID, no selected model, and
+`transaction_id=None`. Its outcome moves from `Prepared` to `Committed`; it
+remains a read-only action and is not included in NH16 undo.
+
+Recovery is idempotent. If NH16 Move is prepared but the NAL1 write did not
+finish, a later boot can restore the Search record from the M19 action that
+just succeeded and recover the Move transaction. If the Search record already
+exists, the runner checks its fields and exact result history and does not
+append another. The Search, Move, and Copy records use three of NAL1's four
+bounded record slots. Boots 2 and 3 reopen NAL1 and verify the Search record;
+all three serial logs print `Nagi M22 file.search Activity Ledger PASS`.
+
+A host regression exposed the NAL1 length calculator assuming every optional
+ID was present. It now counts absent Surface and Transaction IDs at their
+actual one-byte tag size. `cargo test -p nagi-history` passes 18 tests, including
+a non-transactional read-action archive round-trip. The M22 target check and
+warnings-denied `nagi-init` Clippy pass, as do 154 CLI unit tests and 21 CLI
+integration tests. `./nagi fmt`, `./nagi lint`, `./nagi test`, and
+`./nagi build` pass. Fresh-disk `./nagi m22` passed all three QEMU boots. The
+run image, User Data, OVMF vars, four logs, README, and exact source diff are
+hash-verified in `out/evidence/m22-search-activity-1790863264739984000/`.
+
+This is still fixture integration. App/session/object identities are not
+provided by an authenticated user-space service boundary, and the NAL1 archive
+is not a production Activity Ledger service. M22 remains `PARTIAL`.

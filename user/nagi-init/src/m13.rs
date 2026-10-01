@@ -156,11 +156,12 @@ pub fn run(
         fail();
     }
     #[cfg(feature = "m19-search")]
-    if !crate::m19_search::run(block_capability) {
-        fail();
-    }
+    let m19_search_activity = match crate::m19_search::run(block_capability) {
+        Some(activity) => activity,
+        None => fail(),
+    };
     #[cfg(feature = "m22-history")]
-    if !crate::m22_history::run(block_capability) {
+    if !crate::m22_history::run(block_capability, m19_search_activity) {
         fail();
     }
     print(static_bytes!(NAGI_M13_ACCEPTANCE, ACCEPTANCE_LEN));

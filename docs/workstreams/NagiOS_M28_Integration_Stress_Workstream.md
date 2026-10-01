@@ -437,3 +437,36 @@ two-repetition M19/M22/M27 gate passes on the recorded complete run, but formal
 M28 remains `PARTIAL`: Desktop/Files/Notes/Albert concurrency, real Granite,
 audio pressure, OOM, CPU fairness, and handle/memory leak soak remain
 unmeasured.
+
+## Completion Sweep: require Search activity marker — 2026-10-01
+
+The M28 M22-log validator and its self-test now require
+`Nagi M22 file.search Activity Ledger PASS`, proving the completed M22 logs
+reopened the M19 Search record alongside NH16/NAL1 Move/Copy Undo. The
+three-boot `./nagi m22` gate passed with the marker on each boot, and the M28
+shell syntax, self-test, and dry-run pass. The combined two-repetition M28
+QEMU gate has not yet been rerun after this M19-to-NAL1 addition; the earlier
+recorded two-repetition run remains valid for its earlier source state only.
+The dry-run reports the archived fixed-name M19 log as unverified; `--run`
+creates a new M19 log before testing it. Formal M28 remains `PARTIAL`.
+
+## Completion Sweep follow-up: current two-repetition result — 2026-10-01
+
+The two-repetition gate was rerun after the M19 Search-to-NAL1 change at
+`out/evidence/m28-run-20261001T141428Z-9953/`. Repetition 1 passed M19 Search,
+the three-boot M22 Search/Move/Copy ledger and grouped Undo, and M27 A/B
+rollback, promotion, Recovery, and file.move Undo. Repetition 2 passed M19,
+then M22 bootstrap timed out after 90 seconds before guest acceptance. QMP
+reported QEMU still running at RIP `0x7eb84171`; the failure log and all
+repetition artifacts are in the SHA-256-verified archive, and the M27 sub-run
+manifest also verifies.
+
+A preceding run,
+`out/evidence/m28-run-20261001T140924Z-9410/`, timed out on M22 boot 3 at the
+same RIP after M22 boots 1 and 2 passed. Its final boot diagnostic is now
+included in that archive's verified manifest. A new standalone `./nagi m22`
+run passed all three boots after the timeout, confirming the new Search record
+and undo fixture still pass independently. The M28 harness now archives the
+run-ID-specific final boot log on failure, and its self-test checks that path.
+Shell syntax, self-test, and dry-run pass. The two-consecutive-repetition
+acceptance remains unfulfilled, and formal M28 remains `PARTIAL`.
