@@ -188,7 +188,10 @@ pub enum RuntimeError {
     SessionClosed,
 }
 
-fn verify_artifact_integrity(
+/// Hash the artifact's actual bytes with bounded reads and compare them with
+/// the pinned integrity metadata. This can be used before a backend exists;
+/// successful verification does not imply that a model was loaded or run.
+pub fn verify_model_artifact_integrity(
     artifact: &mut dyn ModelArtifactReader,
     expected: &IntegrityMetadata,
 ) -> Result<(), RuntimeError> {
@@ -401,7 +404,7 @@ impl<B: ModelBackend> ModelRuntime<B> {
         target_architecture: &str,
     ) -> Result<LoadedSession<'runtime, B>, RuntimeError> {
         self.validate(manifest, artifact, target_architecture)?;
-        verify_artifact_integrity(
+        verify_model_artifact_integrity(
             artifact,
             manifest
                 .artifact
@@ -758,6 +761,27 @@ mod tests {
             Some(RuntimeError::IntegrityMismatch)
         );
         assert_eq!(runtime.backend().load_count, 0);
+    }
+
+    #[test]
+    fn standalone_artifact_verifier_accepts_only_pinned_bytes() {
+        let model = manifest();
+        let integrity = model
+            .artifact
+            .integrity
+            .as_ref()
+            .expect("manifest fixture has an integrity pin");
+        let mut matching = MemoryArtifactReader::for_manifest(&model, vec![1]);
+        assert_eq!(
+            verify_model_artifact_integrity(&mut matching, integrity),
+            Ok(())
+        );
+
+        let mut mismatched = MemoryArtifactReader::for_manifest(&model, vec![2]);
+        assert_eq!(
+            verify_model_artifact_integrity(&mut mismatched, integrity),
+            Err(RuntimeError::IntegrityMismatch)
+        );
     }
 
     #[test]

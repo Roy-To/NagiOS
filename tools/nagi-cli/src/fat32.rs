@@ -1,4 +1,6 @@
-use std::io::{Seek, SeekFrom, Write};
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::path::Path;
 
 const SECTOR_SIZE: u64 = 512;
 const SECTORS_PER_CLUSTER: u32 = 8;
@@ -13,6 +15,12 @@ const MAX_FAT32_CLUSTER: u32 = 0x0fff_ffef;
 pub struct VolumeFile<'a> {
     pub path: &'a str,
     pub contents: &'a [u8],
+}
+
+#[derive(Clone, Copy)]
+pub struct ExternalVolumeFile<'a> {
+    pub path: &'a str,
+    pub source_path: &'a Path,
 }
 
 #[derive(Clone, Copy)]
@@ -44,7 +52,20 @@ enum DirectoryEntry {
 struct PendingFile<'a> {
     first_cluster: u32,
     cluster_count: u32,
-    contents: &'a [u8],
+    size: u32,
+    contents: VolumeFileContents<'a>,
+}
+
+#[derive(Clone, Copy)]
+enum VolumeFileContents<'a> {
+    Memory(&'a [u8]),
+    External(&'a Path),
+}
+
+#[derive(Clone, Copy)]
+struct VolumeFileSource<'a> {
+    path: &'a str,
+    contents: VolumeFileContents<'a>,
 }
 
 pub fn format_partition<W: Write + Seek>(
@@ -53,6 +74,45 @@ pub fn format_partition<W: Write + Seek>(
     sector_count: u64,
     volume_label: &str,
     files: &[VolumeFile<'_>],
+) -> Result<Vec<FilePlacement>, String> {
+    let sources = files
+        .iter()
+        .map(|file| VolumeFileSource {
+            path: file.path,
+            contents: VolumeFileContents::Memory(file.contents),
+        })
+        .collect::<Vec<_>>();
+    format_partition_sources(disk, start_lba, sector_count, volume_label, &sources)
+}
+
+pub fn format_partition_with_external_files<W: Write + Seek>(
+    disk: &mut W,
+    start_lba: u64,
+    sector_count: u64,
+    volume_label: &str,
+    files: &[VolumeFile<'_>],
+    external_files: &[ExternalVolumeFile<'_>],
+) -> Result<Vec<FilePlacement>, String> {
+    let mut sources = files
+        .iter()
+        .map(|file| VolumeFileSource {
+            path: file.path,
+            contents: VolumeFileContents::Memory(file.contents),
+        })
+        .collect::<Vec<_>>();
+    sources.extend(external_files.iter().map(|file| VolumeFileSource {
+        path: file.path,
+        contents: VolumeFileContents::External(file.source_path),
+    }));
+    format_partition_sources(disk, start_lba, sector_count, volume_label, &sources)
+}
+
+fn format_partition_sources<W: Write + Seek>(
+    disk: &mut W,
+    start_lba: u64,
+    sector_count: u64,
+    volume_label: &str,
+    files: &[VolumeFileSource<'_>],
 ) -> Result<Vec<FilePlacement>, String> {
     if volume_label.len() > 11 || !volume_label.is_ascii() {
         return Err("FAT32 volume label must be at most 11 ASCII bytes".to_owned());
@@ -71,10 +131,28 @@ pub fn format_partition<W: Write + Seek>(
     let mut placements = Vec::with_capacity(files.len());
 
     for file in files {
-        if file.contents.is_empty() {
+        let file_size = match file.contents {
+            VolumeFileContents::Memory(contents) => contents.len() as u64,
+            VolumeFileContents::External(path) => {
+                let metadata = std::fs::metadata(path).map_err(|error| {
+                    format!(
+                        "cannot inspect external FAT32 file {}: {error}",
+                        path.display()
+                    )
+                })?;
+                if !metadata.is_file() {
+                    return Err(format!(
+                        "external FAT32 source is not a regular file: {}",
+                        path.display()
+                    ));
+                }
+                metadata.len()
+            }
+        };
+        if file_size == 0 {
             return Err(format!("FAT32 file is empty: {}", file.path));
         }
-        let size = u32::try_from(file.contents.len())
+        let size = u32::try_from(file_size)
             .map_err(|_| format!("FAT32 file exceeds 4 GiB: {}", file.path))?;
         let mut components = file.path.split('/').collect::<Vec<_>>();
         let filename = components
@@ -126,7 +204,7 @@ pub fn format_partition<W: Write + Seek>(
         }
         let cluster_size = usize::try_from(SECTORS_PER_CLUSTER as u64 * SECTOR_SIZE)
             .expect("fixed FAT32 cluster size fits usize");
-        let cluster_count_for_file = u32::try_from(file.contents.len().div_ceil(cluster_size))
+        let cluster_count_for_file = u32::try_from(file_size.div_ceil(cluster_size as u64))
             .map_err(|_| format!("FAT32 file has too many clusters: {}", file.path))?;
         let first_cluster =
             allocate_chain(&mut next_cluster, cluster_count_for_file, cluster_count)?;
@@ -140,6 +218,7 @@ pub fn format_partition<W: Write + Seek>(
         pending_files.push(PendingFile {
             first_cluster,
             cluster_count: cluster_count_for_file,
+            size,
             contents: file.contents,
         });
         placements.push(FilePlacement {
@@ -251,19 +330,67 @@ pub fn format_partition<W: Write + Seek>(
         write_at(disk, data_offset, &bytes)?;
     }
 
-    let cluster_size = SECTORS_PER_CLUSTER as usize * SECTOR_SIZE as usize;
     for file in &pending_files {
-        let mut remaining = file.contents;
-        let mut cluster = file.first_cluster;
-        while !remaining.is_empty() {
-            let data_offset = cluster_offset(root_data_start, cluster)?;
-            let count = remaining.len().min(cluster_size);
-            write_at(disk, data_offset, &remaining[..count])?;
-            remaining = &remaining[count..];
-            cluster += 1;
+        let data_offset = cluster_offset(root_data_start, file.first_cluster)?;
+        match file.contents {
+            VolumeFileContents::Memory(contents) => write_at(disk, data_offset, contents)?,
+            VolumeFileContents::External(path) => {
+                write_external_file(disk, data_offset, path, u64::from(file.size))?
+            }
         }
     }
     Ok(placements)
+}
+
+fn write_external_file<W: Write + Seek>(
+    disk: &mut W,
+    destination_offset: u64,
+    source_path: &Path,
+    expected_size: u64,
+) -> Result<(), String> {
+    let mut source = File::open(source_path).map_err(|error| {
+        format!(
+            "cannot open external FAT32 source {}: {error}",
+            source_path.display()
+        )
+    })?;
+    let actual_size = source
+        .metadata()
+        .map_err(|error| format!("cannot inspect {}: {error}", source_path.display()))?
+        .len();
+    if actual_size != expected_size {
+        return Err(format!(
+            "external FAT32 source changed size while formatting: {}",
+            source_path.display()
+        ));
+    }
+    disk.seek(SeekFrom::Start(destination_offset))
+        .map_err(|error| format!("cannot seek FAT32 data destination: {error}"))?;
+    let mut bounded_source = (&mut source).take(expected_size);
+    let copied = io::copy(&mut bounded_source, disk).map_err(|error| {
+        format!(
+            "cannot stream {} into FAT32 image: {error}",
+            source_path.display()
+        )
+    })?;
+    if copied != expected_size {
+        return Err(format!(
+            "external FAT32 source ended early while formatting: {}",
+            source_path.display()
+        ));
+    }
+    let mut trailing = [0; 1];
+    if source
+        .read(&mut trailing)
+        .map_err(|error| format!("cannot finish reading {}: {error}", source_path.display()))?
+        != 0
+    {
+        return Err(format!(
+            "external FAT32 source grew while formatting: {}",
+            source_path.display()
+        ));
+    }
+    Ok(())
 }
 
 fn geometry(total_sectors: u32) -> Result<(u32, u32), String> {
@@ -504,7 +631,10 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 mod tests {
     use std::io::{Read, Seek, SeekFrom};
 
-    use super::{format_partition, geometry, VolumeFile, SECTORS_PER_CLUSTER, SECTOR_SIZE};
+    use super::{
+        format_partition, format_partition_with_external_files, geometry, ExternalVolumeFile,
+        VolumeFile, SECTORS_PER_CLUSTER, SECTOR_SIZE,
+    };
 
     const ESP_SECTORS: u64 = 1_048_576;
     const ESP_START_LBA: u64 = 2048;
@@ -593,6 +723,58 @@ mod tests {
     fn fat32_geometry_enforces_fat32_cluster_ranges() {
         assert!(geometry(100_000).is_err());
         assert!(geometry(ESP_SECTORS as u32).is_ok());
+    }
+
+    #[test]
+    fn fat32_writer_streams_external_model_bytes_into_contiguous_clusters() {
+        let source_path = unique_path();
+        let payload = (0usize..10_003)
+            .map(|index| (index.wrapping_mul(31) & 0xff) as u8)
+            .collect::<Vec<_>>();
+        std::fs::write(&source_path, &payload).expect("create external model source");
+
+        let disk_path = unique_path();
+        let mut disk = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&disk_path)
+            .expect("create sparse disk");
+        disk.set_len((ESP_START_LBA + ESP_SECTORS) * SECTOR_SIZE)
+            .expect("size sparse disk");
+        let external = [ExternalVolumeFile {
+            path: "FKH8HNA6.GGF",
+            source_path: &source_path,
+        }];
+        let placements = format_partition_with_external_files(
+            &mut disk,
+            ESP_START_LBA,
+            ESP_SECTORS,
+            "NAGI MODELS",
+            &[],
+            &external,
+        )
+        .expect("format FAT32 Model Store");
+
+        assert_eq!(placements.len(), 1);
+        assert_eq!(placements[0].cluster_count, 3);
+        let boot = read_at(&mut disk, ESP_START_LBA * SECTOR_SIZE, 512);
+        let fat_sectors = u32::from_le_bytes(boot[36..40].try_into().unwrap());
+        let data_start_sector = 32 + fat_sectors * 2;
+        let root_offset = (ESP_START_LBA + u64::from(data_start_sector)) * SECTOR_SIZE;
+        let root = read_at(&mut disk, root_offset, 32);
+        assert_eq!(&root[..11], b"FKH8HNA6GGF");
+        assert_eq!(directory_cluster(&root), placements[0].first_cluster);
+        assert_eq!(
+            u32::from_le_bytes(root[28..32].try_into().unwrap()),
+            payload.len() as u32
+        );
+        let data_offset = root_offset + u64::from(placements[0].first_cluster - 2) * 4096;
+        assert_eq!(read_at(&mut disk, data_offset, payload.len()), payload);
+
+        drop(disk);
+        std::fs::remove_file(disk_path).expect("remove sparse disk");
+        std::fs::remove_file(source_path).expect("remove model source");
     }
 
     fn directory_cluster(entry: &[u8]) -> u32 {

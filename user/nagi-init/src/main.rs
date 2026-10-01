@@ -648,8 +648,37 @@ fn run_m20_model_store_capability_acceptance(model_store_capability: u64) -> boo
             {
                 return false;
             }
+            #[cfg(feature = "m20-granite-artifact-acceptance")]
+            {
+                let manifest = match nagi_model_manager::ModelManifest::parse_json(include_bytes!(
+                    "../../nagi-model-manager/tests/fixtures/granite-4.2-3b.json"
+                )) {
+                    Ok(manifest) => manifest,
+                    Err(_) => return false,
+                };
+                if manifest.artifact.size_bytes
+                    != Some(nagi_model_manager::ModelArtifactReader::len(&artifact))
+                {
+                    return false;
+                }
+                let Some(integrity) = manifest.artifact.integrity.as_ref() else {
+                    return false;
+                };
+                if nagi_model_manager::verify_model_artifact_integrity(&mut artifact, integrity)
+                    .is_err()
+                {
+                    return false;
+                }
+                let marker = b"Nagi M20 Granite artifact digest PASS\r\n";
+                if libnagi::console_write(marker) != marker.len() {
+                    return false;
+                }
+            }
         }
-        Err(nagi_model_manager::Fat32ArtifactError::ArtifactNotFound) => {}
+        Err(nagi_model_manager::Fat32ArtifactError::ArtifactNotFound) => {
+            #[cfg(feature = "m20-granite-artifact-acceptance")]
+            return false;
+        }
         Err(_) => return false,
     }
     #[cfg(feature = "m20-fixture-acceptance")]
@@ -893,6 +922,7 @@ pub extern "C" fn _start(
     #[cfg(feature = "m20-model-store-acceptance")]
     if !run_m20_model_store_capability_acceptance(model_store_capability) {
         libnagi::console_write(b"Nagi M20 Model Store capability FAIL\r\n");
+        libnagi::exit(1);
     }
     #[cfg(all(
         feature = "m10-desktop",

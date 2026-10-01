@@ -14,9 +14,12 @@ IBM's official GGUF repository snapshot, the Q4_K_M file, its upstream
 SHA-256/size metadata, and Apache-2.0 notice metadata. An earlier 2.24 GB
 streamed digest check matched without retaining a file. On 2026-10-02, the
 exact locked artifact was downloaded to the ignored local cache and its size
-and SHA-256 were verified again; the file is not installed in the guest Model
-Store or loaded by Nagi. `ModelRuntime::load` independently hashes artifact
-bytes before calling any backend.
+and SHA-256 were verified again. A separate, disposable acceptance disk now
+contains that artifact so the guest can read and verify its complete contents
+through the read-only Model Store capability. It is not added to the regular
+M30 release image, installed through a guest installer, or loaded by Nagi.
+`ModelRuntime::load` independently hashes artifact bytes before calling any
+backend.
 
 ## Implemented and verified
 
@@ -33,6 +36,13 @@ bytes before calling any backend.
 - Runtime load streams artifact bytes through a fixed 8 KiB SHA-256 buffer and
   rejects a content mismatch before invoking the backend. Tests cover changed
   bytes, digest comparison, and short reads over a multi-chunk artifact.
+- `./nagi m20-granite <artifact.gguf>` validates the external file's exact size
+  and SHA-256 against both the checked-in manifest and `third_party/models.lock`,
+  then streams it into a dedicated reference-disk Model Store image. The guest
+  reads the real file in bounded chunks and verifies its full digest. This is a
+  storage/integrity acceptance path only; it does not install a model from
+  within Nagi or run inference. The ordinary M30 reference-image writer still
+  leaves Model Store empty.
 - `third_party/sources.lock` pins llama.cpp release commit
   `c85b92c69c955961621193cd51da194f3cbcedf3`; `nagi fetch` retrieves that exact
   clean source checkout. Nagi-owned patches now have a numbered patch
@@ -78,7 +88,7 @@ bytes before calling any backend.
   `2,244,011,552` bytes, digest
   `e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`, and
   Apache-2.0 notice metadata. A fresh streamed fetch produced that exact
-  SHA-256; no model bytes are retained in the worktree or bundled.
+  SHA-256; the model is retained only in ignored local cache and is not bundled.
 - The fake provider is exercised only by tests of orchestration and lifecycle.
 
 ## Verification evidence
@@ -95,9 +105,9 @@ CARGO_TARGET_DIR=/tmp/nagi-m20-host-arm64 \
   -p nagi-model-manager --all-targets
 ```
 
-Result: 40 unit tests, 2 manifest/schema tests, and 1 external Store API test
-passed (43 total). The CLI regression suite also passed 114 unit and 18
-integration tests.
+Result: 58 unit tests, 2 manifest/schema tests, and 1 external Store API test
+passed (61 total). The CLI regression suite passed 163 unit and 21 integration
+tests.
 
 ```sh
 PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
@@ -134,11 +144,11 @@ CARGO_TARGET_DIR=/tmp/nagi-m20-target \
 The Granite source bytes were initially streamed to a local SHA-256 process
 without writing a 2.24 GB artifact file; the calculated digest matched the
 pinned profile. The exact file was later downloaded and independently
-verified in the ignored cache; it is not installed in the guest. The patch
+verified in the ignored cache. The patch
 applier was separately exercised against a temporary Git
 source tree: numeric-order patches applied to an isolated clone, the pristine
 source stayed unchanged, and tampering with the generated tree was rejected.
-Three focused llama.cpp patch/lock tests, all 119 CLI unit tests, and all 18
+Three focused llama.cpp patch/lock tests, all 163 CLI unit tests, and all 21
 CLI integration tests passed; CLI Clippy with warnings denied, formatting,
 `git diff --check`, and `./nagi fetch` passed. The 2026-09-30 GGUF parser and
 writer slice added afterward passed the `test-gguf` results above, and
@@ -158,13 +168,14 @@ Nagi `no_std` target.
    distinct source files after backend registration and the grammar parser
    compile; the checkout has no Nagi C ABI adapter, complete target build, or
    backend session.
-2. Connect the artifact reader to a trusted Model Store catalog/installer and
-   provide the external placement workflow. Model Store files use the root
-   short name formed from the first 40 bits of `SHA256(UTF8(artifact_id))` as
-   Crockford Base32 plus `.GGF`; the manifest digest remains authoritative.
-   The current M30 image has an empty Model Store, and no installer or model
-   bytes are bundled. The existing User Data VFS remains 1 KiB bounded and is
-   not used for model artifacts.
+2. Connect the artifact reader to a trusted guest-side Model Store
+   catalog/installer. The new host command creates a disposable acceptance
+   image from an external artifact; it does not provide an authorized guest
+   install or update flow. Model Store files use the root short name formed
+   from the first 40 bits of `SHA256(UTF8(artifact_id))` as Crockford Base32
+   plus `.GGF`; the manifest digest remains authoritative. The regular M30
+   image has an empty Model Store, and no model bytes are bundled. The existing
+   User Data VFS remains 1 KiB bounded and is not used for model artifacts.
 3. Activate a user-space model service that loads the model lazily, enforces
    measured bounded resource use, and fails safely when the model or backend is absent.
    Granite absence must not prevent Nagi from booting.
@@ -515,9 +526,10 @@ that checkout was not modified. The fetch log is
 hybrid-state rollback coverage; it does not resolve the target's exception
 paths or establish inference.
 
-The model is still absent from guest Model Store, the Nagi target `llama`
-build remains incomplete, and there is no model service or inference result.
-M20 remains `PARTIAL`.
+The regular M30 release image remains empty. There is no model service or
+inference result, and the Nagi target `llama` build remains incomplete. The
+separate disposable guest digest acceptance is recorded below; it does not
+change M20 from `PARTIAL`.
 
 The fresh patch-0007 host `test-save-load-state` target built and passed all
 nine state tests against the generated `granitehybrid-dense.gguf` fixture.
@@ -535,3 +547,24 @@ diagnostics across 55 distinct source paths. The complete build output is
 `out/logs/m20-target-build-patch0007-cxx19-headers-20261002.log`. No sources
 were omitted and exception-dependent errors were not changed to aborts. M20
 remains `PARTIAL`; no target inference is claimed.
+
+## Completion Sweep — Granite guest artifact digest acceptance (2026-10-02)
+
+`./nagi m20-granite out/cache/models/granite-4.2-3b-Q4_K_M-c40945d71cd90f249a56985e8155551a9188dc30.gguf`
+validated the cached artifact against the manifest and `third_party/models.lock`,
+streamed it into a unique disposable GPT/QCOW2 reference disk, and booted
+System A in QEMU. The guest read the complete 2,244,011,552-byte FAT32 file
+through the read-only Model Store capability and printed both
+`Nagi M20 Granite artifact digest PASS` and
+`Nagi M20 Model Store capability PASS`. The SHA-256 was
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`.
+`qemu-img check` found no errors. Evidence, including the serial log, image,
+OVMF variables, README, and SHA-256 manifest, is under
+`out/evidence/m20-granite-artifact-1790892878741511000/`.
+
+The CLI suite passed 163 unit and 21 integration tests; Model Manager passed
+58 unit, 2 manifest/schema, and 1 Store API test. The dedicated
+`m20-granite-artifact-acceptance` `nagi-init` feature compiled for the Nagi
+target. This verifies Model Store placement and artifact integrity only. The
+regular M30 image remains empty, no backend loaded the model, and no inference
+was performed. M20 remains `PARTIAL`.

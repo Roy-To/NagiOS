@@ -23,8 +23,8 @@ use crate::image::{
     validate_reference_disk_qcow2, write_fat12_image, write_m17_fat12_image,
     write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
     write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
-    write_reference_disk_qcow2, ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER,
-    NAGI_WRITE_MARKER,
+    write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
+    ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -54,6 +54,7 @@ struct ImageBuildRequest<'a> {
     cargo_env: &'a [(&'a str, &'a Path)],
     recovery_init: Option<&'a [u8]>,
     image_writer: ImageWriter,
+    external_model_store_file: Option<(&'a str, &'a Path)>,
     build_features: ImageBuildFeatures<'a>,
 }
 
@@ -161,6 +162,7 @@ pub enum Command {
     M25,
     M27,
     M30,
+    M20Granite,
     Test,
     Clean,
     Fmt,
@@ -231,6 +233,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m25" => Command::M25,
         "m27" => Command::M27,
         "m30" => Command::M30,
+        "m20-granite" => Command::M20Granite,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -247,6 +250,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         Command::Doctor => {
             args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--allow-missing")
         }
+        Command::M20Granite => args.len() == 2,
         Command::Help
         | Command::Fetch
         | Command::Build
@@ -435,6 +439,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
+        Command::M20Granite => execute_m20_granite(&args[1..], root, probe),
     }
 }
 
@@ -714,6 +719,7 @@ fn execute_image_with_init_build_env_using_writer(
             cargo_env,
             recovery_init: None,
             image_writer,
+            external_model_store_file: None,
             build_features,
         },
     )
@@ -730,6 +736,7 @@ fn execute_image_with_init_build_env_using_writer_and_recovery(
         cargo_env,
         recovery_init,
         image_writer,
+        external_model_store_file,
         build_features,
     } = request;
     let init_build = match rust_std_source {
@@ -816,7 +823,21 @@ fn execute_image_with_init_build_env_using_writer_and_recovery(
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
     };
     let image_path = artifacts.join(image_name);
-    let layout = match image_writer(&image_path, &loader, &kernel, &init, recovery_init) {
+    let layout_result = match external_model_store_file {
+        Some((file_name, source_path)) => {
+            write_reference_disk_qcow2_with_external_model_store_file(
+                &image_path,
+                &loader,
+                &kernel,
+                &init,
+                recovery_init,
+                file_name,
+                source_path,
+            )
+        }
+        None => image_writer(&image_path, &loader, &kernel, &init, recovery_init),
+    };
+    let layout = match layout_result {
         Ok(layout) => layout,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
     };
@@ -836,6 +857,409 @@ fn execute_image_with_init_build_env_using_writer_and_recovery(
             layout.init_start_cluster + layout.init_clusters as u16 - 1,
         )],
     }
+}
+
+fn execute_m20_granite(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let manifest = match pinned_granite_manifest(root) {
+        Ok(manifest) => manifest,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite: {error}")),
+    };
+    let (artifact_id, expected_size, expected_digest) = match (
+        &manifest.artifact.reference,
+        manifest.artifact.size_bytes,
+        manifest.artifact.integrity.as_ref(),
+    ) {
+        (
+            nagi_model_manager::ArtifactReference::ModelStore { artifact_id },
+            Some(size),
+            Some(integrity),
+        ) => (artifact_id.clone(), size, integrity.digest.clone()),
+        _ => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                "m20-granite: pinned manifest lacks Model Store size or integrity metadata",
+            )
+        }
+    };
+    let requested_path = PathBuf::from(&args[0]);
+    let artifact_path = if requested_path.is_absolute() {
+        requested_path
+    } else {
+        root.join(requested_path)
+    };
+    if let Err(error) = verify_external_artifact(&artifact_path, expected_size, &expected_digest) {
+        return failure(EXIT_CONFIG_ERROR, format!("m20-granite: {error}"));
+    }
+    let short_name = nagi_model_manager::model_store_short_name(&artifact_id);
+    let file_name = match (
+        std::str::from_utf8(&short_name[..8]),
+        std::str::from_utf8(&short_name[8..]),
+    ) {
+        (Ok(base), Ok(extension)) => format!("{base}.{extension}"),
+        _ => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                "m20-granite: invalid FAT32 Model Store name",
+            )
+        }
+    };
+    let host = match resolve_qemu_host(root, probe, "m20-granite") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite: system clock: {error}"),
+            )
+        }
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite: {error}")),
+    };
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m20-granite-artifact-{run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite: {error}")),
+    };
+    let image_name = format!("nagi-0.1-m20-granite-{run_id}.qcow2");
+    let image_path = artifacts.join(&image_name);
+    let evidence_readme = evidence.join("README.md");
+    if let Err(error) = fs::write(
+        &evidence_readme,
+        format!(
+            "# M20 Granite Model Store acceptance\n\nPinned model: `{}`\nFAT32 Model Store filename: `{file_name}`\nExternal artifact: `{}`\nExpected size: {expected_size} bytes\nExpected SHA-256: `{expected_digest}`\n\nThe source artifact passed host-side pin verification. This run builds a separate reference disk, streams the model into its read-only guest Model Store, and verifies the guest-visible bytes against the manifest digest. It does not load a backend or run inference.\n",
+            manifest.model_id.as_str(),
+            artifact_path.display()
+        ),
+    ) {
+        return failure(EXIT_CONFIG_ERROR, format!("m20-granite: cannot write README: {error}"));
+    }
+
+    let recovery_init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m27-recovery",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+        "--offline",
+    ];
+    let recovery_build = run_cargo(root, "M20 Granite Recovery init", &recovery_init_args);
+    if recovery_build.exit_code != EXIT_SUCCESS {
+        return recovery_build;
+    }
+    let recovery_init_path = root.join("target/x86_64-unknown-nagi-user/release/nagi-init");
+    let recovery_init = match fs::read(&recovery_init_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-granite: cannot read {}: {error}",
+                    recovery_init_path.display()
+                ),
+            );
+        }
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m20-granite-artifact-acceptance",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+        "--offline",
+    ];
+    let image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &image_name,
+            cargo_env: &[],
+            recovery_init: Some(&recovery_init),
+            image_writer: write_reference_disk_qcow2,
+            external_model_store_file: Some((&file_name, &artifact_path)),
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-boot-control"],
+            },
+        },
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+
+    let vars_copy = evidence.join("granite-OVMF_VARS.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite: initialize OVMF variables: {error}"),
+        );
+    }
+    let serial_log = evidence.join("m20-granite-qemu.log");
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &image_path,
+        vars_copy: &vars_copy,
+        serial_log: &serial_log,
+        acceptance_marker: "Nagi M20 Model Store capability PASS",
+        timeout: Duration::from_secs(1800),
+    };
+    // Wait for the overall capability marker, which follows the digest marker
+    // and the rest of the Model Store checks. Stopping QEMU on the digest line
+    // itself would race the guest's remaining acceptance checks.
+    let qemu_status = match run_qemu_until_any_acceptance_marker(
+        &config,
+        &["Nagi M20 Model Store capability PASS"],
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-granite: QEMU acceptance failed; log {}: {error}",
+                    serial_log.display()
+                ),
+            );
+        }
+    };
+    let serial = match fs::read_to_string(&serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite: cannot read {}: {error}", serial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M20 Model Store capability PASS",
+        "Nagi M20 Granite artifact digest PASS",
+    ] {
+        if !serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-granite: guest did not print `{marker}` (QEMU exit {qemu_status}; log {})",
+                    serial_log.display()
+                ),
+            );
+        }
+    }
+    let image_check = ProcessCommand::new("qemu-img")
+        .args(["check", "-f", "qcow2"])
+        .arg(&image_path)
+        .output();
+    match image_check {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-granite: qemu-img check failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            );
+        }
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite: qemu-img check: {error}"),
+            );
+        }
+    }
+    let final_readme = format!(
+        "# M20 Granite Model Store acceptance\n\nStatus: PASS\nPinned model: `{}`\nFAT32 Model Store filename: `{file_name}`\nExternal artifact: `{}`\nSize: {expected_size} bytes\nSHA-256: `{expected_digest}`\n\nThe guest booted System A, opened the separate read-only Model Store capability, read the complete artifact through the FAT32 reader, and verified the actual bytes against the pinned SHA-256. The acceptance does not load a model backend or run inference. `qemu-img check` passed for `{}`. QEMU serial log: `m20-granite-qemu.log`.\n",
+        manifest.model_id.as_str(),
+        artifact_path.display(),
+        image_path.display()
+    );
+    if let Err(error) = fs::write(&evidence_readme, final_readme) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite: cannot update README: {error}"),
+        );
+    }
+    let manifest_paths = [
+        (evidence_readme.as_path(), "README.md".to_owned()),
+        (
+            image_path.as_path(),
+            format!("../../artifacts/{image_name}"),
+        ),
+        (vars_copy.as_path(), "granite-OVMF_VARS.fd".to_owned()),
+        (serial_log.as_path(), "m20-granite-qemu.log".to_owned()),
+    ];
+    if let Err(error) = write_sha256_manifest(&evidence.join("SHA256SUMS"), &manifest_paths) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite: write evidence manifest: {error}"),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M20 Granite Model Store guest digest acceptance ({}; artifact {}; log {}; evidence {})",
+            image_path.display(),
+            artifact_path.display(),
+            serial_log.display(),
+            evidence.display()
+        )],
+    }
+}
+
+fn pinned_granite_manifest(root: &Path) -> Result<nagi_model_manager::ModelManifest, String> {
+    let manifest_path = root.join("user/nagi-model-manager/tests/fixtures/granite-4.2-3b.json");
+    let manifest_bytes = fs::read(&manifest_path)
+        .map_err(|error| format!("cannot read {}: {error}", manifest_path.display()))?;
+    let manifest = nagi_model_manager::ModelManifest::parse_json(&manifest_bytes)
+        .map_err(|error| format!("Granite manifest is invalid: {error}"))?;
+    if manifest.model_id.as_str() != "ibm.granite-4.2-3b" {
+        return Err("Granite manifest has an unexpected model ID".to_owned());
+    }
+    let (artifact_id, source, integrity, size) = match (
+        &manifest.artifact.reference,
+        manifest.source.as_ref(),
+        manifest.artifact.integrity.as_ref(),
+        manifest.artifact.size_bytes,
+    ) {
+        (
+            nagi_model_manager::ArtifactReference::ModelStore { artifact_id },
+            Some(source),
+            Some(integrity),
+            Some(size),
+        ) => (artifact_id.as_str(), source, integrity, size),
+        _ => return Err("Granite manifest is missing pinned Model Store metadata".to_owned()),
+    };
+    if integrity.algorithm != "sha256" || manifest.artifact.format.as_str() != "gguf" {
+        return Err("Granite manifest has an unsupported artifact contract".to_owned());
+    }
+    let lock = fs::read_to_string(root.join("third_party/models.lock"))
+        .map_err(|error| format!("cannot read third_party/models.lock: {error}"))?;
+    let locked = |key: &str| {
+        crate::llama_cpp::lock_value(&lock, "models.granite_4_2_3b", key)
+            .ok_or_else(|| format!("third_party/models.lock is missing Granite field `{key}`"))
+    };
+    let notice = manifest
+        .license
+        .notices
+        .iter()
+        .find(|notice| notice.notice_id == "apache-2.0")
+        .ok_or_else(|| "Granite manifest is missing the Apache-2.0 notice".to_owned())?;
+    let fields = [
+        ("model_id", manifest.model_id.as_str().to_owned()),
+        ("repository", source.uri.clone()),
+        ("revision", source.revision.clone()),
+        ("file_name", source.file_name.clone()),
+        ("format", manifest.artifact.format.as_str().to_owned()),
+        ("size_bytes", size.to_string()),
+        ("sha256", integrity.digest.clone()),
+        ("license", manifest.license.identifier.clone()),
+        (
+            "license_reference",
+            manifest.license.terms_reference.clone().unwrap_or_default(),
+        ),
+        ("notice_id", notice.notice_id.clone()),
+        ("notice_reference", notice.reference.clone()),
+        (
+            "acknowledgement_required",
+            manifest.license.acknowledgement_required.to_string(),
+        ),
+        ("artifact_id", artifact_id.to_owned()),
+        ("storage", "model_store".to_owned()),
+    ];
+    for (key, expected) in fields {
+        let actual = locked(key)?;
+        if actual != expected {
+            return Err(format!(
+                "Granite manifest field `{key}` does not match third_party/models.lock"
+            ));
+        }
+    }
+    Ok(manifest)
+}
+
+fn verify_external_artifact(
+    path: &Path,
+    expected_size: u64,
+    expected_digest: &str,
+) -> Result<(), String> {
+    let mut file = fs::File::open(path).map_err(|error| {
+        format!(
+            "cannot open external model artifact {}: {error}",
+            path.display()
+        )
+    })?;
+    let metadata = file.metadata().map_err(|error| {
+        format!(
+            "cannot inspect external model artifact {}: {error}",
+            path.display()
+        )
+    })?;
+    if !metadata.is_file() || metadata.len() != expected_size {
+        return Err(format!(
+            "external model artifact {} has the wrong file type or size (expected {expected_size} bytes)",
+            path.display()
+        ));
+    }
+    let mut hasher = Sha256::new();
+    let mut total = 0u64;
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| {
+            format!("cannot hash external artifact {}: {error}", path.display())
+        })?;
+        if read == 0 {
+            break;
+        }
+        total = total
+            .checked_add(read as u64)
+            .ok_or_else(|| "external model size overflow".to_owned())?;
+        hasher.update(&buffer[..read]);
+    }
+    if total != expected_size {
+        return Err(format!(
+            "external model artifact {} changed size during verification",
+            path.display()
+        ));
+    }
+    let actual_digest = format!("{:x}", hasher.finalize());
+    if actual_digest != expected_digest {
+        return Err(format!(
+            "external model artifact {} has SHA-256 {actual_digest}, expected {expected_digest}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn write_sha256_manifest(paths: &Path, files: &[(&Path, String)]) -> Result<(), String> {
+    let mut manifest = String::new();
+    for (path, relative_name) in files {
+        let digest = m30_image_sha256(path)?;
+        manifest.push_str(&format!("{digest}  {relative_name}\n"));
+    }
+    fs::write(paths, manifest).map_err(|error| format!("cannot write {}: {error}", paths.display()))
 }
 
 fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -958,6 +1382,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 cargo_env: &[],
                 recovery_init: Some(&recovery_init),
                 image_writer: write_reference_disk_qcow2,
+                external_model_store_file: None,
                 build_features: ImageBuildFeatures {
                     kernel: &[],
                     loader: &["m27-ab-slot-boot-control"],
@@ -1343,6 +1768,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             cargo_env: &[],
             recovery_init: Some(&recovery_init),
             image_writer: write_m20_model_store_fixture_reference_disk_qcow2,
+            external_model_store_file: None,
             build_features: ImageBuildFeatures {
                 kernel: &[],
                 loader: &["m27-ab-slot-boot-control"],
@@ -5091,6 +5517,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             cargo_env: &[],
             recovery_init: Some(&recovery_init),
             image_writer: write_m27_broken_slot_image,
+            external_model_store_file: None,
             build_features: ImageBuildFeatures {
                 kernel: &[],
                 loader: &["m27-ab-slot-acceptance"],
@@ -5109,6 +5536,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             cargo_env: &[],
             recovery_init: Some(&recovery_init),
             image_writer: write_m27_healthy_slot_image,
+            external_model_store_file: None,
             build_features: ImageBuildFeatures {
                 kernel: &[],
                 loader: &["m27-ab-slot-acceptance"],
@@ -5127,6 +5555,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             cargo_env: &[],
             recovery_init: Some(&recovery_init),
             image_writer: write_m27_recovery_image,
+            external_model_store_file: None,
             build_features: ImageBuildFeatures {
                 kernel: &[],
                 loader: &["m27-ab-slot-acceptance"],
@@ -5851,6 +6280,7 @@ fn execute_m27_gpt_acceptance(
                 cargo_env: &[],
                 recovery_init: Some(recovery_init),
                 image_writer: writer,
+                external_model_store_file: None,
                 build_features: boot_features,
             },
         );
@@ -6220,7 +6650,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m22, m25, m27, m29, m30, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m22, m25, m27, m29, m30, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -6239,15 +6669,55 @@ mod tests {
         append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt,
         m27_bootstrap_markers_present, m27_readiness_consumed_before_promotion,
         m27_readiness_persisted_before_desktop, m27_trial_failure_observed,
-        m30_image_build_info_matches, parse_command, scoped_artifact_name, Command,
-        NAGI_WRITE_MARKER,
+        m30_image_build_info_matches, parse_command, pinned_granite_manifest, scoped_artifact_name,
+        verify_external_artifact, Command, NAGI_WRITE_MARKER,
     };
+    use sha2::{Digest, Sha256};
     use std::path::Path;
 
     #[test]
     fn m29_command_selects_the_settings_acceptance() {
         assert_eq!(parse_command(&["m29".into()]), Ok(Command::M29));
         assert!(parse_command(&["m29".into(), "extra".into()]).is_err());
+    }
+
+    #[test]
+    fn m20_granite_command_requires_exactly_one_external_artifact_path() {
+        assert_eq!(
+            parse_command(&["m20-granite".into(), "model.gguf".into()]),
+            Ok(Command::M20Granite)
+        );
+        assert!(parse_command(&["m20-granite".into()]).is_err());
+        assert!(
+            parse_command(&["m20-granite".into(), "model.gguf".into(), "extra".into()]).is_err()
+        );
+    }
+
+    #[test]
+    fn m20_granite_manifest_matches_the_model_lock() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest = pinned_granite_manifest(&root).expect("pinned Granite manifest");
+        assert_eq!(manifest.model_id.as_str(), "ibm.granite-4.2-3b");
+        assert_eq!(manifest.artifact.size_bytes, Some(2_244_011_552));
+    }
+
+    #[test]
+    fn m20_granite_external_artifact_is_checked_by_size_and_digest() {
+        let path = std::env::temp_dir().join(format!(
+            "nagi-m20-artifact-{}-{}.gguf",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after Unix epoch")
+                .as_nanos()
+        ));
+        let bytes = b"pinned test artifact";
+        std::fs::write(&path, bytes).expect("write temporary artifact");
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        assert!(verify_external_artifact(&path, bytes.len() as u64, &digest).is_ok());
+        assert!(verify_external_artifact(&path, bytes.len() as u64 + 1, &digest).is_err());
+        assert!(verify_external_artifact(&path, bytes.len() as u64, &"0".repeat(64)).is_err());
+        std::fs::remove_file(path).expect("remove temporary artifact");
     }
 
     #[test]

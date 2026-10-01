@@ -571,7 +571,7 @@ where
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-fn lock_value(lock: &str, section: &str, key: &str) -> Option<String> {
+pub(crate) fn lock_value(lock: &str, section: &str, key: &str) -> Option<String> {
     let mut active = false;
     for line in lock.lines().map(str::trim) {
         if line.starts_with('[') && line.ends_with(']') {

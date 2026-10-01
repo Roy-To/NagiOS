@@ -504,6 +504,64 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
     recovery_init: Option<&[u8]>,
     model_store_files: &[super::fat32::VolumeFile<'_>],
 ) -> Result<ImageLayout, String> {
+    write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
+        path,
+        bootloader,
+        kernel,
+        system_b_kernel,
+        init,
+        recovery_init,
+        ModelStoreFileSources {
+            embedded: model_store_files,
+            external: &[],
+        },
+    )
+}
+
+/// Build an isolated reference disk with one externally placed, streamed
+/// Model Store file. The regular release-image writer continues to leave this
+/// partition empty.
+pub fn write_reference_disk_qcow2_with_external_model_store_file(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+    recovery_init: Option<&[u8]>,
+    file_name: &str,
+    source_path: &Path,
+) -> Result<ImageLayout, String> {
+    let files = [super::fat32::ExternalVolumeFile {
+        path: file_name,
+        source_path,
+    }];
+    write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
+        path,
+        bootloader,
+        kernel,
+        kernel,
+        init,
+        recovery_init,
+        ModelStoreFileSources {
+            embedded: &[],
+            external: &files,
+        },
+    )
+}
+
+struct ModelStoreFileSources<'files, 'content> {
+    embedded: &'files [super::fat32::VolumeFile<'content>],
+    external: &'files [super::fat32::ExternalVolumeFile<'content>],
+}
+
+fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    system_b_kernel: &[u8],
+    init: &[u8],
+    recovery_init: Option<&[u8]>,
+    model_store_files: ModelStoreFileSources<'_, '_>,
+) -> Result<ImageLayout, String> {
     if bootloader.is_empty() || kernel.is_empty() || system_b_kernel.is_empty() || init.is_empty() {
         return Err("GPT image requires non-empty loader, system kernels, and init ELF".to_owned());
     }
@@ -627,12 +685,13 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
             },
         ],
     )?;
-    super::fat32::format_partition(
+    super::fat32::format_partition_with_external_files(
         &mut raw,
         model_store.first_lba,
         partition_sector_count(model_store)?,
         "NAGI MODELS",
-        model_store_files,
+        model_store_files.embedded,
+        model_store_files.external,
     )?;
     raw.sync_all()
         .map_err(|error| format!("cannot flush raw release image: {error}"))?;
