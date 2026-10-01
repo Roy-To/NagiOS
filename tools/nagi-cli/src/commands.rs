@@ -4682,7 +4682,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "-p",
         "nagi-init",
         "--features",
-        "m27-recovery",
+        "m27-recovery-undo-acceptance",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -4944,7 +4944,8 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"r"}}}]}}"#,
         r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"r"}}}]}}"#,
     ];
-    const RECOVERY_COMMANDS: &[u8] = b"check\nlog\nfiles\nslots\nhistory\nundo\nhelp\n";
+    const RECOVERY_COMMANDS: &[u8] =
+        b"check\nlog\nfiles\nslots\nhistory\nundo-conflict-test\nundo\nhelp\n";
     let recovery_status = match run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input(
         &recovery_config,
         "Nagi M27 Recovery boot menu READY",
@@ -4973,6 +4974,8 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "Nagi M27 Recovery current-boot log PASS",
         "Nagi M27 Recovery files PASS",
         "Nagi M27 Recovery history PASS entries=",
+        "Nagi M27 Recovery undo preflight conflict PASS",
+        "Nagi M27 Recovery interrupted undo retry PASS",
         "Nagi M27 Recovery NH16 undo PASS",
         "Nagi M27 Recovery command help PASS",
     ] {

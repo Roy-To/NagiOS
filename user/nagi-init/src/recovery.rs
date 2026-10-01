@@ -6,8 +6,8 @@ use nagi_history::guest::{
     GUEST_ARCHIVE_FILE_BYTES, MAX_GUEST_ARCHIVE_BYTES,
 };
 use nagi_history::{
-    HistoryError, HistoryRecord, HistoryService, Operation, TransactionState, UndoAction,
-    UndoOperation, MAX_RECORDS,
+    HistoryError, HistoryRecord, HistoryService, Operation, TransactionId, TransactionState,
+    UndoAction, UndoBatch, UndoOperation, MAX_RECORDS,
 };
 
 type GuestVolume = Vfs<SyscallBlockDevice>;
@@ -194,6 +194,27 @@ fn dispatch(command: &[u8], volume: &mut Option<GuestVolume>, block_capability: 
                 );
             }
         },
+        #[cfg(feature = "m27-recovery-undo-acceptance")]
+        b"undo-conflict-test" => match volume.as_mut() {
+            Some(volume) => match undo_conflict_fixture(volume) {
+                UndoFixtureResult::Passed => {
+                    libnagi::console_write(b"Nagi M27 Recovery undo preflight conflict PASS\r\n");
+                    libnagi::console_write(b"Nagi M27 Recovery interrupted undo retry PASS\r\n");
+                }
+                UndoFixtureResult::ConflictFailed => {
+                    libnagi::console_write(b"Nagi M27 Recovery undo preflight conflict FAIL\r\n");
+                }
+                UndoFixtureResult::RetryFailed => {
+                    libnagi::console_write(b"Nagi M27 Recovery undo preflight conflict PASS\r\n");
+                    libnagi::console_write(b"Nagi M27 Recovery interrupted undo retry FAIL\r\n");
+                }
+            },
+            None => {
+                libnagi::console_write(
+                    b"Nagi M27 Recovery undo preflight conflict FAIL (volume not mounted)\r\n",
+                );
+            }
+        },
         b"slots" => {
             libnagi::console_write(
                 b"Select System A, System B, or Recovery from the UEFI boot menu.\r\n",
@@ -213,6 +234,11 @@ fn dispatch(command: &[u8], volume: &mut Option<GuestVolume>, block_capability: 
                     UndoResult::NoCommittedTransaction => {
                         libnagi::console_write(b"Nagi M27 Recovery undo unavailable (no committed NH16 transaction)\r\n");
                     }
+                    UndoResult::Conflict => {
+                        libnagi::console_write(
+                            b"Nagi M27 Recovery undo conflict; no changes applied\r\n",
+                        );
+                    }
                     UndoResult::Failed => {
                         libnagi::console_write(b"Nagi M27 Recovery NH16 undo FAIL\r\n");
                     }
@@ -230,10 +256,12 @@ fn dispatch(command: &[u8], volume: &mut Option<GuestVolume>, block_capability: 
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum UndoResult {
     Applied,
     NoArchive,
     NoCommittedTransaction,
+    Conflict,
     Failed,
 }
 
@@ -345,6 +373,23 @@ fn undo_latest(volume: &mut GuestVolume) -> UndoResult {
         Ok(batch) => batch,
         Err(_) => return UndoResult::Failed,
     };
+    apply_prepared_undo(&mut history, &mut backend, record, batch)
+}
+
+fn apply_prepared_undo(
+    history: &mut HistoryService,
+    backend: &mut HistoryArchiveBackend<RecoveryFiles<'_>>,
+    record: HistoryRecord,
+    batch: UndoBatch,
+) -> UndoResult {
+    let transaction = batch.transaction_id();
+    let preflight_passed = {
+        let files = backend.file_store_mut();
+        preflight_undo_batch(history, transaction, &batch, files.volume)
+    };
+    if !preflight_passed {
+        return UndoResult::Conflict;
+    }
     let mut pending = [0; MAX_GUEST_ARCHIVE_BYTES];
     let pending_length = match history.serialize_recoverable(&mut pending) {
         Ok(length) => length,
@@ -386,14 +431,307 @@ fn undo_latest(volume: &mut GuestVolume) -> UndoResult {
 }
 
 fn latest_undo_record(history: &HistoryService) -> Option<HistoryRecord> {
-    (0..history.len()).rev().find_map(|index| {
-        history.record_at(index).filter(|record| {
-            matches!(
-                record.transaction_state,
-                TransactionState::Committed | TransactionState::UndoPending
-            )
+    (0..history.len())
+        .rev()
+        .find_map(|index| {
+            history
+                .record_at(index)
+                .filter(|record| record.transaction_state == TransactionState::UndoPending)
         })
+        .or_else(|| {
+            (0..history.len()).rev().find_map(|index| {
+                history
+                    .record_at(index)
+                    .filter(|record| record.transaction_state == TransactionState::Committed)
+            })
+        })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UndoActionState {
+    Forward,
+    Inverse,
+    Conflict,
+}
+
+fn preflight_undo_batch(
+    history: &HistoryService,
+    transaction_id: TransactionId,
+    batch: &UndoBatch,
+    volume: &mut GuestVolume,
+) -> bool {
+    batch.actions().all(|action| {
+        undo_action_state(history, transaction_id, volume, action) != UndoActionState::Conflict
     })
+}
+
+#[cfg(feature = "m27-recovery-undo-acceptance")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UndoFixtureResult {
+    Passed,
+    ConflictFailed,
+    RetryFailed,
+}
+
+/// Exercises the Recovery Undo conflict guard and interrupted-Undo replay on
+/// the persisted three-file M22 move transaction. This command is included
+/// only in the M27 acceptance image.
+#[cfg(feature = "m27-recovery-undo-acceptance")]
+fn undo_conflict_fixture(volume: &mut GuestVolume) -> UndoFixtureResult {
+    let mut backend = HistoryArchiveBackend::new(RecoveryFiles { volume });
+    let mut archive = [0; MAX_GUEST_ARCHIVE_BYTES];
+    let Some(length) = backend.load_archive(&mut archive).ok().flatten() else {
+        return UndoFixtureResult::ConflictFailed;
+    };
+    let Ok(mut history) = HistoryService::restore_recoverable(&archive[..length]) else {
+        return UndoFixtureResult::ConflictFailed;
+    };
+    let Some(record) = history.record_at(0) else {
+        return UndoFixtureResult::ConflictFailed;
+    };
+    if record.operation != Operation::Move
+        || record.transaction_state != TransactionState::Committed
+    {
+        return UndoFixtureResult::ConflictFailed;
+    }
+    let transaction_id = record.transaction_id;
+    let Ok(batch) = history.prepare_undo_transaction(transaction_id, record.context) else {
+        return UndoFixtureResult::ConflictFailed;
+    };
+    let action_count = batch.actions().count();
+    let Some(last_action) = batch.actions().last() else {
+        return UndoFixtureResult::ConflictFailed;
+    };
+    if action_count < 2
+        || last_action.operation != UndoOperation::MoveBack
+        || !batch
+            .actions()
+            .all(|action| action.operation == UndoOperation::MoveBack)
+    {
+        return UndoFixtureResult::ConflictFailed;
+    }
+
+    let conflict_name = last_action.to_name;
+    let (conflict_name_bytes, conflict_name_length) = conflict_name.bytes();
+    let conflict_name_bytes = &conflict_name_bytes[..conflict_name_length];
+    {
+        let files = backend.file_store_mut();
+        if !matches!(
+            files.volume.open(conflict_name_bytes),
+            Err(StorageError::NotFound)
+        ) {
+            return UndoFixtureResult::ConflictFailed;
+        }
+        let Ok(handle) = files.volume.create(conflict_name_bytes) else {
+            return UndoFixtureResult::ConflictFailed;
+        };
+        if files
+            .volume
+            .write(handle, b"m27 recovery conflict sentinel")
+            .is_err()
+            || files.volume.flush().is_err()
+        {
+            let _ = files.volume.remove(conflict_name_bytes);
+            let _ = files.volume.flush();
+            return UndoFixtureResult::ConflictFailed;
+        }
+    }
+
+    let conflict_result = apply_prepared_undo(&mut history, &mut backend, record, batch);
+    let persisted_conflict_state = if conflict_result == UndoResult::Conflict {
+        let mut bytes = [0; MAX_GUEST_ARCHIVE_BYTES];
+        let loaded = backend
+            .load_archive(&mut bytes)
+            .ok()
+            .flatten()
+            .and_then(|length| HistoryService::restore_recoverable(&bytes[..length]).ok());
+        loaded.is_some_and(|persisted| {
+            transaction_has_state(
+                &persisted,
+                transaction_id,
+                TransactionState::Committed,
+                action_count,
+            ) && batch.actions().enumerate().all(|(index, action)| {
+                let expected = if index + 1 == action_count {
+                    UndoActionState::Conflict
+                } else {
+                    UndoActionState::Forward
+                };
+                undo_action_state(
+                    &persisted,
+                    transaction_id,
+                    backend.file_store_mut().volume,
+                    action,
+                ) == expected
+            })
+        })
+    } else {
+        false
+    };
+
+    let cleanup_succeeded = {
+        let files = backend.file_store_mut();
+        matches!(files.volume.remove(conflict_name_bytes), Ok(())) && files.volume.flush().is_ok()
+    };
+    if !persisted_conflict_state || !cleanup_succeeded {
+        return UndoFixtureResult::ConflictFailed;
+    }
+
+    let mut bytes = [0; MAX_GUEST_ARCHIVE_BYTES];
+    let Some(length) = backend.load_archive(&mut bytes).ok().flatten() else {
+        return UndoFixtureResult::RetryFailed;
+    };
+    let Ok(mut retry_history) = HistoryService::restore_recoverable(&bytes[..length]) else {
+        return UndoFixtureResult::RetryFailed;
+    };
+    let Some(retry_record) = retry_history.record_at(0) else {
+        return UndoFixtureResult::RetryFailed;
+    };
+    let Ok(retry_batch) =
+        retry_history.prepare_undo_transaction(transaction_id, retry_record.context)
+    else {
+        return UndoFixtureResult::RetryFailed;
+    };
+    if !preflight_undo_batch(
+        &retry_history,
+        transaction_id,
+        &retry_batch,
+        backend.file_store_mut().volume,
+    ) {
+        return UndoFixtureResult::RetryFailed;
+    }
+    let mut pending = [0; MAX_GUEST_ARCHIVE_BYTES];
+    let Ok(pending_length) = retry_history.serialize_recoverable(&mut pending) else {
+        return UndoFixtureResult::RetryFailed;
+    };
+    if backend.write_archive(&pending[..pending_length]).is_err() {
+        return UndoFixtureResult::RetryFailed;
+    }
+    let Some(first_action) = retry_batch.actions().next() else {
+        return UndoFixtureResult::RetryFailed;
+    };
+    {
+        let files = backend.file_store_mut();
+        if !apply_undo_action(files.volume, first_action) || files.volume.flush().is_err() {
+            return UndoFixtureResult::RetryFailed;
+        }
+    }
+
+    drop(backend);
+    if undo_latest(volume) != UndoResult::Applied {
+        return UndoFixtureResult::RetryFailed;
+    }
+    let mut backend = HistoryArchiveBackend::new(RecoveryFiles { volume });
+    let mut bytes = [0; MAX_GUEST_ARCHIVE_BYTES];
+    let Some(length) = backend.load_archive(&mut bytes).ok().flatten() else {
+        return UndoFixtureResult::RetryFailed;
+    };
+    let Ok(completed_history) = HistoryService::restore_recoverable(&bytes[..length]) else {
+        return UndoFixtureResult::RetryFailed;
+    };
+    if !transaction_has_state(
+        &completed_history,
+        transaction_id,
+        TransactionState::Undone,
+        action_count,
+    ) || !batch.actions().all(|action| {
+        undo_action_state(
+            &completed_history,
+            transaction_id,
+            backend.file_store_mut().volume,
+            action,
+        ) == UndoActionState::Inverse
+    }) {
+        return UndoFixtureResult::RetryFailed;
+    }
+    UndoFixtureResult::Passed
+}
+
+#[cfg(feature = "m27-recovery-undo-acceptance")]
+fn transaction_has_state(
+    history: &HistoryService,
+    transaction_id: TransactionId,
+    expected_state: TransactionState,
+    expected_count: usize,
+) -> bool {
+    let mut count = 0;
+    for record in (0..history.len()).filter_map(|index| history.record_at(index)) {
+        if record.transaction_id == transaction_id {
+            count += 1;
+            if record.transaction_state != expected_state {
+                return false;
+            }
+        }
+    }
+    count == expected_count
+}
+
+fn undo_action_state(
+    history: &HistoryService,
+    transaction_id: TransactionId,
+    volume: &mut GuestVolume,
+    action: UndoAction,
+) -> UndoActionState {
+    let (from_name, from_length) = action.from_name.bytes();
+    let (to_name, to_length) = action.to_name.bytes();
+    let from_name = &from_name[..from_length];
+    let to_name = &to_name[..to_length];
+    let content = &action.content[..action.content_length];
+
+    match action.operation {
+        UndoOperation::Delete => match named_file_matches(volume, from_name, content) {
+            Some(true) => UndoActionState::Forward,
+            None => UndoActionState::Inverse,
+            Some(false) => UndoActionState::Conflict,
+        },
+        UndoOperation::Restore => match named_file_matches(volume, to_name, content) {
+            None => UndoActionState::Forward,
+            Some(true) => UndoActionState::Inverse,
+            Some(false) => UndoActionState::Conflict,
+        },
+        UndoOperation::RestoreVersion => {
+            let Some(forward_content) =
+                history.expected_edit_after_for_undo(transaction_id, action.sequence)
+            else {
+                return UndoActionState::Conflict;
+            };
+            match named_file_matches(volume, to_name, forward_content) {
+                Some(true) => UndoActionState::Forward,
+                Some(false) => match named_file_matches(volume, to_name, content) {
+                    Some(true) => UndoActionState::Inverse,
+                    _ => UndoActionState::Conflict,
+                },
+                None => UndoActionState::Conflict,
+            }
+        }
+        UndoOperation::MoveBack => match (
+            named_file_exists(volume, from_name),
+            named_file_exists(volume, to_name),
+        ) {
+            (Some(true), Some(false)) => UndoActionState::Forward,
+            (Some(false), Some(true)) => UndoActionState::Inverse,
+            _ => UndoActionState::Conflict,
+        },
+    }
+}
+
+/// `Some(true)` means the named file exists and exactly matches, `Some(false)`
+/// means it exists with different bytes or could not be read, and `None` means
+/// it is absent.
+fn named_file_matches(volume: &mut GuestVolume, name: &[u8], expected: &[u8]) -> Option<bool> {
+    match volume.open(name) {
+        Ok(handle) => Some(file_matches(volume, handle, expected)),
+        Err(StorageError::NotFound) => None,
+        Err(_) => Some(false),
+    }
+}
+
+fn named_file_exists(volume: &mut GuestVolume, name: &[u8]) -> Option<bool> {
+    match volume.open(name) {
+        Ok(_) => Some(true),
+        Err(StorageError::NotFound) => Some(false),
+        Err(_) => None,
+    }
 }
 
 fn apply_undo_action(volume: &mut GuestVolume, action: UndoAction) -> bool {

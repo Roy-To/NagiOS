@@ -34,6 +34,7 @@ m20-fixture-acceptance = ["m20-model-store-acceptance"]
 m22-history = ["m19-search"]
 m27-ro-vfs-check = []
 m27-recovery = []
+m27-recovery-undo-acceptance = ["m27-recovery"]
 m29-settings-acceptance = ["m10-desktop"]
 m25-voice-acceptance = []
 

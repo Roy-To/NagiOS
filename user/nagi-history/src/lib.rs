@@ -161,6 +161,7 @@ pub enum UndoOperation {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UndoAction {
+    pub sequence: u64,
     pub operation: UndoOperation,
     pub object_id: ObjectId,
     pub from_name: Name,
@@ -281,6 +282,26 @@ impl HistoryService {
             .get(index)
             .and_then(|entry| *entry)
             .map(|entry| entry.record)
+    }
+
+    /// Returns the recorded forward bytes for one Edit inverse without
+    /// copying the snapshot into `UndoBatch`. Recovery uses these bytes to
+    /// reject overwriting a file changed after the transaction.
+    pub fn expected_edit_after_for_undo(
+        &self,
+        transaction_id: TransactionId,
+        sequence: u64,
+    ) -> Option<&[u8]> {
+        self.entries
+            .iter()
+            .take(self.length)
+            .flatten()
+            .find(|entry| {
+                entry.record.transaction_id == transaction_id
+                    && entry.record.sequence == sequence
+                    && entry.record.operation == Operation::Edit
+            })
+            .map(|entry| &entry.after.content[..entry.after.length])
     }
 
     /// Records a set of moves as one prepared transaction. The caller must
@@ -913,6 +934,7 @@ fn inverse_of(entry: Entry) -> UndoAction {
         Operation::Restore => (UndoOperation::Delete, entry.after, entry.after.length),
     };
     UndoAction {
+        sequence: entry.record.sequence,
         operation,
         object_id: entry.record.object_id,
         from_name: entry.after_name,
@@ -1126,7 +1148,7 @@ impl Default for HistoryService {
 mod tests {
     use super::{
         ActivityContext, AppId, AppSessionId, HistoryError, HistoryService, MoveRecord, NodeId,
-        ObjectId, Operation, SurfaceId, UndoOperation, WorkspaceId,
+        ObjectId, Operation, SurfaceId, TransactionId, UndoOperation, WorkspaceId,
     };
     use std::vec::Vec;
 
@@ -1178,6 +1200,33 @@ mod tests {
         assert_eq!(undo.operation, UndoOperation::RestoreVersion);
         assert_eq!(&undo.content[..undo.content_length], b"before");
         assert_eq!(history.len(), 0);
+    }
+
+    #[test]
+    fn prepared_edit_undo_exposes_forward_bytes_without_copying_them() {
+        let mut history = HistoryService::new();
+        history
+            .record_edit(CONTEXT, ObjectId(42), b"note", b"before", b"after")
+            .unwrap();
+        let record = history.record_at(0).unwrap();
+        let batch = history
+            .prepare_undo_transaction(record.transaction_id, CONTEXT)
+            .unwrap();
+        let action = batch.actions().next().unwrap();
+
+        assert_eq!(action.sequence, record.sequence);
+        assert_eq!(
+            history.expected_edit_after_for_undo(batch.transaction_id(), action.sequence),
+            Some(&b"after"[..])
+        );
+        assert_eq!(
+            history.expected_edit_after_for_undo(batch.transaction_id(), action.sequence + 1),
+            None
+        );
+        assert_eq!(
+            history.expected_edit_after_for_undo(TransactionId(u64::MAX), action.sequence),
+            None
+        );
     }
 
     #[test]
