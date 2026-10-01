@@ -2483,11 +2483,10 @@ fn execute_m15(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_m25(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let image_result =
-        execute_image_with_features(root, Some("m25-voice-acceptance"), "nagi-0.1-m25-voice.img");
-    if image_result.exit_code != EXIT_SUCCESS {
-        return image_result;
-    }
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: system clock: {error}")),
+    };
     let host = match resolve_qemu_host(root, probe, "m25") {
         Ok(host) => host,
         Err(error) => return failure(EXIT_CONFIG_ERROR, error),
@@ -2500,15 +2499,55 @@ fn execute_m25(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: {error}")),
     };
-    let image_path = artifacts.join("nagi-0.1-m25-voice.img");
-    let persistent_disk = artifacts.join("nagi-0.1-m25-voice-user-data.img");
-    let vars_copy = artifacts.join("nagi-0.1-m25-voice-vars.fd");
-    let bootstrap_log = logs.join("m25-voice-bootstrap.log");
-    let voice_log = logs.join("m25-voice.log");
+    let image_name = format!("nagi-0.1-m25-voice-{run_id}.img");
+    let image_path = artifacts.join(&image_name);
+    let persistent_disk = artifacts.join(format!("nagi-0.1-m25-voice-user-data-{run_id}.img"));
+    let vars_copy = artifacts.join(format!("nagi-0.1-m25-voice-vars-{run_id}.fd"));
+    let bootstrap_log = logs.join(format!("m25-voice-bootstrap-{run_id}.log"));
+    let voice_log = logs.join(format!("m25-voice-{run_id}.log"));
+    for path in [
+        &image_path,
+        &persistent_disk,
+        &vars_copy,
+        &bootstrap_log,
+        &voice_log,
+    ] {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m25: refusing to overwrite existing run artifact {}",
+                        path.display()
+                    ),
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m25: cannot inspect {}: {error}", path.display()),
+                );
+            }
+        }
+    }
+    let image_result = execute_image_with_features(root, Some("m25-voice-acceptance"), &image_name);
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: {error}")),
     };
+    if had_persistent_disk {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25: unique User Data path unexpectedly existed: {}",
+                persistent_disk.display()
+            ),
+        );
+    }
     if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
         return failure(
             EXIT_CONFIG_ERROR,
@@ -2596,6 +2635,7 @@ fn execute_m25(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "Nagi M25 indicator-before-provider PASS",
         "Nagi M25 bounded PCM forwarding PASS",
         "Nagi M25 unavailable cleanup PASS",
+        "Nagi M25 empty transcript rejected PASS",
         "Nagi M25 TTS provider contract PASS",
         "Nagi M25 voice orchestration PASS",
     ] {

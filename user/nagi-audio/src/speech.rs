@@ -85,6 +85,7 @@ pub enum SpeechError {
     ProviderUnavailable,
     ProviderFailed,
     OutputTooSmall,
+    EmptyTranscript,
     InvalidTranscript,
 }
 
@@ -437,6 +438,11 @@ where
                 return Err(map_provider_error(error));
             }
         };
+        if length == 0 {
+            self.provider.cancel();
+            output.fill(0);
+            return Err(SpeechError::EmptyTranscript);
+        }
         if core::str::from_utf8(&output[..length]).is_err() {
             self.provider.cancel();
             output.fill(0);
@@ -545,6 +551,7 @@ mod tests {
         pushed_bytes: usize,
         digest: u64,
         language: Option<SpeechLanguage>,
+        return_empty_transcript: bool,
     }
 
     impl SpeechToTextProvider for FixtureProvider {
@@ -569,7 +576,11 @@ mod tests {
         fn finish(&mut self, _transcript: &mut [u8]) -> Result<usize, SpeechProviderError> {
             // The fixture validates orchestration and audio delivery only. It
             // deliberately does not invent a transcript.
-            Err(SpeechProviderError::Unavailable)
+            if self.return_empty_transcript {
+                Ok(0)
+            } else {
+                Err(SpeechProviderError::Unavailable)
+            }
         }
 
         fn cancel(&mut self) {
@@ -632,6 +643,27 @@ mod tests {
         assert_eq!(
             service.finish_into(&mut transcript),
             Err(SpeechError::ProviderUnavailable)
+        );
+        assert!(transcript.iter().all(|byte| *byte == 0));
+        assert!(!indicator_active.get());
+        assert_eq!(service.provider.cancel_calls, 1);
+        assert_eq!(service.capture_next_chunk(), Err(SpeechError::NotActive));
+    }
+
+    #[test]
+    fn empty_transcript_is_rejected_and_provider_state_is_cleared() {
+        static FIXTURE: [u8; 8] = [0x10, 0x20, 0x30, 0x40, 0xfe, 0xdc, 0xba, 0x98];
+        let (mut service, _, indicator_active) = service(SpeechPermissionDecision::Allow, &FIXTURE);
+        service.provider.return_empty_transcript = true;
+        service
+            .begin(SpeechConsumer::NagiBar, SpeechLanguage::Japanese)
+            .expect("authorized PTT starts");
+        service.capture_next_chunk().expect("fixture frame");
+
+        let mut transcript = [0xaa; 32];
+        assert_eq!(
+            service.finish_into(&mut transcript),
+            Err(SpeechError::EmptyTranscript)
         );
         assert!(transcript.iter().all(|byte| *byte == 0));
         assert!(!indicator_active.get());

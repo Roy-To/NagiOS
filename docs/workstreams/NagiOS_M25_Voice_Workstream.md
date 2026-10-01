@@ -17,9 +17,9 @@
 - PCM comes from a service-owned `PcmCaptureSource`, is streamed directly to
   `SpeechToTextProvider`, and is never returned to the caller. The coordinator
   holds one 4 KiB frame, caps an utterance at 1 MiB and transcript output at
-  1 KiB, checks PCM frame alignment and UTF-8 output, and clears its PCM buffer
-  after delivery or cancellation. Providers receive no OS capability and
-  cannot execute transcript text.
+  1 KiB, checks PCM frame alignment and UTF-8 output, rejects empty transcripts,
+  and clears its PCM buffer after delivery or cancellation. Providers receive
+  no OS capability and cannot execute transcript text.
 - `SpeechOptions` separates `Auto` and Japanese transcription hints from
   system language and locale. `MicrophoneCapture` adapts the target
   `AudioService` and a system-selected stream ID. The device adapter and
@@ -36,10 +36,10 @@
 - The deterministic fixture provider records the input frame and returns
   `Unavailable` from finalization. It does not invent or hardcode a transcript.
   Tests cover permission prompt/denial, indicator-before-capture ordering,
-  bounded audio forwarding, provider-unavailable cleanup, malformed PCM, and
-  cancellation cleanup. TTS tests cover bounded UTF-8 input, chunked playback,
-  malformed-frame rejection, output caps, failure cancellation, and buffer
-  clearing.
+  bounded audio forwarding, provider-unavailable cleanup, empty-transcript
+  rejection/output clearing, malformed PCM, and cancellation cleanup. TTS tests
+  cover bounded UTF-8 input, chunked playback, malformed-frame rejection, output
+  caps, failure cancellation, and buffer clearing.
 
 ## Verification
 
@@ -55,7 +55,7 @@ CARGO_TARGET_DIR=/tmp/nagi-m25-host-arm64 \
   -p nagi-audio --all-targets
 ```
 
-Result: 13 tests passed, including 4 push-to-talk and 5 TTS contract tests.
+Result: 14 tests passed, including 5 push-to-talk and 5 TTS contract tests.
 Warnings-denied
 Clippy passed with `CARGO_TARGET_DIR=/tmp/nagi-m25-clippy-arm64`:
 
@@ -222,3 +222,35 @@ hashed in this worktree. Building the library does not demonstrate model
 loading or inference. Authenticated voice permission, a connected Japanese
 STT provider, local TTS, the system microphone indicator, and spoken-command
 acceptance remain incomplete; M25 stays `PARTIAL`.
+
+## Empty transcript rejection and fresh-run artifacts — 2026-10-01
+
+`PushToTalkService::finish_into` now rejects a provider's successful zero-byte
+result as `SpeechError::EmptyTranscript`, cancels provider state, clears the
+caller output buffer, and finishes the capture/indicator lifecycle. A focused
+host regression covers this fail-closed behavior. The target orchestration
+fixture separately returns an empty result to prove the same cleanup path; its
+normal unavailable-provider case still produces no synthetic transcript and
+does not claim STT inference.
+
+Verification passed:
+
+- `cargo test --locked --offline -p nagi-audio --all-targets` — 14 tests passed;
+  `cargo test --locked --offline -p nagi-cli` — 152 unit and 21 integration
+  tests passed.
+- Nagi-target checks and warnings-denied, changed-package Clippy passed for
+  `nagi-audio` and `nagi-init` with `m25-voice-acceptance`; `./nagi lint`
+  passed.
+- A fresh `./nagi m25` QEMU run passed the permission, indicator, bounded PCM,
+  unavailable-provider cleanup, empty-transcript rejection, TTS contract, and
+  overall orchestration markers. QEMU reported no host `virtio-sound.in`
+  driver; the fixture does not depend on host audio, and no real microphone,
+  STT model, or TTS engine was used.
+- The run uses unique image, User Data, OVMF variables, and serial log names and
+  refuses to overwrite existing run artifacts. The five-file SHA-256 manifest
+  at `out/evidence/m25-empty-transcript-1790854850975922000/manifest.sha256`
+  verifies the image, disk, variables, bootstrap log, and voice log.
+
+Authenticated permission, real Japanese STT and inference, concrete local TTS,
+the system microphone indicator, and spoken-command QEMU acceptance remain
+incomplete. M25 remains `PARTIAL`.

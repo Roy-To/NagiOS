@@ -112,7 +112,9 @@ impl PcmCaptureSource for FixtureCapture {
     }
 }
 
-struct FixtureProvider;
+struct FixtureProvider {
+    empty_transcript: bool,
+}
 
 impl SpeechToTextProvider for FixtureProvider {
     fn begin(&mut self, options: SpeechOptions) -> Result<(), SpeechProviderError> {
@@ -160,6 +162,9 @@ impl SpeechToTextProvider for FixtureProvider {
             .is_err()
         {
             return Err(SpeechProviderError::Failed);
+        }
+        if self.empty_transcript {
+            return Ok(0);
         }
         // This fixture verifies the target orchestration only. It deliberately
         // provides no transcript and does not represent STT model inference.
@@ -235,11 +240,15 @@ type FixtureService =
     PushToTalkService<FixtureCapture, FixtureAuthority, FixtureIndicator, FixtureProvider>;
 
 fn service(allow: bool) -> FixtureService {
+    service_with_empty_transcript(allow, false)
+}
+
+fn service_with_empty_transcript(allow: bool, empty_transcript: bool) -> FixtureService {
     PushToTalkService::new(
         FixtureCapture,
         FixtureAuthority { allow },
         FixtureIndicator,
-        FixtureProvider,
+        FixtureProvider { empty_transcript },
     )
 }
 
@@ -306,6 +315,33 @@ pub fn run() -> bool {
         return false;
     }
     if !marker(b"Nagi M25 unavailable cleanup PASS\r\n") {
+        return false;
+    }
+
+    PIPELINE_STAGE.store(PIPELINE_IDLE, Ordering::Relaxed);
+    INDICATOR_VISIBLE.store(false, Ordering::Relaxed);
+    CAPTURE_CALLS.store(0, Ordering::Relaxed);
+    FORWARDED_BYTES.store(0, Ordering::Relaxed);
+    PCM_DIGEST.store(0, Ordering::Relaxed);
+    PROVIDER_CANCELS.store(0, Ordering::Relaxed);
+    let mut empty_transcript = service_with_empty_transcript(true, true);
+    if empty_transcript
+        .begin(SpeechConsumer::NagiBar, SpeechLanguage::Japanese)
+        .is_err()
+        || empty_transcript.capture_next_chunk() != Ok(FIXTURE_PCM.len())
+    {
+        return false;
+    }
+    let mut empty_output = [0xa5; 32];
+    if empty_transcript.finish_into(&mut empty_output) != Err(SpeechError::EmptyTranscript)
+        || empty_output.iter().any(|byte| *byte != 0)
+        || INDICATOR_VISIBLE.load(Ordering::Relaxed)
+        || PIPELINE_STAGE.load(Ordering::Relaxed) != CLEANED_UP
+        || PROVIDER_CANCELS.load(Ordering::Relaxed) != 1
+    {
+        return false;
+    }
+    if !marker(b"Nagi M25 empty transcript rejected PASS\r\n") {
         return false;
     }
 
