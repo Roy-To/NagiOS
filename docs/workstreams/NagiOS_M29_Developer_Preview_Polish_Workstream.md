@@ -345,3 +345,15 @@ is bounded to the existing four acceptance panels and Settings; cross-process
 language propagation, onboarding, complete localization/accessibility,
 broader UI and performance evidence, and user-facing provider/recovery polish
 remain open.
+
+## Current-source keyboard and locale persistence rerun — 2026-10-02
+
+`./nagi m29` passed in QEMU on run `1790869645429869000`. The guest emitted the
+Settings keyboard focus, keyboard locale selection, locale persistence, and M10
+acceptance markers; the second boot restored `ja-JP` from the same User Data
+disk. READY arrived after 2605 ms. The Japanese Settings screenshot, run-stamped
+image, User Data, OVMF variables, and three serial logs have an eight-entry
+verified `SHA256SUMS` at
+`out/evidence/m29-settings-1790869645429869000/`. This rerun does not expand the
+four-panel focus model into a system-wide accessibility tree; M29 remains
+`PARTIAL` for the broader polish criteria.

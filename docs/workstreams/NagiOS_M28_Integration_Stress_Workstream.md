@@ -470,3 +470,24 @@ and undo fixture still pass independently. The M28 harness now archives the
 run-ID-specific final boot log on failure, and its self-test checks that path.
 Shell syntax, self-test, and dry-run pass. The two-consecutive-repetition
 acceptance remains unfulfilled, and formal M28 remains `PARTIAL`.
+
+## Current two-repetition attempts and standalone regressions — 2026-10-02
+
+The harness self-test, shell syntax, and two-repetition dry-run passed. Two
+fresh `NAGI_M28_REPEAT_COUNT=2 ... --run` attempts were then made. In
+`out/evidence/m28-run-20261001T153942Z-38390/`, repetition 1 passed M19 and
+M22 boot 1; M22 boot 2 timed out after 90 seconds at RIP `0x7eb84171` before a
+guest marker. Its 13-entry archive manifest verifies. In
+`out/evidence/m28-run-20261001T154452Z-38953/`, repetition 1 passed M19, then
+M22 bootstrap timed out at the same RIP before guest acceptance; its 11-entry
+manifest verifies. These are firmware startup failures, not M22 acceptance
+passes, and neither run completed a repetition or reached M27.
+
+Fresh standalone checks after those failures passed `./nagi m22` across all
+three boots and `./nagi m27` A/B/Recovery. M22 evidence is at
+`out/evidence/m22-standalone-1790869348631156000/`; M27 evidence is at
+`out/evidence/m27-ab-rollback-1790869370028356000/`. These isolated passes
+confirm the fixture paths still work but do not satisfy the consecutive
+combined M28 gate. M28 remains `PARTIAL`; Desktop/Files/Notes/Albert
+concurrency, real Granite, audio pressure, OOM, CPU fairness, and memory/handle
+leak soak remain unmeasured.

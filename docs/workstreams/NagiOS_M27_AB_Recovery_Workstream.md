@@ -524,3 +524,14 @@ example, `out/evidence/m27-ab-rollback-1790860688634532000/recovery-boot.log`
 records a running QEMU VM at RIP `0x7eb84171` looping over `jmp 0x7eb84150`
 before the Recovery acceptance marker. That failure is preserved and is not
 counted as a pass. M27 remains `PARTIAL`.
+
+## Standalone A/B and Recovery rerun — 2026-10-02
+
+A fresh `./nagi m27` run passed three malformed System B rollback trials to
+persistent System A, healthy System B promotion after guest readiness, Recovery
+with an unchanged journal, and M22 `file.move` group Undo across restart. Its
+38-entry `SHA256SUMS` covers the nested logs, variables, User Data, and seven
+run-stamped images retained under `out/artifacts/`:
+`out/evidence/m27-ab-rollback-1790869370028356000/`. The run does not complete
+authenticated update/readiness authority or the remaining Recovery acceptance;
+M27 remains `PARTIAL`.
