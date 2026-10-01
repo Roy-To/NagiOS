@@ -244,9 +244,13 @@ terminal `\r` from each line before interpreting its key and value.
 After the change, all six `nagi-localization` host tests pass. The CLI suite
 passes 151 unit and 21 integration tests, and formatting, repository tests,
 lint, build, and the Nagi-target `nagi-localization` compile pass. The baseline
-CI also passed Ubuntu-host checks; its Windows result was a real test failure
-and the Nagi-target job had not finished when this note was written. CI on the
-fix commit is required before the regression is considered closed.
+run's Windows test failed on the CRLF value and its Ubuntu-host job passed. The
+push of the fix commit cancelled the unfinished Nagi-target job on that old
+run; this cancellation is not a product failure. New CI run `36802487593` on
+`e2b9d48ac9333489d392b1a024c6eee155aa6ea1` passed all three jobs. Its target
+job passed user-init and UEFI builds and M17 first-web-pixel, M18 chrome and
+three-site HTTPS, M19 Search, M22 grouped Undo, M27 rollback/Recovery, M29
+language persistence, and M30 release-disk acceptance.
 
 `./nagi m29` passed again with the CRLF fix present. Run ID
 `1790818615588652000` passed the User Data bootstrap, Japanese Settings
