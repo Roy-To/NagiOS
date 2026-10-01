@@ -7590,3 +7590,24 @@ passed 58 unit tests, 2 manifest/schema tests, and 1 Store API test. The
 The model appears only in this disposable acceptance image; no model backend
 was loaded and no inference was performed. The regular M30 image remains
 empty. M20 remains `PARTIAL`.
+
+## Completion Sweep — current-source M30 regression after M20 artifact acceptance (2026-10-02)
+
+On clean source commit `0e7756336cc0f05d28734633df2a9eac12557b5c`, fresh
+`./nagi m30` run `1790893780350727000` passed GPT System A, User Data
+write/restart-read, M19 Search, M22 Move/Copy and Activity Ledger, Recovery
+VFS/help with the A/B journal unchanged, rejection of unstaged System B, and
+post-Recovery System A with persisted M22 Undo. The separate M20 fixture passed
+its bounded FAT32 cross-cluster/EOF read. Independent `qemu-img check` passed
+for the pristine release image, mutable M30 acceptance copy, and separate M20
+fixture. The release image SHA-256
+`ff944ba9113ae51ad69de31ead2b5b9765444899561adcf664ad38042d6fb58d` matches
+its source-bound `.build-info` record.
+
+The 13-entry evidence manifest verifies at
+`out/evidence/m30-release-1790893780350727000/SHA256SUMS`; its README records
+that the ordinary Model Store capability passed without the Granite digest
+marker, and that the separate small fixture is not the Granite artifact. No
+inference is claimed. M30 remains `PARTIAL` for authenticated updates and
+System B acceptance, remaining M18–M29 acceptance, and release-distribution
+review.

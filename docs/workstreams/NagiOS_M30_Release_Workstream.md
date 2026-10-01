@@ -747,3 +747,19 @@ records `m30_acceptance=NOT_EVALUATED`. QEMU lacked host `virtio-sound.in`, so
 host audio input remains untested. M30 remains `PARTIAL` for authenticated
 updates and System B acceptance, remaining M18–M29 work, and human binary
 redistribution review.
+
+## Completion Sweep — current-source regression after M20 artifact acceptance (2026-10-02)
+
+On clean source commit `0e7756336cc0f05d28734633df2a9eac12557b5c`, fresh
+`./nagi m30` run `1790893780350727000` passed System A, User Data restart
+persistence, M19 Search, M22 Move/Copy and Activity Ledger, Recovery VFS/help,
+unstaged-System-B rejection, and post-Recovery M22 Undo. The separate M20
+fixture passed its bounded FAT32 cross-cluster/EOF read. `qemu-img check`
+passed independently for the pristine release image, acceptance copy, and
+fixture image. The release qcow2 digest matches its source-bound build-info.
+
+The 13-entry run evidence manifest is
+`out/evidence/m30-release-1790893780350727000/SHA256SUMS`. The ordinary
+Model Store remains empty; this run exercised the capability but did not load
+Granite or perform inference. M30 remains `PARTIAL` for authenticated updates,
+System B acceptance, remaining M18–M29 acceptance, and distribution review.
