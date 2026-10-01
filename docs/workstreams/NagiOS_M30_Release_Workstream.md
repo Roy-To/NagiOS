@@ -544,3 +544,43 @@ The release bundle still records `m30_acceptance=NOT_EVALUATED`; M30 remains
 `PARTIAL` for authenticated GPT update installation, remaining M18–M29
 acceptance, and human binary redistribution review. QEMU reported no host
 `virtio-sound.in` input driver, so audio I/O is not established.
+
+## Current-source M29 keyboard-navigation release rebuild — 2026-10-01
+
+After M29 gained keyboard navigation, the previous reference qcow2 was still
+present at the fixed artifact path, so `./nagi m30` would have reused the older
+payload. Its SHA-256
+(`4155639e8866bff430738d996b40eab350a514777a50a16511701476108f3714`) was
+preserved in `out/evidence/m30-release-1790848708675783000/`; that evidence
+manifest continues to verify. A fresh image was then built from clean commit
+`bb43b7f36eb8d4ccdbceabada720e68b71dc113c`. The current qcow2 SHA-256 is
+`ca4c04f5c540bf59cef13b93b301a9fe31134080650977b1a57e760567ce4cff` and its
+virtual size is 64 GiB.
+
+The fresh `./nagi m30` QEMU acceptance passed GPT System A, the read-only Model
+Store capability, User Data format/write and restart-read, and M7 acceptance.
+The separate M20 FAT32 fixture passed a 5,000-byte read across a cluster
+boundary and EOF. `qemu-img check` passed for the pristine image, mutable
+acceptance copy, and fixture. Logs, disk images, OVMF variables, and the
+pristine image are covered by the verified evidence manifest at
+`out/evidence/m30-release-1790851367488764000/`.
+
+From the clean committed source, release preflight, assembly, and verification
+passed for `out/artifacts/m30-release-bundle-bb43b7f/`; all 12 release-tool
+tests passed and the bundle has 23 verified checksums. Its image is
+byte-identical to the current reference image. A disposable package copy booted
+twice with shared OVMF variables. Boot 1 passed System A, read-only Model Store,
+confirmed-A, and User Data format/write; boot 2 read the persisted data and
+reported `Nagi M7 acceptance PASS`. The copy changed to SHA-256
+`474ea42ea2f99c95b98488b425ee6e9b0a9fdee78e69e7ec03a5caddaacb84e9`; the
+untouched package remained at
+`ca4c04f5c540bf59cef13b93b301a9fe31134080650977b1a57e760567ce4cff`.
+Post-boot `release.py verify`, package checksums, and `qemu-img check` passed.
+The 20-entry evidence manifest verifies at
+`out/evidence/m30-clean-release-bb43b7f/`.
+
+The release manifest continues to set `m30_acceptance=NOT_EVALUATED`. This
+QEMU coverage does not authenticate updates or slot manifests. M30 remains
+`PARTIAL` for authenticated GPT update installation, remaining M18–M29
+acceptance, and human binary redistribution review. QEMU reported no host
+`virtio-sound.in` input driver, so audio I/O is not covered.

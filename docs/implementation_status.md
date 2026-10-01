@@ -2476,7 +2476,7 @@ Use only these statuses:
 | M27 | A/B / Recovery | PARTIAL | The full GPT A/B, Recovery, and M22 grouped-Undo acceptance passed after the M29 persistence change at `out/evidence/m27-ab-rollback-1790816764088451000/`, then passed in both repetitions of the fresh M28 two-repetition gate at `out/evidence/m27-ab-rollback-1790818018301818000/` and `out/evidence/m27-ab-rollback-1790818130409530000/`. Both new 37-entry SHA-256 manifests verify. A separate preceding run timed out in an OVMF loop before guest output; its cause remains unknown. Account-authenticated readiness, authenticated slot manifests/update installation, and remaining Recovery repair/log features remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | A fresh `NAGI_M28_REPEAT_COUNT=2 ... --run` completed both repetitions across M19 ObjectId/Search, three-boot M22 grouped Undo/Activity Ledger, and M27 GPT A/B/Recovery. The 20-entry evidence manifest is at `out/evidence/m28-run-20261001T012645Z-75535/`; both M27 sub-runs have verified 37-entry manifests. Fixed-name inputs and starting disks were preserved before the run. Earlier OVMF/QEMU startup timeouts remain unexplained. The full Desktop/Files/Notes/Albert workload, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | The M10 Settings selector persists canonical `en-US` / `ja-JP` in User Data and restores the selected language after restart. The latest QEMU run at `out/evidence/m29-settings-1790850851718829000/` passed Tab/Enter/Escape/Up/Down/Space navigation, existing M10 Desktop interactions, locale persistence, and same-disk restoration; its nine-entry SHA-256 manifest verifies. The tracked screenshot shows the keyboard focus ring. The Settings-only focus path does not provide system-wide keyboard focus or an accessibility tree. Localization has six passing tests; the CLI suite has 152 unit and 21 integration tests, and the M29 Nagi target build passes. Windows CI run `36802487593` on `e2b9d48` passed all Windows, Ubuntu, and Nagi-target jobs, including M17/M18 and M19/M22/M27/M29/M30 acceptance. Cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | PARTIAL | Clean-source release preflight, assembly, and verification passed for `805f2bb`; the bundle contains 23 valid checksums and a byte-identical 64 GiB GPT qcow2. Its disposable package copy passed two System A/User Data boots, Model Store read-only and M27 confirmed-A checks, and M7 persistence acceptance; post-boot verification, checksums, and `qemu-img check` passed. Evidence is in `out/evidence/m30-clean-release-805f2bb/`. The manifest retains `m30_acceptance=NOT_EVALUATED`. Authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
+| M30 | Nagi OS 0.1 Release | PARTIAL | On clean source commit `bb43b7f`, `./nagi m30` built a 64 GiB GPT qcow2 (SHA-256 `ca4c04f5c540bf59cef13b93b301a9fe31134080650977b1a57e760567ce4cff`) and passed System A, Model Store read-only capability, User Data write/restart read, and the M20 5,000-byte FAT32 fixture. Release preflight, assembly, verification, all 12 release-tool tests, and 23 bundle checksums passed. A byte-identical package copy passed two System A boots and M7 persistence; the package remained unchanged, and post-boot verification and qcow2 checks passed. Evidence is in `out/evidence/m30-release-1790851367488764000/` and `out/evidence/m30-clean-release-bb43b7f/`; the SHA-256 manifests verify. `m30_acceptance=NOT_EVALUATED`. Authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
 
@@ -6832,6 +6832,41 @@ sequence, all existing M10 Desktop markers, language persistence, and restart
 restoration. Guest READY arrived after 2,407 ms. Its nine-entry SHA-256 manifest
 verifies at `out/evidence/m29-settings-1790850851718829000/`; the screenshot
 SHA-256 is `8822118a65187b7e29afcba781c3a659e043263f00a7f823ef1c94aae17d323d`.
-`./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build` After the arrow-transition fix, top-level format, test, lint, and build, warnings-denied CLI Clippy, all 152 CLI unit tests and 21 integration tests, the M29 Nagi target build, and QEMU acceptance passed. The
+After the arrow-transition fix, `./nagi fmt`, `./nagi test`, `./nagi lint`,
+`./nagi build`, warnings-denied CLI Clippy, all 152 CLI unit tests and 21
+integration tests, the M29 Nagi target build, and QEMU acceptance passed. The
 M29 feature remains limited to Settings and does not add a system-wide focus
 model or accessibility tree; M29 remains `PARTIAL`.
+
+## Completion sweep — bb43b7f M30 current-source release (2026-10-01)
+
+On clean source commit bb43b7f36eb8d4ccdbceabada720e68b71dc113c,
+./nagi m30 built a fresh self-contained 64 GiB GPT qcow2. Its SHA-256 is
+ca4c04f5c540bf59cef13b93b301a9fe31134080650977b1a57e760567ce4cff. GPT
+System A, read-only Model Store capability, User Data write/restart-read, and
+M7 acceptance passed. The separate M20 FAT32 fixture passed its 5,000-byte
+cross-cluster and EOF read. qemu-img check passed for the pristine image,
+mutable acceptance image, and fixture. The nine-entry evidence manifest
+verifies under out/evidence/m30-release-1790851367488764000/.
+
+Release preflight, assembly, and verification passed; all 12 standard-library
+release-tool tests passed. The bundle at
+out/artifacts/m30-release-bundle-bb43b7f/ contains 23 checksum-covered files
+and records the full source revision. Its qcow2 is byte-identical to the
+accepted reference image. A byte-identical disposable package copy booted twice
+with shared OVMF variables: System A, Model Store read-only, confirmed-A, User
+Data format/write, restart persistence, and Nagi M7 acceptance PASS. The
+copy changed from SHA-256
+ca4c04f5c540bf59cef13b93b301a9fe31134080650977b1a57e760567ce4cff to
+474ea42ea2f99c95b98488b425ee6e9b0a9fdee78e69e7ec03a5caddaacb84e9 after
+guest writes; the untouched package retained its original digest. Post-boot
+release verification, all bundle checksums, both package qcow2 checks, and the
+20-entry evidence manifest passed under
+out/evidence/m30-clean-release-bb43b7f/.
+
+The previous accepted reference image (4155639e8866bff430738d996b40eab350a514777a50a16511701476108f3714) was preserved before
+rebuilding from M29 keyboard-navigation sources. The current package still
+records m30_acceptance=NOT_EVALUATED: package integrity and guest QEMU
+acceptance are separate facts. M30 remains PARTIAL for authenticated GPT
+updates, remaining M18–M29 acceptance, and human binary redistribution review.
+QEMU lacked host virtio-sound.in; audio I/O is not covered.
