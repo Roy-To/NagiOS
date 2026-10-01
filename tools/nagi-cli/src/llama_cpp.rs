@@ -807,6 +807,22 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_hybrid_restore_patch_covers_recurrent_suffix_failure() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch =
+            fs::read_to_string(root.join(
+                "third_party/llama-cpp-patches/0007-nagi-hybrid-state-restore-rollback.patch",
+            ))
+            .expect("Nagi hybrid state-restore rollback patch");
+
+        assert!(patch.contains("llama_model_is_hybrid(model)"));
+        assert!(patch.contains("truncated recurrent suffix"));
+        assert!(patch.contains("state.size() - 1"));
+        assert!(patch.contains("empty_state_size"));
+        assert!(patch.contains("hybrid sequence retained state after failed restore"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

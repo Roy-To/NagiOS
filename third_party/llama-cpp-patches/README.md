@@ -31,6 +31,14 @@ Patch `0006-nagi-sampler-null-consumers.patch` documents the
 examples to stop before treating `LLAMA_TOKEN_NULL` as an end token, decoding
 it to text, or submitting it in a later batch.
 
+Patch `0007-nagi-hybrid-state-restore-rollback.patch` extends the existing
+state-restore failure test for generated hybrid models. It truncates the
+serialized recurrent suffix after attention state has been read and checks
+that a failed restore leaves the target sequence empty, returns its serialized
+state size to the empty baseline, and preserves another sequence's logits.
+This is host regression coverage for the rollback contract; it does not remove
+the current exception-based error propagation.
+
 The current no-exception coverage is incremental: the GGUF parser/writer,
 chat-template status lookup, and grammar parser translation unit compile
 without exceptions. The full Nagi-target `llama` build still fails on exception

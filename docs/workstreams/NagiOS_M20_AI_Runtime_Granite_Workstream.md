@@ -474,3 +474,19 @@ llama.cpp: it stopped while validating an existing generated Servo checkout
 that has a mismatched patch state. That checkout was left untouched. M20 stays
 `PARTIAL`; this patch does not provide a Nagi model consumer, backend, or
 inference result.
+
+## Hybrid state-restore rollback regression — 2026-10-02
+
+Patch `0007-nagi-hybrid-state-restore-rollback.patch` adds a case to the
+existing llama.cpp state-restore failure suite. For generated hybrid models,
+the test removes the last byte of a serialized sequence state, causing the
+recurrent suffix read to fail after the attention state has been restored. It
+then verifies that the failed operation leaves sequence 0 empty and does not
+change sequence 1 logits. The test also compares sequence 0's serialized state
+size with its empty baseline so leftover attention entries cannot pass solely
+because the recurrent position is empty. The source patch applies cleanly to
+the pinned llama.cpp revision. The patched host test target builds, a generated
+`granitehybrid-dense.gguf` fixture ran the new case and all nine state tests
+passed; the log is `out/logs/m20-hybrid-state-restore-20261002.log`. This
+confirms host rollback behavior only; it does not establish no-exceptions
+status propagation or guest inference. M20 remains `PARTIAL`.
