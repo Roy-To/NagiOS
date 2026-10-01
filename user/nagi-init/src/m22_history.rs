@@ -400,6 +400,7 @@ impl ActionHandler<M22FixturePolicy> for M22MoveAction {
                 object_id: handle.object_id,
                 from_name: handle.source_name,
                 to_name: handle.destination_name,
+                source_contents: handle.contents,
             }
         });
         let transaction_id = self

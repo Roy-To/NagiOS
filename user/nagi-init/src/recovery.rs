@@ -511,6 +511,80 @@ fn undo_conflict_fixture(volume: &mut GuestVolume) -> UndoFixtureResult {
         return UndoFixtureResult::ConflictFailed;
     }
 
+    let Some(content_conflict_action) = batch.actions().next() else {
+        return UndoFixtureResult::ConflictFailed;
+    };
+    let (content_conflict_name, content_conflict_name_length) =
+        content_conflict_action.from_name.bytes();
+    let content_conflict_name = &content_conflict_name[..content_conflict_name_length];
+    let mut original_contents = [0; MAX_FILE_SIZE];
+    let original_length = {
+        let volume = &mut backend.file_store_mut().volume;
+        let Ok(handle) = volume.open(content_conflict_name) else {
+            return UndoFixtureResult::ConflictFailed;
+        };
+        match volume.read(handle, &mut original_contents) {
+            Ok(length) if length > 0 => length,
+            _ => return UndoFixtureResult::ConflictFailed,
+        }
+    };
+    let original_first_byte = original_contents[0];
+    original_contents[0] ^= 0xff;
+    let tamper_written = {
+        let volume = &mut backend.file_store_mut().volume;
+        volume
+            .open(content_conflict_name)
+            .and_then(|handle| volume.write(handle, &original_contents[..original_length]))
+            .and_then(|()| volume.flush())
+            .is_ok()
+    };
+    if !tamper_written {
+        return UndoFixtureResult::ConflictFailed;
+    }
+    let content_conflict_result = apply_prepared_undo(&mut history, &mut backend, record, batch);
+    let persisted_content_conflict = if content_conflict_result == UndoResult::Conflict {
+        let loaded = backend
+            .load_archive(&mut archive)
+            .ok()
+            .flatten()
+            .and_then(|length| HistoryService::restore_recoverable(&archive[..length]).ok());
+        loaded.is_some_and(|persisted| {
+            transaction_has_state(
+                &persisted,
+                transaction_id,
+                TransactionState::Committed,
+                action_count,
+            ) && batch.actions().all(|action| {
+                let expected = if action.sequence == content_conflict_action.sequence {
+                    UndoActionState::Conflict
+                } else {
+                    UndoActionState::Forward
+                };
+                undo_action_state(
+                    &persisted,
+                    transaction_id,
+                    backend.file_store_mut().volume,
+                    action,
+                ) == expected
+            })
+        })
+    } else {
+        false
+    };
+    original_contents[0] = original_first_byte;
+    let original_restored = {
+        let volume = &mut backend.file_store_mut().volume;
+        volume
+            .open(content_conflict_name)
+            .and_then(|handle| volume.write(handle, &original_contents[..original_length]))
+            .and_then(|()| volume.flush())
+            .is_ok()
+    };
+    if !persisted_content_conflict || !original_restored {
+        return UndoFixtureResult::ConflictFailed;
+    }
+    libnagi::console_write(b"Nagi M27 Recovery same-path move content conflict PASS\r\n");
+
     let conflict_name = last_action.to_name;
     let (conflict_name_bytes, conflict_name_length) = conflict_name.bytes();
     let conflict_name_bytes = &conflict_name_bytes[..conflict_name_length];
@@ -704,14 +778,29 @@ fn undo_action_state(
                 None => UndoActionState::Conflict,
             }
         }
-        UndoOperation::MoveBack => match (
-            named_file_exists(volume, from_name),
-            named_file_exists(volume, to_name),
-        ) {
-            (Some(true), Some(false)) => UndoActionState::Forward,
-            (Some(false), Some(true)) => UndoActionState::Inverse,
-            _ => UndoActionState::Conflict,
-        },
+        UndoOperation::MoveBack => {
+            let expected_digest = &action.content[..action.content_length];
+            match (
+                named_file_exists(volume, from_name),
+                named_file_exists(volume, to_name),
+            ) {
+                (Some(true), Some(false))
+                    if action.content_length == 0
+                        || named_file_digest_matches(volume, from_name, expected_digest)
+                            == Some(true) =>
+                {
+                    UndoActionState::Forward
+                }
+                (Some(false), Some(true))
+                    if action.content_length == 0
+                        || named_file_digest_matches(volume, to_name, expected_digest)
+                            == Some(true) =>
+                {
+                    UndoActionState::Inverse
+                }
+                _ => UndoActionState::Conflict,
+            }
+        }
     }
 }
 
@@ -731,6 +820,27 @@ fn named_file_exists(volume: &mut GuestVolume, name: &[u8]) -> Option<bool> {
         Ok(_) => Some(true),
         Err(StorageError::NotFound) => Some(false),
         Err(_) => None,
+    }
+}
+
+fn named_file_digest_matches(
+    volume: &mut GuestVolume,
+    name: &[u8],
+    expected_digest: &[u8],
+) -> Option<bool> {
+    match volume.open(name) {
+        Ok(handle) => {
+            let mut contents = [0; MAX_FILE_SIZE];
+            match volume.read(handle, &mut contents) {
+                Ok(length) => Some(nagi_history::move_content_matches_digest(
+                    &contents[..length],
+                    expected_digest,
+                )),
+                Err(_) => Some(false),
+            }
+        }
+        Err(StorageError::NotFound) => None,
+        Err(_) => Some(false),
     }
 }
 

@@ -285,6 +285,7 @@ mod tests {
                     object_id: ObjectId(4),
                     from_name: b"before",
                     to_name: b"after",
+                    source_contents: b"moved file contents",
                 }],
             )
             .unwrap();

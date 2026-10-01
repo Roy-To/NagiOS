@@ -91,10 +91,12 @@ trial-1/B default boot. Evidence is in
 before it serializes `UndoPending` or applies any mutation. Delete and restore
 actions compare file bytes with their recorded snapshots. Edit actions accept
 only the recorded forward or inverse bytes; the forward snapshot is borrowed
-from NH16 by record sequence and is not copied into the undo batch. MoveBack
-checks that exactly one of the source and destination paths exists. NH16 Move
-records contain no content snapshot, so this check cannot establish file
-identity; that remains an explicit limit of Move Undo.
+from NH16 by record sequence and is not copied into the undo batch. New NH16
+Move records store a SHA-256 digest of the source file in the existing `before`
+snapshot field. MoveBack checks that exactly one of the source and destination
+paths exists and that the present file matches this digest. The NH16 version
+and serialized layout are unchanged. Older Move records with an empty `before`
+snapshot retain the legacy path-only check.
 
 If any preflight action conflicts, Recovery returns without changing a file
 or persisting `UndoPending`. On retry after a process restart, an existing
@@ -111,6 +113,21 @@ and the persisted transaction remains `Committed`. It then persists
 simulated restart. The second pass completes and persists `Undone`. Fresh
 `./nagi m27` evidence with both markers is in
 `out/evidence/m27-ab-rollback-1790857169644407000/`.
+
+The 2026-10-02 Completion Sweep adds a same-path replacement-content conflict
+to the Recovery fixture. It mutates a moved file without changing its name,
+verifies that preflight reports only that action as `Conflict` while the
+transaction remains `Committed`, restores the file, then continues the
+existing name-conflict and restartable Undo checks. The host `nagi-history`
+tests cover digest persistence, tampered-content rejection, exact digest
+length, and recovery of older zero-length records. `./nagi m22` passes all
+three guest boots with digest-bearing Move records. The fresh `./nagi m27`
+attempt printed the new content-conflict marker at
+`out/evidence/m27-ab-rollback-1790881641572651000/recovery-boot.log`, then
+timed out before guest output on a later Recovery boot with pending System B;
+QMP again reported the OVMF loop at RIP `0x7eb84171` in
+`recovery-preserved-trial-journal.log`. Thus the new subtest passed, but this
+full rerun is not an M27 acceptance pass.
 
 ## Implemented
 
@@ -291,8 +308,8 @@ they do not establish firmware persistence or guest boot behavior.
 3. Extend Recovery beyond its current bounded console with persistent boot-log
    retrieval, the remaining important-file/history restore operations, an
    advanced terminal, and basic filesystem repair; the current checker is
-   intentionally read-only. MoveBack Undo can validate path occupancy only
-   because the current NH16 Move records do not preserve file content identity.
+   intentionally read-only. Older NH16 Move records without a digest still
+   validate path occupancy only.
 
 Until those pieces pass their acceptance criteria, M27 remains PARTIAL.
 

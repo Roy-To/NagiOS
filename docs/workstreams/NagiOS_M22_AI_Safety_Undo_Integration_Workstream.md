@@ -29,6 +29,13 @@ retry. The legacy `serialize()` still emits metadata-only `NH15` for M15; it
 does not restore undo data, and the current M15 guest acceptance is not yet
 wired to `NH16`.
 
+Move records now place a SHA-256 digest of the source file in the existing
+NH16 `before` snapshot field. This preserves the NH16 version and serialized
+layout while allowing Recovery to detect same-path replacement content before
+MoveBack Undo. New grouped-move callers provide the source bytes when creating
+the history record. A zero-length digest remains accepted for older NH16 Move
+records and retains their path-only conflict behavior.
+
 The separate `NAL1` AI Activity Ledger records bounded user intent, optional
 selected model, action ID, plan summary, logical caller context, Object IDs,
 transaction ID, and monotonic result transitions. It stores no hidden
@@ -119,6 +126,22 @@ The full M22 result remains `PARTIAL` because the accepted guest path is a
 deterministic fixture and production authenticated IPC/capability providers,
 production AI service registration, model inference, and the production
 Activity Ledger service remain absent.
+
+### Completion Sweep — Move content identity (2026-10-02)
+
+The NH16 Move record uses the existing `before` bytes to hold SHA-256 of the
+source contents. NH16 version and record layout are unchanged. `MoveRecord`
+callers now supply the source bytes; Move Undo carries the digest into Recovery
+preflight. New records reject a same-path replacement, while old records with
+empty `before` data remain recoverable through the legacy path-only check.
+
+`cargo test --locked --offline -p nagi-history` passed 20 tests, warnings-denied
+History Clippy passed, and the Nagi target release build of `nagi-init` with
+`m27-recovery-undo-acceptance` passed. Fresh `./nagi m22` passed all three
+boots, including grouped Move/Copy, archive recovery, Undo, and restored files;
+its serial logs are `out/logs/m22-history-1790881123242172000-boot-{1,2,3}.log`.
+Production actions and caller authority remain fixture-scoped, so M22 remains
+`PARTIAL`.
 
 - `cargo test --locked --offline -p nagi-ai -p nagi-history --all-targets` —
   PASS, 24 orchestration tests and 14 History/Activity Ledger tests. NAL1 tests

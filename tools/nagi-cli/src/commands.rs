@@ -5000,6 +5000,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "Nagi M27 Recovery current-boot log PASS",
         "Nagi M27 Recovery files PASS",
         "Nagi M27 Recovery history PASS entries=",
+        "Nagi M27 Recovery same-path move content conflict PASS",
         "Nagi M27 Recovery undo preflight conflict PASS",
         "Nagi M27 Recovery interrupted undo retry PASS",
         "Nagi M27 Recovery NH16 undo PASS",

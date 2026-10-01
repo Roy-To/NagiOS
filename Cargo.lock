@@ -3444,6 +3444,7 @@ name = "nagi-history"
 version = "0.1.0"
 dependencies = [
  "nagi-model",
+ "sha2",
 ]
 
 [[package]]

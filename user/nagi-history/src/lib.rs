@@ -9,6 +9,9 @@ pub const MAX_RECORDS: usize = 16;
 pub const MAX_SNAPSHOT_BYTES: usize = 1024;
 pub const MAX_NAME_BYTES: usize = 32;
 pub const MAX_ARCHIVE_BYTES: usize = 36 * 1024;
+pub const MOVE_CONTENT_DIGEST_BYTES: usize = 32;
+
+use sha2::{Digest, Sha256};
 
 pub mod activity_ledger;
 pub mod guest;
@@ -56,6 +59,17 @@ pub struct MoveRecord<'a> {
     pub object_id: ObjectId,
     pub from_name: &'a [u8],
     pub to_name: &'a [u8],
+    pub source_contents: &'a [u8],
+}
+
+/// Checks file contents against the SHA-256 digest stored in a recoverable
+/// Move record. Empty digests indicate legacy records and are handled by the
+/// caller using the legacy path-only conflict check.
+pub fn move_content_matches_digest(contents: &[u8], expected_digest: &[u8]) -> bool {
+    if expected_digest.len() != MOVE_CONTENT_DIGEST_BYTES {
+        return false;
+    }
+    Sha256::digest(contents).as_slice() == expected_digest
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -333,6 +347,7 @@ impl HistoryService {
         self.next_transaction_id += 1;
         for (index, movement) in moves.iter().enumerate() {
             let (before_name, after_name) = names[index].ok_or(HistoryError::InvalidRecord)?;
+            let source_digest = Sha256::digest(movement.source_contents);
             self.push_with_transaction(
                 transaction_id,
                 context,
@@ -340,7 +355,7 @@ impl HistoryService {
                 movement.object_id,
                 before_name,
                 after_name,
-                &[],
+                source_digest.as_slice(),
                 &[],
                 TransactionState::Prepared,
             )?;
@@ -929,7 +944,7 @@ fn inverse_of(entry: Entry) -> UndoAction {
             entry.before,
             entry.before.length,
         ),
-        Operation::Move => (UndoOperation::MoveBack, Snapshot::EMPTY, 0),
+        Operation::Move => (UndoOperation::MoveBack, entry.before, entry.before.length),
         Operation::Delete => (UndoOperation::Restore, entry.before, entry.before.length),
         Operation::Restore => (UndoOperation::Delete, entry.after, entry.after.length),
     };
@@ -1150,6 +1165,7 @@ mod tests {
         ActivityContext, AppId, AppSessionId, HistoryError, HistoryService, MoveRecord, NodeId,
         ObjectId, Operation, SurfaceId, TransactionId, UndoOperation, WorkspaceId,
     };
+    use sha2::{Digest, Sha256};
     use std::vec::Vec;
 
     const CONTEXT: ActivityContext = ActivityContext {
@@ -1326,16 +1342,19 @@ mod tests {
                         object_id: ObjectId(101),
                         from_name: b"one",
                         to_name: b"moved-one",
+                        source_contents: b"one contents",
                     },
                     MoveRecord {
                         object_id: ObjectId(102),
                         from_name: b"two",
                         to_name: b"moved-two",
+                        source_contents: b"two contents",
                     },
                     MoveRecord {
                         object_id: ObjectId(103),
                         from_name: b"three",
                         to_name: b"moved-three",
+                        source_contents: b"three contents",
                     },
                 ],
             )
@@ -1379,6 +1398,19 @@ mod tests {
                 .collect::<Vec<_>>(),
             [ObjectId(103), ObjectId(102), ObjectId(101)]
         );
+        let first_action = batch.actions().next().unwrap();
+        assert_eq!(
+            first_action.content_length,
+            super::MOVE_CONTENT_DIGEST_BYTES
+        );
+        assert!(super::move_content_matches_digest(
+            b"three contents",
+            &first_action.content[..first_action.content_length]
+        ));
+        assert!(!super::move_content_matches_digest(
+            b"tampered contents",
+            &first_action.content[..first_action.content_length]
+        ));
 
         let pending_length = restored.serialize_recoverable(&mut archive).unwrap();
         let mut after_restart =
@@ -1397,6 +1429,41 @@ mod tests {
             after_restart.prepare_undo_transaction(transaction, M22_CONTEXT),
             Err(HistoryError::TransactionAlreadyUndone)
         );
+    }
+
+    #[test]
+    fn legacy_move_records_without_digest_remain_recoverable() {
+        let mut history = HistoryService::new();
+        history
+            .record_move(CONTEXT, ObjectId(12), b"before", b"after")
+            .unwrap();
+        let record = history.record_at(0).unwrap();
+        let mut archive = [0; 36 * 1024];
+        let length = history.serialize_recoverable(&mut archive).unwrap();
+        let mut restored = HistoryService::restore_recoverable(&archive[..length]).unwrap();
+        let batch = restored
+            .prepare_undo_transaction(record.transaction_id, CONTEXT)
+            .unwrap();
+        let action = batch.actions().next().unwrap();
+        assert_eq!(action.operation, UndoOperation::MoveBack);
+        assert_eq!(action.content_length, 0);
+    }
+
+    #[test]
+    fn move_content_digest_requires_exact_sha256_bytes() {
+        let digest = Sha256::digest(b"file contents");
+        assert!(super::move_content_matches_digest(
+            b"file contents",
+            digest.as_slice()
+        ));
+        assert!(!super::move_content_matches_digest(
+            b"other contents",
+            digest.as_slice()
+        ));
+        assert!(!super::move_content_matches_digest(
+            b"file contents",
+            &[0; 31]
+        ));
     }
 
     #[test]
@@ -1445,11 +1512,13 @@ mod tests {
                         object_id: ObjectId(1),
                         from_name: b"valid",
                         to_name: b"moved",
+                        source_contents: b"valid contents",
                     },
                     MoveRecord {
                         object_id: ObjectId(2),
                         from_name: b"x",
                         to_name: &[b'x'; super::MAX_NAME_BYTES + 1],
+                        source_contents: b"invalid name contents",
                     },
                 ]
             ),
@@ -1463,6 +1532,7 @@ mod tests {
                     object_id: ObjectId(3),
                     from_name: b"source",
                     to_name: b"destination",
+                    source_contents: b"source contents",
                 }],
             )
             .unwrap();
