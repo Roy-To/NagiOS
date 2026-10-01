@@ -85,6 +85,33 @@ of the committed guest transaction, restart verification, and the untouched
 trial-1/B default boot. Evidence is in
 `out/evidence/m27-ab-rollback-1790740066889678000/`.
 
+## Conflict-safe and restartable Recovery Undo
+
+`undo_latest` now checks every inverse action against the current guest files
+before it serializes `UndoPending` or applies any mutation. Delete and restore
+actions compare file bytes with their recorded snapshots. Edit actions accept
+only the recorded forward or inverse bytes; the forward snapshot is borrowed
+from NH16 by record sequence and is not copied into the undo batch. MoveBack
+checks that exactly one of the source and destination paths exists. NH16 Move
+records contain no content snapshot, so this check cannot establish file
+identity; that remains an explicit limit of Move Undo.
+
+If any preflight action conflicts, Recovery returns without changing a file
+or persisting `UndoPending`. On retry after a process restart, an existing
+`UndoPending` transaction takes priority over later `Committed` transactions.
+The normal inverse actions accept their already-inverted file state, allowing
+Recovery to finish a partially applied Undo idempotently.
+
+The M27-only `m27-recovery-undo-acceptance` init feature exposes a hidden
+fixture command; production Recovery images keep the ordinary
+`m27-recovery` feature. The QEMU fixture conflicts the last action in a
+three-file MoveBack batch and verifies that earlier actions remain forward
+and the persisted transaction remains `Committed`. It then persists
+`UndoPending`, applies the first inverse, and invokes Recovery Undo again as a
+simulated restart. The second pass completes and persists `Undone`. Fresh
+`./nagi m27` evidence with both markers is in
+`out/evidence/m27-ab-rollback-1790857169644407000/`.
+
 ## Implemented
 
 - The confirmed slot is retained while the other slot is staged as pending.
@@ -264,7 +291,8 @@ they do not establish firmware persistence or guest boot behavior.
 3. Extend Recovery beyond its current bounded console with persistent boot-log
    retrieval, the remaining important-file/history restore operations, an
    advanced terminal, and basic filesystem repair; the current checker is
-   intentionally read-only.
+   intentionally read-only. MoveBack Undo can validate path occupancy only
+   because the current NH16 Move records do not preserve file content identity.
 
 Until those pieces pass their acceptance criteria, M27 remains PARTIAL.
 
