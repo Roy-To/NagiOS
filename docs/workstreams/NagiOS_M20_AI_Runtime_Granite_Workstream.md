@@ -9,12 +9,13 @@ reuses the existing Model Runtime / Model Store Foundation. The shared
 `nagi-model-manager` contract is a user-space `no_std` library. Its providers
 return untrusted output and do not grant operating-system authority.
 
-The manager's fake test backend remains test-only. The Granite profile now
-pins IBM's official GGUF repository snapshot, the Q4_K_M file, its upstream
-SHA-256/size metadata, and Apache-2.0 notice metadata. The 2.24 GB artifact
-was streamed from the pinned revision directly into SHA-256 verification; the
-observed digest matched the profile. The model file was not retained or
-installed. `ModelRuntime::load` independently performs that check on artifact
+The manager's fake test backend remains test-only. The Granite profile pins
+IBM's official GGUF repository snapshot, the Q4_K_M file, its upstream
+SHA-256/size metadata, and Apache-2.0 notice metadata. An earlier 2.24 GB
+streamed digest check matched without retaining a file. On 2026-10-02, the
+exact locked artifact was downloaded to the ignored local cache and its size
+and SHA-256 were verified again; the file is not installed in the guest Model
+Store or loaded by Nagi. `ModelRuntime::load` independently hashes artifact
 bytes before calling any backend.
 
 ## Implemented and verified
@@ -130,9 +131,11 @@ CARGO_TARGET_DIR=/tmp/nagi-m20-target \
   --target targets/x86_64-unknown-nagi-user.json --locked --offline
 ```
 
-The Granite source bytes were streamed to a local SHA-256 process without
-writing a 2.24 GB artifact file; the calculated digest matched the pinned
-profile. The patch applier was separately exercised against a temporary Git
+The Granite source bytes were initially streamed to a local SHA-256 process
+without writing a 2.24 GB artifact file; the calculated digest matched the
+pinned profile. The exact file was later downloaded and independently
+verified in the ignored cache; it is not installed in the guest. The patch
+applier was separately exercised against a temporary Git
 source tree: numeric-order patches applied to an isolated clone, the pristine
 source stayed unchanged, and tampering with the generated tree was rejected.
 Three focused llama.cpp patch/lock tests, all 119 CLI unit tests, and all 18
@@ -490,3 +493,45 @@ the pinned llama.cpp revision. The patched host test target builds, a generated
 passed; the log is `out/logs/m20-hybrid-state-restore-20261002.log`. This
 confirms host rollback behavior only; it does not establish no-exceptions
 status propagation or guest inference. M20 remains `PARTIAL`.
+
+## Granite artifact download and patch 0007 checkout — 2026-10-02
+
+Downloaded the exact Granite 4.2 3B Q4_K_M artifact pinned in
+`third_party/models.lock` to the ignored cache at
+`out/cache/models/granite-4.2-3b-Q4_K_M-c40945d71cd90f249a56985e8155551a9188dc30.gguf`.
+Its verified size is 2,244,011,552 bytes and its SHA-256 is
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`, matching
+the lock. The evidence manifest at
+`out/evidence/m20-granite-model-download-20261002/SHA256SUMS` covers the README
+and downloaded bytes. The file is local cache only; it has not been added to a
+Model Store image or loaded on Nagi.
+
+Before regenerating, the checkout with patches 0001–0006 was preserved at
+`out/cache/llama-cpp-nagi-before-0007-20261002/`. `./nagi fetch` generated a
+fresh pinned checkout with patches 0001–0007 and a matching marker. It then
+stopped with exit 4 at an existing mismatched generated Servo source state;
+that checkout was not modified. The fetch log is
+`out/logs/nagi-fetch-m20-0007-20261002.log`. Patch 0007 adds only host
+hybrid-state rollback coverage; it does not resolve the target's exception
+paths or establish inference.
+
+The model is still absent from guest Model Store, the Nagi target `llama`
+build remains incomplete, and there is no model service or inference result.
+M20 remains `PARTIAL`.
+
+The fresh patch-0007 host `test-save-load-state` target built and passed all
+nine state tests against the generated `granitehybrid-dense.gguf` fixture.
+This confirms host rollback behavior only. Its test log is
+`out/logs/m20-hybrid-state-restore-patch0007-20261002.log`; the generated
+`dump_state.bin` output, README, and checksums are preserved under
+`out/evidence/m20-hybrid-state-restore-patch0007-20261002/`.
+
+The first full target-build invocation omitted `NAGI_CXX_HEADERS` and failed
+on missing C++ standard headers before reaching source diagnostics. Re-running
+the same fresh patch-0007 checkout through the target wrapper with Homebrew
+LLVM 19 and its matching libc++ headers compiled far enough to expose the
+remaining no-exception blocker: 26 object targets fail with `throw`/`try`
+diagnostics across 55 distinct source paths. The complete build output is
+`out/logs/m20-target-build-patch0007-cxx19-headers-20261002.log`. No sources
+were omitted and exception-dependent errors were not changed to aborts. M20
+remains `PARTIAL`; no target inference is claimed.

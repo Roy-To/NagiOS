@@ -44,7 +44,11 @@ is `out/logs/m19-vfs-objectid-initial.log`.
 **M20 evidence:** The provider-neutral `no_std` model manager verifies actual
 artifact bytes with streaming SHA-256 before backend load. Its catalog pins the
 IBM Granite 4.2 3B Q4_K_M source revision, size, digest, and Apache notice;
-the upstream stream matched the digest and was not retained. Nagi now has a
+an initial streamed digest check matched without retaining a file; on
+2026-10-02, the exact artifact was downloaded to the ignored local cache and
+independently size/hash verified at
+`out/evidence/m20-granite-model-download-20261002/`. It is not installed in
+the guest Model Store and has not been loaded for inference. Nagi now has a
 numbered GGUF patch that bounds parser metadata, returns parse errors without
 C++ exceptions, writes tensor data in 8 KiB chunks, and surfaces buffered write
 and flush failures. `./nagi fetch` applied it while preserving the clean pinned
@@ -70,8 +74,8 @@ target compilation, formatting, lint, repository tests/build, and M30 QEMU
 passed. A FAT32 fixture now reaches `ModelRuntime::load`; the runtime hashes
 actual bytes, accepts a matching digest, and rejects a wrong digest before
 backend load. This uses an orchestration fake and is not inference. No complete
-llama.cpp backend, installed Granite artifact, active model service, or real
-in-guest Granite response exists, so M20 remains
+llama.cpp backend, Granite artifact installed into a guest Model Store, active
+model service, or real in-guest Granite response exists, so M20 remains
 `PARTIAL`; build evidence is in
 `out/evidence/m20-backend-reg-noexceptions-20261001/` and reader acceptance is
 in `out/evidence/m30-release-1790806831243045000/`. A separate 2026-10-01
@@ -2518,7 +2522,7 @@ Use only these statuses:
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Twenty-nine Search tests, warnings-denied Clippy, format, Nagi target compile, and QEMU persistence/rename acceptance pass. Guest executes bounded M21 `file.search` through ContextResolver, Validator, Action Registry, and Executor; the M22 fixture records its executed result in NAL1 with `transaction_id=None`. Caller policy remains fixture-only. Real Files/page producer synchronization and authenticated production IPC remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
-| M20 | AI Runtime / Granite | PARTIAL | `third_party/models.lock` pins the exact Granite 4.2 3B GGUF revision, filename, size, SHA-256, Apache-2.0 notice, acknowledgement, and Model Store ID; a CLI contract test matches it to the checked-in manifest. Added a bounded structured-output schema contract to `ModelRequest`: `structured.generate` requires a schema, duplicate-key and schema-invalid results are rejected before return, unsupported streaming fails closed, and the planner output budget is 1,024 tokens (matching the three current bundled manifests). The NagiPlan@1 schema and output complexity limits are checked; package suites, warnings-denied Clippy, Nagi no-std compilation, `./nagi fmt/test/lint/build`, and fresh M22 QEMU regression pass. No model bytes or real backend/inference exist; Nagi-target llama still fails on exception-dependent source paths. Numbered grammar-status and sampler-sentinel patches keep the failure result explicit through all direct example callers; a hybrid recurrent-suffix truncation regression now verifies rollback on a generated host fixture. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
+| M20 | AI Runtime / Granite | PARTIAL | `third_party/models.lock` pins the exact Granite 4.2 3B GGUF revision, filename, size, SHA-256, Apache-2.0 notice, acknowledgement, and Model Store ID; a CLI contract test matches it to the checked-in manifest. Added a bounded structured-output schema contract to `ModelRequest`: `structured.generate` requires a schema, duplicate-key and schema-invalid results are rejected before return, unsupported streaming fails closed, and the planner output budget is 1,024 tokens (matching the three current bundled manifests). The NagiPlan@1 schema and output complexity limits are checked; package suites, warnings-denied Clippy, Nagi no-std compilation, `./nagi fmt/test/lint/build`, and fresh M22 QEMU regression pass. The exact Granite model bytes are now downloaded and verified in the ignored local cache, but are not installed into a guest Model Store; Nagi-target llama still fails on exception-dependent source paths, with no real backend or inference. Numbered grammar-status and sampler-sentinel patches keep the failure result explicit through all direct example callers; a hybrid recurrent-suffix truncation regression now verifies rollback on a generated host fixture. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
 | M21 | Planner / Validator / Executor | PARTIAL | `services/nagi-ai` supplies the authoritative NagiPlan@1 schema to model requests and independently validates provider output at the generic adapter boundary; deterministic parsing and Validator checks remain in force. Bounded guest `file.search`, fixture-scoped `file.move` and `file.copy` run through ContextResolver, Validator, Action Registry, capability/object checks, and Executor against real VFS state; executed search results flow into M22 NAL1. Host suites, Clippy, formatting, Nagi target compile, and QEMU acceptance pass. Policies, handlers, and caller identity remain fixture-only; production IPC/authenticated caller authority, model service integration, and general first-party actions remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`.
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh three-boot QEMU run `1790881123242172000` passed the digest-bearing grouped Move, bounded Copy, NAL1/NH16 persistence, Undo, and restart restoration; logs are `out/logs/m22-history-1790881123242172000-boot-{1,2,3}.log`. New Move records store source SHA-256 in the existing NH16 `before` field without changing archive version/layout, allowing Recovery to reject same-path replacement content; zero-length legacy records retain path-only behavior. Host History tests and the M27 Recovery subtest pass. Fixture policy/caller identity and action wiring remain non-production; real inference, authenticated production authority, general production actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
@@ -7520,3 +7524,40 @@ ignored cache. It has not been installed into the guest Model Store, loaded by
 the Nagi target, or used for inference. M25 remains `PARTIAL`; authenticated
 permission/UI, a connected Japanese STT provider, inference, local TTS, and
 spoken-command acceptance remain.
+
+## Completion Sweep — M20 Granite artifact and patch 0007 checkout (2026-10-02)
+
+Downloaded the pinned Granite 4.2 3B Q4_K_M artifact from the immutable
+revision in `third_party/models.lock` to
+`out/cache/models/granite-4.2-3b-Q4_K_M-c40945d71cd90f249a56985e8155551a9188dc30.gguf`.
+The file is exactly 2,244,011,552 bytes with SHA-256
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`, matching
+the lock. The GGUF magic is present. The local evidence manifest at
+`out/evidence/m20-granite-model-download-20261002/SHA256SUMS` covers the
+README and model bytes. The binary is in ignored cache only; it is not present
+in a Model Store image and has not been loaded or used for inference.
+
+The previous generated llama.cpp checkout, bound to patches 0001–0006, was
+preserved at `out/cache/llama-cpp-nagi-before-0007-20261002/`. A fresh
+`./nagi fetch` generated `out/cache/llama-cpp-nagi` with patches 0001–0007 and
+its matching revision/patch/tree fingerprints. The command validated this
+llama.cpp checkout and proceeded through the other earlier fetch components,
+then stopped with exit 4 at the pre-existing mismatched generated Servo state
+in `third_party/servo`; Servo was left untouched. Log:
+`out/logs/nagi-fetch-m20-0007-20261002.log`.
+
+This advances artifact availability and reproducible patch application only.
+The fresh patch-0007 host state test built and passed all nine cases using a
+generated hybrid fixture; this verifies rollback behavior on the host only.
+The first target-build invocation omitted `NAGI_CXX_HEADERS` and stopped on
+missing C++ standard headers. Re-running with the repository's target wrapper,
+Homebrew LLVM 19, and its matching libc++ headers exposed the actual current
+blocker: 26 object targets fail with no-exception `throw`/`try` diagnostics
+across 55 source paths. The complete output is
+`out/logs/m20-target-build-patch0007-cxx19-headers-20261002.log`; host test
+output is `out/logs/m20-hybrid-state-restore-patch0007-20261002.log`, with its
+generated state artifact preserved under
+`out/evidence/m20-hybrid-state-restore-patch0007-20261002/`.
+
+The guest Model Store remains empty, no model service loads Granite, and no
+inference has run. M20 remains `PARTIAL`.
