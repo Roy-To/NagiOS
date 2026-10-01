@@ -1,8 +1,13 @@
 use core::arch::asm;
 
+use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_FILE_SIZE};
 use libnagi::{DisplayInfo, InputEvent};
 
 use crate::ui::{rgba, Painter, Rect};
+
+type UserDataVolume = Vfs<SyscallBlockDevice>;
+
+const SYSTEM_LANGUAGE_PATH: &[u8] = b"system-language";
 
 const APP_COUNT: usize = 4;
 const WINDOW_WIDTH: i32 = 145;
@@ -54,6 +59,33 @@ static NAGI_M29_JAPANESE_SELECTED: [u8; b"Nagi M29 settings locale PASS locale=j
 #[no_mangle]
 static NAGI_M29_ACCEPTANCE: [u8; b"Nagi M29 settings acceptance PASS\r\n".len()] =
     *b"Nagi M29 settings acceptance PASS\r\n";
+#[no_mangle]
+static NAGI_M29_JAPANESE_PERSISTED: [u8;
+    b"Nagi M29 settings locale persisted PASS locale=ja-JP\r\n".len()] =
+    *b"Nagi M29 settings locale persisted PASS locale=ja-JP\r\n";
+#[no_mangle]
+static NAGI_M29_ENGLISH_PERSISTED: [u8;
+    b"Nagi M29 settings locale persisted PASS locale=en-US\r\n".len()] =
+    *b"Nagi M29 settings locale persisted PASS locale=en-US\r\n";
+#[no_mangle]
+static NAGI_M29_JAPANESE_RESTORED: [u8;
+    b"Nagi M29 settings preference restored PASS locale=ja-JP\r\n".len()] =
+    *b"Nagi M29 settings preference restored PASS locale=ja-JP\r\n";
+#[no_mangle]
+static NAGI_M29_ENGLISH_RESTORED: [u8;
+    b"Nagi M29 settings preference restored PASS locale=en-US\r\n".len()] =
+    *b"Nagi M29 settings preference restored PASS locale=en-US\r\n";
+#[no_mangle]
+static NAGI_SYSTEM_LANGUAGE_PREFERENCE_INVALID: [u8;
+    b"Nagi system language preference invalid; using en-US\r\n".len()] =
+    *b"Nagi system language preference invalid; using en-US\r\n";
+#[no_mangle]
+static NAGI_SYSTEM_LANGUAGE_PREFERENCE_UNAVAILABLE: [u8;
+    b"Nagi system language preference unavailable; using en-US\r\n".len()] =
+    *b"Nagi system language preference unavailable; using en-US\r\n";
+#[no_mangle]
+static NAGI_SETTINGS_LOCALE_PERSIST_FAIL: [u8; b"Nagi system language persistence FAIL\r\n".len()] =
+    *b"Nagi system language persistence FAIL\r\n";
 
 #[no_mangle]
 static NOTES_KANA: [u8; 3] = *b"\xe3\x81\x82";
@@ -88,7 +120,7 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    pub const fn new() -> Self {
+    pub const fn new(locale: nagi_localization::Locale) -> Self {
         Self {
             windows: [
                 Rect::new(8, 24, WINDOW_WIDTH, WINDOW_HEIGHT),
@@ -100,7 +132,7 @@ impl Desktop {
             pointer_x: POINTER_START_X,
             pointer_y: POINTER_START_Y,
             notes_has_input: false,
-            locale: nagi_localization::Locale::EnUs,
+            locale,
             settings_open: false,
         }
     }
@@ -156,7 +188,7 @@ impl Desktop {
         );
     }
 
-    pub fn handle_event(&mut self, event: InputEvent) -> bool {
+    pub fn handle_event(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> bool {
         if event.event_type == libnagi::INPUT_EVENT_REL {
             if event.code == libnagi::INPUT_REL_X {
                 self.pointer_x = clamp(self.pointer_x.saturating_add(event.value), 0, 319);
@@ -175,12 +207,30 @@ impl Desktop {
                 }
                 if self.settings_open {
                     if ENGLISH_OPTION.contains(self.pointer_x, self.pointer_y) {
+                        if !persist_locale(volume, nagi_localization::Locale::EnUs) {
+                            print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
+                            return false;
+                        }
                         self.locale = nagi_localization::Locale::EnUs;
+                        if cfg!(feature = "m29-settings-acceptance") {
+                            print(message!(
+                                NAGI_M29_ENGLISH_PERSISTED,
+                                NAGI_M29_ENGLISH_PERSISTED.len()
+                            ));
+                        }
                         return true;
                     }
                     if JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y) {
+                        if !persist_locale(volume, nagi_localization::Locale::JaJp) {
+                            print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
+                            return false;
+                        }
                         self.locale = nagi_localization::Locale::JaJp;
                         if cfg!(feature = "m29-settings-acceptance") {
+                            print(message!(
+                                NAGI_M29_JAPANESE_PERSISTED,
+                                NAGI_M29_JAPANESE_PERSISTED.len()
+                            ));
                             print(message!(NAGI_M29_JAPANESE_SELECTED, 44));
                         }
                         return true;
@@ -308,7 +358,7 @@ impl Desktop {
     }
 }
 
-pub fn run(display_capability: u64, input_capability: u64) -> ! {
+pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataVolume) -> ! {
     let mut info = DisplayInfo::default();
     if !libnagi::display_info(&mut info)
         || info.surface_bytes as usize != libnagi::SURFACE_BYTES
@@ -324,7 +374,8 @@ pub fn run(display_capability: u64, input_capability: u64) -> ! {
             libnagi::SURFACE_BYTES / core::mem::size_of::<u32>(),
         )
     };
-    let mut desktop = Desktop::new();
+    let preference = load_locale(&mut volume);
+    let mut desktop = Desktop::new(preference.locale());
     desktop.render(surface);
     if !libnagi::display_present(display_capability) {
         print(message!(NAGI_M10_FAIL, 26));
@@ -337,13 +388,44 @@ pub fn run(display_capability: u64, input_capability: u64) -> ! {
     let initial_checksum = checksum(surface);
     print(message!(NAGI_M10_READY, 24));
     print_checksum(initial_checksum);
+    match preference {
+        LocalePreference::Restored(nagi_localization::Locale::EnUs)
+            if cfg!(feature = "m29-settings-acceptance") =>
+        {
+            print(message!(
+                NAGI_M29_ENGLISH_RESTORED,
+                NAGI_M29_ENGLISH_RESTORED.len()
+            ));
+        }
+        LocalePreference::Restored(nagi_localization::Locale::JaJp)
+            if cfg!(feature = "m29-settings-acceptance") =>
+        {
+            print(message!(
+                NAGI_M29_JAPANESE_RESTORED,
+                NAGI_M29_JAPANESE_RESTORED.len()
+            ));
+        }
+        LocalePreference::Invalid => {
+            print(message!(
+                NAGI_SYSTEM_LANGUAGE_PREFERENCE_INVALID,
+                NAGI_SYSTEM_LANGUAGE_PREFERENCE_INVALID.len()
+            ));
+        }
+        LocalePreference::Unavailable => {
+            print(message!(
+                NAGI_SYSTEM_LANGUAGE_PREFERENCE_UNAVAILABLE,
+                NAGI_SYSTEM_LANGUAGE_PREFERENCE_UNAVAILABLE.len()
+            ));
+        }
+        LocalePreference::Restored(_) | LocalePreference::Missing => {}
+    }
     loop {
         let mut event = InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
             unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
             continue;
         }
-        if desktop.handle_event(event) {
+        if desktop.handle_event(event, &mut volume) {
             desktop.render(surface);
             if !libnagi::display_present(display_capability) {
                 print(message!(NAGI_M10_FAIL, 26));
@@ -365,6 +447,58 @@ pub fn run(display_capability: u64, input_capability: u64) -> ! {
             }
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum LocalePreference {
+    Missing,
+    Restored(nagi_localization::Locale),
+    Invalid,
+    Unavailable,
+}
+
+impl LocalePreference {
+    const fn locale(self) -> nagi_localization::Locale {
+        match self {
+            Self::Restored(locale) => locale,
+            Self::Missing | Self::Invalid | Self::Unavailable => nagi_localization::Locale::EnUs,
+        }
+    }
+}
+
+fn load_locale(volume: &mut UserDataVolume) -> LocalePreference {
+    let handle = match volume.open_path(SYSTEM_LANGUAGE_PATH) {
+        Ok(handle) => handle,
+        Err(StorageError::NotFound) => return LocalePreference::Missing,
+        Err(_) => return LocalePreference::Unavailable,
+    };
+    let mut contents = [0; MAX_FILE_SIZE];
+    let length = match volume.read(handle, &mut contents) {
+        Ok(length) => length,
+        Err(_) => return LocalePreference::Unavailable,
+    };
+    match core::str::from_utf8(&contents[..length])
+        .ok()
+        .and_then(nagi_localization::Locale::parse)
+    {
+        Some(locale) => LocalePreference::Restored(locale),
+        None => LocalePreference::Invalid,
+    }
+}
+
+fn persist_locale(volume: &mut UserDataVolume, locale: nagi_localization::Locale) -> bool {
+    let handle = match volume.open_path(SYSTEM_LANGUAGE_PATH) {
+        Ok(handle) => handle,
+        Err(StorageError::NotFound) => match volume.create_path(SYSTEM_LANGUAGE_PATH) {
+            Ok(handle) => handle,
+            Err(_) => return false,
+        },
+        Err(_) => return false,
+    };
+    volume
+        .write(handle, locale.code().as_bytes())
+        .and_then(|()| volume.flush())
+        .is_ok()
 }
 
 fn clamp(value: i32, minimum: i32, maximum: i32) -> i32 {

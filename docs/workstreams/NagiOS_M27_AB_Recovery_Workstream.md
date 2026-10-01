@@ -423,3 +423,21 @@ three-file M22 group across restart. The last verification boot is
 run's serial logs, OVMF variables, and User Data image are in that directory.
 The prior boot-4 timeout remains unexplained, and the authenticated update and
 remaining Recovery work keep M27 `PARTIAL`.
+
+## System-language persistence regression — 2026-10-01
+
+After adding System language persistence to the M10 Desktop, a fresh
+`./nagi m27` acceptance passed the full GPT A/B and Recovery path at
+`out/evidence/m27-ab-rollback-1790816764088451000/`. It rejected three malformed
+System B trials and rolled back to A, promoted a healthy B after guest
+readiness, booted Recovery without changing the journal, and undid the
+committed three-file M22 group across restart. The directory README and
+`SHA256SUMS` record the acceptance inputs, logs, firmware variables, and User
+Data; the manifest was verified.
+
+A preceding fresh run (`1790816606753646000`) timed out during the initial
+malformed-System-B trial before guest output. QMP reported a running VM with
+CPU#0 in an OVMF instruction loop. The successful run used new image and
+firmware state, so the earlier timeout's cause remains unknown. M27 remains
+`PARTIAL` for authenticated slot/update authority, full session readiness,
+and remaining Recovery features.

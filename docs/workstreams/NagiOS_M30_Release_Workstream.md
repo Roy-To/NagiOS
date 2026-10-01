@@ -470,3 +470,19 @@ The bundle's `m30_acceptance` remains `NOT_EVALUATED`; the separate two-boot
 QEMU evidence does not promote the manifest field. M30 remains `PARTIAL` for
 authenticated GPT update installation, outstanding M18–M29 acceptance, and
 human binary redistribution review.
+
+## System-language persistence regression — 2026-10-01
+
+After the M29 Desktop began persisting System language, `./nagi m30` passed
+again on the existing self-contained 64 GiB reference qcow2. The two disposable
+copy boots passed System A, the read-only Model Store capability check, User
+Data format/write and restart-read, and M7 acceptance. The separate M20
+fixture again passed the 5,000-byte FAT32 reader check, including a cluster
+boundary and EOF range. The source image stayed at SHA-256
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`, and
+`qemu-img check` found no errors in the disposable reference copy or fixture.
+
+Run evidence and a verified seven-file SHA-256 manifest are in
+`out/evidence/m30-release-1790817095155131000/`. The host again lacked
+`virtio-sound.in`; audio playback/capture is not established. This regression
+does not change `m30_acceptance=NOT_EVALUATED` or M30's `PARTIAL` status.

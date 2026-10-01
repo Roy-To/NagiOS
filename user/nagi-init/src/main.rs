@@ -968,20 +968,14 @@ pub extern "C" fn _start(
         libnagi::console_write(b"Nagi boot storage FAIL\r\n");
         libnagi::exit(1);
     }
-    #[cfg(any(
-        feature = "m9-window",
+    #[cfg(not(all(
         feature = "m10-desktop",
-        feature = "m11-security",
-        feature = "m12-network",
-        all(
-            not(feature = "m8-shell"),
-            not(feature = "m9-window"),
-            not(feature = "m10-desktop"),
-            not(feature = "m11-security"),
-            not(feature = "m12-network"),
-            not(feature = "m13-posix")
-        )
-    ))]
+        not(any(
+            feature = "m11-security",
+            feature = "m12-network",
+            feature = "m13-posix"
+        ))
+    )))]
     let _ = volume;
     #[cfg(feature = "m25-voice-acceptance")]
     {
@@ -1122,7 +1116,11 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi boot transition FAIL\r\n");
             libnagi::exit(1);
         }
-        desktop::run(display_capability, input_capability);
+        let Some(volume) = volume else {
+            libnagi::console_write(b"Nagi M10 User Data handoff FAIL\r\n");
+            libnagi::exit(1);
+        };
+        desktop::run(display_capability, input_capability, volume);
     }
     #[cfg(all(
         feature = "m9-window",

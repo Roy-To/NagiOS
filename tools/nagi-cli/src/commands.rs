@@ -65,6 +65,9 @@ struct DesktopAcceptanceConfig {
     screenshot_name: &'static str,
     acceptance_marker: &'static str,
     required_markers: &'static [&'static str],
+    restart_marker: Option<&'static str>,
+    restart_log_name: Option<&'static str>,
+    unique_run_artifacts: bool,
 }
 
 const M18_INPUT_EVENTS: [&str; 2] = [
@@ -1349,6 +1352,7 @@ const M29_SETTINGS_REQUIRED_MARKERS: &[&str] = &[
     "Nagi M10 Japanese input PASS",
     "Nagi M10 Files focus PASS",
     "Nagi M10 GUI Terminal focus PASS",
+    "Nagi M29 settings locale persisted PASS locale=ja-JP",
     "Nagi M29 settings locale PASS locale=ja-JP",
     "Nagi M10 acceptance PASS",
     "Nagi M29 settings acceptance PASS",
@@ -1480,6 +1484,9 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             screenshot_name: "nagi-m10-desktop.png",
             acceptance_marker: "Nagi M10 acceptance PASS",
             required_markers: M10_DESKTOP_REQUIRED_MARKERS,
+            restart_marker: None,
+            restart_log_name: None,
+            unique_run_artifacts: false,
         },
         &M10_DESKTOP_EVENTS,
     )
@@ -1494,15 +1501,18 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         DesktopAcceptanceConfig {
             label: "m29",
             features: "m10-desktop,m29-settings-acceptance",
-            image_name: "nagi-0.1-m29-settings.img",
-            persistent_disk_name: "nagi-0.1-m29-settings-user-data.img",
-            vars_name: "nagi-0.1-m29-settings-vars.fd",
-            first_log_name: "m29-settings-first-boot.log",
-            run_log_name: "m29-settings.log",
+            image_name: "nagi-0.1-m29-settings-persistent.img",
+            persistent_disk_name: "nagi-0.1-m29-settings-persistent-user-data.img",
+            vars_name: "nagi-0.1-m29-settings-persistent-vars.fd",
+            first_log_name: "m29-settings-persistent-first-boot.log",
+            run_log_name: "m29-settings-persistent.log",
             evidence_prefix: "m29-settings",
             screenshot_name: "nagi-m29-settings-ja-jp.png",
             acceptance_marker: "Nagi M29 settings acceptance PASS",
             required_markers: M29_SETTINGS_REQUIRED_MARKERS,
+            restart_marker: Some("Nagi M29 settings preference restored PASS locale=ja-JP"),
+            restart_log_name: Some("m29-settings-persistent-restart.log"),
+            unique_run_artifacts: true,
         },
         &events,
     )
@@ -1514,8 +1524,44 @@ fn execute_desktop_acceptance(
     acceptance: DesktopAcceptanceConfig,
     events: &[&str],
 ) -> CommandResult {
-    let image_result =
-        execute_image_with_features(root, Some(acceptance.features), acceptance.image_name);
+    let screenshot_run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: system clock: {error}", acceptance.label),
+            );
+        }
+    };
+    let image_name = scoped_artifact_name(
+        acceptance.image_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let persistent_disk_name = scoped_artifact_name(
+        acceptance.persistent_disk_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let vars_name = scoped_artifact_name(
+        acceptance.vars_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let first_log_name = scoped_artifact_name(
+        acceptance.first_log_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let run_log_name = scoped_artifact_name(
+        acceptance.run_log_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let restart_log_name = acceptance.restart_log_name.map(|name| {
+        scoped_artifact_name(name, &screenshot_run_id, acceptance.unique_run_artifacts)
+    });
+    let image_result = execute_image_with_features(root, Some(acceptance.features), &image_name);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -1531,15 +1577,6 @@ fn execute_desktop_acceptance(
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
-    let screenshot_run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_nanos().to_string(),
-        Err(error) => {
-            return failure(
-                EXIT_CONFIG_ERROR,
-                format!("{}: system clock: {error}", acceptance.label),
-            );
-        }
-    };
     let screenshot_directory = match ensure_owned_directory(
         root,
         Path::new("out").join("evidence").join(format!(
@@ -1551,11 +1588,11 @@ fn execute_desktop_acceptance(
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let screenshot_path = screenshot_directory.join(acceptance.screenshot_name);
-    let image_path = artifacts.join(acceptance.image_name);
-    let persistent_disk = artifacts.join(acceptance.persistent_disk_name);
-    let vars_copy = artifacts.join(acceptance.vars_name);
-    let first_log = logs.join(acceptance.first_log_name);
-    let desktop_log = logs.join(acceptance.run_log_name);
+    let image_path = artifacts.join(image_name);
+    let persistent_disk = artifacts.join(persistent_disk_name);
+    let vars_copy = artifacts.join(vars_name);
+    let first_log = logs.join(first_log_name);
+    let desktop_log = logs.join(run_log_name);
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
@@ -1671,16 +1708,99 @@ fn execute_desktop_acceptance(
             ),
         );
     };
+    let restart_log_path = match (acceptance.restart_marker, restart_log_name) {
+        (Some(restart_marker), Some(restart_log_name)) => {
+            let restart_log = logs.join(restart_log_name);
+            let restart_config = QemuConfig {
+                qemu: &host.qemu,
+                ovmf_code: &host.ovmf_code,
+                ovmf_vars_template: &host.ovmf_vars,
+                disk_image: &image_path,
+                persistent_disk: &persistent_disk,
+                vars_copy: &vars_copy,
+                serial_log: &restart_log,
+                acceptance_marker: restart_marker,
+                timeout,
+            };
+            if let Err(error) = run_qemu(&restart_config) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("{}: persistence restart: {error}", acceptance.label),
+                );
+            }
+            let restart_serial = match fs::read_to_string(&restart_log) {
+                Ok(serial) => serial,
+                Err(error) => {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "{}: cannot read {}: {error}",
+                            acceptance.label,
+                            restart_log.display()
+                        ),
+                    );
+                }
+            };
+            let mut marker_end = 0;
+            for marker in ["Nagi M10 desktop READY", restart_marker] {
+                let Some(relative) = restart_serial[marker_end..].find(marker) else {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "{}: persistence restart did not print ordered marker `{marker}` (log {})",
+                            acceptance.label,
+                            restart_log.display()
+                        ),
+                    );
+                };
+                marker_end += relative + marker.len();
+            }
+            Some(restart_log)
+        }
+        (None, None) => None,
+        _ => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: incomplete persistence restart configuration",
+                    acceptance.label
+                ),
+            );
+        }
+    };
+    let mut lines = vec![format!(
+        "PASS {}: QEMU guest rendered and interacted with the Nagi desktop (exit {}; guest READY after {} ms; log {}; screenshot {})",
+        acceptance.label,
+        outcome.exit_status,
+        ready_after.as_millis(),
+        desktop_log.display(),
+        screenshot_path.display(),
+    )];
+    if let Some(restart_log) = restart_log_path {
+        lines.push(format!(
+            "PASS {}: the selected system language was restored after a QEMU restart (log {})",
+            acceptance.label,
+            restart_log.display(),
+        ));
+    }
     CommandResult {
         exit_code: EXIT_SUCCESS,
-        lines: vec![format!(
-            "PASS {}: QEMU guest rendered and interacted with the Nagi desktop (exit {}; guest READY after {} ms; log {}; screenshot {})",
-            acceptance.label,
-            outcome.exit_status,
-            ready_after.as_millis(),
-            desktop_log.display(),
-            screenshot_path.display(),
-        )],
+        lines,
+    }
+}
+
+fn scoped_artifact_name(name: &str, run_id: &str, unique_run: bool) -> String {
+    if !unique_run {
+        return name.to_owned();
+    }
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(name);
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) => format!("{stem}-{run_id}.{extension}"),
+        None => format!("{name}-{run_id}"),
     }
 }
 
@@ -5631,7 +5751,7 @@ mod tests {
     use super::{
         append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt,
         m27_readiness_consumed_before_promotion, m27_readiness_persisted_before_desktop,
-        m27_trial_failure_observed, parse_command, Command,
+        m27_trial_failure_observed, parse_command, scoped_artifact_name, Command,
     };
     use std::path::Path;
 
@@ -5639,6 +5759,18 @@ mod tests {
     fn m29_command_selects_the_settings_acceptance() {
         assert_eq!(parse_command(&["m29".into()]), Ok(Command::M29));
         assert!(parse_command(&["m29".into(), "extra".into()]).is_err());
+    }
+
+    #[test]
+    fn m29_acceptance_artifacts_are_unique_and_keep_their_extensions() {
+        assert_eq!(
+            scoped_artifact_name("nagi-settings.img", "run-123", true),
+            "nagi-settings-run-123.img"
+        );
+        assert_eq!(
+            scoped_artifact_name("settings.log", "run-123", false),
+            "settings.log"
+        );
     }
 
     #[test]

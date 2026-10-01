@@ -123,9 +123,15 @@ architecture, but it is not by itself the shared localization framework.
 The `nagi-localization` no-std library now embeds an initial shared `en-US` and
 `ja-JP` catalog, parses the two canonical locale codes, resolves stable keys,
 and falls back to English without exposing unknown keys. The M10 desktop uses
-that catalog for its Settings overlay and four panel titles; its language
-choice applies only to the current desktop run. This is not a persistent
-language settings service or cross-process locale propagation. First-party UI
-coverage remains partial, and the desktop still has no accessibility tree or
-keyboard focus model. Focused host tests cover catalog keys, UTF-8 Japanese,
-locale validation, safe missing-key behavior, and fallback behavior.
+that catalog for its Settings overlay and four panel titles. The selected
+System language (`en-US` or `ja-JP`) is stored as a strict UTF-8 value in the
+User Data VFS file `system-language` and is loaded before the next Desktop's
+first frame. Missing or invalid values use `en-US`; an invalid UTF-8 value or
+unsupported language tag is never applied. `./nagi m29` verifies that the
+Japanese preference survives a guest restart. This is still not a persistent
+language settings service or cross-process propagation, and does not couple
+the System language to region formats, input language/keyboard, or Albert's
+conversation language. First-party UI coverage remains partial, and the
+desktop still has no accessibility tree or keyboard focus model. Focused host
+tests cover catalog keys, UTF-8 Japanese, locale validation, safe missing-key
+behavior, and fallback behavior.

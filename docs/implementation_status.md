@@ -273,16 +273,19 @@ The shared `nagi-localization` no-std library now embeds initial UTF-8 `en-US`
 and `ja-JP` catalogs with canonical locale parsing, stable-key lookup, English
 fallback, and safe unknown-key text. Its five host tests cover translations,
 missing-entry fallback, invalid codes, unknown keys, and matched first-party
-catalogs. The M10 desktop has an in-session Settings language selector and
-localized title/label preview; `./nagi m29` passed in QEMU with all prior M10
-focus/input markers, a `ja-JP` selection marker, and a saved Settings
-screenshot. `./nagi desktop`, `./nagi m19`, three-boot `./nagi m22`,
-`./nagi m27`, and `./nagi m30` regressions passed after the change. The CLI
-suite passes with 147 unit tests, including M29 command parsing; the focused
+catalogs. The M10 desktop has a Settings System language selector and
+localized title/label preview. It stores the strict `en-US` / `ja-JP` value in
+the User Data VFS file `system-language` and loads it before the first Desktop
+frame. The 2026-10-01 `./nagi m29` QEMU acceptance selected Japanese, passed all
+prior M10 focus/input markers, and verified `ja-JP` after a second guest boot
+with the same User Data disk. `./nagi desktop`, `./nagi m19`, three-boot
+`./nagi m22`, `./nagi m27`, and `./nagi m30` regressions passed after the
+change. The CLI suite passes with 151 unit tests, including the new language
+persistence contract checks; the focused
 localization/CLI suite and warnings-denied Clippy passed. M29 remains
-`PARTIAL`: locale choice is not
-persistent or propagated to other services, first-run, full localization and
-accessibility, broader product screenshots and clean-install performance
+`PARTIAL`: selected System language persists for the Desktop, but is not
+propagated to other services; first-run, full localization and accessibility,
+broader product screenshots and clean-install performance
 evidence, and end-user recovery/error UI remain incomplete. Binary
 redistribution also awaits license review. See
 `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`.
@@ -2470,10 +2473,10 @@ Use only these statuses:
 | M24 | Embedding / Semantic AI | PARTIAL | Added a bounded exact `PersistentVectorIndex` over `SnapshotBackend`, opaque embedding-space identity checks, versioned/checksummed snapshots, atomic object replacement, stable top-k ranking, and visible-ObjectId filtering. Twenty-nine `nagi-search` tests, warnings-denied Search and CLI Clippy, 135 CLI unit + 21 integration tests, formatting, and Nagi no-std target compile pass. M19 two-boot QEMU restored the semantic index after restart; M22 three-boot QEMU revalidated index restore with NH16/NAL1 Undo. Logs, disk images, user-data disks, and OVMF variables are preserved under `out/evidence/m24-persistent-semantic-index-20261001/`. Guest inference uses a deterministic test provider. A multilingual embedding model, content-producer synchronization, hybrid ranking/explanations, stale-index invalidation, reference-scale performance evidence, and the formal natural-language acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator and a replaceable TTS provider/synthesis service with 1 KiB UTF-8 input, 4 KiB PCM chunks, a 1 MiB output cap, frame checks, empty-output rejection, failure cleanup, and a target AudioService playback sink. whisper.cpp is pinned; `./nagi fetch` validates the clean upstream source and generates a separate Nagi-patched checkout. On 2026-10-01, `./nagi fetch`, `./nagi test`, format, lint, build, the Nagi-target `whisper` CMake build, host GGUF parser/writer regression, and M25 QEMU orchestration fixture passed. SHA-256 verified before/after artifacts and logs are preserved under `out/evidence/m25-whisper-noexceptions-{pre-final-rerun,final-pass}-20261001/`; target/host CMake evidence is under `out/evidence/m25-whisper-target-compile-20261001/`. The Whisper small multilingual metadata has immutable source, exact size, SHA-256, MIT metadata, and Model Store ID in `third_party/models.lock`; no model bytes were downloaded or loaded, and QEMU had no host `virtio-sound.in` driver. Authenticated permission/UI wiring, a real Japanese STT provider and inference, concrete local TTS, and guest voice-command acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
-| M27 | A/B / Recovery | PARTIAL | The latest full GPT A/B/Recovery gates passed twice inside the successful M28 repetition run at `out/evidence/m27-ab-rollback-1790802782930760000/` and `out/evidence/m27-ab-rollback-1790802894479757000/`; each has a verified 31-file SHA-256 manifest. Together with earlier replays, these passes still do not establish the cause of the earlier boot-4 timeout (RIP `0x4005d90`, CR2 `0xfffffffffffffff8`). Account-authenticated readiness, authenticated slot manifests, GPT update installation, and remaining Recovery repair/log features remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
+| M27 | A/B / Recovery | PARTIAL | The full GPT A/B, Recovery, and M22 grouped-Undo acceptance passed after the M29 persistence change at `out/evidence/m27-ab-rollback-1790816764088451000/`; its SHA-256 manifest is verified. A preceding fresh run timed out in an OVMF loop before guest output; its cause remains unknown. Account-authenticated readiness, authenticated slot manifests/update installation, and remaining Recovery repair/log features remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | A third `NAGI_M28_REPEAT_COUNT=2 ... --run` completed both repetitions across M19 ObjectId/Search, three-boot M22 grouped Undo/Activity Ledger, and M27 GPT A/B/Recovery. The complete gate and 22-file evidence manifest are at `out/evidence/m28-run-20260930T211250Z-51667/`; both M27 run archives also have verified manifests. The two preceding attempts timed out before M22 boot 1 reached the Nagi kernel; that OVMF/QEMU stall did not recur and its root cause remains unknown. Shell syntax, self-test, and dry-run pass. The full Desktop/Files/Notes/Albert workload, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
-| M29 | Developer Preview Polish | PARTIAL | Added cross-linked setup, SDK, contribution, and roadmap documentation; 47 local documentation links resolve. The POSIX launcher now selects the Cargo and rustc rustup shims together even when a system Cargo appears first in PATH; the mocked toolchain-selection regression, `./nagi --help`, `./nagi doctor` (12/12), and full M0 launcher/image acceptance pass. `./nagi build`, `./nagi test`, and `./nagi lint` now use a host-compatible package allowlist on non-x86_64 hosts; all three passed on ARM64 macOS. `THIRD_PARTY_NOTICES.md` lists all 18 source-lock components, exact version/revision/toolchain pins, and declared license expressions; a regression test checks the inventory. Cargo metadata reports declared license expressions for 673 external packages with no missing declarations; this includes dev/target-specific packages and is not an image bill of materials. The host doctor recognizes `python3` without a `python` alias; its regression and local 12/12 run pass. Shared no-std `nagi-localization` resources now cover the initial Desktop Settings labels and four panel titles in `en-US` and `ja-JP`, with locale validation, English fallback, and safe missing-key handling; 5 catalog tests pass. The new `./nagi m29` guest acceptance switched to `ja-JP` and saved a screenshot; M10 desktop, M19 Search/ObjectId, M22 grouped Undo, M27 A/B/Recovery, and M30 GPT qcow2 regressions also pass. CLI suite (147 unit tests) and focused warnings-denied Clippy pass. QEMU timeout diagnostics record QMP status, CPU registers, and a bounded 12-instruction window at `$rip`; the focused fixture and live QEMU/QMP smoke pass. License-text and redistribution review remain incomplete. Settings persistence/propagation, first-run, complete localization/accessibility, broader UI evidence, clean-install performance, and user-facing provider/recovery UX remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | PARTIAL | Current-source `./nagi m30` rebuilt the x86-64 payloads and self-contained 64 GiB GPT qcow2; image SHA-256 is `e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`. Two QEMU boots passed System A, M20 read-only Model Store/FAT32 discovery, User Data format/write/restart-read, and M7 acceptance; `qemu-img check` found no errors. Clean-source release preflight, assembly, verify, and a post-assembly two-boot QEMU run passed for commit `0d0ae8a`; the bundle is `out/artifacts/m30-release-bundle-0d0ae8a/`, byte-identical to the tested reference image, with all 15 checksums and post-boot verification passing. Evidence is in `out/evidence/m30-release-1790806831243045000/`; the immediately previous accepted image is preserved in `out/evidence/m30-release-1790806188358089000/`, and prior bundle backups remain in `out/evidence/m30-pre-m20-store-20260930T214713Z/`. After successful GPT/User Data initialization, missing or unreadable Model Store content or an invalid FAT32 volume does not prevent ordinary boot; structurally invalid GPT remains fail-closed. The M30 gate requires an M20 PASS marker. An initial FPU-order regression and its failed evidence are recorded separately at `out/evidence/m30-release-1790804891726864000/`. Manifest status stays `m30_acceptance=NOT_EVALUATED`; authenticated updates, M18–M29 gaps, and binary license review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
+| M29 | Developer Preview Polish | PARTIAL | The M10 Settings selector now persists canonical `en-US` / `ja-JP` in User Data and restores it before the first Desktop frame; `./nagi m29` passed Japanese selection and same-disk restart restoration at `out/evidence/m29-settings-1790816404401513000/`. The tracked screenshot matches the accepted QEMU capture. Five localization tests and 151 CLI unit tests pass; M10 desktop, M19, M22, M27, and M30 QEMU regressions pass. Cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
+| M30 | Nagi OS 0.1 Release | PARTIAL | The self-contained 64 GiB GPT qcow2 remains at SHA-256 `e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`. The current regression passed two System A boots, User Data write/restart-read, M7 acceptance, and a separate 5,000-byte guest Model Store FAT32 fixture; both mutable qcow2 images passed `qemu-img check`. Evidence and verified hashes are in `out/evidence/m30-release-1790817095155131000/`. Prior clean-source release preflight, assembly, verification, and package-copy QEMU acceptance passed for `637f575`; the manifest keeps `m30_acceptance=NOT_EVALUATED`. Authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
 
@@ -6650,6 +6653,23 @@ M30 remains `PARTIAL` for authenticated GPT update installation, remaining
 M18–M29 acceptance, and human binary redistribution review.
 
 
+## Completion sweep — M27 after M29 persistence (2026-10-01)
+
+`./nagi m27` passed the complete GPT A/B and Recovery acceptance after the
+M29 Desktop language persistence change. Three malformed System B trials
+rolled back to A, healthy B was promoted after guest readiness, Recovery left
+the journal unchanged, and Recovery undid the committed three-file M22 group
+across restart. Evidence and the verified SHA-256 manifest are in
+`out/evidence/m27-ab-rollback-1790816764088451000/`.
+
+The preceding fresh run (`1790816606753646000`) timed out during its first
+malformed-B trial before guest output. QMP showed a running VM with CPU#0 in an
+OVMF instruction loop. The successful run used new image and firmware state;
+the root cause remains unknown, so the failed attempt is not counted as an
+acceptance pass. M27 remains `PARTIAL` for authenticated slot/update authority,
+full session readiness, and the remaining Recovery functions.
+
+
 ## Completion sweep — M20 chat-template no-exception status (2026-10-01)
 
 Added `third_party/llama-cpp-patches/0004-nagi-chat-template-status.patch`.
@@ -6676,3 +6696,18 @@ build still failed in 27 Ninja object steps: 56 distinct source paths report
 QEMU inference acceptance was not run, and no model or inference result is
 claimed. Evidence is in `out/evidence/m20-chat-template-0004-20261001/`; M20
 remains `PARTIAL`.
+
+
+## Completion sweep — current M30 reference-image regression (2026-10-01)
+
+`./nagi m30` passed after the M29 System language persistence change. Two
+boots of a disposable copy passed System A, the read-only Model Store
+capability, User Data format/write/restart-read, and M7 acceptance. The
+separate M20 FAT32 fixture passed its 5,000-byte reader check across a cluster
+boundary and EOF. The untouched reference qcow2 remains SHA-256
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`; QEMU
+image checks passed for the mutable reference copy and fixture. Evidence and
+the verified SHA-256 manifest are in
+`out/evidence/m30-release-1790817095155131000/`. The host lacked
+`virtio-sound.in`; no host audio playback/capture claim is made. The release
+manifest remains `m30_acceptance=NOT_EVALUATED`, and M30 remains `PARTIAL`.
