@@ -398,3 +398,42 @@ in these two repetitions; their cause remains unknown. QEMU reported no host
 Desktop/Files/Notes/Albert combined load, real Granite load/unload, audio
 pressure, OOM, CPU fairness, and memory/handle leak soak remain unmeasured.
 This advances the repeated integration slice only; M28 remains `PARTIAL`.
+
+## Completion Sweep repeated gate and evidence finalization — 2026-10-01
+
+The harness now parses the run-stamped M22 boot-3 path reported by `./nagi
+m22`, validates that exact log, and archives each repetition's M19/M22 images,
+OVMF variables, serial logs, and User Data snapshot, including the final
+repetition. It writes a run README and SHA-256 manifest after successful or
+failed gates; a failed M27 run also gets its own README and manifest. Failure
+cleanup preserves the active repetition, and run-ID extraction handles M22
+bootstrap and numbered-boot timeout diagnostics. The self-test covers those
+paths, including the newline-terminated M27 evidence list that previously
+interrupted README generation.
+
+`NAGI_M28_REPEAT_COUNT=2 ... --run` completed both M19 Search/ObjectId, M22
+three-boot NH16/NAL1 grouped Undo, and M27 GPT A/B/Recovery gates. Its complete
+archive is `out/evidence/m28-run-20261001T130826Z-2523/`; all 28 manifest
+entries verify. M27's two sub-run manifests at
+`out/evidence/m27-ab-rollback-1790860121579655000/` and
+`out/evidence/m27-ab-rollback-1790860238754593000/` each verify all 31 files.
+A further one-repetition run passed all three QEMU gates at
+`out/evidence/m28-run-20261001T132819Z-4650/`. Its initial shell exit was
+caused by a README-generation `set -e` edge case; the archived README and
+manifest were corrected and verify all 15 files.
+
+Subsequent attempts exposed intermittent OVMF startup loops at RIP
+`0x7eb84171`, both during M27 Recovery and M22 bootstrap/boot 1. They are
+preserved with QMP diagnostics and are not acceptance passes:
+`out/evidence/m28-run-20261001T131752Z-3830/`,
+`out/evidence/m28-run-20261001T133248Z-5339/`, and
+`out/evidence/m28-run-20261001T133549Z-5668/`. Their M19/M22 artifacts and
+serial logs have verified SHA-256 manifests. The observed instruction loop is
+in OVMF, before the affected guest's acceptance path; its root cause remains
+unconfirmed.
+
+The corrected runner passes `sh -n`, `--self-test`, and `--dry-run`. Its
+two-repetition M19/M22/M27 gate passes on the recorded complete run, but formal
+M28 remains `PARTIAL`: Desktop/Files/Notes/Albert concurrency, real Granite,
+audio pressure, OOM, CPU fairness, and handle/memory leak soak remain
+unmeasured.

@@ -116,6 +116,8 @@ const M27_SYSTEM_A_MENU_EVENTS: [&str; 2] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}}]}}"#,
 ];
 
+const M27_BOOTSTRAP_COMPLETION_MARKER: &str = "Nagi M7 reboot required PASS";
+
 const M27_RECOVERY_MENU_EVENTS: [&str; 2] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"r"}}}]}}"#,
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"r"}}}]}}"#,
@@ -4823,7 +4825,9 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         persistent_disk: &persistent_disk,
         vars_copy: &vars_copy,
         serial_log: &bootstrap_log,
-        acceptance_marker: NAGI_WRITE_MARKER,
+        // The persistent-write marker comes before the reboot-required
+        // marker. Wait for the latter so QEMU cannot stop between them.
+        acceptance_marker: M27_BOOTSTRAP_COMPLETION_MARKER,
         timeout: Duration::from_secs(90),
     };
     let bootstrap_status = match run_qemu_reusing_ovmf_vars(&bootstrap_config) {
@@ -4844,8 +4848,11 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             );
         }
     };
-    for marker in [NAGI_WRITE_MARKER, "Nagi M7 reboot required PASS"] {
-        if !bootstrap_serial.contains(marker) {
+    if !m27_bootstrap_markers_present(&bootstrap_serial) {
+        for marker in [NAGI_WRITE_MARKER, M27_BOOTSTRAP_COMPLETION_MARKER] {
+            if bootstrap_serial.contains(marker) {
+                continue;
+            }
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
@@ -5819,6 +5826,10 @@ fn m27_trial_failure_observed(serial: &str) -> bool {
         && !serial.contains("Nagi M27 readiness persisted")
 }
 
+fn m27_bootstrap_markers_present(serial: &str) -> bool {
+    serial.contains(NAGI_WRITE_MARKER) && serial.contains(M27_BOOTSTRAP_COMPLETION_MARKER)
+}
+
 fn m27_readiness_persisted_before_desktop(serial: &str) -> bool {
     let readiness_line = serial.lines().position(|line| {
         line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 generation=")
@@ -5862,8 +5873,9 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 mod tests {
     use super::{
         append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt,
-        m27_readiness_consumed_before_promotion, m27_readiness_persisted_before_desktop,
-        m27_trial_failure_observed, parse_command, scoped_artifact_name, Command,
+        m27_bootstrap_markers_present, m27_readiness_consumed_before_promotion,
+        m27_readiness_persisted_before_desktop, m27_trial_failure_observed, parse_command,
+        scoped_artifact_name, Command, NAGI_WRITE_MARKER,
     };
     use std::path::Path;
 
@@ -5903,6 +5915,18 @@ mod tests {
         ));
         assert!(!m27_trial_failure_observed(
             "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\nNagi Kernel started\n"
+        ));
+    }
+
+    #[test]
+    fn m27_bootstrap_waits_for_storage_restart_required_marker() {
+        let complete = format!("{NAGI_WRITE_MARKER}\nNagi M7 reboot required PASS\n");
+        assert!(m27_bootstrap_markers_present(&complete));
+        assert!(!m27_bootstrap_markers_present(&format!(
+            "{NAGI_WRITE_MARKER}\n"
+        )));
+        assert!(!m27_bootstrap_markers_present(
+            "Nagi M7 reboot required PASS\n"
         ));
     }
 

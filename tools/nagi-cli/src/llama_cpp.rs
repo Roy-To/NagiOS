@@ -597,7 +597,7 @@ fn lock_value(lock: &str, section: &str, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_patched_checkout, llama_cpp_patch_files, validate_llama_cpp_source_lock,
+        ensure_patched_checkout, llama_cpp_patch_files, lock_value, validate_llama_cpp_source_lock,
         validate_patched_checkout, LlamaCppSourceSpec,
     };
     use std::fs;
@@ -647,6 +647,57 @@ mod tests {
         assert_eq!(spec.license, "MIT");
         assert_eq!(spec.vendored_path, Path::new("third_party/llama.cpp"));
         assert_eq!(spec.patch_path, Path::new("third_party/llama-cpp-patches"));
+    }
+
+    #[test]
+    fn granite_model_artifact_lock_matches_manifest_fixture() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let lock =
+            fs::read_to_string(root.join("third_party/models.lock")).expect("model artifact pins");
+        let manifest_bytes =
+            fs::read(root.join("user/nagi-model-manager/tests/fixtures/granite-4.2-3b.json"))
+                .expect("Granite manifest fixture");
+        let granite = nagi_model_manager::ModelManifest::parse_json(&manifest_bytes)
+            .expect("pinned Granite manifest fixture");
+        let locked = |key: &str| {
+            lock_value(&lock, "models.granite_4_2_3b", key)
+                .unwrap_or_else(|| panic!("Granite model pin is missing `{key}`"))
+        };
+        let source = granite.source.as_ref().expect("Granite source metadata");
+        let integrity = granite.artifact.integrity.as_ref().expect("Granite digest");
+        let artifact_id = match &granite.artifact.reference {
+            nagi_model_manager::ArtifactReference::ModelStore { artifact_id } => {
+                artifact_id.as_str()
+            }
+        };
+
+        assert_eq!(locked("model_id"), granite.model_id.as_str());
+        assert_eq!(locked("repository"), source.uri);
+        assert_eq!(locked("revision"), source.revision);
+        assert_eq!(locked("file_name"), source.file_name);
+        assert_eq!(locked("format"), granite.artifact.format.as_str());
+        assert_eq!(
+            locked("size_bytes").parse::<u64>().expect("locked size"),
+            granite.artifact.size_bytes.expect("Granite artifact size")
+        );
+        assert_eq!(locked("sha256"), integrity.digest);
+        assert_eq!(locked("license"), granite.license.identifier);
+        assert_eq!(
+            locked("license_reference"),
+            granite
+                .license
+                .terms_reference
+                .as_deref()
+                .expect("Granite license terms")
+        );
+        assert_eq!(locked("notice_id"), granite.license.notices[0].notice_id);
+        assert_eq!(
+            locked("notice_reference"),
+            granite.license.notices[0].reference
+        );
+        assert_eq!(locked("acknowledgement_required"), "true");
+        assert_eq!(locked("artifact_id"), artifact_id);
+        assert_eq!(locked("storage"), "model_store");
     }
 
     #[test]

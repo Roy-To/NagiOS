@@ -14,6 +14,7 @@ EOF
 }
 
 fail() {
+    harness_failure_summary=$*
     printf 'FAIL M28 harness: %s\n' "$*" >&2
     exit 1
 }
@@ -81,6 +82,48 @@ validate_m22_log() {
         'Nagi M13 acceptance PASS'
 }
 
+extract_m22_log() {
+    extracted_log=$(printf '%s\n' "$1" \
+        | sed -n 's/^PASS M21\/M22 guest fixture:.*(log \(.*\))$/\1/p' \
+        | tail -n 1)
+    [ -n "$extracted_log" ] || return 1
+    printf '%s\n' "$extracted_log"
+}
+
+extract_m22_run_id() {
+    extracted_run_id=$(printf '%s\n' "$1" \
+        | sed -n 's#.*m22-history-bootstrap-\([0-9][0-9]*\)\.log.*#\1#p' \
+        | tail -n 1)
+    if [ -z "$extracted_run_id" ]; then
+        extracted_run_id=$(printf '%s\n' "$1" \
+            | sed -n 's#.*m22-history-\([0-9][0-9]*\)-boot-[123]\.log.*#\1#p' \
+            | tail -n 1)
+    fi
+    if [ -z "$extracted_run_id" ]; then
+        extracted_run_id=$(printf '%s\n' "$1" \
+            | sed -n 's#.*nagi-0\.1-m22-history-\([0-9][0-9]*\)\.img.*#\1#p' \
+            | tail -n 1)
+    fi
+    [ -n "$extracted_run_id" ] || return 1
+    printf '%s\n' "$extracted_run_id"
+}
+
+extract_m27_evidence_path() {
+    extracted_path=$(printf '%s\n' "$1" \
+        | sed -n 's/^PASS M27 A\/B and Recovery:.*(evidence \(.*\))$/\1/p' \
+        | tail -n 1)
+    [ -n "$extracted_path" ] || return 1
+    printf '%s\n' "$extracted_path"
+}
+
+extract_m27_diagnostic_evidence_path() {
+    extracted_path=$(printf '%s\n' "$1" \
+        | sed -n 's#.*\(/out/evidence/m27-ab-rollback-[^/ ]*\)/.*#\1#p' \
+        | tail -n 1)
+    [ -n "$extracted_path" ] || return 1
+    printf '%s\n' "$extracted_path"
+}
+
 validate_m27_output() {
     case "$1" in
         *'PASS M27 A/B and Recovery:'*) return 0 ;;
@@ -97,6 +140,104 @@ M28 reference-load items not measured by this Search/History slice:
   - sustained audio playback and audio-underrun pressure
   - kernel OOM, handle growth, and memory-leak soak telemetry
 EOF
+}
+
+write_evidence_manifest() {
+    evidence_dir=$1
+    if ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
+        fail 'neither shasum nor sha256sum is available to write evidence checksums'
+    fi
+    (
+        cd "$evidence_dir" || exit 1
+        find . -type f ! -name SHA256SUMS -print | LC_ALL=C sort \
+            | while IFS= read -r evidence_file; do
+                if command -v shasum >/dev/null 2>&1; then
+                    shasum -a 256 "$evidence_file"
+                else
+                    sha256sum "$evidence_file"
+                fi
+            done > SHA256SUMS
+    ) || fail "cannot write evidence manifest: $evidence_dir/SHA256SUMS"
+}
+
+verify_evidence_manifest() {
+    evidence_dir=$1
+    if command -v shasum >/dev/null 2>&1; then
+        (cd "$evidence_dir" && shasum -a 256 -c SHA256SUMS >/dev/null) \
+            || fail "evidence checksum verification failed: $evidence_dir/SHA256SUMS"
+    else
+        (cd "$evidence_dir" && sha256sum -c SHA256SUMS >/dev/null) \
+            || fail "evidence checksum verification failed: $evidence_dir/SHA256SUMS"
+    fi
+}
+
+write_m27_evidence_metadata() {
+    evidence_dir=$1
+    parent_repetition=$2
+    result_status=$3
+    result_summary=$4
+    if [ ! -e "$evidence_dir/README.md" ] && [ ! -e "$evidence_dir/SHA256SUMS" ]; then
+        cat >"$evidence_dir/README.md" <<EOF
+# M27 A/B and Recovery QEMU acceptance
+
+- Parent M28 repetition: $parent_repetition
+- Source revision: $(git rev-parse HEAD) on $(git branch --show-current)
+- Result: $result_status. $result_summary
+- QEMU reported that the host has no virtio-sound.in audio driver. This acceptance does not measure audio.
+- SHA256SUMS covers this README and every generated file in this run directory.
+EOF
+        write_evidence_manifest "$evidence_dir"
+    fi
+    verify_evidence_manifest "$evidence_dir"
+}
+
+write_m28_evidence_metadata() {
+    evidence_dir=$1
+    local_run_id=$2
+    source_revision=$3
+    local_repeat_count=$4
+    m27_evidence_paths=$5
+    run_result=$6
+    completed_repetitions=$7
+    failed_repetition=$8
+    failure_summary=$9
+    cat >"$evidence_dir/README.md" <<EOF
+# M28 persistent Search/History/Recovery gate
+
+- Run namespace: m28-run-$local_run_id
+- Source revision: $source_revision on $(git branch --show-current)
+- Scope: $local_repeat_count consecutive repetitions of M19 VFS/ObjectId/Search, M22 three-boot Move/Copy + NH16/NAL1 grouped Undo, and M27 GPT A/B/Recovery QEMU acceptance.
+- Result: $run_result; $completed_repetitions complete repetition(s) passed. Per-repetition M19/M22 artifacts and logs are preserved in the matching repetition directory.
+- This run emitted the host QEMU warning that virtio-sound.in is unavailable; these gates do not measure audio.
+- OVMF startup timeouts remain intermittent and unexplained.
+- Formal M28 Desktop/Files/Notes/Albert, real Granite inference, audio pressure, OOM, CPU fairness, and leak-soak criteria remain unmeasured; M28 remains PARTIAL.
+
+## M27 sub-run evidence
+EOF
+    if [ -n "$failure_summary" ]; then
+        printf '\n- Failed repetition: %s\n- Failure: %s\n' \
+            "$failed_repetition" "$failure_summary" >>"$evidence_dir/README.md"
+    fi
+    if [ -n "$m27_evidence_paths" ]; then
+        printf '%s\n' "$m27_evidence_paths" | while IFS= read -r evidence_path; do
+            [ -n "$evidence_path" ] || continue
+            printf -- '- `%s`\n' "$evidence_path"
+        done >>"$evidence_dir/README.md"
+    else
+        printf '\nNo M27 sub-run evidence path was recorded.\n' >>"$evidence_dir/README.md"
+    fi
+    cat >>"$evidence_dir/README.md" <<'EOF'
+
+The archive SHA256SUMS covers this README and all archived per-repetition
+files. Each M27 sub-run directory has its own README and SHA256SUMS.
+
+## Source worktree changes
+EOF
+    git diff --name-only | while IFS= read -r changed_path; do
+        printf -- '- `%s`\n' "$changed_path"
+    done >>"$evidence_dir/README.md"
+    write_evidence_manifest "$evidence_dir"
+    verify_evidence_manifest "$evidence_dir"
 }
 
 self_test() {
@@ -142,6 +283,26 @@ Nagi M13 acceptance PASS
 EOF
     validate_m19_log "$temporary_dir/m19.log" || fail 'valid M19 fixture rejected'
     validate_m22_log "$temporary_dir/m22.log" || fail 'valid M22 fixture rejected'
+    m22_output="$(cat <<EOF
+building M22 acceptance image
+PASS M21/M22 guest fixture: VFS file.move and file.copy, NH16 Create/Move transactions, Activity Ledger, composite Undo, and restored state survived QEMU restarts (log $temporary_dir/m22-history-987654321-boot-3.log)
+EOF
+)"
+    if extracted_m22_log=$(extract_m22_log "$m22_output"); then
+        [ "$extracted_m22_log" = "$temporary_dir/m22-history-987654321-boot-3.log" ] \
+            || fail 'M22 final serial log extraction returned the wrong path'
+    else
+        fail 'M22 final serial log path was not extracted from command output'
+    fi
+    m22_failure_output='FAIL m22: bootstrap boot timed out; diagnostics appended to /tmp/m22-history-bootstrap-987654321.log'
+    [ "$(extract_m22_run_id "$m22_failure_output")" = 987654321 ] \
+        || fail 'M22 run ID was not extracted from failure diagnostics'
+    m22_boot_failure_output='FAIL m22: guest boot timed out; diagnostics appended to /tmp/m22-history-123456789-boot-1.log'
+    [ "$(extract_m22_run_id "$m22_boot_failure_output")" = 123456789 ] \
+        || fail 'M22 run ID was not extracted from a numbered boot failure'
+    m27_output='PASS M27 A/B and Recovery: acceptance (evidence /tmp/m27-ab-rollback-self-test)'
+    [ "$(extract_m27_evidence_path "$m27_output")" = '/tmp/m27-ab-rollback-self-test' ] \
+        || fail 'M27 evidence path extraction returned the wrong path'
     first_archive_root=$(archive_root_for_run self-test-run-1)
     second_archive_root=$(archive_root_for_run self-test-run-2)
     [ "$first_archive_root" != "$second_archive_root" ] || fail 'run archive namespaces collide'
@@ -156,6 +317,20 @@ EOF
     if validate_m19_log "$temporary_dir/incomplete.log" >/dev/null 2>&1; then
         fail 'incomplete M19 log accepted'
     fi
+    mkdir "$temporary_dir/archive" "$temporary_dir/archive/repetition-1"
+    printf 'M28 self-test evidence\n' >"$temporary_dir/archive/repetition-1/fixture.log"
+    m27_self_test_paths="out/evidence/m27-ab-rollback-self-test
+"
+    write_m28_evidence_metadata \
+        "$temporary_dir/archive" self-test-run self-test-revision 1 \
+        "$m27_self_test_paths" PASS 1 '' ''
+    verify_evidence_manifest "$temporary_dir/archive"
+    [ -f "$temporary_dir/archive/README.md" ] || fail 'M28 archive README was not written'
+    [ -f "$temporary_dir/archive/SHA256SUMS" ] || fail 'M28 archive manifest was not written'
+    mkdir "$temporary_dir/m27"
+    printf 'M27 self-test evidence\n' >"$temporary_dir/m27/fixture.log"
+    write_m27_evidence_metadata "$temporary_dir/m27" 1 PASS 'fixture accepted'
+    verify_evidence_manifest "$temporary_dir/m27"
     printf 'PASS M28 harness self-test (marker checks and 1–5 repeat bounds; no QEMU)\n'
 }
 
@@ -202,6 +377,21 @@ latest_m19_log() {
     fi
 }
 
+latest_m22_log() {
+    newest_m22_log=''
+    for candidate_m22_log in out/logs/m22-history-boot-3.log out/logs/m22-history-*-boot-3.log; do
+        [ -f "$candidate_m22_log" ] || continue
+        if [ -z "$newest_m22_log" ] || [ "$candidate_m22_log" -nt "$newest_m22_log" ]; then
+            newest_m22_log=$candidate_m22_log
+        fi
+    done
+    if [ -n "$newest_m22_log" ]; then
+        printf '%s\n' "$newest_m22_log"
+    else
+        printf '%s\n' "$m22_log"
+    fi
+}
+
 validate_latest_m19_log() {
     validate_m19_log "$(latest_m19_log)"
 }
@@ -222,6 +412,7 @@ if [ "$mode" = --dry-run ]; then
     else
         printf 'UNVERIFIED existing M19 latest serial log: %s\n' "$(latest_m19_log)"
     fi
+    m22_log=$(latest_m22_log)
     if validate_m22_log "$m22_log"; then
         printf 'PASS existing M22 latest serial log: %s\n' "$m22_log"
     else
@@ -289,10 +480,22 @@ fi
 archive_iteration_outputs() {
     archived_iteration=$1
     archive_dir="$archive_root/repetition-$archived_iteration"
-    [ ! -e "$archive_dir" ] || fail "refusing to replace existing repetition evidence: $archive_dir"
     mkdir -p "$archive_dir"
-    cp -p "$m19_disk" "$archive_dir/"
-    cp -p "$m22_disk" "$archive_dir/"
+    for disk in "$m19_disk" "$m22_disk"; do
+        disk_destination="$archive_dir/${disk##*/}"
+        if [ -e "$disk_destination" ]; then
+            if ! cmp -s "$disk" "$disk_destination"; then
+                printf 'FAIL M28 harness: persistent disk changed while archiving repetition %s: %s\n' \
+                    "$archived_iteration" "$disk" >&2
+                return 1
+            fi
+        else
+            if ! cp -p "$disk" "$disk_destination"; then
+                printf 'FAIL M28 harness: cannot preserve persistent disk: %s\n' "$disk" >&2
+                return 1
+            fi
+        fi
+    done
     for output in \
         out/artifacts/nagi-0.1-m19-vfs-objectid.img \
         out/artifacts/nagi-0.1-m19-vfs-objectid-vars.fd \
@@ -304,11 +507,45 @@ archive_iteration_outputs() {
         out/logs/m22-history-bootstrap.log \
         out/logs/m22-history-boot-1.log \
         out/logs/m22-history-boot-2.log \
+        out/artifacts/nagi-0.1-m22-history-"$m22_run_id".img \
+        out/artifacts/nagi-0.1-m22-history-user-data-"$m22_run_id".img \
+        out/artifacts/nagi-0.1-m22-history-vars-"$m22_run_id".fd \
+        out/logs/m22-history-bootstrap-"$m22_run_id".log \
+        out/logs/m22-history-"$m22_run_id"-boot-1.log \
+        out/logs/m22-history-"$m22_run_id"-boot-2.log \
         "$m22_log"; do
         if [ -e "$output" ]; then
-            mv "$output" "$archive_dir/" || fail "cannot preserve repetition output: $output"
+            output_destination="$archive_dir/${output##*/}"
+            if [ -e "$output_destination" ]; then
+                output_destination="$output_destination.duplicate-$run_id"
+            fi
+            if ! mv "$output" "$output_destination"; then
+                printf 'FAIL M28 harness: cannot preserve repetition output: %s\n' "$output" >&2
+                return 1
+            fi
         fi
     done
+}
+
+finalize_failed_run() {
+    run_exit_status=$1
+    trap - EXIT HUP INT TERM
+    if [ "$run_exit_status" -eq 0 ]; then
+        return 0
+    fi
+    if [ -n "${archive_root:-}" ] && [ -d "$archive_root" ]; then
+        if ! archive_iteration_outputs "$iteration"; then
+            run_exit_status=1
+        fi
+        if [ -z "${harness_failure_summary:-}" ]; then
+            harness_failure_summary="M28 runner exited with status $run_exit_status"
+        fi
+        write_m28_evidence_metadata \
+            "$archive_root" "$run_id" "$source_revision" "$repeat_count" \
+            "$m27_evidence_paths" PARTIAL "$passed_repetitions" "$iteration" \
+            "$harness_failure_summary"
+    fi
+    exit "$run_exit_status"
 }
 
 iteration=1
@@ -324,7 +561,15 @@ fi
 mkdir "$archive_root" || fail "cannot reserve run evidence directory: $archive_root"
 printf 'M28 repetition archive namespace: %s/\n' "$archive_root"
 
+source_revision=$(git rev-parse HEAD)
+m27_evidence_paths=''
 iteration=1
+passed_repetitions=0
+m22_run_id=''
+trap 'finalize_failed_run $?' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 while [ "$iteration" -le "$repeat_count" ]; do
     printf 'M28 repetition %s/%s: running ./nagi m19\n' "$iteration" "$repeat_count"
     ./nagi m19 || fail "./nagi m19 failed on repetition $iteration"
@@ -332,7 +577,27 @@ while [ "$iteration" -le "$repeat_count" ]; do
     printf 'PASS M28 repetition %s M19 serial gate: %s\n' "$iteration" "$(latest_m19_log)"
 
     printf 'M28 repetition %s/%s: running ./nagi m22\n' "$iteration" "$repeat_count"
-    ./nagi m22 || fail "./nagi m22 failed on repetition $iteration"
+    if m22_output=$(./nagi m22 2>&1); then
+        :
+    else
+        printf '%s\n' "$m22_output" >&2
+        if m22_failure_run_id=$(extract_m22_run_id "$m22_output"); then
+            m22_run_id=$m22_failure_run_id
+        fi
+        fail "./nagi m22 failed on repetition $iteration"
+    fi
+    printf '%s\n' "$m22_output"
+    m22_log=$(extract_m22_log "$m22_output") \
+        || fail "M22 command did not report its final serial log on repetition $iteration"
+    case "$m22_log" in
+        */out/logs/m22-history-*-boot-3.log) ;;
+        *) fail "M22 command reported an unexpected final log path: $m22_log" ;;
+    esac
+    m22_run_id=${m22_log##*/m22-history-}
+    m22_run_id=${m22_run_id%-boot-3.log}
+    case "$m22_run_id" in
+        ''|*[!0-9]*) fail "M22 command reported an invalid run ID in: $m22_log" ;;
+    esac
     validate_m22_log "$m22_log" || fail "M22 final serial gate failed on repetition $iteration"
     printf 'PASS M28 repetition %s M22 serial gate: %s\n' "$iteration" "$m22_log"
 
@@ -341,20 +606,58 @@ while [ "$iteration" -le "$repeat_count" ]; do
         :
     else
         printf '%s\n' "$m27_output" >&2
+        if m27_failure_path=$(extract_m27_diagnostic_evidence_path "$m27_output"); then
+            case "$m27_failure_path" in
+                "$repo_root"/out/evidence/m27-ab-rollback-*)
+                    m27_failure_relative=${m27_failure_path#"$repo_root"/}
+                    ;;
+                out/evidence/m27-ab-rollback-*)
+                    m27_failure_relative=$m27_failure_path
+                    ;;
+                *) m27_failure_relative='' ;;
+            esac
+            if [ -n "$m27_failure_relative" ] && [ -d "$m27_failure_path" ]; then
+                m27_failure_summary=$(printf '%s\n' "$m27_output" \
+                    | sed -n 's/^FAIL m27: //p' | tail -n 1)
+                write_m27_evidence_metadata "$m27_failure_path" "$iteration" \
+                    FAIL "$m27_failure_summary"
+                m27_evidence_paths="${m27_evidence_paths}${m27_failure_relative}
+"
+            fi
+        fi
         fail "./nagi m27 failed on repetition $iteration"
     fi
     if ! validate_m27_output "$m27_output"; then
         printf '%s\n' "$m27_output" >&2
         fail "M27 A/B and Recovery acceptance output failed on repetition $iteration"
     fi
+    m27_evidence_path=$(extract_m27_evidence_path "$m27_output") \
+        || fail "M27 acceptance did not report its evidence path on repetition $iteration"
+    case "$m27_evidence_path" in
+        "$repo_root"/out/evidence/m27-ab-rollback-*)
+            m27_evidence_relative=${m27_evidence_path#"$repo_root"/}
+            ;;
+        out/evidence/m27-ab-rollback-*)
+            m27_evidence_relative=$m27_evidence_path
+            ;;
+        *) fail "M27 reported an unexpected evidence path: $m27_evidence_path" ;;
+    esac
+    [ -d "$m27_evidence_path" ] || fail "M27 evidence directory is missing: $m27_evidence_path"
+    write_m27_evidence_metadata "$m27_evidence_path" "$iteration" PASS \
+        'Three malformed System B trials rolled back to persistent System A; healthy System B was promoted after guest readiness; Recovery preserved the journal and undid a committed M22 file.move group across restart.'
+    m27_evidence_paths="${m27_evidence_paths}${m27_evidence_relative}
+"
     printf '%s\n' "$m27_output"
     printf 'PASS M28 repetition %s M27 GPT A/B and Recovery gate\n' "$iteration"
 
-    if [ "$iteration" -lt "$repeat_count" ]; then
-        archive_iteration_outputs "$iteration"
-    fi
+    passed_repetitions=$iteration
+    archive_iteration_outputs "$iteration"
     iteration=$((iteration + 1))
 done
 
+write_m28_evidence_metadata "$archive_root" "$run_id" "$source_revision" \
+    "$repeat_count" "$m27_evidence_paths" PASS "$passed_repetitions" '' ''
 print_unmeasured_workload
 printf 'PASS M28 persistent Search/NH16 restart-gate repetitions: %s\n' "$repeat_count"
+trap - EXIT HUP INT TERM
+exit 0

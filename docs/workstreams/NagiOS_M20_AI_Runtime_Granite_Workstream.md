@@ -381,3 +381,19 @@ No M20 inference gate was run: the complete backend still does not build and
 the M30 Model Store contains no Granite artifact. This patch removes one
 compile blocker without claiming a runnable model backend or inference. M20
 remains `PARTIAL`.
+
+## Granite artifact release pin — 2026-10-01
+
+Added `[models.granite_4_2_3b]` to `third_party/models.lock` with the exact
+`ibm.granite-4.2-3b` GGUF repository revision, filename, 2,244,011,552-byte
+size, SHA-256, Apache-2.0 license/notice references, acknowledgement
+requirement, and Model Store artifact ID. The revision remains pinned to the
+Nagi Standard default; no model/provider default changed.
+
+The new `granite_model_artifact_lock_matches_manifest_fixture` CLI test parses
+the checked-in Granite manifest fixture and compares every lock field,
+including source, digest, license notice, acknowledgement, and storage
+identity. The focused test and complete CLI suite pass. No Granite bytes were
+downloaded or inserted into the release image. This pins distribution
+metadata only; it does not provide an installer, a complete llama.cpp Nagi
+backend, or guest inference. M20 remains `PARTIAL`.

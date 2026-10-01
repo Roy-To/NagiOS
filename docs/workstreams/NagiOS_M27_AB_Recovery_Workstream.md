@@ -499,3 +499,28 @@ QEMU again reported that this host could not open `virtio-sound.in`; this run
 does not cover host audio. M27 remains `PARTIAL` for authenticated readiness
 and update authority, authenticated slot manifests, and the remaining Recovery
 features.
+
+## Bootstrap completion marker and repeated integration — 2026-10-01
+
+The M27 bootstrap QEMU launcher previously waited on `Nagi M7 persistent
+write PASS`, which appears before `Nagi M7 reboot required PASS`. On one
+timeout, QEMU stopped between those serial lines, leaving a truncated log and
+making M27 report a false bootstrap failure. The launcher now waits for the
+later reboot-required marker, and a host regression requires both markers in
+the captured bootstrap log.
+
+After this change, both M27 sub-runs in
+`out/evidence/m28-run-20261001T130826Z-2523/` passed the complete GPT A/B and
+Recovery gate; their 31-file manifests verify at
+`out/evidence/m27-ab-rollback-1790860121579655000/` and
+`out/evidence/m27-ab-rollback-1790860238754593000/`. A later standalone M27
+sub-run also passed at
+`out/evidence/m27-ab-rollback-1790861315791167000/` with a verified manifest.
+Those runs confirm the bootstrap marker handoff and M27 acceptance, not the
+remaining authenticated update/readiness or Recovery requirements.
+
+Intermittent firmware startup failures still recur in separate attempts. For
+example, `out/evidence/m27-ab-rollback-1790860688634532000/recovery-boot.log`
+records a running QEMU VM at RIP `0x7eb84171` looping over `jmp 0x7eb84150`
+before the Recovery acceptance marker. That failure is preserved and is not
+counted as a pass. M27 remains `PARTIAL`.
