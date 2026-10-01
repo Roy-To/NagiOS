@@ -6773,3 +6773,28 @@ M30 release-disk acceptance gates. The preceding run's unfinished target job
 was cancelled by the fix push; that cancellation is not treated as a product
 failure. M29 remains `PARTIAL` for the remaining UX, propagation,
 localization/accessibility, and license-review work.
+
+
+## Completion sweep — current-source M30 release bundle (2026-10-01)
+
+On clean commit `5ee985f64da4b01837ef37df39693d35bce09135`, a fresh
+`./nagi m30` rebuilt the self-contained 64 GiB GPT reference qcow2. Its SHA-256
+is `4155639e8866bff430738d996b40eab350a514777a50a16511701476108f3714`; the
+prior image was preserved with its original SHA. System A, read-only Model
+Store capability, User Data format/write/restart-read, the M20 5,000-byte FAT32
+reader fixture, and M7 acceptance passed. `qemu-img check` passed on all three
+images. The run README and verified SHA-256 manifest are at
+`out/evidence/m30-release-1790848708675783000/`.
+
+Clean-tree release preflight, assembly, and verification passed for
+`out/artifacts/m30-release-bundle-5ee985f/`; all 12 release-tool tests passed.
+A byte-identical package copy booted twice and passed System A and Model Store
+checks, User Data format/write, restart persistence, and `Nagi M7 acceptance
+PASS`. Its post-boot digest changed while the untouched package digest remained
+unchanged. Post-boot release verification, package checksums, and qcow2 checks
+passed. The README and verified ten-file manifest are at
+`out/evidence/m30-clean-release-5ee985f/`. The bundle continues to record
+`m30_acceptance=NOT_EVALUATED`; M30 remains `PARTIAL` for authenticated update
+installation, M18–M29 gaps, and human binary redistribution review. QEMU had no
+host `virtio-sound.in` driver, so audio I/O is not covered. See
+`docs/workstreams/NagiOS_M30_Release_Workstream.md`.

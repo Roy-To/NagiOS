@@ -508,3 +508,39 @@ input (`virtio-sound.in`); host audio is not covered. The package manifest
 still records `m30_acceptance=NOT_EVALUATED`, and M30 remains `PARTIAL` for
 authenticated updates, remaining M18–M29 acceptance, and human redistribution
 review.
+
+## Current-source release rebuild and bundle acceptance — 2026-10-01
+
+On clean commit `5ee985f64da4b01837ef37df39693d35bce09135`, `./nagi m30`
+rebuilt the 64 GiB reference qcow2 from current payloads. The preceding image
+was preserved at
+`out/evidence/m30-release-1790848594984804000/reference-disk-before-current-source-rebuild.qcow2`;
+its SHA-256 remained
+`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`. The new
+image SHA-256 is
+`4155639e8866bff430738d996b40eab350a514777a50a16511701476108f3714`.
+
+The current-source M30 run passed GPT System A selection, the read-only Model
+Store capability, User Data format/write/restart-read, and M7 acceptance. The
+separate 5,000-byte FAT32 fixture passed its cross-cluster and EOF checks.
+`qemu-img check` passed for the source image, mutable acceptance copy, and
+fixture. The README and verified checksum manifest are in
+`out/evidence/m30-release-1790848708675783000/`.
+
+Release preflight, assembly, and verification passed on that clean revision.
+The package at `out/artifacts/m30-release-bundle-5ee985f/` contains 23
+checksum-covered files and pins the full source revision. A byte-identical
+copy booted twice with shared OVMF variables: first-boot System A, Model Store,
+User Data write, then restart persistence and `Nagi M7 acceptance PASS`. The
+copy changed from the package digest to
+`6bba38fd25cd795db3ac9a792aa36bb1614cfeaabcc8bb607350dd2aff64193c`; the
+untouched package retained
+`4155639e8866bff430738d996b40eab350a514777a50a16511701476108f3714`. Post-boot
+package verification, checksums, and both qcow2 checks passed. Evidence and a
+verified ten-file manifest are in
+`out/evidence/m30-clean-release-5ee985f/`. All 12 release-tool tests passed.
+
+The release bundle still records `m30_acceptance=NOT_EVALUATED`; M30 remains
+`PARTIAL` for authenticated GPT update installation, remaining M18–M29
+acceptance, and human binary redistribution review. QEMU reported no host
+`virtio-sound.in` input driver, so audio I/O is not established.
