@@ -1307,6 +1307,20 @@ const M10_DESKTOP_EVENTS: [&str; 8] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
 ];
 
+const M29_DESKTOP_FOCUS_EVENTS: [&str; 11] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+];
+
 const M29_SETTINGS_EVENTS: [&str; 10] = [
     // Move the pointer away from the language controls before activating the
     // final locale; the accepted Desktop may stop polling input immediately.
@@ -1360,6 +1374,7 @@ const M29_SETTINGS_REQUIRED_MARKERS: &[&str] = &[
     "Nagi M10 Japanese input PASS",
     "Nagi M10 Files focus PASS",
     "Nagi M10 GUI Terminal focus PASS",
+    "Nagi M29 desktop keyboard focus PASS",
     "Nagi M29 settings locale persisted PASS locale=ja-JP",
     "Nagi M29 settings locale PASS locale=ja-JP",
     "Nagi M10 acceptance PASS",
@@ -1501,7 +1516,8 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let mut events = M10_DESKTOP_EVENTS.to_vec();
+    let mut events = M29_DESKTOP_FOCUS_EVENTS.to_vec();
+    events.extend_from_slice(&M10_DESKTOP_EVENTS);
     events.extend_from_slice(&M29_SETTINGS_EVENTS);
     execute_desktop_acceptance(
         root,

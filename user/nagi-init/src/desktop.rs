@@ -65,6 +65,9 @@ static NAGI_M29_KEYBOARD_LOCALE_SELECTION: [u8;
     b"Nagi M29 keyboard locale selection PASS locale=ja-JP\r\n".len()] =
     *b"Nagi M29 keyboard locale selection PASS locale=ja-JP\r\n";
 #[no_mangle]
+static NAGI_M29_DESKTOP_KEYBOARD_FOCUS: [u8; b"Nagi M29 desktop keyboard focus PASS\r\n".len()] =
+    *b"Nagi M29 desktop keyboard focus PASS\r\n";
+#[no_mangle]
 static NAGI_M29_JAPANESE_PERSISTED: [u8;
     b"Nagi M29 settings locale persisted PASS locale=ja-JP\r\n".len()] =
     *b"Nagi M29 settings locale persisted PASS locale=ja-JP\r\n";
@@ -121,9 +124,18 @@ enum SettingsFocus {
     Japanese,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DesktopFocus {
+    SettingsButton,
+    Application(usize),
+}
+
 pub struct Desktop {
     windows: [Rect; APP_COUNT],
     focused: [bool; APP_COUNT],
+    desktop_focus: Option<DesktopFocus>,
+    keyboard_app_focus: [bool; APP_COUNT],
+    keyboard_focus_pass_printed: bool,
     pointer_x: i32,
     pointer_y: i32,
     notes_has_input: bool,
@@ -142,6 +154,9 @@ impl Desktop {
                 Rect::new(167, 104, WINDOW_WIDTH, WINDOW_HEIGHT),
             ],
             focused: [false; APP_COUNT],
+            desktop_focus: None,
+            keyboard_app_focus: [false; APP_COUNT],
+            keyboard_focus_pass_printed: false,
             pointer_x: POINTER_START_X,
             pointer_y: POINTER_START_Y,
             notes_has_input: false,
@@ -161,7 +176,9 @@ impl Desktop {
         );
         painter.frame(
             SETTINGS_BUTTON,
-            if self.settings_focus == Some(SettingsFocus::Button) {
+            if self.settings_focus == Some(SettingsFocus::Button)
+                || (!self.settings_open && self.desktop_focus == Some(DesktopFocus::SettingsButton))
+            {
                 FOCUS
             } else {
                 BORDER
@@ -222,7 +239,11 @@ impl Desktop {
         }
         if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 {
             if event.code == libnagi::INPUT_KEY_TAB {
-                self.focus_next_settings_control();
+                if self.settings_open {
+                    self.focus_next_settings_control();
+                } else {
+                    self.focus_next_desktop_control();
+                }
                 return true;
             }
             if event.code == libnagi::INPUT_KEY_UP || event.code == libnagi::INPUT_KEY_DOWN {
@@ -231,13 +252,15 @@ impl Desktop {
             if event.code == libnagi::INPUT_KEY_ESCAPE && self.settings_open {
                 self.settings_open = false;
                 self.settings_focus = Some(SettingsFocus::Button);
+                self.desktop_focus = Some(DesktopFocus::SettingsButton);
                 return true;
             }
             if event.code == libnagi::INPUT_KEY_ENTER || event.code == libnagi::INPUT_KEY_SPACE {
-                return self.activate_settings_focus(volume, true);
+                return self.activate_desktop_focus(volume);
             }
             if event.code == libnagi::INPUT_KEY_LEFT {
                 if SETTINGS_BUTTON.contains(self.pointer_x, self.pointer_y) {
+                    self.desktop_focus = Some(DesktopFocus::SettingsButton);
                     self.settings_open = !self.settings_open;
                     self.settings_focus = Some(if self.settings_open {
                         SettingsFocus::English
@@ -256,37 +279,19 @@ impl Desktop {
                     if !SETTINGS_PANEL.contains(self.pointer_x, self.pointer_y) {
                         self.settings_open = false;
                         self.settings_focus = Some(SettingsFocus::Button);
+                        self.desktop_focus = Some(DesktopFocus::SettingsButton);
                         return true;
                     }
                     return true;
                 }
-                if self.windows[0].contains(self.pointer_x, self.pointer_y) {
-                    if !self.focused[0] {
-                        self.focused[0] = true;
-                        print(message!(NAGI_M10_CALCULATOR, 32));
-                    }
-                    return true;
-                }
-                if self.windows[1].contains(self.pointer_x, self.pointer_y) {
-                    if !self.focused[1] {
-                        self.focused[1] = true;
-                        print(message!(NAGI_M10_NOTES, 27));
-                    }
-                    return true;
-                }
-                if self.windows[2].contains(self.pointer_x, self.pointer_y) {
-                    if !self.focused[2] {
-                        self.focused[2] = true;
-                        print(message!(NAGI_M10_FILES, 27));
-                    }
-                    return true;
-                }
-                if self.windows[3].contains(self.pointer_x, self.pointer_y) {
-                    if !self.focused[3] {
-                        self.focused[3] = true;
-                        print(message!(NAGI_M10_TERMINAL, 34));
-                    }
-                    return true;
+                if let Some(index) = self
+                    .windows
+                    .iter()
+                    .position(|window| window.contains(self.pointer_x, self.pointer_y))
+                {
+                    self.desktop_focus = Some(DesktopFocus::Application(index));
+                    self.settings_focus = None;
+                    return self.activate_application(index, false);
                 }
             } else if self.focused[1]
                 && !self.notes_has_input
@@ -387,6 +392,23 @@ impl Desktop {
         );
     }
 
+    fn focus_next_desktop_control(&mut self) {
+        let next_focus = match self.desktop_focus {
+            None => DesktopFocus::SettingsButton,
+            Some(DesktopFocus::SettingsButton) => DesktopFocus::Application(0),
+            Some(DesktopFocus::Application(index)) if index + 1 < APP_COUNT => {
+                DesktopFocus::Application(index + 1)
+            }
+            Some(DesktopFocus::Application(_)) => DesktopFocus::SettingsButton,
+        };
+        self.desktop_focus = Some(next_focus);
+        self.settings_focus = if next_focus == DesktopFocus::SettingsButton {
+            Some(SettingsFocus::Button)
+        } else {
+            None
+        };
+    }
+
     fn focus_next_settings_control(&mut self) {
         self.settings_focus = Some(if self.settings_open {
             match self.settings_focus {
@@ -397,6 +419,50 @@ impl Desktop {
         } else {
             SettingsFocus::Button
         });
+    }
+
+    fn activate_desktop_focus(&mut self, volume: &mut UserDataVolume) -> bool {
+        if self.settings_open {
+            return self.activate_settings_focus(volume, true);
+        }
+        match self.desktop_focus {
+            Some(DesktopFocus::SettingsButton) => {
+                self.settings_focus = Some(SettingsFocus::Button);
+                self.activate_settings_focus(volume, true)
+            }
+            Some(DesktopFocus::Application(index)) => self.activate_application(index, true),
+            None => false,
+        }
+    }
+
+    fn activate_application(&mut self, index: usize, keyboard: bool) -> bool {
+        if index >= APP_COUNT {
+            return false;
+        }
+        if !self.focused[index] {
+            self.focused[index] = true;
+            match index {
+                0 => print(message!(NAGI_M10_CALCULATOR, 32)),
+                1 => print(message!(NAGI_M10_NOTES, 27)),
+                2 => print(message!(NAGI_M10_FILES, 27)),
+                3 => print(message!(NAGI_M10_TERMINAL, 34)),
+                _ => return false,
+            }
+        }
+        if keyboard {
+            self.keyboard_app_focus[index] = true;
+            if cfg!(feature = "m29-settings-acceptance")
+                && !self.keyboard_focus_pass_printed
+                && self.keyboard_app_focus.iter().all(|focused| *focused)
+            {
+                print(message!(
+                    NAGI_M29_DESKTOP_KEYBOARD_FOCUS,
+                    NAGI_M29_DESKTOP_KEYBOARD_FOCUS.len()
+                ));
+                self.keyboard_focus_pass_printed = true;
+            }
+        }
+        true
     }
 
     fn move_settings_focus(&mut self, down: bool) -> bool {
@@ -471,7 +537,17 @@ impl Desktop {
     fn render_app(&self, painter: &mut Painter<'_>, index: usize, title: &[u8], content: &[u8]) {
         let window = self.windows[index];
         painter.fill(window, PANEL);
-        painter.frame(window, if self.focused[index] { TITLE } else { BORDER });
+        let keyboard_focused = self.desktop_focus == Some(DesktopFocus::Application(index));
+        painter.frame(
+            window,
+            if keyboard_focused {
+                FOCUS
+            } else if self.focused[index] {
+                TITLE
+            } else {
+                BORDER
+            },
+        );
         painter.fill(
             Rect::new(window.x + 1, window.y + 1, window.width - 2, TITLE_HEIGHT),
             TITLE,

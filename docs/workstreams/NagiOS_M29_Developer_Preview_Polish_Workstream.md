@@ -11,10 +11,10 @@ finished consumer onboarding flow or complete product UX.
 | Surface | Current evidence | M29 result / remaining work |
 | --- | --- | --- |
 | First boot and onboarding | `./nagi image` and `./nagi run` create and boot the QEMU reference image; the implementation status records QEMU acceptance by milestone. | The Japanese guide documents the host and first QEMU workflow. No first-run setup wizard, physical installer, or onboarding screenshots are present. |
-| Desktop, defaults, and Settings | `user/nagi-init/src/desktop.rs` draws four M10 acceptance panels and a Settings overlay with an `en-US` / `ja-JP` System language selector. It stores the strict language code in the User Data VFS file `system-language` and loads it before the first Desktop frame. `./nagi m29` verifies the selection after a guest restart. | This is a narrow Desktop acceptance surface, not a complete app launcher, default-app selector, persistent settings service, or integrated system settings experience. Other processes do not yet receive the selected language. |
+| Desktop, defaults, and Settings | `user/nagi-init/src/desktop.rs` draws four M10 acceptance panels and a Settings overlay with an `en-US` / `ja-JP` System language selector. Tab cycles keyboard focus through Settings and the four panels; Enter/Space activates a panel, and the existing Settings locale controls retain Tab/arrow/Enter/Space/Escape input. An amber ring marks focus. The strict language code is stored in the User Data VFS file `system-language` and loaded before the first Desktop frame; `./nagi m29` verifies it after a guest restart. | This is a narrow fixed acceptance surface, not a complete app launcher, general focus service, default-app selector, persistent settings service, or integrated system settings experience. Other processes do not yet receive the selected language. |
 | Errors and missing providers | CLI commands expose host diagnostics and per-acceptance serial logs; M20–M26 workstreams record typed provider boundaries and unavailable paths. | The guide separates host failures from guest providers and says when a capability is not available. There is no shared end-user error center or provider-management UI. |
 | Recovery and update | M16 verifies a sample package install/list/info/launch/atomic-update/remove fixture. M27 QEMU acceptance covers GPT-backed A/B trial rollback/promotion and a read-only Recovery path, including recovery with a pending journal. | Documentation distinguishes the M16 fixture from M27 guest recovery. Authenticated slot manifests, GPT-integrated update installation, account-login readiness, and a user-facing recovery flow remain. |
-| Language and accessibility | `user/nagi-localization` supplies embedded UTF-8 `en-US` and `ja-JP` resources, canonical locale parsing, stable-key lookup, English fallback, and safe unknown-key text. The M29 Settings overlay changes four Desktop panel titles and its own labels; the selected System language is persisted in User Data and restored before Desktop rendering. Settings is reachable by Tab and operated with arrows, Enter/Space, and Escape, with a visible focus indicator. | Cross-process propagation, complete first-party translations, a system-wide focus model, an accessibility tree, and assistive-technology acceptance remain unverified. Region/locale, input language/keyboard, and Albert conversation language remain separate concepts. |
+| Language and accessibility | `user/nagi-localization` supplies embedded UTF-8 `en-US` and `ja-JP` resources, canonical locale parsing, stable-key lookup, English fallback, and safe unknown-key text. The M29 Settings overlay changes four Desktop panel titles and its own labels; the selected System language is persisted in User Data and restored before Desktop rendering. Tab reaches each fixed M10 panel and Settings, with Enter/Space activation and a visible focus ring; the overlay retains arrow and Escape behavior. | Cross-process propagation, complete first-party translations, a system-wide focus service, an accessibility tree, and assistive-technology acceptance remain unverified. Region/locale, input language/keyboard, and Albert conversation language remain separate concepts. |
 | Diagnostics and debug output | `./nagi doctor` is host diagnostics; it recognizes `python3` as well as the `python` and Windows launcher names. Milestone commands save guest serial logs. The M17 acceptance requires bounded startup trace markers, and `m17_trace_excerpt` elides middle lines past its configured cap. | The guide documents log paths and marker-based evidence. The Python 3 alias regression is covered by an integration test, and the current macOS host reports 12/12 checks passing. M17 traces were retained because they support and are consumed by startup acceptance; no indiscriminate trace deletion was made. A `nagi diagnose bundle` command is absent. |
 | Developer and SDK docs | Root README, Japanese Developer Preview guide, SDK README, contribution guide, and roadmap now cross-link the verified command surface and known limitations. The SDK README describes the IDL-backed Rust/C APIs and the Hello Nagi sample package flow. | Documentation is present. The SDK remains an early surface; no general app lifecycle, IPC, or capability API is claimed. |
 | Package metadata and notices | `nagi.toml` records version `0.1.0-dev` and the QEMU reference machine. `THIRD_PARTY_NOTICES.md` now covers all 18 `sources.lock` components, their exact version/revision/toolchain pins, declared license expressions, and unresolved binary redistribution reviews. A `nagi-cli` regression checks that new pins are added to the notice inventory. `cargo metadata --locked` reports license expressions for all 673 external Cargo packages (41 distinct expressions), including dev and target-specific packages. | The guides link the notices and avoid assigning a project license. Cargo metadata is not a license-text or redistribution review or an image bill of materials. Nagi's license is still undecided; Rust std, Mesa component notices, transitive native sources, and asset provenance need human review before binary redistribution. |
@@ -316,3 +316,32 @@ after 2,407 ms. Its nine-entry SHA-256 manifest verifies in
 boot logs, the persisted User Data disk, and the accepted screenshot. This
 acceptance path exercised Escape, Up, and Space in addition to the original
 Tab/Enter/Down selection route.
+
+## Desktop panel keyboard focus — 2026-10-01
+
+The fixed four-panel M10 Desktop now has keyboard focus traversal in addition
+to Settings navigation. Tab cycles through the Settings button, Calculator,
+Notes, Files, and Terminal; Enter or Space activates the focused panel. The
+amber focus ring follows the focused panel or Settings button. When Settings is
+open, its existing locale-option traversal and activation remain available.
+This does not add focus handling for arbitrary applications or a general
+accessibility tree.
+
+Run `1790865253807326000` passed `./nagi m29`; READY arrived after 2,481 ms.
+The serial log confirms the keyboard activation markers for all four M10
+panels, the existing Japanese input marker, `Nagi M29 desktop keyboard focus
+PASS`, Japanese locale selection, and persistence. A second boot with the same
+User Data disk restored `ja-JP` before the first Desktop frame. The screenshot
+SHA-256 is
+`8822118a65187b7e29afcba781c3a659e043263f00a7f823ef1c94aae17d323d`, matching
+the tracked Settings screenshot. The nine-entry manifest at
+`out/evidence/m29-settings-1790865253807326000/SHA256SUMS` verifies the image,
+User Data disk, OVMF variables, logs, screenshot, source diff, and README.
+
+The host source-contract regression
+`m29_keyboard_focus_reaches_all_desktop_acceptance_panels`, `./nagi test`,
+`./nagi lint`, and `./nagi build` pass. M29 remains `PARTIAL`: focus traversal
+is bounded to the existing four acceptance panels and Settings; cross-process
+language propagation, onboarding, complete localization/accessibility,
+broader UI and performance evidence, and user-facing provider/recovery polish
+remain open.

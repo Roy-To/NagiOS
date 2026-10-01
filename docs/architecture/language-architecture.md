@@ -131,13 +131,14 @@ unsupported language tag is never applied. `./nagi m29` verifies that the
 Japanese preference survives a guest restart. This is still not a persistent
 language settings service or cross-process propagation, and does not couple
 the System language to region formats, input language/keyboard, or Albert's
-conversation language. First-party UI coverage remains partial. The Settings
-overlay now supports a limited keyboard path: Tab focuses the Settings
-button while the overlay is closed and cycles locale choices while it is open;
-Up/Down also moves between locale choices,
-Enter/Space activates the focused control, and Escape closes the overlay. A
-visible focus indicator identifies the current control. This is local to
-Settings; it does not establish a system-wide focus model, keyboard navigation
-for other Desktop controls, an accessibility tree, or assistive-technology
-support. Focused host tests cover catalog keys, UTF-8 Japanese, locale
-validation, safe missing-key behavior, and fallback behavior.
+conversation language. First-party UI coverage remains partial. The fixed M10
+Desktop acceptance surface has a limited keyboard focus path: Tab cycles
+through the Settings button and the Calculator, Notes, Files, and Terminal
+panels; Enter/Space activates the focused control. The Settings overlay also
+lets Tab and Up/Down move between locale choices, Enter/Space select a choice,
+and Escape close the overlay. An amber focus indicator marks the focused
+control. This covers only those fixed acceptance panels and the Settings
+overlay; it does not provide a system-wide focus service, a general
+application launcher, an accessibility tree, or assistive-technology support.
+Focused host tests cover catalog keys, UTF-8 Japanese, locale validation, safe
+missing-key behavior, and fallback behavior.

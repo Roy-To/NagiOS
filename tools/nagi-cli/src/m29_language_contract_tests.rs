@@ -90,3 +90,17 @@ fn m29_language_setting_is_reachable_and_selectable_by_keyboard() {
     }
     assert!(desktop.contains("NagiM29keyboardlocaleselectionPASSlocale=ja-JP"));
 }
+
+#[test]
+fn m29_keyboard_focus_reaches_all_desktop_acceptance_panels() {
+    let desktop = compact(DESKTOP);
+    assert!(desktop.contains("Some(DesktopFocus::Application(index))"));
+    assert!(desktop.contains("self.desktop_focus==Some(DesktopFocus::Application(index))"));
+    assert!(desktop.contains("self.keyboard_app_focus.iter().all(|focused|*focused)"));
+    assert!(desktop.contains("NagiM29desktopkeyboardfocusPASS"));
+
+    let commands = compact(COMMANDS);
+    assert!(commands.contains("constM29_DESKTOP_FOCUS_EVENTS:[&str;11]"));
+    assert!(commands.contains("letmutevents=M29_DESKTOP_FOCUS_EVENTS.to_vec();events.extend_from_slice(&M10_DESKTOP_EVENTS);"));
+    assert!(commands.contains("\"NagiM29desktopkeyboardfocusPASS\""));
+}
