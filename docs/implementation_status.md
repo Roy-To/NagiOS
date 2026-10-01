@@ -8,10 +8,15 @@ in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
 download/upload destinations, clipboard, IME text/composition events, and
 trusted interactive site-permission decisions still lack Nagi providers; the
 user-directed M19 work proceeds because those services are not M19
-dependencies. A fresh 2026-10-02 local rerun timed out at the TianoCore splash
-before any guest marker; the QMP loop diagnostics are preserved under
-`out/evidence/m18-timeout-1790866733768047000/` and do not replace the prior
-successful acceptance evidence.
+dependencies. One fresh 2026-10-02 attempt timed out at the TianoCore splash
+before any guest marker; its QMP loop diagnostics are preserved under
+`out/evidence/m18-timeout-1790866733768047000/`. After regenerating the pinned
+Servo checkout with `./nagi fetch` and selecting Homebrew LLVM 19 with its
+matching libc++ headers, a subsequent `./nagi m18` run passed: QEMU booted and
+three TLS-chain- and hostname-verified HTTPS pages rendered through Nagi
+Surface. The run log is `out/logs/m18-homebrew-llvm19-20261002.log`. QEMU had
+no `virtio-sound.in` host audio backend, so this run adds no audio acceptance
+evidence.
 **M19 evidence:** The deterministic metadata/search contract is integrated
 into the root workspace. Host tests cover metadata search, policy filtering,
 producer adapters, and two-slot snapshot recovery. `./nagi m19` now enumerates
@@ -200,10 +205,17 @@ local TTS engine, and real guest voice-command acceptance remain. See
 `docs/workstreams/NagiOS_M25_Voice_Workstream.md`.
 **M26 evidence:** Added deterministic role/capability/resource/provider-health
 model routing, strict manual override checks, and unavailable-provider
-fallbacks while retaining Granite as the Standard default. Forty-four
-model-manager tests, warnings-denied Clippy, formatting, and Nagi target
-compile pass. Verified Qwen/Gemma artifacts, guest runtime/inference, switching
-UI, and real routing acceptance remain. See
+fallbacks while retaining Granite as the Standard default. The full configured
+host workspace suite passed, including 57 Model Manager unit tests, 2
+manifest/schema tests, and 1 store API test; warnings-denied lint, formatting,
+host build, and the Nagi-target Model Manager check also passed. Qwen/Gemma
+fixtures and `third_party/models.lock` now agree on immutable source revisions,
+filenames, upstream-advertised sizes and SHA-256 values, plus license/notice
+references; the CLI lock-to-fixture test passes. The M19 guest Search regression
+and M22 three-boot grouped-Undo regression also passed. Model bytes were not
+downloaded, so those digests are not independently verified. Installable
+packages, completed/reviewed Gemma terms packaging, guest runtime/inference,
+switching UI, and real routing acceptance remain. See
 `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`.
 **M27 evidence:** The bounded A/B boot-control state machine has a
 three-attempt trial limit and checksummed two-copy journal backed by two
@@ -421,7 +433,7 @@ Homebrew LLVM 19 and matching libc++ headers because this Mac's Apple Clang
 21 SDK headers do not match the pinned target libc++ flags; that host
 compiler issue is separate from the linker adapter.
 
-**Last updated:** 2026-10-01
+**Last updated:** 2026-10-02
 **Latest continuation CI:** Run
 [`36615323040`](https://github.com/RT-NISH/NagiOS/actions/runs/36615323040)
 passed Ubuntu host, Windows launcher, and the Nagi target gates on base commit
@@ -2494,7 +2506,7 @@ Use only these statuses:
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
 | M24 | Embedding / Semantic AI | PARTIAL | Added a bounded exact `PersistentVectorIndex` over `SnapshotBackend`, opaque embedding-space identity checks, versioned/checksummed snapshots, atomic object replacement, stable top-k ranking, and visible-ObjectId filtering. Twenty-nine `nagi-search` tests, warnings-denied Search and CLI Clippy, 135 CLI unit + 21 integration tests, formatting, and Nagi no-std target compile pass. M19 two-boot QEMU restored the semantic index after restart; M22 three-boot QEMU revalidated index restore with NH16/NAL1 Undo. Logs, disk images, user-data disks, and OVMF variables are preserved under `out/evidence/m24-persistent-semantic-index-20261001/`. Guest inference uses a deterministic test provider. A multilingual embedding model, content-producer synchronization, hybrid ranking/explanations, stale-index invalidation, reference-scale performance evidence, and the formal natural-language acceptance remain. See `docs/workstreams/NagiOS_M24_Embedding_Semantic_AI_Workstream.md`. |
 | M25 | Voice | PARTIAL | Added a bounded no-std push-to-talk coordinator and a replaceable TTS provider/synthesis service with 1 KiB UTF-8 input, 4 KiB PCM chunks, a 1 MiB output cap, frame checks, empty-output rejection, failure cleanup, and a target AudioService playback sink. `SpeechToTextProvider::finish() == Ok(0)` fails closed as `EmptyTranscript`, cancels provider state, clears output, and cleans up the pipeline. Fifteen audio tests pass. A fresh target fixture verifies delivery of a fixed Japanese transcript through the authorized PTT output path, without claiming inference or executing the transcript. The M25 QEMU gate requires `Nagi M25 fixture transcript delivery PASS`; the run has a verified manifest at `out/evidence/m25-fixture-transcript-1790868293848130000/manifest.sha256`. On 2026-10-02, CLI tests passed (155 unit, 21 integration), as did `./nagi fmt`, `./nagi test`, `./nagi lint`, `./nagi build`, and `./nagi m25`. whisper.cpp is pinned; `./nagi fetch` validates the clean upstream source and generates a separate Nagi-patched checkout. The Nagi-target `whisper` CMake build and host GGUF parser/writer regression passed on 2026-10-01; related evidence is under `out/evidence/m25-whisper-noexceptions-{pre-final-rerun,final-pass}-20261001/` and `out/evidence/m25-whisper-target-compile-20261001/`. The Whisper small multilingual metadata has immutable source, exact size, SHA-256, MIT metadata, and Model Store ID in `third_party/models.lock`; no model bytes were downloaded or loaded, and QEMU had no host `virtio-sound.in` driver. Authenticated permission/UI wiring, a real Japanese STT provider and inference, concrete local TTS, and spoken-command acceptance remain. See `docs/workstreams/NagiOS_M25_Voice_Workstream.md`. |
-| M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
+| M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. The full configured host workspace suite passed (including 57 Model Manager unit, 2 manifest/schema, and 1 store API tests); lint, format, host build, Nagi-target Model Manager check, and M19/M22 guest regressions pass. Qwen/Gemma source revisions, filenames, upstream-advertised sizes/digests, and license/notice metadata are pinned and checked against manifest fixtures. Model bytes and independent digest verification, installable/legal packages, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
 | M27 | A/B / Recovery | PARTIAL | The M27 bootstrap QEMU gate now waits for the later `Nagi M7 reboot required PASS` marker. Earlier combined two-repetition gates passed twice, with 31-file manifests. A fresh standalone `./nagi m27` run on 2026-10-02 passed three malformed System B rollback trials, healthy System B promotion after guest readiness, Recovery with unchanged journal, and committed M22 Move Undo across restart; its 38-entry manifest verifies at `out/evidence/m27-ab-rollback-1790869370028356000/`. It does not close authenticated update/readiness authority, authenticated slot manifests, Move content identity, or remaining Recovery work. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | The harness self-test, syntax, and dry-run pass. Two fresh 2026-10-02 two-repetition attempts are preserved: `out/evidence/m28-run-20261001T153942Z-38390/` passed M19 and M22 boot 1 before boot 2 timed out at OVMF RIP `0x7eb84171`; `out/evidence/m28-run-20261001T154452Z-38953/` passed M19 before M22 bootstrap timed out at the same RIP. Their 13- and 11-entry archive manifests verify; neither reached M27 or completed a repetition. Standalone M22 three-boot and M27 A/B/Recovery regressions passed afterward, but do not satisfy the combined consecutive gate. Desktop/Files/Notes/Albert load, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Fresh `./nagi m29` run `out/evidence/m29-settings-1790869645429869000/` passed keyboard focus traversal for Settings and all four M10 panels, Japanese locale selection, persistence, and same-disk restart restoration; READY arrived in 2,605 ms and its eight-entry SHA-256 manifest verifies. The tracked Japanese Settings screenshot is preserved. Six localization tests and 155 CLI unit / 21 integration tests pass; format, lint, build, and M29 QEMU acceptance pass. Earlier Windows CI run `36802487593` on `e2b9d48` passed all Windows, Ubuntu, and Nagi-target jobs, including M17/M18 and M19/M22/M27/M29/M30 acceptance. Focus remains bounded to the four fixed panels and Settings; cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |

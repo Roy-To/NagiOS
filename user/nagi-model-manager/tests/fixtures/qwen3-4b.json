@@ -18,8 +18,11 @@
       "kind": "model_store",
       "artifact_id": "qwen.qwen3-4b"
     },
-    "size_bytes": null,
-    "integrity": null
+    "size_bytes": 2497280256,
+    "integrity": {
+      "algorithm": "sha256",
+      "digest": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
+    }
   },
   "capabilities": ["text.generate", "text.stream", "structured.generate"],
   "modalities": ["text"],
@@ -30,7 +33,7 @@
   "resources": {
     "minimum_ram_bytes": 2147483648,
     "recommended_ram_bytes": 4294967296,
-    "minimum_storage_bytes": 2147483648,
+    "minimum_storage_bytes": 2684354560,
     "minimum_cpu_cores": 1,
     "gpu_required": false
   },
@@ -42,16 +45,20 @@
     "minimum_os_version": null
   },
   "license": {
-    "identifier": "provider-terms:qwen3",
-    "terms_reference": "provider-terms:alibaba.qwen3",
+    "identifier": "Apache-2.0",
+    "terms_reference": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/blob/bc640142c66e1fdd12af0bd68f40445458f3869b/LICENSE",
     "acknowledgement_required": false,
     "notices": [
       {
-        "notice_id": "model-notice",
-        "reference": "provider-notice:alibaba.qwen3",
+        "notice_id": "apache-2.0",
+        "reference": "https://www.apache.org/licenses/LICENSE-2.0",
         "required": true
       }
     ]
   },
-  "source": null
+  "source": {
+    "uri": "https://huggingface.co/Qwen/Qwen3-4B-GGUF",
+    "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+    "file_name": "Qwen3-4B-Q4_K_M.gguf"
+  }
 }

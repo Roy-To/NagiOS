@@ -49,22 +49,59 @@ when its provider is unavailable, strict manual override behavior, specialized
 Decision routing, the explicit generative Decision adapter fallback, and the
 fail-closed behavior for an unreported provider.
 
-- `cargo test --locked --offline -p nagi-model-manager --all-targets` — PASS:
-  44 unit tests, 2 manifest/schema tests, and 1 store API test.
-- `cargo clippy --locked --offline -p nagi-model-manager --all-targets -- -D warnings` — PASS.
-- `cargo -Z build-std=core,alloc check --locked --offline -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json` — PASS.
-- Formatting: `cargo fmt --package nagi-model-manager` — PASS.
+- `./nagi test` — PASS for the full configured host workspace, including 57
+  Model Manager unit tests, 2 manifest/schema tests, and 1 store API test.
+- `nagi-cli::llama_cpp::tests::model_artifact_locks_match_manifest_fixtures`
+  — PASS; all three lock entries match their manifest fixture metadata.
+- `./nagi lint` — PASS with warnings denied for the configured host workspace.
+- `cargo -Z build-std=core,alloc check --locked --offline -p
+  nagi-model-manager --target targets/x86_64-unknown-nagi-user.json` — PASS.
+- `./nagi fmt` and `./nagi build` — PASS.
+- `./nagi m19` — PASS; live guest VFS metadata and stable Object ID survived
+  rename, remount, and QEMU restart (`out/logs/m19-vfs-objectid-initial.log`).
+- `./nagi m22` — PASS across three guest boots; file actions, grouped NH16
+  transactions, Activity Ledger, Undo, and restoration passed
+  (`out/logs/m22-history-1790873102354253000-boot-1.log` through
+  `out/logs/m22-history-1790873102354253000-boot-3.log`).
 
 Host tests use the existing orchestration-only in-memory artifact catalog and
 synthetic integrity metadata. They do not install, download, or claim to verify
 Qwen or Gemma model bytes.
 
+## 2026-10-02 artifact pin checkpoint
+
+`third_party/models.lock` and the Qwen/Gemma manifest fixtures now record
+immutable upstream revisions, filenames, advertised byte sizes, SHA-256
+values, and license/notice references. Regression checks pin the exact
+revision, file, size, digest, and license values in the manifest fixtures and
+ensure each lock entry matches its corresponding fixture.
+
+- Qwen3 4B uses `Qwen/Qwen3-4B-GGUF` revision
+  `bc640142c66e1fdd12af0bd68f40445458f3869b`, file
+  `Qwen3-4B-Q4_K_M.gguf`, 2,497,280,256 bytes, and the repository-advertised
+  SHA-256 `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5`.
+  The fixture references Apache-2.0 and does not require acknowledgement.
+- Gemma 3 1B uses the public GGUF conversion `ggml-org/gemma-3-1b-it-GGUF`
+  revision `f9c28bcd85737ffc5aef028638d3341d49869c27`, file
+  `gemma-3-1b-it-Q4_K_M.gguf`, 806,058,240 bytes, and the repository-advertised
+  SHA-256 `8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135`.
+  The fixture links Google's Gemma Terms of Use and records that user
+  acknowledgement is required.
+
+The sizes and digests above came from upstream repository file metadata. The
+model files were not downloaded, so neither digest has been independently
+verified against streamed bytes. The weights are not included in this
+repository or installed in a guest. The Gemma distribution terms/notice package
+has not been completed or reviewed, and neither model has passed installation,
+loading, or inference acceptance.
+
 ## Remaining blockers
 
-- Qwen3 4B and Gemma 3 1B are still illustrative, non-installable manifest
-  examples. They lack pinned source revisions, exact artifact sizes, verified
-  digests, and a verified installable license/notice package. No weights were
-  added to this repository.
+- Qwen3 4B and Gemma 3 1B now have immutable source pins and repository-
+  advertised artifact metadata, but the model bytes are not present and the
+  digests are not independently verified. The manifests remain examples rather
+  than installable packages; Gemma's required distribution terms/notice package
+  also needs completion and review. No weights were added to this repository.
 - Granite has a pinned upstream artifact revision and verified digest, but no
   installed guest artifact or production Nagi-target llama.cpp/GGUF backend is
   available for inference acceptance.

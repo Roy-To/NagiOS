@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(record.state(), InstallState::NotInstalled);
         assert_eq!(record.installed_version(), None);
         assert_eq!(record.update_version(), None);
-        assert_eq!(record.license().identifier, "google-gemma-terms");
+        assert_eq!(record.license().identifier, "Gemma Terms of Use");
         assert!(!record.license_acknowledged());
         assert_eq!(
             record.request_install(),
@@ -267,7 +267,7 @@ mod tests {
             Err(StoreError::InvalidLicenseReference)
         );
         record
-            .acknowledge_terms("provider-terms:google.gemma")
+            .acknowledge_terms("https://ai.google.dev/gemma/terms")
             .unwrap();
         record.request_install().unwrap();
         assert_eq!(record.state(), InstallState::InstallRequested);
@@ -317,10 +317,12 @@ mod tests {
     }
 
     #[test]
-    fn does_not_install_catalog_profiles_without_an_integrity_digest() {
-        let qwen =
+    fn does_not_install_manifest_without_an_integrity_digest() {
+        let mut qwen =
             ModelManifest::parse_json(include_str!("../tests/fixtures/qwen3-4b.json").as_bytes())
                 .unwrap();
+        qwen.artifact.integrity = None;
+        qwen.source = None;
         let mut record = ModelStoreRecord::discovered(qwen).unwrap();
         assert_eq!(record.request_install(), Err(StoreError::IntegrityRequired));
         assert_eq!(record.state(), InstallState::NotInstalled);

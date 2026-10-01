@@ -76,4 +76,34 @@ fn bundled_model_profiles_are_valid_v1_manifest_examples() {
     let source = granite.source.as_ref().unwrap();
     assert_eq!(source.revision, "c40945d71cd90f249a56985e8155551a9188dc30");
     assert_eq!(source.file_name, "granite-4.2-3b-Q4_K_M.gguf");
+
+    let qwen = ModelManifest::parse_json(include_bytes!("fixtures/qwen3-4b.json").as_slice())
+        .expect("pinned Qwen artifact profile");
+    assert_eq!(qwen.artifact.size_bytes, Some(2_497_280_256));
+    assert_eq!(
+        qwen.artifact.integrity.as_ref().unwrap().digest,
+        "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
+    );
+    assert_eq!(qwen.license.identifier, "Apache-2.0");
+    assert!(!qwen.license.acknowledgement_required);
+    let source = qwen.source.as_ref().unwrap();
+    assert_eq!(source.revision, "bc640142c66e1fdd12af0bd68f40445458f3869b");
+    assert_eq!(source.file_name, "Qwen3-4B-Q4_K_M.gguf");
+
+    let gemma = ModelManifest::parse_json(include_bytes!("fixtures/gemma-3-1b.json").as_slice())
+        .expect("pinned Gemma artifact profile");
+    assert_eq!(gemma.artifact.size_bytes, Some(806_058_240));
+    assert_eq!(
+        gemma.artifact.integrity.as_ref().unwrap().digest,
+        "8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135"
+    );
+    assert_eq!(gemma.license.identifier, "Gemma Terms of Use");
+    assert!(gemma.license.acknowledgement_required);
+    assert_eq!(
+        gemma.license.terms_reference.as_deref(),
+        Some("https://ai.google.dev/gemma/terms")
+    );
+    let source = gemma.source.as_ref().unwrap();
+    assert_eq!(source.revision, "f9c28bcd85737ffc5aef028638d3341d49869c27");
+    assert_eq!(source.file_name, "gemma-3-1b-it-Q4_K_M.gguf");
 }

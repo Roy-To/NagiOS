@@ -649,55 +649,75 @@ mod tests {
         assert_eq!(spec.patch_path, Path::new("third_party/llama-cpp-patches"));
     }
 
-    #[test]
-    fn granite_model_artifact_lock_matches_manifest_fixture() {
+    fn assert_model_artifact_lock_matches_manifest_fixture(section: &str, fixture: &str) {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let lock =
             fs::read_to_string(root.join("third_party/models.lock")).expect("model artifact pins");
-        let manifest_bytes =
-            fs::read(root.join("user/nagi-model-manager/tests/fixtures/granite-4.2-3b.json"))
-                .expect("Granite manifest fixture");
-        let granite = nagi_model_manager::ModelManifest::parse_json(&manifest_bytes)
-            .expect("pinned Granite manifest fixture");
+        let manifest_bytes = fs::read(root.join(fixture)).expect("model manifest fixture");
+        let manifest = nagi_model_manager::ModelManifest::parse_json(&manifest_bytes)
+            .expect("pinned model manifest fixture");
         let locked = |key: &str| {
-            lock_value(&lock, "models.granite_4_2_3b", key)
-                .unwrap_or_else(|| panic!("Granite model pin is missing `{key}`"))
+            lock_value(&lock, section, key)
+                .unwrap_or_else(|| panic!("model section `{section}` is missing `{key}`"))
         };
-        let source = granite.source.as_ref().expect("Granite source metadata");
-        let integrity = granite.artifact.integrity.as_ref().expect("Granite digest");
-        let artifact_id = match &granite.artifact.reference {
+        let source = manifest.source.as_ref().expect("model source metadata");
+        let integrity = manifest.artifact.integrity.as_ref().expect("model digest");
+        let artifact_id = match &manifest.artifact.reference {
             nagi_model_manager::ArtifactReference::ModelStore { artifact_id } => {
                 artifact_id.as_str()
             }
         };
 
-        assert_eq!(locked("model_id"), granite.model_id.as_str());
+        assert_eq!(locked("model_id"), manifest.model_id.as_str());
         assert_eq!(locked("repository"), source.uri);
         assert_eq!(locked("revision"), source.revision);
         assert_eq!(locked("file_name"), source.file_name);
-        assert_eq!(locked("format"), granite.artifact.format.as_str());
+        assert_eq!(locked("format"), manifest.artifact.format.as_str());
         assert_eq!(
             locked("size_bytes").parse::<u64>().expect("locked size"),
-            granite.artifact.size_bytes.expect("Granite artifact size")
+            manifest.artifact.size_bytes.expect("model artifact size")
         );
         assert_eq!(locked("sha256"), integrity.digest);
-        assert_eq!(locked("license"), granite.license.identifier);
+        assert_eq!(locked("license"), manifest.license.identifier);
         assert_eq!(
             locked("license_reference"),
-            granite
+            manifest
                 .license
                 .terms_reference
                 .as_deref()
-                .expect("Granite license terms")
+                .expect("model license terms")
         );
-        assert_eq!(locked("notice_id"), granite.license.notices[0].notice_id);
+        assert_eq!(locked("notice_id"), manifest.license.notices[0].notice_id);
         assert_eq!(
             locked("notice_reference"),
-            granite.license.notices[0].reference
+            manifest.license.notices[0].reference
         );
-        assert_eq!(locked("acknowledgement_required"), "true");
+        assert_eq!(
+            locked("acknowledgement_required"),
+            manifest.license.acknowledgement_required.to_string()
+        );
         assert_eq!(locked("artifact_id"), artifact_id);
         assert_eq!(locked("storage"), "model_store");
+    }
+
+    #[test]
+    fn model_artifact_locks_match_manifest_fixtures() {
+        for (section, fixture) in [
+            (
+                "models.granite_4_2_3b",
+                "user/nagi-model-manager/tests/fixtures/granite-4.2-3b.json",
+            ),
+            (
+                "models.qwen3_4b",
+                "user/nagi-model-manager/tests/fixtures/qwen3-4b.json",
+            ),
+            (
+                "models.gemma_3_1b",
+                "user/nagi-model-manager/tests/fixtures/gemma-3-1b.json",
+            ),
+        ] {
+            assert_model_artifact_lock_matches_manifest_fixture(section, fixture);
+        }
     }
 
     #[test]
