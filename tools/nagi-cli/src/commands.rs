@@ -4338,11 +4338,10 @@ fn execute_m22(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let image_result =
-        execute_image_with_features(root, Some("m22-history"), "nagi-0.1-m22-history.img");
-    if image_result.exit_code != EXIT_SUCCESS {
-        return image_result;
-    }
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: system clock: {error}")),
+    };
     let host = match resolve_qemu_host(root, probe, "m22") {
         Ok(host) => host,
         Err(error) => return failure(EXIT_CONFIG_ERROR, error),
@@ -4355,14 +4354,59 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
     };
-    let image_path = artifacts.join("nagi-0.1-m22-history.img");
-    let persistent_disk = artifacts.join("nagi-0.1-m22-history-user-data.img");
-    let vars_copy = artifacts.join("nagi-0.1-m22-history-vars.fd");
-    let bootstrap_log = logs.join("m22-history-bootstrap.log");
+    let image_name = format!("nagi-0.1-m22-history-{run_id}.img");
+    let image_path = artifacts.join(&image_name);
+    let persistent_disk = artifacts.join(format!("nagi-0.1-m22-history-user-data-{run_id}.img"));
+    let vars_copy = artifacts.join(format!("nagi-0.1-m22-history-vars-{run_id}.fd"));
+    let bootstrap_log = logs.join(format!("m22-history-bootstrap-{run_id}.log"));
+    let boot_logs = (1..=3)
+        .map(|boot_index| logs.join(format!("m22-history-{run_id}-boot-{boot_index}.log")))
+        .collect::<Vec<_>>();
+    for path in [
+        &image_path,
+        &persistent_disk,
+        &vars_copy,
+        &bootstrap_log,
+        &boot_logs[0],
+        &boot_logs[1],
+        &boot_logs[2],
+    ] {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: refusing to overwrite existing run artifact {}",
+                        path.display()
+                    ),
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: cannot inspect {}: {error}", path.display()),
+                );
+            }
+        }
+    }
+    let image_result = execute_image_with_features(root, Some("m22-history"), &image_name);
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
     };
+    if had_persistent_disk {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m22: unique User Data path unexpectedly existed: {}",
+                persistent_disk.display()
+            ),
+        );
+    }
     let timeout = Duration::from_secs(90);
 
     if !had_persistent_disk {
@@ -4401,9 +4445,10 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let mut saw_undo = false;
     let mut saw_activity_ledger_commit = false;
     let mut saw_activity_ledger_undo = false;
+    let mut saw_copy = false;
+    let mut saw_copy_transaction = false;
     let mut last_log = PathBuf::new();
-    for boot_index in 0..3 {
-        let log_path = logs.join(format!("m22-history-boot-{}.log", boot_index + 1));
+    for (boot_index, log_path) in boot_logs.iter().enumerate() {
         let config = QemuConfig {
             qemu: &host.qemu,
             ovmf_code: &host.ovmf_code,
@@ -4411,7 +4456,7 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             disk_image: &image_path,
             persistent_disk: &persistent_disk,
             vars_copy: &vars_copy,
-            serial_log: &log_path,
+            serial_log: log_path,
             acceptance_marker: "Nagi M13 acceptance PASS",
             timeout,
         };
@@ -4420,7 +4465,7 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: guest boot: {error}")),
         };
         last_log = log_path.clone();
-        let serial = match fs::read_to_string(&log_path) {
+        let serial = match fs::read_to_string(log_path) {
             Ok(serial) => serial,
             Err(error) => {
                 return failure(
@@ -4469,6 +4514,15 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 ),
             );
         }
+        if boot_index == 0 && !serial.contains("Nagi M21 file.copy Plan Validate Execute PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: fresh guest did not pass the M21 file.copy Plan/Validate/Execute gate (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
         if boot_index == 0
             && !had_persistent_disk
             && !serial.contains("Nagi M21 plan rejection validation PASS")
@@ -4495,6 +4549,9 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
         saw_activity_ledger_commit |= serial.contains("Nagi M22 AI Activity Ledger committed PASS");
         saw_activity_ledger_undo |= serial.contains("Nagi M22 AI Activity Ledger undo result PASS");
+        saw_copy |= serial.contains("Nagi M21 file.copy Plan Validate Execute PASS");
+        saw_copy_transaction |=
+            serial.contains("Nagi M22 file.copy prepared transaction persisted PASS");
         saw_move |= serial.contains("Nagi M22 move group persisted in guest VFS PASS")
             || serial.contains("Nagi M22 recovered prepared move group PASS");
         saw_undo |= serial.contains("Nagi M22 composite undo applied and persisted PASS");
@@ -4546,11 +4603,17 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "m22: guest did not persist an AI Activity Ledger undo result",
         );
     }
+    if !saw_copy || !saw_copy_transaction {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m22: guest did not persist the bounded file.copy action and NH16 Create transaction",
+        );
+    }
 
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M22 guest NH16 and separate AI Activity Ledger archives: grouped VFS moves, composite undo, and restored state survived QEMU restarts (log {})",
+            "PASS M21/M22 guest fixture: VFS file.move and file.copy, NH16 Create/Move transactions, Activity Ledger, composite Undo, and restored state survived QEMU restarts (log {})",
             last_log.display()
         )],
     }

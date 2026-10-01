@@ -226,6 +226,12 @@ impl<P: ActionPolicy> ActionInvocation<'_, P> {
         self.parameters
     }
 
+    /// Reads a validated string parameter without exposing the JSON parser to
+    /// every first-party action adapter.
+    pub fn string_parameter(&self, name: &str) -> Option<&str> {
+        self.parameters.get(name).and_then(Value::as_str)
+    }
+
     pub fn capability_grants(&self) -> &[P::CapabilityGrant] {
         self.capability_grants
     }

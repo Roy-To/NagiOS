@@ -176,6 +176,28 @@ pub struct UndoBatch {
     length: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PreparedCreate {
+    object_id: ObjectId,
+    name: Name,
+    content: [u8; MAX_SNAPSHOT_BYTES],
+    content_length: usize,
+}
+
+impl PreparedCreate {
+    pub const fn object_id(&self) -> ObjectId {
+        self.object_id
+    }
+
+    pub const fn name(&self) -> Name {
+        self.name
+    }
+
+    pub fn content(&self) -> &[u8] {
+        &self.content[..self.content_length]
+    }
+}
+
 impl UndoBatch {
     pub const fn transaction_id(&self) -> TransactionId {
         self.transaction_id
@@ -321,6 +343,40 @@ impl HistoryService {
             &[],
             content,
         )
+    }
+
+    /// Records a recoverable create before the external file is written.
+    /// The caller must persist the `Prepared` archive, apply the create, then
+    /// commit and persist the transaction before exposing Undo.
+    pub fn record_create_transaction(
+        &mut self,
+        context: ActivityContext,
+        object_id: ObjectId,
+        name: &[u8],
+        content: &[u8],
+    ) -> Result<TransactionId, HistoryError> {
+        if self.length == MAX_RECORDS
+            || self.next_sequence == u64::MAX
+            || self.next_transaction_id == u64::MAX
+        {
+            return Err(HistoryError::Capacity);
+        }
+        let name = Name::new(name)?;
+        let after = Snapshot::from_bytes(content)?;
+        let transaction_id = TransactionId(self.next_transaction_id);
+        self.next_transaction_id += 1;
+        self.push_with_snapshots(
+            transaction_id,
+            context,
+            Operation::Create,
+            object_id,
+            name,
+            name,
+            Snapshot::EMPTY,
+            after,
+            TransactionState::Prepared,
+        )?;
+        Ok(transaction_id)
     }
 
     pub fn record_edit(
@@ -605,6 +661,38 @@ impl HistoryService {
             return Err(HistoryError::InvalidTransaction);
         }
         Ok(batch)
+    }
+
+    /// Returns the durable payload needed to finish a single prepared Create
+    /// after a restart. This does not change transaction state.
+    pub fn prepared_create(
+        &self,
+        transaction_id: TransactionId,
+        caller: ActivityContext,
+    ) -> Result<PreparedCreate, HistoryError> {
+        let mut found = None;
+        for entry in self.entries.iter().take(self.length).flatten() {
+            if entry.record.transaction_id != transaction_id {
+                continue;
+            }
+            if !same_caller(entry.record.context, caller) {
+                return Err(HistoryError::Unauthorized);
+            }
+            if entry.record.operation != Operation::Create
+                || entry.record.transaction_state != TransactionState::Prepared
+                || found.is_some()
+            {
+                return Err(HistoryError::InvalidTransaction);
+            }
+            found = Some(*entry);
+        }
+        let entry = found.ok_or(HistoryError::TransactionNotFound)?;
+        Ok(PreparedCreate {
+            object_id: entry.record.object_id,
+            name: entry.after_name,
+            content: entry.after.content,
+            content_length: entry.after.length,
+        })
     }
 
     /// Commits a prepared group after every forward operation succeeds. The
@@ -1121,6 +1209,61 @@ mod tests {
         assert_eq!(Operation::Move.code(), 3);
         assert_eq!(Operation::Delete.code(), 4);
         assert_eq!(Operation::Restore.code(), 5);
+    }
+
+    #[test]
+    fn prepared_create_replays_after_archive_restore_and_undoes_as_delete() {
+        let object_id = ObjectId(0x2211);
+        let name = b"copy-of-note";
+        let content = b"bounded copied contents";
+        let mut history = HistoryService::new();
+        let transaction = history
+            .record_create_transaction(M22_CONTEXT, object_id, name, content)
+            .unwrap();
+        assert_eq!(
+            history.record_at(0).unwrap().transaction_state,
+            super::TransactionState::Prepared
+        );
+
+        let mut archive = [0; 36 * 1024];
+        let length = history.serialize_recoverable(&mut archive).unwrap();
+        let mut restored = HistoryService::restore_recoverable(&archive[..length]).unwrap();
+        assert_eq!(
+            restored.prepared_create(transaction, CONTEXT),
+            Err(HistoryError::Unauthorized)
+        );
+        let replay = restored.prepared_create(transaction, M22_CONTEXT).unwrap();
+        assert_eq!(replay.object_id(), object_id);
+        let (replay_name, replay_name_length) = replay.name().bytes();
+        assert_eq!(&replay_name[..replay_name_length], name);
+        assert_eq!(replay.content(), content);
+        assert_eq!(
+            restored.prepare_undo_transaction(transaction, M22_CONTEXT),
+            Err(HistoryError::TransactionNotCommitted)
+        );
+
+        restored
+            .commit_transaction(transaction, M22_CONTEXT)
+            .unwrap();
+        let batch = restored
+            .prepare_undo_transaction(transaction, M22_CONTEXT)
+            .unwrap();
+        let action = batch.actions().next().unwrap();
+        assert_eq!(action.operation, UndoOperation::Delete);
+        assert_eq!(action.object_id, object_id);
+        let (undo_name, undo_name_length) = action.from_name.bytes();
+        assert_eq!(&undo_name[..undo_name_length], name);
+        assert_eq!(&action.content[..action.content_length], content);
+    }
+
+    #[test]
+    fn prepared_create_rejects_unbounded_payload_without_recording_state() {
+        let mut history = HistoryService::new();
+        assert_eq!(
+            history.record_create_transaction(CONTEXT, ObjectId(1), b"copy", &[0; 1025]),
+            Err(HistoryError::SnapshotTooLarge)
+        );
+        assert!(history.is_empty());
     }
 
     #[test]

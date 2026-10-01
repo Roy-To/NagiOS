@@ -51,6 +51,20 @@ persists UndoPending, applies inverse moves in reverse order, then persists
 Undone. UndoPending replay is idempotent across a reboot partway through the
 inverse batch.
 
+The fresh-disk fixture now follows the committed grouped Move with a bounded
+`file.copy` Action against the same guest VFS. The source is one resolved
+Object ID, the fixture requires its `files.copy` capability, and the only
+destination is `m22-copy`; copy payloads are capped at 512 bytes. The History
+service persists a recoverable Prepared Create payload before the destination
+file is written, and the separate Activity Ledger records Prepared before the
+mutation. After flush, both archives transition to Committed. On the next boot,
+the fixture restores and validates the Create payload, undoes both the grouped
+Move and copied file, and on the final boot verifies the original files, absent
+copy, and both complete ledger histories. Interrupted Create replay accepts an
+exact file or a matching partial prefix left by a failed write, and refuses
+conflicting content. This remains deterministic fixture behavior rather than
+a production Files Action.
+
 The fresh-disk boot also runs M21-only orchestration acceptance before the
 real move: malformed/incomplete plan JSON, unsupported version/action,
 out-of-context and policy-denied objects, and denied capability are rejected
@@ -65,18 +79,46 @@ policy/capability boundary.
 
 ## M21 integration prerequisite
 
-The M22 init fixture now registers one bounded guest `file.move` handler and
-exercises it with actual VFS objects. Its fixed caller, Object IDs,
-`files.move` capability, handle resolver, and deterministic plan are private
+The M22 init fixture now registers bounded guest `file.move` and `file.copy`
+handlers and exercises them with actual VFS objects. Their fixed caller,
+Object IDs, capabilities, handle resolver, and deterministic plans are private
 acceptance policy. They do not authenticate application processes or authorize
 general files. The production `services/nagi-ai` registry remains unwired in a
 running guest service. The NAL1 connection exists only inside this
 deterministic fixture; there is no authenticated target
 `ActionPolicy`/`ContextAuthority` adapter or production Activity Ledger
-service. This advances real mutation, History/Undo, and separate-ledger
-persistence while leaving those production boundaries open.
+service. This advances real mutation, Create/Move transaction recovery, Undo,
+and separate-ledger persistence while leaving those production boundaries
+open.
 
 ## Verification and blocker
+
+Latest Completion Sweep verification on 2026-10-01:
+
+- `cargo test --locked --offline -p nagi-ai -p nagi-history --all-targets` —
+  PASS, 24 AI tests and 16 History/Activity Ledger tests. History coverage
+  includes Prepared Create archive restore, caller denial, commit, and Delete
+  Undo, plus oversized payload rejection.
+- `cargo test --locked --offline -p nagi-cli` — PASS, 152 unit and 21
+  integration tests.
+- `./nagi fmt` and Nagi target `cargo check` for `nagi-init` with
+  `m22-history` — PASS.
+- Nagi target `cargo clippy --no-deps ... -D warnings` for the touched
+  `nagi-init` package — PASS; dependency warnings remain outside that package.
+- `./nagi build` — PASS.
+- Fresh-disk `./nagi m22` — PASS across bootstrap and three guest boots. Boot
+  1 passes M21 rejection/partial-failure checks, commits grouped `file.move`,
+  then validates and commits `file.copy` as a Create transaction. Boot 2
+  persists Undo for both transactions. Boot 3 verifies restored sources,
+  absent `m22-copy`, NH16 state, NAL1 outcomes, and M24 semantic-index
+  persistence. The run image, User Data, OVMF vars, and all four logs have
+  unique paths under `out/artifacts/` and `out/logs/`; the seven-file manifest
+  is `out/evidence/m22-file-copy-1790854068023718000/manifest.sha256`.
+
+The full M22 result remains `PARTIAL` because the accepted guest path is a
+deterministic fixture and production authenticated IPC/capability providers,
+production AI service registration, model inference, and the production
+Activity Ledger service remain absent.
 
 - `cargo test --locked --offline -p nagi-ai -p nagi-history --all-targets` —
   PASS, 24 orchestration tests and 14 History/Activity Ledger tests. NAL1 tests

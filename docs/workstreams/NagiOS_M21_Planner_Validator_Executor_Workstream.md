@@ -44,6 +44,16 @@
   then the next boot undoes the three moves through History. This is
   deterministic acceptance input, not model inference, and the caller/policy
   is private to this fixture rather than authenticated production authority.
+- The same fresh-disk fixture now also registers a bounded `file.copy` Action.
+  It accepts one resolved source Object ID, requires the separate
+  `files.copy` fixture capability, reads the already-moved source from guest
+  VFS, and writes only the fixed `m22-copy` destination for this acceptance
+  file (at most 512 bytes). The fixture rejects a denied copy capability and
+  `../outside`, persists an NH16 Prepared Create and NAL1 Prepared record
+  before VFS creation, then commits and verifies both archives after flush.
+  Executor visibility for the newly created Object ID is enabled only after
+  the VFS create succeeds. This is still a private, deterministic fixture; it
+  is not a general Files service handler or production Action Registry.
 - On a fresh-disk M22 boot, the guest also verifies malformed/incomplete JSON,
   unsupported plan version, unregistered action, out-of-context Object ID,
   policy-denied Modify access, and denied `files.delete` capability. The
@@ -117,6 +127,16 @@ OVMF vars, and persistent data are preserved under
 `out/evidence/m22-m21-negative-and-partial-pass-20260930/`. This uses a
 fixture-scoped policy, not an authenticated app identity or production
 capability provider; no local model inference was involved.
+
+On 2026-10-01, a fresh-disk `./nagi m22` run also passed the bounded fixture
+`file.copy` action and its NH16 Create/NAL1 Activity record, then persisted
+Undo and verified the restored source files and absent copy after restart.
+The command now requires the copy acceptance marker and allocates unique
+image, User Data, OVMF variables, and log paths for each run, refusing to
+overwrite an existing path. The fresh run's seven-file SHA-256 manifest is at
+`out/evidence/m22-file-copy-1790854068023718000/manifest.sha256`; its hashed
+files are the run image, User Data disk, OVMF vars, bootstrap log, and three
+boot logs under `out/artifacts/` and `out/logs/`.
 
 ## Remaining acceptance blockers
 
