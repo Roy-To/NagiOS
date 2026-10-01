@@ -455,3 +455,19 @@ logs and images are cross-linked from
 startup timeout remains unexplained; M27 remains `PARTIAL` for authenticated
 slot/update authority, full session readiness, and remaining Recovery
 features.
+
+## Current-branch Completion Sweep acceptance — 2026-10-01
+
+On source commit `fa9b73a9c20434b52f414a02f969140b5f2e1ac6`, a fresh
+`./nagi m27` run passed both the legacy and GPT acceptance paths. The GPT
+fixtures rejected three malformed System B trials and rolled back to persistent
+System A; a healthy B trial persisted guest readiness, survived a Recovery boot
+with the journal unchanged, and was confirmed on the following boot. Recovery
+also checked the VFS and undid the committed M22 `file.move` group across
+restart. The 37-file SHA-256 manifest and run notes are in
+`out/evidence/m27-ab-rollback-1790855312225301000/`.
+
+QEMU again reported that this host could not open `virtio-sound.in`; this run
+does not cover host audio. M27 remains `PARTIAL` for authenticated readiness
+and update authority, authenticated slot manifests, and the remaining Recovery
+features.
