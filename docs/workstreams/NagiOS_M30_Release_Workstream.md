@@ -471,6 +471,33 @@ QEMU evidence does not promote the manifest field. M30 remains `PARTIAL` for
 authenticated GPT update installation, outstanding M18–M29 acceptance, and
 human binary redistribution review.
 
+## GPT Recovery partition boot acceptance — 2026-10-02
+
+The M30 QEMU gate now boots Recovery from the Recovery partition in the same
+self-contained GPT release image, checks the Recovery VFS and command help,
+and requires the loader to leave the A/B journal unchanged. It then restarts
+and verifies confirmed System A plus the persistent User Data read. System B
+remains unstaged in the release image; this does not claim update acceptance.
+
+On clean source commit
+`74369f7997bff8b877980841ecd9bcb03ae66f06`, fresh `./nagi m30` passed the
+System A and User Data checks, GPT Recovery selection and Recovery console,
+post-Recovery System A restart, and separate M20 fixture read. The pristine
+64 GiB qcow2 SHA-256 remains
+`54390507a4e975ad30ee94d7efb7b4c81758854ccbbdcc7f12b39bfb70fc6748`; the
+`.build-info` binds it to the full source revision. `qemu-img check` passed on
+the pristine image, writable QEMU copy, fixture, and bundle. Release preflight,
+assembly, verification, all 23 package checksums, and bundle-image
+byte-identity passed. The evidence manifest is
+`out/evidence/m30-release-1790885396024787000/SHA256SUMS`, and the assembled
+package is `out/artifacts/m30-release-bundle-74369f7/`.
+
+All 14 release-tool tests pass. QEMU reported no host `virtio-sound.in` input
+driver, so host audio I/O remains untested. The release manifest continues to
+record `m30_acceptance=NOT_EVALUATED`; M30 remains `PARTIAL` pending
+authenticated GPT updates, System B update acceptance, remaining M18–M29
+gates, and human binary redistribution review.
+
 ## System-language persistence regression — 2026-10-01
 
 After the M29 Desktop began persisting System language, `./nagi m30` passed
