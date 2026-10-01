@@ -2542,7 +2542,7 @@ Use only these statuses:
 | M27 | A/B / Recovery | PARTIAL | Standalone `./nagi m27` run `1790869370028356000` passed rollback, promotion, Recovery, and committed M22 Move Undo. In the latest M28 run, repetition 2 failed M27 boot 5 before guest output; QMP captured RIP `0x7eb84171` looping at `jmp 0x7eb84150` (`out/evidence/m27-ab-rollback-1790889480617050000/`). A diagnostic replay using the same A/B image and User Data plus the saved post-failure OVMF variable file reached `confirmed slot=A` and `Nagi M7 acceptance PASS`; this was not an exact pre-boot-state replay and does not pass the original run. The earlier Recovery GUI replay from exact copied state passed the help marker. Evidence manifests verify. Authenticated update/readiness authority, authenticated slot manifests, and remaining Recovery work remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`.
 | M28 | Integration / Stress | PARTIAL | Current two-repetition run `out/evidence/m28-run-20261001T230607Z-12562/` passed M19 Search, three-boot M22 Move/Copy + NH16/NAL1 Undo, and M27 GPT A/B/Recovery in both repetitions; its archive, both M27 sub-run manifests, and the preserved pre-run state verify. Earlier OVMF startup timeouts at RIP `0x7eb84171` remain unexplained. Formal Desktop/Files/Notes/Albert combined load, real Granite inference, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Current `./nagi m29` QEMU run `out/evidence/m29-settings-1790896342100947000/` passed Japanese Settings selection and same-disk restart restoration; READY arrived in 2,444 ms. Its eight-entry SHA256SUMS verifies the screenshot, image, User Data, OVMF vars, three serial logs, and README; the screenshot is byte-identical to the tracked acceptance image. Cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | PARTIAL | Clean source commit `b66fabb1388e67eb4e35fa9cf72d231e61bf097f` rebuilt the 64 GiB GPT qcow2 (SHA-256 `54390507a4e975ad30ee94d7efb7b4c81758854ccbbdcc7f12b39bfb70fc6748`) with source-bound `.build-info`. Fresh `./nagi m30` run `1790886957142079000` passed System A and User Data restart-read; M19 Search; M22 Activity Ledger, grouped Move/Copy and post-Recovery Undo; GPT Recovery VFS/help with unchanged journal; rejection of unstaged System B; post-Recovery M13 completion; and the separate M20 FAT32 fixture. `qemu-img check` passed on pristine, mutable, fixture, and bundle images. All 14 release-tool tests, preflight, assembly, verify, 23 bundle checksums, and byte-identity passed. Evidence manifest: `out/evidence/m30-release-1790886957142079000/SHA256SUMS`; bundle: `out/artifacts/m30-release-bundle-b66fabb/`. QEMU lacked host `virtio-sound.in`; host audio is untested. The bundle records `m30_acceptance=NOT_EVALUATED`. System B update acceptance, authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
+| M30 | Nagi OS 0.1 Release | PARTIAL | Current source `b4385e1dac8b35e3f86a13f34ae5d806cbd0e40d` rebuilt the 64 GiB GPT reference qcow2 with SHA-256 `8260512ffd8dfae98539699163c3bee39e91acd9f2dc88137f0e45cb553dbff7` and matching `.build-info`. Fresh `./nagi m30` run `1790896634463366000` passed System A, User Data restart-read, M19 Search, M22 Activity Ledger/Move/Copy, GPT Recovery, unchanged A/B journal, unstaged System B rejection, post-Recovery persisted Undo, M13, and the separate M20 FAT32 fixture. Pristine, mutable, and fixture images passed `qemu-img check`; all 14 release-tool tests, clean-source preflight, assembly to `out/artifacts/m30-release-bundle-b4385e1/`, verification, and bundle byte-identity passed. The 13-entry QEMU manifest verifies at `out/evidence/m30-release-1790896634463366000/SHA256SUMS`. Bundle status remains `m30_acceptance=NOT_EVALUATED`; QEMU lacked host audio input. Authenticated updates/System B acceptance, remaining M18–M29 work, and human redistribution review keep M30 `PARTIAL`. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
 
@@ -7640,3 +7640,28 @@ integration tests, warnings-denied Clippy, `./nagi fmt`, `./nagi test`,
 This is guest artifact integrity verification only. It does not load
 whisper.cpp, perform STT inference, or use audio hardware. The regular M30
 Model Store remains unchanged; M25 and M20 remain `PARTIAL`.
+
+## Completion Sweep — current-source M30 image and release bundle (2026-10-02)
+
+The existing fixed-path reference image was from commit `0e77563`; it and its
+matching `.build-info` were preserved and checksum-verified at
+`out/evidence/m30-pre-m25-whisper-current-source-20261002/` before building
+for current source `b4385e1dac8b35e3f86a13f34ae5d806cbd0e40d`. The rebuilt
+64 GiB GPT image SHA-256 is
+`8260512ffd8dfae98539699163c3bee39e91acd9f2dc88137f0e45cb553dbff7`, and its
+sidecar records the same full source revision and digest.
+
+Fresh `./nagi m30` run `1790896634463366000` passed System A, read-only Model
+Store access, User Data persistence across restart, M19 Search, M22
+Move/Copy/Activity Ledger, Recovery, unchanged A/B journal, rejection of
+unstaged System B, post-Recovery M22 Undo, M13 completion, and the separate
+M20 FAT32 fixture. The 13-entry evidence manifest verifies at
+`out/evidence/m30-release-1790896634463366000/SHA256SUMS`; pristine, mutable,
+and fixture images passed `qemu-img check`.
+
+`tools/nagi-release/test_release.py` passed all 14 tests. Clean-tree preflight,
+assembly to `out/artifacts/m30-release-bundle-b4385e1/`, release verification,
+bundle `qemu-img check`, and byte identity with the pristine reference passed.
+The bundle still records `m30_acceptance=NOT_EVALUATED`; authenticated GPT
+updates, System B acceptance, remaining M18–M29 work, and human redistribution
+review remain. M30 remains `PARTIAL`.

@@ -763,3 +763,30 @@ The 13-entry run evidence manifest is
 Model Store remains empty; this run exercised the capability but did not load
 Granite or perform inference. M30 remains `PARTIAL` for authenticated updates,
 System B acceptance, remaining M18–M29 acceptance, and distribution review.
+
+## Completion Sweep — current M25/M28/M29 source release regression (2026-10-02)
+
+Before rebuilding, the fixed-path image from source `0e77563` and its
+`.build-info` were moved intact to
+`out/evidence/m30-pre-m25-whisper-current-source-20261002/`; both the original
+and preserved qcow2 passed `qemu-img check`, and the three-entry manifest
+verifies.
+
+On current clean source `b4385e1dac8b35e3f86a13f34ae5d806cbd0e40d`,
+`./nagi m30` rebuilt the self-contained 64 GiB GPT reference image. Its SHA-256
+is `8260512ffd8dfae98539699163c3bee39e91acd9f2dc88137f0e45cb553dbff7`,
+matching the new source-bound `.build-info`. QEMU passed System A, read-only
+Model Store access, User Data write/restart-read, M19 Search, M22 Activity
+Ledger/Move/Copy, Recovery, unchanged A/B journal, unstaged System B
+rejection, post-Recovery System A with persisted M22 Undo, M13 completion,
+and the separate M20 FAT32 reader fixture. `qemu-img check` passed for the
+pristine image, mutable QEMU copy, and fixture; 13 evidence checksums verify
+under `out/evidence/m30-release-1790896634463366000/SHA256SUMS`.
+
+All 14 release-tool tests passed. Clean-source preflight and assembly to
+`out/artifacts/m30-release-bundle-b4385e1/` passed, as did `release.py verify`,
+the bundle image's `qemu-img check`, and byte identity with the pristine image.
+The bundle manifest still says `m30_acceptance=NOT_EVALUATED`; this QEMU run
+does not perform authenticated System B update acceptance. No model was
+loaded, the M20 fixture is not Granite, and no inference is claimed. QEMU had
+no `virtio-sound.in` host driver. M30 remains `PARTIAL`.
