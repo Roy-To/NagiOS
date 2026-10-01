@@ -2475,7 +2475,7 @@ Use only these statuses:
 | M26 | Qwen / Gemma / Automatic | PARTIAL | Added deterministic role/capability/resource/provider-health model routing, strict manual override checks, and safe unavailable fallback while retaining Granite as Standard default. Forty-four model-manager tests, warnings-denied Clippy, formatting, and Nagi target compile pass. Qwen/Gemma verified artifacts, guest runtime/inference, switching UI, and real routing acceptance remain. See `docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md`. |
 | M27 | A/B / Recovery | PARTIAL | The full GPT A/B, Recovery, and M22 grouped-Undo acceptance passed after the M29 persistence change at `out/evidence/m27-ab-rollback-1790816764088451000/`, then passed in both repetitions of the fresh M28 two-repetition gate at `out/evidence/m27-ab-rollback-1790818018301818000/` and `out/evidence/m27-ab-rollback-1790818130409530000/`. Both new 37-entry SHA-256 manifests verify. A separate preceding run timed out in an OVMF loop before guest output; its cause remains unknown. Account-authenticated readiness, authenticated slot manifests/update installation, and remaining Recovery repair/log features remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | A fresh `NAGI_M28_REPEAT_COUNT=2 ... --run` completed both repetitions across M19 ObjectId/Search, three-boot M22 grouped Undo/Activity Ledger, and M27 GPT A/B/Recovery. The 20-entry evidence manifest is at `out/evidence/m28-run-20261001T012645Z-75535/`; both M27 sub-runs have verified 37-entry manifests. Fixed-name inputs and starting disks were preserved before the run. Earlier OVMF/QEMU startup timeouts remain unexplained. The full Desktop/Files/Notes/Albert workload, real Granite, audio pressure, OOM, CPU fairness, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
-| M29 | Developer Preview Polish | PARTIAL | The M10 Settings selector persists canonical `en-US` / `ja-JP` in User Data and restores the selected language after restart. A fresh `./nagi m29` run passed selection and same-disk restoration at `out/evidence/m29-settings-1790818615588652000/`; its seven-file SHA-256 manifest verifies, and its screenshot is byte-identical to the tracked capture. Localization has six passing tests; the CLI suite has 151 unit and 21 integration tests. Windows CI on the preceding commit exposed a CRLF resource parsing bug (`設定\r`); the parser fix passes local regression tests and CI run `36802487593` on `e2b9d48` passed all Windows, Ubuntu, and Nagi-target jobs, including M17/M18 and M19/M22/M27/M29/M30 acceptance. Cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
+| M29 | Developer Preview Polish | PARTIAL | The M10 Settings selector persists canonical `en-US` / `ja-JP` in User Data and restores the selected language after restart. The latest QEMU run at `out/evidence/m29-settings-1790850851718829000/` passed Tab/Enter/Escape/Up/Down/Space navigation, existing M10 Desktop interactions, locale persistence, and same-disk restoration; its nine-entry SHA-256 manifest verifies. The tracked screenshot shows the keyboard focus ring. The Settings-only focus path does not provide system-wide keyboard focus or an accessibility tree. Localization has six passing tests; the CLI suite has 152 unit and 21 integration tests, and the M29 Nagi target build passes. Windows CI run `36802487593` on `e2b9d48` passed all Windows, Ubuntu, and Nagi-target jobs, including M17/M18 and M19/M22/M27/M29/M30 acceptance. Cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
 | M30 | Nagi OS 0.1 Release | PARTIAL | Clean-source release preflight, assembly, and verification passed for `805f2bb`; the bundle contains 23 valid checksums and a byte-identical 64 GiB GPT qcow2. Its disposable package copy passed two System A/User Data boots, Model Store read-only and M27 confirmed-A checks, and M7 persistence acceptance; post-boot verification, checksums, and `qemu-img check` passed. Evidence is in `out/evidence/m30-clean-release-805f2bb/`. The manifest retains `m30_acceptance=NOT_EVALUATED`. Authenticated updates, remaining M18–M29 acceptance, and human binary redistribution review remain. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. |
 
 ---
@@ -6798,3 +6798,40 @@ passed. The README and verified ten-file manifest are at
 installation, M18–M29 gaps, and human binary redistribution review. QEMU had no
 host `virtio-sound.in` driver, so audio I/O is not covered. See
 `docs/workstreams/NagiOS_M30_Release_Workstream.md`.
+
+## Completion sweep — Settings keyboard navigation (2026-10-01)
+
+The M29 Settings language selector now supports Tab focus on the button
+while closed, Tab cycling between locale options while open, Up/Down movement,
+Enter/Space activation, Escape close, and a visible focus outline.
+The source contract regression failed first on the mouse-only implementation
+and passes with the keyboard path. All 152 `nagi-cli` unit tests and 21
+integration tests pass, as does the Nagi no-std
+`m10-desktop,m29-settings-acceptance` compile.
+
+The first QEMU attempt (`1790849842483344000`) sent pointer input after locale
+selection and was rejected because the accepted guest had stopped polling. The
+input order now moves the pointer before the final keyboard activation. Fresh
+`./nagi m29` run `1790850015194700000` passed Japanese selection, User Data
+persistence, restart restoration, and the M10 Desktop interaction markers;
+READY took 2,425 ms. The accepted screenshot hash is
+`8822118a65187b7e29afcba781c3a659e043263f00a7f823ef1c94aae17d323d`; the
+nine-entry evidence manifest verifies at
+`out/evidence/m29-settings-1790850015194700000/`. This remains a Settings-only
+focus path without a system-wide focus model or accessibility tree, so M29
+remains `PARTIAL`.
+
+## Completion sweep — expanded Settings keyboard acceptance (2026-10-01)
+
+The M29 keyboard acceptance now exercises Tab, Enter, Escape, Up, Down, and
+Space. A broader input run, `1790850731550869000`, exposed an Up-arrow state
+transition error: Up retained Japanese focus, then Down moved to English, and
+Space persisted `en-US`. The transition was corrected so either arrow moves
+between locale options. Fresh QEMU run `1790850851718829000` passed the expanded
+sequence, all existing M10 Desktop markers, language persistence, and restart
+restoration. Guest READY arrived after 2,407 ms. Its nine-entry SHA-256 manifest
+verifies at `out/evidence/m29-settings-1790850851718829000/`; the screenshot
+SHA-256 is `8822118a65187b7e29afcba781c3a659e043263f00a7f823ef1c94aae17d323d`.
+`./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build` After the arrow-transition fix, top-level format, test, lint, and build, warnings-denied CLI Clippy, all 152 CLI unit tests and 21 integration tests, the M29 Nagi target build, and QEMU acceptance passed. The
+M29 feature remains limited to Settings and does not add a system-wide focus
+model or accessibility tree; M29 remains `PARTIAL`.

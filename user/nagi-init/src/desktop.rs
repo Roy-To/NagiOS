@@ -18,6 +18,7 @@ const POINTER_START_Y: i32 = 58;
 const BACKGROUND: u32 = rgba(16, 24, 40);
 const PANEL: u32 = rgba(228, 235, 240);
 const TITLE: u32 = rgba(38, 166, 154);
+const FOCUS: u32 = rgba(245, 158, 11);
 const BORDER: u32 = rgba(8, 12, 20);
 const TEXT: u32 = rgba(15, 23, 42);
 const SETTINGS_BUTTON: Rect = Rect::new(252, 1, 66, 18);
@@ -59,6 +60,10 @@ static NAGI_M29_JAPANESE_SELECTED: [u8; b"Nagi M29 settings locale PASS locale=j
 #[no_mangle]
 static NAGI_M29_ACCEPTANCE: [u8; b"Nagi M29 settings acceptance PASS\r\n".len()] =
     *b"Nagi M29 settings acceptance PASS\r\n";
+#[no_mangle]
+static NAGI_M29_KEYBOARD_LOCALE_SELECTION: [u8;
+    b"Nagi M29 keyboard locale selection PASS locale=ja-JP\r\n".len()] =
+    *b"Nagi M29 keyboard locale selection PASS locale=ja-JP\r\n";
 #[no_mangle]
 static NAGI_M29_JAPANESE_PERSISTED: [u8;
     b"Nagi M29 settings locale persisted PASS locale=ja-JP\r\n".len()] =
@@ -109,6 +114,13 @@ macro_rules! message {
     }};
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettingsFocus {
+    Button,
+    English,
+    Japanese,
+}
+
 pub struct Desktop {
     windows: [Rect; APP_COUNT],
     focused: [bool; APP_COUNT],
@@ -117,6 +129,7 @@ pub struct Desktop {
     notes_has_input: bool,
     locale: nagi_localization::Locale,
     settings_open: bool,
+    settings_focus: Option<SettingsFocus>,
 }
 
 impl Desktop {
@@ -134,6 +147,7 @@ impl Desktop {
             notes_has_input: false,
             locale,
             settings_open: false,
+            settings_focus: None,
         }
     }
 
@@ -145,7 +159,14 @@ impl Desktop {
             SETTINGS_BUTTON,
             if self.settings_open { TITLE } else { PANEL },
         );
-        painter.frame(SETTINGS_BUTTON, BORDER);
+        painter.frame(
+            SETTINGS_BUTTON,
+            if self.settings_focus == Some(SettingsFocus::Button) {
+                FOCUS
+            } else {
+                BORDER
+            },
+        );
         painter.text(
             SETTINGS_BUTTON.x + 4,
             SETTINGS_BUTTON.y + 5,
@@ -200,43 +221,41 @@ impl Desktop {
             }
         }
         if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 {
+            if event.code == libnagi::INPUT_KEY_TAB {
+                self.focus_next_settings_control();
+                return true;
+            }
+            if event.code == libnagi::INPUT_KEY_UP || event.code == libnagi::INPUT_KEY_DOWN {
+                return self.move_settings_focus(event.code == libnagi::INPUT_KEY_DOWN);
+            }
+            if event.code == libnagi::INPUT_KEY_ESCAPE && self.settings_open {
+                self.settings_open = false;
+                self.settings_focus = Some(SettingsFocus::Button);
+                return true;
+            }
+            if event.code == libnagi::INPUT_KEY_ENTER || event.code == libnagi::INPUT_KEY_SPACE {
+                return self.activate_settings_focus(volume, true);
+            }
             if event.code == libnagi::INPUT_KEY_LEFT {
                 if SETTINGS_BUTTON.contains(self.pointer_x, self.pointer_y) {
                     self.settings_open = !self.settings_open;
+                    self.settings_focus = Some(if self.settings_open {
+                        SettingsFocus::English
+                    } else {
+                        SettingsFocus::Button
+                    });
                     return true;
                 }
                 if self.settings_open {
                     if ENGLISH_OPTION.contains(self.pointer_x, self.pointer_y) {
-                        if !persist_locale(volume, nagi_localization::Locale::EnUs) {
-                            print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
-                            return false;
-                        }
-                        self.locale = nagi_localization::Locale::EnUs;
-                        if cfg!(feature = "m29-settings-acceptance") {
-                            print(message!(
-                                NAGI_M29_ENGLISH_PERSISTED,
-                                NAGI_M29_ENGLISH_PERSISTED.len()
-                            ));
-                        }
-                        return true;
+                        return self.select_locale(volume, nagi_localization::Locale::EnUs, false);
                     }
                     if JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y) {
-                        if !persist_locale(volume, nagi_localization::Locale::JaJp) {
-                            print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
-                            return false;
-                        }
-                        self.locale = nagi_localization::Locale::JaJp;
-                        if cfg!(feature = "m29-settings-acceptance") {
-                            print(message!(
-                                NAGI_M29_JAPANESE_PERSISTED,
-                                NAGI_M29_JAPANESE_PERSISTED.len()
-                            ));
-                            print(message!(NAGI_M29_JAPANESE_SELECTED, 44));
-                        }
-                        return true;
+                        return self.select_locale(volume, nagi_localization::Locale::JaJp, false);
                     }
                     if !SETTINGS_PANEL.contains(self.pointer_x, self.pointer_y) {
                         self.settings_open = false;
+                        self.settings_focus = Some(SettingsFocus::Button);
                         return true;
                     }
                     return true;
@@ -269,7 +288,18 @@ impl Desktop {
                     }
                     return true;
                 }
-            } else if self.focused[1] && !self.notes_has_input {
+            } else if self.focused[1]
+                && !self.notes_has_input
+                && !matches!(
+                    event.code,
+                    libnagi::INPUT_KEY_ESCAPE
+                        | libnagi::INPUT_KEY_TAB
+                        | libnagi::INPUT_KEY_ENTER
+                        | libnagi::INPUT_KEY_SPACE
+                        | libnagi::INPUT_KEY_UP
+                        | libnagi::INPUT_KEY_DOWN
+                )
+            {
                 self.notes_has_input = true;
                 print(message!(NAGI_M10_JAPANESE, 30));
                 return true;
@@ -319,12 +349,14 @@ impl Desktop {
             ENGLISH_OPTION,
             nagi_localization::Locale::EnUs,
             "desktop.settings.option.en-US",
+            SettingsFocus::English,
         );
         self.render_locale_option(
             painter,
             JAPANESE_OPTION,
             nagi_localization::Locale::JaJp,
             "desktop.settings.option.ja-JP",
+            SettingsFocus::Japanese,
         );
     }
 
@@ -334,15 +366,106 @@ impl Desktop {
         rect: Rect,
         locale: nagi_localization::Locale,
         key: &str,
+        focus: SettingsFocus,
     ) {
         painter.fill(rect, rgba(245, 248, 250));
-        painter.frame(rect, if self.locale == locale { TITLE } else { BORDER });
+        painter.frame(
+            rect,
+            if self.settings_focus == Some(focus) {
+                FOCUS
+            } else {
+                BORDER
+            },
+        );
+        let inner = Rect::new(rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4);
+        painter.frame(inner, if self.locale == locale { TITLE } else { BORDER });
         painter.text(
             rect.x + 8,
             rect.y + 8,
             nagi_localization::text(self.locale, key).as_bytes(),
             TEXT,
         );
+    }
+
+    fn focus_next_settings_control(&mut self) {
+        self.settings_focus = Some(if self.settings_open {
+            match self.settings_focus {
+                Some(SettingsFocus::English) => SettingsFocus::Japanese,
+                Some(SettingsFocus::Japanese) => SettingsFocus::English,
+                Some(SettingsFocus::Button) | None => SettingsFocus::English,
+            }
+        } else {
+            SettingsFocus::Button
+        });
+    }
+
+    fn move_settings_focus(&mut self, down: bool) -> bool {
+        if !self.settings_open {
+            return false;
+        }
+        self.settings_focus = Some(match (self.settings_focus, down) {
+            (Some(SettingsFocus::English), _) => SettingsFocus::Japanese,
+            (Some(SettingsFocus::Japanese), _) => SettingsFocus::English,
+            (Some(SettingsFocus::Button) | None, true) => SettingsFocus::English,
+            (Some(SettingsFocus::Button) | None, false) => SettingsFocus::Japanese,
+        });
+        true
+    }
+
+    fn activate_settings_focus(&mut self, volume: &mut UserDataVolume, keyboard: bool) -> bool {
+        match self.settings_focus {
+            Some(SettingsFocus::Button) if !self.settings_open => {
+                self.settings_open = true;
+                self.settings_focus = Some(SettingsFocus::English);
+                true
+            }
+            Some(SettingsFocus::English) if self.settings_open => {
+                self.select_locale(volume, nagi_localization::Locale::EnUs, keyboard)
+            }
+            Some(SettingsFocus::Japanese) if self.settings_open => {
+                self.select_locale(volume, nagi_localization::Locale::JaJp, keyboard)
+            }
+            _ => false,
+        }
+    }
+
+    fn select_locale(
+        &mut self,
+        volume: &mut UserDataVolume,
+        locale: nagi_localization::Locale,
+        keyboard: bool,
+    ) -> bool {
+        if !persist_locale(volume, locale) {
+            print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
+            return false;
+        }
+        self.locale = locale;
+        self.settings_focus = Some(match locale {
+            nagi_localization::Locale::EnUs => SettingsFocus::English,
+            nagi_localization::Locale::JaJp => SettingsFocus::Japanese,
+        });
+        if cfg!(feature = "m29-settings-acceptance") {
+            if keyboard && locale == nagi_localization::Locale::JaJp {
+                print(message!(
+                    NAGI_M29_KEYBOARD_LOCALE_SELECTION,
+                    NAGI_M29_KEYBOARD_LOCALE_SELECTION.len()
+                ));
+            }
+            match locale {
+                nagi_localization::Locale::EnUs => print(message!(
+                    NAGI_M29_ENGLISH_PERSISTED,
+                    NAGI_M29_ENGLISH_PERSISTED.len()
+                )),
+                nagi_localization::Locale::JaJp => {
+                    print(message!(
+                        NAGI_M29_JAPANESE_PERSISTED,
+                        NAGI_M29_JAPANESE_PERSISTED.len()
+                    ));
+                    print(message!(NAGI_M29_JAPANESE_SELECTED, 44));
+                }
+            }
+        }
+        true
     }
 
     fn render_app(&self, painter: &mut Painter<'_>, index: usize, title: &[u8], content: &[u8]) {

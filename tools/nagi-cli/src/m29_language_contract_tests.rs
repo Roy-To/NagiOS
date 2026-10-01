@@ -17,14 +17,21 @@ fn system_language_is_committed_to_user_data_before_desktop_selection() {
     assert!(desktop.contains("core::str::from_utf8(&contents[..length])"));
     assert!(desktop.contains(".and_then(nagi_localization::Locale::parse)"));
 
-    let persist = desktop
-        .find("if!persist_locale(volume,nagi_localization::Locale::JaJp)")
-        .expect("Japanese selection must persist before display state changes");
-    let select = desktop[persist..]
-        .find("self.locale=nagi_localization::Locale::JaJp")
+    let selection = desktop
+        .find("fnselect_locale(")
+        .map(|offset| &desktop[offset..])
+        .expect("locale selection helper");
+    let persist = selection
+        .find("if!persist_locale(volume,locale)")
+        .expect("selection must persist before display state changes");
+    let select = selection[persist..]
+        .find("self.locale=locale")
         .map(|offset| persist + offset)
-        .expect("Japanese locale is applied to the Desktop");
+        .expect("selected locale is applied to the Desktop");
     assert!(persist < select);
+    assert!(desktop.contains(
+        "Some(SettingsFocus::Japanese)ifself.settings_open=>{self.select_locale(volume,nagi_localization::Locale::JaJp,keyboard)}"
+    ));
 
     let init = compact(INIT);
     assert!(init.contains("desktop::run(display_capability,input_capability,volume);"));
@@ -50,4 +57,36 @@ fn m29_acceptance_reboots_the_same_user_data_volume_and_checks_the_restored_loca
     assert!(restart.contains("persistent_disk:&persistent_disk"));
     assert!(restart.contains("[\"NagiM10desktopREADY\",restart_marker]"));
     assert!(commands.contains("\"NagiM29settingslocalepersistedPASSlocale=ja-JP\""));
+}
+
+#[test]
+fn m29_language_setting_is_reachable_and_selectable_by_keyboard() {
+    let desktop = compact(DESKTOP);
+    assert!(desktop.contains("libnagi::INPUT_KEY_TAB"));
+    assert!(desktop.contains("libnagi::INPUT_KEY_DOWN"));
+    assert!(desktop.contains("libnagi::INPUT_KEY_ENTER"));
+    assert!(desktop.contains("libnagi::INPUT_KEY_ESCAPE"));
+    assert!(desktop.contains("SettingsFocus::Button"));
+    assert!(desktop.contains("SettingsFocus::Japanese"));
+
+    let commands = compact(COMMANDS);
+    let events_start = commands
+        .find("constM29_SETTINGS_EVENTS:")
+        .expect("M29 input sequence");
+    let events_end = commands[events_start..]
+        .find("];constM10_DESKTOP_REQUIRED_MARKERS")
+        .map(|offset| events_start + offset)
+        .expect("M29 input sequence end");
+    let events = &commands[events_start..events_end];
+    for event in [
+        "\"data\":\"tab\"",
+        "\"data\":\"ret\"",
+        "\"data\":\"down\"",
+        "\"data\":\"up\"",
+        "\"data\":\"esc\"",
+        "\"data\":\"spc\"",
+    ] {
+        assert!(events.contains(event), "M29 sequence must send {event}");
+    }
+    assert!(desktop.contains("NagiM29keyboardlocaleselectionPASSlocale=ja-JP"));
 }

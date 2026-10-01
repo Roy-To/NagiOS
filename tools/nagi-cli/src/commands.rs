@@ -1305,14 +1305,19 @@ const M10_DESKTOP_EVENTS: [&str; 8] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
 ];
 
-const M29_SETTINGS_EVENTS: [&str; 7] = [
-    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"x","value":100}}]}}"#,
-    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":-115}}]}}"#,
-    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
-    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"x","value":-120}},{"type":"rel","data":{"axis":"y","value":103}}]}}"#,
-    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
+const M29_SETTINGS_EVENTS: [&str; 10] = [
+    // Move the pointer away from the language controls before activating the
+    // final locale; the accepted Desktop may stop polling input immediately.
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"x","value":100}}]}}"#,
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":38}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"esc"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"esc"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"down"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"down"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"up"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"up"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"down"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"down"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"spc"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"spc"}}}]}}"#,
 ];
 
 const M10_DESKTOP_REQUIRED_MARKERS: &[&str] = &[
@@ -1332,6 +1337,7 @@ const M10_DESKTOP_REQUIRED_MARKERS: &[&str] = &[
     "Nagi M10 Japanese input PASS",
     "Nagi M10 Files focus PASS",
     "Nagi M10 GUI Terminal focus PASS",
+    "Nagi M29 keyboard locale selection PASS locale=ja-JP",
     "Nagi M10 acceptance PASS",
 ];
 

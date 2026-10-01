@@ -127,6 +127,13 @@ pub const INPUT_EVENT_ABS: u16 = 3;
 pub const INPUT_BUTTON_PRIMARY: u16 = 0x110;
 /// Compatibility name used by the earlier window acceptance path.
 pub const INPUT_KEY_LEFT: u16 = INPUT_BUTTON_PRIMARY;
+/// Virtio/Linux input event codes for keyboard keys.
+pub const INPUT_KEY_ESCAPE: u16 = 1;
+pub const INPUT_KEY_TAB: u16 = 15;
+pub const INPUT_KEY_ENTER: u16 = 28;
+pub const INPUT_KEY_SPACE: u16 = 57;
+pub const INPUT_KEY_UP: u16 = 103;
+pub const INPUT_KEY_DOWN: u16 = 108;
 pub const INPUT_REL_X: u16 = 0;
 pub const INPUT_REL_Y: u16 = 1;
 
