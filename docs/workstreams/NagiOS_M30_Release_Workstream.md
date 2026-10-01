@@ -486,3 +486,25 @@ Run evidence and a verified seven-file SHA-256 manifest are in
 `out/evidence/m30-release-1790817095155131000/`. The host again lacked
 `virtio-sound.in`; audio playback/capture is not established. This regression
 does not change `m30_acceptance=NOT_EVALUATED` or M30's `PARTIAL` status.
+
+## Current clean-commit bundle acceptance — 2026-10-01
+
+After `805f2bb` was pushed, release preflight, assembly, and verification
+passed on the clean tree. The bundle at
+`out/artifacts/m30-release-bundle-805f2bb/` contains 23 verified checksum
+entries and records the full source revision. Its qcow2 is byte-identical to
+the reference image (`e215d62fb19f1bb83c5fb8cbdaf68569fb5cb6a7195bb151e520cd7d1e2801a4`).
+
+A disposable byte-identical package copy booted twice with shared OVMF
+variables. The first boot passed System A, Model Store read-only, M27
+confirmed-A, and User Data write markers. The second boot read the persisted
+User Data and reached `Nagi M7 acceptance PASS`. The copy's final SHA-256 is
+`29ce659593b9dd9335f4408cbcbdca28c13ca66f3724516f75b646414dbef853`; the
+untouched package retained its original hash. Both package verification and
+all checksums passed after the boots, and `qemu-img check` reported no errors
+in the package copy. Evidence and a verified nine-file manifest are under
+`out/evidence/m30-clean-release-805f2bb/`. QEMU reported missing host audio
+input (`virtio-sound.in`); host audio is not covered. The package manifest
+still records `m30_acceptance=NOT_EVALUATED`, and M30 remains `PARTIAL` for
+authenticated updates, remaining M18–M29 acceptance, and human redistribution
+review.
