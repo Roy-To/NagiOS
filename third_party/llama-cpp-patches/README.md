@@ -17,10 +17,19 @@ Other builds keep the upstream `map::at` and detection behavior. This keeps
 unknown-template handling explicit at the caller without translating an
 invalid template into a successful chat format.
 
-The current no-exception coverage is incremental: the GGUF parser/writer
-slice and chat-template status lookup compile without exceptions. The full
-Nagi-target `llama` build still fails on exception syntax in shared model
-loading, context, grammar, KV-cache, tokenizer, sampler, and model-specific
-sources. Further patches must propagate those errors explicitly; replacing
-them with aborts or omitting required model paths would not preserve runtime
-behavior.
+Patch `0005-nagi-grammar-status.patch` makes grammar parser errors explicit,
+checks repetition and token-ID integer overflow, rejects malformed escapes and
+undefined rules with parser status, and latches a failed runtime grammar so it
+cannot admit more tokens. It also propagates sampler failure as
+`LLAMA_TOKEN_NULL`. Grammar regex trigger matching remains available through
+the upstream implementation, but invalid `std::regex` patterns have no
+status-capable compile path in the current Nagi slice; malformed regex trigger
+behavior in the no-exceptions target remains unverified.
+
+The current no-exception coverage is incremental: the GGUF parser/writer,
+chat-template status lookup, and grammar parser translation unit compile
+without exceptions. The full Nagi-target `llama` build still fails on exception
+syntax in shared model loading, context, KV-cache, tokenizer, sampler, and
+model-specific sources. Further patches must propagate those errors
+explicitly; replacing them with aborts or omitting required model paths would
+not preserve runtime behavior.

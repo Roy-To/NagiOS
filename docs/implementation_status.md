@@ -49,8 +49,9 @@ llama.cpp checkout. Nagi-target `ggml-base` and the static CPU `ggml` library
 compiled under `-fno-exceptions`; the latter includes the new Nagi path-format
 adapter for backend registration. Host GGUF tests passed 101/101, and a host
 build with Nagi limits enabled passed 103/103. The fresh Nagi-target `llama`
-build now passes backend registration but still fails in 28 object targets;
-exception diagnostics span 63 source files, and separate RTTI and `PATH_MAX`
+build now passes backend registration and the grammar parser translation unit,
+but still fails in 26 object targets; exception diagnostics span 55 distinct
+source files, and separate RTTI and `PATH_MAX`
 target gaps remain. STL allocator OOM recovery is also unsupported in the
 current no-unwinder ABI. The kernel now validates a separate Model Store GPT
 extent and passes it as read-only; a `no_std` FAT32 `ModelArtifactReader`
@@ -83,8 +84,11 @@ enabled M20 init variants compile for the Nagi target. The first CI run for
 the guest-reader fixture found that `nagi-bootstrap` compiles the shared CLI
 source from its own manifest, which also needs the direct
 `nagi-model-manager` dependency. That manifest and its lockfile now include it;
-the locked bootstrap build and all 146 CLI unit tests pass locally. M20 remains
-`PARTIAL`.
+the locked bootstrap build and all 146 CLI unit tests pass locally. The
+2026-10-02 grammar status patch also passes its parser, integration, JSON
+Schema-to-grammar, CLI patch-contract, and Nagi-target grammar translation-unit
+checks. The full target failure log is
+`out/logs/m20-grammar-status-target-build-20261002.log`; M20 remains `PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
@@ -7207,3 +7211,19 @@ restart restoration. Its eight-entry manifest verifies at
 fixture does not execute a model backend. M20–M22 remain `PARTIAL` for the
 previously recorded inference, service-boundary, authenticated production
 authority, and general action gaps.
+
+## Completion Sweep — M20 grammar status propagation (2026-10-02)
+
+Numbered llama.cpp patch `0005-nagi-grammar-status.patch` makes grammar parser
+errors explicit, checks numeric overflow and repetition bounds, rejects
+malformed escapes and undefined rules, and latches a runtime grammar failure
+so candidate application fails closed. Sampler failure returns
+`LLAMA_TOKEN_NULL`. Existing regex-triggered lazy grammar support is retained;
+invalid upstream `std::regex` compilation under Nagi's no-exceptions runtime
+remains unverified.
+
+`./nagi fetch`, three focused host CTest targets, the CLI patch-contract test,
+and the Nagi-target `llama-grammar.cpp` translation unit compile passed. The
+latest full target attempt still fails in 26 object targets across 55 distinct
+source files; its log is `out/logs/m20-grammar-status-target-build-20261002.log`.
+M20 remains `PARTIAL`, with no complete llama backend or in-guest inference.

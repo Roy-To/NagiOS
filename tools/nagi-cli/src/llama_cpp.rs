@@ -753,6 +753,22 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_nagi_grammar_patch_propagates_parse_and_runtime_failures() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0005-nagi-grammar-status.patch"),
+        )
+        .expect("Nagi grammar status patch");
+
+        assert!(patch.contains("parse_uint64"));
+        assert!(patch.contains("maximum number of repetitions is less than the minimum"));
+        assert!(patch.contains("grammar.failed = true"));
+        assert!(patch.contains("LLAMA_TOKEN_NULL"));
+        assert!(patch.contains("-INFINITY"));
+        assert!(!patch.contains("Nagi does not support regex-triggered lazy grammars"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

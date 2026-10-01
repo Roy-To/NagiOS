@@ -147,11 +147,14 @@ Nagi `no_std` target.
 ## Remaining acceptance blockers
 
 1. Extend the tested GGUF slice into explicit no-exception status propagation
-   through tokenizer, grammar, memory/KV, mapping, loader, and supported model
-   paths. Then build the CPU backend and connect it through the provider-neutral
-   runtime. The latest fresh full-target attempt identifies 28 failing object
-   targets after backend registration now compiles; the checkout has no Nagi C
-   ABI adapter, complete target build, or backend session.
+   through tokenizer, memory/KV, mapping, loader, and supported model paths.
+   Grammar parser/runtime failure propagation is now patched, host-tested, and
+   its parser translation unit compiles for the Nagi target. Then build the CPU
+   backend and connect it through the provider-neutral runtime. The latest
+   fresh full-target attempt identifies 26 failing object targets and 55
+   distinct source files after backend registration and the grammar parser
+   compile; the checkout has no Nagi C ABI adapter, complete target build, or
+   backend session.
 2. Connect the artifact reader to a trusted Model Store catalog/installer and
    provide the external placement workflow. Model Store files use the root
    short name formed from the first 40 bits of `SHA256(UTF8(artifact_id))` as
@@ -427,3 +430,30 @@ tests, warnings-denied package Clippy, Nagi no-std target compilation,
 contract/orchestration coverage only; no llama backend, model bytes, or guest
 inference is claimed. The planner's 1,024-token output budget matches each
 currently bundled model manifest. M20 remains `PARTIAL`.
+
+## Grammar parser and runtime status propagation — 2026-10-02
+
+Numbered patch `0005-nagi-grammar-status.patch` keeps the pinned llama.cpp
+checkout clean and converts grammar parse failures into explicit status. It
+checks decimal overflow and token-ID bounds, rejects reversed or excessive
+repetition counts, malformed escapes, and undefined rule references, and
+returns an empty parser state on failure. Runtime grammar acceptance latches
+failure, sampler application blocks all candidates, and the sampler returns
+`LLAMA_TOKEN_NULL` after a failed grammar transition. The failed state is copied
+when cloning a grammar.
+
+The patch intentionally retains upstream regex-triggered lazy grammar support.
+The upstream `std::regex` constructor has no status-returning compile API in
+this slice, so malformed trigger regex behavior under Nagi's no-exceptions
+runtime remains unverified; this patch does not claim to fix that path.
+
+Verification on 2026-10-02 passed `./nagi fetch` with all numbered patches,
+three host CTest targets (`test-grammar-parser`, `test-grammar-integration`,
+and `test-json-schema-to-grammar`), the focused CLI patch-contract test, and
+the Nagi-target `llama-grammar.cpp` object compile with `-fno-exceptions`.
+The regenerated grammar parser/integration tests cover integer overflow,
+malformed escapes, undefined rules, repetition bounds, and fail-closed runtime
+grammar state. The full `llama` build still fails: 26 object targets and 55
+distinct source files report exception syntax, recorded in
+`out/logs/m20-grammar-status-target-build-20261002.log`. M20 remains `PARTIAL`;
+no complete backend or inference is claimed.
