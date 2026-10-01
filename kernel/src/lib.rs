@@ -17,6 +17,7 @@ pub mod net;
 pub mod random;
 pub mod scheduler;
 pub mod user_elf;
+pub mod user_ipc;
 pub mod user_process;
 pub mod virtio;
 pub mod vmo;

@@ -26,7 +26,10 @@ location after rename, VFS remount, and a fresh QEMU restart. M19 remains
 `PARTIAL`: this is a fixed private acceptance file, not synchronization from
 the production Files or browser-page services; inode reuse is not addressed,
 and Search is not exposed as a production IPC service with authenticated,
-capability-bound caller context.
+capability-bound caller context. A 2026-10-02 bootstrap Channel ABI smoke test
+now passes in the M19 guest path, including kernel-stamped sender PID and
+attenuated handle transfer. It remains single-process plumbing and does not
+provide authenticated Search service callers.
 The guest fixture also now runs a bounded M21 `file.search` plan through
 ContextResolver, Validator, Action Registry, and Executor against that real
 SearchService, but its caller/capability policy remains fixture-only. When M22
@@ -110,11 +113,12 @@ against that VFS, checks denied `files.copy` and path-injection cases, and
 records a recoverable Create in NH16 plus a separate NAL1 Activity record. It
 is limited to one 512-byte fixture file and does not add a production Files
 handler.
-The 2026-10-01 Priority A audit confirmed that kernel Channels are not exposed
-through user syscalls, libnagi's ServiceRegistry directly calls in-process
-handlers, and AI caller IDs are logical request data without a production
-authenticated provider. Adding a production policy without process-launch
-identity, address-space isolation, and kernel-authorized endpoints would
+The 2026-10-01 Priority A audit confirmed that libnagi's ServiceRegistry
+directly calls in-process handlers and AI caller IDs are logical request data
+without a production authenticated provider. The 2026-10-02 bootstrap Channel
+syscalls add user ABI plumbing but still expose only the shared-address-space
+`nagi-init` Process (PID 1). Adding production policy without process-launch
+identity, address-space isolation, and supervisor-authorized endpoints would
 weaken the capability boundary; details are recorded in the M21 workstream.
 **M22 evidence:** The existing M15 History Service now has a versioned `NH16`
 recoverable archive contract, full-width logical caller context, grouped move
@@ -7227,3 +7231,48 @@ and the Nagi-target `llama-grammar.cpp` translation unit compile passed. The
 latest full target attempt still fails in 26 object targets across 55 distinct
 source files; its log is `out/logs/m20-grammar-status-target-build-20261002.log`.
 M20 remains `PARTIAL`, with no complete llama backend or in-guest inference.
+
+## Completion Sweep — Bootstrap Channel user ABI (2026-10-02)
+
+Added `SYS_CHANNEL_CREATE`, `SYS_CHANNEL_SEND`, nonblocking
+`SYS_CHANNEL_TRY_RECEIVE`, and `SYS_HANDLE_CLOSE` after the existing syscall
+numbers. The fixed-size `repr(C)` ABI caps payloads at 128 bytes, transfers at
+four handles, and each directional queue at eight messages. `libnagi` exposes
+typed wrappers. Kernel syscall handlers require exact struct sizes and mapped
+user ranges, copy bounded data through kernel-owned values, and get sender PID
+from the kernel Process rather than a payload field.
+
+The bootstrap manager is bounded to 16 live Channel pairs and 64 handles for
+the single `nagi-init` Process (PID 1). Rights bits come from `nagi-abi`,
+unknown bits and nonzero reserved transfer fields fail closed, and handle
+transfer uses the existing Channel escrow and attenuation checks. Closing
+handles traces active handles and queued escrow references, drains unreachable
+channels, and reuses pair/object/handle slots, including a tested cross-channel
+escrow cycle. The API has no blocking wait and does not authenticate an app or
+service; M19 and M21 production authorities, M18 providers, M22 actions, and M23
+browser-context services remain incomplete.
+
+Verification on 2026-10-02 passed five `nagi-abi` tests, all 132
+`nagi-kernel` tests (including five new user Channel manager tests), and 38
+`libnagi` tests on x86_64 macOS. Warnings-denied `libnagi` Clippy passed. The
+kernel library Clippy check passed with existing `needless_range_loop`,
+`new_without_default`, and `too_many_arguments` lints allowed; the two new
+manager findings were fixed. `./nagi fmt`, `./nagi lint`, `./nagi test`, and
+`./nagi build` passed. A fresh `./nagi m19` QEMU acceptance passed
+the `Nagi bootstrap Channel ABI PASS` marker and the existing guest Search,
+ObjectId rename, persistence, and restart checks; the serial log is
+`out/logs/m19-vfs-objectid-initial.log`. This run had no host
+`virtio-sound.in` backend, unrelated to Channel acceptance. It does not change
+M19–M23 from `PARTIAL` or establish authenticated service IPC.
+
+A fresh-disk `./nagi m22` regression passed all three boots after the manager
+changes. Each boot printed the bootstrap Channel marker; the run also passed
+M19 Search persistence, M21 fixture validation, M22 Move/Copy transactions,
+NAL1/NH16 persistence, composite Undo, and restored-file verification. Its
+run-stamped image, User Data disk, OVMF variables, and logs are under
+`out/artifacts/nagi-0.1-m22-history-1790877967540236000.img`,
+`out/artifacts/nagi-0.1-m22-history-user-data-1790877967540236000.img`,
+`out/artifacts/nagi-0.1-m22-history-vars-1790877967540236000.fd`, and
+`out/logs/m22-history-1790877967540236000-boot-{1,2,3}.log`. M21/M22 remain
+`PARTIAL` because these policies and actions are fixture-scoped and use no
+model inference or authenticated production service boundary.

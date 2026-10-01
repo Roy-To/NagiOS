@@ -140,9 +140,11 @@ boot logs under `out/artifacts/` and `out/logs/`.
 
 ## Remaining acceptance blockers
 
-1. Expose user-space Channel endpoints and bind `ActionPolicy` and
-   `ContextAuthority` to authenticated guest caller capabilities and object
-   handles. The library intentionally has no allow-all production provider.
+1. Bind `ActionPolicy` and `ContextAuthority` to authenticated guest caller
+   capabilities and object handles through isolated processes and
+   supervisor-authorized endpoint delivery. The bootstrap Channel ABI only
+   exposes the shared `nagi-init` Process (PID 1) and cannot authenticate app
+   identity. The library intentionally has no allow-all production provider.
 2. Register `file.search` and general first-party actions in the running
    production AI service with that authenticated provider. The bounded M22
    fixture `file.move` action is not a production service handler. Add real
@@ -160,27 +162,31 @@ acceptance gate.
 
 ## Completion sweep Priority A audit — 2026-10-01
 
-The existing M4 Channel implementation is a kernel-internal primitive with
-rights attenuation and sender-process stamping, and the kernel M4 acceptance
-exercises it. The current user syscall dispatcher exposes no Channel create,
-send, receive, or wait operations, so user-space services cannot obtain a
-kernel-authenticated caller identity through that Channel path.
+The existing M4 Channel implementation is a kernel primitive with rights
+attenuation and sender-process stamping, and the kernel M4 acceptance exercises
+it. The 2026-10-02 Completion Sweep adds user ABI syscalls for bounded Channel
+create, send, nonblocking receive, and handle close. Its M19 QEMU check covers
+payload round-trip, kernel-stamped process identity, READ-only handle transfer,
+queue limits, and handle/channel reuse.
 
-The user-space ServiceRegistry in libnagi stores handler function pointers and
-invokes them directly. Its guest echo acceptance registers and calls a handler
-inside nagi-init; it is not cross-process IPC or an application service
-boundary. The AI CallerIdentity contains caller-provided logical AppId and
-AppSessionId fields, while ContextAuthority and ActionPolicy are intentionally
+The user ABI manager still contains only the single shared-address-space
+`nagi-init` Process (PID 1). Every sender is that same Process. The user-space
+ServiceRegistry in libnagi stores handler function pointers and invokes them
+directly. Its guest echo acceptance registers and calls a handler inside
+nagi-init; it is not cross-process IPC or an application service boundary. The
+AI CallerIdentity contains caller-provided logical AppId and AppSessionId
+fields, while ContextAuthority and ActionPolicy are intentionally
 trusted-provider interfaces with no allow-all production implementation.
 
 Therefore adding a production ActionPolicy by trusting plan/request identity,
-or treating the in-process registry as authenticated IPC, would weaken the
-capability boundary. The missing prerequisite is the production process and
-launch authority boundary: distinct process identities and address spaces,
-supervisor-authorized endpoint creation/transfer, and a provider that derives
-policy from kernel-authenticated handles and the launch record. Keep the
-current guest M19/M22 fixtures as orchestration evidence only. No user Channel
-or production caller-authentication claim is made by this audit.
+or treating either the bootstrap Channel ABI or in-process registry as
+authenticated service IPC, would weaken the capability boundary. The remaining
+prerequisite is the production process and launch authority boundary: distinct
+process identities and address spaces, supervisor-authorized endpoint
+creation/transfer, and a provider that derives policy from kernel-authenticated
+handles and the launch record. Keep the current guest M19/M22 fixtures as
+orchestration evidence only. The bootstrap ABI does not authenticate an
+application or session.
 
 ## Completion Sweep: record the M19 `file.search` result — 2026-10-01
 
@@ -218,5 +224,16 @@ move/copy, persisted NAL1/NH16 state, grouped Undo, and restart restoration;
 its evidence is under
 `out/evidence/m22-structured-output-regression-1790871324761891000/`. No model
 backend is connected to this adapter yet, and the QEMU fixture does not claim
-inference. Production IPC and authenticated caller authority remain absent;
-M21 remains `PARTIAL`.
+inference. Production authenticated service IPC and caller authority remain
+absent; M21 remains `PARTIAL`.
+
+## Bootstrap Channel ABI user path — 2026-10-02
+
+The 2026-10-02 Completion Sweep exposes bounded Channel create, send,
+nonblocking receive, and handle close through the user syscall ABI. Its fresh
+M19 QEMU acceptance passes payload round-trip, kernel-stamped PID 1 despite
+forged payload bytes, READ-only transferred-handle behavior, full-queue
+rejection, and close/reuse. The manager supports only the single bootstrap
+Process and has no blocking wait. This is IPC plumbing evidence; it does not
+bind the fixture's App/Session identity to a trusted supervisor, production
+ActionPolicy, or production ContextAuthority. M21 remains `PARTIAL`.

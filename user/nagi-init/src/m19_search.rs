@@ -7,6 +7,10 @@ use libnagi::storage::{
     BlockDevice, DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
     MAX_FILE_SIZE,
 };
+use libnagi::{
+    ChannelHandleTransfer, ChannelReceiveResult, ChannelSendRequest, ProcessInfo,
+    MAX_CHANNEL_QUEUE_MESSAGES, MAX_PROCESS_NAME, RIGHT_READ,
+};
 use nagi_ai::{
     execute_plan, register_file_search_action, validate_plan, ActionPolicy, ActionRegistry,
     CallerIdentity, ContextAuthority, ContextRequest, ContextResolver, ExecutionStatus, NagiPlan,
@@ -706,12 +710,150 @@ fn index_live_file(service: &mut M19SearchService, file: LiveFileProjection) -> 
     Some(object_id)
 }
 
+/// Exercises the exposed user syscall path for the bootstrap process only.
+/// This proves Channel plumbing and attenuated handle transfer; it does not
+/// represent authenticated service IPC because the guest has one Process.
+fn bootstrap_channel_abi_acceptance() -> bool {
+    let Some(transport) = libnagi::channel_create_pair() else {
+        return false;
+    };
+    let Some(target) = libnagi::channel_create_pair() else {
+        let _ = libnagi::handle_close(transport.endpoint_a);
+        let _ = libnagi::handle_close(transport.endpoint_b);
+        return false;
+    };
+
+    let mut process = ProcessInfo {
+        pid: 0,
+        parent_pid: 0,
+        state: 0,
+        flags: 0,
+        image_pages: 0,
+        stack_pages: 0,
+        name: [0; MAX_PROCESS_NAME],
+    };
+    let process_info_ok = libnagi::process_info(&mut process);
+    let mut moved_endpoint = None;
+    let mut transfer_enqueued = false;
+    let checks_passed = (|| {
+        if !process_info_ok || process.pid != 1 {
+            return false;
+        }
+
+        let forged_identity = [0xef, 0xbe, 0xad, 0xde, 0x34, 0x12, 0x00, 0x00];
+        let mut request = ChannelSendRequest::new(0x4e47, 1, 0x19_0001, 7);
+        request.payload_len = forged_identity.len() as u32;
+        request.payload[..forged_identity.len()].copy_from_slice(&forged_identity);
+        request.transfer_count = 1;
+        request.transfers[0] = ChannelHandleTransfer {
+            handle: target.endpoint_a,
+            rights: RIGHT_READ,
+            reserved: 0,
+        };
+        if !libnagi::channel_send(transport.endpoint_a, &request) {
+            return false;
+        }
+        transfer_enqueued = true;
+        // A successful transfer consumes the sender's original handle.
+        if libnagi::channel_send(target.endpoint_a, &ChannelSendRequest::default()) {
+            return false;
+        }
+
+        let mut received = ChannelReceiveResult::default();
+        if libnagi::channel_try_receive(transport.endpoint_b, &mut received) != Some(true)
+            || received.sender_process_id != process.pid as u32
+            || received.protocol_id != request.protocol_id
+            || received.request_id != request.request_id
+            || received.payload_len != forged_identity.len() as u32
+            || received.payload[..forged_identity.len()] != forged_identity
+            || received.transfer_count != 1
+            || received.handles[0] == 0
+        {
+            return false;
+        }
+        moved_endpoint = Some(received.handles[0]);
+
+        // The moved READ-only endpoint can receive but cannot send.
+        if libnagi::channel_send(received.handles[0], &ChannelSendRequest::default()) {
+            return false;
+        }
+        let peer_payload = b"read still works";
+        let mut peer_message = ChannelSendRequest::new(0x4e47, 1, 0x19_0002, 8);
+        peer_message.payload_len = peer_payload.len() as u32;
+        peer_message.payload[..peer_payload.len()].copy_from_slice(peer_payload);
+        if !libnagi::channel_send(target.endpoint_b, &peer_message) {
+            return false;
+        }
+        let mut target_received = ChannelReceiveResult::default();
+        if libnagi::channel_try_receive(received.handles[0], &mut target_received) != Some(true)
+            || target_received.payload_len != peer_payload.len() as u32
+            || &target_received.payload[..peer_payload.len()] != peer_payload
+        {
+            return false;
+        }
+        if libnagi::channel_try_receive(transport.endpoint_a, &mut received) != Some(false) {
+            return false;
+        }
+
+        // The queue is bounded and an overflow leaves earlier messages intact.
+        for index in 0..MAX_CHANNEL_QUEUE_MESSAGES {
+            let mut queued = ChannelSendRequest::new(0x4e47, 1, index as u64, 9);
+            queued.payload_len = 1;
+            queued.payload[0] = index as u8;
+            if !libnagi::channel_send(transport.endpoint_a, &queued) {
+                return false;
+            }
+        }
+        if libnagi::channel_send(transport.endpoint_a, &ChannelSendRequest::default()) {
+            return false;
+        }
+        for index in 0..MAX_CHANNEL_QUEUE_MESSAGES {
+            let mut queued = ChannelReceiveResult::default();
+            if libnagi::channel_try_receive(transport.endpoint_b, &mut queued) != Some(true)
+                || queued.payload_len != 1
+                || queued.payload[0] != index as u8
+            {
+                return false;
+            }
+        }
+        libnagi::channel_try_receive(transport.endpoint_b, &mut received) == Some(false)
+    })();
+
+    let mut cleanup_ok = true;
+    for handle in [
+        transport.endpoint_a,
+        transport.endpoint_b,
+        target.endpoint_b,
+    ] {
+        cleanup_ok &= libnagi::handle_close(handle);
+    }
+    if !transfer_enqueued {
+        cleanup_ok &= libnagi::handle_close(target.endpoint_a);
+    }
+    if let Some(handle) = moved_endpoint {
+        cleanup_ok &= libnagi::handle_close(handle);
+    }
+    let Some(reused) = libnagi::channel_create_pair() else {
+        return false;
+    };
+    let reused_ok = reused.endpoint_a != transport.endpoint_a
+        && reused.endpoint_b != transport.endpoint_b
+        && libnagi::handle_close(reused.endpoint_a)
+        && libnagi::handle_close(reused.endpoint_b);
+
+    checks_passed && cleanup_ok && reused_ok
+}
+
 /// Exercises the real guest VFS persistence adapter with a test-only private
 /// fixture and indexes a real file entry from that VFS. The search API is not
 /// registered as a production IPC service here; caller authority remains a
 /// separate M19 integration requirement.
 pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
     libnagi::console_write(b"Nagi M19 trace start\r\n");
+    if !bootstrap_channel_abi_acceptance() {
+        return None;
+    }
+    libnagi::console_write(b"Nagi bootstrap Channel ABI PASS\r\n");
     let was_persisted = {
         let Ok(mut service) = open_search(block_capability) else {
             return None;

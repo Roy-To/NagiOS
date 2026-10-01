@@ -12,7 +12,12 @@ metadata identifies that process instance; mapping it to an application/session
 or granting user-space policy authority belongs to a trusted supervisor. A
 caller-supplied identity field is never an authority source.
 
-The current bootstrap runtime does not expose this channel core through user
-syscalls and still runs one shared-address-space init process. This metadata
-therefore does not by itself authenticate an application or session; that
-requires process isolation and a trusted user-space supervisor binding.
+The bootstrap runtime exposes Channel create, send, nonblocking receive, and
+handle close through the user ABI. Its bounded manager still runs one
+shared-address-space init Process (PID 1), so every message is from that
+bootstrap Process and the API does not authenticate an application or session.
+The user path exists to exercise message transfer and capability attenuation;
+it is not a production service boundary. Authentication requires isolated
+processes and a trusted supervisor binding kernel Process IDs, endpoint
+delivery, and launch records to application/session policy. The user ABI does
+not expose a wait syscall yet.

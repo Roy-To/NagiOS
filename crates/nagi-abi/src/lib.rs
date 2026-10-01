@@ -32,6 +32,14 @@ pub const SYS_THREAD_DETACH: u64 = 29;
 /// Request kernel confirmation of the current A/B boot candidate after the
 /// guest readiness gate has completed. The kernel derives all coordinates.
 pub const SYS_BOOT_READY: u64 = 30;
+/// Create a bounded pair of user-visible bootstrap Channel endpoint handles.
+pub const SYS_CHANNEL_CREATE: u64 = 31;
+/// Send one bounded message over a Channel endpoint.
+pub const SYS_CHANNEL_SEND: u64 = 32;
+/// Receive one message without waiting for Channel readability.
+pub const SYS_CHANNEL_TRY_RECEIVE: u64 = 33;
+/// Close a bootstrap handle returned by the Channel ABI.
+pub const SYS_HANDLE_CLOSE: u64 = 34;
 
 /// Optional `SYS_THREAD_CREATE` flag for a child that should be detached
 /// before it can be scheduled.
@@ -116,6 +124,15 @@ pub const MAX_PROCESS_NAME: usize = 16;
 pub const MAX_NET_FRAME_SIZE: usize = 1536;
 pub const MAX_AUDIO_BUFFER: usize = 4096;
 pub const MAX_RANDOM_BYTES: usize = 256;
+pub const RIGHT_READ: u32 = 1 << 0;
+pub const RIGHT_WRITE: u32 = 1 << 1;
+pub const RIGHT_MAP: u32 = 1 << 2;
+pub const RIGHT_TRANSFER: u32 = 1 << 3;
+pub const RIGHT_CONTROL: u32 = 1 << 4;
+pub const RIGHT_DUPLICATE: u32 = 1 << 5;
+pub const RIGHT_WAIT: u32 = 1 << 6;
+pub const RIGHT_SIGNAL: u32 = 1 << 7;
+pub const RIGHT_EXECUTE: u32 = 1 << 8;
 pub const SURFACE_WIDTH: u32 = 320;
 pub const SURFACE_HEIGHT: u32 = 200;
 pub const SURFACE_BYTES: usize = SURFACE_WIDTH as usize * SURFACE_HEIGHT as usize * 4;
@@ -247,4 +264,130 @@ pub struct InputEvent {
     pub event_type: u16,
     pub code: u16,
     pub value: i32,
+}
+
+/// Two handles created by `SYS_CHANNEL_CREATE`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ChannelEndpoints {
+    pub endpoint_a: u64,
+    pub endpoint_b: u64,
+}
+
+/// One handle moved with an attenuated rights set in a Channel message.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ChannelHandleTransfer {
+    pub handle: u64,
+    pub rights: u32,
+    pub reserved: u32,
+}
+
+/// Fixed-size send request. The sender identity is deliberately absent; the
+/// kernel records it in receive metadata from the current Process object.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChannelSendRequest {
+    pub protocol_id: u16,
+    pub version: u16,
+    pub opcode: u16,
+    pub flags: u16,
+    pub request_id: u64,
+    pub payload_len: u32,
+    pub transfer_count: u32,
+    pub payload: [u8; MAX_CHANNEL_INLINE_PAYLOAD],
+    pub transfers: [ChannelHandleTransfer; MAX_CHANNEL_TRANSFER_HANDLES],
+}
+
+impl ChannelSendRequest {
+    pub const fn new(protocol_id: u16, version: u16, request_id: u64, opcode: u16) -> Self {
+        Self {
+            protocol_id,
+            version,
+            opcode,
+            flags: 0,
+            request_id,
+            payload_len: 0,
+            transfer_count: 0,
+            payload: [0; MAX_CHANNEL_INLINE_PAYLOAD],
+            transfers: [ChannelHandleTransfer {
+                handle: 0,
+                rights: 0,
+                reserved: 0,
+            }; MAX_CHANNEL_TRANSFER_HANDLES],
+        }
+    }
+}
+
+impl Default for ChannelSendRequest {
+    fn default() -> Self {
+        Self::new(0, 0, 0, 0)
+    }
+}
+
+/// Result written by `SYS_CHANNEL_TRY_RECEIVE`. Unused payload and transfer
+/// slots are zeroed. `sender_process_id` is kernel selected metadata.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChannelReceiveResult {
+    pub sender_process_id: u32,
+    pub reserved: u32,
+    pub protocol_id: u16,
+    pub version: u16,
+    pub opcode: u16,
+    pub flags: u16,
+    pub request_id: u64,
+    pub payload_len: u32,
+    pub transfer_count: u32,
+    pub payload: [u8; MAX_CHANNEL_INLINE_PAYLOAD],
+    pub handles: [u64; MAX_CHANNEL_TRANSFER_HANDLES],
+}
+
+impl Default for ChannelReceiveResult {
+    fn default() -> Self {
+        Self {
+            sender_process_id: 0,
+            reserved: 0,
+            protocol_id: 0,
+            version: 0,
+            opcode: 0,
+            flags: 0,
+            request_id: 0,
+            payload_len: 0,
+            transfer_count: 0,
+            payload: [0; MAX_CHANNEL_INLINE_PAYLOAD],
+            handles: [0; MAX_CHANNEL_TRANSFER_HANDLES],
+        }
+    }
+}
+
+pub const MAX_CHANNEL_INLINE_PAYLOAD: usize = 128;
+pub const MAX_CHANNEL_TRANSFER_HANDLES: usize = 4;
+pub const MAX_CHANNEL_QUEUE_MESSAGES: usize = 8;
+
+#[cfg(test)]
+mod channel_abi_tests {
+    use core::mem::{align_of, size_of};
+
+    use super::{
+        ChannelEndpoints, ChannelHandleTransfer, ChannelReceiveResult, ChannelSendRequest,
+        MAX_CHANNEL_INLINE_PAYLOAD, MAX_CHANNEL_QUEUE_MESSAGES, MAX_CHANNEL_TRANSFER_HANDLES,
+        SYS_CHANNEL_CREATE, SYS_CHANNEL_SEND, SYS_CHANNEL_TRY_RECEIVE, SYS_HANDLE_CLOSE,
+    };
+
+    #[test]
+    fn bootstrap_channel_syscall_numbers_and_layout_are_stable() {
+        assert_eq!(SYS_CHANNEL_CREATE, 31);
+        assert_eq!(SYS_CHANNEL_SEND, 32);
+        assert_eq!(SYS_CHANNEL_TRY_RECEIVE, 33);
+        assert_eq!(SYS_HANDLE_CLOSE, 34);
+        assert_eq!(MAX_CHANNEL_INLINE_PAYLOAD, 128);
+        assert_eq!(MAX_CHANNEL_TRANSFER_HANDLES, 4);
+        assert_eq!(MAX_CHANNEL_QUEUE_MESSAGES, 8);
+        assert_eq!(size_of::<ChannelEndpoints>(), 16);
+        assert_eq!(align_of::<ChannelEndpoints>(), 8);
+        assert_eq!(size_of::<ChannelHandleTransfer>(), 16);
+        assert_eq!(size_of::<ChannelSendRequest>(), 216);
+        assert_eq!(size_of::<ChannelReceiveResult>(), 192);
+    }
 }

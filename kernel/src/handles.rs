@@ -8,18 +8,40 @@ pub const DEFAULT_OBJECT_CAPACITY: usize = 64;
 pub struct Rights(u32);
 
 impl Rights {
-    pub const READ: Self = Self(1 << 0);
-    pub const WRITE: Self = Self(1 << 1);
-    pub const MAP: Self = Self(1 << 2);
-    pub const TRANSFER: Self = Self(1 << 3);
-    pub const CONTROL: Self = Self(1 << 4);
-    pub const DUPLICATE: Self = Self(1 << 5);
-    pub const WAIT: Self = Self(1 << 6);
-    pub const SIGNAL: Self = Self(1 << 7);
-    pub const EXECUTE: Self = Self(1 << 8);
+    pub const READ: Self = Self(nagi_abi::RIGHT_READ);
+    pub const WRITE: Self = Self(nagi_abi::RIGHT_WRITE);
+    pub const MAP: Self = Self(nagi_abi::RIGHT_MAP);
+    pub const TRANSFER: Self = Self(nagi_abi::RIGHT_TRANSFER);
+    pub const CONTROL: Self = Self(nagi_abi::RIGHT_CONTROL);
+    pub const DUPLICATE: Self = Self(nagi_abi::RIGHT_DUPLICATE);
+    pub const WAIT: Self = Self(nagi_abi::RIGHT_WAIT);
+    pub const SIGNAL: Self = Self(nagi_abi::RIGHT_SIGNAL);
+    pub const EXECUTE: Self = Self(nagi_abi::RIGHT_EXECUTE);
 
     pub const fn empty() -> Self {
         Self(0)
+    }
+
+    /// Construct a rights set from ABI bits, rejecting undefined authority.
+    pub const fn from_bits(bits: u32) -> Option<Self> {
+        const KNOWN: u32 = nagi_abi::RIGHT_READ
+            | nagi_abi::RIGHT_WRITE
+            | nagi_abi::RIGHT_MAP
+            | nagi_abi::RIGHT_TRANSFER
+            | nagi_abi::RIGHT_CONTROL
+            | nagi_abi::RIGHT_DUPLICATE
+            | nagi_abi::RIGHT_WAIT
+            | nagi_abi::RIGHT_SIGNAL
+            | nagi_abi::RIGHT_EXECUTE;
+        if bits & !KNOWN == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    pub const fn bits(self) -> u32 {
+        self.0
     }
 
     pub const fn contains(self, required: Self) -> bool {
@@ -305,6 +327,14 @@ impl<const N: usize> HandleTable<N> {
         handle: Handle,
     ) -> Result<Rights, HandleError> {
         Ok(self.entry(registry, handle)?.rights)
+    }
+
+    pub(crate) fn visit_objects(&self, mut visitor: impl FnMut(ObjectId)) {
+        for slot in &self.slots {
+            if let Some(capability) = slot.capability {
+                visitor(capability.object);
+            }
+        }
     }
 
     pub fn require<const R: usize>(

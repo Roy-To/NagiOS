@@ -40,8 +40,9 @@ pub use nagi_abi::{
 
 #[cfg(not(test))]
 use nagi_abi::{
-    DisplayInfo, InputEvent, MemoryInfo, ProcessInfo, MAX_AUDIO_BUFFER, MAX_NET_FRAME_SIZE,
-    SYS_NET_RECEIVE, SYS_NET_SEND,
+    ChannelEndpoints, ChannelReceiveResult, ChannelSendRequest, DisplayInfo, InputEvent,
+    MemoryInfo, ProcessInfo, MAX_AUDIO_BUFFER, MAX_NET_FRAME_SIZE, SYS_CHANNEL_CREATE,
+    SYS_CHANNEL_SEND, SYS_CHANNEL_TRY_RECEIVE, SYS_HANDLE_CLOSE, SYS_NET_RECEIVE, SYS_NET_SEND,
 };
 
 #[cfg(not(test))]
@@ -502,7 +503,75 @@ extern "sysv64" fn dispatch(frame: &SyscallFrame) -> u64 {
         SYS_AUDIO_CAPTURE => audio_capture(frame.arg1, frame.arg2, frame.arg3, frame.arg4),
         SYS_RANDOM_GET => random_get(frame.arg1, frame.arg2),
         SYS_BOOT_READY => boot_ready(),
+        SYS_CHANNEL_CREATE => channel_create(frame.arg1, frame.arg2),
+        SYS_CHANNEL_SEND => channel_send(frame.arg1, frame.arg2, frame.arg3),
+        SYS_CHANNEL_TRY_RECEIVE => channel_try_receive(frame.arg1, frame.arg2, frame.arg3),
+        SYS_HANDLE_CLOSE => handle_close(frame.arg1),
         _ => u64::MAX,
+    }
+}
+
+#[cfg(not(test))]
+fn channel_create(address: u64, length: u64) -> u64 {
+    if length != core::mem::size_of::<ChannelEndpoints>() as u64
+        || !nagi_kernel::user_process::is_user_writable_range_mapped(
+            address,
+            core::mem::size_of::<ChannelEndpoints>(),
+        )
+    {
+        return u64::MAX;
+    }
+    match nagi_kernel::user_ipc::create_pair() {
+        Ok(endpoints) => {
+            copy_kernel_bytes_to_user(address, &endpoints);
+            0
+        }
+        Err(_) => u64::MAX,
+    }
+}
+
+#[cfg(not(test))]
+fn channel_send(endpoint: u64, address: u64, length: u64) -> u64 {
+    if length != core::mem::size_of::<ChannelSendRequest>() as u64
+        || !nagi_kernel::user_process::is_user_readable_range_mapped(
+            address,
+            core::mem::size_of::<ChannelSendRequest>(),
+        )
+    {
+        return u64::MAX;
+    }
+    let request = copy_user_value_from_user::<ChannelSendRequest>(address);
+    match nagi_kernel::user_ipc::send(endpoint, request) {
+        Ok(()) => 0,
+        Err(_) => u64::MAX,
+    }
+}
+
+#[cfg(not(test))]
+fn channel_try_receive(endpoint: u64, address: u64, length: u64) -> u64 {
+    if length != core::mem::size_of::<ChannelReceiveResult>() as u64
+        || !nagi_kernel::user_process::is_user_writable_range_mapped(
+            address,
+            core::mem::size_of::<ChannelReceiveResult>(),
+        )
+    {
+        return u64::MAX;
+    }
+    match nagi_kernel::user_ipc::try_receive(endpoint) {
+        Ok(Some(result)) => {
+            copy_kernel_bytes_to_user(address, &result);
+            1
+        }
+        Ok(None) => 0,
+        Err(_) => u64::MAX,
+    }
+}
+
+#[cfg(not(test))]
+fn handle_close(handle: u64) -> u64 {
+    match nagi_kernel::user_ipc::close(handle) {
+        Ok(()) => 0,
+        Err(_) => u64::MAX,
     }
 }
 
@@ -1187,6 +1256,23 @@ fn copy_kernel_bytes_to_user<T>(address: u64, value: &T) {
                 .write_volatile(source.add(index).read_volatile());
         }
     }
+}
+
+#[cfg(not(test))]
+fn copy_user_value_from_user<T: Copy>(address: u64) -> T {
+    let mut value = core::mem::MaybeUninit::<T>::uninit();
+    let destination = value.as_mut_ptr().cast::<u8>();
+    let length = core::mem::size_of::<T>();
+    for index in 0..length {
+        unsafe {
+            destination
+                .add(index)
+                .write_volatile((address as *const u8).add(index).read_volatile());
+        }
+    }
+    // The ABI type consists only of integer fields and byte arrays, so every
+    // bit pattern is valid after the caller's readable-range preflight.
+    unsafe { value.assume_init() }
 }
 
 #[cfg(not(test))]

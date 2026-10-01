@@ -10,22 +10,26 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 pub use nagi_abi::{
-    is_valid_bootstrap_user_thread_stack_size, round_bootstrap_user_thread_stack_size, DisplayInfo,
+    is_valid_bootstrap_user_thread_stack_size, round_bootstrap_user_thread_stack_size,
+    ChannelEndpoints, ChannelHandleTransfer, ChannelReceiveResult, ChannelSendRequest, DisplayInfo,
     InputEvent, MemoryInfo, ProcessInfo, BLOCK_SECTOR_SIZE, BOOTSTRAP_USER_THREAD_COUNT,
     BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE, BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE,
     BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE, BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE,
     INPUT_BUTTON_PRIMARY, INPUT_EVENT_ABS, INPUT_EVENT_KEY, INPUT_EVENT_REL, INPUT_KEY_DOWN,
     INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_LEFT, INPUT_KEY_SPACE, INPUT_KEY_TAB,
-    INPUT_KEY_UP, INPUT_REL_X, INPUT_REL_Y, MAX_AUDIO_BUFFER, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE,
+    INPUT_KEY_UP, INPUT_REL_X, INPUT_REL_Y, MAX_AUDIO_BUFFER, MAX_CHANNEL_INLINE_PAYLOAD,
+    MAX_CHANNEL_QUEUE_MESSAGES, MAX_CHANNEL_TRANSFER_HANDLES, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE,
     MAX_LOG_READ, MAX_NET_FRAME_SIZE, MAX_PROCESS_NAME, MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888,
-    PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, SURFACE_BYTES, SURFACE_HEIGHT, SURFACE_WIDTH,
-    SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE,
-    SYS_BOOT_READY, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT,
-    SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT,
-    SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_NET_RECEIVE, SYS_NET_SEND, SYS_PROCESS_EXIT,
-    SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT,
-    SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
-    THREAD_CREATE_DETACHED,
+    PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, RIGHT_CONTROL, RIGHT_DUPLICATE, RIGHT_EXECUTE,
+    RIGHT_MAP, RIGHT_READ, RIGHT_SIGNAL, RIGHT_TRANSFER, RIGHT_WAIT, RIGHT_WRITE, SURFACE_BYTES,
+    SURFACE_HEIGHT, SURFACE_WIDTH, SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH,
+    SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_BOOT_READY, SYS_CHANNEL_CREATE, SYS_CHANNEL_SEND,
+    SYS_CHANNEL_TRY_RECEIVE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO,
+    SYS_DISPLAY_PRESENT, SYS_HANDLE_CLOSE, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO,
+    SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_NET_RECEIVE,
+    SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE,
+    SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP,
+    SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
 };
 
 #[cfg(target_os = "nagi")]
@@ -273,6 +277,89 @@ pub fn report_boot_ready() -> bool {
         asm!(
             "syscall",
             inlateout("rax") result,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
+}
+
+/// Create a kernel-owned pair of bootstrap Channel endpoints.
+#[inline]
+pub fn channel_create_pair() -> Option<ChannelEndpoints> {
+    let mut endpoints = ChannelEndpoints::default();
+    let mut result = SYS_CHANNEL_CREATE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") &mut endpoints as *mut ChannelEndpoints,
+            in("rsi") core::mem::size_of::<ChannelEndpoints>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    (result == 0).then_some(endpoints)
+}
+
+/// Send a bounded Channel message, moving any listed handles with attenuated
+/// rights. The kernel supplies sender identity independently of the payload.
+#[inline]
+pub fn channel_send(endpoint: u64, request: &ChannelSendRequest) -> bool {
+    let mut result = SYS_CHANNEL_SEND;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") endpoint,
+            in("rsi") request as *const ChannelSendRequest,
+            in("rdx") core::mem::size_of::<ChannelSendRequest>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
+}
+
+/// Try to receive one message without blocking. Returns `Some(false)` when the
+/// queue is empty and `None` when the handle or output buffer is invalid.
+#[inline]
+pub fn channel_try_receive(
+    endpoint: u64,
+    result_buffer: &mut ChannelReceiveResult,
+) -> Option<bool> {
+    let mut result = SYS_CHANNEL_TRY_RECEIVE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") endpoint,
+            in("rsi") result_buffer as *mut ChannelReceiveResult,
+            in("rdx") core::mem::size_of::<ChannelReceiveResult>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    match result {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+/// Close a handle returned by the bootstrap Channel ABI or a Channel transfer.
+#[inline]
+pub fn handle_close(handle: u64) -> bool {
+    let mut result = SYS_HANDLE_CLOSE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") handle,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
@@ -803,6 +890,10 @@ mod tests {
         assert_eq!(SYS_THREAD_EXIT, 22);
         assert_eq!(SYS_THREAD_SELF, 23);
         assert_eq!(SYS_THREAD_DETACH, 29);
+        assert_eq!(SYS_CHANNEL_CREATE, 31);
+        assert_eq!(SYS_CHANNEL_SEND, 32);
+        assert_eq!(SYS_CHANNEL_TRY_RECEIVE, 33);
+        assert_eq!(SYS_HANDLE_CLOSE, 34);
         assert_eq!(THREAD_CREATE_DETACHED, 1);
         #[cfg(feature = "m18-browser-threads")]
         assert_eq!(BOOTSTRAP_USER_THREAD_COUNT, 64);

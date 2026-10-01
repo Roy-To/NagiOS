@@ -4321,6 +4321,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi M7 VirtIO Block PASS",
             "Nagi M13 Rust PAL PASS",
             "Nagi M13 C POSIX PASS",
+            "Nagi bootstrap Channel ABI PASS",
             "Nagi M24 semantic index ready PASS",
             "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",

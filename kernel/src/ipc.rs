@@ -571,7 +571,7 @@ use crate::handles::{
     Handle, HandleError, ObjectId, ObjectKind, ObjectRegistry, Process, Rights, TransferToken,
 };
 
-pub const MAX_QUEUE: usize = 8;
+pub const MAX_QUEUE: usize = nagi_abi::MAX_CHANNEL_QUEUE_MESSAGES;
 pub const MAX_INLINE_PAYLOAD: usize = 128;
 pub const MAX_TRANSFER_HANDLES: usize = 4;
 pub const MAX_WAIT_ITEMS: usize = 8;
@@ -817,6 +817,18 @@ impl ChannelPair {
             }
         }
         first_error.map_or(Ok(()), Err)
+    }
+
+    pub(crate) fn visit_escrow_objects(&self, mut visitor: impl FnMut(ObjectId)) {
+        for queued in self
+            .queues
+            .iter()
+            .flat_map(|queue| queue.entries.iter().flatten())
+        {
+            for token in queued.tokens[..queued.token_count].iter().flatten() {
+                visitor(token.capability.object);
+            }
+        }
     }
 
     pub(crate) fn send<const R: usize, const A: usize>(
