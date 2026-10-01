@@ -26,6 +26,11 @@ the upstream implementation, but invalid `std::regex` patterns have no
 status-capable compile path in the current Nagi slice; malformed regex trigger
 behavior in the no-exceptions target remains unverified.
 
+Patch `0006-nagi-sampler-null-consumers.patch` documents the
+`llama_sampler_sample()` failure sentinel and updates the pinned C++ and Swift
+examples to stop before treating `LLAMA_TOKEN_NULL` as an end token, decoding
+it to text, or submitting it in a later batch.
+
 The current no-exception coverage is incremental: the GGUF parser/writer,
 chat-template status lookup, and grammar parser translation unit compile
 without exceptions. The full Nagi-target `llama` build still fails on exception

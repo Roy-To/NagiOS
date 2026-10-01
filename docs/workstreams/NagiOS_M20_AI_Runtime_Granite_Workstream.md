@@ -457,3 +457,20 @@ grammar state. The full `llama` build still fails: 26 object targets and 55
 distinct source files report exception syntax, recorded in
 `out/logs/m20-grammar-status-target-build-20261002.log`. M20 remains `PARTIAL`;
 no complete backend or inference is claimed.
+
+## Sampler failure sentinel consumers — 2026-10-02
+
+Patch `0006-nagi-sampler-null-consumers.patch` documents the public
+`llama_sampler_sample()` failure result as `LLAMA_TOKEN_NULL` and updates each
+direct C++/Swift example caller. Callers stop before checking EOG status,
+converting the token to text, or adding it to a subsequent evaluation batch.
+The C++ command-line examples report the failure and return nonzero; the Swift
+UI stops the response and the batched Swift example exits with an error.
+
+The patch applies cleanly to the clean pinned llama.cpp revision, and its CLI
+contract test, 157 CLI unit tests, 21 CLI integration tests, four C++ host
+example builds, and both Swift typechecks passed. `./nagi fetch` did not reach
+llama.cpp: it stopped while validating an existing generated Servo checkout
+that has a mismatched patch state. That checkout was left untouched. M20 stays
+`PARTIAL`; this patch does not provide a Nagi model consumer, backend, or
+inference result.

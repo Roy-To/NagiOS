@@ -91,7 +91,14 @@ the locked bootstrap build and all 146 CLI unit tests pass locally. The
 2026-10-02 grammar status patch also passes its parser, integration, JSON
 Schema-to-grammar, CLI patch-contract, and Nagi-target grammar translation-unit
 checks. The full target failure log is
-`out/logs/m20-grammar-status-target-build-20261002.log`; M20 remains `PARTIAL`.
+`out/logs/m20-grammar-status-target-build-20261002.log`. A follow-up numbered
+patch documents the `llama_sampler_sample()` `LLAMA_TOKEN_NULL` failure result
+and guards every direct C++/Swift example caller before EOG checks, token-piece
+conversion, or batch submission. The patch applies cleanly to the pinned llama.cpp
+source, the CLI contract suite and four C++ example builds pass, and both changed
+Swift files typecheck. Top-level `./nagi fetch` currently stops earlier at a
+pre-existing mismatched generated Servo checkout, so it did not reach llama.cpp.
+M20 remains `PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
@@ -2508,7 +2515,7 @@ Use only these statuses:
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. The M17 real-QEMU regression also passed locally on 2026-09-29 after M18 integration. |
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. Real Nagi providers for download/upload destinations, clipboard, IME text/composition, and trusted interactive site permissions remain. |
 | M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Twenty-nine Search tests, warnings-denied Clippy, format, Nagi target compile, and QEMU persistence/rename acceptance pass. Guest executes bounded M21 `file.search` through ContextResolver, Validator, Action Registry, and Executor; the M22 fixture records its executed result in NAL1 with `transaction_id=None`. Caller policy remains fixture-only. Real Files/page producer synchronization and authenticated production IPC remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
-| M20 | AI Runtime / Granite | PARTIAL | `third_party/models.lock` pins the exact Granite 4.2 3B GGUF revision, filename, size, SHA-256, Apache-2.0 notice, acknowledgement, and Model Store ID; a CLI contract test matches it to the checked-in manifest. Added a bounded structured-output schema contract to `ModelRequest`: `structured.generate` requires a schema, duplicate-key and schema-invalid results are rejected before return, unsupported streaming fails closed, and the planner output budget is 1,024 tokens (matching the three current bundled manifests). The NagiPlan@1 schema and output complexity limits are checked; package suites, warnings-denied Clippy, Nagi no-std compilation, `./nagi fmt/test/lint/build`, and fresh M22 QEMU regression pass. No model bytes or real backend/inference exist; Nagi-target llama still fails on exception-dependent source paths. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
+| M20 | AI Runtime / Granite | PARTIAL | `third_party/models.lock` pins the exact Granite 4.2 3B GGUF revision, filename, size, SHA-256, Apache-2.0 notice, acknowledgement, and Model Store ID; a CLI contract test matches it to the checked-in manifest. Added a bounded structured-output schema contract to `ModelRequest`: `structured.generate` requires a schema, duplicate-key and schema-invalid results are rejected before return, unsupported streaming fails closed, and the planner output budget is 1,024 tokens (matching the three current bundled manifests). The NagiPlan@1 schema and output complexity limits are checked; package suites, warnings-denied Clippy, Nagi no-std compilation, `./nagi fmt/test/lint/build`, and fresh M22 QEMU regression pass. No model bytes or real backend/inference exist; Nagi-target llama still fails on exception-dependent source paths. Numbered grammar-status and sampler-sentinel patches keep the failure result explicit through all direct example callers. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
 | M21 | Planner / Validator / Executor | PARTIAL | `services/nagi-ai` supplies the authoritative NagiPlan@1 schema to model requests and independently validates provider output at the generic adapter boundary; deterministic parsing and Validator checks remain in force. Bounded guest `file.search`, fixture-scoped `file.move` and `file.copy` run through ContextResolver, Validator, Action Registry, capability/object checks, and Executor against real VFS state; executed search results flow into M22 NAL1. Host suites, Clippy, formatting, Nagi target compile, and QEMU acceptance pass. Policies, handlers, and caller identity remain fixture-only; production IPC/authenticated caller authority, model service integration, and general first-party actions remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`.
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh three-boot QEMU run `1790871324761891000` passed guest validation, `file.search`, three-file move, bounded copy, M19 search result persistence in NAL1, NH16/NAL1 reopen, grouped Undo, and restart restoration. The eight-entry manifest at `out/evidence/m22-structured-output-regression-1790871324761891000/` verifies. History/ledger and AI/model-manager suites, CLI unit/integration suites, Clippy, formatting, Nagi target checks/build, and QEMU acceptance pass. Fixture policy/caller identity and action wiring remain non-production; real inference, authenticated production authority, general production actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`.
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
@@ -7276,3 +7283,20 @@ run-stamped image, User Data disk, OVMF variables, and logs are under
 `out/logs/m22-history-1790877967540236000-boot-{1,2,3}.log`. M21/M22 remain
 `PARTIAL` because these policies and actions are fixture-scoped and use no
 model inference or authenticated production service boundary.
+
+## Completion Sweep — M20 sampler failure sentinel consumers (2026-10-02)
+
+Added numbered patch `0006-nagi-sampler-null-consumers.patch` to document the
+public `llama_sampler_sample()` failure result (`LLAMA_TOKEN_NULL`) and guard
+all six direct C++/Swift example callsites before EOG classification, token
+conversion, or later-batch submission. The CLI patch-contract test checks that
+each callsite both checks and reports the sentinel.
+
+The patch passes `git apply --check` against the clean pinned llama.cpp
+revision. All 157 `nagi-cli` unit tests and 21 integration tests pass. A host
+CMake build passed the `llama-simple`, `llama-simple-chat`, `llama-batched`, and
+`llama-passkey` targets; both modified Swift files passed `swiftc -typecheck`.
+`cargo fmt --all -- --check` passed. `./nagi fetch` did not reach llama.cpp
+because the existing generated Servo checkout failed its patch-state
+validation; that checkout was left untouched. M20 remains `PARTIAL`, and no
+Nagi inference or backend is claimed.

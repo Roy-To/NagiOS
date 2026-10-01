@@ -769,6 +769,44 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_sampler_null_patch_documents_and_guards_direct_consumers() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0006-nagi-sampler-null-consumers.patch"),
+        )
+        .expect("Nagi sampler null-consumer patch");
+
+        assert!(
+            patch.contains("Returns the sampled token, or LLAMA_TOKEN_NULL if sampling failed.")
+        );
+        for path in [
+            "examples/simple-chat/simple-chat.cpp",
+            "examples/simple/simple.cpp",
+            "examples/batched/batched.cpp",
+            "examples/passkey/passkey.cpp",
+            "examples/llama.swiftui/llama.cpp.swift/LibLlama.swift",
+            "examples/batched.swift/Sources/main.swift",
+        ] {
+            let header = format!("diff --git a/{path} b/{path}\n");
+            let consumer_patch = patch
+                .split_once(&header)
+                .unwrap_or_else(|| panic!("missing {path} hunk"))
+                .1
+                .split("\ndiff --git ")
+                .next()
+                .expect("consumer patch hunk");
+            assert!(
+                consumer_patch.contains("LLAMA_TOKEN_NULL"),
+                "{path} does not guard the failure sentinel"
+            );
+            assert!(
+                consumer_patch.contains("sampler failed to produce a token"),
+                "{path} does not report the sampling failure"
+            );
+        }
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
