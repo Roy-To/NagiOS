@@ -37,19 +37,19 @@ struct WhisperCppSourceSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct WhisperModelArtifactSpec {
-    component: String,
-    model_id: String,
-    repository: String,
-    revision: String,
-    file_name: String,
-    format: String,
-    size_bytes: u64,
-    sha256: String,
-    license: String,
-    license_reference: String,
-    artifact_id: String,
-    storage: String,
+pub(crate) struct WhisperModelArtifactSpec {
+    pub(crate) component: String,
+    pub(crate) model_id: String,
+    pub(crate) repository: String,
+    pub(crate) revision: String,
+    pub(crate) file_name: String,
+    pub(crate) format: String,
+    pub(crate) size_bytes: u64,
+    pub(crate) sha256: String,
+    pub(crate) license: String,
+    pub(crate) license_reference: String,
+    pub(crate) artifact_id: String,
+    pub(crate) storage: String,
 }
 
 pub(crate) fn ensure_whisper_cpp_checkout(root: &Path) -> Result<PathBuf, String> {
@@ -93,7 +93,9 @@ fn validate_whisper_cpp_source_lock(root: &Path) -> Result<WhisperCppSourceSpec,
     Ok(spec)
 }
 
-fn validate_whisper_model_artifact_lock(root: &Path) -> Result<WhisperModelArtifactSpec, String> {
+pub(crate) fn validate_whisper_model_artifact_lock(
+    root: &Path,
+) -> Result<WhisperModelArtifactSpec, String> {
     let lock = fs::read_to_string(root.join("third_party/models.lock"))
         .map_err(|error| format!("cannot read third_party/models.lock: {error}"))?;
     let required = |key: &str| {

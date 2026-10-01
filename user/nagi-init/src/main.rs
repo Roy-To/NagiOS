@@ -681,6 +681,10 @@ fn run_m20_model_store_capability_acceptance(model_store_capability: u64) -> boo
         }
         Err(_) => return false,
     }
+    #[cfg(feature = "m25-whisper-artifact-acceptance")]
+    if !run_m25_whisper_artifact_acceptance(model_store_capability) {
+        return false;
+    }
     #[cfg(feature = "m20-fixture-acceptance")]
     {
         let fixture_id =
@@ -750,6 +754,51 @@ fn run_m20_model_store_capability_acceptance(model_store_capability: u64) -> boo
     }
     #[cfg(not(feature = "m20-fixture-acceptance"))]
     true
+}
+
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m25-whisper-artifact-acceptance",
+    not(feature = "m27-recovery")
+))]
+fn run_m25_whisper_artifact_acceptance(model_store_capability: u64) -> bool {
+    const MODEL_STORE_SECTORS: u64 = 67_108_864;
+    const EXPECTED_SIZE: u64 = 487_601_967;
+    const EXPECTED_SHA256: &str =
+        "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b";
+    let artifact_id = match nagi_model_manager::ArtifactId::new("openai.whisper-small-multilingual")
+    {
+        Ok(artifact_id) => artifact_id,
+        Err(_) => return false,
+    };
+    let mut artifact = match nagi_model_manager::Fat32ArtifactReader::open(
+        SyscallModelStoreReader(model_store_capability),
+        MODEL_STORE_SECTORS,
+        artifact_id,
+    ) {
+        Ok(artifact) => artifact,
+        Err(_) => return false,
+    };
+    if nagi_model_manager::ModelArtifactReader::len(&artifact) != EXPECTED_SIZE {
+        return false;
+    }
+    // GGML_FILE_MAGIC is 0x67676d6c; the pinned little-endian artifact starts
+    // with the bytes `lmgg`.
+    let mut magic = [0u8; 4];
+    if nagi_model_manager::ModelArtifactReader::read_at(&mut artifact, 0, &mut magic) != Ok(4)
+        || &magic != b"lmgg"
+    {
+        return false;
+    }
+    let integrity = nagi_model_manager::IntegrityMetadata {
+        algorithm: "sha256".into(),
+        digest: EXPECTED_SHA256.into(),
+    };
+    if nagi_model_manager::verify_model_artifact_integrity(&mut artifact, &integrity).is_err() {
+        return false;
+    }
+    let marker = b"Nagi M25 Whisper artifact digest PASS\r\n";
+    libnagi::console_write(marker) == marker.len()
 }
 
 #[cfg(target_os = "nagi")]

@@ -298,3 +298,36 @@ README and cached model bytes.
 This makes the pinned artifact available for future integration work only.
 It has not been copied into guest storage, registered with the guest Model
 Store, loaded on Nagi, or used for inference. M25 remains `PARTIAL`.
+
+## Disposable guest artifact digest acceptance — 2026-10-02
+
+Added `./nagi m25-whisper <artifact.bin>` as an opt-in fixture acceptance
+command. It validates the requested file against the exact immutable model
+lock, streams it into a separate disposable GPT Model Store image, and boots
+the Nagi guest with the read-only Model Store capability. The guest checks the
+locked 487,601,967-byte length, GGML magic, and SHA-256
+`1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` before
+emitting `Nagi M25 Whisper artifact digest PASS`. The separate acceptance
+image passed `qemu-img check`; evidence and the four-entry SHA-256 manifest
+are under `out/evidence/m25-whisper-artifact-1790895162586172000/`, and the
+image is `out/artifacts/nagi-0.1-m25-whisper-1790895162586172000.qcow2`.
+
+The shared Model Store runner was regression-tested with the full pinned
+2,244,011,552-byte Granite artifact. QEMU emitted both the Granite digest and
+Model Store capability PASS markers, and `qemu-img check` passed for its
+separate image. Evidence is under
+`out/evidence/m20-granite-artifact-1790895384092435000/`.
+
+The changed CLI passed 165 unit and 21 integration tests, warnings-denied
+Clippy, and formatting. `./nagi test`, `./nagi lint`, and `./nagi build`
+passed, and the `m25-whisper-artifact-acceptance` feature compiled for the
+Nagi target. QEMU regressions `./nagi m25`, `./nagi m19`, and `./nagi m22`
+also passed. The QEMU host still has no `virtio-sound.in` audio driver; the
+artifact check does not need audio.
+
+This acceptance verifies artifact bytes in a disposable guest Model Store
+only. It does not load the model through whisper.cpp, run STT inference, use a
+microphone, or claim speech recognition. The regular M30 Model Store remains
+unchanged, and M25 remains `PARTIAL` pending authenticated permission/UI, a
+real Japanese STT provider and inference, concrete local TTS, and
+spoken-command acceptance.

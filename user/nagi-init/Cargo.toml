@@ -38,6 +38,7 @@ m27-recovery = []
 m27-recovery-undo-acceptance = ["m27-recovery"]
 m29-settings-acceptance = ["m10-desktop"]
 m25-voice-acceptance = []
+m25-whisper-artifact-acceptance = ["m20-model-store-acceptance"]
 
 [[bin]]
 name = "nagi-init"
