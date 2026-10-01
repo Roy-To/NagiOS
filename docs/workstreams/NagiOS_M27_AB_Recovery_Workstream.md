@@ -552,3 +552,25 @@ run-stamped images retained under `out/artifacts/`:
 `out/evidence/m27-ab-rollback-1790869370028356000/`. The run does not complete
 authenticated update/readiness authority or the remaining Recovery acceptance;
 M27 remains `PARTIAL`.
+
+## Completion Sweep — pending-trial Recovery timeout replay — 2026-10-02
+
+The fresh full run `1790884455740214000` again timed out after 90 seconds before
+Nagi guest serial output during Recovery with pending System B. QMP reported a
+running guest at RIP `0x7eb84171`, looping on `jmp 0x7eb84150`. Its complete
+failure evidence and 15-entry manifest are under
+`out/evidence/m27-ab-rollback-1790884455740214000/`. Together with run
+`1790881641572651000`, this is two consecutive full-run failures at that stage;
+neither is counted as an acceptance pass.
+
+To isolate the preserved state, the Recovery image, User Data disk, and
+post-timeout OVMF variables were copied into
+`out/evidence/m27-pending-b-replay-20261002/fresh-run-1790884455740214000/`.
+With the same QEMU 11.1.1 and OVMF pair, the copied state booted Recovery in
+2.313 seconds, reported `confirmed=A pending=B`, left the boot journal
+unchanged, and passed VFS and command-help checks. Its eight-entry manifest
+verifies. The replay establishes that the copied post-timeout state can boot;
+it does not identify the full-run failure cause or replace full M27
+acceptance. QEMU reported no host `virtio-sound.in` input driver. M27 remains
+`PARTIAL` for authenticated update/readiness authority, authenticated slot
+manifests, and remaining Recovery work.

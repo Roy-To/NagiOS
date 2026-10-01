@@ -1098,6 +1098,108 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
     }
 
+    let recovery_log = evidence.join("reference-disk-recovery-boot.log");
+    let recovery_config = QemuConfig {
+        serial_log: &recovery_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        timeout: Duration::from_secs(180),
+        ..restart_config
+    };
+    let recovery_status = match run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
+        &recovery_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_RECOVERY_MENU_EVENTS,
+        "Nagi M27 Recovery console READY",
+        b"check\nfiles\nhelp\n",
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: Recovery QEMU boot: {error}"),
+            );
+        }
+    };
+    let recovery_serial = match fs::read_to_string(&recovery_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", recovery_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 boot menu: confirmed=A pending=none",
+        "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+        "Nagi M30 GPT partition boot: Recovery PASS",
+        "Nagi M27 Recovery Environment START",
+        "Nagi M27 Recovery VFS check PASS files=",
+        "Nagi M27 Recovery command help PASS",
+    ] {
+        if !recovery_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: Recovery boot did not print `{marker}` (QEMU exit {recovery_status}; log {})",
+                    recovery_log.display()
+                ),
+            );
+        }
+    }
+    if recovery_serial.contains("Nagi M27 persistence decision:")
+        || recovery_serial.contains("Nagi M27 readiness persisted")
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: Recovery changed the A/B boot decision or reported trial readiness (log {})",
+                recovery_log.display()
+            ),
+        );
+    }
+
+    let post_recovery_log = evidence.join("reference-disk-post-recovery-boot.log");
+    let post_recovery_config = QemuConfig {
+        serial_log: &post_recovery_log,
+        ..restart_config
+    };
+    let post_recovery_status = match run_qemu_reusing_ovmf_vars(&post_recovery_config) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: post-Recovery System A restart: {error}"),
+            );
+        }
+    };
+    let post_recovery_serial = match fs::read_to_string(&post_recovery_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", post_recovery_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M27 persistence decision: confirmed slot=A",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi M7 persistent read PASS",
+        "Nagi M7 acceptance PASS",
+    ] {
+        if !post_recovery_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: post-Recovery boot did not print `{marker}` (QEMU exit {post_recovery_status}; log {})",
+                    post_recovery_log.display()
+                ),
+            );
+        }
+    }
+
     let evidence_vars_copy = evidence.join("reference-disk-OVMF_VARS.fd");
     if let Err(error) = fs::copy(&vars_copy, &evidence_vars_copy) {
         return failure(
@@ -1264,10 +1366,12 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M30 64 GiB GPT qcow2 passed System A and User Data persistence acceptance; separate M20 guest FAT32 fixture read passed (image {}; QEMU copy {}; serial log {}; M20 fixture {}; M20 log {})",
+            "PASS M30 64 GiB GPT qcow2 passed System A, User Data persistence, Recovery selection, and post-Recovery restart acceptance; separate M20 guest FAT32 fixture read passed (image {}; QEMU copy {}; System A log {}; Recovery log {}; post-Recovery log {}; M20 fixture {}; M20 log {})",
             image_path.display(),
             qemu_test_image.display(),
             serial_log.display(),
+            recovery_log.display(),
+            post_recovery_log.display(),
             fixture_image.display(),
             fixture_serial_log.display()
         )],

@@ -660,7 +660,23 @@ remain verifiable; new assemblies require the sidecar.
 The 14 release-tool tests pass, including missing/stale provenance and image
 tampering; all 159 `nagi-cli` unit and 21 integration tests, warnings-denied
 Clippy, formatting, and whitespace checks pass. The full target build and
-current-commit M30 run are being repeated after this change; prior M30 QEMU
-evidence from before the sidecar contract does not verify this change. M30
-remains `PARTIAL` pending those checks and its existing update, cross-milestone,
-and license-review gaps.
+current-commit M30 run passed on clean commit
+`567afa42ed5b3f6f374b176b11f4a6524175eeb2`. The fresh reference qcow2 SHA-256
+is `54390507a4e975ad30ee94d7efb7b4c81758854ccbbdcc7f12b39bfb70fc6748`; its
+sidecar records the same full source revision and image digest. QEMU passed
+System A boot, read-only Model Store capability, User Data write and
+restart-read, and M7 acceptance. The separate M20 fixture passed its 5,000-byte
+FAT32 read across a cluster boundary and EOF. The pristine image, mutable QEMU
+copy, fixture, and bundled image passed `qemu-img check`.
+
+On that clean revision, release preflight and assembly passed for
+`out/artifacts/m30-release-bundle-567afa4/`; `release.py verify`, all 21 bundle
+checksums, and image byte-identity checks passed. The bundle manifest records
+the sidecar provenance and keeps `m30_acceptance=NOT_EVALUATED`. A bundle
+created before the additive provenance field still verifies. All 14
+release-tool tests passed. The 10-entry QEMU evidence manifest verifies at
+`out/evidence/m30-release-1790883362672919000/` and includes a preserved copy
+of the pristine image and its sidecar. QEMU reported no host
+`virtio-sound.in` input driver, so audio I/O is not covered. M30 remains
+`PARTIAL` for authenticated updates, remaining M18–M29 acceptance, and human
+binary redistribution review.
