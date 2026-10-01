@@ -357,3 +357,20 @@ verified `SHA256SUMS` at
 `out/evidence/m29-settings-1790869645429869000/`. This rerun does not expand the
 four-panel focus model into a system-wide accessibility tree; M29 remains
 `PARTIAL` for the broader polish criteria.
+
+## Completion Sweep — current Japanese Settings restart regression (2026-10-02)
+
+`./nagi m29` passed on current source `4d5dd02`. The keyboard path opened
+Settings, selected `ja-JP`, and a fresh QEMU restart restored the selection
+before the Desktop's first frame. Guest READY arrived 2,444 ms after QEMU
+spawn. The eight-entry SHA-256 manifest at
+`out/evidence/m29-settings-1790896342100947000/SHA256SUMS` covers the
+run-stamped boot image, User Data disk, OVMF vars, first boot, Settings boot,
+restart boot, screenshot, and README. The screenshot is byte-identical to
+`docs/assets/screenshots/nagi-m29-settings-ja-jp.png`.
+
+This verifies the existing fixed Settings acceptance surface and persistent
+System language only. It does not establish cross-process locale propagation,
+a complete Settings service, onboarding, or system-wide accessibility. The
+host has no `virtio-sound.in` driver; this acceptance does not use audio.
+M29 remains `PARTIAL`.

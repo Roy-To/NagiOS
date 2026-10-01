@@ -536,3 +536,24 @@ Evidence is under
 `out/evidence/m27-replay-system-a-1790889480617050000/`. M28 remains `PARTIAL`:
 there is still no two-consecutive-repetition pass, and the formal desktop,
 model, resource pressure, fairness, and leak-soak criteria remain unmeasured.
+
+## Completion Sweep — two current consecutive repetitions (2026-10-02)
+
+The current branch was rerun after preserving the fixed-name M19 outputs and
+both persistent input disks at
+`out/evidence/pre-m28-m25-whisper-20261002/`. The archive
+`out/evidence/m28-run-20261001T230607Z-12562/` completed two consecutive
+repetitions. Each passed M19 VFS/ObjectId/Search, all three M22 Move/Copy,
+Activity Ledger, grouped Undo and restart boots, and M27's malformed System B
+rollback, healthy System B readiness/promotion, and Recovery Undo. Its
+SHA256SUMS verifies all archived M19/M22 images, variables, disks, and logs;
+the M27 sub-run manifests also verify at
+`out/evidence/m27-ab-rollback-1790895983578341000/` and
+`out/evidence/m27-ab-rollback-1790896104678487000/`.
+
+This passes the harness's repeated Search/History/Recovery slice at source
+`4d5dd02`; it does not pass the formal combined M28 workload. The host still
+has no virtio-sound input driver, and no Desktop/Files/Notes/Albert concurrent
+load, real Granite inference, audio-pressure, OOM, CPU-fairness, or leak-soak
+acceptance was measured. The earlier OVMF startup loop remains unexplained.
+M28 remains `PARTIAL`.
