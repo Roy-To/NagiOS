@@ -8,6 +8,7 @@ mod registry;
 mod routing;
 mod runtime;
 mod store;
+mod structured;
 
 pub use fat32::*;
 pub use manifest::*;
@@ -15,6 +16,7 @@ pub use registry::*;
 pub use routing::*;
 pub use runtime::*;
 pub use store::*;
+pub use structured::*;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;

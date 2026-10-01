@@ -100,6 +100,7 @@ impl<P: GenerativeProvider> DecisionProvider for LlmDecisionAdapter<P> {
                 seed: Some(request.request_id),
             },
             timeout_millis: Some(self.timeout_millis),
+            structured_output: None,
         };
         let response = self
             .provider

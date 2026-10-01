@@ -12,6 +12,7 @@ use nagi_model::{AppId, AppSessionId, NodeId, ObjectId};
 use nagi_model_manager::{
     BackendId, CancellationToken, CapabilityId, GenerativeProvider, ModelId, ModelRequest,
     ModelResponse, ModelStreamResponse, ProviderId, RuntimeError, TokenUsage,
+    STRUCTURED_GENERATION_CAPABILITY_ID,
 };
 use nagi_search::{
     AccessContext, BackendError, MetadataRecord, ObjectKind, SearchService, SnapshotBackend,
@@ -188,6 +189,10 @@ impl GenerativeProvider for TestGenerativeProvider {
         _cancellation: &dyn CancellationToken,
     ) -> Result<ModelResponse, RuntimeError> {
         let text = self.response.clone()?;
+        if request.capability.as_str() == STRUCTURED_GENERATION_CAPABILITY_ID {
+            assert_eq!(request.max_output_tokens, 1024);
+            assert!(request.structured_output.is_some());
+        }
         Ok(ModelResponse {
             request_id: request.request_id,
             model_id: self.model_id.clone(),
@@ -718,6 +723,23 @@ fn planner_sends_only_filtered_action_schemas_and_rejects_incomplete_provider_ou
     assert!(planner
         .generate(&mut runtime_adapter, &prompt, &NotCancelled)
         .is_ok());
+
+    let invalid_structured_provider = TestGenerativeProvider {
+        model_id: ModelId::new("test-model").expect("model ID"),
+        response: Ok(
+            r#"{"plan_version":1,"intent":"search","steps":[{"action":"FILE.SEARCH"}]}"#
+                .to_string(),
+        ),
+    };
+    let mut invalid_runtime_adapter = ModelManagerPlanAdapter::new(
+        invalid_structured_provider,
+        capability("structured.generate"),
+        3_000,
+    );
+    assert_eq!(
+        invalid_runtime_adapter.generate_complete_plan(&prompt, &NotCancelled),
+        Err(PlanProviderError::InvalidResponse)
+    );
 
     let mut partial = TestPlanProvider(Ok(
         r#"{"plan_version":1,"intent":"search","steps":[{"action":"file.search"}]"#.to_string(),

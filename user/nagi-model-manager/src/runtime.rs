@@ -6,7 +6,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     ArtifactId, ArtifactReference, BackendDescriptor, BackendId, CapabilityId, IntegrityMetadata,
-    ManifestError, ModelId, ModelManifest, ProviderId,
+    ManifestError, ModelId, ModelManifest, ProviderId, StructuredOutputSchema,
+    STRUCTURED_GENERATION_CAPABILITY_ID,
 };
 
 pub const STREAMING_CAPABILITY_ID: &str = "text.stream";
@@ -81,6 +82,8 @@ pub struct ModelRequest<'a> {
     pub max_output_tokens: u32,
     pub options: GenerationOptions,
     pub timeout_millis: Option<u64>,
+    /// Optional bounded JSON Schema for non-streaming structured generation.
+    pub structured_output: Option<&'a StructuredOutputSchema>,
 }
 
 pub trait CancellationToken {
@@ -269,7 +272,9 @@ impl fmt::Display for RuntimeError {
                 "model output stream consumer failed"
             }
             Self::ContextLimit => "request exceeds the model context limits",
-            Self::InvalidBackendResponse => "backend response exceeds the declared request bounds",
+            Self::InvalidBackendResponse => {
+                "backend response exceeds request bounds or violates structured output"
+            }
             Self::Cancelled => "model request was cancelled",
             Self::Timeout => "model request timed out",
             Self::BackendUnavailable => "model backend is unavailable",
@@ -460,6 +465,11 @@ impl<B: ModelBackend> LoadedSession<'_, B> {
         {
             return Err(RuntimeError::InvalidRequest);
         }
+        if (request.capability.as_str() == STRUCTURED_GENERATION_CAPABILITY_ID)
+            != request.structured_output.is_some()
+        {
+            return Err(RuntimeError::InvalidRequest);
+        }
         if !self
             .capabilities
             .iter()
@@ -524,6 +534,11 @@ impl<B: ModelBackend> GenerativeProvider for LoadedSession<'_, B> {
         {
             return Err(RuntimeError::InvalidBackendResponse);
         }
+        if let Some(schema) = request.structured_output {
+            schema
+                .validate_json(response.text.as_bytes())
+                .map_err(|_| RuntimeError::InvalidBackendResponse)?;
+        }
         Ok(ModelResponse {
             request_id: request.request_id,
             model_id: self.model_id.clone(),
@@ -541,6 +556,10 @@ impl<B: ModelBackend> GenerativeProvider for LoadedSession<'_, B> {
         sink: &mut dyn TextChunkSink,
     ) -> Result<ModelStreamResponse, RuntimeError> {
         self.validate_request(request, cancellation)?;
+        if request.structured_output.is_some() {
+            // Streaming would expose bytes before the complete JSON value can be validated.
+            return Err(RuntimeError::UnsupportedCapability);
+        }
         if !self.has_streaming_capability() {
             return Err(RuntimeError::UnsupportedCapability);
         }
@@ -612,6 +631,7 @@ mod tests {
             max_output_tokens: 64,
             options: GenerationOptions::default(),
             timeout_millis: Some(1000),
+            structured_output: None,
         };
         let mut session = runtime.load(&model, &mut artifact, "x86_64").unwrap();
         assert_eq!(session.model_id().as_str(), "ibm.granite-4.2-3b");
@@ -628,6 +648,103 @@ mod tests {
             runtime.backend().last_system_prompt.as_deref(),
             Some("Be concise.")
         );
+    }
+
+    #[test]
+    fn structured_generation_validates_json_before_returning_backend_output() {
+        let model = manifest();
+        let mut backend = FakeModelBackend::for_manifest(&model);
+        backend.response_text = Some(String::from(r#"{"ok":true}"#));
+        let mut runtime = ModelRuntime::new(backend);
+        let mut artifact = MemoryArtifactReader::for_manifest(&model, vec![1]);
+        let capability = CapabilityId::new(STRUCTURED_GENERATION_CAPABILITY_ID).unwrap();
+        let schema = StructuredOutputSchema::parse_json(
+            br#"{"type":"object","additionalProperties":false,"required":["ok"],"properties":{"ok":{"type":"boolean"}}}"#,
+        )
+        .expect("bounded schema");
+        let request = ModelRequest {
+            request_id: 15,
+            caller: None,
+            capability: &capability,
+            system_prompt: None,
+            input: "return JSON",
+            input_tokens: Some(1),
+            max_output_tokens: 64,
+            options: GenerationOptions::default(),
+            timeout_millis: Some(1000),
+            structured_output: Some(&schema),
+        };
+        let mut session = runtime.load(&model, &mut artifact, "x86_64").unwrap();
+        let response = session
+            .generate(&request, &NeverCancel)
+            .expect("schema-valid backend output");
+        assert_eq!(response.text, r#"{"ok":true}"#);
+        session.unload().unwrap();
+
+        let mut backend = FakeModelBackend::for_manifest(&model);
+        backend.response_text = Some(String::from(r#"{"ok":"yes"}"#));
+        let mut runtime = ModelRuntime::new(backend);
+        let mut artifact = MemoryArtifactReader::for_manifest(&model, vec![1]);
+        let mut session = runtime.load(&model, &mut artifact, "x86_64").unwrap();
+        assert_eq!(
+            session.generate(&request, &NeverCancel),
+            Err(RuntimeError::InvalidBackendResponse)
+        );
+        session.unload().unwrap();
+        assert_eq!(runtime.backend().infer_count, 1);
+    }
+
+    #[test]
+    fn structured_generation_requires_its_capability_and_rejects_unvalidated_streams() {
+        let model = manifest();
+        let mut runtime = ModelRuntime::new(FakeModelBackend::for_manifest(&model));
+        let mut artifact = MemoryArtifactReader::for_manifest(&model, vec![1]);
+        let text_capability = CapabilityId::new("text.generate").unwrap();
+        let structured_capability = CapabilityId::new(STRUCTURED_GENERATION_CAPABILITY_ID).unwrap();
+        let schema = StructuredOutputSchema::parse_json(
+            br#"{"type":"object","additionalProperties":false}"#,
+        )
+        .expect("bounded schema");
+        let mut session = runtime.load(&model, &mut artifact, "x86_64").unwrap();
+        let request_with_wrong_capability = ModelRequest {
+            request_id: 16,
+            caller: None,
+            capability: &text_capability,
+            system_prompt: None,
+            input: "return JSON",
+            input_tokens: Some(1),
+            max_output_tokens: 64,
+            options: GenerationOptions::default(),
+            timeout_millis: Some(1000),
+            structured_output: Some(&schema),
+        };
+        assert_eq!(
+            session.generate(&request_with_wrong_capability, &NeverCancel),
+            Err(RuntimeError::InvalidRequest)
+        );
+        let request_without_schema = ModelRequest {
+            capability: &structured_capability,
+            structured_output: None,
+            ..request_with_wrong_capability
+        };
+        assert_eq!(
+            session.generate(&request_without_schema, &NeverCancel),
+            Err(RuntimeError::InvalidRequest)
+        );
+        let request = ModelRequest {
+            capability: &structured_capability,
+            structured_output: Some(&schema),
+            ..request_with_wrong_capability
+        };
+        let mut chunks = CollectChunks::default();
+        assert_eq!(
+            session.generate_stream(&request, &NeverCancel, &mut chunks),
+            Err(RuntimeError::UnsupportedCapability)
+        );
+        assert!(chunks.0.is_empty());
+        session.unload().unwrap();
+        assert_eq!(runtime.backend().infer_count, 0);
+        assert_eq!(runtime.backend().stream_count, 0);
     }
 
     #[test]
@@ -726,6 +843,7 @@ mod tests {
             max_output_tokens: 64,
             options: GenerationOptions::default(),
             timeout_millis: Some(10),
+            structured_output: None,
         };
         assert_eq!(
             session.generate(&request, &StaticCancellation(true)),
@@ -904,6 +1022,7 @@ mod tests {
                 seed: Some(17),
             },
             timeout_millis: Some(1000),
+            structured_output: None,
         };
         let mut session = runtime.load(&model, &mut artifact, "x86_64").unwrap();
         let mut chunks = CollectChunks::default();
@@ -942,6 +1061,7 @@ mod tests {
             max_output_tokens: 64,
             options: GenerationOptions::default(),
             timeout_millis: Some(1000),
+            structured_output: None,
         };
         let mut session = runtime.load(&model, &mut artifact, "x86_64").unwrap();
         let mut chunks = CollectChunks::default();
@@ -975,6 +1095,7 @@ mod tests {
             max_output_tokens: 64,
             options: GenerationOptions::default(),
             timeout_millis: Some(1000),
+            structured_output: None,
         };
         let mut session = runtime.load(&model, &mut artifact, "x86_64").unwrap();
         assert_eq!(

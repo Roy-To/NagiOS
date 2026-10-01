@@ -84,6 +84,7 @@ pub struct FakeModelBackend {
     pub infer_error: Option<RuntimeError>,
     pub stream_error: Option<RuntimeError>,
     pub unload_error: Option<RuntimeError>,
+    pub response_text: Option<String>,
     pub last_system_prompt: Option<String>,
     pub last_options: Option<GenerationOptions>,
 }
@@ -112,6 +113,7 @@ impl FakeModelBackend {
             infer_error: None,
             stream_error: None,
             unload_error: None,
+            response_text: None,
             last_system_prompt: None,
             last_options: None,
         }
@@ -183,7 +185,10 @@ impl ModelBackend for FakeModelBackend {
         self.last_system_prompt = request.system_prompt.map(String::from);
         self.last_options = Some(request.options);
         Ok(BackendResponse {
-            text: format!("fake:{}:{}", session.model_id, request.input),
+            text: self
+                .response_text
+                .clone()
+                .unwrap_or_else(|| format!("fake:{}:{}", session.model_id, request.input)),
             usage: TokenUsage {
                 input_tokens: request.input_tokens.unwrap_or(0),
                 output_tokens: self.response_output_tokens,

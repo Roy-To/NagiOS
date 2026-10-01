@@ -341,6 +341,7 @@ impl<P: GenerativeProvider> BrowserSummaryProvider for BrowserSummaryAdapter<P> 
                 seed: Some(prompt.request_id),
             },
             timeout_millis: Some(self.timeout_millis),
+            structured_output: None,
         };
         let response =
             self.provider

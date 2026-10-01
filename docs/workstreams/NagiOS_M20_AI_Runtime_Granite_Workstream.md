@@ -397,3 +397,33 @@ identity. The focused test and complete CLI suite pass. No Granite bytes were
 downloaded or inserted into the release image. This pins distribution
 metadata only; it does not provide an installer, a complete llama.cpp Nagi
 backend, or guest inference. M20 remains `PARTIAL`.
+
+## Structured generation contract — 2026-10-02
+
+`ModelRequest` now has an optional `StructuredOutputSchema`. Requests using
+`structured.generate` must include one, and requests using another capability
+must omit one. The typed schema parser accepts a bounded JSON Schema subset,
+rejecting unknown keywords, arbitrary patterns, duplicate schema keys, excess
+size, and excess nesting. It accepts the checked-in `NagiPlan@1` schema using
+fixed recognizers for the three specific patterns in that schema. Structured
+non-streaming responses are parsed with duplicate-key rejection and checked
+against the schema before becoming a `ModelResponse`. The schema is limited to
+16 KiB and the generated JSON to 64 KiB. Structured streaming returns
+`UnsupportedCapability` until a complete response can be validated before any
+chunk reaches its consumer. A global output walk also enforces depth, node,
+container, and string limits in unconstrained schema subtrees. The three
+patterns in `NagiPlan@1` declare string types explicitly, keeping the supported
+pattern subset aligned with JSON Schema's type behavior.
+
+The M21 `ModelManagerPlanAdapter` passes `schemas/NagiPlan@1.json` as this
+constraint. The existing Planner parser and Validator still run afterward, so
+the output schema does not supply capability, object visibility, or execution
+authority. Tests cover accepted plans, wrong schema/type, duplicate keys,
+range/shape failures, request/capability mismatch, and refusal to stream an
+unvalidated structured result. Verification on 2026-10-02 passed 57 model
+manager unit tests, 2 manifest/schema tests, 1 Store API test, 24 `nagi-ai`
+tests, warnings-denied package Clippy, Nagi no-std target compilation,
+`./nagi fmt/test/lint/build`, and the M22 three-boot QEMU regression. This is
+contract/orchestration coverage only; no llama backend, model bytes, or guest
+inference is claimed. The planner's 1,024-token output budget matches each
+currently bundled model manifest. M20 remains `PARTIAL`.

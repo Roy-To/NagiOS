@@ -196,3 +196,27 @@ record at boot 1 and reopens the same record at boots 2 and 3. This is an
 end-to-end orchestration and archive regression only: the caller identity and
 policy remain fixture values, and no authenticated production service or
 caller boundary is claimed. M21 remains `PARTIAL`.
+
+## Structured output request — 2026-10-02
+
+`ModelManagerPlanAdapter` now parses and attaches the authoritative
+`schemas/NagiPlan@1.json` to each `ModelRequest` as a structured-output schema.
+The model-manager runtime rejects structured capability requests without a
+schema, rejects schema use with another capability, checks the full backend
+JSON response (including duplicate keys) against the supported bounded schema
+subset, and does not stream unvalidated structured bytes. The adapter repeats
+the schema check at its generic provider boundary, since provider
+implementations may not use `LoadedSession`; its 1,024-token request budget
+matches all three current model manifests. `NagiPlan::parse_complete` and
+`validate_plan` remain independent post-provider checks and continue to control
+accepted actions, parameters, caller context, and object visibility.
+
+On 2026-10-02, 24 `nagi-ai` tests and 57 model-manager unit tests plus 3
+integration tests passed, as did warnings-denied Clippy and Nagi no-std target
+compilation. The fresh M22 three-boot regression also passed guest search,
+move/copy, persisted NAL1/NH16 state, grouped Undo, and restart restoration;
+its evidence is under
+`out/evidence/m22-structured-output-regression-1790871324761891000/`. No model
+backend is connected to this adapter yet, and the QEMU fixture does not claim
+inference. Production IPC and authenticated caller authority remain absent;
+M21 remains `PARTIAL`.

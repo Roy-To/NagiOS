@@ -32,8 +32,12 @@
             "type": "object",
             "maxProperties": 32,
             "propertyNames": {
+              "type": "string",
               "pattern": "^[a-z][a-z0-9_]*$",
-              "not": { "pattern": "(path|command|shell|argv|script|executable)" }
+              "not": {
+                "type": "string",
+                "pattern": "(path|command|shell|argv|script|executable)"
+              }
             },
             "additionalProperties": {
               "type": ["string", "integer", "boolean"]
