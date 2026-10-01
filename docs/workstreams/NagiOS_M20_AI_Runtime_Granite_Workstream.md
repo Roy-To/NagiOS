@@ -349,3 +349,35 @@ The local fetch then stopped at the existing Servo checkout validation, which
 reported a dirty pinned checkout and refused to modify it. No Servo files were
 changed by this repair. A clean-run CI result is still pending, and this does
 not change M20's `PARTIAL` status.
+
+
+## Chat-template no-exception status — 2026-10-01
+
+Patch `0004-nagi-chat-template-status.patch` moves unknown chat-template
+lookup to the existing `LLM_CHAT_TEMPLATE_UNKNOWN` result in the Nagi build.
+The `llama.cpp` caller checks that value and returns `-1`, preserving rejection
+of unsupported formats. The host build keeps its existing `std::map::at`
+exception behavior, while Nagi's detection path no longer compiles `try` or
+`catch`.
+
+The numbered 0001–0004 patch series was regenerated into the ignored
+`out/cache/llama-cpp-nagi` checkout by `./nagi fetch`. The raw pinned
+`third_party/llama.cpp` checkout remains clean. The fetch command subsequently
+stopped at the already-dirty pinned Servo checkout and refused to modify it;
+the previous generated llama.cpp checkout remains preserved at
+`out/cache/llama-cpp-nagi-before-0004-chat/`.
+
+Validation passed: the focused CLI patch-contract test, the complete CLI suite
+(148 unit and 21 integration tests), warnings-denied CLI Clippy, repository
+format/lint/test/build commands, host and Nagi-branch chat-template status
+smokes, and a fresh Nagi-target compile of `llama-chat.cpp.obj`. The full
+Nagi-target `llama` keep-going build still fails: 27 object steps and 56 unique
+source paths report 289 `throw` plus 14 `try` diagnostics. Before this patch,
+28 steps and 57 paths failed with 289 `throw` and 15 `try` diagnostics. The
+failure log and smoke evidence are in
+`out/evidence/m20-chat-template-0004-20261001/`.
+
+No M20 inference gate was run: the complete backend still does not build and
+the M30 Model Store contains no Granite artifact. This patch removes one
+compile blocker without claiming a runnable model backend or inference. M20
+remains `PARTIAL`.

@@ -666,6 +666,22 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_nagi_chat_template_patch_returns_explicit_unknown_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0004-nagi-chat-template-status.patch"),
+        )
+        .expect("Nagi chat template status patch");
+
+        assert!(patch.contains("#ifdef __NAGI__"));
+        assert!(patch.contains("LLM_CHAT_TEMPLATES.find(name)"));
+        assert!(patch.contains("LLM_CHAT_TEMPLATES.find(tmpl)"));
+        assert!(patch.contains("LLM_CHAT_TEMPLATE_UNKNOWN"));
+        assert!(patch.contains("#else\n     return LLM_CHAT_TEMPLATES.at(name);"));
+        assert!(patch.contains("catch (const std::out_of_range &)"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
