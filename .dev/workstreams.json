@@ -594,6 +594,44 @@
       ],
       "activation_gate": "Host clipboard/data-transfer contracts, the versioned content envelope, the authorization seam, tests, and the in-memory reference may be prepared on this dedicated branch. Compositor/window-manager clipboard ownership, keyboard shortcuts, primary selection, drag-and-drop plumbing, production IPC, target/QEMU service, durable history, Capability enforcement wiring, Activity/Wayback/AI integration, and first-party adoption require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming CLIP-01.",
       "merge_boundary": "Dedicated codex/0.2-clip-01 branch only; integrate through an explicit checkpoint after review, and never merge directly to main, codex/integration-next-phase, or another workstream branch."
+    },
+    {
+      "id": "search-core-01",
+      "owner": "Codex SEARCH-CORE-01 workstream",
+      "owner_branch": "codex/0.2-search-core-01",
+      "recommended_worktree": "../../.codex/worktrees/search-core-01/NagiOS",
+      "state_file": ".dev/workstreams/search-core-01/state.json",
+      "dependencies": [
+        "development-foundation"
+      ],
+      "allowed_paths": [
+        "crates/nagi-search-core/**",
+        "tests/search-core/**",
+        ".dev/workstreams/search-core-01/**",
+        "docs/workstreams/NagiOS_0.2_Search_Index_Core_Foundation_Workstream.md"
+      ],
+      "forbidden_paths": [
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/**",
+        ".dev/workstreams.json",
+        ".dev/schemas/**",
+        "docs/implementation_status.md",
+        "idl/**",
+        "schemas/**",
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "apps/**",
+        "sdk/**",
+        "crates/nagi-model/**",
+        "crates/nagi-capability/**",
+        "third_party/**",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "Host provider/index contract, ledger, reference backend, and tests may be prepared on this dedicated branch. Daemon/IPC wiring, guest durable index, production provider registration (Files/Notes/Activity/Wayback/Albert), Home/Search UI, production capability wiring, and semantic/model paths require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming SEARCH-CORE-01.",
+      "merge_boundary": "Dedicated codex/0.2-search-core-01 branch only; integrate through an explicit checkpoint after the canonical 0.1 nagi-search crate is on the integration base. Never merge directly to main or another workstream branch."
     }
   ]
 }

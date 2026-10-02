@@ -1,0 +1,105 @@
+{
+  "proposal_version": 1,
+  "workstream_id": "search-core-01",
+  "name": "Unified Search / Index Core Foundation",
+  "proposal_status": "REGISTERED",
+  "proposal_baseline": {
+    "commit_sha": "a235eb9f7d6c15a71873b431a57271cd1aeba260",
+    "branch_observed": "codex/integration-next-phase",
+    "base_approval": "USER-DIRECTED: current remote-synced integration HEAD discovered at execution time; registry row applied on the dedicated branch by explicit user direction on 2026-10-02 to unblock shared host CI, following the notify-01/job-01/ident-01 precedent"
+  },
+  "registry_entry": {
+    "id": "search-core-01",
+    "owner": "Codex SEARCH-CORE-01 workstream",
+    "owner_branch": "codex/0.2-search-core-01",
+    "recommended_worktree": "../../.codex/worktrees/search-core-01/NagiOS",
+    "state_file": ".dev/workstreams/search-core-01/state.json",
+    "dependencies": [
+      "development-foundation"
+    ],
+    "allowed_paths": [
+      "crates/nagi-search-core/**",
+      "tests/search-core/**",
+      ".dev/workstreams/search-core-01/**",
+      "docs/workstreams/NagiOS_0.2_Search_Index_Core_Foundation_Workstream.md"
+    ],
+    "forbidden_paths": [
+      "Cargo.toml",
+      "Cargo.lock",
+      ".github/workflows/**",
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      "docs/implementation_status.md",
+      "idl/**",
+      "schemas/**",
+      "kernel/**",
+      "loader/**",
+      "user/**",
+      "apps/**",
+      "sdk/**",
+      "crates/nagi-model/**",
+      "crates/nagi-capability/**",
+      "third_party/**",
+      "out/**",
+      "target/**"
+    ],
+    "activation_gate": "Host provider/index contract, ledger, reference backend, and tests may be prepared on this dedicated branch. Daemon/IPC wiring, guest durable index, production provider registration (Files/Notes/Activity/Wayback/Albert), Home/Search UI, production capability wiring, and semantic/model paths require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming SEARCH-CORE-01.",
+    "merge_boundary": "Dedicated codex/0.2-search-core-01 branch only; integrate through an explicit checkpoint after the canonical 0.1 nagi-search crate is on the integration base. Never merge directly to main or another workstream branch."
+  },
+  "canonical_dependency": {
+    "crates": [
+      "nagi-search",
+      "nagi-model"
+    ],
+    "owner": "Nagi 0.1 M19-M22 Search line (user/nagi-search, crates/nagi-model)",
+    "pinned_source": "git https://github.com/RT-NISH/NagiOS rev de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa (codex/m19-m22-continuation HEAD at audit time)",
+    "reason": "The canonical Search/Index contract is not yet on codex/integration-next-phase. Copying it would fork the contract; a path dependency would require editing 0.1-owned paths. An exact-revision git pin is reproducible and read-only.",
+    "integration_action": "When user/nagi-search lands on the integration base, replace both git pins in crates/nagi-search-core/Cargo.toml with path dependencies (../../user/nagi-search, ../nagi-model), regenerate crates/nagi-search-core/Cargo.lock, and re-run the acceptance suite. If the 0.1 contract changes incompatibly before then, bump the pin and adapt this crate; never patch the 0.1 crate from this workstream.",
+    "risk": "If the pinned commit becomes unreachable (history rewrite of the 0.1 branch), a clean checkout cannot fetch it. Integration should pin to a commit reachable from an immutable ref."
+  },
+  "proposed_host_test_command": {
+    "command": "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked --offline",
+    "status": "PASS_IN_DEDICATED_WORKTREE",
+    "note": "29 host acceptance tests pass with the repository-pinned nightly-2025-08-01 toolchain on x86_64 Linux. The first build requires network access once to fetch the pinned git revision. Host results do not establish daemon, IPC, guest persistence, provider adoption, UI, or target acceptance."
+  },
+  "integration_owner_actions": [
+    "Review the registry row already applied on this dedicated branch by user direction when selecting the next integration checkpoint.",
+    "Commit the user-supplied master documents Nagi_OS_0.2_Codex_Implementation_Spec.md and Nagi_OS_0.2_Parallel_Execution_Rules.md under docs/0.2/ (integration-owned); their SHA-256 values are recorded in AUDIT.md.",
+    "Decide whether SEARCH-CORE-01 maps to the unassigned platform-apis workstream for 0.2-M19 or stays a separate registered stream.",
+    "Reconcile provider identity: this foundation binds providers to the canonical AppId; nagi-home-search (M26 track) defines a separate string ProviderId. One canonical provider identity should be chosen before Home/Search adopts the ingestion boundary.",
+    "Bring user/nagi-search onto the integration base after its 0.1 milestone allows it, then switch the git pins to path dependencies.",
+    "After Nagi 0.1 M30 PASS and an explicit checkpoint naming SEARCH-CORE-01: bind ProviderAuthority to the Capability/Permissions search.provider decision, bind VisibilityFilter/AccessContext to authenticated caller/session context, add guest durable snapshot backends, wire service IPC, and adopt Files/Notes/Activity/Wayback providers."
+  ],
+  "contract_change_proposals": [
+    {
+      "target_owner": "Nagi 0.1 M19 Search line / later 0.2-M19 platform-apis",
+      "proposal": "Lexical body-text (content) indexing is not part of the canonical MetadataRecord; providers can only expose bounded title/tags/attributes. A bounded body-text field and matcher belong in the canonical crate, not in a parallel SEARCH-CORE index.",
+      "status": "PROPOSAL_ONLY"
+    },
+    {
+      "target_owner": "Nagi 0.1 M19 Search line",
+      "proposal": "MetadataRecord has no revision marker. SEARCH-CORE-01 keeps revisions in its own ledger; carrying the revision in the canonical record would let the metadata snapshot and the ledger commit atomically.",
+      "status": "PROPOSAL_ONLY"
+    }
+  ],
+  "scope_notes": [
+    "The only hard registry dependency is development-foundation. The 0.1 nagi-search crate is consumed read-only at a fixed revision and is not edited.",
+    "No root workspace, root lockfile, shared CI, shared schema, IDL/ABI, user/**, apps/**, sdk/**, or other workstream state is changed. The crate has its own [workspace] and Cargo.lock.",
+    "Caller visibility is the canonical injected VisibilityFilter; provider authorization is an injected ProviderAuthority. Neither forks the Capability/Permissions engine. Tests use host-only mocks.",
+    "MemorySnapshotBackend is host reference storage, not production persistence.",
+    "The registry row is applied on codex/0.2-search-core-01 by explicit user direction; this is the only shared-file change. The Integration Owner still reviews it at the integration checkpoint.",
+    "Merged codex/integration-next-phase b3076db (CLIP-01 checkpoint); the registry rows for clip-01 and search-core-01 coexist without edits."
+  ],
+  "ci_proposal": {
+    "status": "PROPOSAL_ONLY_NO_SHARED_CI_EDIT",
+    "target": ".github/workflows/ci.yml",
+    "reason": "The crate is standalone and not a root workspace member, so shared CI does not compile or run its acceptance suite.",
+    "suggested_steps": [
+      "cargo fmt --manifest-path crates/nagi-search-core/Cargo.toml -- --check",
+      "cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked"
+    ],
+    "ownership_note": "A later Integration Owner/CI-acceptance checkpoint should apply this; .github/workflows/ci.yml is forbidden to this workstream. Until the git pins become path dependencies, the CI job needs network access to github.com for the first fetch.",
+    "placement": "Add as a 'Standalone search core (SEARCH-CORE-01)' step next to the 'Standalone clipboard core (CLIP-01)' step in the ubuntu-host job of .github/workflows/ci.yml (integration b3076db)."
+  }
+}
