@@ -160,6 +160,21 @@ boot logs under `out/artifacts/` and `out/logs/`.
 M21 stays `PARTIAL`; test-only policy or action mocks cannot satisfy the guest
 acceptance gate.
 
+## Execution-time capability revocation — 2026-10-02
+
+Added a two-step orchestration regression in `services/nagi-ai/src/tests.rs`.
+Plan validation initially allows both actions; the first handler then revokes
+the later action's capability. Executor obtains a fresh grant per step, so the
+second action returns `CapabilityDenied`, the report is `Partial` with
+`failed_step=1`, and the second handler is never called. All 25 `nagi-ai`
+tests pass, formatting passes, and warnings-denied Clippy passes for the
+package. Dependency compilation still prints the existing `target_os =
+"nagi"` check-cfg warnings from `third_party/libc-servo`. This is a test of
+orchestration semantics only; it adds no production authority provider or
+authenticated service path. M21 remains `PARTIAL`. Logs are
+`out/logs/m21-capability-revocation-tests.log` and
+`out/logs/m21-capability-revocation-clippy.log`.
+
 ## Completion sweep Priority A audit — 2026-10-01
 
 The existing M4 Channel implementation is a kernel primitive with rights

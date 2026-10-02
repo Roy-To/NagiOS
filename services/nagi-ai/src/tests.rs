@@ -39,6 +39,7 @@ struct TestObjectHandle(ObjectId);
 #[derive(Default)]
 struct TestPolicy {
     denied_capabilities: BTreeSet<String>,
+    revoked_capabilities: Rc<RefCell<BTreeSet<String>>>,
     denied_objects: BTreeSet<ObjectId>,
     denied_writes: BTreeSet<ObjectId>,
 }
@@ -52,7 +53,12 @@ impl ActionPolicy for TestPolicy {
         _caller: CallerIdentity,
         capability: &CapabilityId,
     ) -> Result<(), PolicyDenied> {
-        if self.denied_capabilities.contains(capability.as_str()) {
+        if self.denied_capabilities.contains(capability.as_str())
+            || self
+                .revoked_capabilities
+                .borrow()
+                .contains(capability.as_str())
+        {
             Err(PolicyDenied::Capability)
         } else {
             Ok(())
@@ -148,6 +154,29 @@ impl ActionHandler<TestPolicy> for IntentCaptureHandler {
         Ok(ActionOutput {
             summary: "captured validated intent".to_string(),
             object_ids: invocation.object_ids().to_vec(),
+        })
+    }
+}
+
+struct RevokeCapabilityHandler {
+    calls: Rc<Cell<usize>>,
+    revoked_capabilities: Rc<RefCell<BTreeSet<String>>>,
+    capability: String,
+}
+
+impl ActionHandler<TestPolicy> for RevokeCapabilityHandler {
+    fn execute(
+        &mut self,
+        invocation: ActionInvocation<'_, TestPolicy>,
+    ) -> Result<ActionOutput, HandlerError> {
+        assert_eq!(invocation.capability_grants().len(), 1);
+        self.calls.set(self.calls.get() + 1);
+        self.revoked_capabilities
+            .borrow_mut()
+            .insert(self.capability.clone());
+        Ok(ActionOutput {
+            summary: "revoked a later capability".to_string(),
+            object_ids: Vec::new(),
         })
     }
 }
@@ -552,6 +581,54 @@ fn executor_reports_partial_failure_after_completed_steps() {
         Some(crate::ExecutionError::Handler(HandlerError::Unavailable))
     );
     assert_eq!((first_calls.get(), second_calls.get()), (1, 1));
+}
+
+#[test]
+fn executor_reacquires_capabilities_after_each_completed_step() {
+    let first_calls = Rc::new(Cell::new(0));
+    let second_calls = Rc::new(Cell::new(0));
+    let policy = TestPolicy::default();
+    let mut registry = ActionRegistry::new();
+    registry
+        .register(
+            search_descriptor(),
+            RevokeCapabilityHandler {
+                calls: first_calls.clone(),
+                revoked_capabilities: policy.revoked_capabilities.clone(),
+                capability: "system.volume.set".to_string(),
+            },
+        )
+        .expect("register capability-revoking first action");
+    let settings = ActionDescriptor::new(
+        "system.volume.set",
+        vec![capability("system.volume.set")],
+        ObjectAccess::Modify,
+        0,
+        0,
+        vec![ParameterRule::new(
+            "level",
+            ParameterKind::Integer { min: 0, max: 100 },
+            true,
+        )],
+    )
+    .expect("valid volume descriptor");
+    registry
+        .register(settings, handler(&second_calls, "volume set", Vec::new()))
+        .expect("register second action");
+
+    let parsed = plan(
+        r#"{"plan_version":1,"intent":"find then volume","steps":[{"action":"file.search","parameters":{"query":"budget"}},{"action":"system.volume.set","parameters":{"level":20}}]}"#,
+    );
+    let validated = validate_plan(parsed, &context(&[]), &registry, &policy)
+        .expect("both capabilities are allowed during plan validation");
+    let report = execute_plan(validated, &mut registry, &policy);
+
+    assert_eq!(report.status, ExecutionStatus::Partial);
+    assert_eq!(report.completed.len(), 1);
+    assert_eq!(report.completed[0].action_id, "file.search");
+    assert_eq!(report.failed_step, Some(1));
+    assert_eq!(report.error, Some(crate::ExecutionError::CapabilityDenied));
+    assert_eq!((first_calls.get(), second_calls.get()), (1, 0));
 }
 
 #[test]
