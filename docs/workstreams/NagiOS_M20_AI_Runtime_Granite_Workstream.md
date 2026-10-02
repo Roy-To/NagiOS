@@ -1085,3 +1085,52 @@ targets that lacked `mtmd.h` and Nagi app targets that lacked generated
 This checkpoint demonstrates status propagation and compilation only. No
 complete Nagi llama backend, model load, or in-guest inference is established;
 M20 remains `PARTIAL`.
+
+## Remaining model-load status — 2026-10-02
+
+Added numbered patch
+`third_party/llama-cpp-patches/0022-nagi-llama-model-load-status.patch`.
+Under `__NAGI__`, remaining architecture metadata and tensor-load validation
+now set checked loader status and return; host builds retain their existing
+exception behavior. MoE expert-count checks were moved ahead of tensor
+construction and fallback division in Qwen2-MoE, Qwen3-MoE, Qwen3-VL-MoE,
+RND1, OLMoE, Maple, and Mellum. Nemotron-H preflights its MTP layer metadata
+before tensor creation. Qwen3-Next now validates its used-expert count, Qwen4-Exp
+validates its required expert metadata, and the shared all-zero used-expert
+metadata case returns `fail_metadata()` under Nagi instead of reaching an
+assertion. Nomic-BERT, Nomic-BERT-MoE, Llama 4, Mamba, and Mistral 3 also
+propagate the remaining load or metadata failures through status.
+
+The new CLI patch-contract test first failed because patch 0022 was absent,
+then passed after the patch was generated. Forward and reverse `git apply`
+checks pass. The full CLI library suite passes 185/185; `./nagi test`,
+`./nagi fmt`, `./nagi lint`, and `./nagi build` pass. Fresh generated-cache
+host and Nagi-macro CMake `llama` and loader-bounds targets build, and focused
+`test-model-loader-bounds` CTests pass 1/1 in both configurations. The
+unfiltered CTest invocation requires unrelated executables not built by these
+focused configurations, so it is not counted as a failure of this patch.
+
+`./nagi fetch` regenerated the pinned checkout and applied patches 0001–0022
+with patch fingerprint `fnv1a64:f54a90214cdfbdf3` and checkout fingerprint
+`fnv1a64:ea53c409e97f602c`. It then stopped at the existing modified Servo
+checkout without changing it. The raw pinned `third_party/llama.cpp` checkout
+remains clean. Pre-fetch and fresh-generated 3,649-file manifests are under
+`out/evidence/m20-loader-status-0022-20261002/`; their only content difference
+is the regenerated checkout marker. Logs include
+`out/logs/m20-loader-status-0022-cli-lib-tests.log`,
+`out/logs/m20-loader-status-0022-nagi-test.log`, the CMake build/CTest logs,
+and `out/logs/m20-loader-status-0022-fetch-regenerated.log`.
+
+The full LLVM 19/libc++ no-exceptions `llama` target compiles past the
+previously failing model units, then stops in unity 1–4 with 44 reported
+`throw` diagnostics across 19 other model files; unity 1 reaches Clang's error
+limit. The next model slice is in `cohere2moe.cpp`, `dbrx.cpp`,
+`deepseek.cpp`, `deepseek2.cpp`, `deepseek2ocr.cpp`, `deepseek32.cpp`,
+`deepseek4.cpp`, `dflash.cpp`, `eagle3.cpp`, `exaone-moe.cpp`,
+`gemma4-assistant.cpp`, `gemma4.cpp`, `glm-dsa.cpp`, `granite-swa.cpp`,
+`granite-switch.cpp`, `granite.cpp`, `grok.cpp`, `hy-v4.cpp`, and
+`jina-bert-v3.cpp`. See
+`out/logs/m20-loader-status-0022-noexceptions-target-build-fresh.log`.
+This patch verifies loader status propagation and host builds only; it does not
+complete the Nagi backend or establish in-guest inference. M20 remains
+`PARTIAL`.

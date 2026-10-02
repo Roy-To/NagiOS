@@ -1,0 +1,379 @@
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1410,7 +1410,14 @@
+     GGML_ASSERT(hparams.n_expert <= LLAMA_MAX_EXPERTS);
+     GGML_ASSERT(n_expert_used_max <= hparams.n_expert);
+     if (hparams.n_expert > 0) {
++#ifdef __NAGI__
++        if (n_expert_used_max == 0) {
++            (void) ml.fail_metadata("model has expert layers but no expert layers are used");
++            return;
++        }
++#else
+         GGML_ASSERT(n_expert_used_max > 0);
++#endif
+         GGML_ASSERT(hparams.n_expert_groups < hparams.n_expert);
+         if (hparams.n_expert_groups > 1) {
+             GGML_ASSERT(hparams.n_expert % hparams.n_expert_groups == 0);
+diff --git a/src/models/nemotron-h.cpp b/src/models/nemotron-h.cpp
+--- a/src/models/nemotron-h.cpp
++++ b/src/models/nemotron-h.cpp
+@@ -48,6 +48,15 @@
+ 
+ void llama_model_nemotron_h::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
++
++    for (int i = n_layer; i < n_layer_all; ++i) {
++        const int64_t n_expert_used_i = hparams.n_expert_used(i);
++        const int64_t n_ff_exp_i      = hparams.n_ff_exp(i);
++        if (n_ff_exp_i == 0 && n_expert_used_i == 0) {
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, format("%s: layer %d declares neither expert_feed_forward_length nor expert_used_count, "
++                                            "cannot determine the expert FFN size", __func__, i));
++        }
++    }
+ 
+     const bool mtp_only    = hparams.n_layer_nextn > 0 && ml.get_weight("blk.0.attn_norm.weight") == nullptr;
+     const int  trunk_flags = mtp_only ? TENSOR_NOT_REQUIRED : 0;
+@@ -149,10 +158,6 @@
+         const int64_t n_embd_v_gqa_i = hparams.n_embd_v_gqa(i);
+         const int64_t n_expert_used_i = hparams.n_expert_used(i);
+         const int64_t n_ff_exp_i      = hparams.n_ff_exp(i);
+-        if (n_ff_exp_i == 0 && n_expert_used_i == 0) {
+-            throw std::runtime_error(format("%s: layer %d declares neither expert_feed_forward_length nor expert_used_count, "
+-                                            "cannot determine the expert FFN size", __func__, i));
+-        }
+         const int64_t n_ff_exp   = n_ff_exp_i ? n_ff_exp_i : n_ff / n_expert_used_i;
+         const int64_t n_ff_shexp = hparams.n_ff_shexp;
+ 
+diff --git a/src/models/nomic-bert-moe.cpp b/src/models/nomic-bert-moe.cpp
+--- a/src/models/nomic-bert-moe.cpp
++++ b/src/models/nomic-bert-moe.cpp
+@@ -11,11 +11,11 @@
+     }
+ }
+ 
+-void llama_model_nomic_bert_moe::load_arch_tensors(llama_model_loader &) {
++void llama_model_nomic_bert_moe::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
+     if (n_token_types == 0) {
+-        throw std::runtime_error(arch_name() + " model needs to define token type count");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, arch_name() + " model needs to define token type count");
+     }
+     tok_embd     = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD,  "weight"), {n_embd, n_vocab}, 0);
+     type_embd    = create_tensor(tn(LLM_TENSOR_TOKEN_TYPES, "weight"), {n_embd, n_token_types}, TENSOR_NOT_REQUIRED);
+diff --git a/src/models/nomic-bert.cpp b/src/models/nomic-bert.cpp
+--- a/src/models/nomic-bert.cpp
++++ b/src/models/nomic-bert.cpp
+@@ -10,11 +10,11 @@
+     }
+ }
+ 
+-void llama_model_nomic_bert::load_arch_tensors(llama_model_loader &) {
++void llama_model_nomic_bert::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
+     if (n_token_types == 0) {
+-        throw std::runtime_error(arch_name() + " model needs to define token type count");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, arch_name() + " model needs to define token type count");
+     }
+     tok_embd     = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD,  "weight"), {n_embd, n_vocab}, 0);
+     type_embd    = create_tensor(tn(LLM_TENSOR_TOKEN_TYPES, "weight"), {n_embd, n_token_types}, TENSOR_NOT_REQUIRED);
+diff --git a/src/models/olmoe.cpp b/src/models/olmoe.cpp
+--- a/src/models/olmoe.cpp
++++ b/src/models/olmoe.cpp
+@@ -9,9 +9,15 @@
+     }
+ }
+ 
+-void llama_model_olmoe::load_arch_tensors(llama_model_loader &) {
++void llama_model_olmoe::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
++    if (n_expert == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0");
++    }
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+     // output
+@@ -31,13 +37,6 @@
+         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+ 
+         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+-
+-        if (n_expert == 0) {
+-            throw std::runtime_error("n_expert must be > 0");
+-        }
+-        if (n_expert_used == 0) {
+-            throw std::runtime_error("n_expert_used must be > 0");
+-        }
+ 
+         // MoE branch
+         layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff,   n_expert}, 0);
+diff --git a/src/models/llama4.cpp b/src/models/llama4.cpp
+--- a/src/models/llama4.cpp
++++ b/src/models/llama4.cpp
+@@ -41,11 +41,11 @@
+     hparams.use_kq_norm = type != LLM_TYPE_17B_128E;
+ }
+ 
+-void llama_model_llama4::load_arch_tensors(llama_model_loader &) {
++void llama_model_llama4::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
+     if (n_expert == 0) {
+-        throw std::runtime_error(arch_name() + " model cannot have zero experts");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, arch_name() + " model cannot have zero experts");
+     }
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+diff --git a/src/models/mamba.cpp b/src/models/mamba.cpp
+--- a/src/models/mamba.cpp
++++ b/src/models/mamba.cpp
+@@ -31,7 +31,7 @@
+     }
+ }
+ 
+-void llama_model_mamba::load_arch_tensors(llama_model_loader &) {
++void llama_model_mamba::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
+     const int64_t d_conv  = hparams.ssm_d_conv;
+@@ -41,7 +41,7 @@
+ 
+     // only an expansion factor of 2 is supported for now
+     if (2 * n_embd != d_inner) {
+-        throw std::runtime_error("only an expansion factor of 2 is supported for now");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "only an expansion factor of 2 is supported for now");
+     }
+ 
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+diff --git a/src/models/maple.cpp b/src/models/maple.cpp
+--- a/src/models/maple.cpp
++++ b/src/models/maple.cpp
+@@ -21,9 +21,15 @@
+     }
+ }
+ 
+-void llama_model_maple::load_arch_tensors(llama_model_loader &) {
++void llama_model_maple::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
++    if (n_expert == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for Maple");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for Maple");
++    }
+     const int64_t n_ff_exp = hparams.n_ff_exp();
+     const int64_t head_dim = hparams.n_embd_head_k();
+ 
+@@ -31,13 +37,6 @@
+ 
+     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
+     output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, 0);
+-
+-    if (n_expert == 0) {
+-        throw std::runtime_error("n_expert must be > 0 for Maple");
+-    }
+-    if (n_expert_used == 0) {
+-        throw std::runtime_error("n_expert_used must be > 0 for Maple");
+-    }
+ 
+     for (int i = 0; i < n_layer; ++i) {
+         auto & layer = layers[i];
+diff --git a/src/models/mellum.cpp b/src/models/mellum.cpp
+--- a/src/models/mellum.cpp
++++ b/src/models/mellum.cpp
+@@ -24,9 +24,15 @@
+     }
+ }
+ 
+-void llama_model_mellum::load_arch_tensors(llama_model_loader &) {
++void llama_model_mellum::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
++    if (n_expert == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for Mellum");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for Mellum");
++    }
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+     // output
+@@ -47,13 +53,6 @@
+         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+ 
+         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+-
+-        if (n_expert == 0) {
+-            throw std::runtime_error("n_expert must be > 0 for Mellum");
+-        }
+-        if (n_expert_used == 0) {
+-            throw std::runtime_error("n_expert_used must be > 0 for Mellum");
+-        }
+ 
+         const int64_t n_ff_exp = hparams.n_ff_exp() ? hparams.n_ff_exp() : n_ff / n_expert_used;
+ 
+diff --git a/src/models/mistral3.cpp b/src/models/mistral3.cpp
+--- a/src/models/mistral3.cpp
++++ b/src/models/mistral3.cpp
+@@ -14,7 +14,7 @@
+     if (hparams.f_attn_temp_scale != 0.0f) {
+         hparams.n_attn_temp_floor_scale = hparams.n_ctx_orig_yarn;
+         if (hparams.n_attn_temp_floor_scale == 0) {
+-            throw std::runtime_error("invalid n_ctx_orig_yarn for attention temperature scaling");
++            LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "invalid n_ctx_orig_yarn for attention temperature scaling");
+         }
+     }
+ 
+diff --git a/src/models/qwen2moe.cpp b/src/models/qwen2moe.cpp
+--- a/src/models/qwen2moe.cpp
++++ b/src/models/qwen2moe.cpp
+@@ -16,6 +16,12 @@
+ void llama_model_qwen2moe::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
++    if (n_expert == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for QWEN2MOE");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for QWEN2MOE");
++    }
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+     // output
+@@ -33,13 +39,6 @@
+         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+ 
+         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+-
+-        if (n_expert == 0) {
+-            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for QWEN2MOE");
+-        }
+-        if (n_expert_used == 0) {
+-            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for QWEN2MOE");
+-        }
+ 
+         // MoE branch
+         const int64_t n_ff_exp = hparams.n_ff_exp() ? hparams.n_ff_exp() : n_ff / n_expert_used;
+diff --git a/src/models/qwen3moe.cpp b/src/models/qwen3moe.cpp
+--- a/src/models/qwen3moe.cpp
++++ b/src/models/qwen3moe.cpp
+@@ -14,6 +14,12 @@
+ void llama_model_qwen3moe::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
++    if (n_expert == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for QWEN3MOE");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for QWEN3MOE");
++    }
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+     // output
+@@ -38,13 +44,6 @@
+         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+ 
+         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+-
+-        if (n_expert == 0) {
+-            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for QWEN3MOE");
+-        }
+-        if (n_expert_used == 0) {
+-            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for QWEN3MOE");
+-        }
+ 
+         // MoE branch
+         const int64_t n_ff_exp = hparams.n_ff_exp() ? hparams.n_ff_exp() : n_ff / n_expert_used;
+diff --git a/src/models/qwen3next.cpp b/src/models/qwen3next.cpp
+--- a/src/models/qwen3next.cpp
++++ b/src/models/qwen3next.cpp
+@@ -33,6 +33,9 @@
+ 
+     if (n_expert == 0) {
+         LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, arch_name() + " model cannot have zero experts");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "model has expert layers but no expert layers are used");
+     }
+ 
+     const bool mtp_only = (hparams.n_layer_nextn > 0) && (ml.get_weight("blk.0.attn_norm.weight") == nullptr);
+diff --git a/src/models/qwen3vlmoe.cpp b/src/models/qwen3vlmoe.cpp
+--- a/src/models/qwen3vlmoe.cpp
++++ b/src/models/qwen3vlmoe.cpp
+@@ -16,6 +16,12 @@
+ void llama_model_qwen3vlmoe::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
++    if (n_expert == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for QWEN3MOE");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for QWEN3MOE");
++    }
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+     // output
+@@ -40,13 +46,6 @@
+         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+ 
+         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+-
+-        if (n_expert == 0) {
+-            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for QWEN3MOE");
+-        }
+-        if (n_expert_used == 0) {
+-            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for QWEN3MOE");
+-        }
+ 
+         // MoE branch
+         const int64_t n_ff_exp = hparams.n_ff_exp() ? hparams.n_ff_exp() : n_ff / n_expert_used;
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -43,6 +43,8 @@
+     ml.get_key_or_arr(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp_arr, hparams.n_layer_all, false);
+     ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
+     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,       hparams.f_norm_rms_eps);
++    if (!qwen4exp_require_nonzero(ml, LLM_KV_EXPERT_COUNT,      hparams.n_expert)) return;
++    if (!qwen4exp_require_nonzero(ml, LLM_KV_EXPERT_USED_COUNT, hparams.n_expert_used())) return;
+ 
+     ml.get_key_or_arr(LLM_KV_ROPE_DIMENSION_SECTIONS,    hparams.rope_sections, 4, true);
+ 
+diff --git a/src/models/rnd1.cpp b/src/models/rnd1.cpp
+--- a/src/models/rnd1.cpp
++++ b/src/models/rnd1.cpp
+@@ -16,6 +16,12 @@
+ void llama_model_rnd1::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
++    if (n_expert == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for QWEN3MOE");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for QWEN3MOE");
++    }
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+     // output
+@@ -40,13 +46,6 @@
+         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+ 
+         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+-
+-        if (n_expert == 0) {
+-            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for QWEN3MOE");
+-        }
+-        if (n_expert_used == 0) {
+-            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for QWEN3MOE");
+-        }
+ 
+         // MoE branch
+         const int64_t n_ff_exp = hparams.n_ff_exp() ? hparams.n_ff_exp() : n_ff / n_expert_used;

@@ -1141,6 +1141,39 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_remaining_model_architecture_failures_return_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0022-nagi-llama-model-load-status.patch"),
+        )
+        .expect("Nagi remaining model architecture status patch");
+
+        assert!(patch.contains("LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN"));
+        assert!(patch.contains("LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN"));
+        assert!(patch.contains("invalid n_ctx_orig_yarn for attention temperature scaling"));
+        assert!(patch.contains("neither expert_feed_forward_length nor expert_used_count"));
+        assert!(patch.contains("model needs to define token type count"));
+        assert!(patch.contains("only an expansion factor of 2 is supported"));
+        assert!(patch.contains("n_expert_used must be > 0"));
+        assert!(patch.contains("src/models/nemotron-h.cpp"));
+        assert!(patch.contains("src/models/nomic-bert-moe.cpp"));
+        assert!(patch.contains("src/models/nomic-bert.cpp"));
+        assert!(patch.contains("src/models/olmoe.cpp"));
+        assert!(patch.contains("src/models/llama4.cpp"));
+        assert!(patch.contains("src/models/mamba.cpp"));
+        assert!(patch.contains("src/models/maple.cpp"));
+        assert!(patch.contains("src/models/mellum.cpp"));
+        assert!(patch.contains("src/models/mistral3.cpp"));
+        assert!(patch.contains("src/models/qwen2moe.cpp"));
+        assert!(patch.contains("src/models/qwen3moe.cpp"));
+        assert!(patch.contains("src/models/qwen3next.cpp"));
+        assert!(patch.contains("src/models/qwen3vlmoe.cpp"));
+        assert!(patch.contains("src/models/qwen4exp.cpp"));
+        assert!(patch.contains("src/models/rnd1.cpp"));
+        assert!(patch.contains("src/llama-model.cpp"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
