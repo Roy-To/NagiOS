@@ -2,7 +2,7 @@
   "proposal_version": 1,
   "workstream_id": "search-core-01",
   "name": "Unified Search / Index Core Foundation",
-  "proposal_status": "REGISTERED",
+  "proposal_status": "INTEGRATED",
   "proposal_baseline": {
     "commit_sha": "a235eb9f7d6c15a71873b431a57271cd1aeba260",
     "branch_observed": "codex/integration-next-phase",
@@ -63,8 +63,6 @@
     "note": "29 host acceptance tests pass with the repository-pinned nightly-2025-08-01 toolchain on x86_64 Linux. The first build requires network access once to fetch the pinned git revision. Host results do not establish daemon, IPC, guest persistence, provider adoption, UI, or target acceptance."
   },
   "integration_owner_actions": [
-    "Review the registry row already applied on this dedicated branch by user direction when selecting the next integration checkpoint.",
-    "Commit the user-supplied master documents Nagi_OS_0.2_Codex_Implementation_Spec.md and Nagi_OS_0.2_Parallel_Execution_Rules.md under docs/0.2/ (integration-owned); their SHA-256 values are recorded in AUDIT.md.",
     "Decide whether SEARCH-CORE-01 maps to the unassigned platform-apis workstream for 0.2-M19 or stays a separate registered stream.",
     "Reconcile provider identity: this foundation binds providers to the canonical AppId; nagi-home-search (M26 track) defines a separate string ProviderId. One canonical provider identity should be chosen before Home/Search adopts the ingestion boundary.",
     "Bring user/nagi-search onto the integration base after its 0.1 milestone allows it, then switch the git pins to path dependencies.",
@@ -91,7 +89,7 @@
     "Merged codex/integration-next-phase b3076db (CLIP-01 checkpoint); the registry rows for clip-01 and search-core-01 coexist without edits."
   ],
   "ci_proposal": {
-    "status": "PROPOSAL_ONLY_NO_SHARED_CI_EDIT",
+    "status": "APPLIED_BY_INTEGRATION_OWNER",
     "target": ".github/workflows/ci.yml",
     "reason": "The crate is standalone and not a root workspace member, so shared CI does not compile or run its acceptance suite.",
     "suggested_steps": [
@@ -101,5 +99,13 @@
     ],
     "ownership_note": "A later Integration Owner/CI-acceptance checkpoint should apply this; .github/workflows/ci.yml is forbidden to this workstream. Until the git pins become path dependencies, the CI job needs network access to github.com for the first fetch.",
     "placement": "Add as a 'Standalone search core (SEARCH-CORE-01)' step next to the 'Standalone clipboard core (CLIP-01)' step in the ubuntu-host job of .github/workflows/ci.yml (integration b3076db)."
+  },
+  "integration_checkpoint": {
+    "branch": "codex/integration-next-phase",
+    "merge_commit": "c0a5bda7944b88f3a4a2de304875154c2fe66573",
+    "ci_step_commit": "935649e",
+    "docs_commit": "bb2a66c",
+    "direction": "Repository owner directed this session to act as Integration Owner on 2026-10-02.",
+    "recorded_at": "2026-10-02T04:45:02Z"
   }
 }
