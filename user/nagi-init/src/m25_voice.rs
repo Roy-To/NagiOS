@@ -2,10 +2,10 @@ use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 use nagi_audio::speech::{
     CaptureSourceError, IndicatorError, MicrophoneActivityIndicator, PcmCaptureSource,
-    PlaybackError, PushToTalkService, SpeechConsumer, SpeechError, SpeechLanguage, SpeechOptions,
-    SpeechPermissionAuthority, SpeechPermissionDecision, SpeechPlaybackSink, SpeechProviderError,
-    SpeechSynthesisLanguage, SpeechSynthesisOptions, SpeechSynthesisService, SpeechToTextProvider,
-    SynthesisPcmChunk, TextToSpeechProvider,
+    PlaybackError, PushToTalkService, ResamplingSpeechToTextProvider, SpeechConsumer, SpeechError,
+    SpeechLanguage, SpeechOptions, SpeechPermissionAuthority, SpeechPermissionDecision,
+    SpeechPlaybackSink, SpeechProviderError, SpeechSynthesisLanguage, SpeechSynthesisOptions,
+    SpeechSynthesisService, SpeechToTextProvider, SynthesisPcmChunk, TextToSpeechProvider,
 };
 use nagi_audio::PcmFormat;
 
@@ -16,7 +16,8 @@ const PROVIDER_ACTIVE: u8 = 3;
 const PROVIDER_FINISHED: u8 = 4;
 const CLEANED_UP: u8 = 5;
 const INVALID_ORDER: u8 = u8::MAX;
-const FIXTURE_PCM: [u8; 8] = [0x10, 0x20, 0x30, 0x40, 0xfe, 0xdc, 0xba, 0x98];
+const FIXTURE_PCM_FRAMES: usize = 128;
+const FIXTURE_PCM_BYTES: usize = FIXTURE_PCM_FRAMES * 4;
 const FIXTURE_TRANSCRIPT: &[u8] = "アルバートを開いて".as_bytes();
 
 static PIPELINE_STAGE: AtomicU8 = AtomicU8::new(PIPELINE_IDLE);
@@ -103,13 +104,16 @@ impl PcmCaptureSource for FixtureCapture {
     fn capture_pcm(&mut self, destination: &mut [u8]) -> Result<usize, CaptureSourceError> {
         if PIPELINE_STAGE.load(Ordering::Relaxed) != PROVIDER_ACTIVE
             || !INDICATOR_VISIBLE.load(Ordering::Relaxed)
-            || destination.len() < FIXTURE_PCM.len()
+            || destination.len() < FIXTURE_PCM_BYTES
         {
             return Err(CaptureSourceError::Unavailable);
         }
-        destination[..FIXTURE_PCM.len()].copy_from_slice(&FIXTURE_PCM);
+        for frame in destination[..FIXTURE_PCM_BYTES].chunks_exact_mut(4) {
+            frame[..2].copy_from_slice(&10_000_i16.to_le_bytes());
+            frame[2..].copy_from_slice(&2_000_i16.to_le_bytes());
+        }
         CAPTURE_CALLS.fetch_add(1, Ordering::Relaxed);
-        Ok(FIXTURE_PCM.len())
+        Ok(FIXTURE_PCM_BYTES)
     }
 }
 
@@ -121,7 +125,7 @@ struct FixtureProvider {
 impl SpeechToTextProvider for FixtureProvider {
     fn begin(&mut self, options: SpeechOptions) -> Result<(), SpeechProviderError> {
         if options.language != SpeechLanguage::Japanese
-            || options.pcm_format != PcmFormat::stereo_48khz()
+            || options.pcm_format != PcmFormat::mono_16khz()
             || !INDICATOR_VISIBLE.load(Ordering::Relaxed)
             || PIPELINE_STAGE
                 .compare_exchange(
@@ -138,7 +142,9 @@ impl SpeechToTextProvider for FixtureProvider {
     }
 
     fn push_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), SpeechProviderError> {
-        if format != PcmFormat::stereo_48khz()
+        if format != PcmFormat::mono_16khz()
+            || bytes.is_empty()
+            || bytes.len() & 1 != 0
             || !INDICATOR_VISIBLE.load(Ordering::Relaxed)
             || PIPELINE_STAGE.load(Ordering::Relaxed) != PROVIDER_ACTIVE
         {
@@ -245,8 +251,12 @@ impl SpeechPlaybackSink for FixtureAudioSink {
     }
 }
 
-type FixtureService =
-    PushToTalkService<FixtureCapture, FixtureAuthority, FixtureIndicator, FixtureProvider>;
+type FixtureService = PushToTalkService<
+    FixtureCapture,
+    FixtureAuthority,
+    FixtureIndicator,
+    ResamplingSpeechToTextProvider<FixtureProvider>,
+>;
 
 fn service(allow: bool) -> FixtureService {
     service_with_empty_transcript(allow, false)
@@ -265,10 +275,10 @@ fn service_with_transcript(
         FixtureCapture,
         FixtureAuthority { allow },
         FixtureIndicator,
-        FixtureProvider {
+        ResamplingSpeechToTextProvider::new(FixtureProvider {
             empty_transcript,
             transcript,
-        },
+        }),
     )
 }
 
@@ -313,9 +323,9 @@ pub fn run() -> bool {
         return false;
     }
 
-    if service.capture_next_chunk() != Ok(FIXTURE_PCM.len())
+    if service.capture_next_chunk() != Ok(FIXTURE_PCM_BYTES)
         || CAPTURE_CALLS.load(Ordering::Relaxed) != 1
-        || FORWARDED_BYTES.load(Ordering::Relaxed) != FIXTURE_PCM.len()
+        || FORWARDED_BYTES.load(Ordering::Relaxed) != FIXTURE_PCM_FRAMES / 3 * 2
         || PCM_DIGEST.load(Ordering::Relaxed) == 0
         || !INDICATOR_VISIBLE.load(Ordering::Relaxed)
     {
@@ -348,7 +358,7 @@ pub fn run() -> bool {
     if empty_transcript
         .begin(SpeechConsumer::NagiBar, SpeechLanguage::Japanese)
         .is_err()
-        || empty_transcript.capture_next_chunk() != Ok(FIXTURE_PCM.len())
+        || empty_transcript.capture_next_chunk() != Ok(FIXTURE_PCM_BYTES)
     {
         return false;
     }
@@ -375,7 +385,7 @@ pub fn run() -> bool {
     if transcript_service
         .begin(SpeechConsumer::NagiBar, SpeechLanguage::Japanese)
         .is_err()
-        || transcript_service.capture_next_chunk() != Ok(FIXTURE_PCM.len())
+        || transcript_service.capture_next_chunk() != Ok(FIXTURE_PCM_BYTES)
     {
         return false;
     }
@@ -388,7 +398,8 @@ pub fn run() -> bool {
         || INDICATOR_VISIBLE.load(Ordering::Relaxed)
         || PIPELINE_STAGE.load(Ordering::Relaxed) != CLEANED_UP
         || CAPTURE_CALLS.load(Ordering::Relaxed) != 1
-        || FORWARDED_BYTES.load(Ordering::Relaxed) != FIXTURE_PCM.len()
+        || FORWARDED_BYTES.load(Ordering::Relaxed) == 0
+        || PCM_DIGEST.load(Ordering::Relaxed) == 0
         || PROVIDER_CANCELS.load(Ordering::Relaxed) != 0
     {
         return false;

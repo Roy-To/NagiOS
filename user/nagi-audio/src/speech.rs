@@ -134,13 +134,256 @@ pub trait PcmCaptureSource {
     fn capture_pcm(&mut self, destination: &mut [u8]) -> Result<usize, CaptureSourceError>;
 }
 
-/// Provider implementations receive bounded PCM and return bounded UTF-8
-/// text. They receive no OS capability and must not execute the transcript.
+/// Provider implementations receive bounded signed 16-bit little-endian PCM
+/// and return bounded UTF-8 text. They receive no OS capability and must not
+/// execute the transcript.
 pub trait SpeechToTextProvider {
     fn begin(&mut self, options: SpeechOptions) -> Result<(), SpeechProviderError>;
     fn push_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), SpeechProviderError>;
     fn finish(&mut self, transcript: &mut [u8]) -> Result<usize, SpeechProviderError>;
     fn cancel(&mut self);
+}
+
+const SPEECH_RESAMPLER_TAPS: usize = 127;
+const SPEECH_RESAMPLER_TAIL_FRAMES: usize = SPEECH_RESAMPLER_TAPS - 1;
+const MAX_SPEECH_RESAMPLED_CHUNK_BYTES: usize = (MAX_SPEECH_PCM_CHUNK_BYTES / 4).div_ceil(3) * 2;
+
+// 127-tap Blackman-windowed low-pass FIR, cutoff 6.72 kHz at 48 kHz, Q15.
+// The coefficients are symmetric and sum exactly to 32768.
+const SPEECH_RESAMPLER_COEFFICIENTS_Q15: [i32; SPEECH_RESAMPLER_TAPS] = [
+    0, 0, 0, 0, 1, 1, 0, -2, -3, -1, 2, 6, 6, 0, -8, -13, -7, 7, 20, 21, 4, -22, -37, -25, 12, 49,
+    55, 17, -45, -86, -66, 13, 100, 125, 54, -77, -174, -151, 0, 182, 255, 137, -115, -327, -318,
+    -52, 311, 499, 324, -151, -610, -678, -208, 553, 1065, 836, -178, -1415, -1934, -944, 1660,
+    5102, 8029, 9170, 8029, 5102, 1660, -944, -1934, -1415, -178, 836, 1065, 553, -208, -678, -610,
+    -151, 324, 499, 311, -52, -318, -327, -115, 137, 255, 182, 0, -151, -174, -77, 54, 125, 100,
+    13, -66, -86, -45, 17, 55, 49, 12, -25, -37, -22, 4, 21, 20, 7, -7, -13, -8, 0, 6, 6, 2, -1,
+    -3, -2, 0, 1, 1, 0, 0, 0, 0,
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PcmResampleError {
+    InvalidInput,
+    OutputTooSmall,
+}
+
+/// Fixed-memory streaming decimator for interleaved stereo S16LE at 48 kHz.
+/// It averages channels, applies an anti-alias FIR, and emits mono S16LE at
+/// 16 kHz. State is preserved across `convert` calls and cleared by `finish`
+/// or `reset`.
+pub struct Stereo48KhzToMono16Khz {
+    history: [i16; SPEECH_RESAMPLER_TAPS],
+    write_index: usize,
+    phase: usize,
+    has_input: bool,
+}
+
+impl Stereo48KhzToMono16Khz {
+    pub const fn new() -> Self {
+        Self {
+            history: [0; SPEECH_RESAMPLER_TAPS],
+            write_index: 0,
+            phase: 0,
+            has_input: false,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.history.fill(0);
+        self.write_index = 0;
+        self.phase = 0;
+        self.has_input = false;
+    }
+
+    /// Converts complete stereo frames into mono frames. Invalid input or an
+    /// undersized destination is rejected before resampler state is changed.
+    pub fn convert(
+        &mut self,
+        input_s16le_stereo: &[u8],
+        output_s16le_mono: &mut [u8],
+    ) -> Result<usize, PcmResampleError> {
+        if input_s16le_stereo.len() & 3 != 0 {
+            return Err(PcmResampleError::InvalidInput);
+        }
+        let frames = input_s16le_stereo.len() / 4;
+        let required_samples = Self::output_count(frames, self.phase);
+        let required_bytes = required_samples
+            .checked_mul(2)
+            .ok_or(PcmResampleError::OutputTooSmall)?;
+        if output_s16le_mono.len() < required_bytes {
+            return Err(PcmResampleError::OutputTooSmall);
+        }
+
+        let mut output_offset = 0;
+        for frame in input_s16le_stereo.chunks_exact(4) {
+            let left = i16::from_le_bytes([frame[0], frame[1]]);
+            let right = i16::from_le_bytes([frame[2], frame[3]]);
+            let mono = ((i32::from(left) + i32::from(right)) / 2) as i16;
+            if let Some(sample) = self.push_mono_sample(mono) {
+                let bytes = sample.to_le_bytes();
+                output_s16le_mono[output_offset..output_offset + 2].copy_from_slice(&bytes);
+                output_offset += 2;
+            }
+        }
+        self.has_input |= frames != 0;
+        Ok(output_offset / 2)
+    }
+
+    /// Appends the FIR tail as silence and clears all per-utterance state.
+    pub fn finish(&mut self, output_s16le_mono: &mut [u8]) -> Result<usize, PcmResampleError> {
+        if !self.has_input {
+            self.reset();
+            return Ok(0);
+        }
+        let required_samples = Self::output_count(SPEECH_RESAMPLER_TAIL_FRAMES, self.phase);
+        let required_bytes = required_samples
+            .checked_mul(2)
+            .ok_or(PcmResampleError::OutputTooSmall)?;
+        if output_s16le_mono.len() < required_bytes {
+            return Err(PcmResampleError::OutputTooSmall);
+        }
+
+        let mut output_offset = 0;
+        for _ in 0..SPEECH_RESAMPLER_TAIL_FRAMES {
+            if let Some(sample) = self.push_mono_sample(0) {
+                let bytes = sample.to_le_bytes();
+                output_s16le_mono[output_offset..output_offset + 2].copy_from_slice(&bytes);
+                output_offset += 2;
+            }
+        }
+        self.reset();
+        Ok(output_offset / 2)
+    }
+
+    fn output_count(frames: usize, phase: usize) -> usize {
+        if frames == 0 {
+            return 0;
+        }
+        let first_output = (2 + 3 - phase) % 3;
+        if first_output >= frames {
+            0
+        } else {
+            1 + (frames - 1 - first_output) / 3
+        }
+    }
+
+    fn push_mono_sample(&mut self, sample: i16) -> Option<i16> {
+        self.history[self.write_index] = sample;
+        self.write_index = (self.write_index + 1) % SPEECH_RESAMPLER_TAPS;
+
+        let result = if self.phase == 2 {
+            let mut accumulator = 0_i64;
+            for (tap, coefficient) in SPEECH_RESAMPLER_COEFFICIENTS_Q15.iter().enumerate() {
+                let index =
+                    (self.write_index + SPEECH_RESAMPLER_TAPS - 1 - tap) % SPEECH_RESAMPLER_TAPS;
+                accumulator += i64::from(self.history[index]) * i64::from(*coefficient);
+            }
+            let rounded = if accumulator >= 0 {
+                accumulator + (1 << 14)
+            } else {
+                accumulator - (1 << 14)
+            };
+            Some((rounded >> 15).clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16)
+        } else {
+            None
+        };
+        self.phase = (self.phase + 1) % 3;
+        result
+    }
+}
+
+impl Default for Stereo48KhzToMono16Khz {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Adapts a 48 kHz stereo push-to-talk stream to the mono 16 kHz PCM format
+/// expected by Whisper-class STT providers. The resampler and scratch buffer
+/// are bounded and are erased on completion or cancellation.
+pub struct ResamplingSpeechToTextProvider<P> {
+    provider: P,
+    resampler: Stereo48KhzToMono16Khz,
+    resampled_chunk: [u8; MAX_SPEECH_RESAMPLED_CHUNK_BYTES],
+}
+
+impl<P> ResamplingSpeechToTextProvider<P>
+where
+    P: SpeechToTextProvider,
+{
+    pub const fn new(provider: P) -> Self {
+        Self {
+            provider,
+            resampler: Stereo48KhzToMono16Khz::new(),
+            resampled_chunk: [0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES],
+        }
+    }
+
+    pub fn inner(&self) -> &P {
+        &self.provider
+    }
+}
+
+impl<P> SpeechToTextProvider for ResamplingSpeechToTextProvider<P>
+where
+    P: SpeechToTextProvider,
+{
+    fn begin(&mut self, mut options: SpeechOptions) -> Result<(), SpeechProviderError> {
+        self.resampler.reset();
+        self.resampled_chunk.fill(0);
+        if options.pcm_format != PcmFormat::stereo_48khz() {
+            return Err(SpeechProviderError::Failed);
+        }
+        options.pcm_format = PcmFormat::mono_16khz();
+        self.provider.begin(options)
+    }
+
+    fn push_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), SpeechProviderError> {
+        if format != PcmFormat::stereo_48khz()
+            || bytes.is_empty()
+            || bytes.len() > MAX_SPEECH_PCM_CHUNK_BYTES
+            || bytes.len() & 3 != 0
+        {
+            return Err(SpeechProviderError::Failed);
+        }
+        self.resampled_chunk.fill(0);
+        let samples = self
+            .resampler
+            .convert(bytes, &mut self.resampled_chunk)
+            .map_err(|_| SpeechProviderError::Failed)?;
+        let bytes = samples * 2;
+        let result = if bytes == 0 {
+            Ok(())
+        } else {
+            self.provider
+                .push_pcm(PcmFormat::mono_16khz(), &self.resampled_chunk[..bytes])
+        };
+        self.resampled_chunk.fill(0);
+        result
+    }
+
+    fn finish(&mut self, transcript: &mut [u8]) -> Result<usize, SpeechProviderError> {
+        self.resampled_chunk.fill(0);
+        let tail_samples = self
+            .resampler
+            .finish(&mut self.resampled_chunk)
+            .map_err(|_| SpeechProviderError::Failed)?;
+        let tail_bytes = tail_samples * 2;
+        if tail_bytes != 0 {
+            let result = self
+                .provider
+                .push_pcm(PcmFormat::mono_16khz(), &self.resampled_chunk[..tail_bytes]);
+            self.resampled_chunk.fill(0);
+            result?;
+        }
+        self.resampled_chunk.fill(0);
+        self.provider.finish(transcript)
+    }
+
+    fn cancel(&mut self) {
+        self.resampler.reset();
+        self.resampled_chunk.fill(0);
+        self.provider.cancel();
+    }
 }
 
 /// A replaceable local TTS engine. Implementations receive only bounded UTF-8
@@ -494,7 +737,200 @@ mod tests {
     extern crate std;
 
     use super::*;
-    use std::{cell::Cell, rc::Rc, vec::Vec};
+    use std::{cell::Cell, f64::consts::TAU, rc::Rc, vec, vec::Vec};
+
+    fn stereo_constant(frames: usize, left: i16, right: i16) -> Vec<u8> {
+        let mut input = Vec::with_capacity(frames * 4);
+        for _ in 0..frames {
+            input.extend_from_slice(&left.to_le_bytes());
+            input.extend_from_slice(&right.to_le_bytes());
+        }
+        input
+    }
+
+    fn resample_in_chunks(input: &[u8], chunk_frames: usize) -> Vec<u8> {
+        let mut resampler = Stereo48KhzToMono16Khz::new();
+        let mut output = Vec::new();
+        let mut offset = 0;
+        while offset < input.len() {
+            let chunk_bytes = (chunk_frames * 4).min(input.len() - offset);
+            let mut chunk_output = [0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES];
+            let samples = resampler
+                .convert(&input[offset..offset + chunk_bytes], &mut chunk_output)
+                .unwrap();
+            output.extend_from_slice(&chunk_output[..samples * 2]);
+            offset += chunk_bytes;
+        }
+        let mut tail = [0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES];
+        let samples = resampler.finish(&mut tail).unwrap();
+        output.extend_from_slice(&tail[..samples * 2]);
+        output
+    }
+
+    #[test]
+    fn stereo_48khz_resampler_is_chunk_boundary_independent() {
+        let input = stereo_constant(751, 12_000, -4_000);
+        let mut whole = Stereo48KhzToMono16Khz::new();
+        let mut whole_output = vec![0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES * 4];
+        let samples = whole.convert(&input, &mut whole_output).unwrap();
+        let mut tail = [0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES];
+        let tail_samples = whole.finish(&mut tail).unwrap();
+        let mut expected = whole_output[..samples * 2].to_vec();
+        expected.extend_from_slice(&tail[..tail_samples * 2]);
+
+        assert_eq!(resample_in_chunks(&input, 1), expected);
+        assert_eq!(resample_in_chunks(&input, 137), expected);
+        assert_eq!(resample_in_chunks(&input, 1024), expected);
+        assert_eq!(expected.len() / 2, (751 + SPEECH_RESAMPLER_TAIL_FRAMES) / 3);
+    }
+
+    #[test]
+    fn stereo_48khz_resampler_validates_before_changing_state() {
+        let input = stereo_constant(9, 10_000, 2_000);
+        let mut resampler = Stereo48KhzToMono16Khz::new();
+        let mut undersized = [0; 2];
+        assert_eq!(
+            resampler.convert(&input, &mut undersized),
+            Err(PcmResampleError::OutputTooSmall)
+        );
+        assert_eq!(
+            resampler.convert(&[1, 2, 3], &mut [0; 8]),
+            Err(PcmResampleError::InvalidInput)
+        );
+
+        let mut actual = [0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES];
+        let count = resampler.convert(&input, &mut actual).unwrap();
+        let mut fresh = Stereo48KhzToMono16Khz::new();
+        let mut expected = [0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES];
+        let expected_count = fresh.convert(&input, &mut expected).unwrap();
+        assert_eq!(count, expected_count);
+        assert_eq!(&actual[..count * 2], &expected[..expected_count * 2]);
+    }
+
+    #[test]
+    fn stereo_48khz_resampler_handles_silence_and_averages_channels() {
+        let mut silence = Stereo48KhzToMono16Khz::new();
+        let silent_input = stereo_constant(384, 0, 0);
+        let mut output = vec![0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES * 2];
+        let samples = silence.convert(&silent_input, &mut output).unwrap();
+        let mut tail = [0; MAX_SPEECH_RESAMPLED_CHUNK_BYTES];
+        let tail_samples = silence.finish(&mut tail).unwrap();
+        assert!(output[..samples * 2].iter().all(|byte| *byte == 0));
+        assert!(tail[..tail_samples * 2].iter().all(|byte| *byte == 0));
+
+        let mut converter = Stereo48KhzToMono16Khz::new();
+        let input = stereo_constant(384, 10_000, 2_000);
+        let samples = converter.convert(&input, &mut output).unwrap();
+        let stable_sample =
+            i16::from_le_bytes([output[(samples - 1) * 2], output[(samples - 1) * 2 + 1]]);
+        assert!((stable_sample - 6_000).abs() <= 2);
+    }
+
+    #[test]
+    fn stereo_48khz_resampler_rejects_stopband_aliases() {
+        fn encode_tone(frequency_hz: f64) -> Vec<u8> {
+            let frames = 24_000;
+            let mut input = Vec::with_capacity(frames * 4);
+            for frame in 0..frames {
+                let phase = TAU * frequency_hz * frame as f64 / 48_000.0;
+                let sample = (phase.sin() * 12_000.0) as i16;
+                input.extend_from_slice(&sample.to_le_bytes());
+                input.extend_from_slice(&sample.to_le_bytes());
+            }
+            input
+        }
+
+        fn output_rms(input: &[u8]) -> f64 {
+            let mut resampler = Stereo48KhzToMono16Khz::new();
+            let mut output = vec![0; input.len() / 3 + MAX_SPEECH_RESAMPLED_CHUNK_BYTES];
+            let samples = resampler.convert(input, &mut output).unwrap();
+            let mut sum = 0_f64;
+            let mut count = 0;
+            // Measure steady-state response; the finite signal's ending edge
+            // is intentionally excluded from this stop-band check.
+            for bytes in output[..samples.saturating_sub(100) * 2]
+                .chunks_exact(2)
+                .skip(100)
+            {
+                let sample = f64::from(i16::from_le_bytes([bytes[0], bytes[1]]));
+                sum += sample * sample;
+                count += 1;
+            }
+            (sum / count as f64).sqrt()
+        }
+
+        let passband_rms = output_rms(&encode_tone(1_000.0));
+        let stopband_rms = output_rms(&encode_tone(12_000.0));
+        assert!(passband_rms > 8_000.0);
+        assert!(
+            stopband_rms / passband_rms < 0.002,
+            "passband RMS {passband_rms}, stopband RMS {stopband_rms}"
+        );
+    }
+
+    struct RecordingSpeechProvider {
+        begin_format: Option<PcmFormat>,
+        last_format: Option<PcmFormat>,
+        pushed_bytes: usize,
+        push_calls: usize,
+        cancels: usize,
+    }
+
+    impl SpeechToTextProvider for RecordingSpeechProvider {
+        fn begin(&mut self, options: SpeechOptions) -> Result<(), SpeechProviderError> {
+            self.begin_format = Some(options.pcm_format);
+            Ok(())
+        }
+
+        fn push_pcm(&mut self, format: PcmFormat, bytes: &[u8]) -> Result<(), SpeechProviderError> {
+            self.last_format = Some(format);
+            self.pushed_bytes += bytes.len();
+            self.push_calls += 1;
+            Ok(())
+        }
+
+        fn finish(&mut self, _transcript: &mut [u8]) -> Result<usize, SpeechProviderError> {
+            Ok(0)
+        }
+
+        fn cancel(&mut self) {
+            self.cancels += 1;
+        }
+    }
+
+    #[test]
+    fn resampling_provider_flushes_tail_and_resets_between_utterances() {
+        let provider = RecordingSpeechProvider {
+            begin_format: None,
+            last_format: None,
+            pushed_bytes: 0,
+            push_calls: 0,
+            cancels: 0,
+        };
+        let mut adapter = ResamplingSpeechToTextProvider::new(provider);
+        let options = SpeechOptions {
+            language: SpeechLanguage::Japanese,
+            pcm_format: PcmFormat::stereo_48khz(),
+        };
+        adapter.begin(options).unwrap();
+        assert_eq!(adapter.inner().begin_format, Some(PcmFormat::mono_16khz()));
+
+        let input = stereo_constant(6, 8_000, 8_000);
+        adapter.push_pcm(PcmFormat::stereo_48khz(), &input).unwrap();
+        let pushed_before_finish = adapter.inner().pushed_bytes;
+        assert_eq!(pushed_before_finish, 4);
+        let mut transcript = [0; 16];
+        adapter.finish(&mut transcript).unwrap();
+        assert!(adapter.inner().pushed_bytes > pushed_before_finish);
+        assert_eq!(adapter.inner().last_format, Some(PcmFormat::mono_16khz()));
+
+        adapter.begin(options).unwrap();
+        adapter.push_pcm(PcmFormat::stereo_48khz(), &input).unwrap();
+        adapter.cancel();
+        assert_eq!(adapter.inner().cancels, 1);
+        assert!(adapter.resampled_chunk.iter().all(|byte| *byte == 0));
+        assert!(adapter.resampler.history.iter().all(|sample| *sample == 0));
+    }
 
     #[derive(Clone)]
     struct FixtureInput {

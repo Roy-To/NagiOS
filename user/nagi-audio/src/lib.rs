@@ -29,8 +29,15 @@ impl PcmFormat {
         }
     }
 
+    pub const fn mono_16khz() -> Self {
+        Self {
+            sample_rate: 16_000,
+            channels: 1,
+        }
+    }
+
     pub const fn new(sample_rate: u32, channels: u16) -> Result<Self, AudioError> {
-        if sample_rate == 48_000 && channels == 2 {
+        if (sample_rate == 48_000 && channels == 2) || (sample_rate == 16_000 && channels == 1) {
             Ok(Self {
                 sample_rate,
                 channels,
@@ -251,6 +258,7 @@ mod tests {
     #[test]
     fn rejects_an_unsupported_pcm_format() {
         assert_eq!(PcmFormat::new(48_000, 2).unwrap().sample_rate(), 48_000);
+        assert_eq!(PcmFormat::new(16_000, 1), Ok(PcmFormat::mono_16khz()));
         assert_eq!(
             PcmFormat::new(48_000, 1),
             Err(AudioError::UnsupportedFormat)

@@ -382,3 +382,33 @@ CMake library build passed. A local CLI patch-contract `cargo test` could not
 link because this host's installed Command Line Tools do not provide an
 x86_64-compatible `libxcrun`; the clean-host CI result remains pending. The
 loader test uses synthetic data only, and M25 remains `PARTIAL`.
+
+## Streaming STT format adapter — 2026-10-03
+
+Added `Stereo48KhzToMono16Khz`, a fixed-memory, 127-tap Q15 Blackman FIR
+decimator for interleaved stereo S16LE. It averages the channels, emits mono
+S16LE at 16 kHz, retains its FIR history and 3:1 phase across bounded capture
+chunks, flushes the FIR tail at end of utterance, and resets/erases state on
+finish or cancel. `ResamplingSpeechToTextProvider` now adapts the existing
+48 kHz capture contract to the 16 kHz mono format expected at a Whisper-class
+provider boundary. This provides the sample-rate conversion seam; there is
+still no connected Whisper provider.
+
+The 20 `nagi-audio` tests pass, including split-versus-whole chunk equivalence,
+state preservation after rejected buffers, silence, stereo averaging, reset,
+tail flush, and steady-state rejection of a 12 kHz alias. Warnings-denied
+Clippy and `./nagi fmt` pass. QEMU run `1790954944032231000` passed the target
+M25 voice fixture, including converted PCM delivery before provider finish,
+permission/indicator ordering, cleanup, and fixed transcript handoff. The
+guest log, bootstrap log, images, OVMF variables, prior failing log, and
+`SHA256SUMS` are preserved under
+`out/evidence/m25-resampler-20261003/`. The first QEMU attempt exposed an old
+fixture assertion that expected the original capture bytes; the fixture was
+updated to use 128 stereo frames and assert the decimated output count before
+the passing rerun.
+
+This fixture does not access a physical microphone, run Whisper inference,
+synthesize speech, or execute the fixture transcript. QEMU still reports no
+host `virtio-sound.in` driver. Authenticated permission/UI, a real Japanese STT
+provider and inference, concrete local TTS, and spoken-command acceptance
+remain incomplete; M25 stays `PARTIAL`.
