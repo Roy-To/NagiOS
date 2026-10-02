@@ -53,7 +53,7 @@
   "integration_owner_actions": [
     "DONE: registry_entry applied on codex/0.2-clip-01 (4595e7d) and integrated into codex/integration-next-phase (02e05f3).",
     "DONE: clipboard.write accepted as an independent, unscoped permission covering write and clear (docs/decisions/ADR-0012-clipboard-permission-identifiers.md, commit 2bb35c5); clipboard.read covers reads. Runtime registration in a live CapabilityRegistry stays gated.",
-    "When a canonical MediaType contract is chosen, reconcile CLIP-01 MediaType with the private valid_media_type validator in sdk/rust/src/app_contract/manifest.rs (owned by app-sdk-contract); CLIP-01 is stricter (canonical lowercase, no parameters or wildcards).",
+    "DONE: media types reconciled in ADR-0013 (commit dec6e7d). nagi_model::validate_media_type is the single canonical grammar; the SDK manifest validator, app-manifest JSON Schema, and nagi-clipboard-core MediaType all use it.",
     "After Nagi 0.1 M30 PASS, publish an explicit checkpoint naming CLIP-01 before any compositor, IPC, target, Capability wiring, or first-party adoption work.",
     "Do not merge this dedicated branch directly to main or another workstream branch."
   ],
