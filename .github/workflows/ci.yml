@@ -56,6 +56,11 @@ jobs:
         run: cargo build --workspace --exclude nagi-kernel --locked
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: Standalone clipboard core (CLIP-01)
+        run: |
+          cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check
+          cargo clippy --manifest-path crates/nagi-clipboard-core/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked
       - name: Focused host acceptance (M0)
         run: ./nagi test --acceptance --host-only --ci
       - name: Upload Ubuntu acceptance reports and logs
