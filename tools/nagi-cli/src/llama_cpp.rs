@@ -927,6 +927,22 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_loader_metadata_errors_fail_closed_without_target_exceptions() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0011-nagi-llama-loader-metadata-status.patch"),
+        )
+        .expect("Nagi loader metadata status patch");
+
+        assert!(patch.contains("fail_metadata(const std::string & message)"));
+        assert!(patch.contains("metadata_valid = false"));
+        assert!(patch.contains("LLAMA_MODEL_LOADER_FAIL_METADATA"));
+        assert!(patch.contains("metadata_required_key_fails_closed"));
+        assert!(patch.contains("metadata_wrong_scalar_for_array_fails_closed"));
+        assert!(patch.contains("expected scalar, found array"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

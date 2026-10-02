@@ -665,3 +665,34 @@ inference. Logs are `out/logs/m20-typed-key-status-host-build.log`,
 `out/logs/m20-typed-key-status-fetch-host-ctest.log`,
 `out/logs/m20-typed-key-status-cli-test.log`, and
 `out/logs/m20-typed-key-status-target-build.log`. M20 remains `PARTIAL`.
+
+## Loader metadata status — 2026-10-02
+
+Added `third_party/llama-cpp-patches/0011-nagi-llama-loader-metadata-status.patch`.
+Required loader metadata reads now return failure and set sticky
+`metadata_valid=false` on the Nagi target when keys are missing, have the wrong
+scalar/array type, or request invalid array bounds. Host builds retain the
+upstream exception behavior. The loader boundary already checks the sticky
+state before continuing to model construction.
+
+The host loader-bounds CTest passes 1/1 in both the `__NAGI__` fixture build and
+the ordinary upstream-host build. Cases cover a missing required key and a
+scalar supplied where an array is required. The CLI library suite passes 174
+tests, and the `nagi-cli` format check passes. The patch-contract test verifies
+that the Nagi failure helper and fail-closed cases remain represented in the
+numbered patch.
+
+`./nagi fetch` regenerated a clean pinned llama.cpp checkout from patches
+0001–0011, with patch fingerprint `fnv1a64:25d512c3e8c1a0e3` and checkout
+fingerprint `fnv1a64:aa67c902a7848a47`. Reverse `git apply --check` confirmed
+patch 0011 is present. The fetch then stopped at the pre-existing modified
+generated Servo checkout and did not modify it. The earlier generated working
+copy and its 3,674-entry SHA-256 manifest were preserved and reverified; the raw
+pinned `third_party/llama.cpp` checkout remains clean.
+
+With Homebrew LLVM 19 and matching libc++ headers, the Nagi-target loader object
+now passes the metadata accessor sites but still fails on later constructor and
+tensor-loading `throw`/`try` syntax (20 diagnostics before the compiler's error
+limit). The exact failure is logged at
+`out/logs/m20-loader-status-0011-fetch-target-build.log`. This does not build a
+target backend or demonstrate inference. M20 remains `PARTIAL`.
