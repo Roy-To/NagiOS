@@ -819,3 +819,33 @@ has no `virtio-sound.in` input driver, so this run does not test audio.
 
 M30 remains PARTIAL for authenticated System B updates, remaining M18–M29
 acceptance, and human binary redistribution review.
+
+## Completion Sweep release checkpoint on acffe0b — 2026-10-02
+
+After the M29 selected-locale text cue changed the target source, the prior
+`b11858b` image and sidecar were preserved under
+`out/evidence/m30-pre-acffe0b-current-source-20261002/`. From clean committed
+source `acffe0bdc38571cbec007c8de9af69078033e393`, `./nagi m30` rebuilt the
+self-contained 64 GiB reference qcow2. Its SHA-256 is
+`47615fce4e0b7442f1d016add408eb84c120b6fb5ad0dcd85b00c517e4de2d41`; the
+adjacent `.qcow2.build-info` binds that digest to the full source revision.
+
+QEMU run `1790901835370320000` passed System A boot, User Data first write and
+restart persistence, Recovery, rejection of unstaged System B, the
+post-Recovery restart, and the separate M20 FAT32 Model Store reader fixture.
+The 20-entry evidence manifest verifies at
+`out/evidence/m30-release-1790901835370320000/SHA256SUMS`. `qemu-img check`
+passed on the pristine reference, the writable QEMU acceptance copy, the
+Model Store fixture, and the assembled bundle image.
+
+On the same clean source, release preflight, assembly to
+`out/artifacts/m30-release-bundle-acffe0b/`, and release-tool verification
+passed. The 14 release-tool unit tests passed. All 24 bundle checksums verify,
+and the bundle image is byte-identical to the pristine reference image. QEMU
+tested a disposable copy of that reference; the assembled bundle remained
+untouched and verified. The generated release manifest deliberately retains
+`m30_acceptance=NOT_EVALUATED`, so this external guest evidence is not a release
+readiness declaration. QEMU had no `virtio-sound.in` input backend; audio was
+not tested and no model inference is claimed. M30 remains `PARTIAL` for
+authenticated updates, remaining M18–M29 acceptance, and human binary
+redistribution review.
