@@ -77,9 +77,11 @@ checked-status regression for an invalid quantization state.
 
 The current incremental no-exception syntax sweep passes all 32 top-level
 `src/*.cpp` translation units, including the DSV4 cache, sampler, and
-quantizer. This is not a complete Nagi-target `llama` build: the last full
-target attempt, before patches 0031–0033, stopped on exception syntax in
-model-specific translation units, and that full target has not yet been
-re-run. Direct fault injection for DSV4 malformed batches/state I/O and
-sampler ring corruption is also unavailable. These compile and checked-status
-results do not establish Granite inference; M20 remains `PARTIAL`.
+quantizer. The complete LLVM 19/libc++ Nagi no-exceptions `llama` target also
+builds successfully (42/42 Ninja steps), producing a static archive at
+`out/m20-llama-backend-reg-noexceptions-20261001-clang19/src/libllama.a`.
+The build log is
+`out/logs/m20-loader-status-0033-noexceptions-target-build-llvm19.log`.
+This archive is not linked into the guest Model Manager, and Granite inference
+has not run. Direct fault injection for DSV4 malformed batches/state I/O and
+sampler ring corruption is also unavailable. M20 remains `PARTIAL`.

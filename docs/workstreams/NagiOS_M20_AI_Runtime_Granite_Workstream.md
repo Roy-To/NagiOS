@@ -1196,14 +1196,25 @@ quantization (`test-sampling` and `test-quant-type-selection`, 1/1 each).
 `test-model-loader-bounds` also built and passed in both configurations for
 the prior DSV4 slice. `cargo test -p nagi-cli` passes 196 library tests and 21
 CLI integration tests, and `cargo fmt --all -- --check` passes. A direct
-Nagi-configured no-exceptions syntax sweep now passes all 32 top-level
-`src/*.cpp` translation units; the complete full-target build has not been
-rerun and its last recorded attempt still fails in model-specific sources.
-Logs are `out/logs/m20-loader-status-0031-*`,
-`out/logs/m20-loader-status-0032-*`, and
+Nagi-configured no-exceptions syntax sweep passes all 32 top-level `src/*.cpp`
+translation units. At this checkpoint the full target had not yet been
+rerun; the follow-up result is recorded below. Logs are
+`out/logs/m20-loader-status-0031-*`, `out/logs/m20-loader-status-0032-*`, and
 `out/logs/m20-loader-status-0033-*`.
 
 Direct DSV4 malformed-batch/state-writer and sampler ring fault-injection
 tests are unavailable. This work establishes checked compilation and normal
 host/Nagi test behavior, not the missing failure injections or guest model
 inference. M20 remains `PARTIAL`.
+
+## Full Nagi-target llama archive — 2026-10-03
+
+The follow-up LLVM 19/libc++ no-exceptions build completed all 42 Ninja steps
+and linked
+`out/m20-llama-backend-reg-noexceptions-20261001-clang19/src/libllama.a`
+(6.4 MiB). The log is
+`out/logs/m20-loader-status-0033-noexceptions-target-build-llvm19.log`.
+This compiles the pinned llama.cpp static library for Nagi; the archive is not
+yet linked to the guest Model Manager or run with Granite. Guest model loading,
+generation, unload/restart, and bounded-resource acceptance remain open, so
+M20 remains `PARTIAL`.

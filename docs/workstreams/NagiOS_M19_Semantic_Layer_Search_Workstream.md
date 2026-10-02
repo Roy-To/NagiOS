@@ -193,11 +193,12 @@ not activate Search as a production IPC service. M19 remains `PARTIAL`.
 
 The cross-milestone audit in `docs/implementation_status.md` confirms that
 M19 Search and M21/M22 Action/Activity paths still use the single PID 1
-bootstrap process and fixture caller context. User `wait`/`wait_many`, isolated
-service processes, authenticated endpoint delivery, production Files/page
-producers, and a production Activity Ledger bridge remain prerequisites. The
-guest Search and restart tests remain valid orchestration evidence; M19 remains
-`PARTIAL`.
+bootstrap process and fixture caller context. Channel readability wait is now
+available through the user ABI and covered by a blocked-thread QEMU regression;
+generic event/timer `wait_many`, isolated service processes, authenticated
+endpoint delivery, production Files/page producers, and a production Activity
+Ledger bridge remain open. The guest Search and restart tests remain valid
+orchestration evidence; M19 remains `PARTIAL`.
 
 ## Completion Sweep — bootstrap Channel wait/wake (2026-10-02)
 

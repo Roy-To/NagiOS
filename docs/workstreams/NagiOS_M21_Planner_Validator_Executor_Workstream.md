@@ -249,7 +249,8 @@ nonblocking receive, and handle close through the user syscall ABI. Its fresh
 M19 QEMU acceptance passes payload round-trip, kernel-stamped PID 1 despite
 forged payload bytes, READ-only transferred-handle behavior, full-queue
 rejection, and close/reuse. The manager supports only the single bootstrap
-Process and has no blocking wait. This is IPC plumbing evidence; it does not
+Process; `SYS_CHANNEL_WAIT_READABLE` now provides blocking Channel receive.
+This is IPC plumbing evidence; it does not
 bind the fixture's App/Session identity to a trusted supervisor, production
 ActionPolicy, or production ContextAuthority. M21 remains `PARTIAL`.
 
@@ -257,9 +258,9 @@ ActionPolicy, or production ContextAuthority. M21 remains `PARTIAL`.
 
 The cross-milestone audit in `docs/implementation_status.md` confirms that the
 current `ServiceRegistry` is an in-process function-pointer registry and the
-guest ActionPolicy caller context is fixture data. The published bootstrap
-Channel syscalls do not expose waiting, isolated processes, or
-supervisor-authorized endpoint delivery. Production handlers require
-authenticated process/launch context and capability-backed service endpoints;
-a caller-supplied PID or App ID is insufficient. The current Search and VFS
-mutation fixtures remain valid, and M21 stays `PARTIAL`.
+guest ActionPolicy caller context is fixture data. The bootstrap Channel ABI
+now includes readability wait, but there are still no isolated service
+processes or supervisor-authorized endpoint delivery. Production handlers
+require authenticated process/launch context and capability-backed service
+endpoints; a caller-supplied PID or App ID is insufficient. The current Search
+and VFS mutation fixtures remain valid, and M21 stays `PARTIAL`.

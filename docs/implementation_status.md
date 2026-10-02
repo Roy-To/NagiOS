@@ -5187,7 +5187,7 @@ Record exact pinned revisions once introduced.
 | libc (Servo) | `0.2.189`, sha256 pinned in `sources.lock` | Nagi target patch `0001`; guest not yet accepted | Servo dependency |
 | relibc | `69bb008af1f6d93758631cf0df250500d53a065b` | Nagi backend present; Mesa C headers/archive not yet accepted | Initial POSIX libc candidate |
 | cc (cc-rs) | `1.4.6`, sha256 pinned in `sources.lock` | Nagi target patch `0001`; target C++ objects remain target-built without host runtime inference | Shared C/C++ build boundary |
-| llama.cpp | `c85b92c69c955961621193cd51da194f3cbcedf3` | Pinned in `sources.lock`; Nagi-owned patch stack `0001`–`0022` covers bounded GGUF parsing, native paths, checked tensor/model/adapter status, and model-architecture validation. Static CPU `ggml` builds; the full no-exceptions `llama` target currently stops at 44 throw diagnostics across 19 remaining model files. | Generative LLM runtime; Decision and Embedding providers are not fixed to it |
+| llama.cpp | `c85b92c69c955961621193cd51da194f3cbcedf3` | Pinned in `sources.lock`; Nagi-owned patches `0001`–`0033` cover bounded GGUF parsing and checked loader/runtime status. LLVM 19/libc++ no-exceptions Nagi `llama` target now links a static archive; it is not yet linked into the guest Model Manager and no in-guest inference is verified. | Generative LLM runtime; Decision and Embedding providers are not fixed to it |
 | whisper.cpp | `927cfce34f31707e17f2bff35c349632fb9e2c3a` | Clean raw source pin plus Nagi-owned no-exception patch; generated CPU-only `whisper` target builds, no STT provider | STT |
 | smoltcp | Not pinned yet | 遯ｶ繝ｻ| Network stack |
 
@@ -7275,11 +7275,13 @@ still unmeasured. M27 remains `PARTIAL` for authenticated update/readiness and
 remaining Recovery work.
 
 Priority A audit findings remain cross-cutting: the kernel has bounded
-generational handles, rights attenuation, and channel transfer escrow, but no
-user Channel syscall or live authenticated multi-process service boundary.
-Bootstrap does not bind application/session identities to per-process handle
-delivery. Consequently M18's picker/clipboard/IME/site-permission providers
-and M23 live Browser Context cannot be safely wired as production providers.
+generational handles, rights attenuation, and channel transfer escrow. The
+user ABI now exposes bounded Channel create/send/receive/close and
+`SYS_CHANNEL_WAIT_READABLE`, but the bootstrap manager still owns only PID 1
+and provides no live authenticated multi-process service boundary. Bootstrap
+does not bind application/session identities to per-process handle delivery.
+Consequently M18's picker/clipboard/IME/site-permission providers and M23 live
+Browser Context cannot yet be safely wired as production providers.
 M19's guest Search Service and M21 `file.search` are real guest VFS paths but
 use fixture-only callers/policy; M21/M22 Move/Copy and NAL1 ledger restore are
 also acceptance-fixture scoped. Do not promote these items to production
@@ -7647,13 +7649,13 @@ M18–M29 work, and human binary redistribution review.
 
 The existing foundations were inspected before considering integration across
 M18, M19, and M21–M23. The bootstrap Channel path exposes bounded create, send,
-nonblocking receive, and close syscalls. `kernel/src/user_ipc.rs` initializes
-one `Process` with PID 1 in one address space; it stamps Channel sends with
-that process identity and checks attenuated handle transfers. `WaitRegistry`
-is used inside the kernel IPC implementation, but no user `wait` or
-`wait_many` syscall is published in `nagi-abi` or dispatched by the kernel.
-This agrees with spec §9.6 and ADR-0002: the current path demonstrates ABI and
-capability mechanics, not an authenticated inter-process service boundary.
+nonblocking receive, close, and `SYS_CHANNEL_WAIT_READABLE` syscalls.
+`kernel/src/user_ipc.rs` initializes one `Process` with PID 1 in one address
+space; it stamps Channel sends with that process identity and checks
+attenuated handle transfers. Channel readability wait is implemented and
+covered by the M19 QEMU fixture; generic event/timer `wait_many` is not
+published. This demonstrates ABI and capability mechanics, not an
+authenticated inter-process service boundary.
 
 `libnagi::ServiceRegistry` resolves manifests to local function pointers and
 invokes handlers in the same process. It has bounded capacity and health
@@ -7677,9 +7679,10 @@ behavior and does not provide interactive permission, clipboard, text/IME, or
 opaque file-handle providers.
 
 The shared blocker is architectural: isolated process/address-space launch,
-user-visible wait semantics, supervisor-authorized endpoint delivery bound to
-kernel process identity and a launch record, and service adapters that receive
-capabilities rather than caller-supplied identity fields are not in place.
+supervisor-authorized endpoint delivery bound to kernel process identity and a
+launch record, and service adapters that receive capabilities rather than
+caller-supplied identity fields are not in place. Channel readability wait
+exists, but does not supply those missing process and launch authorities.
 Implementing only a policy callback or treating a PID/App ID in a request as
 authentication would weaken the stated capability boundary. Keep the existing
 M18–M23 guest fixtures as orchestration evidence until that trusted service
@@ -8159,8 +8162,23 @@ all 32 top-level llama.cpp `src/*.cpp` translation units; the result is in
 `out/logs/m20-loader-status-0033-noexceptions-tu.log`. Build and test logs are
 under `out/logs/m20-loader-status-003{1,2,3}-`.
 
-The full Nagi-target `llama` build has not been rerun after these patches. Its
-last recorded attempt stopped on exception syntax in model-specific source
-files. Direct fault injection for DSV4 malformed batch/state-I/O paths and
-sampler ring corruption is not available. No Granite inference has run, so
-M20 remains `PARTIAL`.
+At this checkpoint the full Nagi-target `llama` build had not yet been rerun
+after these patches. Its last recorded attempt stopped on exception syntax in
+model-specific source files. Direct fault injection for DSV4 malformed
+batch/state-I/O paths and sampler ring corruption is not available. No Granite
+inference had run, so M20 remained `PARTIAL`.
+
+## Completion Sweep — M20 full Nagi-target llama archive (2026-10-03)
+
+After patches 0031–0033, the complete LLVM 19/libc++ no-exceptions `llama`
+target built successfully: Ninja completed all 42 steps and linked
+`out/m20-llama-backend-reg-noexceptions-20261001-clang19/src/libllama.a`
+(6.4 MiB). The build required the configured target compiler, C++ headers, and
+Homebrew Ninja on `PATH`; the complete log is
+`out/logs/m20-loader-status-0033-noexceptions-target-build-llvm19.log`.
+Warnings were limited to existing unused mmap parameters and unreachable
+fallback returns in `llama-context.cpp`.
+
+This is a static library build, not a link into `nagi-init` or the guest Model
+Manager. Granite loading, generation, unload/restart, bounded runtime behavior,
+and structured-output inference remain unverified. M20 remains `PARTIAL`.
