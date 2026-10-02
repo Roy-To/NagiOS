@@ -1044,6 +1044,22 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_tensor_construction_failures_have_checked_status_returns() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(root.join(
+            "third_party/llama-cpp-patches/0017-nagi-llama-tensor-construction-status.patch",
+        ))
+        .expect("Nagi tensor construction status patch");
+
+        assert!(patch.contains("llm_tensor_info_find"));
+        assert!(patch.contains("missing_tensor_info_lookup_returns_null"));
+        assert!(patch.contains("LLAMA_MODEL_LOADER_FAIL_POINTER"));
+        assert!(patch.contains("if (ctx == nullptr)"));
+        assert!(patch.contains("no CPU backend found"));
+        assert!(patch.contains("#ifdef __NAGI__"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

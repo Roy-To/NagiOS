@@ -883,3 +883,40 @@ available Command Line Tools libc++ fails in its availability and threading
 headers with 20 errors. The diagnostic is
 `out/logs/m20-loader-status-0016-target-build.log`. This does not verify the
 complete target backend or inference; M20 remains `PARTIAL`.
+
+## Tensor construction status — 2026-10-02
+
+Added numbered patch
+`third_party/llama-cpp-patches/0017-nagi-llama-tensor-construction-status.patch`.
+Nagi now uses a nonthrowing tensor-info lookup and carries missing mappings,
+incompatible buffer selection, unavailable CPU backend, and context-allocation
+failure through sticky loader status and null returns. The existing throwing
+`llm_tensor_info_for()` accessor remains unchanged for host behavior. Failed
+temporary ggml context creation during device capability probing is treated as
+an unsupported candidate; later buffer selection either finds another valid
+candidate or records the no-compatible-buffer failure.
+
+The loader-bounds regression verifies that an unknown tensor enum returns null
+through the new lookup while the legacy accessor still throws. Fresh generated-
+cache host builds and focused CTests pass 1/1 in Nagi-macro and ordinary host
+configurations. All 180 CLI library tests and `cargo fmt --check` pass. Logs
+are `out/logs/m20-loader-status-0017-final-nagi-build.log`,
+`out/logs/m20-loader-status-0017-final-nagi-ctest.log`,
+`out/logs/m20-loader-status-0017-final-upstream-build.log`,
+`out/logs/m20-loader-status-0017-final-upstream-ctest.log`,
+`out/logs/m20-loader-status-0017-cli-test.log`, and
+`out/logs/m20-loader-status-0017-fmt-check.log`.
+
+Fresh `./nagi fetch` applied patches 0001–0017 with patch fingerprint
+`fnv1a64:ef325ed7869529d9` and checkout fingerprint
+`fnv1a64:c33528fd50bdb517`. Reverse `git apply --check` confirms patch 0017 is
+present. Fetch stopped at the pre-existing modified Servo checkout without
+touching it; `third_party/llama.cpp` remains clean. The preserved pre-fetch
+generated checkout has a verified 3,674-entry SHA-256 manifest under
+`out/evidence/m20-loader-status-0017-20261002/generated-working-copy/`.
+
+The no-exceptions target check remains unverified because the available
+Command Line Tools libc++ stops in availability/threading headers before
+compiling the loader body (20 errors). See
+`out/logs/m20-loader-status-0017-target-build.log`. No complete target backend
+or inference is claimed; M20 remains `PARTIAL`.

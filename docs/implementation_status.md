@@ -209,6 +209,28 @@ the available Command Line Tools libc++ stops in its availability/threading
 headers with 20 errors before compiling the loader body. See
 `out/logs/m20-loader-status-0016-target-build.log`. No complete target backend
 or in-guest inference is claimed; M20 remains `PARTIAL`.
+Patch `0017-nagi-llama-tensor-construction-status.patch` adds a nonthrowing
+tensor-info lookup for Nagi and routes missing mappings, buffer-selection
+failure, unavailable CPU backend, and context-allocation failure into sticky
+loader status with null propagation. The existing `llm_tensor_info_for()` host
+exception contract is retained. The loader-bounds CTest now verifies unknown
+tensor-info lookup returns null while the legacy accessor still throws. Fresh
+generated-cache builds and CTests pass 1/1 in Nagi-macro and ordinary host
+configurations; all 180 CLI library tests and `cargo fmt --check` pass.
+
+Fresh `./nagi fetch` applied patches 0001–0017 with patch fingerprint
+`fnv1a64:ef325ed7869529d9` and checkout fingerprint
+`fnv1a64:c33528fd50bdb517`; reverse `git apply --check` confirms patch 0017 is
+present. Fetch again stopped at the pre-existing modified Servo checkout and
+left it untouched. The pre-fetch generated checkout and all 3,674 entries in
+its verified manifest are under
+`out/evidence/m20-loader-status-0017-20261002/generated-working-copy/`.
+
+The no-exceptions target check remains unverified because the available
+Command Line Tools libc++ fails in availability/threading headers before
+compiling the loader body (20 errors); see
+`out/logs/m20-loader-status-0017-target-build.log`. No complete target backend
+or in-guest inference is claimed; M20 remains `PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
