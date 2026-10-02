@@ -7670,3 +7670,19 @@ bundle `qemu-img check`, and byte identity with the pristine reference passed.
 The bundle still records `m30_acceptance=NOT_EVALUATED`; authenticated GPT
 updates, System B acceptance, remaining M18–M29 work, and human redistribution
 review remain. M30 remains `PARTIAL`.
+
+## Completion Sweep — M28 integration and M3 handoff diagnosis (2026-10-02)
+
+A guarded one-repetition M28 run passed M19 Search/ObjectId persistence and
+M22 three-boot grouped Undo/Activity Ledger recovery. Its M27 rollback boot 4
+timed out after three AP-online markers; QMP reported shutdown and kernel RIP
+`0x40060c0` in `smp::thread_entry`. Evidence and verified manifests are under
+`out/evidence/m28-run-20261001T235755Z-18930/` and
+`out/evidence/m27-ab-rollback-1790899090521806000/`. To make that transition
+visible in future traces, the M3 scheduler-start marker now precedes BSP `sti`.
+Kernel formatting and a target build passed; guest boots in the follow-up M27
+run reached M3 scheduler completion. That M27 command later timed out before
+the healthy-B guest started, with QMP at OVMF RIP `0x7eb84171`; its verified
+evidence is `out/evidence/m27-ab-rollback-1790899532394169000/`. The firmware
+loop root cause is unknown. Neither failed sequence is counted as a M27 or M28
+acceptance pass; both milestones remain PARTIAL.

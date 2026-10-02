@@ -615,3 +615,31 @@ PASS`. The replay manifest is at
 `out/evidence/m27-replay-system-a-1790889480617050000/SHA256SUMS`. This does
 not convert the original M27 stage or M28 repetition to a pass, and the root
 cause remains unconfirmed. M27 remains `PARTIAL`.
+
+## Completion Sweep scheduler handoff diagnostics — 2026-10-02
+
+A one-repetition M28 run passed M19 Search/ObjectId persistence and the three-
+boot M22 grouped Undo/Activity Ledger gate. M27 then timed out on rollback boot
+4 after the guest printed three M3 AP-online markers. QMP reported shutdown and
+CPU#0 RIP `0x40060c0`, which maps to `nagi_kernel::smp::thread_entry`. The full
+M28 run evidence is `out/evidence/m28-run-20261001T235755Z-18930/`; the M27
+sub-run logs and QMP output are under
+`out/evidence/m27-ab-rollback-1790899090521806000/`. Their SHA-256 manifests
+were verified. This M28 repetition failed and is not counted as an acceptance
+pass.
+
+The BSP scheduler-start serial marker previously followed `sti`, so an
+immediate timer handoff could occur before the marker. The marker now prints
+before enabling BSP interrupts; scheduler behavior is unchanged. The focused
+kernel rustfmt check passed, and the subsequent target build/QEMU attempt
+reported `Nagi M3 scheduler workload START`, `DONE`, and M3 acceptance in the
+bootstrap, rollback, Recovery, and confirmed-A guest logs.
+
+That M27 attempt later timed out before the healthy-B readiness-trial guest
+started. Its serial log contains only UEFI screen-clear bytes; QMP reported
+`status=running`, RIP `0x7eb84171`, and an OVMF instruction loop outside the
+kernel address range. The exact evidence, including OVMF variables, User Data,
+all logs, and verified manifest, is at
+`out/evidence/m27-ab-rollback-1790899532394169000/`. This is a firmware-start
+timeout with unknown root cause; it does not establish a kernel scheduler
+failure or a complete M27 pass. M27 and M28 remain PARTIAL.

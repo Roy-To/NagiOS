@@ -557,3 +557,23 @@ has no virtio-sound input driver, and no Desktop/Files/Notes/Albert concurrent
 load, real Granite inference, audio-pressure, OOM, CPU-fairness, or leak-soak
 acceptance was measured. The earlier OVMF startup loop remains unexplained.
 M28 remains `PARTIAL`.
+
+## Completion Sweep one-repetition run after M26 artifact acceptance — 2026-10-02
+
+Before running, existing M19/M22 fixed-name outputs and both persistent User
+Data disks were copied, byte-checked, and hash-preserved under
+`out/evidence/m28-pre-m26-qwen-20261001T235658Z/`. The guarded one-repetition
+runner then passed M19 live Search/ObjectId persistence and the M22 three-boot
+Move/Copy, NH16/NAL1, and grouped-Undo restart gate. M27 timed out on rollback
+boot 4 after three AP-online markers but before its scheduler-start marker;
+QMP reported shutdown and RIP `0x40060c0` in `smp::thread_entry`. The complete
+M28 archive is `out/evidence/m28-run-20261001T235755Z-18930/`; the M27 failure
+is preserved under `out/evidence/m27-ab-rollback-1790899090521806000/`. Both
+manifests verify. This repetition failed M27 and is not a complete M28 pass.
+
+The follow-up M27 run, after moving the scheduler-start marker before `sti`,
+reached M3 scheduler completion on its rollback and Recovery boots, then
+encountered a separate pre-guest OVMF loop on the healthy-B readiness trial.
+It is preserved at `out/evidence/m27-ab-rollback-1790899532394169000/`. The
+one-repetition Search/Undo integration passed; Recovery integration and full
+M28 reference-load acceptance remain incomplete, so M28 stays PARTIAL.

@@ -393,8 +393,8 @@ pub fn initialize(
         super::serial_write(b"Nagi M3 AP online\r\n");
     }
 
-    unsafe { asm!("sti", options(nomem, nostack, preserves_flags)) };
     super::serial_write(b"Nagi M3 scheduler workload START\r\n");
+    unsafe { asm!("sti", options(nomem, nostack, preserves_flags)) };
     run_scheduler_workload(topology.bsp_index());
     if !wait_for_workloads() {
         super::serial_write(b"Nagi M3 scheduler workload timeout\r\n");
