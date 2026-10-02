@@ -61,6 +61,11 @@ jobs:
           cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check
           cargo clippy --manifest-path crates/nagi-clipboard-core/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked
+      - name: Standalone search core (SEARCH-CORE-01)
+        run: |
+          cargo fmt --manifest-path crates/nagi-search-core/Cargo.toml -- --check
+          cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked
       - name: Focused host acceptance (M0)
         run: ./nagi test --acceptance --host-only --ci
       - name: Upload Ubuntu acceptance reports and logs
