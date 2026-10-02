@@ -958,3 +958,43 @@ in model initialization, metadata, buffer selection/allocation, and ggml
 context creation. See
 `out/logs/m20-loader-status-0018-final-target-model-build.log`. There is still
 no complete target backend or real local inference; M20 remains `PARTIAL`.
+
+## Model initialization failure status — 2026-10-02
+
+Added numbered patch
+`third_party/llama-cpp-patches/0019-nagi-llama-model-initialization-status.patch`.
+Nagi now routes invalid precision-policy arrays and rotary-dimension metadata
+through `fail_metadata()`. Missing CPU/backend support, invalid expert usage,
+and buffer allocation failures use loader status and return `false`. Device
+split-buffer errors also set loader status. Probe-context or buffer-selection
+failure returns null, and the control-vector adapter now handles that null
+result. Ordinary host builds retain their prior exception behavior.
+
+The LLVM 19/libc++ no-exceptions target compile of `llama-model.cpp` passes.
+Fresh generated-cache builds and focused CTests pass 1/1 in both Nagi-macro and
+ordinary host configurations. All 182 CLI library tests, `./nagi test`,
+`./nagi fmt`, and `./nagi lint` pass. Logs are
+`out/logs/m20-loader-status-0019-final-nagi-build.log`,
+`out/logs/m20-loader-status-0019-final-nagi-ctest.log`,
+`out/logs/m20-loader-status-0019-final-host-build.log`,
+`out/logs/m20-loader-status-0019-final-host-ctest.log`,
+`out/logs/m20-loader-status-0019-final-cli-test.log`,
+`out/logs/m20-loader-status-0019-final-nagi-test.log`,
+`out/logs/m20-loader-status-0019-final-fmt.log`,
+`out/logs/m20-loader-status-0019-final-lint.log`, and
+`out/logs/m20-loader-status-0019-final-target-model-build.log`.
+
+Fresh `./nagi fetch` applied patches 0001–0019 with patch fingerprint
+`fnv1a64:6302e19cdb8006d2` and checkout fingerprint
+`fnv1a64:e2ddc41301611afa`; reverse `git apply --check` confirms patch 0019 is
+present. Fetch again stopped at the pre-existing modified Servo checkout and
+left it untouched; `third_party/llama.cpp` remains clean. The final pre-fetch
+generated checkout has a verified 3,674-entry SHA-256 manifest at
+`out/evidence/m20-loader-status-0019-20261002/final-before-fetch/SHA256SUMS`.
+
+The next target compile stops in `llama-adapter.cpp` with 17 remaining
+no-exception diagnostics: 16 throw statements and one try block. This affects
+LoRA loading/validation and continues in the next M20 patch. See
+`out/logs/m20-loader-status-0019-final-target-adapter-build.log`. The complete
+target backend and real in-guest inference are still unverified; M20 remains
+`PARTIAL`.

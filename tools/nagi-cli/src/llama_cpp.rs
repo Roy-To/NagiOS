@@ -1083,6 +1083,24 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_model_initialization_failures_propagate_status_without_target_throws() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(root.join(
+            "third_party/llama-cpp-patches/0019-nagi-llama-model-initialization-status.patch",
+        ))
+        .expect("Nagi model initialization status patch");
+
+        assert!(patch.contains("fail_metadata"));
+        assert!(patch.contains("fail_load"));
+        assert!(patch.contains("metadata_valid"));
+        assert!(patch.contains("loader_valid"));
+        assert!(patch.contains("if (buft == nullptr)"));
+        assert!(patch.contains("return nullptr;"));
+        assert!(patch.contains("return false;"));
+        assert!(patch.contains("__NAGI__"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
