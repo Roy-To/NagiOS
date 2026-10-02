@@ -60,10 +60,16 @@ parameter.
 
 ## Verification
 
-Kernel tests must validate the M25-only 1.5 GiB mapping bound and its two extra
-page-directory boundaries; POSIX tests must validate the M25-only 1.25 GiB heap
-bound. Compile-time checks must validate the sample-to-context calculation,
-the target build must compile the provider, and M25 QEMU acceptance must load
-the pinned model from Model Store, transcribe the checked Japanese PCM fixture
-in the guest, and emit its inference PASS marker. All non-M25 image feature
-graphs must retain their existing mmap and heap budgets.
+Kernel tests validate the M25-only 1.5 GiB mapping bound and its two extra
+page-directory boundaries; POSIX tests validate the M25-only 1.25 GiB heap
+bound. Compile-time checks validate the sample-to-context calculation. The
+Nagi-target library and provider build passed. QEMU run
+`1790978330938078000` loaded the locked artifact through the guest Model Store,
+passed the artifact digest and Model Store capability checks, and emitted the
+Japanese fixture inference PASS marker after the real transcript contained the
+expected phrase. The QEMU log, first-boot log, target build log, PCM fixture,
+expected text, OVMF variables, image, and README are covered by the evidence
+directory's verified eight-entry `SHA256SUMS`; `qemu-img check` reported no
+errors. The optimized run took about 37 minutes under TCG. This validates only
+the short fixture and does not measure sustained or live-microphone inference.
+All non-M25 image feature graphs retain their existing mmap and heap budgets.

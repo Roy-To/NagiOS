@@ -444,21 +444,26 @@ reference image, and boots with M25-only memory bounds. The guest verifies the
 artifact digest through Model Store before whisper.cpp loads it. On 2026-10-03,
 QEMU logged the exact locked model metadata, completed weight loading and
 state/compute-buffer allocation, and entered the CPU inference call. The
-current optimized run
-(`out/evidence/m25-whisper-inference-1790978330938078000/`) has remained
-CPU-bound under QEMU TCG for more than 30 minutes without producing a
-transcript or acceptance marker. This is not an inference PASS; the command's
-one-hour timeout remains active. An earlier run without the shorter
-per-utterance audio context ran for more than two hours and was stopped. The
-context optimization keeps all fixture samples and adds a one-second tail, but
-its runtime and transcript quality still require acceptance evidence.
+optimized run completed in about 37 minutes under QEMU TCG and emitted
+`Nagi M25 Whisper Japanese fixture inference PASS`; the gate checks that the
+real `whisper_full` transcript contains `アルバートを開いて`. The preceding
+markers verify the guest artifact digest, Model Store capability, and
+persistent User Data read. `qemu-img check` reported no image errors, and all
+eight entries in the evidence `SHA256SUMS` verify from the evidence directory.
+The complete evidence is under
+`out/evidence/m25-whisper-inference-1790978330938078000/`. An earlier run
+without the shorter per-utterance audio context ran for more than two hours and
+was stopped. The optimized context keeps all fixture samples and adds a
+one-second tail; only this short fixture is verified.
 
-`./nagi fmt` passes. The 16 `nagi-posix` tests pass with the M25 heap feature,
-the focused M25 kernel page-table-bound test passes, and the three focused
-`nagi-cli` M25 Whisper command/model-lock tests pass. The target library and
-guest image build as part of the active QEMU command. The pinned artifact and
-fixture are local ignored test inputs; the regular M30 image is unchanged.
+`./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build` pass. The 16
+`nagi-posix` tests pass with the M25 heap feature, the focused M25 kernel
+page-table-bound test passes, the three focused `nagi-cli` M25 Whisper tests
+pass, and the `nagi-init` Nagi-target check passes with
+`m25-whisper-inference-acceptance`. The target library and guest image build
+and boot for the QEMU acceptance. The pinned artifact and fixture are local
+ignored test inputs; the regular M30 image is unchanged.
 
 Authenticated microphone permission and activity UI, real audio capture,
-concrete local TTS, a completed Japanese inference PASS, and safe voice-command
-integration remain incomplete. M25 stays `PARTIAL`.
+concrete local TTS, real-device inference, and safe voice-command integration
+remain incomplete. M25 stays `PARTIAL`.
