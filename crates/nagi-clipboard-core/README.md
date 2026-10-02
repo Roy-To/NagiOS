@@ -25,10 +25,11 @@ target/QEMU behavior, or first-party adoption.
 - `ClipboardAuthorizer` is the injected seam for future Capability
   integration. `Deny` and `Unavailable` fail closed with no state change.
   `DenyAllAuthorizer` is the safe default. No permissive default exists.
-- `ClipboardOperation::proposed_permission` maps reads to the canonical
-  `clipboard.read` permission and writes/clears to a *proposed*
-  `clipboard.write` permission. Registering that permission is owned by the
-  capability-permissions workstream.
+- `ClipboardOperation::required_permission` maps reads to `clipboard.read`
+  and write/clear to `clipboard.write`, as accepted in
+  `docs/decisions/ADR-0012-clipboard-permission-identifiers.md`. Registering
+  them in a live `CapabilityRegistry` happens in the trusted host after the
+  runtime gate.
 
 ## Content model
 

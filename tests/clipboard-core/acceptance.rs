@@ -1124,23 +1124,23 @@ fn diagnostics_sink_failure_never_changes_outcomes() {
 fn operations_map_to_capability_permissions() {
     let png = media("image/png");
     assert_eq!(
-        ClipboardOperation::Write.proposed_permission(),
+        ClipboardOperation::Write.required_permission(),
         "clipboard.write"
     );
     assert_eq!(
-        ClipboardOperation::Clear.proposed_permission(),
+        ClipboardOperation::Clear.required_permission(),
         "clipboard.write"
     );
     assert_eq!(
-        ClipboardOperation::ReadFormats.proposed_permission(),
+        ClipboardOperation::ReadFormats.required_permission(),
         "clipboard.read"
     );
     assert_eq!(
-        ClipboardOperation::ReadGeneration.proposed_permission(),
+        ClipboardOperation::ReadGeneration.required_permission(),
         "clipboard.read"
     );
     assert_eq!(
-        ClipboardOperation::ReadRepresentation { media_type: &png }.proposed_permission(),
+        ClipboardOperation::ReadRepresentation { media_type: &png }.required_permission(),
         "clipboard.read"
     );
 }

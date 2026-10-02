@@ -87,12 +87,13 @@ pub enum ClipboardOperation<'a> {
 }
 
 impl ClipboardOperation<'_> {
-    /// Permission identifier the future Capability adapter should check.
+    /// Permission the Capability adapter must check for this operation.
     ///
-    /// `clipboard.read` is the canonical permission named by the 0.2
-    /// specification. `clipboard.write` is a CLIP-01 *proposal* recorded in
-    /// the registration proposal; it is not registered by this crate.
-    pub const fn proposed_permission(&self) -> &'static str {
+    /// Accepted in `docs/decisions/ADR-0012-clipboard-permission-identifiers.md`:
+    /// reads require `clipboard.read`; write and clear require
+    /// `clipboard.write`. The two are independent. Registering them in a live
+    /// `CapabilityRegistry` is the trusted host's job after the runtime gate.
+    pub const fn required_permission(&self) -> &'static str {
         match self {
             Self::Write | Self::Clear => "clipboard.write",
             Self::ReadGeneration | Self::ReadFormats | Self::ReadRepresentation { .. } => {

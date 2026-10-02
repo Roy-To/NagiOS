@@ -31,6 +31,14 @@ not register a capability. A trusted host must add a definition to
 CapabilityRegistry; otherwise evaluation denies it. New identifiers are added
 by a registry owner without changing the identifier grammar.
 
+Accepted identifiers that a trusted host registers once runtime enforcement is
+activated:
+
+- `clipboard.read` and `clipboard.write` — independent, unscoped clipboard
+  permissions. Read covers format listing, generation, and representation
+  reads; write covers replace and clear. See
+  `docs/decisions/ADR-0012-clipboard-permission-identifiers.md`.
+
 Principal IDs are stable host-issued identities. Principal kinds include
 first-party apps, third-party apps, system services, AI-mediated actions, and
 automation. AI is represented as an ordinary principal kind; it gains no
