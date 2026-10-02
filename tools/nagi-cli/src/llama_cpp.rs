@@ -973,6 +973,42 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_tensor_data_validation_status_preserves_backend_cleanup_order() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0014-nagi-llama-data-validation-status.patch"),
+        )
+        .expect("Nagi tensor data validation status patch");
+
+        assert!(patch.contains("validation_failed = true"));
+        assert!(patch.contains("LLAMA_MODEL_LOADER_FAIL_BOOL"));
+        assert!(patch.contains("found tensors with invalid data"));
+        assert!(patch.contains("+                        LLAMA_LOG_ERROR"));
+        assert!(patch.contains("invalid_tensor_data_status"));
+        assert!(patch.contains("GGML_TYPE_F16"));
+
+        let event_sync = patch
+            .find("        ggml_backend_event_synchronize(event);")
+            .unwrap();
+        let event_free = patch
+            .find("        ggml_backend_event_free(event);")
+            .unwrap();
+        let buffer_free = patch
+            .find("        ggml_backend_buffer_free(buf);")
+            .unwrap();
+        let backend_free = patch
+            .find("    ggml_backend_free(upload_backend);")
+            .unwrap();
+        let failure_status = patch
+            .find("LLAMA_MODEL_LOADER_FAIL_BOOL(\"found tensors with invalid data\")")
+            .unwrap();
+        assert!(event_sync < event_free);
+        assert!(event_free < buffer_free);
+        assert!(buffer_free < backend_free);
+        assert!(backend_free < failure_status);
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

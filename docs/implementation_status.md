@@ -135,6 +135,30 @@ backend or inference is claimed. The patch, test source, host CTest output,
 target object and build log have a verified manifest at
 `out/evidence/m20-tensor-weight-status-20261002/SHA256SUMS`. M20 remains
 `PARTIAL`.
+The 2026-10-02 tensor-data follow-up adds numbered patch
+`0014-nagi-llama-data-validation-status.patch`. Invalid row data in
+`load_all_data()` now sets sticky loader failure and returns a failed status
+after backend upload events, staging buffers, and the upload backend are
+released; ordinary host builds retain their exception behavior. A minimal
+GGUF regression with an infinite F16 value reaches the real loader path: the
+Nagi-macro and ordinary host CTests each pass 1/1, and the CLI suite passes
+177/177 with `cargo fmt --check`. The CLI patch-contract test also checks that
+event synchronization/free and buffer/backend cleanup precede failure return.
+
+Fresh `./nagi fetch` applied patches 0001–0014 with patch fingerprint
+`fnv1a64:71b15d0ee0a3a3f4` and checkout fingerprint
+`fnv1a64:65aeca191a608371`; reverse `git apply --check` confirms patch 0014 is
+present. Fetch then stopped at the pre-existing modified generated Servo
+checkout and refused to modify it. The preserved prior generated checkout and
+its verified 3,674-entry SHA-256 manifest are under
+`out/evidence/m20-loader-status-0014-pretest-patch/`.
+
+The focused Nagi-target loader object still fails on 13 exception-dependent
+sites elsewhere in the loader, including tensor lookup/context setup and
+`load_data_range()`. The two invalid-row-data throw sites in `load_all_data()`
+are gone. See `out/logs/m20-loader-status-0014-final-target-build.log`. No
+complete target backend or in-guest inference is claimed; M20 remains
+`PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure

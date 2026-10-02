@@ -770,3 +770,42 @@ sites, 18 model-layer exception sites, and seven load-wrapper diagnostics in
 `out/logs/m20-loader-status-0013-fetch-model-target-build.log`, and
 `out/logs/m20-loader-status-0013-fetch-boundary-target-build.log`. No complete
 target backend or inference is claimed; M20 remains `PARTIAL`.
+
+## Tensor data-validation status — 2026-10-02
+
+Added `third_party/llama-cpp-patches/0014-nagi-llama-data-validation-status.patch`.
+The synchronous invalid-row branch now records validation failure instead of
+throwing immediately. `load_all_data()` then synchronizes and frees backend
+events, frees staging buffers and the upload backend, drains the validation
+futures, and reports failure through sticky `loader_valid` status on Nagi.
+Ordinary host builds keep the existing exception behavior.
+
+The C++ regression writes a minimal GGUF containing an infinite F16 value and
+calls the real `load_all_data()` path. The Nagi-macro fixture requires a false
+result and invalid loader status without an exception; the ordinary host
+fixture requires the existing exception. Both regenerated-cache builds and
+focused CTests pass 1/1. The CLI patch-contract test checks the cleanup order
+and the numeric patch application; all 177 CLI library tests and
+`cargo fmt --check` pass. Logs are
+`out/logs/m20-loader-status-0014-final-nagi-build.log`,
+`out/logs/m20-loader-status-0014-final-nagi-ctest.log`,
+`out/logs/m20-loader-status-0014-final-upstream-build.log`,
+`out/logs/m20-loader-status-0014-final-upstream-ctest.log`,
+`out/logs/m20-loader-status-0014-final-cli-test.log`, and
+`out/logs/m20-loader-status-0014-final-fmt-check.log`.
+
+Fresh `./nagi fetch` generated the pinned llama.cpp checkout from patches
+0001–0014 with patch fingerprint `fnv1a64:71b15d0ee0a3a3f4` and checkout
+fingerprint `fnv1a64:65aeca191a608371`. Reverse `git apply --check` confirms
+patch 0014 is present. Fetch stopped at the pre-existing modified generated
+Servo checkout and refused to modify it; see
+`out/logs/m20-loader-status-0014-final-fetch.log`. The preceding generated
+checkout was preserved and all 3,674 entries in its SHA-256 manifest verified
+under `out/evidence/m20-loader-status-0014-pretest-patch/`.
+
+Focused Nagi-target compilation still reports 13 exception-dependent loader
+sites, now outside these two `load_all_data()` invalid-row branches. The
+remaining errors include tensor lookup/context setup and `load_data_range()`.
+The diagnostic log is
+`out/logs/m20-loader-status-0014-final-target-build.log`. This does not
+establish a complete target backend or inference; M20 remains `PARTIAL`.
