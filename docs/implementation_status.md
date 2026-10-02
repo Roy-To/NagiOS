@@ -7876,3 +7876,16 @@ clean. The pre-change generated checkout and verified SHA-256 manifest are at
 with synthetic data only; it does not load the pinned model or run inference.
 M25 remains `PARTIAL` pending a real Japanese STT provider, authenticated
 permission/UI, local TTS, microphone indicator, and spoken-command acceptance.
+
+## Completion Sweep — M30 release-bundle symlink rejection (2026-10-02)
+
+The release verifier now rejects a symlink at the bundle root or anywhere
+under it before reading release metadata or calculating artifact hashes. The
+walk does not follow directory symlinks. A regression test first reproduced
+the prior gap with an untracked directory symlink to external bytes; after the
+fix, the focused case and all 16 release-tool tests pass. `./nagi fmt`,
+`./nagi lint`, `./nagi test`, and `./nagi build` also pass. M30's full QEMU
+acceptance and clean-source release-bundle verification are being rerun from
+the committed checkpoint. M30 remains `PARTIAL` pending that run and its
+existing authenticated-update, remaining M18–M29, and redistribution-review
+criteria.

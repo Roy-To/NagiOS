@@ -162,6 +162,20 @@ def _reject_symlink_components(root: Path, relative: PurePosixPath, label: str) 
     return candidate
 
 
+def _reject_bundle_symlinks(directory: Path) -> None:
+    if directory.is_symlink():
+        raise ReleaseError(f"release bundle root must not be a symlink: {directory}")
+
+    def fail_walk(error: OSError) -> None:
+        raise ReleaseError(f"cannot inspect release bundle: {error}") from error
+
+    for root, directories, files in os.walk(directory, followlinks=False, onerror=fail_walk):
+        for name in (*directories, *files):
+            path = Path(root) / name
+            if path.is_symlink():
+                raise ReleaseError(f"release bundle contains a symlink: {path}")
+
+
 def _rooted(root: Path, path: Path) -> Path:
     return path if path.is_absolute() else root / path
 
@@ -466,6 +480,7 @@ def checksum_lines(directory: Path, exclude: Iterable[str] = (SUMS_NAME,)) -> by
 
 
 def verify_checksum_index(directory: Path) -> None:
+    _reject_bundle_symlinks(directory)
     sums_path = directory / SUMS_NAME
     _regular_file(sums_path, "SHA256SUMS")
     expected: dict[str, str] = {}
@@ -582,6 +597,7 @@ def verify_tracked_license_inventory(directory: Path, build_manifest: dict[str, 
 
 
 def verify_release(directory: Path) -> None:
+    _reject_bundle_symlinks(directory)
     _regular_file(directory / MANIFEST_NAME, "release manifest")
     _regular_file(directory / BUILD_MANIFEST_NAME, "build manifest")
     _regular_file(directory / SOURCE_REVISION_NAME, "source revision record")

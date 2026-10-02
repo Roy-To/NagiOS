@@ -878,3 +878,16 @@ release manifest correctly retains `m30_acceptance=NOT_EVALUATED`. No model
 was loaded and no inference is claimed. The host has no `virtio-sound.in`
 backend. M30 remains `PARTIAL` for authenticated System B updates, remaining
 M18–M29 acceptance, and human redistribution review.
+
+## Completion Sweep — bundle-wide symlink rejection (2026-10-02)
+
+`verify_release()` and the standalone checksum verifier now reject a symlink
+release-bundle root and every symlink entry before reading metadata or hashing
+payloads. The recursive walk uses `followlinks=False`, so an untracked
+directory symlink cannot hide external files outside checksum and manifest
+inventories. The new regression failed before the change and passes afterward;
+all 16 release-tool tests pass. `./nagi fmt`, `./nagi lint`, `./nagi test`, and
+`./nagi build` pass. The clean-source `./nagi m30` acceptance is being rerun
+from the committed checkpoint; M30 remains `PARTIAL` pending that result and
+the existing authenticated-update, remaining M18–M29, and redistribution
+review criteria.

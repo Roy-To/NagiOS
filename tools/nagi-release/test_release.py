@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import release
 
@@ -169,6 +170,27 @@ class ReleaseToolTests(unittest.TestCase):
             with self.assertRaisesRegex(release.ReleaseError, "SHA-256 mismatch"):
                 release.verify_checksum_index(directory)
 
+    def test_checksum_verification_rejects_untracked_symlink_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / "bundle"
+            directory.mkdir()
+            payload = directory / "payload.bin"
+            payload.write_bytes(b"actual build output")
+            (directory / release.SUMS_NAME).write_bytes(release.checksum_lines(directory))
+
+            external = Path(temporary) / "external"
+            external.mkdir()
+            external_file = external / "outside.bin"
+            external_file.write_bytes(b"outside the release bundle")
+            (directory / "untracked-assets").symlink_to(external, target_is_directory=True)
+
+            with patch.object(release, "sha256_file", wraps=release.sha256_file) as hash_file:
+                with self.assertRaisesRegex(release.ReleaseError, "symlink"):
+                    release.verify_checksum_index(directory)
+
+            hashed_paths = [Path(call.args[0]) for call in hash_file.call_args_list]
+            self.assertNotIn(external_file, hashed_paths)
+
     def test_kernel_provenance_uses_real_elf_bytes_and_rejects_fixture_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -228,6 +250,19 @@ class ReleaseToolTests(unittest.TestCase):
             )
             (directory / release.SUMS_NAME).write_bytes(release.checksum_lines(directory))
             with self.assertRaisesRegex(release.ReleaseError, "cannot establish M30 guest acceptance"):
+                release.verify_release(directory)
+
+    def test_release_verification_rejects_symlink_before_reading_bundle_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / "bundle"
+            directory.mkdir()
+            external = root / "external"
+            external.mkdir()
+            (external / "outside.bin").write_bytes(b"outside the release bundle")
+            (directory / "untracked-assets").symlink_to(external, target_is_directory=True)
+
+            with self.assertRaisesRegex(release.ReleaseError, "symlink"):
                 release.verify_release(directory)
 
     def test_manifest_and_checksums_are_reproducible(self):
