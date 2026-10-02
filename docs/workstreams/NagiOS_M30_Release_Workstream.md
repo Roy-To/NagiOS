@@ -849,3 +849,32 @@ readiness declaration. QEMU had no `virtio-sound.in` input backend; audio was
 not tested and no model inference is claimed. M30 remains `PARTIAL` for
 authenticated updates, remaining M18–M29 acceptance, and human binary
 redistribution review.
+
+## Completion Sweep release checkpoint on 25e0b54 — 2026-10-02
+
+The fixed-path image from `acffe0bdc38571cbec007c8de9af69078033e393` did not
+match current-source provenance, so `./nagi m30` correctly refused to reuse
+it. The old qcow2 and sidecar were moved intact to
+`out/evidence/m30-preserved-stale-25e0b54/`; their SHA-256 manifest verifies.
+From clean commit `25e0b5443363f87a4e503a3031cb9804f3e29c07`, `./nagi m30`
+rebuilt the source-bound 64 GiB GPT reference qcow2. Its SHA-256 is
+`47615fce4e0b7442f1d016add408eb84c120b6fb5ad0dcd85b00c517e4de2d41`, and
+the sidecar binds it to that full source revision.
+
+QEMU run `1790904245966571000` passed System A, User Data persistence after
+restart, M19 VFS Search/ObjectId persistence, M21 `file.search` fixture,
+M22 grouped Move/Copy and Activity Ledger Undo, Recovery, unstaged-System-B
+rejection, post-Recovery Search/Undo, and the separate M20 FAT32 Model Store
+reader fixture. The 12-entry manifest verifies at
+`out/evidence/m30-release-1790904245966571000/SHA256SUMS`; source, mutable
+acceptance copy, Model Store fixture, and assembled bundle all passed
+`qemu-img check`.
+
+All 14 release-tool tests passed. Clean-source preflight, assembly to
+`out/artifacts/m30-release-bundle-25e0b54/`, release verification, all 22
+bundle checksums, and byte identity between the bundled and pristine qcow2
+passed. The build manifest binds source `25e0b54` and the image digest; the
+release manifest correctly retains `m30_acceptance=NOT_EVALUATED`. No model
+was loaded and no inference is claimed. The host has no `virtio-sound.in`
+backend. M30 remains `PARTIAL` for authenticated System B updates, remaining
+M18–M29 acceptance, and human redistribution review.

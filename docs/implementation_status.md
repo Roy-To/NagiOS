@@ -382,18 +382,20 @@ with GPT ESP, System A/B, User Data, Recovery, and Model Store partitions. The
 UEFI loader locates System A by GPT partition GUID. The kernel validates
 primary/backup GPT metadata and exposes bounded writable User Data plus a
 separate read-only Model Store capability. On current clean source
-`acffe0bdc38571cbec007c8de9af69078033e393`, `./nagi m30` rebuilt the image at
+`25e0b5443363f87a4e503a3031cb9804f3e29c07`, `./nagi m30` rebuilt the image at
 SHA-256
 `47615fce4e0b7442f1d016add408eb84c120b6fb5ad0dcd85b00c517e4de2d41`; its
 sidecar binds that digest to the full source revision. QEMU run
-`1790901835370320000` passed System A, User Data first write/restart persistence,
-Recovery, rejection of unstaged System B, post-Recovery restart, and the
-separate M20 FAT32 Model Store reader fixture. The 20-entry evidence manifest
-verifies at `out/evidence/m30-release-1790901835370320000/SHA256SUMS`.
-`qemu-img check` passed for the pristine image, writable acceptance copy,
-fixture, and assembled bundle image. Clean-source release preflight, assembly
-to `out/artifacts/m30-release-bundle-acffe0b/`, and verify passed; all 14
-release-tool tests and all 24 bundle checksums passed. The bundle image matches
+`1790904245966571000` passed System A, User Data restart persistence, M19
+Search/ObjectId, M21 `file.search` fixture, M22 grouped Move/Copy and Activity
+Ledger Undo, Recovery, rejection of unstaged System B, post-Recovery
+Search/Undo, and the separate M20 FAT32 Model Store reader fixture. The
+12-entry evidence manifest verifies at
+`out/evidence/m30-release-1790904245966571000/SHA256SUMS`. `qemu-img check`
+passed for the pristine image, writable acceptance copy, fixture, and assembled
+bundle image. Clean-source release preflight, assembly to
+`out/artifacts/m30-release-bundle-25e0b54/`, and verify passed; all 14
+release-tool tests and all 22 bundle checksums passed. The bundle image matches
 the pristine reference byte-for-byte. QEMU booted a disposable copy of the
 reference image; the assembled bundle remained untouched and verified. The
 bundle manifest retains `m30_acceptance=NOT_EVALUATED`. QEMU had no
@@ -7758,3 +7760,28 @@ passed 6. Repository fmt, tests, lint, and build passed. This adds a textual
 selection cue only; it does not provide assistive-technology support or a
 system-wide accessibility tree. M29 remains `PARTIAL` for its wider polish
 criteria.
+
+## Completion Sweep — 25e0b54 current-source M30 release acceptance (2026-10-02)
+
+The previous fixed-path qcow2 was bound to source `acffe0b`; its image and
+sidecar were preserved with a verified SHA-256 manifest under
+`out/evidence/m30-preserved-stale-25e0b54/`. From clean source
+`25e0b5443363f87a4e503a3031cb9804f3e29c07`, `./nagi m30` produced a 64 GiB GPT
+reference image with SHA-256
+`47615fce4e0b7442f1d016add408eb84c120b6fb5ad0dcd85b00c517e4de2d41`; its
+`.build-info` binds that digest to the full commit.
+
+QEMU run `1790904245966571000` passed System A, User Data restart persistence,
+M19 Search/ObjectId, the M21 Search action fixture, M22 grouped Move/Copy and
+Activity Ledger Undo, GPT Recovery, rejection of unstaged System B,
+post-Recovery Search/Undo, and the separate M20 FAT32 Model Store reader
+fixture. Source, QEMU acceptance copy, fixture, and release-bundle qcow2 all
+passed `qemu-img check`. The 12-entry run manifest verifies at
+`out/evidence/m30-release-1790904245966571000/SHA256SUMS`.
+
+All 14 release-tool tests passed; current-source preflight, assembly to
+`out/artifacts/m30-release-bundle-25e0b54/`, bundle verification, 22 bundle
+checksums, and pristine/bundle image byte identity passed. The release manifest
+retains `m30_acceptance=NOT_EVALUATED`. No model inference or host audio input
+is claimed. M30 remains `PARTIAL` for authenticated updates, remaining
+M18–M29 acceptance, and human binary redistribution review.
