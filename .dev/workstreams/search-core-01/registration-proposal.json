@@ -2,17 +2,17 @@
   "proposal_version": 1,
   "workstream_id": "search-core-01",
   "name": "Unified Search / Index Core Foundation",
-  "proposal_status": "PROPOSED_NOT_REGISTERED",
+  "proposal_status": "REGISTERED",
   "proposal_baseline": {
     "commit_sha": "a235eb9f7d6c15a71873b431a57271cd1aeba260",
     "branch_observed": "codex/integration-next-phase",
-    "base_approval": "USER-DIRECTED: current remote-synced integration HEAD discovered at execution time, per the Parallel Execution Rules section 7"
+    "base_approval": "USER-DIRECTED: current remote-synced integration HEAD discovered at execution time; registry row applied on the dedicated branch by explicit user direction on 2026-10-02 to unblock shared host CI, following the notify-01/job-01/ident-01 precedent"
   },
   "registry_entry": {
     "id": "search-core-01",
     "owner": "Codex SEARCH-CORE-01 workstream",
     "owner_branch": "codex/0.2-search-core-01",
-    "recommended_worktree": "~/.codex/worktrees/search-core-01/NagiOS",
+    "recommended_worktree": "../../.codex/worktrees/search-core-01/NagiOS",
     "state_file": ".dev/workstreams/search-core-01/state.json",
     "dependencies": [
       "development-foundation"
@@ -63,7 +63,7 @@
     "note": "29 host acceptance tests pass with the repository-pinned nightly-2025-08-01 toolchain on x86_64 Linux. The first build requires network access once to fetch the pinned git revision. Host results do not establish daemon, IPC, guest persistence, provider adoption, UI, or target acceptance."
   },
   "integration_owner_actions": [
-    "Review and, if accepted, add the registry_entry row to .dev/workstreams.json (forbidden to this workstream).",
+    "Review the registry row already applied on this dedicated branch by user direction when selecting the next integration checkpoint.",
     "Commit the user-supplied master documents Nagi_OS_0.2_Codex_Implementation_Spec.md and Nagi_OS_0.2_Parallel_Execution_Rules.md under docs/0.2/ (integration-owned); their SHA-256 values are recorded in AUDIT.md.",
     "Decide whether SEARCH-CORE-01 maps to the unassigned platform-apis workstream for 0.2-M19 or stays a separate registered stream.",
     "Reconcile provider identity: this foundation binds providers to the canonical AppId; nagi-home-search (M26 track) defines a separate string ProviderId. One canonical provider identity should be chosen before Home/Search adopts the ingestion boundary.",
@@ -86,7 +86,8 @@
     "The only hard registry dependency is development-foundation. The 0.1 nagi-search crate is consumed read-only at a fixed revision and is not edited.",
     "No root workspace, root lockfile, shared CI, shared schema, IDL/ABI, user/**, apps/**, sdk/**, or other workstream state is changed. The crate has its own [workspace] and Cargo.lock.",
     "Caller visibility is the canonical injected VisibilityFilter; provider authorization is an injected ProviderAuthority. Neither forks the Capability/Permissions engine. Tests use host-only mocks.",
-    "MemorySnapshotBackend is host reference storage, not production persistence."
+    "MemorySnapshotBackend is host reference storage, not production persistence.",
+    "The registry row is applied on codex/0.2-search-core-01 by explicit user direction; this is the only shared-file change. The Integration Owner still reviews it at the integration checkpoint."
   ],
   "ci_proposal": {
     "status": "PROPOSAL_ONLY_NO_SHARED_CI_EDIT",

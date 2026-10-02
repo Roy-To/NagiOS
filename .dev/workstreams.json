@@ -557,6 +557,44 @@
       ],
       "activation_gate": "Host-only deterministic integration-test harness work is authorized before Nagi 0.1 M30 by the Integration Owner registration checkpoint. Production/runtime services, target/QEMU, product-acceptance claims, and shared CI/workspace integration require M30 PASS plus an explicit Integration Owner checkpoint naming TEST-PLAT-01.",
       "merge_boundary": "Commit and push host-only foundation on the assigned codex/0.2-test-plat-01 branch. Integrate after owned host-only acceptance and Integration Owner review. Runtime, target, product, shared workspace, and CI integration remain gated on M30 PASS and an explicit checkpoint; never merge directly to main."
+    },
+    {
+      "id": "search-core-01",
+      "owner": "Codex SEARCH-CORE-01 workstream",
+      "owner_branch": "codex/0.2-search-core-01",
+      "recommended_worktree": "../../.codex/worktrees/search-core-01/NagiOS",
+      "state_file": ".dev/workstreams/search-core-01/state.json",
+      "dependencies": [
+        "development-foundation"
+      ],
+      "allowed_paths": [
+        "crates/nagi-search-core/**",
+        "tests/search-core/**",
+        ".dev/workstreams/search-core-01/**",
+        "docs/workstreams/NagiOS_0.2_Search_Index_Core_Foundation_Workstream.md"
+      ],
+      "forbidden_paths": [
+        "Cargo.toml",
+        "Cargo.lock",
+        ".github/workflows/**",
+        ".dev/workstreams.json",
+        ".dev/schemas/**",
+        "docs/implementation_status.md",
+        "idl/**",
+        "schemas/**",
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "apps/**",
+        "sdk/**",
+        "crates/nagi-model/**",
+        "crates/nagi-capability/**",
+        "third_party/**",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "Host provider/index contract, ledger, reference backend, and tests may be prepared on this dedicated branch. Daemon/IPC wiring, guest durable index, production provider registration (Files/Notes/Activity/Wayback/Albert), Home/Search UI, production capability wiring, and semantic/model paths require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming SEARCH-CORE-01.",
+      "merge_boundary": "Dedicated codex/0.2-search-core-01 branch only; integrate through an explicit checkpoint after the canonical 0.1 nagi-search crate is on the integration base. Never merge directly to main or another workstream branch."
     }
   ]
 }
