@@ -554,10 +554,14 @@ metadata and must never be accepted from a caller-supplied payload field.
 
 The current bootstrap manager supports only the single shared-address-space
 `nagi-init` process (PID 1). Its Channel ABI verifies user plumbing and handle
-semantics, but does not authenticate or isolate applications or services.
-Receive is nonblocking; user-space wait syscalls are not yet exposed. Production
-service authority still requires isolated processes, supervisor-authorized
-endpoint delivery, and launch-record-bound policy.
+semantics, but does not authenticate or isolate applications or services. The
+ABI exposes `SYS_CHANNEL_WAIT_READABLE`; `libnagi::channel_receive` combines
+nonblocking receive with that wait and retries after wake, since another thread
+may consume the message first. Waiting requires the endpoint's `WAIT` right.
+User-level waits for Event, Timer, Process exit, and service/socket readiness
+remain unexposed. Production service authority still requires isolated
+processes, supervisor-authorized endpoint delivery, and launch-record-bound
+policy.
 
 ---
 

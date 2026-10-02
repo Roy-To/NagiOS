@@ -14,8 +14,8 @@ use nagi_abi::{
 
 use crate::handles::{Handle, HandleError, ObjectId, ObjectKind, ObjectRegistry, Process, Rights};
 use crate::ipc::{
-    ChannelError, ChannelPair, MessageHeader, OutgoingMessage, WaitRegistry, MAX_INLINE_PAYLOAD,
-    MAX_TRANSFER_HANDLES,
+    ChannelError, ChannelPair, MessageHeader, OutgoingMessage, Signals, WaitError, WaitRegistry,
+    Waiter, WokenWaiters, MAX_INLINE_PAYLOAD, MAX_TRANSFER_HANDLES,
 };
 
 const BOOTSTRAP_PROCESS_ID: u32 = 1;
@@ -33,6 +33,13 @@ pub enum UserIpcError {
     InvalidEndpoint,
     Handle(HandleError),
     Channel(ChannelError),
+    Wait(WaitError),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChannelWaitOutcome {
+    Readable,
+    Blocked,
 }
 
 impl From<HandleError> for UserIpcError {
@@ -170,7 +177,11 @@ impl UserIpcState {
         })
     }
 
-    pub fn send(&mut self, endpoint: u64, request: ChannelSendRequest) -> Result<(), UserIpcError> {
+    pub fn send(
+        &mut self,
+        endpoint: u64,
+        request: ChannelSendRequest,
+    ) -> Result<WokenWaiters, UserIpcError> {
         self.initialize()?;
         let payload_len =
             usize::try_from(request.payload_len).map_err(|_| UserIpcError::InvalidRequest)?;
@@ -213,7 +224,40 @@ impl UserIpcState {
             message,
             &mut self.waiters,
         )?;
-        Ok(())
+        Ok(self.waiters.take_woken_waiters())
+    }
+
+    pub fn wait_readable(
+        &mut self,
+        endpoint: u64,
+        waiter_id: u32,
+        on_blocked: impl FnOnce() -> bool,
+    ) -> Result<ChannelWaitOutcome, UserIpcError> {
+        self.initialize()?;
+        let handle = Handle::from_raw(endpoint);
+        let (channel_index, _) = self.locate_endpoint(handle)?;
+        let process = self
+            .process
+            .as_ref()
+            .expect("initialized bootstrap process");
+        let item = self.channels[channel_index]
+            .pair
+            .as_ref()
+            .expect("located live Channel")
+            .wait_item_for_process(&self.registry, process, handle, Signals::READABLE)?;
+        let mut waiter = Waiter::new(waiter_id);
+        match crate::ipc::wait(&mut self.waiters, &mut waiter, item) {
+            Ok(_) => Ok(ChannelWaitOutcome::Readable),
+            Err(WaitError::Blocked) => {
+                if on_blocked() {
+                    Ok(ChannelWaitOutcome::Blocked)
+                } else {
+                    self.waiters.cancel_waiter(waiter_id);
+                    Err(UserIpcError::Wait(WaitError::Invalid))
+                }
+            }
+            Err(error) => Err(UserIpcError::Wait(error)),
+        }
     }
 
     pub fn try_receive(
@@ -403,8 +447,20 @@ pub fn create_pair() -> Result<ChannelEndpoints, UserIpcError> {
     USER_IPC.with(UserIpcState::create_pair)
 }
 
-pub fn send(endpoint: u64, request: ChannelSendRequest) -> Result<(), UserIpcError> {
+pub fn send(endpoint: u64, request: ChannelSendRequest) -> Result<WokenWaiters, UserIpcError> {
     USER_IPC.with(|state| state.send(endpoint, request))
+}
+
+pub fn wait_readable(
+    endpoint: u64,
+    waiter_id: u32,
+    on_blocked: impl FnOnce() -> bool,
+) -> Result<ChannelWaitOutcome, UserIpcError> {
+    USER_IPC.with(|state| state.wait_readable(endpoint, waiter_id, on_blocked))
+}
+
+pub fn cancel_waiter(waiter_id: u32) {
+    USER_IPC.with(|state| state.waiters.cancel_waiter(waiter_id));
 }
 
 pub fn try_receive(endpoint: u64) -> Result<Option<ChannelReceiveResult>, UserIpcError> {
@@ -451,6 +507,122 @@ mod tests {
         assert_eq!(received.transfer_count, 0);
         ipc.close(endpoints.endpoint_a).expect("close A");
         ipc.close(endpoints.endpoint_b).expect("close B");
+    }
+
+    #[test]
+    fn channel_wait_registers_before_block_and_send_returns_one_wakeup() {
+        let mut ipc = UserIpcState::new();
+        let endpoints = ipc.create_pair().expect("pair");
+        assert_eq!(
+            ipc.wait_readable(endpoints.endpoint_b, 7, || true),
+            Ok(super::ChannelWaitOutcome::Blocked)
+        );
+
+        let woken = ipc
+            .send(endpoints.endpoint_a, request(b"wake"))
+            .expect("send");
+        let mut woken_ids = woken.iter();
+        assert_eq!(woken_ids.next(), Some(7));
+        assert_eq!(woken_ids.next(), None);
+        let later_send = ipc
+            .send(endpoints.endpoint_a, request(b"still queued"))
+            .expect("second send");
+        assert_eq!(later_send.iter().count(), 0);
+
+        let received = ipc
+            .try_receive(endpoints.endpoint_b)
+            .expect("receive")
+            .expect("message");
+        assert_eq!(&received.payload[..received.payload_len as usize], b"wake");
+        assert!(ipc
+            .try_receive(endpoints.endpoint_b)
+            .expect("receive second")
+            .is_some());
+        ipc.close(endpoints.endpoint_a).expect("close A");
+        ipc.close(endpoints.endpoint_b).expect("close B");
+    }
+
+    #[test]
+    fn channel_wait_is_level_triggered_requires_wait_right_and_cleans_cancelled_ids() {
+        let mut ipc = UserIpcState::new();
+        let transport = ipc.create_pair().expect("transport pair");
+        let target = ipc.create_pair().expect("target pair");
+
+        ipc.send(transport.endpoint_a, request(b"ready"))
+            .expect("send ready message");
+        let mut callback_called = false;
+        assert_eq!(
+            ipc.wait_readable(transport.endpoint_b, 3, || {
+                callback_called = true;
+                true
+            }),
+            Ok(super::ChannelWaitOutcome::Readable)
+        );
+        assert!(!callback_called);
+        assert!(ipc
+            .try_receive(transport.endpoint_b)
+            .expect("receive ready")
+            .is_some());
+
+        let mut transfer = request(b"read only");
+        transfer.transfer_count = 1;
+        transfer.transfers[0] = ChannelHandleTransfer {
+            handle: target.endpoint_a,
+            rights: Rights::READ.bits(),
+            reserved: 0,
+        };
+        ipc.send(transport.endpoint_a, transfer)
+            .expect("send attenuated endpoint");
+        let moved = ipc
+            .try_receive(transport.endpoint_b)
+            .expect("receive attenuated endpoint")
+            .expect("message")
+            .handles[0];
+        let mut callback_called = false;
+        assert_eq!(
+            ipc.wait_readable(moved, 3, || {
+                callback_called = true;
+                true
+            }),
+            Err(UserIpcError::Channel(ChannelError::RightsMissing))
+        );
+        assert!(!callback_called);
+
+        assert_eq!(
+            ipc.wait_readable(transport.endpoint_b, 9, || true),
+            Ok(super::ChannelWaitOutcome::Blocked)
+        );
+        ipc.waiters.cancel_waiter(9);
+        assert_eq!(
+            ipc.send(transport.endpoint_a, request(b"after cancel"))
+                .expect("send after cancellation")
+                .iter()
+                .count(),
+            0
+        );
+        assert!(ipc
+            .try_receive(transport.endpoint_b)
+            .expect("receive cancelled waiter message")
+            .is_some());
+        assert!(matches!(
+            ipc.wait_readable(transport.endpoint_b, 9, || true),
+            Ok(super::ChannelWaitOutcome::Blocked)
+        ));
+        let woken = ipc
+            .send(transport.endpoint_a, request(b"wake again"))
+            .expect("send after re-register");
+        let mut woken_ids = woken.iter();
+        assert_eq!(woken_ids.next(), Some(9));
+        assert_eq!(woken_ids.next(), None);
+
+        for handle in [
+            transport.endpoint_a,
+            transport.endpoint_b,
+            target.endpoint_b,
+            moved,
+        ] {
+            ipc.close(handle).expect("close endpoint");
+        }
     }
 
     #[test]

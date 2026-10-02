@@ -40,6 +40,9 @@ pub const SYS_CHANNEL_SEND: u64 = 32;
 pub const SYS_CHANNEL_TRY_RECEIVE: u64 = 33;
 /// Close a bootstrap handle returned by the Channel ABI.
 pub const SYS_HANDLE_CLOSE: u64 = 34;
+/// Block until a Channel endpoint becomes readable; the wake may be spurious
+/// if another receiver consumes the queued message first.
+pub const SYS_CHANNEL_WAIT_READABLE: u64 = 35;
 
 /// Optional `SYS_THREAD_CREATE` flag for a child that should be detached
 /// before it can be scheduled.
@@ -372,7 +375,8 @@ mod channel_abi_tests {
     use super::{
         ChannelEndpoints, ChannelHandleTransfer, ChannelReceiveResult, ChannelSendRequest,
         MAX_CHANNEL_INLINE_PAYLOAD, MAX_CHANNEL_QUEUE_MESSAGES, MAX_CHANNEL_TRANSFER_HANDLES,
-        SYS_CHANNEL_CREATE, SYS_CHANNEL_SEND, SYS_CHANNEL_TRY_RECEIVE, SYS_HANDLE_CLOSE,
+        SYS_CHANNEL_CREATE, SYS_CHANNEL_SEND, SYS_CHANNEL_TRY_RECEIVE, SYS_CHANNEL_WAIT_READABLE,
+        SYS_HANDLE_CLOSE,
     };
 
     #[test]
@@ -381,6 +385,7 @@ mod channel_abi_tests {
         assert_eq!(SYS_CHANNEL_SEND, 32);
         assert_eq!(SYS_CHANNEL_TRY_RECEIVE, 33);
         assert_eq!(SYS_HANDLE_CLOSE, 34);
+        assert_eq!(SYS_CHANNEL_WAIT_READABLE, 35);
         assert_eq!(MAX_CHANNEL_INLINE_PAYLOAD, 128);
         assert_eq!(MAX_CHANNEL_TRANSFER_HANDLES, 4);
         assert_eq!(MAX_CHANNEL_QUEUE_MESSAGES, 8);

@@ -24,12 +24,12 @@ pub use nagi_abi::{
     RIGHT_MAP, RIGHT_READ, RIGHT_SIGNAL, RIGHT_TRANSFER, RIGHT_WAIT, RIGHT_WRITE, SURFACE_BYTES,
     SURFACE_HEIGHT, SURFACE_WIDTH, SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH,
     SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_BOOT_READY, SYS_CHANNEL_CREATE, SYS_CHANNEL_SEND,
-    SYS_CHANNEL_TRY_RECEIVE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO,
-    SYS_DISPLAY_PRESENT, SYS_HANDLE_CLOSE, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO,
-    SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_NET_RECEIVE,
-    SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE,
-    SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP,
-    SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
+    SYS_CHANNEL_TRY_RECEIVE, SYS_CHANNEL_WAIT_READABLE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE,
+    SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_HANDLE_CLOSE, SYS_INPUT_READ, SYS_LOG_READ,
+    SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP,
+    SYS_NET_RECEIVE, SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET,
+    SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF,
+    SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
 };
 
 #[cfg(target_os = "nagi")]
@@ -348,6 +348,39 @@ pub fn channel_try_receive(
         0 => Some(false),
         1 => Some(true),
         _ => None,
+    }
+}
+
+/// Wait for a Channel endpoint to become readable. A successful wake is a
+/// readiness hint; another receiver may consume the message before this
+/// thread runs, so callers should retry nonblocking receive.
+#[inline]
+pub fn channel_wait_readable(endpoint: u64) -> bool {
+    let mut result = SYS_CHANNEL_WAIT_READABLE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") endpoint,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
+}
+
+/// Receive the next message, blocking on Channel readability when the queue is
+/// empty. Returns `None` for an invalid or non-waitable endpoint, or when no
+/// bootstrap thread can make progress to produce the requested message.
+#[inline]
+pub fn channel_receive(endpoint: u64, result_buffer: &mut ChannelReceiveResult) -> Option<()> {
+    loop {
+        match channel_try_receive(endpoint, result_buffer) {
+            Some(true) => return Some(()),
+            Some(false) if channel_wait_readable(endpoint) => {}
+            Some(false) | None => return None,
+        }
     }
 }
 

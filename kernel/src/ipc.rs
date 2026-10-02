@@ -1242,6 +1242,25 @@ pub struct WaitRegistry {
     wakeups: [Option<WaitWake>; MAX_WAIT_WAKEUPS],
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WokenWaiters {
+    ids: [u32; MAX_WAIT_WAKEUPS],
+    length: usize,
+}
+
+impl WokenWaiters {
+    const fn new() -> Self {
+        Self {
+            ids: [0; MAX_WAIT_WAKEUPS],
+            length: 0,
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        self.ids[..self.length].iter().copied()
+    }
+}
+
 impl WaitRegistry {
     pub const fn new() -> Self {
         Self {
@@ -1334,6 +1353,26 @@ impl WaitRegistry {
                 *registration = None;
             }
         }
+    }
+
+    pub(crate) fn cancel_waiter(&mut self, waiter_id: u32) {
+        self.clear_for_waiter(waiter_id);
+        self.clear_wakeup_for_waiter(waiter_id);
+    }
+
+    pub(crate) fn take_woken_waiters(&mut self) -> WokenWaiters {
+        let mut woken = WokenWaiters::new();
+        for wakeup in &mut self.wakeups {
+            let Some(wakeup) = wakeup.take() else {
+                continue;
+            };
+            if woken.ids[..woken.length].contains(&wakeup.waiter_id) {
+                continue;
+            }
+            woken.ids[woken.length] = wakeup.waiter_id;
+            woken.length += 1;
+        }
+        woken
     }
 
     fn clear_wakeup_for_waiter(&mut self, waiter_id: u32) {

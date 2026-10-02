@@ -17,6 +17,7 @@ pub enum UserThreadState {
     Runnable,
     Running,
     Sleeping { wake_at: u64 },
+    ChannelBlocked,
     JoinBlocked { target: u8 },
     Zombie { exit_code: u64 },
 }
@@ -116,6 +117,41 @@ impl BootstrapUserThreads {
         }
         self.slots[current].state = UserThreadState::Sleeping { wake_at };
         self.select_runnable(now)
+    }
+
+    /// Mark the current thread blocked on a kernel wait registration without
+    /// selecting another thread. The caller must finish publishing the wait
+    /// registration before it performs the context switch.
+    pub fn block_current_on_channel(&mut self) -> bool {
+        let current = self.current as usize;
+        if self.slots[current].state != UserThreadState::Running {
+            return false;
+        }
+        self.slots[current].state = UserThreadState::ChannelBlocked;
+        true
+    }
+
+    /// Wake a thread blocked on a Channel wait registration exactly once.
+    pub fn wake_channel_waiter(&mut self, thread: u8) -> bool {
+        let Some(slot) = self.slots.get_mut(thread as usize) else {
+            return false;
+        };
+        if slot.state != UserThreadState::ChannelBlocked {
+            return false;
+        }
+        slot.state = UserThreadState::Runnable;
+        true
+    }
+
+    /// Restore a wait-blocked current thread after the syscall discovers that
+    /// no other runnable or timed-sleeping thread can produce the event.
+    pub fn abort_current_channel_wait(&mut self) -> bool {
+        let current = self.current as usize;
+        if self.slots[current].state != UserThreadState::ChannelBlocked {
+            return false;
+        }
+        self.slots[current].state = UserThreadState::Running;
+        true
     }
 
     pub fn join_current(&mut self, target: u8, now: u64) -> JoinOutcome {
@@ -310,6 +346,31 @@ mod tests {
         assert_eq!(threads.yield_current(9), Some(0));
         assert_eq!(threads.yield_current(10), Some(1));
         assert_eq!(threads.state(1), Some(UserThreadState::Running));
+    }
+
+    #[test]
+    fn channel_wait_blocks_and_wakes_only_the_registered_thread() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert!(threads.block_current_on_channel());
+        assert_eq!(threads.state(0), Some(UserThreadState::ChannelBlocked));
+        assert!(threads.wake_channel_waiter(0));
+        assert!(!threads.wake_channel_waiter(0));
+        assert_eq!(threads.state(0), Some(UserThreadState::Runnable));
+        assert!(!threads.wake_channel_waiter(1));
+        assert_eq!(threads.select_runnable(0), Some(1));
+        assert_eq!(threads.select_runnable(0), Some(0));
+        assert_eq!(threads.state(0), Some(UserThreadState::Running));
+    }
+
+    #[test]
+    fn an_unproductive_channel_wait_can_be_aborted_without_stranding_current() {
+        let mut threads = BootstrapUserThreads::new();
+        assert!(threads.block_current_on_channel());
+        assert_eq!(threads.select_runnable(0), None);
+        assert!(threads.abort_current_channel_wait());
+        assert_eq!(threads.state(0), Some(UserThreadState::Running));
+        assert!(!threads.abort_current_channel_wait());
     }
 
     #[test]

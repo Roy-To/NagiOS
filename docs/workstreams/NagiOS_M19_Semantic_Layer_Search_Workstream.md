@@ -198,3 +198,27 @@ service processes, authenticated endpoint delivery, production Files/page
 producers, and a production Activity Ledger bridge remain prerequisites. The
 guest Search and restart tests remain valid orchestration evidence; M19 remains
 `PARTIAL`.
+
+## Completion Sweep — bootstrap Channel wait/wake (2026-10-02)
+
+The bootstrap ABI now exposes `SYS_CHANNEL_WAIT_READABLE` and
+`libnagi::channel_receive`. The kernel resolves the endpoint through the current
+process handle table and requires `WAIT`. The waiter registration and
+cooperative scheduler `ChannelBlocked` transition occur while the bootstrap IPC
+lock is held; `ChannelPair::send` queues a bounded notification, and the syscall
+layer wakes the returned waiter IDs after the lock is released. The blocking
+receive wrapper retries `try_receive` after wake so a second receiver cannot
+cause a false message result.
+
+The M19 QEMU fixture confirms the child thread blocks while its queue is empty,
+the main thread then sends, the child wakes and receives the expected payload,
+and the thread joins cleanly. Host tests also cover level-triggered readiness,
+missing `WAIT`, wake-on-send exactly once, cancellation cleanup, and scheduler
+abort when no producer can run. Evidence and the preserved pre-run User Data
+disk are recorded in `out/evidence/channel-wait-20261002/` and
+`out/evidence/channel-wait-pre-m19-20261002-de3092c/`.
+
+The prior audit's IPC limitations still apply: this is only the shared PID 1
+bootstrap process and does not authenticate service callers or create
+production Search/Action/Activity services. The user ABI still has no Event,
+Timer, process-exit, or service-readiness wait. M19 remains `PARTIAL`.

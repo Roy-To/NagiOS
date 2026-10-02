@@ -3,6 +3,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+use core::sync::atomic::{AtomicU64, Ordering};
 use libnagi::storage::{
     BlockDevice, DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
     MAX_FILE_SIZE,
@@ -48,6 +49,9 @@ const M24_FIXTURE_SPACE: EmbeddingSpaceId = EmbeddingSpaceId([0x24; 32]);
 const FILE_SEARCH_INTENT: &str = "find the live VFS fixture";
 const FILE_SEARCH_QUERY: &str = "nagi-m19-live-file.txt";
 const FILE_SEARCH_PLAN_SUMMARY: &str = "query=nagi-m19-live-file.txt";
+const CHANNEL_WAIT_PENDING: u64 = u64::MAX;
+const CHANNEL_WAIT_RESULT: u64 = 0x4e41_4749_0019_0001;
+static CHANNEL_WAIT_WORKER_RESULT: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct M19SearchActivity {
@@ -841,7 +845,77 @@ fn bootstrap_channel_abi_acceptance() -> bool {
         && libnagi::handle_close(reused.endpoint_a)
         && libnagi::handle_close(reused.endpoint_b);
 
-    checks_passed && cleanup_ok && reused_ok
+    let wait_wake_ok = blocking_channel_wait_acceptance();
+    if wait_wake_ok {
+        libnagi::console_write(b"Nagi bootstrap Channel wait/wake PASS\r\n");
+    }
+    checks_passed && cleanup_ok && reused_ok && wait_wake_ok
+}
+
+extern "C" fn channel_wait_worker(endpoint: usize) {
+    let mut received = ChannelReceiveResult::default();
+    let completed = libnagi::channel_receive(endpoint as u64, &mut received).is_some()
+        && received.request_id == 0x19_0003
+        && received.payload_len == 16
+        && &received.payload[..16] == b"channel wait ok!";
+    CHANNEL_WAIT_WORKER_RESULT.store(
+        if completed { CHANNEL_WAIT_RESULT } else { 0 },
+        Ordering::Release,
+    );
+    libnagi::thread_exit(if completed { 0 } else { 1 });
+}
+
+fn blocking_channel_wait_acceptance() -> bool {
+    let Some(endpoints) = libnagi::channel_create_pair() else {
+        return false;
+    };
+    let stack_size = libnagi::BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE;
+    let Some(stack) = libnagi::mmap_anonymous(stack_size, libnagi::PROT_READ | libnagi::PROT_WRITE)
+    else {
+        let _ = libnagi::handle_close(endpoints.endpoint_a);
+        let _ = libnagi::handle_close(endpoints.endpoint_b);
+        return false;
+    };
+    CHANNEL_WAIT_WORKER_RESULT.store(CHANNEL_WAIT_PENDING, Ordering::Release);
+    let Some(thread) = libnagi::thread_create(
+        channel_wait_worker as usize,
+        endpoints.endpoint_b as usize,
+        stack,
+        stack_size,
+    ) else {
+        let _ = libnagi::munmap(stack, stack_size);
+        let _ = libnagi::handle_close(endpoints.endpoint_a);
+        let _ = libnagi::handle_close(endpoints.endpoint_b);
+        return false;
+    };
+
+    // Cooperative yield schedules the worker. It must return to this main
+    // thread still blocked, before the sender publishes the message.
+    let yielded = libnagi::thread_yield();
+    let blocked_before_send =
+        CHANNEL_WAIT_WORKER_RESULT.load(Ordering::Acquire) == CHANNEL_WAIT_PENDING;
+    let mut request = ChannelSendRequest::new(0x4e47, 1, 0x19_0003, 10);
+    let payload = b"channel wait ok!";
+    request.payload_len = payload.len() as u32;
+    request.payload[..payload.len()].copy_from_slice(payload);
+    let sent = libnagi::channel_send(endpoints.endpoint_a, &request);
+    let joined = libnagi::thread_join(thread);
+    let Some(exit_code) = joined else {
+        // Keep the live stack and endpoints mapped if the worker did not
+        // terminate; unmapping them here would invalidate a live thread.
+        return false;
+    };
+    let worker_result = CHANNEL_WAIT_WORKER_RESULT.load(Ordering::Acquire);
+    let stack_released = libnagi::munmap(stack, stack_size);
+    let endpoints_closed =
+        libnagi::handle_close(endpoints.endpoint_a) && libnagi::handle_close(endpoints.endpoint_b);
+    yielded
+        && blocked_before_send
+        && sent
+        && exit_code == 0
+        && worker_result == CHANNEL_WAIT_RESULT
+        && stack_released
+        && endpoints_closed
 }
 
 /// Exercises the real guest VFS persistence adapter with a test-only private

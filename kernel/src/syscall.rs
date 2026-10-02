@@ -31,11 +31,12 @@ use nagi_kernel::scheduler::{BootstrapUserThreads, JoinOutcome};
 pub use nagi_abi::{
     BLOCK_SECTOR_SIZE, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_RANDOM_BYTES,
     SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE,
-    SYS_BOOT_READY, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE, SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT,
-    SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT,
-    SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET,
-    SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF,
-    SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
+    SYS_BOOT_READY, SYS_CHANNEL_WAIT_READABLE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE,
+    SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO,
+    SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_PROCESS_EXIT,
+    SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT,
+    SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME,
+    THREAD_CREATE_DETACHED,
 };
 
 #[cfg(not(test))]
@@ -507,6 +508,7 @@ extern "sysv64" fn dispatch(frame: &SyscallFrame) -> u64 {
         SYS_CHANNEL_SEND => channel_send(frame.arg1, frame.arg2, frame.arg3),
         SYS_CHANNEL_TRY_RECEIVE => channel_try_receive(frame.arg1, frame.arg2, frame.arg3),
         SYS_HANDLE_CLOSE => handle_close(frame.arg1),
+        SYS_CHANNEL_WAIT_READABLE => channel_wait_readable(frame.arg1, frame),
         _ => u64::MAX,
     }
 }
@@ -542,7 +544,46 @@ fn channel_send(endpoint: u64, address: u64, length: u64) -> u64 {
     }
     let request = copy_user_value_from_user::<ChannelSendRequest>(address);
     match nagi_kernel::user_ipc::send(endpoint, request) {
-        Ok(()) => 0,
+        Ok(woken) => {
+            for waiter_id in woken.iter() {
+                if let Ok(thread) = u8::try_from(waiter_id) {
+                    let _ = thread_table().wake_channel_waiter(thread);
+                }
+            }
+            0
+        }
+        Err(_) => u64::MAX,
+    }
+}
+
+#[cfg(not(test))]
+fn channel_wait_readable(endpoint: u64, frame: &SyscallFrame) -> u64 {
+    let caller = current_user_thread();
+    save_current_thread_context(frame, 0);
+    match nagi_kernel::user_ipc::wait_readable(endpoint, u32::from(caller), || {
+        thread_table().block_current_on_channel()
+    }) {
+        Ok(nagi_kernel::user_ipc::ChannelWaitOutcome::Readable) => 0,
+        Ok(nagi_kernel::user_ipc::ChannelWaitOutcome::Blocked) => {
+            let now = interrupts::timer_ticks();
+            let next = thread_table()
+                .select_runnable(now)
+                .or_else(|| wait_until_runnable(false));
+            if let Some(next) = next {
+                switch_to_thread(caller, next, b"channel-wait");
+                0
+            } else {
+                nagi_kernel::user_ipc::cancel_waiter(u32::from(caller));
+                if thread_table().abort_current_channel_wait() {
+                    u64::MAX
+                } else if let Some(next) = thread_table().select_runnable(now) {
+                    switch_to_thread(caller, next, b"channel-wait-wake");
+                    0
+                } else {
+                    halt_forever()
+                }
+            }
+        }
         Err(_) => u64::MAX,
     }
 }

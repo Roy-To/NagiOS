@@ -28,8 +28,11 @@ the production Files or browser-page services; inode reuse is not addressed,
 and Search is not exposed as a production IPC service with authenticated,
 capability-bound caller context. A 2026-10-02 bootstrap Channel ABI smoke test
 now passes in the M19 guest path, including kernel-stamped sender PID and
-attenuated handle transfer. It remains single-process plumbing and does not
-provide authenticated Search service callers.
+attenuated handle transfer. The same guest acceptance now also creates a user
+thread that blocks on an empty Channel, verifies it remains blocked until a
+peer send, then checks the received payload after wake. The wait requires the
+endpoint's `WAIT` right and remains single-process plumbing; it does not provide
+authenticated Search service callers.
 The guest fixture also now runs a bounded M21 `file.search` plan through
 ContextResolver, Validator, Action Registry, and Executor against that real
 SearchService, but its caller/capability policy remains fixture-only. When M22
@@ -7821,3 +7824,35 @@ loader failure slice; no complete Nagi-target backend or inference is claimed.
 The final generated-checkout marker, preserved pre-regeneration snapshots and
 checksums, fetch/test logs, and target diagnostics are recorded under
 `out/evidence/m20-loader-split-path-0009-20261002/`. M20 remains `PARTIAL`.
+
+## Completion Sweep — bootstrap Channel wait/wake (2026-10-02)
+
+Added syscall 35, `SYS_CHANNEL_WAIT_READABLE`, backed by the existing bounded
+`WaitRegistry` and cooperative bootstrap thread scheduler. The Channel
+`WaitItem` is constructed through the endpoint handle table and requires
+`Rights::WAIT`; the syscall marks the caller blocked while the shared IPC lock
+still protects the registration. A successful send drains the reserved wake
+records under that lock, releases it, and then marks each matching thread
+runnable. The syscall never switches context while holding the IPC lock.
+`libnagi::channel_receive` retries nonblocking receive after readiness wakes,
+including the case where another receiver consumes the message first. If no
+other runnable or sleeping bootstrap thread can produce a message, the wait
+returns an error instead of stranding the only thread.
+
+Host tests cover already-readable readiness, denial without `WAIT`, exactly-once
+send wakeups, cancelled waiter cleanup, scheduler wake transitions, and the
+no-producer abort path. `./nagi test`, `./nagi fmt`, `./nagi lint`, and
+`./nagi build` passed. `./nagi m19` passed on QEMU with the new guest-level
+blocked-thread/send/wake/payload check; its log, image, vars, and resulting User
+Data disk are under `out/evidence/channel-wait-20261002/`. The pre-run M19 User
+Data disk is preserved with SHA-256 at
+`out/evidence/channel-wait-pre-m19-20261002-de3092c/`.
+
+An attempted `./nagi m17` regression stopped before target build because the
+fetch preflight refused the pre-existing modified generated Servo checkout.
+That checkout and the pre-run M17/M18 artifacts were left untouched; snapshots
+of those artifacts verify under
+`out/evidence/channel-wait-pre-m17-m18-20261002-de3092c/`. M19 remains
+`PARTIAL`: this bootstrap wait does not add isolated processes, authenticated
+endpoint delivery, or production Search/service callers, and it is not a
+general user syscall for Event, Timer, process exit, or service readiness.
