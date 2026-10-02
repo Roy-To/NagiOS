@@ -734,3 +734,39 @@ wrappers. Logs are `out/logs/m20-loader-status-0012-fetch-target-build.log` and
 `out/logs/m20-loader-status-0012-fetch-boundary-target-build.log`. These checks
 do not establish a complete target backend or inference. M20 remains
 `PARTIAL`.
+
+## Tensor-count mismatch status — 2026-10-02
+
+Added `third_party/llama-cpp-patches/0013-nagi-llama-tensor-count-status.patch`.
+`done_getting_tensors()` now records an invalid tensor count in the loader's
+sticky `loader_valid` state under `__NAGI__` and retains the existing host
+exception behavior. `llama_model_base::load_tensors()` stops when that status
+is invalid, and the model-load boundary returns a load error instead of
+continuing or treating the failure as cancellation.
+
+The regression first reproduced the too-many-tensors exception in the
+`__NAGI__` fixture; after the patch, over-count and under-count cases fail
+closed. The regenerated-cache loader-bounds build and focused CTest pass 1/1 in
+both the Nagi-macro host fixture and ordinary host configurations. All 176 CLI
+library tests and `cargo fmt --check` pass. Logs are
+`out/logs/m20-loader-status-0013-fetch-nagi-build.log`,
+`out/logs/m20-loader-status-0013-fetch-nagi-ctest.log`,
+`out/logs/m20-loader-status-0013-fetch-upstream-build.log`,
+`out/logs/m20-loader-status-0013-fetch-upstream-ctest.log`, and
+`out/logs/m20-loader-status-0013-cli-test.log`.
+
+`./nagi fetch` regenerated a clean pinned checkout from patches 0001–0013,
+with patch fingerprint `fnv1a64:40c1ab9737923262` and checkout fingerprint
+`fnv1a64:8e278e7042d9fa58`. Reverse `git apply --check` confirmed patch 0013 is
+present. Fetch stopped at the pre-existing modified generated Servo checkout
+without modifying it. The previous generated working copy and its 3,674-entry
+SHA-256 manifest are under
+`out/evidence/m20-loader-status-0013-generated-checkout/`; all entries verified.
+
+Focused Nagi-target compilation still fails on 15 later loader exception
+sites, 18 model-layer exception sites, and seven load-wrapper diagnostics in
+`llama.cpp`. Logs are
+`out/logs/m20-loader-status-0013-fetch-target-build.log`,
+`out/logs/m20-loader-status-0013-fetch-model-target-build.log`, and
+`out/logs/m20-loader-status-0013-fetch-boundary-target-build.log`. No complete
+target backend or inference is claimed; M20 remains `PARTIAL`.

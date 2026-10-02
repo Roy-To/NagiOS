@@ -959,6 +959,20 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_tensor_count_failures_reach_the_load_boundary() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0013-nagi-llama-tensor-count-status.patch"),
+        )
+        .expect("Nagi tensor count status patch");
+
+        assert!(patch.contains("done_getting_tensors(bool partial = false)"));
+        assert!(patch.contains("tensor_count_mismatch_status"));
+        assert!(patch.contains("if (!ml.loader_valid)"));
+        assert!(patch.contains("model tensor layout is invalid"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
