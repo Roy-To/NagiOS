@@ -1157,3 +1157,22 @@ are in `out/logs/m20-loader-status-0029-{host,nagi}-{build,ctest}.log`.
 
 This is compile and checked-error-propagation progress only. Granite has not
 been loaded or run for inference, so M20 remains `PARTIAL`.
+
+## Memory construction failure status — 2026-10-02
+
+Added llama.cpp patch 0030. KV, recurrent, and DSV4 cache constructors now
+retain host exceptions and report Nagi allocation failures through an
+initialization status. Composite memory modules inspect their child status;
+`llama_model::create_memory()` deletes an incomplete module and returns null so
+the existing context initialization path reports failure instead of using
+partially allocated cache tensors.
+
+Host and Nagi-macro builds of `test-model-loader-bounds` passed, as did both
+focused CTests (1/1). `cargo test -p nagi-cli` passed 193 library tests and 21
+CLI integration tests. The Nagi-configured no-exceptions sweep passes 29/32
+top-level translation units; DSV4 runtime validation, quantization, and sampler
+remain. The allocation-failure branch is not fault-injected yet; this check
+establishes compilation and checked propagation wiring, not an induced OOM
+acceptance. Logs are under `out/logs/m20-loader-status-0030-`.
+
+No model inference has run; M20 remains `PARTIAL`.

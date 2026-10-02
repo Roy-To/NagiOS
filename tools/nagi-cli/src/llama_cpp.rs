@@ -1307,6 +1307,23 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_memory_initialization_failures_return_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0030-nagi-llama-memory-init-status.patch"),
+        )
+        .expect("Nagi llama memory initialization status patch");
+
+        assert!(patch.contains("src/llama-memory.h"));
+        assert!(patch.contains("virtual bool is_initialized() const"));
+        assert!(patch.contains("set_initialization_failed()"));
+        assert!(patch.contains("src/llama-model.cpp"));
+        assert!(patch.contains("memory module initialization failed"));
+        assert!(patch.contains("src/llama-kv-cache-dsv4.cpp"));
+        assert!(patch.contains("failed to initialize DSV4 CSA compressor state"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
