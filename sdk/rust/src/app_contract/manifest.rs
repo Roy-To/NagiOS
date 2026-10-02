@@ -191,17 +191,10 @@ fn valid_symbol(value: &str) -> bool {
         })
 }
 
+/// Media types use the single canonical grammar owned by `nagi-model`
+/// (ADR-0013), shared with the clipboard foundation.
 fn valid_media_type(value: &str) -> bool {
-    let Some((kind, subtype)) = value.split_once('/') else {
-        return false;
-    };
-    let valid_token = |token: &str| {
-        !token.is_empty()
-            && token
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'+' | b'-'))
-    };
-    valid_token(kind) && valid_token(subtype)
+    nagi_model::validate_media_type(value).is_ok()
 }
 
 fn valid_payload_type(value: &str) -> bool {
@@ -353,6 +346,40 @@ mod tests {
                 invalid.validate().unwrap_err().code,
                 ErrorCode::InvalidManifest,
                 "accepted target {target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn resource_media_types_use_the_canonical_grammar() {
+        let check = |media_type: &'static str| {
+            let mut candidate = manifest(&[EN_US]);
+            let resources = [super::ResourceReference {
+                id: "notes.icon",
+                uri: "appres://icons/notes.svg",
+                media_type: Some(media_type),
+            }];
+            candidate.resources = &resources;
+            candidate.validate()
+        };
+        for valid in [
+            "image/svg+xml",
+            "image/png",
+            "application/vnd.nagi.note-block",
+        ] {
+            assert_eq!(check(valid), Ok(()), "rejected {valid:?}");
+        }
+        for invalid in [
+            "Image/SVG+xml",
+            "image/svg+xml; charset=utf-8",
+            "image/*",
+            ".image/png",
+            "image",
+        ] {
+            assert_eq!(
+                check(invalid).unwrap_err().code,
+                ErrorCode::InvalidManifest,
+                "accepted non-canonical media type {invalid:?}"
             );
         }
     }
