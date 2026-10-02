@@ -223,3 +223,13 @@ The prior audit's IPC limitations still apply: this is only the shared PID 1
 bootstrap process and does not authenticate service callers or create
 production Search/Action/Activity services. The user ABI still has no Event,
 Timer, process-exit, or service-readiness wait. M19 remains `PARTIAL`.
+
+## Completion Sweep — QEMU persistence/Search regression (2026-10-03)
+
+`./nagi m19` passed again on QEMU. The run verified live VFS metadata search,
+Object ID stability across rename/remount/restart, and the M21 `file.search`
+Plan/Validate/Execute fixture. Pre-run fixed-path artifacts are preserved under
+`out/evidence/m19-pre-regression-20261003/`; the new run's image, User Data,
+OVMF vars, guest log, invocation log, and manifest are under
+`out/evidence/m19-regression-20261003/`. This remains fixture evidence: there
+is no authenticated production Search service caller.

@@ -275,8 +275,11 @@ mod guest {
         };
         libnagi::console_write(b"Nagi M17 trace: GL context created\r\n");
         let signal = Arc::new(EventLoopSignal::new());
+        let mut servo_options = servo::Opts::default();
+        servo_options.config_dir = Some(std::path::PathBuf::from("/tmp/nagi-m17-servo"));
         libnagi::console_write(b"Nagi M17 trace: Servo construction started\r\n");
         let servo = ServoBuilder::default()
+            .opts(servo_options)
             .event_loop_waker(Box::new(NagiWaker(signal.clone())))
             .build();
         servo.setup_logging();

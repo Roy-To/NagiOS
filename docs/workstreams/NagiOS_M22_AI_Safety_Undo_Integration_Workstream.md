@@ -277,3 +277,13 @@ supervisor-delivered capability endpoints, or a production Activity Ledger
 bridge. Preserve the guest result as acceptance evidence for the fixture
 scope; production service authority remains incomplete and M22 remains
 `PARTIAL`.
+
+## Completion Sweep — three-boot QEMU regression (2026-10-03)
+
+Fresh run `1790958557043820000` passed all three boots: VFS `file.move` and
+`file.copy`, NH16 transaction persistence, Activity Ledger records, composite
+Undo, and restored state. The run image, User Data, OVMF variables, bootstrap
+and boot logs, invocation output, README, and checksums are preserved under
+`out/evidence/m22-regression-20261003/`. The run continues to validate the
+fixture path only; no production Activity Ledger service or authenticated
+caller boundary is claimed.
