@@ -7,7 +7,7 @@
   "status": "PASS",
   "last_verified": {
     "commit_sha": "02e05f3fa7d3c6e35aee14f67064adadcc307377",
-    "verified_at": "2026-10-02T04:51:29Z",
+    "verified_at": "2026-10-02T06:20:50Z",
     "normal_state": "CLIP-01 host-only Foundation acceptance is PASS on codex/0.2-clip-01, branched from codex/integration-next-phase a235eb9f7d6c15a71873b431a57271cd1aeba260. The clipboard implementation is commit 53f47bf08862bfa7225e4abf27458f4b8aa0a1ff; registration commit 4595e7ddb2437adc85df0a90220955a8952bc820 appends the reviewed clip-01 row to .dev/workstreams.json on this dedicated branch only, at the repository owner's direction. All 27 focused host acceptance tests, rustfmt --check, warning-denied Clippy, rustdoc, and git diff --check pass. ./nagi dev verify passes with 20 registered workstreams and 13 state files including clip-01, and ./nagi dev status accepts the branch. CI run 36963174425 at 4595e7d is green (ubuntu-host and windows-launcher success, including Verify development workstream state; nagi-target skipped as non-target-sensitive). The earlier run 36958468012 failed only because the branch was not yet registered. PASS covers host Foundation acceptance only: no compositor, IPC, target/QEMU, Capability wiring, or first-party clipboard acceptance is claimed. Nagi 0.1 M17-M30 work was not touched. Integration checkpoint: at the repository owner's direction, codex/0.2-clip-01 (ad7bb8d) was merged with --no-ff into codex/integration-next-phase as merge commit 02e05f3fa7d3c6e35aee14f67064adadcc307377 (parents a235eb9, ad7bb8d). The merge adds 16 files and changes no existing file except one appended clip-01 row in .dev/workstreams.json. On the integration branch the 27-test suite, fmt, warning-denied Clippy, git diff --check, and ./nagi dev verify (20 workstreams, 13 states) pass, and CI run 36964103446 at 02e05f3 succeeded. This integrates the host foundation only; runtime activation still requires M30 PASS and an explicit checkpoint naming CLIP-01.",
     "commands": [
       "git fetch origin --prune",
@@ -38,7 +38,8 @@
       "cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked; nagi-pkg manifest validate sdk/rust/fixtures/manifests/{files,notes,search,activity}.json",
       "python3 tools/nagi-pkg/schema_validation/validate_fixtures.py",
       "cargo check --locked -p nagi-model --target x86_64-unknown-none",
-      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings"
+      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings",
+      "GitHub Actions workflow_dispatch ci.yml run_target=true on codex/integration-next-phase (run 36969218693)"
     ],
     "tests": [
       {
@@ -131,9 +132,24 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "nagi-model 3 tests (incl. canonical_media_types_follow_one_grammar) and nagi-sdk 47 tests (incl. resource_media_types_use_the_canonical_grammar) pass; nagi-pkg 7 tests and all 4 manifest fixtures pass; JSON Schema check: 4 valid fixtures, 20 malformed rejected; clipboard 27 pass; nagi-model checks for x86_64-unknown-none; host workspace Clippy -D warnings clean. CI: run 36965771628 at dec6e7d was cancelled by a concurrent SEARCH-CORE-01 integration push; run 36965918565 at a3cc23f (descendant containing dec6e7d) succeeded on ubuntu-host (including the clipboard step) and windows-launcher. nagi-target was skipped there because the follow-up push's classification only diffed the search changes, so no target build/acceptance has run for this nagi-model/SDK change."
+      },
+      {
+        "name": "Target build and M17 acceptance with ADR-0013",
+        "command": "Nagi CI workflow_dispatch run_target=true at 150f436 (contains dec6e7d): nagi-target job",
+        "outcome": "FAIL",
+        "exit_code": 11,
+        "evidence": "Target build PASS: Mesa Softpipe, M16 package artifact (SDK), Nagi kernel, Nagi user init, and UEFI loader all built with the nagi-model/SDK media-type change. Only 'M17 first web pixel acceptance' failed: 'FAIL M17-FIRST-WEB-PIXEL [M17 / target; stage=timeout] QEMU did not exit within 120 seconds' (exit 11). This is the same pre-existing Nagi 0.1 M17 target blocker recorded in integration-next-phase state and NOTIFY-01 CI, owned by the 0.1 release line; it is not caused by the media-type validator. Diagnostics artifact m17-diagnostics-36969218693."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 36969218693,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36969218693",
+        "head_sha": "150f43623800d2563caece583cae807c8a040f61",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Manual target run. ubuntu-host and windows-launcher succeeded (clipboard step included). nagi-target built kernel, user init, and loader successfully, then failed only in M17 first web pixel acceptance with the known 0.1 stage=timeout blocker (QEMU did not exit within 120 seconds). An earlier dispatch (36967341039) was cancelled by a concurrent SEARCH-CORE-01 push."
+      },
       {
         "run_id": 36965918565,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36965918565",
@@ -178,7 +194,7 @@
   },
   "release_line_gate": {
     "source": "AGENTS.md; docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md; docs/0.2/WORKSTREAMS.md; .dev/workstreams.json; Nagi_OS_0.2_Codex_Implementation_Spec.md; Nagi_OS_0.2_Parallel_Execution_Rules.md; docs/workstreams/NagiOS_0.2_Clipboard_Data_Transfer_Foundation_Workstream.md",
-    "last_checked_at": "2026-10-02T04:51:29Z",
+    "last_checked_at": "2026-10-02T06:20:50Z",
     "activation_requirement": "CLIP-01 host-only Foundation acceptance is PASS. Compositor/window-manager clipboard ownership, keyboard shortcuts, primary selection, drag-and-drop plumbing, production IPC, target/QEMU service, durable history, Capability enforcement wiring, Activity/Wayback/AI integration, and first-party adoption require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming CLIP-01. Current repository evidence keeps 0.1 M30 NOT STARTED."
   },
   "blocker": {
@@ -228,7 +244,7 @@
     "Compositor/window-manager clipboard ownership, keyboard shortcuts, primary selection, drag-and-drop GUI plumbing, shell UI/toasts/paste menus.",
     "Target/QEMU clipboard service and first-party adoption, including the M27 Albert permission-aware clipboard path.",
     "Durable clipboard history, Activity/Wayback recording, cloud/cross-device clipboard.",
-    "Target build/acceptance for the ADR-0013 nagi-model/SDK change has not run in CI (nagi-target skipped); it will run with the next target-sensitive push or a workflow_dispatch with run_target=true."
+    "M17 target acceptance remains failing (stage=timeout) on the 0.1 release line; target build with the ADR-0013 change passes. Re-check target acceptance after the 0.1 owner resolves M17."
   ],
   "cross_workstream_dependencies": [
     {
