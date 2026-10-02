@@ -109,10 +109,28 @@ pub fn draw_utf8(surface: &mut [u32], x: i32, y: i32, text: &[u8], color: u32) -
             );
             cursor += JAPANESE_CELL_WIDTH;
             index += 3;
+        } else if first == 0xe4 && index + 2 < text.len() {
+            let second = unsafe { *text.as_ptr().add(index + 1) };
+            let third = unsafe { *text.as_ptr().add(index + 2) };
+            let glyph = match [second, third] {
+                [0xb8, 0xad] => Some([0x08, 0x08, 0x7f, 0x49, 0x49, 0x7f, 0x08]), // 中
+                _ => None,
+            };
+            draw_glyph(
+                surface,
+                cursor,
+                y,
+                glyph.unwrap_or(JAPANESE_REPLACEMENT),
+                JAPANESE_GLYPH_WIDTH,
+                color,
+            );
+            cursor += JAPANESE_CELL_WIDTH;
+            index += 3;
         } else if first == 0xe6 && index + 2 < text.len() {
             let second = unsafe { *text.as_ptr().add(index + 1) };
             let third = unsafe { *text.as_ptr().add(index + 2) };
             let glyph = match [second, third] {
+                [0x8a, 0x9e] => Some([0x3e, 0x04, 0x7f, 0x24, 0x3e, 0x04, 0x0c]), // 択
                 [0x97, 0xa5] => Some([0x7e, 0x48, 0x7e, 0x48, 0x7e, 0x48, 0x7e]), // 日
                 [0x9c, 0xac] => Some([0x42, 0x7e, 0x52, 0x7e, 0x52, 0x7e, 0x42]), // 本
                 [0x9c, 0xab] => Some([0x08, 0x08, 0x7f, 0x08, 0x18, 0x28, 0x48]), // 末
@@ -171,6 +189,23 @@ pub fn draw_utf8(surface: &mut [u32], x: i32, y: i32, text: &[u8], color: u32) -
                 [0xa8, 0x80] => Some([0x7f, 0x00, 0x3e, 0x00, 0x3e, 0x00, 0x7f]), // 言
                 [0xa8, 0x88] => Some([0x48, 0x7e, 0x08, 0x3e, 0x08, 0x08, 0x08]), // 計
                 [0xa8, 0xad] => Some([0x48, 0x7e, 0x12, 0x7e, 0x08, 0x36, 0x49]), // 設
+                _ => None,
+            };
+            draw_glyph(
+                surface,
+                cursor,
+                y,
+                glyph.unwrap_or(JAPANESE_REPLACEMENT),
+                JAPANESE_GLYPH_WIDTH,
+                color,
+            );
+            cursor += JAPANESE_CELL_WIDTH;
+            index += 3;
+        } else if first == 0xe9 && index + 2 < text.len() {
+            let second = unsafe { *text.as_ptr().add(index + 1) };
+            let third = unsafe { *text.as_ptr().add(index + 2) };
+            let glyph = match [second, third] {
+                [0x81, 0xb8] => Some([0x3e, 0x12, 0x7f, 0x2a, 0x3e, 0x08, 0x1c]), // 選
                 _ => None,
             };
             draw_glyph(

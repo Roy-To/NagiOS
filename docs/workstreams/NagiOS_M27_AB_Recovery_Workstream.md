@@ -643,3 +643,14 @@ all logs, and verified manifest, is at
 `out/evidence/m27-ab-rollback-1790899532394169000/`. This is a firmware-start
 timeout with unknown root cause; it does not establish a kernel scheduler
 failure or a complete M27 pass. M27 and M28 remain PARTIAL.
+
+## Completion Sweep — two M27 gates in the current M28 run (2026-10-02)
+
+Both M27 sub-runs in
+`out/evidence/m28-run-20261002T002354Z-22197/` passed the malformed System B
+rollback, healthy System B readiness/promotion, and Recovery journal/committed
+M22 Undo checks. Their evidence directories are
+`out/evidence/m27-ab-rollback-1790900649030767000/` and
+`out/evidence/m27-ab-rollback-1790900764105897000/`; both SHA-256 manifests
+verify. This repeated QEMU result does not supply authenticated update or slot
+manifest authority, so M27 remains `PARTIAL`.

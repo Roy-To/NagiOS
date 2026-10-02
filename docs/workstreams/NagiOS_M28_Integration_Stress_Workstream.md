@@ -577,3 +577,27 @@ encountered a separate pre-guest OVMF loop on the healthy-B readiness trial.
 It is preserved at `out/evidence/m27-ab-rollback-1790899532394169000/`. The
 one-repetition Search/Undo integration passed; Recovery integration and full
 M28 reference-load acceptance remain incomplete, so M28 stays PARTIAL.
+
+## Completion Sweep — two current Search/History/Recovery repetitions (2026-10-02)
+
+Before the run, both persistent M19/M22 User Data disks and the latest verified
+M22 third-boot log were preserved with a SHA-256 manifest under
+`out/evidence/m28-pre-two-repetition-20261002T002320Z/`. The latest M19 log was
+absent at preflight, so it was treated as unverified; both repetitions then
+generated and passed fresh M19 logs.
+
+`NAGI_M28_REPEAT_COUNT=2 sh tests/acceptance/m28_integration_stress.sh --run`
+passed two consecutive repetitions at source
+`f718117009c23cd0b3ecbb0f328277fe7f608200`. Each repetition passed M19
+VFS/ObjectId/Search, all three M22 Move/Copy/NH16/NAL1 grouped-Undo restart
+boots, and M27 malformed-System-B rollback, healthy-System-B readiness and
+promotion, and Recovery journal/Undo checks. The complete archive is
+`out/evidence/m28-run-20261002T002354Z-22197/`; its manifest, both M27
+sub-run manifests, and the pre-run snapshot manifest verify. The harness
+self-test, two-repetition dry-run, and shell syntax check also passed.
+
+QEMU reported that the host has no `virtio-sound.in` input driver; this run did
+not exercise audio. Desktop/Files/Notes/Albert concurrent use, real Granite
+inference, memory pressure, CPU fairness, and handle/memory leak soak remain
+unmeasured. This passes the repeated integration slice only; M28 stays
+`PARTIAL`.

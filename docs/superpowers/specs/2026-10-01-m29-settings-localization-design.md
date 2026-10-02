@@ -43,6 +43,15 @@ localization library or Settings entry point today.
 - M10 desktop acceptance remains a regression gate. M29 target build and QEMU
   acceptance must prove that selection changes the rendered guest UI.
 
+## Follow-up — visible selected-locale state (2026-10-02)
+
+The selected locale currently relies on its teal border for state indication.
+Keep that visual selection and add a localized `Selected` / `選択中` text cue
+to the selected option row. This makes the choice understandable without
+relying on color while keeping the fixed Settings scope and existing locale
+selection behavior unchanged. It does not add accessibility-tree or
+assistive-technology support.
+
 ## Scope limits
 
 This slice does not add settings persistence, a system settings service,

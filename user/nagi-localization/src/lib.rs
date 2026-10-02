@@ -88,6 +88,18 @@ mod tests {
     }
 
     #[test]
+    fn selected_locale_state_is_translated_in_both_first_party_languages() {
+        assert_eq!(
+            text(Locale::EnUs, "desktop.settings.option.selected"),
+            "Selected"
+        );
+        assert_eq!(
+            text(Locale::JaJp, "desktop.settings.option.selected"),
+            "選択中"
+        );
+    }
+
+    #[test]
     fn lookup_resource_accepts_windows_crlf_line_endings() {
         static CRLF_RESOURCE: &[u8] = b"common.ok=OK\r\n";
         assert_eq!(lookup_resource(CRLF_RESOURCE, "common.ok"), Some("OK"));

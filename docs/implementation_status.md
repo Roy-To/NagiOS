@@ -7706,3 +7706,45 @@ identity between packaged and pristine qcow2 passed. The bundle correctly
 retains `m30_acceptance=NOT_EVALUATED`. No model inference or host audio
 acceptance is claimed. M30 remains PARTIAL for authenticated updates, remaining
 M18–M29 acceptance, and human binary redistribution review.
+
+## Completion Sweep — M28 two-repetition Search/History/Recovery gate (2026-10-02)
+
+At source `f718117009c23cd0b3ecbb0f328277fe7f608200`, the guarded M28 runner
+completed two consecutive repetitions. Each passed M19 guest Search/ObjectId,
+the three-boot M22 Move/Copy, NH16/NAL1, grouped Undo and restart checks, and
+the M27 malformed-System-B rollback, healthy-System-B promotion, and Recovery
+Undo/journal checks. The full run archive is
+`out/evidence/m28-run-20261002T002354Z-22197/`; its SHA-256 manifest, both M27
+sub-run manifests, and the preserved pre-run disk/log snapshot manifest all
+verify. Harness self-test, dry-run, and shell syntax checks passed. The host
+has no `virtio-sound.in` audio input backend, and the run did not measure audio.
+
+This satisfies the repeated Search/History/Recovery integration slice. It does
+not exercise M28's Desktop/Files/Notes/Albert reference workload, real Granite
+inference, OOM, CPU fairness, or resource-leak soak. M19, M21, M22, M27, and
+M28 remain `PARTIAL` for the production service/security and remaining formal
+acceptance work recorded above.
+
+## Completion Sweep — M29 localized selected-state cue (2026-10-02)
+
+The fixed Desktop Settings control now indicates the selected locale with
+localized text (`Selected` / `選択中`) as well as its existing teal border.
+The target font has dedicated glyphs for the Japanese text; tests confirm both
+catalog values and the selected-row render path.
+
+The M29 QEMU acceptance passed on the updated source: keyboard focus and
+Japanese selection markers were present, the selected preference was written
+to User Data, and a restart with the same disk restored `ja-JP` before the
+Desktop's first frame. READY arrived 2,369 ms after QEMU spawn. The screenshot
+SHA-256 is
+`a6d8e854ccddb53800a8924205072b8cc622abf6f8294361883f77fb007064a9`; the
+tracked screenshot matches the run evidence byte-for-byte. The nine-entry
+run manifest verifies at
+`out/evidence/m29-settings-1790901427735858000/SHA256SUMS`, and the previous
+tracked screenshot is preserved with its own verified manifest.
+
+The focused localization suite passed 7 tests and the M29 CLI contract suite
+passed 6. Repository fmt, tests, lint, and build passed. This adds a textual
+selection cue only; it does not provide assistive-technology support or a
+system-wide accessibility tree. M29 remains `PARTIAL` for its wider polish
+criteria.

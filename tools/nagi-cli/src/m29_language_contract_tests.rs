@@ -1,4 +1,5 @@
 const DESKTOP: &str = include_str!("../../../user/nagi-init/src/desktop.rs");
+const FONT: &str = include_str!("../../../user/nagi-init/src/font.rs");
 const INIT: &str = include_str!("../../../user/nagi-init/src/main.rs");
 const COMMANDS: &str = include_str!("commands.rs");
 
@@ -89,6 +90,35 @@ fn m29_language_setting_is_reachable_and_selectable_by_keyboard() {
         assert!(events.contains(event), "M29 sequence must send {event}");
     }
     assert!(desktop.contains("NagiM29keyboardlocaleselectionPASSlocale=ja-JP"));
+}
+
+#[test]
+fn selected_locale_has_a_localized_text_cue_in_its_option_row() {
+    let desktop = compact(DESKTOP);
+    let render_start = desktop
+        .find("fnrender_locale_option(")
+        .expect("locale option renderer");
+    let render_end = desktop[render_start..]
+        .find("fnfocus_next_desktop_control(")
+        .map(|offset| render_start + offset)
+        .expect("locale option renderer end");
+    let render = &desktop[render_start..render_end];
+    let selected_state = render
+        .find("ifself.locale==locale{painter.text(")
+        .map(|offset| &render[offset..])
+        .expect("selected locale gets a text cue");
+    assert!(selected_state.contains("desktop.settings.option.selected"));
+    assert!(selected_state.contains("label_end+8"));
+}
+
+#[test]
+fn japanese_selected_state_characters_have_desktop_font_glyphs() {
+    for character in ["選", "択", "中"] {
+        assert!(
+            FONT.contains(character),
+            "desktop font is missing {character}"
+        );
+    }
 }
 
 #[test]

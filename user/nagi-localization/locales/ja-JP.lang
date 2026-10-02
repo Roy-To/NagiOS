@@ -3,6 +3,7 @@ desktop.settings.title=設定
 desktop.settings.language=言語
 desktop.settings.option.en-US=English
 desktop.settings.option.ja-JP=日本語
+desktop.settings.option.selected=選択中
 desktop.calculator.title=計算
 desktop.notes.title=メモ
 desktop.notes.content=メモ:

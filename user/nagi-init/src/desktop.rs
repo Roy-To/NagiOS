@@ -384,12 +384,20 @@ impl Desktop {
         );
         let inner = Rect::new(rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4);
         painter.frame(inner, if self.locale == locale { TITLE } else { BORDER });
-        painter.text(
+        let label_end = painter.text(
             rect.x + 8,
             rect.y + 8,
             nagi_localization::text(self.locale, key).as_bytes(),
             TEXT,
         );
+        if self.locale == locale {
+            painter.text(
+                label_end + 8,
+                rect.y + 8,
+                nagi_localization::text(self.locale, "desktop.settings.option.selected").as_bytes(),
+                TEXT,
+            );
+        }
     }
 
     fn focus_next_desktop_control(&mut self) {
