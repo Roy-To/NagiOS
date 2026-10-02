@@ -7686,3 +7686,23 @@ the healthy-B guest started, with QMP at OVMF RIP `0x7eb84171`; its verified
 evidence is `out/evidence/m27-ab-rollback-1790899532394169000/`. The firmware
 loop root cause is unknown. Neither failed sequence is counted as a M27 or M28
 acceptance pass; both milestones remain PARTIAL.
+
+## Completion Sweep — b11858b M30 clean-source release acceptance (2026-10-02)
+
+The previous source-bound reference image at `b4385e1` and its build-info
+were hash-preserved in `out/evidence/m30-pre-b11858b-current-source-20261002/`.
+From clean source `b11858baad8beea9955f4e52433380c24f302c11`, `./nagi m30`
+rebuilt the self-contained 64 GiB GPT image (SHA-256
+`95577eb6f46f9cafeeaf4adc7ea48963483f31c0bcf63a281486e8ec3c8b747d`) and
+passed System A, User Data restart persistence, M19 Search, M22 grouped Undo,
+GPT Recovery, unstaged-System-B rejection, post-Recovery restart, and the
+separate M20 FAT32 Model Store reader fixture. The 16-entry evidence manifest
+at `out/evidence/m30-release-1790900017117346000/SHA256SUMS` verifies; pristine,
+mutable QEMU, fixture, and bundle qcow2 checks passed.
+
+All 14 release-tool tests passed. Current-source preflight, assembly to
+`out/artifacts/m30-release-bundle-b11858b/`, bundle verification, and byte
+identity between packaged and pristine qcow2 passed. The bundle correctly
+retains `m30_acceptance=NOT_EVALUATED`. No model inference or host audio
+acceptance is claimed. M30 remains PARTIAL for authenticated updates, remaining
+M18–M29 acceptance, and human binary redistribution review.

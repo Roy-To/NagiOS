@@ -790,3 +790,32 @@ The bundle manifest still says `m30_acceptance=NOT_EVALUATED`; this QEMU run
 does not perform authenticated System B update acceptance. No model was
 loaded, the M20 fixture is not Granite, and no inference is claimed. QEMU had
 no `virtio-sound.in` host driver. M30 remains `PARTIAL`.
+
+## Completion Sweep release checkpoint on b11858b — 2026-10-02
+
+The prior source-bound reference image from `b4385e1` was preserved with its
+build-info under `out/evidence/m30-pre-b11858b-current-source-20261002/`; both
+the qcow2 and sidecar have verified hashes, and `qemu-img check` passed before
+and after preservation.
+
+From clean source commit `b11858baad8beea9955f4e52433380c24f302c11`,
+`./nagi m30` rebuilt the self-contained 64 GiB GPT reference image. Its SHA-256
+is `95577eb6f46f9cafeeaf4adc7ea48963483f31c0bcf63a281486e8ec3c8b747d`,
+matching the source-bound `.build-info`. Run
+`1790900017117346000` passed System A boot, User Data write/restart-read, M19
+Search, M22 grouped Move/Copy and Activity Ledger Undo, Recovery VFS/help with
+unchanged A/B journal, unstaged-System-B rejection, post-Recovery persistence,
+and the separate M20 FAT32 Model Store reader fixture. The pristine image,
+mutable QEMU copy, and fixture passed `qemu-img check`.
+
+All 14 release-tool tests passed. Clean-source `release.py preflight`,
+assembly to `out/artifacts/m30-release-bundle-b11858b/`, and `verify` passed.
+The packaged qcow2 passed `qemu-img check` and is byte-identical to the pristine
+reference. The 16-entry evidence checksum manifest verifies at
+`out/evidence/m30-release-1790900017117346000/SHA256SUMS`. The bundle records
+`m30_acceptance=NOT_EVALUATED`; the separate QEMU evidence does not change that
+field. No model was loaded or used for inference. QEMU reported that this host
+has no `virtio-sound.in` input driver, so this run does not test audio.
+
+M30 remains PARTIAL for authenticated System B updates, remaining M18–M29
+acceptance, and human binary redistribution review.
