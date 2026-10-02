@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "clip-01",
   "current_milestone": "Host-only clipboard / data-transfer contract and in-memory reference",
-  "current_checkpoint": "foundation-acceptance-pass;pushed-remote-equal;shared-ci-blocked-on-registration",
+  "current_checkpoint": "foundation-acceptance-pass;registered-on-dedicated-branch;ci-green",
   "status": "PASS",
   "last_verified": {
-    "commit_sha": "53f47bf08862bfa7225e4abf27458f4b8aa0a1ff",
-    "verified_at": "2026-10-02T03:20:47Z",
-    "normal_state": "CLIP-01 host-only Foundation acceptance is PASS on codex/0.2-clip-01 at code commit 53f47bf08862bfa7225e4abf27458f4b8aa0a1ff, branched from codex/integration-next-phase a235eb9f7d6c15a71873b431a57271cd1aeba260. All 27 focused host acceptance tests, rustfmt --check, warning-denied Clippy on all targets, rustdoc, and git diff --check pass with the repository-pinned nightly-2025-08-01 toolchain (x86_64 Linux host). ./nagi dev verify passes for the 19 registered workstreams; clip-01 is not yet registered, so its state is validated directly against .dev/schemas/workstream-state.schema.json and ./nagi dev status rejects the unregistered branch until the Integration Owner applies the registration proposal. The branch is pushed and the remote HEAD equals the code commit. PASS covers host Foundation acceptance only: no compositor, IPC, target/QEMU, Capability wiring, or first-party clipboard acceptance is claimed. Nagi 0.1 M17-M30 work was not touched. CI run 36958468012 at the code commit completed with conclusion failure: ubuntu-host and windows-launcher both failed only in nagi-cli test dev_status_resume_and_verify_read_the_registered_workstream because codex/0.2-clip-01 is not registered in .dev/workstreams.json (CliError code 4); every other host step that ran passed and nagi-target was skipped as non-target-sensitive. This is the registration-only CI failure class named in master spec section 44, not a clipboard defect; it clears when the Integration Owner applies registration-proposal.json.",
+    "commit_sha": "4595e7ddb2437adc85df0a90220955a8952bc820",
+    "verified_at": "2026-10-02T04:18:11Z",
+    "normal_state": "CLIP-01 host-only Foundation acceptance is PASS on codex/0.2-clip-01, branched from codex/integration-next-phase a235eb9f7d6c15a71873b431a57271cd1aeba260. The clipboard implementation is commit 53f47bf08862bfa7225e4abf27458f4b8aa0a1ff; registration commit 4595e7ddb2437adc85df0a90220955a8952bc820 appends the reviewed clip-01 row to .dev/workstreams.json on this dedicated branch only, at the repository owner's direction. All 27 focused host acceptance tests, rustfmt --check, warning-denied Clippy, rustdoc, and git diff --check pass. ./nagi dev verify passes with 20 registered workstreams and 13 state files including clip-01, and ./nagi dev status accepts the branch. CI run 36963174425 at 4595e7d is green (ubuntu-host and windows-launcher success, including Verify development workstream state; nagi-target skipped as non-target-sensitive). The earlier run 36958468012 failed only because the branch was not yet registered. PASS covers host Foundation acceptance only: no compositor, IPC, target/QEMU, Capability wiring, or first-party clipboard acceptance is claimed. Nagi 0.1 M17-M30 work was not touched.",
     "commands": [
       "git fetch origin --prune",
       "git worktree add -b codex/0.2-clip-01 ~/.codex/worktrees/clip-01/NagiOS origin/codex/integration-next-phase",
@@ -24,7 +24,10 @@
       "git push -u origin codex/0.2-clip-01",
       "git ls-remote origin refs/heads/codex/0.2-clip-01",
       "GitHub Actions list_workflow_runs branch=codex/0.2-clip-01",
-      "GitHub Actions get_job_logs for jobs 110686630321 (ubuntu-host) and 110686630386 (windows-launcher)"
+      "GitHub Actions get_job_logs for jobs 110686630321 (ubuntu-host) and 110686630386 (windows-launcher)",
+      "Append clip-01 registry_entry to .dev/workstreams.json on codex/0.2-clip-01",
+      "git push origin codex/0.2-clip-01",
+      "GitHub Actions list_workflow_jobs run 36963174425"
     ],
     "tests": [
       {
@@ -60,14 +63,14 @@
         "command": "./nagi dev verify",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "PASS development state: 19 registered workstreams, 12 state files validated on branch codex/0.2-clip-01. clip-01 is not included because it is not registered; see registration-proposal.json."
+        "evidence": "PASS development state: 20 registered workstreams, 13 state files validated on codex/0.2-clip-01, including clip-01 after registration commit 4595e7d."
       },
       {
         "name": "DF-01 workstream status",
         "command": "./nagi dev status",
-        "outcome": "FAIL",
-        "exit_code": 4,
-        "evidence": "FAIL branch `codex/0.2-clip-01` is not registered in .dev/workstreams.json. Expected until the Integration Owner applies the registry entry in registration-proposal.json; .dev/workstreams.json is Integration Owner-owned and was not edited."
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "After registration, dev status reports workstream clip-01 on codex/0.2-clip-01 with status PASS. Before registration it exited 4 (branch not registered)."
       },
       {
         "name": "CLIP-01 state schema validation",
@@ -81,17 +84,25 @@
         "command": "git show --stat HEAD",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Commit 53f47bf contains exactly 14 files under crates/nagi-clipboard-core/**, tests/clipboard-core/**, .dev/workstreams/clip-01/**, and the CLIP-01 workstream document. No root workspace, lockfile, CI, registry, schema, IDL/ABI, kernel, user, sdk, nagi-model, nagi-capability, or 0.1 milestone file changed."
+        "evidence": "Commit 53f47bf contains exactly 14 files under crates/nagi-clipboard-core/**, tests/clipboard-core/**, .dev/workstreams/clip-01/**, and the CLIP-01 workstream document. No root workspace, lockfile, CI, registry, schema, IDL/ABI, kernel, user, sdk, nagi-model, nagi-capability, or 0.1 milestone file changed. Registration commit 4595e7d changes only .dev/workstreams.json (one appended clip-01 row, no other rows) and the clip-01 registration proposal."
       },
       {
-        "name": "Shared CI host jobs (run 36958468012)",
-        "command": "Nagi CI push workflow: Test host-compatible workspace (cargo test over root workspace host members)",
-        "outcome": "FAIL",
-        "exit_code": 101,
-        "evidence": "ubuntu-host: 25 passed, 1 failed in nagi-cli tests/cli.rs: dev_status_resume_and_verify_read_the_registered_workstream panicked with CliError { message: \"branch `codex/0.2-clip-01` is not registered in .dev/workstreams.json; create/assign a workstream before using dev status\", code: 4 }. windows-launcher: identical single failure. Reproduced locally by ./nagi dev status (exit 4, same message). The registered NOTIFY-01 branch passed these jobs, confirming the cause is registration only."
+        "name": "Shared CI host jobs",
+        "command": "Nagi CI push workflow on codex/0.2-clip-01",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Run 36963174425 at 4595e7d: ubuntu-host and windows-launcher succeeded in every step (format, lint, build, test host workspace, focused M0 acceptance, Verify development workstream state). Earlier run 36958468012 at 53f47bf failed only in the nagi-cli dev-status test because the branch was unregistered; registration resolved it with no code change."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 36963174425,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36963174425",
+        "head_sha": "4595e7ddb2437adc85df0a90220955a8952bc820",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "target_classification, ubuntu-host, and windows-launcher succeeded; nagi-target skipped (no target-sensitive change). Includes DF-01 Verify development workstream state with clip-01 registered. The standalone clipboard crate is outside the root workspace, so CI did not run its 27-test suite (passed locally)."
+      },
       {
         "run_id": 36958468012,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36958468012",
@@ -104,23 +115,21 @@
   },
   "release_line_gate": {
     "source": "AGENTS.md; docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md; docs/0.2/WORKSTREAMS.md; .dev/workstreams.json; Nagi_OS_0.2_Codex_Implementation_Spec.md; Nagi_OS_0.2_Parallel_Execution_Rules.md; docs/workstreams/NagiOS_0.2_Clipboard_Data_Transfer_Foundation_Workstream.md",
-    "last_checked_at": "2026-10-02T03:20:47Z",
+    "last_checked_at": "2026-10-02T04:18:11Z",
     "activation_requirement": "CLIP-01 host-only Foundation acceptance is PASS. Compositor/window-manager clipboard ownership, keyboard shortcuts, primary selection, drag-and-drop plumbing, production IPC, target/QEMU service, durable history, Capability enforcement wiring, Activity/Wayback/AI integration, and first-party adoption require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming CLIP-01. Current repository evidence keeps 0.1 M30 NOT STARTED."
   },
   "blocker": {
-    "active": true,
-    "class": "CI_INFRA",
-    "summary": "Shared CI host jobs are red only because codex/0.2-clip-01 is not registered in the Integration Owner-owned .dev/workstreams.json; CLIP-01 host Foundation acceptance itself is complete.",
-    "reproduction_commands": [
-      "./nagi dev status",
-      "cargo test -p nagi-cli --test cli --locked (after ./nagi fetch) on codex/0.2-clip-01"
-    ],
-    "failure_log_summary": "nagi-cli tests/cli.rs:206 dev_status_resume_and_verify_read_the_registered_workstream: CliError { message: \"branch `codex/0.2-clip-01` is not registered in .dev/workstreams.json; create/assign a workstream before using dev status\", code: 4 } on ubuntu-host and windows-launcher in run 36958468012. No clipboard, format, lint, or build failure.",
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": "No CLIP-01 failure remains. The only CI failure (run 36958468012, nagi-cli dev-status test rejecting the unregistered branch) was resolved by registration commit 4595e7d; run 36963174425 is green.",
     "attempted_fixes": [
       "Replaced an awkward stale-generation assertion and a meaningless Debug-redaction assertion in the acceptance test with exact expectations.",
       "Rejected duplicate metadata keys in the envelope decoder (DecodeError::DuplicateMetadataKey) instead of letting a map insert collapse them silently.",
       "Removed a trailing blank line from the copied workstream document so git diff --check passes; content is otherwise identical to the supplied specification.",
-      "Classified the CI failure from job logs and reproduced it with ./nagi dev status; did not edit .dev/workstreams.json, tools/nagi-cli, or CI because they are owned by the Integration Owner / development-foundation (Parallel Execution Rules section 6)."
+      "Classified the CI failure from job logs and reproduced it with ./nagi dev status; did not edit .dev/workstreams.json, tools/nagi-cli, or CI because they are owned by the Integration Owner / development-foundation (Parallel Execution Rules section 6).",
+      "Applied the reviewed registry_entry on the dedicated branch only (NOTIFY-01 precedent) at the repository owner's direction; CI turned green with no code change."
     ],
     "do_not_try": [
       "Do not edit .dev/workstreams.json, .dev/schemas/**, root Cargo.toml/Cargo.lock, .github/workflows/**, idl/**, schemas/**, sdk/**, crates/nagi-model/**, or crates/nagi-capability/**; submit changes through registration-proposal.json.",
@@ -128,10 +137,10 @@
       "Do not push to main, codex/integration-next-phase, or another workstream branch; push only codex/0.2-clip-01.",
       "Do not add clipboard history, durable persistence, compositor/IPC/target wiring, Capability enforcement wiring, or Activity/Wayback/AI/telemetry payload recording before the M30 checkpoint.",
       "Do not use ClaimedOrigin or content metadata for authorization or attribution.",
-      "Do not self-register in .dev/workstreams.json, weaken the nagi-cli dev-status test, or alter CI to make this branch green; wait for the Integration Owner registration."
+      "Do not change other workstream rows in .dev/workstreams.json or push the registry change to codex/integration-next-phase outside an Integration Owner checkpoint."
     ]
   },
-  "next_action": "Integration Owner: review registration-proposal.json and add the clip-01 registry entry so ./nagi dev verify validates this state and ./nagi dev status accepts the branch; route the clipboard.write permission proposal to capability-permissions and the media-type reconciliation note to app-sdk-contract; optionally approve the proposed standalone CI steps. After Nagi 0.1 M30 PASS and an explicit checkpoint naming CLIP-01, bind CallerContext to the system-service IPC caller, ClipboardAuthorizer to the Capability enforcer, scope instances per profile/session, and then integrate compositor/shell/Albert consumers. Do not start runtime integration before that gate.",
+  "next_action": "Integration Owner: at the next integration checkpoint, review codex/0.2-clip-01 and carry the clip-01 registry row and host foundation into codex/integration-next-phase; route the clipboard.write permission proposal to capability-permissions and the media-type reconciliation note to app-sdk-contract; optionally approve the proposed standalone CI steps. After Nagi 0.1 M30 PASS and an explicit checkpoint naming CLIP-01, bind CallerContext to the system-service IPC caller, ClipboardAuthorizer to the Capability enforcer, scope instances per profile/session, and integrate compositor/shell/Albert consumers. Do not start runtime integration before that gate.",
   "acceptance_criteria": [
     "PASS: pre-implementation audit recorded; no existing clip-01 branch, registry row, or clipboard/pasteboard/data-offer/drag-drop contract exists; user/nagi-albert/src/clipboard.rs on 0.1 M18 branches is a future consumer and was not modified.",
     "PASS (4.1): ClipboardGeneration, ordered ClipboardItems, alternative Representations, canonical MediaType, Text/Binary/ObjectReference payloads, non-destructive TransferIntent, untrusted ClaimedOrigin using nagi-model AppId/AppSessionId, and bounded untrusted metadata; no AppId, session, principal, ObjectId, or storage handle is redefined.",
@@ -143,11 +152,10 @@
     "PASS (5): every applicable required host test is implemented and passes (27 tests), including malformed/unsupported serialized version rejection and repeated deterministic runs.",
     "PASS (6): caller authority comes only from CallerContext; claimed origin is preserved but never consulted; Debug output and diagnostics never contain payload, metadata values, or origin labels; diagnostics are opt-in and metadata-only; no cloud, cross-device, telemetry, AI, Activity, or Wayback recording.",
     "PASS: format, warning-denied Clippy, rustdoc, git diff --check, and ./nagi dev verify pass; the clip-01 state validates against the DF-01 schema.",
-    "PASS: changes stay within the proposed CLIP-01 paths; shared registry, schema, CI, root workspace/lockfile, IDL/ABI, SDK, Capability engine, and 0.1 files are untouched; registration is submitted as a proposal.",
-    "PASS: codex/0.2-clip-01 is pushed and the remote HEAD equals the verified code commit; CI run 36958468012 was inspected and its only failure is the registration-gated nagi-cli dev-status test (recorded as an Integration Owner blocker, not a CLIP-01 acceptance failure)."
+    "PASS: changes stay within CLIP-01 paths plus one appended clip-01 row in .dev/workstreams.json on the dedicated branch (owner-directed registration); shared schema, CI, root workspace/lockfile, IDL/ABI, SDK, Capability engine, other workstream rows, and 0.1 files are untouched.",
+    "PASS: codex/0.2-clip-01 is pushed, remote HEAD equals the verified commit, clip-01 is registered and included in ./nagi dev verify, and CI run 36963174425 is green."
   ],
   "deferred": [
-    "Registration of clip-01 in .dev/workstreams.json (Integration Owner).",
     "Shared CI steps for the standalone crate (proposal only).",
     "Canonical clipboard.write permission registration (capability-permissions owner); production ClipboardAuthorizer binding to the Capability enforcer.",
     "Binding CallerContext to authenticated system-service IPC callers; production IPC transport.",
@@ -155,14 +163,15 @@
     "Compositor/window-manager clipboard ownership, keyboard shortcuts, primary selection, drag-and-drop GUI plumbing, shell UI/toasts/paste menus.",
     "Target/QEMU clipboard service and first-party adoption, including the M27 Albert permission-aware clipboard path.",
     "Durable clipboard history, Activity/Wayback recording, cloud/cross-device clipboard.",
-    "Reconciling CLIP-01 MediaType with the app-sdk-contract manifest media-type validator."
+    "Reconciling CLIP-01 MediaType with the app-sdk-contract manifest media-type validator.",
+    "Carrying the clip-01 registry row into codex/integration-next-phase (Integration Owner checkpoint)."
   ],
   "cross_workstream_dependencies": [
     {
       "workstream_id": "development-foundation",
       "contract": "DF-01 workstream state schema, ownership, registration, and verification rules.",
       "version": "workstream-state-v1 at baseline a235eb9f7d6c15a71873b431a57271cd1aeba260",
-      "status": "PARTIAL: state validates against the schema; registry inclusion awaits the Integration Owner."
+      "status": "PASS: clip-01 is registered on its dedicated branch and validated by ./nagi dev verify."
     },
     {
       "workstream_id": "app-sdk-contract",
@@ -180,7 +189,7 @@
       "workstream_id": "integration-next-phase",
       "contract": "Registration, shared CI, and the post-M30 activation checkpoint.",
       "version": "codex/integration-next-phase a235eb9f7d6c15a71873b431a57271cd1aeba260",
-      "status": "PENDING: registration-proposal.json submitted."
+      "status": "PENDING: registered on the dedicated branch; the integration branch row awaits an Integration Owner checkpoint."
     }
   ]
 }
