@@ -601,3 +601,27 @@ not exercise audio. Desktop/Files/Notes/Albert concurrent use, real Granite
 inference, memory pressure, CPU fairness, and handle/memory leak soak remain
 unmeasured. This passes the repeated integration slice only; M28 stays
 `PARTIAL`.
+
+## Completion Sweep — fresh two-repetition run (2026-10-03)
+
+Before the run, the harness's collision guard found three existing generated
+M19 outputs: its raw image, OVMF variables, and initial serial log. They were
+moved intact to `out/evidence/pre-m28-repeat-20261002T224528Z-22372/`; all
+three hashes verify. The source revision for the run is
+`78b7655efe72e73340e699fae3509cb48a68f8c8`.
+
+After shell syntax, self-test, and two-repetition dry-run checks, the real
+`NAGI_M28_REPEAT_COUNT=2
+./tests/acceptance/m28_integration_stress.sh --run` passed both consecutive
+repetitions. Each passed fresh M19 VFS/ObjectId/Search, the three-boot M22
+Move/Copy/NH16/NAL1 grouped-Undo gate, and M27's malformed-System-B rollback,
+healthy-System-B readiness/promotion, and Recovery journal/Undo gate. The
+complete archive is `out/evidence/m28-run-20261002T224535Z-22420/`; its
+manifest, both M27 sub-run manifests, and the preserved pre-run manifest
+verify. All four run-stamped GPT images pass `qemu-img check`.
+
+This run did not reproduce the earlier OVMF startup loops at RIP `0x7eb84171`,
+but their cause remains unknown. QEMU still reports that the host lacks
+`virtio-sound.in`; this gate does not exercise audio. Desktop/Files/Notes/Albert
+concurrent load, real Granite inference, audio pressure, OOM, CPU fairness, and
+leak soak remain unmeasured. M28 remains `PARTIAL`.

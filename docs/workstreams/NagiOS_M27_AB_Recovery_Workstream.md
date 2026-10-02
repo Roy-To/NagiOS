@@ -673,3 +673,17 @@ and does not resolve the intermittent firmware failure. The host again lacked
 `virtio-sound.in`; this gate does not exercise audio. M27 remains `PARTIAL`
 for authenticated update/readiness authority, authenticated slot manifests,
 full session readiness, and remaining Recovery features.
+
+## M28 repeated A/B and Recovery acceptance — 2026-10-03
+
+Both M27 sub-runs in the fresh two-repetition M28 gate passed the GPT
+malformed-System-B rollback, healthy-System-B readiness/promotion, Recovery
+journal preservation, and committed M22 `file.move` Undo across restart. Their
+evidence is under `out/evidence/m27-ab-rollback-1790981151205790000/` and
+`out/evidence/m27-ab-rollback-1790981267226055000/`; both SHA-256 manifests
+verify. All four run-stamped GPT slot images passed `qemu-img check`.
+
+The repeated fresh-state passes did not reproduce the earlier OVMF startup
+loop, but they do not determine its cause. Authenticated update/readiness
+authority, authenticated slot manifests, full session readiness, and
+remaining Recovery work keep M27 `PARTIAL`.
