@@ -630,6 +630,7 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Seek, SeekFrom};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
         format_partition, format_partition_with_external_files, geometry, ExternalVolumeFile,
@@ -638,6 +639,7 @@ mod tests {
 
     const ESP_SECTORS: u64 = 1_048_576;
     const ESP_START_LBA: u64 = 2048;
+    static NEXT_TEMP_PATH_ID: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn fat32_partition_writes_valid_boot_metadata_and_directory_chains() {
@@ -802,6 +804,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock after epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("nagi-fat32-test-{}-{nonce}", std::process::id()))
+        let sequence = NEXT_TEMP_PATH_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "nagi-fat32-test-{}-{nonce}-{sequence}",
+            std::process::id()
+        ))
     }
 }

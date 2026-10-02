@@ -1,0 +1,370 @@
+diff --git a/src/llama.cpp b/src/llama.cpp
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -319,7 +319,7 @@
+         llama_model_loader ml(metadata, set_tensor_data, set_tensor_data_ud, fname, splits, file, params.load_mode,
+             params.check_tensors, params.no_alloc, params.load_mtp, params.kv_overrides, params.tensor_buft_overrides);
+ 
+-        if (!ml.tensor_weights_valid) {
++        if (!ml.tensor_weights_valid || !ml.split_paths_valid) {
+             return {-1, nullptr};
+         }
+ 
+@@ -550,6 +550,10 @@
+ // model split
+ //
+ 
++static bool llama_split_args_valid(int32_t split_no, int32_t split_count) {
++    return split_no >= 0 && split_count > 0 && split_no < split_count;
++}
++
+ int32_t llama_split_path(
+     char * split_path,
+     size_t maxlen,
+@@ -558,6 +562,14 @@
+     int32_t split_count) {
+ 
+     static const char * const SPLIT_PATH_FORMAT = "%s-%05d-of-%05d.gguf";
++
++    if (split_path != nullptr && maxlen > 0) {
++        split_path[0] = '\0';
++    }
++    if (split_path == nullptr || path_prefix == nullptr || maxlen == 0 ||
++            !llama_split_args_valid(split_no, split_count)) {
++        return 0;
++    }
+ 
+     const int written = snprintf(
+         split_path,
+@@ -568,7 +580,8 @@
+         split_count
+     );
+ 
+-    if (written < 0 || (size_t) written >= maxlen) {
++    if (written < 0 || (size_t) written >= maxlen || written > INT32_MAX) {
++        split_path[0] = '\0';
+         return 0;
+     }
+ 
+@@ -582,26 +595,34 @@
+     int32_t split_no,
+     int32_t split_count) {
+ 
+-    const std::string str_split_path(split_path);
++    if (split_prefix != nullptr && maxlen > 0) {
++        split_prefix[0] = '\0';
++    }
++    if (split_prefix == nullptr || maxlen == 0 || split_path == nullptr ||
++            !llama_split_args_valid(split_no, split_count)) {
++        return 0;
++    }
+ 
+     char postfix[32];
+-    snprintf(postfix, sizeof(postfix), "-%05d-of-%05d.gguf", split_no + 1, split_count);
+-
+-    const std::string str_postfix(postfix);
+-    if (str_split_path.size() <= str_postfix.size()) {
++    const int postfix_size = snprintf(postfix, sizeof(postfix), "-%05d-of-%05d.gguf", split_no + 1, split_count);
++    if (postfix_size < 0 || (size_t) postfix_size >= sizeof(postfix)) {
+         return 0;
+     }
+ 
+-    const size_t size_prefix = str_split_path.size() - str_postfix.size();
+-
+-    if (str_split_path.compare(size_prefix, std::string::npos, str_postfix) == 0) {
+-        const size_t copy_len = std::min(size_prefix + 1, maxlen);
+-        snprintf(split_prefix, copy_len, "%s", split_path);
+-
+-        return (int32_t) size_prefix;
+-    }
+-
+-    return 0;
++    const size_t path_size = strlen(split_path);
++    if (path_size <= (size_t) postfix_size) {
++        return 0;
++    }
++
++    const size_t size_prefix = path_size - (size_t) postfix_size;
++    if (memcmp(split_path + size_prefix, postfix, (size_t) postfix_size) != 0 ||
++            size_prefix >= maxlen || size_prefix > (size_t) INT32_MAX) {
++        return 0;
++    }
++
++    memcpy(split_prefix, split_path, size_prefix);
++    split_prefix[size_prefix] = '\0';
++    return (int32_t) size_prefix;
+ }
+ 
+ const char * llama_print_system_info(void) {
+@@ -626,4 +647,3 @@
+ 
+     return s.c_str();
+ }
+-
+diff --git a/src/llama-model-loader.cpp b/src/llama-model-loader.cpp
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -12,6 +12,7 @@
+ #include <cstdint>
+ #include <cstring>
+ #include <future>
++#include <limits>
+ #include <regex>
+ 
+ static const size_t kiB = 1024;
+@@ -77,31 +78,52 @@
+ 
+ #undef LLAMA_FTYPE_PREFIX
+ 
+-// return a list of splits for a given path
+-// for example, given "<name>-00002-of-00004.gguf", returns list of all 4 splits
+-static std::vector<std::string> llama_get_list_splits(const std::string & path, const int idx, const int n_split) {
+-    std::vector<std::string> paths;
+-    std::string split_prefix;
++bool llama_model_loader::make_split_paths(const std::string & path, int idx, int n_split,
++        std::vector<std::string> & paths) {
++    paths.clear();
++    if (n_split <= 0 || n_split > static_cast<int>(std::numeric_limits<uint16_t>::max()) ||
++            idx < 0 || idx >= n_split) {
++        LLAMA_LOG_ERROR("%s: invalid split index/count for %s\n", __func__, path.c_str());
++        return false;
++    }
++
+     std::vector<char> buf(llama_path_max(), 0);
+-
+-    {
+-        int ret = llama_split_prefix(buf.data(), buf.size(), path.c_str(), idx, n_split);
+-        if (!ret) {
+-            throw std::runtime_error(format("invalid split file name: %s", path.c_str()));
+-        }
+-        split_prefix = std::string(buf.data(), ret);
+-    }
+-
++    if (buf.empty()) {
++        LLAMA_LOG_ERROR("%s: no path buffer available for %s\n", __func__, path.c_str());
++        return false;
++    }
++
++    const int32_t prefix_size = llama_split_prefix(buf.data(), buf.size(), path.c_str(), idx, n_split);
++    if (prefix_size <= 0 || static_cast<size_t>(prefix_size) >= buf.size()) {
++        LLAMA_LOG_ERROR("%s: invalid or oversized split file name: %s\n", __func__, path.c_str());
++        return false;
++    }
++
++    const std::string split_prefix(buf.data(), static_cast<size_t>(prefix_size));
+     if (split_prefix.empty()) {
+-        throw std::runtime_error(format("invalid split file: %s", path.c_str()));
+-    }
+-
+-    for (int idx = 0; idx < n_split; ++idx) {
+-        int ret = llama_split_path(buf.data(), buf.size(), split_prefix.c_str(), idx, n_split);
+-        paths.push_back(std::string(buf.data(), ret));
+-    }
+-
+-    return paths;
++        LLAMA_LOG_ERROR("%s: empty split prefix for %s\n", __func__, path.c_str());
++        return false;
++    }
++
++    std::vector<std::string> candidate_paths;
++    candidate_paths.reserve(static_cast<size_t>(n_split));
++    for (int split_idx = 0; split_idx < n_split; ++split_idx) {
++        const int32_t path_size = llama_split_path(buf.data(), buf.size(), split_prefix.c_str(), split_idx, n_split);
++        if (path_size <= 0 || static_cast<size_t>(path_size) >= buf.size()) {
++            LLAMA_LOG_ERROR("%s: cannot build path for split %d of %d from %s\n",
++                    __func__, split_idx + 1, n_split, path.c_str());
++            return false;
++        }
++        candidate_paths.emplace_back(buf.data(), static_cast<size_t>(path_size));
++    }
++
++    if (candidate_paths.size() != static_cast<size_t>(n_split)) {
++        LLAMA_LOG_ERROR("%s: generated an incomplete split path list for %s\n", __func__, path.c_str());
++        return false;
++    }
++
++    paths.swap(candidate_paths);
++    return true;
+ }
+ 
+ namespace GGUFMeta {
+@@ -622,17 +644,26 @@
+             const std::string kv_split_no = llm_kv(LLM_KV_SPLIT_NO);
+             get_key(kv_split_no, idx);
+             if (idx != 0) {
+-                throw std::runtime_error(format("illegal split file idx: %d (file: %s), model must be loaded with the first split", idx, fname.c_str()));
++                LLAMA_LOG_ERROR("%s: illegal split file index %d in %s; load the first split\n",
++                        __func__, idx, fname.c_str());
++                split_paths_valid = false;
++                return;
+             }
+ 
+             // generate list of splits if needed
+             if (splits.empty()) {
+-                splits = llama_get_list_splits(fname, idx, n_split);
++                if (!make_split_paths(fname, idx, n_split, splits)) {
++                    split_paths_valid = false;
++                    return;
++                }
+             }
+ 
+             // in case user give a custom list of splits, check if it matches the expected number
+-            if (n_split != (uint16_t)splits.size()) {
+-                throw std::runtime_error(format("invalid split count, given: %zu splits, but expected %d", splits.size(), n_split));
++            if (splits.size() != static_cast<size_t>(n_split)) {
++                LLAMA_LOG_ERROR("%s: invalid split count, given %zu but expected %d\n", __func__, splits.size(),
++                        n_split);
++                split_paths_valid = false;
++                return;
+             }
+ 
+             if (trace > 0) {
+diff --git a/src/llama-model-loader.h b/src/llama-model-loader.h
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -108,6 +108,7 @@
+     uint64_t n_elements = 0;
+     size_t   n_bytes    = 0;
+     bool tensor_weights_valid = true;
++    bool split_paths_valid = true;
+ 
+     bool use_mmap = false;
+     bool use_direct_io = false;
+@@ -219,6 +220,9 @@
+     bool add_tensor_weight(const std::string & name, const llama_file * file, uint16_t idx,
+             const struct gguf_context * gguf_ctx, ggml_tensor * tensor);
+ 
++    static bool make_split_paths(const std::string & path, int idx, int n_split,
++            std::vector<std::string> & paths);
++
+     template<typename T>
+     typename std::enable_if<std::is_integral<T>::value, bool>::type
+     get_arr_n(const std::string & key, T & result, bool required = true);
+diff --git a/include/llama.h b/include/llama.h
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -1650,12 +1650,12 @@
+ 
+     /// @details Build a split GGUF final path for this chunk.
+     ///          llama_split_path(split_path, sizeof(split_path), "/models/ggml-model-q4_0", 2, 4) => split_path = "/models/ggml-model-q4_0-00002-of-00004.gguf"
+-    //  Returns the split_path length.
++    //  Returns the split_path length, or 0 for invalid input or insufficient buffer space.
+     LLAMA_API int32_t llama_split_path(char * split_path, size_t maxlen, const char * path_prefix, int32_t split_no, int32_t split_count);
+ 
+     /// @details Extract the path prefix from the split_path if and only if the split_no and split_count match.
+     ///          llama_split_prefix(split_prefix, 64, "/models/ggml-model-q4_0-00002-of-00004.gguf", 2, 4) => split_prefix = "/models/ggml-model-q4_0"
+-    //  Returns the split_prefix length.
++    //  Returns the split_prefix length, or 0 for invalid input or insufficient buffer space.
+     LLAMA_API int32_t llama_split_prefix(char * split_prefix, size_t maxlen, const char * split_path, int32_t split_no, int32_t split_count);
+ 
+     // Print system information
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -273,6 +273,7 @@
+ target_link_libraries(test-model-resolution PRIVATE cpp-httplib)
+ llama_build_and_test(test-model-loader-bounds.cpp LABEL "model")
+ target_include_directories(test-model-loader-bounds PRIVATE ${PROJECT_SOURCE_DIR}/src)
++target_link_libraries(test-model-loader-bounds PRIVATE llama)
+ 
+ if (NOT LLAMA_SANITIZE_ADDRESS AND NOT GGML_SCHED_NO_REALLOC)
+   # TODO: repair known memory leaks
+diff --git a/tests/test-model-loader-bounds.cpp b/tests/test-model-loader-bounds.cpp
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -2,6 +2,8 @@
+ 
+ #include <cstdio>
+ #include <limits>
++#include <string>
++#include <vector>
+ 
+ using tensor_weight = llama_model_loader::llama_tensor_weight;
+ 
+@@ -35,6 +37,85 @@
+         return 1;
+     }
+ 
+-    std::puts("test-model-loader-bounds: all checks passed");
++    const std::string prefix = "/models/ggml-model-q4_0";
++    const std::string first_path = prefix + "-00001-of-00003.gguf";
++    std::vector<char> exact_path(first_path.size() + 1, 'x');
++    const int32_t exact_path_size = llama_split_path(exact_path.data(), exact_path.size(), prefix.c_str(), 0, 3);
++    if (exact_path_size != static_cast<int32_t>(first_path.size()) ||
++            std::string(exact_path.data(), static_cast<size_t>(exact_path_size)) != first_path) {
++        std::fprintf(stderr, "exact-fit split path did not preserve the canonical filename\n");
++        return 1;
++    }
++
++    std::vector<char> short_path(first_path.size(), 'x');
++    if (llama_split_path(short_path.data(), short_path.size(), prefix.c_str(), 0, 3) != 0 || short_path[0] != '\0') {
++        std::fprintf(stderr, "short split path buffer was not rejected cleanly\n");
++        return 1;
++    }
++
++    std::vector<char> invalid_path(first_path.size() + 1, 'x');
++    if (llama_split_path(invalid_path.data(), invalid_path.size(), prefix.c_str(), -1, 3) != 0 ||
++            invalid_path[0] != '\0') {
++        std::fprintf(stderr, "invalid split path index was not rejected cleanly\n");
++        return 1;
++    }
++
++    std::vector<char> exact_prefix(prefix.size() + 1, 'x');
++    const int32_t exact_prefix_size = llama_split_prefix(exact_prefix.data(), exact_prefix.size(), first_path.c_str(), 0, 3);
++    if (exact_prefix_size != static_cast<int32_t>(prefix.size()) ||
++            std::string(exact_prefix.data(), static_cast<size_t>(exact_prefix_size)) != prefix) {
++        std::fprintf(stderr, "exact-fit split prefix did not round-trip\n");
++        return 1;
++    }
++
++    std::vector<char> short_prefix(prefix.size(), 'x');
++    if (llama_split_prefix(short_prefix.data(), short_prefix.size(), first_path.c_str(), 0, 3) != 0 ||
++            short_prefix[0] != '\0') {
++        std::fprintf(stderr, "short split prefix buffer was not rejected cleanly\n");
++        return 1;
++    }
++
++    std::vector<char> invalid_prefix(prefix.size() + 1, 'x');
++    if (llama_split_prefix(invalid_prefix.data(), invalid_prefix.size(), first_path.c_str(), 3, 3) != 0 ||
++            invalid_prefix[0] != '\0') {
++        std::fprintf(stderr, "invalid split prefix index was not rejected cleanly\n");
++        return 1;
++    }
++
++    std::vector<std::string> split_paths{"stale"};
++    if (!llama_model_loader::make_split_paths(first_path, 0, 3, split_paths) || split_paths.size() != 3 ||
++            split_paths[0] != first_path || split_paths[1] != prefix + "-00002-of-00003.gguf" ||
++            split_paths[2] != prefix + "-00003-of-00003.gguf") {
++        std::fprintf(stderr, "split path list did not contain all canonical shard names\n");
++        return 1;
++    }
++
++    split_paths = {"stale"};
++    if (llama_model_loader::make_split_paths(prefix + "-00001-of-00003.bad", 0, 3, split_paths) ||
++            !split_paths.empty()) {
++        std::fprintf(stderr, "malformed split suffix produced a successful or partial list\n");
++        return 1;
++    }
++
++    split_paths = {"stale"};
++    if (llama_model_loader::make_split_paths(first_path, 3, 3, split_paths) || !split_paths.empty()) {
++        std::fprintf(stderr, "out-of-range split index produced a successful or partial list\n");
++        return 1;
++    }
++
++    const size_t path_capacity = llama_path_max();
++    if (path_capacity < 2) {
++        std::fprintf(stderr, "split path buffer capacity is invalid\n");
++        return 1;
++    }
++    const std::string long_prefix(path_capacity - 1, 'p');
++    const std::string oversized_first_path = long_prefix + "-00001-of-00003.gguf";
++    split_paths = {"stale"};
++    if (llama_model_loader::make_split_paths(oversized_first_path, 0, 3, split_paths) || !split_paths.empty()) {
++        std::fprintf(stderr, "truncated generated shard path produced a successful or partial list\n");
++        return 1;
++    }
++
++    std::puts("test-model-loader-bounds: tensor and split path checks passed");
+     return 0;
+ }

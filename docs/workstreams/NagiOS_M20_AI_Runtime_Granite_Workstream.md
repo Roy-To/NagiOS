@@ -600,3 +600,36 @@ The test source, host CTest output, target object, build log, patch, and generat
 checkout marker have a verified manifest at
 `out/evidence/m20-tensor-weight-status-20261002/SHA256SUMS`. M20 remains
 `PARTIAL`.
+
+## Split path status and bounded shard construction — 2026-10-02
+
+Added patch `third_party/llama-cpp-patches/0009-nagi-llama-split-path-status.patch`
+for the pinned llama.cpp revision. `llama_split_path()` and
+`llama_split_prefix()` now return failure for invalid pointers, zero/short output
+buffers, out-of-range shard indices/counts, malformed suffixes, and truncation;
+error paths clear writable output buffers. The loader validates `n_split` and
+`idx`, checks each generated shard path, and only swaps the candidate path list
+into the output after exactly the expected count was built. It records failure
+in `split_paths_valid`, which the model-load boundary checks before printing
+metadata or creating a model.
+
+The focused C++ host CTest `test-model-loader-bounds` passed 1/1. Cases include
+canonical three-shard names, exact-fit and one-byte-short path/prefix buffers,
+invalid indices, malformed suffixes, and failed/truncated generated paths. The
+CLI patch-contract check and full `./nagi test` passed; repository `./nagi fmt`,
+`./nagi lint`, and `./nagi build` also passed. The full-suite rerun fixed a
+parallel FAT32 fixture temp-path collision with a test-only atomic path suffix. The updated patch passes
+`git apply --check` against a preserved source snapshot after patches 0001–0008.
+`./nagi fetch` generated and validated the fresh 0009 checkout (marker revision
+`c85b92c69c955961621193cd51da194f3cbcedf3`, patch fingerprint
+`fnv1a64:70e48f25c4d28234`), then exited 4 when the protected pre-existing
+generated Servo checkout did not match its pin. The Servo checkout and clean raw
+`third_party/llama.cpp` source were not modified.
+
+Focused Nagi-target object compilation with Homebrew LLVM 19 and matching libc++
+headers now gets past the earlier split helper and split-count exception sites,
+but `llama-model-loader.cpp` and `llama.cpp` still fail on other exception
+syntax in metadata accessors and model construction. This is not a full target
+build. No complete backend, model load, or in-guest inference was demonstrated;
+M20 remains `PARTIAL`. Logs, marker, and preserved checkout checksums are under
+`out/evidence/m20-loader-split-path-0009-20261002/`.

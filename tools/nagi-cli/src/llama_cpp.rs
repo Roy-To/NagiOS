@@ -857,6 +857,58 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_split_paths_reject_truncation_and_fail_loader_initialization() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0009-nagi-llama-split-path-status.patch"),
+        )
+        .expect("Nagi llama split path status patch");
+        let split_api = patch
+            .split_once("diff --git a/src/llama.cpp")
+            .expect("split API patch")
+            .1
+            .split("\ndiff --git ")
+            .next()
+            .expect("split API patch section");
+        let loader = patch
+            .split_once("diff --git a/src/llama-model-loader.cpp")
+            .expect("model loader patch")
+            .1
+            .split("\ndiff --git ")
+            .next()
+            .expect("model loader patch section");
+        let model_load = split_api;
+        let test = patch
+            .split_once("diff --git a/tests/test-model-loader-bounds.cpp")
+            .expect("split path test patch")
+            .1
+            .split("\ndiff --git ")
+            .next()
+            .expect("split path test patch section");
+
+        assert!(split_api.contains("split_no >= 0 && split_count > 0 && split_no < split_count"));
+        assert!(split_api.contains("written >= maxlen"));
+        assert!(split_api.contains("size_prefix >= maxlen"));
+        assert!(split_api.contains("memcpy(split_prefix, split_path, size_prefix)"));
+        assert!(loader.contains("candidate_paths.size() != static_cast<size_t>(n_split)"));
+        assert!(loader.contains("paths.swap(candidate_paths)"));
+        assert!(loader.contains("if (!make_split_paths(fname, idx, n_split, splits))"));
+        assert!(model_load.contains("!ml.tensor_weights_valid || !ml.split_paths_valid"));
+        let status_check = model_load
+            .find("!ml.tensor_weights_valid || !ml.split_paths_valid")
+            .expect("loader status check");
+        let failure_return = model_load
+            .find("return {-1, nullptr};")
+            .expect("loader failure return");
+        assert!(status_check < failure_return);
+        assert!(test.contains("exact-fit split path"));
+        assert!(test.contains("short split prefix buffer"));
+        assert!(test.contains("malformed split suffix"));
+        assert!(test.contains("truncated generated shard path"));
+        assert!(patch.contains("target_link_libraries(test-model-loader-bounds PRIVATE llama)"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
