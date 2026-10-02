@@ -72,6 +72,11 @@ use nagi_albert::run_first_web_pixel;
 #[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
 use nagi_albert::run_m18_https_acceptance;
 
+#[cfg(all(target_os = "nagi", feature = "m20-llama-link-smoke"))]
+unsafe extern "C" {
+    fn nagi_m20_llama_backend_init_smoke() -> i32;
+}
+
 #[cfg(all(
     target_os = "nagi",
     feature = "m10-desktop",
@@ -916,6 +921,7 @@ pub extern "C" fn _start(
 }
 
 #[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
+#[cfg_attr(feature = "m20-llama-link-smoke", allow(unreachable_code))]
 #[no_mangle]
 pub extern "C" fn _start(
     block_capability: u64,
@@ -926,6 +932,28 @@ pub extern "C" fn _start(
     model_store_capability: u64,
 ) -> ! {
     unsafe { run_elf_initializers() };
+
+    #[cfg(feature = "m20-llama-link-smoke")]
+    {
+        let _ = (
+            block_capability,
+            display_capability,
+            input_capability,
+            net_capability,
+            audio_capability,
+            model_store_capability,
+        );
+        if relibc::nagi_backend_probe() != 0x4e41_4749 {
+            libnagi::console_write(b"Nagi M20 relibc link FAIL\r\n");
+            libnagi::exit(1);
+        }
+        if unsafe { nagi_m20_llama_backend_init_smoke() } == 0 {
+            libnagi::console_write(b"Nagi M20 llama backend init PASS\r\n");
+            libnagi::exit(0);
+        }
+        libnagi::console_write(b"Nagi M20 llama backend init FAIL\r\n");
+        libnagi::exit(1);
+    }
 
     #[cfg(not(feature = "m20-model-store-acceptance"))]
     let _ = model_store_capability;

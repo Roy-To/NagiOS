@@ -1568,6 +1568,13 @@ pub fn run_qemu_until_any_acceptance_marker(
     run_qemu_with_qmp_file_markers(config, acceptance_markers, false, false)
 }
 
+pub fn run_qemu_until_any_acceptance_marker_with_read_only_boot_disk(
+    config: &QemuConfig<'_>,
+    acceptance_markers: &[&str],
+) -> Result<i32, String> {
+    run_qemu_with_qmp_file_markers(config, acceptance_markers, true, false)
+}
+
 pub fn run_qemu_with_read_only_boot_disk(config: &QemuConfig<'_>) -> Result<i32, String> {
     run_qemu_with_boot_disk_mode(config, true)
 }

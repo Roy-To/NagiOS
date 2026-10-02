@@ -1377,6 +1377,19 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_nagi_backend_init_uses_static_backends_without_dynamic_loader() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0034-nagi-static-backend-init.patch"),
+        )
+        .expect("Nagi static backend init patch");
+
+        assert!(patch.contains("#if !defined(__NAGI__)"));
+        assert!(patch.contains("ggml_backend_load_all();"));
+        assert!(patch.contains("llama_backend_init"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

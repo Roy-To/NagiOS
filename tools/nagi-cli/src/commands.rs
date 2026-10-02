@@ -19,12 +19,14 @@ use crate::image::{
     run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
-    run_qemu_until_any_acceptance_marker, run_qemu_with_read_only_boot_disk,
-    validate_reference_disk_qcow2, write_fat12_image, write_m17_fat12_image,
-    write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
-    write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
-    write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
-    ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    run_qemu_until_any_acceptance_marker,
+    run_qemu_until_any_acceptance_marker_with_read_only_boot_disk,
+    run_qemu_with_read_only_boot_disk, validate_reference_disk_qcow2, write_fat12_image,
+    write_m17_fat12_image, write_m20_model_store_fixture_reference_disk_qcow2,
+    write_m27_broken_slot_image, write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image,
+    write_m27_recovery_image, write_reference_disk_qcow2,
+    write_reference_disk_qcow2_with_external_model_store_file, ImageLayout, QemuConfig,
+    GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -164,6 +166,7 @@ pub enum Command {
     M27,
     M30,
     M20Granite,
+    M20LlamaSmoke,
     M26Qwen,
     M26Gemma,
     M25Whisper,
@@ -238,6 +241,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m27" => Command::M27,
         "m30" => Command::M30,
         "m20-granite" => Command::M20Granite,
+        "m20-llama-smoke" => Command::M20LlamaSmoke,
         "m26-qwen" => Command::M26Qwen,
         "m26-gemma" => Command::M26Gemma,
         "m25-whisper" => Command::M25Whisper,
@@ -258,6 +262,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
             args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--allow-missing")
         }
         Command::M20Granite => args.len() == 2,
+        Command::M20LlamaSmoke => args.len() == 1,
         Command::M26Qwen => args.len() == 2,
         Command::M26Gemma => args.len() == 3 && args[2] == "--accept-gemma-terms",
         Command::M25Whisper => args.len() == 2,
@@ -450,6 +455,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
         Command::M20Granite => execute_m20_granite(&args[1..], root, probe),
+        Command::M20LlamaSmoke => execute_m20_llama_smoke(root, probe),
         Command::M26Qwen => execute_m26_model(&args[1..], root, probe, M26Model::Qwen),
         Command::M26Gemma => execute_m26_model(&args[1..], root, probe, M26Model::Gemma),
         Command::M25Whisper => execute_m25_whisper(&args[1..], root, probe),
@@ -938,6 +944,602 @@ fn execute_m20_granite(args: &[String], root: &Path, probe: &dyn HostProbe) -> C
             digest_marker: "Nagi M20 Granite artifact digest PASS",
         },
     )
+}
+
+fn execute_m20_llama_smoke(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-llama-smoke: system clock: {error}"),
+            )
+        }
+    };
+    let evidence = root
+        .join("out/evidence")
+        .join(format!("m20-llama-link-smoke-{run_id}"));
+    if let Err(error) = fs::create_dir_all(evidence.parent().expect("evidence parent")) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: create evidence parent: {error}"),
+        );
+    }
+    if let Err(error) = fs::create_dir(&evidence) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: create evidence directory {}: {error}",
+                evidence.display()
+            ),
+        );
+    }
+
+    let llama_source = match ensure_llama_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-llama-smoke: pinned llama.cpp source: {error}"),
+            );
+        }
+    };
+    let target_clang = match resolve_m20_target_clang() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+    let cxx_headers = match resolve_m20_cxx_headers(&target_clang) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+    let relibc_headers = std::env::var_os("NAGI_RELIBC_HEADERS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            root.join("out/m17-mesa/relibc-target/x86_64-unknown-nagi-user/include")
+        });
+    if !relibc_headers.join("pthread.h").is_file() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: generated Nagi relibc headers are missing at {}; complete the target header generation first",
+                relibc_headers.display()
+            ),
+        );
+    }
+    let llvm_bin = target_clang.parent().unwrap_or_else(|| Path::new("."));
+    let llvm_ar = match resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+    let llvm_ranlib = match resolve_m20_llvm_tool("NAGI_LLVM_RANLIB", "llvm-ranlib", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+
+    let build_dir = evidence.join("target-build");
+    let build_log = evidence.join("target-build.log");
+    let pre_run = evidence.join("pre-run-target-artifacts");
+    if let Err(error) = fs::create_dir(&pre_run) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: create pre-run archive: {error}"),
+        );
+    }
+    let mut pre_run_files = Vec::new();
+    for (relative, name) in [
+        (
+            "target/x86_64-unknown-nagi-user/release/nagi-init",
+            "nagi-init",
+        ),
+        (
+            "target/x86_64-unknown-nagi/release/nagi-kernel",
+            "nagi-kernel",
+        ),
+        (
+            "loader/target/x86_64-unknown-uefi/release/nagi-loader.efi",
+            "nagi-loader.efi",
+        ),
+    ] {
+        let source = root.join(relative);
+        match fs::symlink_metadata(&source) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                let destination = pre_run.join(name);
+                if let Err(error) = fs::copy(&source, &destination) {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!("m20-llama-smoke: preserve {}: {error}", source.display()),
+                    );
+                }
+                pre_run_files.push((destination, format!("pre-run-target-artifacts/{name}")));
+            }
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m20-llama-smoke: refusing non-regular generated artifact {}",
+                        source.display()
+                    ),
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m20-llama-smoke: inspect {}: {error}", source.display()),
+                );
+            }
+        }
+    }
+
+    let mut build = ProcessCommand::new("bash");
+    build
+        .args(["tools/llama/build-nagi-target.sh"])
+        .current_dir(root)
+        .env("NAGI_LLAMA_BUILD", &build_dir)
+        .env("NAGI_TARGET_CLANG", &target_clang)
+        .env("NAGI_CXX_HEADERS", &cxx_headers)
+        .env("NAGI_RELIBC_HEADERS", &relibc_headers)
+        .env("NAGI_LLVM_AR", &llvm_ar)
+        .env("NAGI_LLVM_RANLIB", &llvm_ranlib);
+    let build_output = match build.output() {
+        Ok(output) => output,
+        Err(error) => {
+            let detail = format!("cannot start target archive build: {error}");
+            let _ = fs::write(&build_log, &detail);
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-llama-smoke: {detail} (evidence {})",
+                    evidence.display()
+                ),
+            );
+        }
+    };
+    let build_detail = command_output(&build_output);
+    if let Err(error) = fs::write(&build_log, &build_detail) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: cannot write {}: {error}",
+                build_log.display()
+            ),
+        );
+    }
+    if !build_output.status.success() {
+        let _ = write_m20_llama_smoke_readme(
+            &evidence,
+            &format!(
+                "Status: BLOCKED\nTarget archive build failed with {}.\nPinned source: {}\nBuild log: {}\n",
+                build_output.status,
+                llama_source.display(),
+                build_log.display()
+            ),
+        );
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: target archive build failed ({}); log {}; evidence {}",
+                build_output.status,
+                build_log.display(),
+                evidence.display()
+            ),
+        );
+    }
+
+    let image_name = format!("nagi-0.1-m20-llama-smoke-{run_id}.img");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m20-llama-link-smoke",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let cargo_env = [
+        ("NAGI_LLAMA_BUILD", build_dir.as_path()),
+        ("NAGI_LLAMA_SOURCE", llama_source.as_path()),
+        ("NAGI_TARGET_CLANG", target_clang.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        ("NAGI_RELIBC_HEADERS", relibc_headers.as_path()),
+        ("NAGI_LLVM_AR", llvm_ar.as_path()),
+        ("NAGI_LLVM_RANLIB", llvm_ranlib.as_path()),
+    ];
+    let image_result = execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        &image_name,
+        &cargo_env,
+        write_m17_fat12_image,
+        ImageBuildFeatures::default(),
+    );
+    let image_result_log = evidence.join("image-build.log");
+    if let Err(error) = fs::write(&image_result_log, image_result.lines.join("\n")) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: cannot write {}: {error}",
+                image_result_log.display()
+            ),
+        );
+    }
+    let mut target_elf_files = Vec::new();
+    let target_artifacts_built = image_result.exit_code == EXIT_SUCCESS
+        || image_result
+            .lines
+            .iter()
+            .any(|line| line.starts_with("FAIL image:"));
+    if target_artifacts_built {
+        let target_elf_dir = evidence.join("target-elf");
+        if let Err(error) = fs::create_dir(&target_elf_dir) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-llama-smoke: create target ELF evidence directory: {error}"),
+            );
+        }
+        for (relative, name) in [
+            (
+                "target/x86_64-unknown-nagi-user/release/nagi-init",
+                "nagi-init",
+            ),
+            (
+                "target/x86_64-unknown-nagi/release/nagi-kernel",
+                "nagi-kernel",
+            ),
+            (
+                "loader/target/x86_64-unknown-uefi/release/nagi-loader.efi",
+                "nagi-loader.efi",
+            ),
+        ] {
+            let source = root.join(relative);
+            match fs::symlink_metadata(&source) {
+                Ok(metadata) if metadata.file_type().is_file() => {
+                    let destination = target_elf_dir.join(name);
+                    if let Err(error) = fs::copy(&source, &destination) {
+                        return failure(
+                            EXIT_CONFIG_ERROR,
+                            format!(
+                                "m20-llama-smoke: preserve built target artifact {}: {error}",
+                                source.display()
+                            ),
+                        );
+                    }
+                    target_elf_files.push((destination, format!("target-elf/{name}")));
+                }
+                Ok(_) => {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "m20-llama-smoke: refusing non-regular built target artifact {}",
+                            source.display()
+                        ),
+                    );
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!("m20-llama-smoke: inspect built target artifact: {error}"),
+                    );
+                }
+            }
+        }
+    }
+    if image_result.exit_code != EXIT_SUCCESS {
+        let _ = write_m20_llama_smoke_readme(
+            &evidence,
+            &format!(
+                "Status: BLOCKED\nTarget llama.cpp archives built, but Nagi target image/link failed with exit code {}.\nPinned source: {}\nBuild log: {}\nImage build log: {}\n",
+                image_result.exit_code,
+                llama_source.display(),
+                build_log.display(),
+                image_result_log.display()
+            ),
+        );
+        let mut result = image_result;
+        result
+            .lines
+            .push(format!("M20 target-build evidence: {}", evidence.display()));
+        return result;
+    }
+
+    let host = match resolve_qemu_host(root, probe, "m20-llama-smoke") {
+        Ok(host) => host,
+        Err(error) => {
+            let _ = write_m20_llama_smoke_readme(
+                &evidence,
+                &format!(
+                    "Status: PARTIAL\nNagi target link completed; QEMU unavailable: {error}\n"
+                ),
+            );
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{error}; target ELF and archives are preserved at {}",
+                    evidence.display()
+                ),
+            );
+        }
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out/artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+    let image_path = artifacts.join(&image_name);
+    let image_evidence = evidence.join(&image_name);
+    if let Err(error) = fs::copy(&image_path, &image_evidence) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: preserve {}: {error}",
+                image_path.display()
+            ),
+        );
+    }
+    let persistent_disk = evidence.join(format!("user-data-{run_id}.img"));
+    if let Err(error) = ensure_persistent_disk(&persistent_disk) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: initialize User Data image: {error}"),
+        );
+    }
+    let vars_copy = evidence.join("OVMF_VARS.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: initialize OVMF variables: {error}"),
+        );
+    }
+    let serial_log = evidence.join("qemu-serial.log");
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &serial_log,
+        acceptance_marker: "Nagi M20 llama backend init PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let qemu_status = match run_qemu_until_any_acceptance_marker_with_read_only_boot_disk(
+        &config,
+        &[
+            "Nagi M20 llama backend init PASS",
+            "Nagi M20 llama backend init FAIL",
+            "Nagi M7 VirtIO Block FAIL",
+        ],
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = write_m20_llama_smoke_readme(
+                &evidence,
+                &format!(
+                    "Status: BLOCKED\nTarget link completed, but QEMU did not reach the backend init marker: {error}\nQEMU log: {}\n",
+                    serial_log.display()
+                ),
+            );
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-llama-smoke: QEMU did not reach backend init marker: {error} (log {})",
+                    serial_log.display()
+                ),
+            );
+        }
+    };
+    let serial = match fs::read_to_string(&serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-llama-smoke: cannot read {}: {error}",
+                    serial_log.display()
+                ),
+            );
+        }
+    };
+    if !serial.contains("Nagi M20 llama backend init PASS") {
+        let _ = write_m20_llama_smoke_readme(
+            &evidence,
+            &format!(
+                "Status: FAIL\nQEMU exit: {qemu_status}\nGuest did not register the CPU backend.\nSerial log: {}\n",
+                serial_log.display()
+            ),
+        );
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: guest backend init failed (QEMU exit {qemu_status}); log {}; evidence {}",
+                serial_log.display(),
+                evidence.display()
+            ),
+        );
+    }
+    for marker in ["Nagi Kernel started", "Nagi M20 llama backend init PASS"] {
+        if !serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-llama-smoke: guest log lacks `{marker}` (log {})",
+                    serial_log.display()
+                ),
+            );
+        }
+    }
+
+    let readme = evidence.join("README.md");
+    if let Err(error) = write_m20_llama_smoke_readme(
+        &evidence,
+        &format!(
+            "# M20 llama.cpp target link/init smoke\n\nStatus: PASS\nRun: {run_id}\nPinned patched source: {}\nTarget build: {}\nQEMU exit: {qemu_status}\nSerial acceptance: `llama_backend_init()` returned and the actual ggml CPU backend registry contained `CPU`.\n\nThis checks target archive build, static target linking, process startup, and backend initialization only. It does not load a model, validate Model Store integration, or run inference.\n",
+            llama_source.display(),
+            build_dir.display()
+        ),
+    ) {
+        return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: write README: {error}"));
+    }
+    let mut manifest_files = vec![
+        (readme.as_path(), "README.md".to_owned()),
+        (build_log.as_path(), "target-build.log".to_owned()),
+        (image_evidence.as_path(), image_name.clone()),
+        (persistent_disk.as_path(), format!("user-data-{run_id}.img")),
+        (vars_copy.as_path(), "OVMF_VARS.fd".to_owned()),
+        (serial_log.as_path(), "qemu-serial.log".to_owned()),
+    ];
+    manifest_files.extend(
+        pre_run_files
+            .iter()
+            .map(|(path, relative)| (path.as_path(), relative.clone())),
+    );
+    manifest_files.extend(
+        target_elf_files
+            .iter()
+            .map(|(path, relative)| (path.as_path(), relative.clone())),
+    );
+    let llama_archive = build_dir.join("src/libllama.a");
+    let ggml_archive = build_dir.join("ggml/src/libggml.a");
+    let ggml_cpu_archive = build_dir.join("ggml/src/libggml-cpu.a");
+    let ggml_base_archive = build_dir.join("ggml/src/libggml-base.a");
+    manifest_files.extend([
+        (
+            llama_archive.as_path(),
+            "target-build/src/libllama.a".to_owned(),
+        ),
+        (
+            ggml_archive.as_path(),
+            "target-build/ggml/src/libggml.a".to_owned(),
+        ),
+        (
+            ggml_cpu_archive.as_path(),
+            "target-build/ggml/src/libggml-cpu.a".to_owned(),
+        ),
+        (
+            ggml_base_archive.as_path(),
+            "target-build/ggml/src/libggml-base.a".to_owned(),
+        ),
+    ]);
+    if let Err(error) = write_sha256_manifest(&evidence.join("SHA256SUMS"), &manifest_files) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: write SHA256SUMS: {error}"),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M20 llama.cpp target link/init smoke: actual CPU backend registered in Nagi/QEMU (exit {qemu_status}; evidence {})",
+            evidence.display()
+        )],
+    }
+}
+
+fn write_m20_llama_smoke_readme(evidence: &Path, content: &str) -> Result<(), String> {
+    fs::write(evidence.join("README.md"), content).map_err(|error| {
+        format!(
+            "cannot write M20 link-smoke evidence in {}: {error}",
+            evidence.display()
+        )
+    })
+}
+
+fn resolve_m20_target_clang() -> Result<PathBuf, String> {
+    let configured = std::env::var_os("NAGI_TARGET_CLANG").map(PathBuf::from);
+    if let Some(path) = configured.as_ref() {
+        // Resolve a bare command name to LLVM 19 first when it is installed.
+        // Nagi's current no-exceptions llama archive was built with this
+        // compiler and its matching libc++ headers; an unqualified `clang`
+        // can otherwise select the macOS SDK's unrelated libc++ headers.
+        if path.components().count() == 1 {
+            let executable = path.file_name().unwrap_or_default();
+            for prefix in ["/opt/homebrew/opt/llvm@19", "/usr/local/opt/llvm@19"] {
+                let candidate = PathBuf::from(prefix).join("bin").join(executable);
+                if candidate.is_file() {
+                    return Ok(candidate);
+                }
+            }
+        }
+        return Ok(path.clone());
+    }
+    for candidate in [
+        PathBuf::from("/opt/homebrew/opt/llvm@19/bin/clang"),
+        PathBuf::from("/usr/local/opt/llvm@19/bin/clang"),
+    ] {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Ok(PathBuf::from("clang"))
+}
+
+fn resolve_m20_cxx_headers(compiler: &Path) -> Result<PathBuf, String> {
+    if let Some(configured) = std::env::var_os("NAGI_CXX_HEADERS") {
+        let path = PathBuf::from(configured);
+        if path.join("cstddef").is_file() {
+            return Ok(path);
+        }
+        return Err(format!(
+            "NAGI_CXX_HEADERS lacks cstddef: {}",
+            path.display()
+        ));
+    }
+    if let Some(candidate) = compiler
+        .parent()
+        .and_then(Path::parent)
+        .map(|prefix| prefix.join("include/c++/v1"))
+    {
+        if candidate.join("cstddef").is_file() {
+            return Ok(candidate);
+        }
+    }
+    let output = ProcessCommand::new(compiler)
+        .args(["-E", "-x", "c++", "-", "-v"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| {
+            format!(
+                "cannot inspect libc++ headers using {}: {error}",
+                compiler.display()
+            )
+        })?;
+    for line in String::from_utf8_lossy(&output.stderr).lines() {
+        let candidate = Path::new(line.trim());
+        if candidate.ends_with("c++/v1") && candidate.join("cstddef").is_file() {
+            return Ok(candidate.to_path_buf());
+        }
+    }
+    Err(format!(
+        "cannot find libc++ headers for {}; set NAGI_CXX_HEADERS",
+        compiler.display()
+    ))
+}
+
+fn resolve_m20_llvm_tool(
+    override_name: &str,
+    tool_name: &str,
+    compiler_dir: &Path,
+) -> Result<PathBuf, String> {
+    if let Some(configured) = std::env::var_os(override_name) {
+        return Ok(PathBuf::from(configured));
+    }
+    let sibling = compiler_dir.join(tool_name);
+    if sibling.is_file() {
+        return Ok(sibling);
+    }
+    for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        let candidate = directory.join(tool_name);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "{tool_name} was not found beside the configured clang or on PATH"
+    ))
 }
 
 fn execute_m25_whisper(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -6876,7 +7478,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m22, m25, m25-whisper <artifact.bin>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -6917,6 +7519,15 @@ mod tests {
         assert!(
             parse_command(&["m20-granite".into(), "model.gguf".into(), "extra".into()]).is_err()
         );
+    }
+
+    #[test]
+    fn m20_llama_smoke_command_accepts_no_arguments() {
+        assert_eq!(
+            parse_command(&["m20-llama-smoke".into()]),
+            Ok(Command::M20LlamaSmoke)
+        );
+        assert!(parse_command(&["m20-llama-smoke".into(), "extra".into()]).is_err());
     }
 
     #[test]

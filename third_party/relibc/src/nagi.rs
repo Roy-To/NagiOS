@@ -2038,6 +2038,18 @@ pub unsafe extern "C" fn isspace(value: c_int) -> c_int {
     }
 }
 
+/// Target-owned C-locale lower-case conversion. `tolower` accepts only EOF or
+/// a value representable as `unsigned char`; every valid non-ASCII byte is
+/// unchanged in Nagi's C/POSIX locale.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tolower(value: c_int) -> c_int {
+    if (b'A' as c_int..=b'Z' as c_int).contains(&value) {
+        value + (b'a' as c_int - b'A' as c_int)
+    } else {
+        value
+    }
+}
+
 /// Target-owned forward character search. The Nagi target does not select
 /// relibc's upstream string module, so keep the C ABI on the guest memory
 /// boundary rather than importing a host libc implementation.
@@ -3030,6 +3042,64 @@ pub unsafe extern "C" fn exp(x: c_double) -> c_double {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expf(x: c_float) -> c_float {
     nagi_exp_real(c_double::from(x)) as c_float
+}
+
+/// Target-owned single-precision expm1. The series branch avoids cancellation
+/// near zero; larger magnitudes use Nagi's freestanding `expf` implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expm1f(value: c_float) -> c_float {
+    if value == 0.0 || value.is_nan() {
+        return value;
+    }
+    if value.abs() >= 0.5 {
+        return unsafe { expf(value) } - 1.0;
+    }
+
+    let mut sum = value;
+    let mut term = value;
+    let mut divisor = 1.0;
+    let mut index = 2;
+    while index <= 24 {
+        term *= value;
+        divisor *= index as c_float;
+        let next = term / divisor;
+        sum += next;
+        if next == 0.0 || sum == sum - next {
+            break;
+        }
+        index += 1;
+    }
+    sum
+}
+
+/// Target-owned error function approximation for the pinned CPU backend. The
+/// rational-polynomial approximation has a maximum absolute error below
+/// 1.6e-7 over finite inputs; infinities and NaN retain their IEEE behavior.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn erff(value: c_float) -> c_float {
+    if value.is_nan() {
+        return value;
+    }
+    if value == 0.0 {
+        return value;
+    }
+    if value.is_infinite() {
+        return if value.is_sign_negative() { -1.0 } else { 1.0 };
+    }
+
+    let absolute = value.abs();
+    let t = 1.0 / (1.0 + 0.3275911 * absolute);
+    let polynomial = (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736)
+        * t
+        + 0.254829592)
+        * t;
+    let magnitude =
+        1.0 - polynomial * nagi_exp_real(-c_double::from(absolute * absolute)) as c_float;
+    if value.is_sign_negative() {
+        -magnitude
+    } else {
+        magnitude
+    }
 }
 
 #[unsafe(no_mangle)]

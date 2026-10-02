@@ -32,6 +32,7 @@ m19-search = [
 m20-model-store-acceptance = ["m19-search"]
 m20-fixture-acceptance = ["m20-model-store-acceptance"]
 m20-granite-artifact-acceptance = ["m20-model-store-acceptance"]
+m20-llama-link-smoke = ["m13-posix"]
 m22-history = ["m19-search"]
 m27-ro-vfs-check = []
 m27-recovery = []

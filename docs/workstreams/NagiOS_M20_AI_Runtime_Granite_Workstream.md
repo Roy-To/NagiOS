@@ -1218,3 +1218,32 @@ This compiles the pinned llama.cpp static library for Nagi; the archive is not
 yet linked to the guest Model Manager or run with Granite. Guest model loading,
 generation, unload/restart, and bounded-resource acceptance remain open, so
 M20 remains `PARTIAL`.
+
+## Static CPU backend link and guest initialization — 2026-10-03
+
+Added Nagi-only patch `0034-nagi-static-backend-init.patch`: Nagi has no
+dynamic loader or dynamic backend directory, so `llama_backend_init()` uses
+ggml's real statically registered CPU backend without calling upstream
+filesystem scanning. Other targets retain upstream dynamic discovery. The
+patch applies cleanly to the pinned upstream checkout and is included in the
+generated patch fingerprint.
+
+Added the reproducible `./nagi m20-llama-smoke` path and a CPU-only
+LLVM 19/libc++ target archive build. The smoke links the actual pinned
+`libllama.a`, `libggml.a`, `libggml-cpu.a`, and `libggml-base.a`, plus the real
+Nagi relibc and target libc++ ABI support. QEMU run
+`1790962398371656000` booted the 1,457,928-byte init ELF, passed kernel block
+storage and user-process startup, returned from `llama_backend_init()`, and
+found the actual `CPU` backend. The guest also checked C-locale `tolower`,
+`expm1f`, `erff` (including negative zero), and the target libc++
+`std::to_string(int)` for a negative value and `INT_MIN`. Its image, target
+ELFs, static archives, serial output, User Data, OVMF vars, and SHA-256
+manifest are under
+`out/evidence/m20-llama-link-smoke-1790962398371656000/`.
+
+Repository `./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build`
+passed after the changes. QEMU prints a host `virtio-sound.in` backend warning,
+but the guest M14 device initialization and M20 acceptance marker both pass;
+this smoke makes no audio-capture claim. It establishes target static linking
+and CPU backend initialization only. It does not load Granite, exercise Model
+Manager, or run inference, so M20 remains `PARTIAL`.

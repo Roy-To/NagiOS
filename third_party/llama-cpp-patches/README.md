@@ -75,6 +75,12 @@ partial type list. Host builds retain their exception behavior. The host and
 Nagi-macro quantization type-selection CTests pass; the Nagi test includes a
 checked-status regression for an invalid quantization state.
 
+Patch `0034-nagi-static-backend-init.patch` keeps `llama_backend_init()` from
+trying the upstream dynamic-backend directory scan on Nagi. Nagi has no dynamic
+loader; the target links its CPU backend statically and initializes that
+registry through ggml's normal static registration path. Non-Nagi builds retain
+upstream dynamic backend discovery.
+
 The current incremental no-exception syntax sweep passes all 32 top-level
 `src/*.cpp` translation units, including the DSV4 cache, sampler, and
 quantizer. The complete LLVM 19/libc++ Nagi no-exceptions `llama` target also

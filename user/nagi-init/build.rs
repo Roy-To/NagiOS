@@ -7,6 +7,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_TARGET_CLANG");
     println!("cargo:rerun-if-env-changed=NAGI_MESA_BUILD");
+    println!("cargo:rerun-if-env-changed=NAGI_LLAMA_BUILD");
+    println!("cargo:rerun-if-env-changed=NAGI_LLAMA_SOURCE");
     println!("cargo:rerun-if-env-changed=NAGI_CXX_HEADERS");
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     let package_output = out_dir.join("m16-package.xapp");
@@ -294,6 +296,136 @@ fn main() {
         "cargo:rustc-link-arg-bin=nagi-init={}",
         cxx_output.display()
     );
+
+    if env::var_os("CARGO_FEATURE_M20_LLAMA_LINK_SMOKE").is_some() {
+        let llama_build = env::var_os("NAGI_LLAMA_BUILD")
+            .map(PathBuf::from)
+            .expect("NAGI_LLAMA_BUILD must point to the Nagi-target llama.cpp build");
+        let repository_root =
+            PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"))
+                .join("..")
+                .join("..");
+        let llama_source = repository_root.join("tools").join("llama");
+        let generated_source = env::var_os("NAGI_LLAMA_SOURCE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repository_root.join("out/cache/llama-cpp-nagi"));
+        let archives = [
+            llama_build.join("src/libllama.a"),
+            llama_build.join("ggml/src/libggml.a"),
+            llama_build.join("ggml/src/libggml-cpu.a"),
+            llama_build.join("ggml/src/libggml-base.a"),
+        ];
+        for archive in &archives {
+            if !archive.is_file() {
+                panic!(
+                    "NAGI_LLAMA_BUILD is missing a required target archive: {}",
+                    archive.display()
+                );
+            }
+            println!("cargo:rerun-if-changed={}", archive.display());
+        }
+        let llama_header = generated_source.join("include/llama.h");
+        let ggml_header = generated_source.join("ggml/include/ggml-backend.h");
+        for header in [&llama_header, &ggml_header] {
+            if !header.is_file() {
+                panic!("pinned llama.cpp header is missing: {}", header.display());
+            }
+            println!("cargo:rerun-if-changed={}", header.display());
+        }
+        let smoke_source = llama_source.join("nagi-backend-smoke.c");
+        println!("cargo:rerun-if-changed={}", smoke_source.display());
+        let target_cc_wrapper = repository_root.join("tools/nagi-target-cc.sh");
+        let smoke_object = out_dir.join("nagi-llama-backend-smoke.o");
+        let status = Command::new("bash")
+            .arg(&target_cc_wrapper)
+            .args(["-x", "c", "-fno-asynchronous-unwind-tables", "-c"])
+            .arg("-I")
+            .arg(generated_source.join("include"))
+            .arg("-I")
+            .arg(generated_source.join("ggml/include"))
+            .arg(&smoke_source)
+            .arg("-o")
+            .arg(&smoke_object)
+            .status()
+            .unwrap_or_else(|error| panic!("failed to compile Nagi llama smoke adapter: {error}"));
+        if !status.success() {
+            panic!("Nagi llama smoke adapter compilation failed with {status}");
+        }
+        // llama.cpp's real CPU backend reaches C/POSIX and math functions from
+        // the target relibc archive. Root only those implemented providers so
+        // rust-lld extracts them before scanning the static C++ archives.
+        for symbol in [
+            "stdout",
+            "stderr",
+            "fflush",
+            "snprintf",
+            "vsnprintf",
+            "fprintf",
+            "fputs",
+            "printf",
+            "ldexpf",
+            "log2f",
+            "expf",
+            "logf",
+            "tanhf",
+            "expm1f",
+            "lroundf",
+            "log2",
+            "powf",
+            "cosf",
+            "sinf",
+            "atoi",
+            "dlclose",
+            "tolower",
+            "strcmp",
+            "erff",
+        ] {
+            println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
+        }
+
+        // The pinned CPU feature provider references libc++'s string ABI,
+        // which Nagi supplies from its configured target headers rather than a
+        // host or bundled libc++ archive.
+        let cxx_abi_source = llama_source.join("nagi-libcpp-llama.cpp");
+        println!("cargo:rerun-if-changed={}", cxx_abi_source.display());
+        let cxx_abi_object = out_dir.join("nagi-libcpp-llama.o");
+        let status = Command::new("bash")
+            .arg(&target_cc_wrapper)
+            .args([
+                "-x",
+                "c++",
+                "-fno-asynchronous-unwind-tables",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-c",
+            ])
+            .arg(&cxx_abi_source)
+            .arg("-o")
+            .arg(&cxx_abi_object)
+            .status()
+            .unwrap_or_else(|error| panic!("failed to compile llama libc++ ABI adapter: {error}"));
+        if !status.success() {
+            panic!("Nagi llama libc++ ABI adapter compilation failed with {status}");
+        }
+        println!(
+            "cargo:rustc-link-arg-bin=nagi-init={}",
+            cxx_abi_object.display()
+        );
+
+        println!("cargo:rustc-link-arg-bin=nagi-init=--error-limit=0");
+        println!("cargo:rustc-link-arg-bin=nagi-init=--gc-sections");
+        println!(
+            "cargo:rustc-link-arg-bin=nagi-init={}",
+            smoke_object.display()
+        );
+        println!("cargo:rustc-link-arg-bin=nagi-init=-Bstatic");
+        println!("cargo:rustc-link-arg-bin=nagi-init=--start-group");
+        for archive in &archives {
+            println!("cargo:rustc-link-arg-bin=nagi-init={}", archive.display());
+        }
+        println!("cargo:rustc-link-arg-bin=nagi-init=--end-group");
+        println!("cargo:rustc-link-arg-bin=nagi-init=-Bdynamic");
+    }
 
     if env::var_os("CARGO_FEATURE_M17_SERVO").is_some() {
         // Some pinned Servo/MozJS objects use libc++ extern-template entrypoints
