@@ -909,6 +909,24 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_typed_key_status_rejects_wrong_types_without_conflating_missing_keys() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0010-nagi-llama-typed-key-status.patch"),
+        )
+        .expect("Nagi typed-key status patch");
+
+        assert!(patch.contains("enum class ReadStatus"));
+        assert!(patch.contains("ReadStatus::InvalidType"));
+        assert!(patch.contains("metadata_valid = false"));
+        assert!(patch.contains("!ml.metadata_valid"));
+        assert!(patch.contains("missing optional"));
+        assert!(patch.contains("wrong-typed optional"));
+        assert!(patch.contains("wrong-typed required"));
+        assert!(patch.contains("test-model-loader-bounds"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

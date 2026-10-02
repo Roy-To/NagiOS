@@ -633,3 +633,35 @@ syntax in metadata accessors and model construction. This is not a full target
 build. No complete backend, model load, or in-guest inference was demonstrated;
 M20 remains `PARTIAL`. Logs, marker, and preserved checkout checksums are under
 `out/evidence/m20-loader-split-path-0009-20261002/`.
+
+## Typed scalar GGUF key status — 2026-10-02
+
+Added patch
+`third_party/llama-cpp-patches/0010-nagi-llama-typed-key-status.patch`.
+Scalar key reads now return distinct `Found`, `Missing`, and `InvalidType`
+statuses. A missing optional key leaves the loader valid; a scalar type
+mismatch leaves its output untouched, marks metadata invalid, and causes the
+model-load boundary to reject the load. Base hyperparameter parsing checks
+that sticky status before continuing into validations that depend on the
+rejected values.
+
+The loader-bounds CTest was extended with synthetic GGUF metadata cases for a
+missing optional key, wrong-typed optional key, and wrong-typed required key.
+The test first reproduced the old type-mismatch exception, then passed after
+the change. Host build and focused CTest passed (1/1). A clean clone of the
+pinned llama.cpp revision accepted patches 0001–0010 and matched the generated
+files. A subsequent `./nagi fetch` regenerated the cache from the numbered
+series with patch fingerprint `fnv1a64:f156affbbbf51cec` and checkout
+fingerprint `fnv1a64:6b6a37961c01c9b3`; it then stopped before touching the
+pre-existing modified Servo checkout. The regenerated-cache host build and
+focused loader-bounds CTest passed (1/1), and all 173 CLI library unit tests
+plus `cargo fmt --check` passed. Focused Nagi-target compilation still fails
+on remaining exception paths, starting at override validation and
+required/array/loader errors; it does not build a target backend or demonstrate
+inference. Logs are `out/logs/m20-typed-key-status-host-build.log`,
+`out/logs/m20-typed-key-status-host-ctest.log`,
+`out/logs/m20-typed-key-status-fetch.log`,
+`out/logs/m20-typed-key-status-fetch-host-build.log`,
+`out/logs/m20-typed-key-status-fetch-host-ctest.log`,
+`out/logs/m20-typed-key-status-cli-test.log`, and
+`out/logs/m20-typed-key-status-target-build.log`. M20 remains `PARTIAL`.

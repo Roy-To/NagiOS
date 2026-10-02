@@ -1,0 +1,385 @@
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -127,6 +127,12 @@
+ }
+ 
+ namespace GGUFMeta {
++    enum class ReadStatus {
++        Found,
++        Missing,
++        InvalidType,
++    };
++
+     template <typename T, gguf_type gt_, T (*gfun)(const gguf_context *, const int64_t)>
+     struct GKV_Base_Type {
+         static constexpr gguf_type gt = gt_;
+@@ -160,9 +166,9 @@
+     };
+ 
+     struct ArrayInfo {
+-        const gguf_type gt;
+-        const size_t length;
+-        const void * data;
++        gguf_type gt = GGUF_TYPE_ARRAY;
++        size_t length = 0;
++        const void * data = nullptr;
+     };
+ 
+     template<> struct GKV_Base<ArrayInfo> {
+@@ -183,14 +189,16 @@
+         GKV() = delete;
+ 
+         public:
+-        static T get_kv(const gguf_context * ctx, const int k) {
++        static ReadStatus get_kv(const gguf_context * ctx, const int k, T & value) {
+             const enum gguf_type kt = gguf_get_kv_type(ctx, k);
+ 
+             if (kt != GKV::gt) {
+-                throw std::runtime_error(format("key %s has wrong type %s but expected type %s",
+-                    gguf_get_key(ctx, k), gguf_type_name(kt), gguf_type_name(GKV::gt)));
++                LLAMA_LOG_ERROR("%s: key %s has wrong type %s but expected type %s\n",
++                    __func__, gguf_get_key(ctx, k), gguf_type_name(kt), gguf_type_name(GKV::gt));
++                return ReadStatus::InvalidType;
+             }
+-            return GKV::getter(ctx, k);
++            value = GKV::getter(ctx, k);
++            return ReadStatus::Found;
+         }
+ 
+         static const char * override_type_to_str(const llama_model_kv_override_type ty) {
+@@ -274,20 +282,19 @@
+             return false;
+         }
+ 
+-        static bool set(const gguf_context * ctx, const int k, T & target, const struct llama_model_kv_override * ovrd = nullptr) {
++        static ReadStatus set(const gguf_context * ctx, const int k, T & target, const struct llama_model_kv_override * ovrd = nullptr) {
+             if (try_override<T>(target, ovrd)) {
+-                return true;
++                return ReadStatus::Found;
+             }
+-            if (k < 0) { return false; }
+-            target = get_kv(ctx, k);
+-            return true;
++            if (k < 0) { return ReadStatus::Missing; }
++            return get_kv(ctx, k, target);
+         }
+ 
+-        static bool set(const gguf_context * ctx, const char * key, T & target, const struct llama_model_kv_override * ovrd = nullptr) {
++        static ReadStatus set(const gguf_context * ctx, const char * key, T & target, const struct llama_model_kv_override * ovrd = nullptr) {
+             return set(ctx, gguf_find_key(ctx, key), target, ovrd);
+         }
+ 
+-        static bool set(const gguf_context * ctx, const std::string & key, T & target, const struct llama_model_kv_override * ovrd = nullptr) {
++        static ReadStatus set(const gguf_context * ctx, const std::string & key, T & target, const struct llama_model_kv_override * ovrd = nullptr) {
+             return set(ctx, key.c_str(), target, ovrd);
+         }
+     };
+@@ -305,8 +312,11 @@
+             return false;
+         }
+ 
+-        struct GGUFMeta::ArrayInfo arr_info =
+-            GGUFMeta::GKV<GGUFMeta::ArrayInfo>::get_kv(metadata, kid);
++        struct GGUFMeta::ArrayInfo arr_info;
++        if (GGUFMeta::GKV<GGUFMeta::ArrayInfo>::get_kv(metadata, kid, arr_info) != GGUFMeta::ReadStatus::Found) {
++            metadata_valid = false;
++            return false;
++        }
+ 
+ 
+         result = arr_info.length;
+@@ -335,8 +345,11 @@
+             return false;
+         }
+ 
+-        struct GGUFMeta::ArrayInfo arr_info =
+-            GGUFMeta::GKV<GGUFMeta::ArrayInfo>::get_kv(ctx, kid);
++        struct GGUFMeta::ArrayInfo arr_info;
++        if (GGUFMeta::GKV<GGUFMeta::ArrayInfo>::get_kv(ctx, kid, arr_info) != GGUFMeta::ReadStatus::Found) {
++            metadata_valid = false;
++            return false;
++        }
+ 
+         bool type_ok = false;
+         switch (arr_info.gt) {
+@@ -381,8 +394,11 @@
+             return false;
+         }
+ 
+-        struct GGUFMeta::ArrayInfo arr_info =
+-            GGUFMeta::GKV<GGUFMeta::ArrayInfo>::get_kv(ctx, kid);
++        struct GGUFMeta::ArrayInfo arr_info;
++        if (GGUFMeta::GKV<GGUFMeta::ArrayInfo>::get_kv(ctx, kid, arr_info) != GGUFMeta::ReadStatus::Found) {
++            metadata_valid = false;
++            return false;
++        }
+ 
+         bool type_ok = false;
+         switch (arr_info.gt) {
+@@ -445,8 +461,14 @@
+         const struct llama_model_kv_override * override =
+             it != kv_overrides.end() ? &it->second : nullptr;
+ 
+-        const bool found = GGUFMeta::GKV<T>::set(metadata, key, result, override);
++        const GGUFMeta::ReadStatus status = GGUFMeta::GKV<T>::set(metadata, key, result, override);
+ 
++        if (status == GGUFMeta::ReadStatus::InvalidType) {
++            metadata_valid = false;
++            return false;
++        }
++        const bool found = status == GGUFMeta::ReadStatus::Found;
++
+         if (required && !found) {
+             throw std::runtime_error(format("key not found in model: %s", key.c_str()));
+         }
+@@ -493,8 +515,11 @@
+         }
+ 
+         if (gguf_get_kv_type(metadata, kid) == GGUF_TYPE_ARRAY) {
+-            struct GGUFMeta::ArrayInfo arr_info =
+-                GGUFMeta::GKV<GGUFMeta::ArrayInfo>::get_kv(metadata, kid);
++            struct GGUFMeta::ArrayInfo arr_info;
++            if (GGUFMeta::GKV<GGUFMeta::ArrayInfo>::get_kv(metadata, kid, arr_info) != GGUFMeta::ReadStatus::Found) {
++                metadata_valid = false;
++                return false;
++            }
+ 
+             if (n != arr_info.length) {
+                 throw std::runtime_error(format("key %s has wrong array length; expected %u, got %u", key.c_str(), n, (uint32_t) arr_info.length));
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -109,6 +109,7 @@
+     size_t   n_bytes    = 0;
+     bool tensor_weights_valid = true;
+     bool split_paths_valid = true;
++    bool metadata_valid = true;
+ 
+     bool use_mmap = false;
+     bool use_direct_io = false;
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -319,7 +319,10 @@
+         llama_model_loader ml(metadata, set_tensor_data, set_tensor_data_ud, fname, splits, file, params.load_mode,
+             params.check_tensors, params.no_alloc, params.load_mtp, params.kv_overrides, params.tensor_buft_overrides);
+ 
+-        if (!ml.tensor_weights_valid || !ml.split_paths_valid) {
++        if (!ml.tensor_weights_valid || !ml.split_paths_valid || !ml.metadata_valid) {
++            if (!ml.metadata_valid) {
++                LLAMA_LOG_ERROR("%s: model metadata has an invalid value type\n", __func__);
++            }
+             return {-1, nullptr};
+         }
+ 
+@@ -357,6 +360,10 @@
+         } catch(const std::exception & e) {
+             throw std::runtime_error("error loading model hyperparameters: " + std::string(e.what()));
+         }
++        if (!ml.metadata_valid) {
++            LLAMA_LOG_ERROR("%s: model metadata has an invalid value type\n", __func__);
++            return {-1, nullptr};
++        }
+         if (model->arch == LLM_ARCH_CLIP) {
+             throw std::runtime_error("CLIP cannot be used as main model, use it with --mmproj instead");
+         }
+@@ -364,6 +371,10 @@
+             model->load_vocab(ml);
+         } catch(const std::exception & e) {
+             throw std::runtime_error("error loading model vocabulary: " + std::string(e.what()));
++        }
++        if (!ml.metadata_valid) {
++            LLAMA_LOG_ERROR("%s: model metadata has an invalid value type\n", __func__);
++            return {-1, nullptr};
+         }
+ 
+         model->load_stats(ml);
+@@ -374,7 +385,12 @@
+             return {0, model_ptr.release()};
+         }
+ 
+-        if (!model->load_tensors(ml)) {
++        const bool tensors_loaded = model->load_tensors(ml);
++        if (!ml.metadata_valid) {
++            LLAMA_LOG_ERROR("%s: model metadata has an invalid value type\n", __func__);
++            return {-1, nullptr};
++        }
++        if (!tensors_loaded) {
+             return {-2, nullptr};
+         }
+ 
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1308,6 +1308,9 @@
+ 
+     // get general kv
+     ml.get_key(LLM_KV_GENERAL_NAME, name, false);
++    if (!ml.metadata_valid) {
++        return;
++    }
+ 
+     // everything past this point is not vocab-related
+     // for CLIP models, we only need to load tensors, no hparams
+@@ -1321,14 +1324,23 @@
+     ml.get_key(LLM_KV_ATTENTION_CAUSAL,        hparams.causal_attn,     false);
+     ml.get_key(LLM_KV_POOLING_TYPE,            hparams.pooling_type,    false);
+     ml.get_key(LLM_KV_BLOCK_COUNT,             hparams.n_layer_all);
++    if (!ml.metadata_valid) {
++        return;
++    }
+     GGML_ASSERT(hparams.n_layer_all > 0 && hparams.n_layer_all <= LLAMA_MAX_LAYERS);
+     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,    hparams.n_layer_nextn,   false);
++    if (!ml.metadata_valid) {
++        return;
++    }
+     GGML_ASSERT(hparams.n_layer_nextn <= hparams.n_layer_all);
+     ml.get_key(LLM_KV_EXPERT_COUNT,            hparams.n_expert,        false);
+     std::fill(hparams.n_expert_used_arr.begin(), hparams.n_expert_used_arr.end(), 0);
+     ml.get_key_or_arr(LLM_KV_EXPERT_USED_COUNT, hparams.n_expert_used_arr, hparams.n_layer_all, false);
+     ml.get_key(LLM_KV_EXPERT_GROUP_COUNT,      hparams.n_expert_groups, false);
+     ml.get_key(LLM_KV_EXPERT_GROUP_USED_COUNT, hparams.n_group_used,    false);
++    if (!ml.metadata_valid) {
++        return;
++    }
+ 
+     if (arch == LLM_ARCH_HUNYUAN_VL || arch == LLM_ARCH_HUNYUAN_DENSE) {
+         if (hparams.n_expert <= 1) {
+@@ -1347,6 +1359,9 @@
+         ml.get_key(LLM_KV_CONVNEXT_EMBEDDING_LENGTH, hparams.convnext.n_embd);
+         ml.get_key(LLM_KV_CONVNEXT_BLOCK_COUNT,      hparams.convnext.n_layer);
+ 
++        if (!ml.metadata_valid) {
++            return;
++        }
+         GGML_ASSERT(hparams.posnet.n_layer   <= hparams.n_layer_all);
+         GGML_ASSERT(hparams.convnext.n_layer <= hparams.n_layer_all);
+     }
+@@ -1390,6 +1405,9 @@
+ 
+     ml.get_key_or_arr(LLM_KV_FEED_FORWARD_LENGTH,  hparams.n_ff_arr,   hparams.n_layer_all, false);
+     ml.get_key_or_arr(LLM_KV_ATTENTION_HEAD_COUNT, hparams.n_head_arr, hparams.n_layer_all, false);
++    if (!ml.metadata_valid) {
++        return;
++    }
+ 
+     // Populate deepstack_mapping_arr - initialized to -1 (no deepstack)
+     std::fill(hparams.deepstack_mapping_arr.begin(), hparams.deepstack_mapping_arr.end(), -1);
+@@ -1398,6 +1416,9 @@
+     hparams.n_head_kv_arr = hparams.n_head_arr;
+ 
+     ml.get_key_or_arr(LLM_KV_ATTENTION_HEAD_COUNT_KV, hparams.n_head_kv_arr, hparams.n_layer_all, false);
++    if (!ml.metadata_valid) {
++        return;
++    }
+ 
+     bool rope_finetuned = false;
+     ml.get_key(LLM_KV_ROPE_SCALING_FINETUNED, rope_finetuned, false);
+@@ -1412,6 +1433,9 @@
+ 
+     std::string rope_scaling("linear");
+     ml.get_key(LLM_KV_ROPE_SCALING_TYPE, rope_scaling, false);
++    if (!ml.metadata_valid) {
++        return;
++    }
+     hparams.rope_scaling_type_train = llama_rope_scaling_type_from_string(rope_scaling);
+     GGML_ASSERT(hparams.rope_scaling_type_train != LLAMA_ROPE_SCALING_TYPE_UNSPECIFIED);
+ 
+@@ -1422,6 +1446,9 @@
+         // try the old key name
+         ml.get_key(LLM_KV_ROPE_SCALE_LINEAR, ropescale, false);
+     }
++    if (!ml.metadata_valid) {
++        return;
++    }
+     hparams.rope_freq_scale_train = ropescale == 0.0f ? 1.0f : 1.0f/ropescale;
+ 
+     ml.get_key(LLM_KV_ROPE_SCALING_ATTN_FACTOR, hparams.rope_attn_factor, false);
+@@ -1443,6 +1470,9 @@
+ 
+         ml.get_key(LLM_KV_ROPE_DIMENSION_COUNT, hparams.n_rot_full, false);
+ 
++        if (!ml.metadata_valid) {
++            return;
++        }
+         if (arch == LLM_ARCH_LLAMA || arch == LLM_ARCH_DECI || arch == LLM_ARCH_FALCON || arch == LLM_ARCH_LLAMA_EMBED) {
+             if (hparams.n_rot_full != hparams.n_embd_head_k_full) {
+                 throw std::runtime_error(format("invalid n_rot: %u, expected %u", hparams.n_rot_full, hparams.n_embd_head_k_full));
+@@ -1464,15 +1494,24 @@
+         hparams.n_rot_swa = hparams.n_rot_full;
+         ml.get_key(LLM_KV_ROPE_DIMENSION_COUNT_SWA, hparams.n_rot_swa, false);
+     }
++    if (!ml.metadata_valid) {
++        return;
++    }
+ 
+     // for classifier models
+     ml.get_arr(LLM_KV_CLASSIFIER_OUTPUT_LABELS, classifier_labels, false);
++    if (!ml.metadata_valid) {
++        return;
++    }
+     if (!classifier_labels.empty()) {
+         hparams.n_cls_out = classifier_labels.size();
+     }
+ 
+     // per-arch hparams
+     load_arch_hparams(ml);
++    if (!ml.metadata_valid) {
++        return;
++    }
+ 
+     pimpl->n_bytes = ml.n_bytes;
+ 
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -21,7 +21,53 @@
+     return true;
+ }
+ 
++static bool metadata_key_read_status(bool include_wrong_type, bool required,
++        bool expected_metadata_valid, const char * label) {
++    struct gguf_context * metadata = gguf_init_empty();
++    if (metadata == nullptr) {
++        std::fprintf(stderr, "cannot allocate metadata fixture\n");
++        return false;
++    }
++    gguf_set_val_str(metadata, "general.architecture", "llama");
++    if (include_wrong_type) {
++        gguf_set_val_str(metadata, "llama.context_length", "not an integer");
++    }
++
++    std::vector<std::string> splits;
++    bool valid = true;
++    {
++        llama_model_loader loader(metadata, nullptr, nullptr, "", splits, nullptr,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        uint32_t value = 0x5a5a;
++        bool found = false;
++        try {
++            found = loader.get_key(LLM_KV_CONTEXT_LENGTH, value, required);
++        } catch (const std::exception & error) {
++            std::fprintf(stderr, "%s metadata read threw instead of returning status: %s\n", label, error.what());
++            valid = false;
++        }
++        if (found || value != 0x5a5a) {
++            std::fprintf(stderr, "%s metadata read was accepted or changed its output\n", label);
++            valid = false;
++        }
++        if (loader.metadata_valid != expected_metadata_valid) {
++            std::fprintf(stderr, "%s metadata-valid status was %s\n", label,
++                    loader.metadata_valid ? "valid" : "invalid");
++            valid = false;
++        }
++    }
++
++    gguf_free(metadata);
++    return valid;
++}
++
+ int main() {
++    if (!metadata_key_read_status(false, false, true, "missing optional") ||
++            !metadata_key_read_status(true, false, false, "wrong-typed optional") ||
++            !metadata_key_read_status(true, true, false, "wrong-typed required")) {
++        return 1;
++    }
++
+     size_t result = 0;
+     if (!tensor_weight::checked_data_range(0, 64, 8, 16, 40, result) || result != 24) {
+         std::fprintf(stderr, "valid extent was rejected or returned the wrong offset\n");
