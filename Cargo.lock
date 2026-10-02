@@ -3416,6 +3416,7 @@ dependencies = [
  "freetype-sys",
  "ipc-channel",
  "libnagi",
+ "nagi-localization",
  "nagi-servo-adapter",
  "servo",
  "url",

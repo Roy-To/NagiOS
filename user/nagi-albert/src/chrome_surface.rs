@@ -1,6 +1,7 @@
 //! Bounded guest-side Albert chrome renderer for Servo RGBA frames.
 
 use crate::ui::BrowserChromeView;
+use crate::{permission_prompt::PermissionPromptView, permission_prompt::PromptLayout};
 
 const TOOLBAR_HEIGHT: u32 = 48;
 const TAB_BG: [u8; 3] = [22, 32, 44];
@@ -12,12 +13,19 @@ const ICON: [u8; 3] = [214, 226, 230];
 const ACCENT: [u8; 3] = [49, 180, 154];
 const INVALID: [u8; 3] = [202, 62, 73];
 const BORDER: [u8; 3] = [70, 88, 102];
+const PROMPT_SCRIM: [u8; 3] = [12, 18, 26];
+const PROMPT_BG: [u8; 3] = [244, 247, 248];
+const PROMPT_TEXT: [u8; 3] = [22, 35, 45];
+const PROMPT_CANCEL: [u8; 3] = [90, 105, 117];
+const PROMPT_DENY: [u8; 3] = [178, 53, 67];
+const PROMPT_ALLOW: [u8; 3] = [34, 139, 111];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChromeRenderError {
     InvalidDimensions,
     InvalidStride,
     TruncatedFrame,
+    TextTooWide,
 }
 
 #[derive(Clone, Copy)]
@@ -268,6 +276,162 @@ pub fn render_chrome(
     Ok(())
 }
 
+/// Draw an opaque first-party modal over page content. All geometry is
+/// derived from the checked viewport; the page cannot draw over the prompt.
+pub fn render_permission_prompt(
+    frame: &mut [u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    prompt: &PermissionPromptView<'_>,
+) -> Result<(), ChromeRenderError> {
+    let Some(layout) = PromptLayout::new(width, height) else {
+        return Err(ChromeRenderError::InvalidDimensions);
+    };
+    validate_frame(frame, width, height, stride)?;
+    if text_pixel_width(prompt.origin) > layout.card.2.saturating_sub(70) {
+        return Err(ChromeRenderError::TextTooWide);
+    }
+    fill(
+        frame,
+        width,
+        height,
+        stride,
+        Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        PROMPT_SCRIM,
+    );
+    let (card_x, card_y, card_width, card_height) = layout.card;
+    let card = Rect {
+        x: card_x,
+        y: card_y,
+        width: card_width,
+        height: card_height,
+    };
+    fill(frame, width, height, stride, card, PROMPT_BG);
+    stroke(frame, width, height, stride, card, ACCENT);
+    draw_text(
+        frame,
+        width,
+        height,
+        stride,
+        card_x + 8,
+        card_y + 9,
+        prompt.labels.title,
+        PROMPT_TEXT,
+        card_width.saturating_sub(16),
+    );
+    draw_text(
+        frame,
+        width,
+        height,
+        stride,
+        card_x + 8,
+        card_y + 34,
+        prompt.labels.origin,
+        BORDER,
+        48,
+    );
+    draw_text(
+        frame,
+        width,
+        height,
+        stride,
+        card_x + 62,
+        card_y + 34,
+        prompt.origin,
+        PROMPT_TEXT,
+        card_width.saturating_sub(70),
+    );
+    draw_text(
+        frame,
+        width,
+        height,
+        stride,
+        card_x + 8,
+        card_y + 57,
+        prompt.labels.feature,
+        BORDER,
+        72,
+    );
+    draw_text(
+        frame,
+        width,
+        height,
+        stride,
+        card_x + 86,
+        card_y + 57,
+        prompt.feature,
+        PROMPT_TEXT,
+        card_width.saturating_sub(94),
+    );
+
+    let button_y = layout.buttons_y;
+    let buttons = [
+        (prompt.labels.cancel, PROMPT_CANCEL),
+        (prompt.labels.deny, PROMPT_DENY),
+        (prompt.labels.allow, PROMPT_ALLOW),
+    ];
+    for (slot, (label, color)) in buttons.into_iter().enumerate() {
+        let x = layout.buttons_x + slot as u32 * (layout.button_width + layout.button_gap);
+        let button = Rect {
+            x,
+            y: button_y,
+            width: layout.button_width,
+            height: layout.buttons_bottom - button_y,
+        };
+        fill(frame, width, height, stride, button, color);
+        let label_width = text_pixel_width(label);
+        let text_x = x + layout.button_width.saturating_sub(label_width) / 2;
+        draw_text(
+            frame,
+            width,
+            height,
+            stride,
+            text_x,
+            button_y + 7,
+            label,
+            [255, 255, 255],
+            layout.button_width.saturating_sub(4),
+        );
+    }
+    Ok(())
+}
+
+fn validate_frame(
+    frame: &[u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+) -> Result<(), ChromeRenderError> {
+    if width == 0 || height == 0 {
+        return Err(ChromeRenderError::InvalidDimensions);
+    }
+    let row_bytes = (width as usize)
+        .checked_mul(4)
+        .ok_or(ChromeRenderError::InvalidStride)?;
+    if stride < row_bytes {
+        return Err(ChromeRenderError::InvalidStride);
+    }
+    let required = stride
+        .checked_mul(height as usize)
+        .ok_or(ChromeRenderError::InvalidStride)?;
+    if frame.len() < required {
+        return Err(ChromeRenderError::TruncatedFrame);
+    }
+    Ok(())
+}
+
+fn text_pixel_width(text: &str) -> u32 {
+    text.chars().fold(0, |width, character| {
+        width.saturating_add(glyph_metrics(character).2)
+    })
+}
+
 fn fill(frame: &mut [u8], width: u32, height: u32, stride: usize, rect: Rect, color: [u8; 3]) {
     let left = rect.x.min(width);
     let top = rect.y.min(height);
@@ -341,13 +505,14 @@ fn draw_text(
 ) {
     let mut cursor = x;
     for character in text.chars() {
-        if cursor.saturating_add(5) > x.saturating_add(max_width) {
+        let (bitmap, glyph_width, cell_width) = glyph_metrics(character);
+        if cursor.saturating_add(glyph_width) > x.saturating_add(max_width) {
             break;
         }
-        let bitmap = glyph(character);
+        let pixel_width = if is_japanese_glyph(character) { 7 } else { 5 };
         for (row, bits) in bitmap.iter().enumerate() {
-            for column in 0..5 {
-                if bits & (1 << (4 - column)) != 0 {
+            for column in 0..pixel_width {
+                if bits & (1 << (pixel_width - 1 - column)) != 0 {
                     fill(
                         frame,
                         width,
@@ -364,8 +529,20 @@ fn draw_text(
                 }
             }
         }
-        cursor = cursor.saturating_add(6);
+        cursor = cursor.saturating_add(cell_width);
     }
+}
+
+fn glyph_metrics(character: char) -> ([u8; 7], u32, u32) {
+    if let Some(bitmap) = japanese_glyph(character) {
+        (bitmap, 7, 8)
+    } else {
+        (ascii_glyph(character), 5, 6)
+    }
+}
+
+fn is_japanese_glyph(character: char) -> bool {
+    japanese_glyph(character).is_some()
 }
 
 #[allow(clippy::too_many_arguments)] // Coordinates and row layout are bounds-checked together.
@@ -488,7 +665,7 @@ fn draw_reload_icon(
     );
 }
 
-fn glyph(character: char) -> [u8; 7] {
+fn ascii_glyph(character: char) -> [u8; 7] {
     match character {
         'A' => [0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11],
         'B' => [0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e],
@@ -568,6 +745,75 @@ fn glyph(character: char) -> [u8; 7] {
     }
 }
 
+/// Seven-pixel glyphs used by the first-party Japanese permission prompt.
+/// The glyph set is intentionally local to this UI surface and covers every
+/// Japanese label rendered by that prompt.
+fn japanese_glyph(character: char) -> Option<[u8; 7]> {
+    Some(match character {
+        'サ' => [0x14, 0x14, 0x7f, 0x14, 0x24, 0x44, 0x04],
+        'イ' => [0x08, 0x10, 0x10, 0x30, 0x10, 0x10, 0x10],
+        'ト' => [0x08, 0x08, 0x08, 0x3e, 0x08, 0x08, 0x08],
+        '機' => [0x28, 0x7e, 0x28, 0x3e, 0x2a, 0x3e, 0x2a],
+        '能' => [0x7e, 0x42, 0x5a, 0x42, 0x5a, 0x42, 0x7e],
+        '許' => [0x48, 0x7e, 0x08, 0x3e, 0x08, 0x08, 0x08],
+        '可' => [0x7f, 0x41, 0x5d, 0x55, 0x55, 0x5d, 0x41],
+        '拒' => [0x08, 0x7f, 0x08, 0x3e, 0x22, 0x22, 0x3e],
+        '否' => [0x7f, 0x09, 0x09, 0x7f, 0x09, 0x09, 0x7f],
+        '取' => [0x12, 0x7f, 0x12, 0x3e, 0x2a, 0x3e, 0x2a],
+        '消' => [0x08, 0x7f, 0x08, 0x3e, 0x2a, 0x3e, 0x2a],
+        '権' => [0x28, 0x7e, 0x28, 0x7f, 0x49, 0x7f, 0x49],
+        '限' => [0x7f, 0x41, 0x5d, 0x55, 0x5d, 0x41, 0x7f],
+        '位' => [0x20, 0x2e, 0x2a, 0x3e, 0x2a, 0x2a, 0x2e],
+        '置' => [0x7f, 0x08, 0x7f, 0x41, 0x5d, 0x41, 0x7f],
+        '情' => [0x08, 0x7f, 0x08, 0x7f, 0x49, 0x7f, 0x49],
+        '報' => [0x7f, 0x49, 0x7f, 0x08, 0x3e, 0x2a, 0x3e],
+        'カ' => [0x08, 0x14, 0x22, 0x7f, 0x02, 0x04, 0x08],
+        'メ' => [0x10, 0x2a, 0x1c, 0x08, 0x14, 0x22, 0x00],
+        'ラ' => [0x1c, 0x08, 0x08, 0x7f, 0x02, 0x04, 0x08],
+        'マ' => [0x1c, 0x08, 0x08, 0x7f, 0x08, 0x08, 0x14],
+        'ク' => [0x10, 0x28, 0x28, 0x7e, 0x01, 0x02, 0x04],
+        '通' => [0x08, 0x3e, 0x2a, 0x3e, 0x08, 0x7f, 0x08],
+        '知' => [0x3e, 0x22, 0x3e, 0x08, 0x7f, 0x49, 0x7f],
+        'リ' => [0x42, 0x42, 0x42, 0x42, 0x42, 0x44, 0x38],
+        'ッ' => [0x00, 0x08, 0x1c, 0x2a, 0x08, 0x08, 0x08],
+        'プ' => [0x12, 0x2a, 0x1c, 0x08, 0x08, 0x08, 0x08],
+        '読' => [0x48, 0x7e, 0x08, 0x3e, 0x2a, 0x3e, 0x2a],
+        '書' => [0x7f, 0x08, 0x3e, 0x2a, 0x3e, 0x08, 0x7f],
+        '込' => [0x10, 0x1f, 0x11, 0x15, 0x13, 0x11, 0x10],
+        'フ' => [0x7e, 0x02, 0x02, 0x02, 0x04, 0x08, 0x10],
+        'ァ' => [0x08, 0x3e, 0x08, 0x08, 0x04, 0x04, 0x08],
+        'ル' => [0x42, 0x42, 0x42, 0x42, 0x42, 0x44, 0x38],
+        '選' => [0x3e, 0x12, 0x7f, 0x2a, 0x3e, 0x08, 0x1c],
+        '択' => [0x3e, 0x04, 0x7f, 0x24, 0x3e, 0x04, 0x0c],
+        'ダ' => [0x08, 0x14, 0x22, 0x7f, 0x02, 0x24, 0x48],
+        'ウ' => [0x08, 0x3e, 0x22, 0x22, 0x22, 0x24, 0x08],
+        'ン' => [0x08, 0x08, 0x04, 0x08, 0x10, 0x22, 0x42],
+        'ロ' => [0x7f, 0x41, 0x41, 0x41, 0x41, 0x41, 0x7f],
+        'ー' => [0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x00],
+        'ド' => [0x12, 0x2a, 0x1c, 0x08, 0x08, 0x08, 0x08],
+        '音' => [0x08, 0x7f, 0x08, 0x3e, 0x2a, 0x3e, 0x08],
+        '声' => [0x7f, 0x08, 0x3e, 0x22, 0x3e, 0x08, 0x7f],
+        '末' => [0x08, 0x08, 0x7f, 0x08, 0x18, 0x28, 0x48],
+        '端' => [0x28, 0x7e, 0x28, 0x3e, 0x2a, 0x3e, 0x28],
+        '背' => [0x7e, 0x42, 0x5a, 0x42, 0x7e, 0x08, 0x7f],
+        '景' => [0x7e, 0x42, 0x5a, 0x42, 0x7e, 0x08, 0x3e],
+        '同' => [0x7f, 0x41, 0x5d, 0x55, 0x5d, 0x41, 0x7f],
+        '期' => [0x28, 0x7e, 0x28, 0x7f, 0x2a, 0x3e, 0x2a],
+        '永' => [0x08, 0x1c, 0x2a, 0x08, 0x1c, 0x2a, 0x48],
+        '続' => [0x28, 0x7e, 0x28, 0x3e, 0x2a, 0x7f, 0x08],
+        '保' => [0x20, 0x2e, 0x2a, 0x3e, 0x2a, 0x2e, 0x20],
+        '存' => [0x08, 0x7f, 0x08, 0x3e, 0x2a, 0x3e, 0x08],
+        '画' => [0x7f, 0x41, 0x5d, 0x55, 0x5d, 0x41, 0x7f],
+        '面' => [0x7f, 0x41, 0x5d, 0x55, 0x5d, 0x41, 0x7f],
+        '維' => [0x28, 0x7e, 0x28, 0x7f, 0x49, 0x7f, 0x49],
+        '持' => [0x08, 0x7f, 0x08, 0x3e, 0x2a, 0x3e, 0x08],
+        'ゲ' => [0x10, 0x2a, 0x1c, 0x08, 0x24, 0x42, 0x00],
+        'ム' => [0x08, 0x08, 0x14, 0x14, 0x22, 0x22, 0x41],
+        'パ' => [0x12, 0x2a, 0x1c, 0x08, 0x08, 0x08, 0x08],
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,5 +883,85 @@ mod tests {
         assert_eq!(&frame[status_pixel..status_pixel + 3], &INVALID);
         let title_glyph_pixel = (52 * width + 21) * 4;
         assert_eq!(&frame[title_glyph_pixel..title_glyph_pixel + 3], &ICON);
+    }
+
+    #[test]
+    fn permission_prompt_covers_page_content_and_renders_all_three_actions() {
+        let width = 320_usize;
+        let height = 200_usize;
+        let mut frame = vec![0; width * height * 4];
+        let prompt = PermissionPromptView {
+            origin: "https://camera.example",
+            feature: "Camera",
+            labels: crate::permission_prompt::PermissionPromptLabels::for_locale(
+                nagi_localization::Locale::EnUs,
+            ),
+        };
+        render_permission_prompt(&mut frame, 320, 200, width * 4, &prompt).unwrap();
+        let layout = PromptLayout::new(320, 200).unwrap();
+        let (x, y, _, _) = layout.card;
+        let card_pixel = (y as usize * width + x as usize) * 4;
+        assert_eq!(&frame[card_pixel..card_pixel + 3], &ACCENT);
+        let scrim_pixel = (40 * width + 10) * 4;
+        assert_eq!(&frame[scrim_pixel..scrim_pixel + 3], &PROMPT_SCRIM);
+
+        for slot in 0..3 {
+            let button_x = layout.buttons_x + slot * (layout.button_width + layout.button_gap);
+            let pixel = (layout.buttons_y as usize * width + button_x as usize) * 4;
+            assert_ne!(&frame[pixel..pixel + 3], &PROMPT_BG);
+        }
+    }
+
+    #[test]
+    fn permission_prompt_renders_japanese_copy() {
+        let mut frame = vec![0; 320 * 200 * 4];
+        let prompt = PermissionPromptView {
+            origin: "https://camera.example",
+            feature: PermissionPromptLabels::feature_name(
+                nagi_localization::Locale::JaJp,
+                crate::permissions::PermissionKind::Camera,
+            ),
+            labels: PermissionPromptLabels::for_locale(nagi_localization::Locale::JaJp),
+        };
+        assert_eq!(
+            render_permission_prompt(&mut frame, 320, 200, 320 * 4, &prompt),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn permission_prompt_rejects_invalid_frame_bounds() {
+        let prompt = PermissionPromptView {
+            origin: "https://example.test",
+            feature: "Camera",
+            labels: crate::permission_prompt::PermissionPromptLabels::for_locale(
+                nagi_localization::Locale::EnUs,
+            ),
+        };
+        assert_eq!(
+            render_permission_prompt(&mut [0; 8], 320, 200, 1280, &prompt),
+            Err(ChromeRenderError::TruncatedFrame)
+        );
+        assert_eq!(
+            render_permission_prompt(&mut [0; 8], 200, 200, 800, &prompt),
+            Err(ChromeRenderError::InvalidDimensions)
+        );
+    }
+
+    #[test]
+    fn permission_prompt_refuses_to_truncate_the_requesting_origin() {
+        let mut frame = vec![0; 320 * 200 * 4];
+        let origin = format!("https://{}.example", "long-subdomain-".repeat(5));
+        let prompt = PermissionPromptView {
+            origin: &origin,
+            feature: "Camera",
+            labels: crate::permission_prompt::PermissionPromptLabels::for_locale(
+                nagi_localization::Locale::EnUs,
+            ),
+        };
+        assert_eq!(
+            render_permission_prompt(&mut frame, 320, 200, 320 * 4, &prompt),
+            Err(ChromeRenderError::TextTooWide)
+        );
     }
 }

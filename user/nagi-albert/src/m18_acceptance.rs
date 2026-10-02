@@ -102,13 +102,21 @@ mod guest {
         is_shift_key, CHROME_HEIGHT,
     };
     use crate::nagi_storage::GuestBrowserStorage;
-    use crate::permissions::{PermissionBrokerState, PermissionKind};
+    use crate::permission_prompt::{
+        self, PermissionPromptAction, PermissionPromptLabels, PermissionPromptView,
+    };
+    use crate::permissions::{
+        PermissionBrokerState, PermissionKind, PermissionRequestId, UserDecision,
+    };
     use crate::tabs::TabId;
     use crate::ui::{self, BrowserChromeAction, BrowserChromeOutcome};
+    use nagi_localization::Locale;
 
     const WIDTH: u32 = 320;
     const HEIGHT: u32 = 200;
     const PAGE_TIMEOUT_TICKS: u64 = 3_000;
+    const PERMISSION_PROMPT_TIMEOUT_TICKS: u64 = 3_000;
+    const MAX_PERMISSION_INPUT_DRAIN: usize = 64;
 
     #[derive(Clone)]
     struct NagiWaker(Arc<EventLoopSignal>);
@@ -123,22 +131,34 @@ mod guest {
         }
     }
 
+    struct PendingServoPermission {
+        id: PermissionRequestId,
+        request: PermissionRequest,
+        origin: String,
+        kind: PermissionKind,
+        requested_at: u64,
+    }
+
     struct AcceptanceDelegate {
         signal: Arc<EventLoopSignal>,
         navigation_started: Cell<bool>,
         frame_ready: Cell<bool>,
         tab_id: TabId,
         permission_broker: RefCell<PermissionBrokerState>,
+        pending_permission: RefCell<Option<PendingServoPermission>>,
+        permission_locale: Locale,
     }
 
     impl AcceptanceDelegate {
-        fn new(signal: Arc<EventLoopSignal>, tab_id: TabId) -> Self {
+        fn new(signal: Arc<EventLoopSignal>, tab_id: TabId, permission_locale: Locale) -> Self {
             Self {
                 signal,
                 navigation_started: Cell::new(false),
                 frame_ready: Cell::new(false),
                 tab_id,
                 permission_broker: RefCell::new(PermissionBrokerState::new()),
+                pending_permission: RefCell::new(None),
+                permission_locale,
             }
         }
 
@@ -154,6 +174,52 @@ mod guest {
         fn has_frame(&self) -> bool {
             self.frame_ready.get()
         }
+
+        fn pending_permission_info(
+            &self,
+        ) -> Option<(PermissionRequestId, String, PermissionKind, u64)> {
+            self.pending_permission.borrow().as_ref().map(|pending| {
+                (
+                    pending.id,
+                    pending.origin.clone(),
+                    pending.kind,
+                    pending.requested_at,
+                )
+            })
+        }
+
+        fn resolve_permission(&self, decision: UserDecision) -> bool {
+            let Some(pending) = self.pending_permission.borrow_mut().take() else {
+                return false;
+            };
+            let recorded = self
+                .permission_broker
+                .borrow_mut()
+                .respond(pending.id, decision)
+                .is_ok();
+            if recorded && decision == UserDecision::Allow {
+                pending.request.allow();
+                report_permission_decision(UserDecision::Allow);
+            } else {
+                pending.request.deny();
+                report_permission_decision(if recorded {
+                    decision
+                } else {
+                    UserDecision::Deny
+                });
+            }
+            self.signal.wake();
+            true
+        }
+    }
+
+    fn report_permission_decision(decision: UserDecision) {
+        let marker: &[u8] = match decision {
+            UserDecision::Allow => b"Nagi M18 site permission ALLOWED_BY_USER\r\n".as_slice(),
+            UserDecision::Deny => b"Nagi M18 site permission DENIED_BY_USER\r\n",
+            UserDecision::Dismiss => b"Nagi M18 site permission CANCELED_BY_USER\r\n",
+        };
+        let _ = libnagi::console_write(marker);
     }
 
     struct UnavailableClipboardDelegate;
@@ -224,6 +290,7 @@ mod guest {
         browser_state: &BrowserState,
         runtimes: &mut Vec<TabRuntime>,
         defer_initial_navigation: bool,
+        permission_locale: Locale,
     ) {
         runtimes.retain(|runtime| browser_state.tab(runtime.id).is_some());
         for tab in browser_state.tabs() {
@@ -240,7 +307,11 @@ mod guest {
                         Url::parse("about:blank").expect("static blank URL is valid")
                     })
             };
-            let delegate = Rc::new(AcceptanceDelegate::new(signal.clone(), tab.id()));
+            let delegate = Rc::new(AcceptanceDelegate::new(
+                signal.clone(),
+                tab.id(),
+                permission_locale,
+            ));
             let webview = WebViewBuilder::new(servo, context.clone())
                 .url(initial_url)
                 .delegate(delegate.clone())
@@ -290,14 +361,46 @@ mod guest {
 
         fn request_permission(&self, _webview: WebView, request: PermissionRequest) {
             let origin = request.origin().to_owned();
-            let _ = self.permission_broker.borrow_mut().deny_without_prompt(
+            let kind = permission_kind(request.feature());
+            let requested_at = libnagi::time_ticks();
+            let id = match self.permission_broker.borrow_mut().request(
                 self.tab_id,
                 &origin,
-                permission_kind(request.feature()),
-                libnagi::time_ticks(),
-            );
-            request.deny();
-            let _ = libnagi::console_write(b"Nagi M18 site permission denied\r\n");
+                kind,
+                requested_at,
+            ) {
+                Ok(id) => id,
+                Err(_) => {
+                    request.deny();
+                    report_permission_decision(UserDecision::Deny);
+                    return;
+                }
+            };
+            if self.pending_permission.borrow().is_some() {
+                let _ = self
+                    .permission_broker
+                    .borrow_mut()
+                    .respond(id, UserDecision::Deny);
+                request.deny();
+                report_permission_decision(UserDecision::Deny);
+                return;
+            }
+            let display_origin = self
+                .permission_broker
+                .borrow()
+                .requests()
+                .iter()
+                .find(|entry| entry.id == id)
+                .map(|entry| entry.origin.clone())
+                .unwrap_or_else(|| "null".to_owned());
+            *self.pending_permission.borrow_mut() = Some(PendingServoPermission {
+                id,
+                request,
+                origin: display_origin,
+                kind,
+                requested_at,
+            });
+            self.signal.wake();
         }
 
         fn show_embedder_control(&self, _webview: WebView, control: EmbedderControl) {
@@ -389,10 +492,19 @@ mod guest {
         signal: &Arc<EventLoopSignal>,
         browser_state: &mut BrowserState,
         runtimes: &mut Vec<TabRuntime>,
+        permission_locale: Locale,
         action: BrowserChromeAction,
     ) -> Option<crate::navigation::NavigationRequest> {
         let outcome = ui::dispatch(browser_state, action, libnagi::time_ticks());
-        sync_tab_runtimes(servo, context, signal, browser_state, runtimes, false);
+        sync_tab_runtimes(
+            servo,
+            context,
+            signal,
+            browser_state,
+            runtimes,
+            false,
+            permission_locale,
+        );
         match outcome {
             Ok(BrowserChromeOutcome::Navigate(request)) => {
                 let url = Url::parse(&request.url).expect("browser state emits normalized URLs");
@@ -501,6 +613,7 @@ mod guest {
         signal: &Arc<EventLoopSignal>,
         runtimes: &mut Vec<TabRuntime>,
         shifted: &mut bool,
+        permission_locale: Locale,
     ) -> Option<crate::navigation::NavigationRequest> {
         let mut event = libnagi::InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
@@ -532,6 +645,7 @@ mod guest {
                                 signal,
                                 browser_state,
                                 runtimes,
+                                permission_locale,
                                 action,
                             );
                         }
@@ -569,6 +683,7 @@ mod guest {
                         signal,
                         browser_state,
                         runtimes,
+                        permission_locale,
                         BrowserChromeAction::SubmitAddress,
                     );
                 }
@@ -614,6 +729,7 @@ mod guest {
         browser_state: &mut BrowserState,
         runtimes: &mut Vec<TabRuntime>,
         shifted: &mut bool,
+        permission_locale: Locale,
     ) -> crate::navigation::NavigationRequest {
         let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
         loop {
@@ -627,6 +743,7 @@ mod guest {
                 signal,
                 runtimes,
                 shifted,
+                permission_locale,
             ) {
                 let url = Url::parse(&request.url).expect("normalized address is a valid URL");
                 if !accepted_host(&url, HTTPS_PAGES[0].1) {
@@ -666,10 +783,116 @@ mod guest {
         }
     }
 
-    fn wait_for_verified_page(servo: &Servo, runtime: &TabRuntime, index: usize) -> Url {
+    fn present_browser_surface(
+        context: &SoftwareRenderingContext,
+        webview: &WebView,
+        surface: &mut NagiSurface,
+        browser_state: &BrowserState,
+        prompt: Option<(&str, PermissionKind, Locale)>,
+    ) -> bool {
+        webview.paint();
+        let Some(image) = context.read_to_image(frame_rectangle()) else {
+            return false;
+        };
+        let mut frame = image.as_raw().to_vec();
+        let chrome = ui::view(browser_state);
+        if crate::chrome_surface::render_chrome(
+            &mut frame,
+            WIDTH,
+            HEIGHT,
+            WIDTH as usize * 4,
+            &chrome,
+        )
+        .is_err()
+        {
+            return false;
+        }
+        if let Some((origin, kind, locale)) = prompt {
+            let displayed_origin = permission_prompt::bounded_origin(origin);
+            let feature = PermissionPromptLabels::feature_name(locale, kind);
+            let view = PermissionPromptView {
+                origin: &displayed_origin,
+                feature,
+                labels: PermissionPromptLabels::for_locale(locale),
+            };
+            if crate::chrome_surface::render_permission_prompt(
+                &mut frame,
+                WIDTH,
+                HEIGHT,
+                WIDTH as usize * 4,
+                &view,
+            )
+            .is_err()
+            {
+                return false;
+            }
+        }
+        surface
+            .copy_rgba_frame(&frame, WIDTH, HEIGHT, WIDTH as usize * 4)
+            .is_ok()
+            && surface.present()
+    }
+
+    /// Consume queued input around first presentation so events from before
+    /// the prompt appeared cannot resolve a site request.
+    fn drain_permission_input(input_capability: u64, bridge: &mut InputBridge) -> bool {
+        if input_capability == 0 {
+            return false;
+        }
+        for _ in 0..MAX_PERMISSION_INPUT_DRAIN {
+            let mut event = libnagi::InputEvent::default();
+            if !libnagi::input_read(input_capability, &mut event) {
+                return true;
+            }
+            let _ = bridge.translate(event);
+        }
+        false
+    }
+
+    fn route_permission_prompt_input(
+        input_capability: u64,
+        bridge: &mut InputBridge,
+        delegate: &AcceptanceDelegate,
+    ) {
+        let mut event = libnagi::InputEvent::default();
+        if !libnagi::input_read(input_capability, &mut event) {
+            return;
+        }
+        match bridge.translate(event) {
+            Some(BrowserInput::MouseButton {
+                button: 0,
+                pressed: true,
+            }) => {
+                let (x, y) = bridge.position();
+                if let Some(action) = permission_prompt::action_at(WIDTH, HEIGHT, x, y) {
+                    delegate.resolve_permission(action.decision());
+                }
+            }
+            Some(BrowserInput::Key {
+                code,
+                pressed: true,
+            }) if is_escape_key(code) => {
+                delegate.resolve_permission(PermissionPromptAction::Cancel.decision());
+            }
+            _ => {}
+        }
+    }
+
+    fn wait_for_verified_page(
+        servo: &Servo,
+        context: &SoftwareRenderingContext,
+        surface: &mut NagiSurface,
+        browser_state: &BrowserState,
+        input_capability: u64,
+        input_bridge: &mut InputBridge,
+        runtimes: &[TabRuntime],
+        runtime: &TabRuntime,
+        index: usize,
+    ) -> Url {
         let (_, expected_host) = HTTPS_PAGES[index];
         let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
         let mut diagnostic_turns_remaining = if index > 0 { 64 } else { 0 };
+        let mut visible_permission: Option<(TabId, PermissionRequestId)> = None;
         loop {
             let trace_turn = diagnostic_turns_remaining > 0;
             if trace_turn {
@@ -683,7 +906,73 @@ mod guest {
                 );
             }
 
-            if runtime.delegate.navigation_started()
+            let pending_permission = runtimes.iter().find_map(|candidate| {
+                candidate.delegate.pending_permission_info().map(
+                    |(id, origin, kind, requested_at)| {
+                        (
+                            candidate.id,
+                            candidate.delegate.as_ref(),
+                            id,
+                            origin,
+                            kind,
+                            requested_at,
+                        )
+                    },
+                )
+            });
+            if let Some((tab_id, delegate, id, origin, kind, requested_at)) = pending_permission {
+                let permission_key = (tab_id, id);
+                if visible_permission != Some(permission_key) {
+                    if input_capability == 0 {
+                        delegate.resolve_permission(UserDecision::Deny);
+                        let _ = libnagi::console_write(
+                            b"Nagi M18 site permission input unavailable; denied\r\n",
+                        );
+                    } else if !present_browser_surface(
+                        context,
+                        &runtime.webview,
+                        surface,
+                        browser_state,
+                        Some((&origin, kind, delegate.permission_locale)),
+                    ) {
+                        delegate.resolve_permission(UserDecision::Deny);
+                        let _ = libnagi::console_write(
+                            b"Nagi M18 site permission prompt unavailable; denied\r\n",
+                        );
+                    } else {
+                        visible_permission = Some(permission_key);
+                        if !drain_permission_input(input_capability, input_bridge) {
+                            delegate.resolve_permission(UserDecision::Deny);
+                            let _ = libnagi::console_write(
+                                b"Nagi M18 site permission input unavailable; denied\r\n",
+                            );
+                        }
+                    }
+                } else if input_capability == 0 {
+                    delegate.resolve_permission(UserDecision::Deny);
+                    let _ = libnagi::console_write(
+                        b"Nagi M18 site permission input unavailable; denied\r\n",
+                    );
+                } else if libnagi::time_ticks().saturating_sub(requested_at)
+                    >= PERMISSION_PROMPT_TIMEOUT_TICKS
+                {
+                    delegate.resolve_permission(UserDecision::Deny);
+                    let _ = libnagi::console_write(
+                        b"Nagi M18 site permission prompt timed out; denied\r\n",
+                    );
+                } else {
+                    route_permission_prompt_input(input_capability, input_bridge, delegate);
+                }
+            } else if visible_permission.take().is_some()
+                && !present_browser_surface(context, &runtime.webview, surface, browser_state, None)
+            {
+                fail(b"Albert surface restore after permission prompt failed");
+            }
+
+            if !runtimes
+                .iter()
+                .any(|candidate| candidate.delegate.pending_permission_info().is_some())
+                && runtime.delegate.navigation_started()
                 && runtime.webview.load_status() == LoadStatus::Complete
                 && runtime.delegate.has_frame()
             {
@@ -704,6 +993,9 @@ mod guest {
             }
 
             if libnagi::time_ticks() >= deadline {
+                for candidate in runtimes {
+                    candidate.delegate.resolve_permission(UserDecision::Deny);
+                }
                 let _ = libnagi::console_write(if runtime.delegate.navigation_started() {
                     b"Nagi M18 browser timeout navigation_started=true\r\n"
                 } else {
@@ -801,7 +1093,7 @@ mod guest {
         }
     }
 
-    pub fn run(display_capability: u64, input_capability: u64) -> ! {
+    pub fn run(display_capability: u64, input_capability: u64, permission_locale: Locale) -> ! {
         VERIFIED_HOST_MASK.store(0, std::sync::atomic::Ordering::Release);
         crate::M18_NAVIGATION_TRACE_ACTIVE.store(false, Ordering::Release);
 
@@ -850,6 +1142,7 @@ mod guest {
             &browser_state,
             &mut runtimes,
             true,
+            permission_locale,
         );
         let Some(initial_runtime) = active_runtime(&browser_state, &runtimes) else {
             fail(b"browser has no initial Servo WebView");
@@ -874,6 +1167,7 @@ mod guest {
                     &mut browser_state,
                     &mut runtimes,
                     &mut shifted,
+                    permission_locale,
                 )
             } else {
                 let Some(tab_id) = browser_state.active_tab_id() else {
@@ -894,7 +1188,17 @@ mod guest {
             let Some(runtime) = runtime_for_tab(&runtimes, request.tab_id) else {
                 fail(b"completed browser tab has no Servo WebView");
             };
-            let final_url = wait_for_verified_page(&servo, runtime, index);
+            let final_url = wait_for_verified_page(
+                &servo,
+                &context,
+                &mut surface,
+                &browser_state,
+                input_capability,
+                &mut input_bridge,
+                &runtimes,
+                runtime,
+                index,
+            );
             if index == 0
                 && libnagi::console_write(
                     b"Nagi M18 browser input navigation PASS host=example.com\r\n",
@@ -945,4 +1249,19 @@ mod guest {
 }
 
 #[cfg(target_os = "nagi")]
-pub use guest::run as run_m18_https_acceptance;
+pub fn run_m18_https_acceptance(display_capability: u64, input_capability: u64) -> ! {
+    guest::run(
+        display_capability,
+        input_capability,
+        nagi_localization::Locale::EnUs,
+    )
+}
+
+#[cfg(target_os = "nagi")]
+pub fn run_m18_https_acceptance_with_locale(
+    display_capability: u64,
+    input_capability: u64,
+    locale: nagi_localization::Locale,
+) -> ! {
+    guest::run(display_capability, input_capability, locale)
+}

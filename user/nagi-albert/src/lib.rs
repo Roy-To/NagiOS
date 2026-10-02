@@ -15,6 +15,7 @@ pub mod history;
 pub mod ime;
 pub mod input;
 pub mod navigation;
+pub mod permission_prompt;
 pub mod permissions;
 pub mod persistence;
 pub mod session;
@@ -322,6 +323,8 @@ pub use guest::run_first_web_pixel;
 
 #[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
 pub use m18_acceptance::run_m18_https_acceptance;
+#[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
+pub use m18_acceptance::run_m18_https_acceptance_with_locale;
 
 /// FFI callback used by the pinned Servo verifier after chain and hostname
 /// validation succeeds. Builds without the M18 acceptance feature keep the

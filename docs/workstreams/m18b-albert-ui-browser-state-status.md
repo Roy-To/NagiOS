@@ -43,11 +43,14 @@ incomplete: the clipboard delegate fails closed without a provider; file-picker 
 dismissed because Servo exposes host paths and Nagi has no capability-safe
 picker; IME controls have no input-service text events; site-permission
 requests carry the requesting document's serialized origin (including opaque
-`null`) and are denied until a trusted prompt/broker is available. Nagi's
-existing permission policy helper has no browser IPC or trusted prompt
-adapter; downloads have no pinned Servo callback or Nagi destination service,
-and uploads have no Nagi selection service. These hooks do not claim
-successful transfers or permission grants. The first pushed CI run
+`null`). The opt-in M18 acceptance path keeps the real Servo request pending
+behind a localized first-party prompt and applies Allow/Deny/Cancel only after
+user input; missing input, rendering failure, or timeout denies. The general
+production browser path still has no authenticated policy/IPC provider, and
+the three-site scenario does not request a permission. Downloads have no
+pinned Servo callback or Nagi destination service, and uploads have no Nagi
+selection service. These hooks do not claim successful transfers or permission
+grants. The first pushed CI run
 (`36510598517`) stopped all three platform bootstrap jobs at Servo patch `0021`; that patch now adds
 its cfg-gated atomic import instead of assuming it exists. The follow-up run
 (`36512090928`) passed Servo bootstrap on Windows and Ubuntu but found three
@@ -76,9 +79,9 @@ pass locally. The corrected patch is pushed as `eb22702`, and CI run
 - **B — Tabs, address bar, navigation:** Deterministic typed models, per-tab navigation/history cursors, safe address normalization, history traversal, reload/stop, and typed chrome action dispatch are implemented with unit coverage. Address focus/edit/delete and IME composition actions update the model. A failed-address reload regression was found and fixed. The main M18 integration connects Nagi input events, address-bar edits, typed navigation requests, and per-tab Servo WebViews; this target path compiled and the address-bar route was exercised in QEMU.
 - **C — History and bookmarks:** Bounded history/bookmark state, stable IDs, duplicate bookmark update behavior, and versioned persistence codecs are implemented. The main M18 integration backs `BrowserStorage` with a pathless Nagi POSIX snapshot service and VFS pending-file/replace commits. Its ABI is enabled only by the M18 feature; CI checks that M17 excludes it and M18 includes it. The current VFS limits each file to 1 KiB, so the combined snapshot is bounded and larger collections can return `Capacity`.
 - **D — Session restore:** Session/history/bookmark codecs and safe restore behavior are implemented. Corrupt/missing records are handled, and restored URLs produce normal typed navigation requests. Permissions, clipboard, downloads, and upload selections are deliberately reset.
-- **E — Permissions and transfer/clipboard state:** Typed permission, clipboard, upload, and download interfaces/state machines are implemented and covered with tests. Servo permission requests now carry the requesting document's serialized origin, including opaque `null`; Albert records the exact origin and still denies without a trusted prompt provider. Servo clipboard hooks remain fail-closed. Real clipboard, file/object picker, download destination, upload selection, and trusted permission-prompt providers are still absent.
+- **E — Permissions and transfer/clipboard state:** Typed permission, clipboard, upload, and download interfaces/state machines are implemented and covered with tests. Servo permission requests carry the requesting document's serialized origin, including opaque `null`. The M18 acceptance-only Servo delegate holds requests pending, renders localized origin/feature/action copy above an opaque scrim, resolves mouse Allow/Deny and Escape Cancel from fresh input, and denies on failure or timeout. The regular browser runtime still lacks authenticated policy/IPC wiring and the M18 HTTPS scenario does not exercise a permission request. Servo clipboard hooks remain fail-closed; real clipboard, file/object picker, download destination, and upload selection providers are still absent.
 - **F — IME/text path:** UTF-8 selection and composition commit/cancel are implemented and reachable through typed chrome actions. Text input is bounded; a rejected over-capacity commit preserves its preedit for recovery. Servo IME controls are recognized, but no Nagi input-service text/composition events reach them.
-- **G — Guest/UI verification:** The chrome renderer overlays the real Servo RGBA frame and presents it through the existing capability-checked Nagi Surface. The fresh `./nagi m18` path passed local target build and real-QEMU acceptance on 2026-09-29: address-bar navigation to `example.com` and three TLS-verified HTTPS pages (`example.com`, `example.org`, `example.net`) produced Servo frames with chrome presented on Nagi Surface. A fresh `./nagi m17` real-QEMU first-web-pixel regression also passes. Public CI run `36533931477` validates clean Servo patch bootstrap, the unchanged Ubuntu Clang/LLD path, target image build, M17 QEMU regression, M18-B chrome acceptance, and M18 three-site HTTPS/QEMU acceptance for corrected commit `eb22702`.
+- **G — Guest/UI verification:** The chrome renderer overlays the real Servo RGBA frame and presents it through the existing capability-checked Nagi Surface. The fresh `./nagi m18` path passed local target build and real-QEMU acceptance on 2026-09-29: address-bar navigation to `example.com` and three TLS-verified HTTPS pages (`example.com`, `example.org`, `example.net`) produced Servo frames with chrome presented on Nagi Surface. A 2026-10-03 rerun after the permission-prompt changes also passed all three HTTPS pages. Its boot image, User Data, OVMF variables, serial log, screenshot, and SHA256 manifest are preserved under `out/evidence/m29-browser-1790978167816192000/`; the scenario did not request a permission. A fresh `./nagi m17` real-QEMU first-web-pixel regression also passes. Public CI run `36533931477` validates clean Servo patch bootstrap, the unchanged Ubuntu Clang/LLD path, target image build, M17 QEMU regression, M18-B chrome acceptance, and M18 three-site HTTPS/QEMU acceptance for corrected commit `eb22702`.
 
 ## Verification so far
 
@@ -113,7 +116,23 @@ Earlier Mesa attempts temporarily modified their generated relibc checkout; that
 ## Remaining blockers and exact next actions
 
 1. The compatibility repairs and corrected Servo requester-origin patch are committed and pushed on `codex/m18-main-albert-browser`; CI run `36533931477` confirms clean-source patch application, the unchanged Ubuntu Clang/LLD route, M17 regression, and M18 Acceptance pass.
-2. Servo patch `0025` carries the requesting document's origin, including opaque `null`, into Albert. The first CI run `36530525632` exposed a context mismatch; the corrected patch now passes fresh-source bootstrap and full CI. The remaining browser hooks have no safe provider to connect: repository audits found no capability-safe download destination, File Picker/upload handle, shared clipboard provider, IME text/composition event source, or trusted interactive permission provider. The existing M6 ServiceRegistry is in-process only; site-permission requests retain their origin and fail closed instead of being granted through it.
+2. Servo patch `0025` carries the requesting document's origin, including opaque `null`, into Albert. The first CI run `36530525632` exposed a context mismatch; the corrected patch now passes fresh-source bootstrap and full CI. The remaining production browser hooks have no safe provider to connect: repository audits found no capability-safe download destination, File Picker/upload handle, shared clipboard provider, IME text/composition event source, or authenticated permission policy/IPC provider. The new modal runs only in the opt-in M18 acceptance delegate. The existing M6 ServiceRegistry is in-process only; site-permission requests retain their origin and fail closed without an authenticated provider.
 3. Keep this workstream `PARTIAL` while those M18 deliverables remain outstanding. The formal basic-browser HTTPS/QEMU Acceptance is `PASS`. Do not force-push or merge to `main`.
 
 M18-B remains **PARTIAL** until the required runtime services are integrated. The main worktree has a target-tested input/navigation loop, bounded persistent browser snapshot, and passing local and Ubuntu CI real-QEMU three-site HTTPS Acceptance. Capability-safe service providers remain outstanding.
+
+## Completion Sweep — localized site-permission prompt (2026-10-03)
+
+Added a bounded opaque modal to the existing chrome surface with English and
+Japanese localized title, requesting origin, feature name, and Allow/Deny/Cancel
+actions. The M18 acceptance Servo delegate keeps the actual `PermissionRequest`
+pending until a fresh mouse click or Escape event; queued events are drained
+when the modal first appears. Missing input, presentation failure, timeout,
+duplicate requests, and other resolution failures deny the request. Surface
+frame bounds, origin width, button hit areas, and the Japanese prompt glyph set
+have focused tests. `nagi-albert` with `m18-acceptance` passed 60 host tests,
+and the 2026-10-03 `./nagi m18` QEMU run passed the three HTTPS pages after a
+clean pinned Servo regeneration. The captured run does not generate a site
+permission request, so interactive QEMU Allow/Deny/Cancel remains unverified;
+production authenticated policy/IPC, clipboard, picker, IME, download, and
+upload providers also remain. M18 stays `PARTIAL`.
