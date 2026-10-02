@@ -998,3 +998,49 @@ LoRA loading/validation and continues in the next M20 patch. See
 `out/logs/m20-loader-status-0019-final-target-adapter-build.log`. The complete
 target backend and real in-guest inference are still unverified; M20 remains
 `PARTIAL`.
+
+## LoRA adapter failure status — 2026-10-02
+
+Added numbered patch
+`third_party/llama-cpp-patches/0020-nagi-llama-adapter-status.patch`. The
+LoRA initializer now returns a checked boolean status. Under `__NAGI__`, bad
+GGUF metadata, tensor suffixes or pairs, missing base tensors, CPU backend or
+context allocation, shape/transposition mismatches, buffer allocation, and
+file-range failures log and return failure. The public wrapper deletes a
+partially initialized adapter and returns null; registration in `model.loras`
+still happens only after all tensor data has loaded. Ordinary host builds keep
+the exception/catch contract. Null model/file inputs and adapter allocation
+failure now also return null.
+
+The new malformed-GGUF runtime regression passes in both Nagi-macro and
+ordinary host builds. Fresh generated-cache CTests pass 1/1 in each
+configuration. The LLVM 19/libc++ no-exceptions compile of
+`llama-adapter.cpp` passes. All 183 CLI library tests, `./nagi test`,
+`./nagi fmt`, `./nagi lint`, and `./nagi build` pass. Logs are
+`out/logs/m20-loader-status-0020-final-nagi-build.log`,
+`out/logs/m20-loader-status-0020-final-nagi-ctest.log`,
+`out/logs/m20-loader-status-0020-final-host-build.log`,
+`out/logs/m20-loader-status-0020-final-host-ctest.log`,
+`out/logs/m20-loader-status-0020-cli-test.log`,
+`out/logs/m20-loader-status-0020-nagi-test.log`,
+`out/logs/m20-loader-status-0020-fmt.log`,
+`out/logs/m20-loader-status-0020-lint.log`,
+`out/logs/m20-loader-status-0020-build.log`, and
+`out/logs/m20-loader-status-0020-target-adapter-build.log`.
+
+Fresh `./nagi fetch` applied patches 0001–0020 with patch fingerprint
+`fnv1a64:2a9f96a4e4f49b03` and checkout fingerprint
+`fnv1a64:5260a9eed933399a`; reverse `git apply --check` confirms patch 0020
+is present. The first patch draft exposed a test-baseline mismatch; the
+baseline was reconstructed from the pre-patch generated checkout and the
+forward application was rechecked before this successful fetch. Fetch then
+stopped at the pre-existing modified Servo checkout and left it untouched. The
+raw pinned `third_party/llama.cpp` checkout remains clean. Verified 3,674-entry
+pre-fetch and fresh-checkout manifests are under
+`out/evidence/m20-loader-status-0020-20261002/`.
+
+The full Nagi `llama` build now proceeds past `llama-adapter.cpp` and stops at
+19 no-exception throw diagnostics across `qwen2moe.cpp`, `qwen3moe.cpp`,
+`qwen3next.cpp`, `qwen3vlmoe.cpp`, `qwen4exp.cpp`, and `rnd1.cpp`. See
+`out/logs/m20-loader-status-0020-target-build.log`. No complete target backend
+or local in-guest inference is established; M20 remains `PARTIAL`.

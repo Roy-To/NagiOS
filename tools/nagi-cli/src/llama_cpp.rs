@@ -1101,6 +1101,24 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_lora_adapter_failures_return_checked_status_without_target_exceptions() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(root.join(
+            "third_party/llama-cpp-patches/0020-nagi-llama-adapter-status.patch",
+        ))
+        .expect("Nagi LoRA adapter status patch");
+
+        assert!(patch.contains("static bool llama_adapter_lora_init_impl"));
+        assert!(patch.contains("llama_adapter_lora_fail"));
+        assert!(patch.contains("if (dev_ctx == nullptr)"));
+        assert!(patch.contains("if (!llama_adapter_lora_init_impl"));
+        assert!(patch.contains("failed to apply lora adapter"));
+        assert!(patch.contains("return false;"));
+        assert!(patch.contains("model.loras.insert(&adapter)"));
+        assert!(patch.contains("__NAGI__"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
