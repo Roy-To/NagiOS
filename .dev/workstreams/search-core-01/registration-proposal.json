@@ -87,7 +87,8 @@
     "No root workspace, root lockfile, shared CI, shared schema, IDL/ABI, user/**, apps/**, sdk/**, or other workstream state is changed. The crate has its own [workspace] and Cargo.lock.",
     "Caller visibility is the canonical injected VisibilityFilter; provider authorization is an injected ProviderAuthority. Neither forks the Capability/Permissions engine. Tests use host-only mocks.",
     "MemorySnapshotBackend is host reference storage, not production persistence.",
-    "The registry row is applied on codex/0.2-search-core-01 by explicit user direction; this is the only shared-file change. The Integration Owner still reviews it at the integration checkpoint."
+    "The registry row is applied on codex/0.2-search-core-01 by explicit user direction; this is the only shared-file change. The Integration Owner still reviews it at the integration checkpoint.",
+    "Merged codex/integration-next-phase b3076db (CLIP-01 checkpoint); the registry rows for clip-01 and search-core-01 coexist without edits."
   ],
   "ci_proposal": {
     "status": "PROPOSAL_ONLY_NO_SHARED_CI_EDIT",
@@ -98,6 +99,7 @@
       "cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked -- -D warnings",
       "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked"
     ],
-    "ownership_note": "A later Integration Owner/CI-acceptance checkpoint should apply this; .github/workflows/ci.yml is forbidden to this workstream. Until the git pins become path dependencies, the CI job needs network access to github.com for the first fetch."
+    "ownership_note": "A later Integration Owner/CI-acceptance checkpoint should apply this; .github/workflows/ci.yml is forbidden to this workstream. Until the git pins become path dependencies, the CI job needs network access to github.com for the first fetch.",
+    "placement": "Add as a 'Standalone search core (SEARCH-CORE-01)' step next to the 'Standalone clipboard core (CLIP-01)' step in the ubuntu-host job of .github/workflows/ci.yml (integration b3076db)."
   }
 }
