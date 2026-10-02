@@ -1103,9 +1103,9 @@ mod tests {
     #[test]
     fn llama_cpp_lora_adapter_failures_return_checked_status_without_target_exceptions() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let patch = fs::read_to_string(root.join(
-            "third_party/llama-cpp-patches/0020-nagi-llama-adapter-status.patch",
-        ))
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0020-nagi-llama-adapter-status.patch"),
+        )
         .expect("Nagi LoRA adapter status patch");
 
         assert!(patch.contains("static bool llama_adapter_lora_init_impl"));
@@ -1116,6 +1116,28 @@ mod tests {
         assert!(patch.contains("return false;"));
         assert!(patch.contains("model.loras.insert(&adapter)"));
         assert!(patch.contains("__NAGI__"));
+    }
+
+    #[test]
+    fn llama_cpp_model_architecture_failures_return_checked_status_without_target_exceptions() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0021-nagi-llama-model-metadata-status.patch"),
+        )
+        .expect("Nagi model architecture status patch");
+
+        assert!(patch.contains("LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN"));
+        assert!(patch.contains("LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN"));
+        assert!(patch.contains("fail_metadata"));
+        assert!(patch.contains("fail_load"));
+        assert!(patch.contains("qwen4exp_require_nonzero"));
+        assert!(patch.contains("qwen4exp_require_arr_len"));
+        assert!(patch.contains("src/models/qwen2moe.cpp"));
+        assert!(patch.contains("src/models/qwen3moe.cpp"));
+        assert!(patch.contains("src/models/qwen3next.cpp"));
+        assert!(patch.contains("src/models/qwen3vlmoe.cpp"));
+        assert!(patch.contains("src/models/qwen4exp.cpp"));
+        assert!(patch.contains("src/models/rnd1.cpp"));
     }
 
     #[test]

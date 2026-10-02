@@ -1044,3 +1044,44 @@ The full Nagi `llama` build now proceeds past `llama-adapter.cpp` and stops at
 `qwen3next.cpp`, `qwen3vlmoe.cpp`, `qwen4exp.cpp`, and `rnd1.cpp`. See
 `out/logs/m20-loader-status-0020-target-build.log`. No complete target backend
 or local in-guest inference is established; M20 remains `PARTIAL`.
+
+## Qwen/RND model architecture validation status — 2026-10-02
+
+Added numbered patch
+`third_party/llama-cpp-patches/0021-nagi-llama-model-metadata-status.patch`.
+Model architecture code can now report `fail_metadata()` and `fail_load()`
+status with an early return under `__NAGI__`, while host builds continue to
+throw. Qwen2-MoE, Qwen3-MoE, Qwen3-Next, Qwen3-VL-MoE, RND1, and Qwen4-Exp
+validation no longer emits target exception syntax. Qwen4's nonzero and array
+length helpers propagate checked status, including malformed or missing PLE
+arrays.
+
+The new CLI patch-contract test first failed because patch 0021 was absent,
+then passed after the patch was written. Forward and reverse `git apply`
+checks passed. A fresh `./nagi fetch` applied patches 0001–0021 with patch
+fingerprint `fnv1a64:694615711d4cbc1b` and checkout fingerprint
+`fnv1a64:0af9d44a4071d286`, then refused to touch the existing dirty Servo
+checkout. The raw pinned `third_party/llama.cpp` checkout remains clean. The
+pre-fetch and fresh-generated llama.cpp trees each have a verified 3,649-file
+SHA-256 manifest under
+`out/evidence/m20-loader-status-0021-20261002/{pre-fetch,fresh-generated}/`.
+
+Fresh-cache host and Nagi-macro CMake `llama` targets and
+`test-model-loader-bounds` targets built; the focused CTest passed 1/1 in both
+configurations. The LLVM 19/libc++ no-exceptions full target build compiles
+past the Qwen/RND unity units, then stops in `unity_6` with five throw
+diagnostics. A focused `unity_5` compile finds seven more, for 12 diagnostics
+across nine files: `nemotron-h.cpp`, `nomic-bert-moe.cpp`, `nomic-bert.cpp`,
+`olmoe.cpp`, `llama4.cpp`, `mamba.cpp`, `maple.cpp`, `mellum.cpp`, and
+`mistral3.cpp`. Logs are
+`out/logs/m20-loader-status-0021-fresh-target-build.log` and
+`out/logs/m20-loader-status-0021-fresh-unity5-build.log`. The previous
+patch-0020 target log remains unchanged.
+
+All 184 CLI library tests, `./nagi test`, `./nagi fmt`, `./nagi lint`, and
+`./nagi build` pass. Broad CMake `all` attempts encountered auxiliary host
+targets that lacked `mtmd.h` and Nagi app targets that lacked generated
+`build-info.h`/`arg.h`; the explicit `llama` and loader-test targets passed.
+This checkpoint demonstrates status propagation and compilation only. No
+complete Nagi llama backend, model load, or in-guest inference is established;
+M20 remains `PARTIAL`.
