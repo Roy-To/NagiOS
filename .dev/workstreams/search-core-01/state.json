@@ -1,0 +1,162 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "search-core-01",
+  "current_milestone": "0.2-M19 host Foundation: provider/index boundary over canonical nagi-search",
+  "current_checkpoint": "host-foundation-acceptance-complete;registration-and-canonical-dependency-integration-pending;runtime-gated",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "20f8567a69c7b6ea334c2260d69924303e0016ba",
+    "verified_at": "2026-10-02T03:00:11Z",
+    "normal_state": "Every host-side Foundation acceptance item in the SEARCH-CORE-01 workstream document (section 6) and every host-testable 0.2-M19 item assigned to it is implemented and passes: 29 deterministic acceptance tests, rustfmt, and warning-denied Clippy on code commit 20f8567a69c7b6ea334c2260d69924303e0016ba (toolchain nightly-2025-08-01, rustc 1.90.0-nightly adcb3d3b4, x86_64 Linux cloud worktree). Four deliberate mutations (scope check, source-claim check, stale-revision check, caller visibility) were each caught by the suite and reverted. The status stays PARTIAL, not PASS, because (1) 0.2-M19 acceptance includes target persistence surviving restart, daemon/IPC, and provider adoption, all gated on Nagi 0.1 M30 PASS plus an explicit Integration Owner checkpoint; (2) the canonical nagi-search contract this foundation reuses exists only on the active 0.1 line (pinned read-only at de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa) and is not yet on the 0.2 integration base; (3) the workstream is not registered, so the root DF-01 verifier does not yet load this state. The base docs/implementation_status.md records M17 BLOCKED, M19 NOT STARTED (active M19 Search code exists only on codex/m19-m22-continuation), and M30 NOT STARTED, so the runtime gate is closed. No 0.1, shared registry, root workspace, CI, or other workstream file was changed.",
+    "commands": [
+      "git fetch origin --prune; git ls-remote --heads origin",
+      "git worktree add -b codex/0.2-search-core-01 ~/.codex/worktrees/search-core-01/NagiOS origin/codex/integration-next-phase",
+      "git show origin/codex/m19-m22-continuation:user/nagi-search/src/{lib,model,search,store}.rs (read-only audit)",
+      "git show origin/codex/integration-next-phase:user/nagi-home-search/src/search.rs (read-only audit)",
+      "cargo fmt --manifest-path crates/nagi-search-core/Cargo.toml -- --check",
+      "cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked --offline",
+      "mutation check: sed-edit src/index.rs (4 variants), cargo test -q, restore from backup",
+      "./nagi dev verify",
+      "python3 jsonschema validation of state.json against .dev/schemas/workstream-state.schema.json",
+      "./nagi dev verify in a scratch copy with the proposed registry_entry applied",
+      "git diff --cached --check",
+      "python3 owned-path audit of staged files against registration-proposal allowed/forbidden paths"
+    ],
+    "tests": [
+      {
+        "name": "SEARCH-CORE-01 focused host acceptance",
+        "command": "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "29 passed, 0 failed (tests/search-core/acceptance.rs). Covers insert/query with provenance, idempotent replay without rewrites, revision replacement, removal, stale/duplicate/conflicting revisions, no resurrection after delete, multiple providers and source scoping, scope before limit, provider isolation, payload source-claim spoofing, fail-closed and revoked provider authority, provider unregistration propagation, bounded result count, deterministic ordering and ties, empty index/query, malformed and oversized records, invalid scopes, denied-document non-leakage (results, counts, rationale, ordering, limit compared to a baseline index without the denied objects), out-of-scope non-leakage, temporal/metadata filters, ledger reopen, unsupported ledger version, 11 corrupt-snapshot cases, ledger persist/load and index write failures, and bit-for-bit deterministic repeated runs."
+      },
+      {
+        "name": "SEARCH-CORE-01 formatting",
+        "command": "cargo fmt --manifest-path crates/nagi-search-core/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Crate sources and the acceptance target are rustfmt-clean with the repository-pinned nightly toolchain."
+      },
+      {
+        "name": "SEARCH-CORE-01 warning-denied Clippy",
+        "command": "cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets, including the acceptance test, pass Clippy with warnings denied."
+      },
+      {
+        "name": "SEARCH-CORE-01 mutation sensitivity",
+        "command": "sed-mutate crates/nagi-search-core/src/index.rs; cargo test -q; restore",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Removing the provider-scope check failed 3 tests; removing the source-claim check failed 1; disabling the stale-revision check failed 3; dropping caller visibility failed the non-leakage test. The source was restored and diff-verified before commit."
+      },
+      {
+        "name": "DF-01 repository verifier",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 19 registered workstreams, 12 state files validated; branch codex/0.2-search-core-01. This workstream is unregistered, so the root verifier does not load its state; see the next two checks."
+      },
+      {
+        "name": "DF-01 state schema",
+        "command": "python3 -c 'jsonschema.validate(state, .dev/schemas/workstream-state.schema.json)'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "state.json validates against the DF-01 workstream-state JSON schema (draft 2020-12)."
+      },
+      {
+        "name": "DF-01 verifier with proposed registration applied (scratch copy)",
+        "command": "./nagi dev verify (scratch copy with registry_entry appended to .dev/workstreams.json)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 20 registered workstreams, 13 state files validated; branch codex/0.2-search-core-01. The scratch copy was discarded; the shared registry in this branch is unchanged."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md on codex/integration-next-phase a235eb9f7d6c15a71873b431a57271cd1aeba260; .dev/workstreams/integration-next-phase/state.json; Nagi_OS_0.2_Codex_Implementation_Spec.md section 2.1 and 0.2-M00",
+    "last_checked_at": "2026-10-02T03:00:11Z",
+    "activation_requirement": "Nagi 0.1 M30 PASS, an explicit 0.2 release boundary, and an Integration Owner checkpoint naming SEARCH-CORE-01 before any daemon, IPC, guest persistence, provider adoption, UI, capability wiring, or target work."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not copy, edit, or fork user/nagi-search or crates/nagi-model; consume the canonical contract and bump the pinned revision instead.",
+      "Do not edit .dev/workstreams.json, .dev/schemas/**, root Cargo.toml/Cargo.lock, or .github/workflows/** from this branch; use registration-proposal.json.",
+      "Do not add a second lexical/ranking index or body-text matcher here; propose it to the canonical nagi-search owner.",
+      "Do not treat MetadataRecord.source_app or other payload fields as caller or provider identity.",
+      "Do not mark PASS on host evidence alone while 0.2-M19 target acceptance is gated."
+    ]
+  },
+  "next_action": "Integration Owner: review registration-proposal.json and add the registry row; commit the master 0.2 spec and Parallel Execution Rules under docs/0.2/; decide platform-apis vs separate stream mapping and the canonical provider identity (AppId vs nagi-home-search ProviderId). Once user/nagi-search is on the integration base, switch the git pins to path dependencies and re-run the acceptance suite. Runtime work waits for M30 PASS plus a checkpoint naming SEARCH-CORE-01.",
+  "acceptance_criteria": [
+    "HOST PASS: insert then query returns the object with provider and revision provenance.",
+    "HOST PASS: upsert of the same identity and revision is idempotent; a newer revision replaces content incrementally.",
+    "HOST PASS: removal is revisioned and propagates to search and lookup; older or equal-revision replays cannot resurrect removed content.",
+    "HOST PASS: stale, duplicate, and conflicting revisions are classified deterministically.",
+    "HOST PASS: multiple providers are searchable; provider scope is applied before ranking and the result limit; providers cannot write or remove each other's objects.",
+    "HOST PASS: provider identity comes from the trusted binding, not payload fields; provider authority fails closed and revocation applies immediately.",
+    "HOST PASS: result count is bounded by the canonical limit; ordering and tie-breaking are deterministic across repeated runs.",
+    "HOST PASS: empty index and filter-only queries behave deterministically; blank text, malformed, oversized, and tombstoned inputs are rejected without side effects.",
+    "HOST PASS: denied and out-of-scope objects do not affect returned results, counts, rationale, ordering, or limits, and lookups of them are indistinguishable from unknown IDs.",
+    "HOST PASS: lexical and temporal/metadata search works with no AI or embedding provider present.",
+    "HOST PASS: the ledger snapshot is versioned and checksummed; unknown versions and corrupt, truncated, or oversized snapshots are rejected; persistence failures are reported truthfully and are recoverable.",
+    "GATED: guest durable index/ledger survives restart on the Nagi target.",
+    "GATED: provider-based Search service is reachable through system-service IPC with authenticated caller/session binding.",
+    "GATED: ProviderAuthority is bound to the Capability/Permissions search.provider decision and VisibilityFilter to real caller authority.",
+    "GATED: Files/Notes/Activity/Wayback providers adopt the ingestion boundary and Home/Search queries real providers."
+  ],
+  "deferred": [
+    "Target/QEMU search daemon and system-service IPC endpoint.",
+    "Guest durable metadata index and ledger backends.",
+    "Production provider registration and adoption by Files, Notes, Activity, Wayback, Settings, installed apps, and Albert.",
+    "Home/Search results UI, global search shell behavior, and Albert runtime integration.",
+    "Production capability enforcement wiring for search.provider and caller visibility.",
+    "Semantic/hybrid search and model inference (owned by the 0.1 M19/M24 semantic path).",
+    "Lexical body-text indexing (proposal to the canonical nagi-search owner).",
+    "Workspace membership/reference APIs through the provider boundary (canonical in nagi-search).",
+    "Shared CI job for this standalone crate (proposal only).",
+    "Running the pinned 0.1 nagi-search unit suite: in this cloud worktree a read-only checkout of de3092c6 fails before compiling with `failed to load source for dependency cc`, because that revision's root workspace patches cc to an unfetched third_party source. This is a 0.1-line environment matter outside SEARCH-CORE-01 ownership; the pinned crate itself compiles and its behavior is exercised through this suite."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 workstream registry/state schema and ./nagi dev verify",
+      "version": "schema_version 1",
+      "status": "PASS: state validates against the schema and the verifier with the proposed registration applied"
+    },
+    {
+      "workstream_id": "integration-next-phase",
+      "contract": "Registry registration, canonical nagi-search integration onto the 0.2 base, shared CI",
+      "version": "registration-proposal.json proposal_version 1",
+      "status": "PENDING: Integration Owner action required"
+    },
+    {
+      "workstream_id": "platform-apis",
+      "contract": "0.2-M19 Search/Index/Workspace platform ownership",
+      "version": "master spec 0.2-M19",
+      "status": "PENDING: unassigned stream; mapping decision proposed"
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "search.provider platform capability and caller visibility decisions behind ProviderAuthority/VisibilityFilter",
+      "version": "SEARCH_CORE_CONTRACT_VERSION 1 seam; production binding not started",
+      "status": "GATED: test-only mocks in use"
+    },
+    {
+      "workstream_id": "first-party-integration",
+      "contract": "Home/Search coordinator and provider identity reconciliation (nagi-home-search ProviderId vs AppId)",
+      "version": "nagi-home-search 0.1.0 on codex/integration-next-phase",
+      "status": "PENDING: Integration Owner decision"
+    }
+  ]
+}
