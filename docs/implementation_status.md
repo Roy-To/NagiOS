@@ -159,6 +159,32 @@ sites elsewhere in the loader, including tensor lookup/context setup and
 are gone. See `out/logs/m20-loader-status-0014-final-target-build.log`. No
 complete target backend or in-guest inference is claimed; M20 remains
 `PARTIAL`.
+The next numbered patch, `0015-nagi-llama-data-range-status.patch`, changes
+invalid tensor-range validation in `load_data_range()` to sticky loader failure
+and a null result on Nagi. Both quantizer range consumers check for null
+before reading or dequantizing tensor bytes and propagate failure as a
+nonzero quantize result. The synthetic infinite-F16 GGUF regression exercises
+both `load_data_range()` and `load_all_data()`: the Nagi-macro CTest returns
+failure without throwing, while the ordinary host CTest retains exception
+behavior; each passes 1/1. The CLI patch-contract suite passes 178/178 and
+`cargo fmt --check` passes.
+
+Fresh `./nagi fetch` applied patches 0001–0015 with patch fingerprint
+`fnv1a64:d2c8dafa4e23e117` and checkout fingerprint
+`fnv1a64:599ed2820ae18f26`; reverse `git apply --check` confirms patch 0015 is
+present. Fetch again stopped at the pre-existing modified generated Servo
+checkout and left it untouched. The previous generated working copy and its
+verified 3,674-entry SHA-256 manifest are under
+`out/evidence/m20-loader-status-0015-generated-working-copy/`.
+
+The focused Nagi-target loader object now reports 12 remaining exception
+diagnostics, down from 13; the removed site was `load_data_range()`. See
+`out/logs/m20-loader-status-0015-final-target-build.log`. Host CTest,
+CLI-contract, and format logs are `out/logs/m20-loader-status-0015-final-nagi-ctest.log`,
+`out/logs/m20-loader-status-0015-final-upstream-ctest.log`,
+`out/logs/m20-loader-status-0015-prepatch-cli-test.log`, and
+`out/logs/m20-loader-status-0015-prepatch-fmt-check.log`. No complete target
+backend or in-guest inference is claimed; M20 remains `PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure

@@ -809,3 +809,40 @@ remaining errors include tensor lookup/context setup and `load_data_range()`.
 The diagnostic log is
 `out/logs/m20-loader-status-0014-final-target-build.log`. This does not
 establish a complete target backend or inference; M20 remains `PARTIAL`.
+
+## Tensor data-range status — 2026-10-02
+
+Added numbered patch
+`third_party/llama-cpp-patches/0015-nagi-llama-data-range-status.patch`.
+Invalid tensor row data detected by `load_data_range()` now sets sticky loader
+failure and returns null on Nagi; ordinary host builds retain their exception
+behavior. Both quantizer consumers check the result before copying or
+dequantizing, and the public quantizer returns a nonzero status when loading
+fails. The synthetic infinite-F16 GGUF regression directly exercises the range
+loader before `load_all_data()`; the Nagi-macro and ordinary host CTests pass
+1/1 each. All 178 CLI library tests and `cargo fmt --check` pass.
+
+Fresh `./nagi fetch` applied patches 0001–0015 with patch fingerprint
+`fnv1a64:d2c8dafa4e23e117` and checkout fingerprint
+`fnv1a64:599ed2820ae18f26`. Reverse `git apply --check` confirms patch 0015 is
+present. Fetch stopped at the pre-existing modified generated Servo checkout
+and left it unchanged. The preserved generated working copy and its verified
+3,674-entry SHA-256 manifest are under
+`out/evidence/m20-loader-status-0015-generated-working-copy/`; the pinned
+`third_party/llama.cpp` source remains clean.
+
+Regenerated-cache host builds and CTests passed in both the Nagi-macro and
+ordinary host configurations. The focused Nagi-target loader object still
+fails with 12 exception-related diagnostics, down from 13 after removal of the
+`load_data_range()` throw. Logs are
+`out/logs/m20-loader-status-0015-final-nagi-build.log`,
+`out/logs/m20-loader-status-0015-final-nagi-ctest.log`,
+`out/logs/m20-loader-status-0015-final-upstream-build.log`,
+`out/logs/m20-loader-status-0015-final-upstream-ctest.log`,
+`out/logs/m20-loader-status-0015-prepatch-cli-test.log`,
+`out/logs/m20-loader-status-0015-prepatch-fmt-check.log`,
+`out/logs/m20-loader-status-0015-fetch.log`, and
+`out/logs/m20-loader-status-0015-final-target-build.log`. The CLI suite's
+`prepatch` log prefix reflects its initial filename; its patch source and test
+were final, and fresh fetch regenerated the same numbered patch sequence. No
+complete target backend or inference is claimed; M20 remains `PARTIAL`.

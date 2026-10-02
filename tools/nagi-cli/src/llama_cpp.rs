@@ -1009,6 +1009,23 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_data_range_failure_reaches_quantizer_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0015-nagi-llama-data-range-status.patch"),
+        )
+        .expect("Nagi tensor data range status patch");
+
+        assert!(patch.contains("LLAMA_MODEL_LOADER_FAIL_POINTER"));
+        assert!(patch.contains("load_data_range"));
+        assert!(patch.contains("invalid tensor range"));
+        assert!(patch.contains("if (data == nullptr)"));
+        assert!(patch.contains("if (src == nullptr)"));
+        assert!(patch.contains("static bool llama_model_quantize_impl"));
+        assert!(patch.contains("!llama_model_quantize_impl(fname_inp, fname_out, params)"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
