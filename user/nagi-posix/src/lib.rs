@@ -87,9 +87,19 @@ use errno::{set_errno, EBADF, EINVAL, ENOSYS};
 #[cfg(target_os = "nagi")]
 use nagi_pal::time::{Clock, GuestClock};
 
-#[cfg(all(any(target_os = "nagi", test), feature = "browser-storage"))]
+#[cfg(all(any(target_os = "nagi", test), feature = "m25-whisper-memory"))]
+const POSIX_HEAP_SIZE: usize = 1280 * 1024 * 1024;
+#[cfg(all(
+    any(target_os = "nagi", test),
+    not(feature = "m25-whisper-memory"),
+    feature = "browser-storage"
+))]
 const POSIX_HEAP_SIZE: usize = 128 * 1024 * 1024;
-#[cfg(all(any(target_os = "nagi", test), not(feature = "browser-storage")))]
+#[cfg(all(
+    any(target_os = "nagi", test),
+    not(feature = "m25-whisper-memory"),
+    not(feature = "browser-storage")
+))]
 const POSIX_HEAP_SIZE: usize = 64 * 1024 * 1024;
 #[cfg(any(target_os = "nagi", test))]
 const BLOCK_HEADER_SIZE: usize = 16;
@@ -777,8 +787,10 @@ mod tests {
     struct TestHeap([u8; 64 * 1024]);
 
     #[test]
-    fn posix_heap_budget_is_bounded_by_the_enabled_browser_feature() {
-        let expected = if cfg!(feature = "browser-storage") {
+    fn posix_heap_budget_is_bounded_by_the_enabled_memory_feature() {
+        let expected = if cfg!(feature = "m25-whisper-memory") {
+            1280 * 1024 * 1024
+        } else if cfg!(feature = "browser-storage") {
             128 * 1024 * 1024
         } else {
             64 * 1024 * 1024

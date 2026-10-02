@@ -9,6 +9,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_MESA_BUILD");
     println!("cargo:rerun-if-env-changed=NAGI_LLAMA_BUILD");
     println!("cargo:rerun-if-env-changed=NAGI_LLAMA_SOURCE");
+    println!("cargo:rerun-if-env-changed=NAGI_WHISPER_BUILD");
+    println!("cargo:rerun-if-env-changed=NAGI_WHISPER_SOURCE");
+    println!("cargo:rerun-if-env-changed=NAGI_M25_WHISPER_PCM_FIXTURE");
+    println!("cargo:rerun-if-env-changed=NAGI_M25_WHISPER_EXPECTED_TEXT_FILE");
     println!("cargo:rerun-if-env-changed=NAGI_CXX_HEADERS");
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     let package_output = out_dir.join("m16-package.xapp");
@@ -418,6 +422,206 @@ fn main() {
             "cargo:rustc-link-arg-bin=nagi-init={}",
             smoke_object.display()
         );
+        println!("cargo:rustc-link-arg-bin=nagi-init=-Bstatic");
+        println!("cargo:rustc-link-arg-bin=nagi-init=--start-group");
+        for archive in &archives {
+            println!("cargo:rustc-link-arg-bin=nagi-init={}", archive.display());
+        }
+        println!("cargo:rustc-link-arg-bin=nagi-init=--end-group");
+        println!("cargo:rustc-link-arg-bin=nagi-init=-Bdynamic");
+    }
+
+    if env::var_os("CARGO_FEATURE_M25_WHISPER_INFERENCE_ACCEPTANCE").is_some() {
+        let whisper_build = env::var_os("NAGI_WHISPER_BUILD")
+            .map(PathBuf::from)
+            .expect("NAGI_WHISPER_BUILD must point to the Nagi-target whisper.cpp build");
+        let repository_root =
+            PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"))
+                .join("..")
+                .join("..");
+        let whisper_source = env::var_os("NAGI_WHISPER_SOURCE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repository_root.join("out/cache/whisper-cpp-nagi"));
+        let archives = [
+            whisper_build.join("src/libwhisper.a"),
+            whisper_build.join("ggml/src/libggml.a"),
+            whisper_build.join("ggml/src/libggml-cpu.a"),
+            whisper_build.join("ggml/src/libggml-base.a"),
+        ];
+        for archive in &archives {
+            if !archive.is_file() {
+                panic!(
+                    "NAGI_WHISPER_BUILD is missing a required target archive: {}",
+                    archive.display()
+                );
+            }
+            println!("cargo:rerun-if-changed={}", archive.display());
+        }
+        let whisper_header = whisper_source.join("include/whisper.h");
+        if !whisper_header.is_file() {
+            panic!(
+                "pinned whisper.cpp header is missing: {}",
+                whisper_header.display()
+            );
+        }
+        println!("cargo:rerun-if-changed={}", whisper_header.display());
+
+        let pcm_fixture = env::var_os("NAGI_M25_WHISPER_PCM_FIXTURE")
+            .map(PathBuf::from)
+            .expect("NAGI_M25_WHISPER_PCM_FIXTURE must identify raw mono S16LE at 16 kHz");
+        println!("cargo:rerun-if-changed={}", pcm_fixture.display());
+        let pcm = fs::read(&pcm_fixture).expect("read M25 Whisper PCM fixture");
+        const MAX_PCM_BYTES: usize = 1_048_576;
+        if pcm.is_empty() || pcm.len() > MAX_PCM_BYTES || pcm.len() % 2 != 0 {
+            panic!("M25 Whisper PCM fixture must be nonempty, even-sized, and at most 1 MiB");
+        }
+        fs::write(out_dir.join("m25-whisper-input.pcm"), &pcm)
+            .expect("stage M25 Whisper PCM fixture");
+
+        let expected_text_file = env::var_os("NAGI_M25_WHISPER_EXPECTED_TEXT_FILE")
+            .map(PathBuf::from)
+            .expect("NAGI_M25_WHISPER_EXPECTED_TEXT_FILE must identify expected Japanese text");
+        println!("cargo:rerun-if-changed={}", expected_text_file.display());
+        let expected_text = fs::read_to_string(&expected_text_file)
+            .expect("read expected M25 Whisper Japanese text");
+        if expected_text.is_empty()
+            || expected_text.len() > 1024
+            || expected_text
+                .chars()
+                .any(|character| matches!(character, '\n' | '\r' | '\0'))
+        {
+            panic!("expected M25 Whisper text must be 1–1024 UTF-8 bytes without line breaks");
+        }
+        fs::write(
+            out_dir.join("m25-whisper-expected.txt"),
+            expected_text.as_bytes(),
+        )
+        .expect("stage expected M25 Whisper text");
+
+        let adapter_source = repository_root.join("tools/whisper/nagi-provider-adapter.cpp");
+        let adapter_object = out_dir.join("nagi-whisper-provider-adapter.o");
+        println!("cargo:rerun-if-changed={}", adapter_source.display());
+        let target_cc_wrapper = repository_root.join("tools/nagi-target-cc.sh");
+        let status = Command::new("bash")
+            .arg(&target_cc_wrapper)
+            .args([
+                "-x",
+                "c++",
+                "-fno-asynchronous-unwind-tables",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-c",
+            ])
+            .arg("-I")
+            .arg(whisper_source.join("include"))
+            .arg("-I")
+            .arg(whisper_source.join("ggml/include"))
+            .arg(&adapter_source)
+            .arg("-o")
+            .arg(&adapter_object)
+            .status()
+            .unwrap_or_else(|error| panic!("failed to compile Nagi Whisper adapter: {error}"));
+        if !status.success() {
+            panic!("Nagi Whisper provider adapter compilation failed with {status}");
+        }
+
+        let cxx_abi_source = repository_root.join("tools/whisper/nagi-libcpp-whisper.cpp");
+        let cxx_abi_object = out_dir.join("nagi-whisper-libcpp-abi.o");
+        println!("cargo:rerun-if-changed={}", cxx_abi_source.display());
+        let status = Command::new("bash")
+            .arg(&target_cc_wrapper)
+            .args([
+                "-x",
+                "c++",
+                "-fno-asynchronous-unwind-tables",
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-c",
+            ])
+            .arg(&cxx_abi_source)
+            .arg("-o")
+            .arg(&cxx_abi_object)
+            .status()
+            .unwrap_or_else(|error| {
+                panic!("failed to compile Whisper libc++ ABI adapter: {error}")
+            });
+        if !status.success() {
+            panic!("Nagi Whisper libc++ ABI adapter compilation failed with {status}");
+        }
+
+        // The statically linked Whisper CPU path uses these target-owned C/POSIX
+        // and math implementations. It never asks the host to open the model.
+        for symbol in [
+            "stdout",
+            "stderr",
+            "fflush",
+            "snprintf",
+            "vsnprintf",
+            "fprintf",
+            "fputs",
+            "printf",
+            "ldexpf",
+            "log2f",
+            "expf",
+            "logf",
+            "tanhf",
+            "expm1f",
+            "lroundf",
+            "log2",
+            "powf",
+            "cosf",
+            "sinf",
+            "atoi",
+            "dlclose",
+            "tolower",
+            "strcmp",
+            "erff",
+        ] {
+            println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
+        }
+        println!("cargo:rustc-link-arg-bin=nagi-init=--error-limit=0");
+        println!("cargo:rustc-link-arg-bin=nagi-init=--gc-sections");
+        println!(
+            "cargo:rustc-link-arg-bin=nagi-init={}",
+            adapter_object.display()
+        );
+        println!(
+            "cargo:rustc-link-arg-bin=nagi-init={}",
+            cxx_abi_object.display()
+        );
+        // Whisper's target libc++ headers declare __sort as an extern-template
+        // ABI entrypoint. Reuse Nagi's allocation-free sort implementation
+        // instead of linking a host or libc++ archive. The M17 feature already
+        // compiles and links this object for its Servo/MozJS ABI boundary.
+        if env::var_os("CARGO_FEATURE_M17_SERVO").is_none() {
+            let sort_source = repository_root.join("tools/mesa/nagi-libcpp-sort.cpp");
+            let sort_object = out_dir.join("nagi-libcpp-sort.o");
+            println!("cargo:rerun-if-changed={}", sort_source.display());
+            let status = Command::new("bash")
+                .arg(&target_cc_wrapper)
+                .args([
+                    "-x",
+                    "c++",
+                    "-fno-asynchronous-unwind-tables",
+                    "-fno-exceptions",
+                    "-fno-rtti",
+                    "-c",
+                ])
+                .arg(&sort_source)
+                .arg("-o")
+                .arg(&sort_object)
+                .status()
+                .unwrap_or_else(|error| {
+                    panic!("failed to compile Whisper libc++ sort ABI: {error}")
+                });
+            if !status.success() {
+                panic!("Nagi Whisper libc++ sort ABI compilation failed with {status}");
+            }
+            println!(
+                "cargo:rustc-link-arg-bin=nagi-init={}",
+                sort_object.display()
+            );
+        }
         println!("cargo:rustc-link-arg-bin=nagi-init=-Bstatic");
         println!("cargo:rustc-link-arg-bin=nagi-init=--start-group");
         for archive in &archives {

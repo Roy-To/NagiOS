@@ -40,6 +40,11 @@ m27-recovery-undo-acceptance = ["m27-recovery"]
 m29-settings-acceptance = ["m10-desktop"]
 m25-voice-acceptance = []
 m25-whisper-artifact-acceptance = ["m20-model-store-acceptance"]
+m25-whisper-inference-acceptance = [
+    "m25-whisper-artifact-acceptance",
+    "m25-voice-acceptance",
+    "nagi-posix/m25-whisper-memory",
+]
 m26-qwen-artifact-acceptance = ["m20-model-store-acceptance"]
 m26-gemma-artifact-acceptance = ["m20-model-store-acceptance"]
 

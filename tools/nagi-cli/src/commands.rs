@@ -1,5 +1,5 @@
-use std::fs;
-use std::io::Read;
+use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::thread;
@@ -19,7 +19,7 @@ use crate::image::{
     run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot,
     run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
     run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
-    run_qemu_until_any_acceptance_marker,
+    run_qemu_until_any_acceptance_marker, run_qemu_until_any_acceptance_marker_reusing_ovmf_vars,
     run_qemu_until_any_acceptance_marker_with_read_only_boot_disk,
     run_qemu_with_read_only_boot_disk, validate_reference_disk_qcow2, write_fat12_image,
     write_m17_fat12_image, write_m20_model_store_fixture_reference_disk_qcow2,
@@ -170,6 +170,7 @@ pub enum Command {
     M26Qwen,
     M26Gemma,
     M25Whisper,
+    M25WhisperInference,
     Test,
     Clean,
     Fmt,
@@ -245,6 +246,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m26-qwen" => Command::M26Qwen,
         "m26-gemma" => Command::M26Gemma,
         "m25-whisper" => Command::M25Whisper,
+        "m25-whisper-inference" => Command::M25WhisperInference,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -266,6 +268,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         Command::M26Qwen => args.len() == 2,
         Command::M26Gemma => args.len() == 3 && args[2] == "--accept-gemma-terms",
         Command::M25Whisper => args.len() == 2,
+        Command::M25WhisperInference => args.len() == 4,
         Command::Help
         | Command::Fetch
         | Command::Build
@@ -459,6 +462,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M26Qwen => execute_m26_model(&args[1..], root, probe, M26Model::Qwen),
         Command::M26Gemma => execute_m26_model(&args[1..], root, probe, M26Model::Gemma),
         Command::M25Whisper => execute_m25_whisper(&args[1..], root, probe),
+        Command::M25WhisperInference => execute_m25_whisper_inference(&args[1..], root, probe),
     }
 }
 
@@ -889,11 +893,29 @@ struct ModelStoreArtifactProfile {
     size_bytes: u64,
     sha256: String,
     init_feature: &'static str,
+    kernel_features: &'static [&'static str],
     image_prefix: &'static str,
     evidence_prefix: &'static str,
     vars_name: &'static str,
     serial_name: &'static str,
     digest_marker: &'static str,
+}
+
+struct ModelStoreEvidenceInput<'a> {
+    environment: Option<&'a str>,
+    source: &'a Path,
+    evidence_name: &'a str,
+}
+
+struct ModelStoreAcceptanceOptions<'a> {
+    acceptance_marker: &'a str,
+    required_markers: &'a [&'a str],
+    early_exit_markers: &'a [&'a str],
+    cargo_env: &'a [(&'a str, &'a Path)],
+    evidence_inputs: &'a [ModelStoreEvidenceInput<'a>],
+    timeout: Duration,
+    claims: &'a str,
+    success_summary: &'a str,
 }
 
 fn execute_m20_granite(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -937,6 +959,7 @@ fn execute_m20_granite(args: &[String], root: &Path, probe: &dyn HostProbe) -> C
             size_bytes,
             sha256: integrity.digest.clone(),
             init_feature: "m20-granite-artifact-acceptance",
+            kernel_features: &[],
             image_prefix: "nagi-0.1-m20-granite",
             evidence_prefix: "m20-granite-artifact",
             vars_name: "granite-OVMF_VARS.fd",
@@ -1562,6 +1585,7 @@ fn execute_m25_whisper(args: &[String], root: &Path, probe: &dyn HostProbe) -> C
             size_bytes: model.size_bytes,
             sha256: model.sha256,
             init_feature: "m25-whisper-artifact-acceptance",
+            kernel_features: &[],
             image_prefix: "nagi-0.1-m25-whisper",
             evidence_prefix: "m25-whisper-artifact",
             vars_name: "whisper-OVMF_VARS.fd",
@@ -1569,6 +1593,256 @@ fn execute_m25_whisper(args: &[String], root: &Path, probe: &dyn HostProbe) -> C
             digest_marker: "Nagi M25 Whisper artifact digest PASS",
         },
     )
+}
+
+fn execute_m25_whisper_inference(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+) -> CommandResult {
+    let model = match crate::whisper_cpp::validate_whisper_model_artifact_lock(root) {
+        Ok(model) => model,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let requested_pcm_path = PathBuf::from(&args[1]);
+    let pcm_path = if requested_pcm_path.is_absolute() {
+        requested_pcm_path
+    } else {
+        root.join(requested_pcm_path)
+    };
+    let pcm_metadata = match fs::symlink_metadata(&pcm_path) {
+        Ok(metadata) if metadata.file_type().is_file() => metadata,
+        Ok(_) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m25-whisper-inference: PCM input must be a regular file: {}",
+                    pcm_path.display()
+                ),
+            )
+        }
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m25-whisper-inference: cannot inspect {}: {error}",
+                    pcm_path.display()
+                ),
+            )
+        }
+    };
+    if pcm_metadata.len() == 0 || pcm_metadata.len() > 1_048_576 || pcm_metadata.len() % 2 != 0 {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m25-whisper-inference: input must be raw mono S16LE at 16 kHz, nonempty, even-sized, and at most 1 MiB",
+        );
+    }
+    let expected_text = &args[2];
+    if expected_text.is_empty()
+        || expected_text.len() > 1024
+        || expected_text
+            .chars()
+            .any(|character| matches!(character, '\n' | '\r' | '\0'))
+    {
+        return failure(
+            EXIT_USAGE,
+            "m25-whisper-inference: expected text must be 1–1024 UTF-8 bytes without line breaks",
+        );
+    }
+
+    let whisper_source = match ensure_whisper_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m25-whisper-inference: pinned whisper.cpp source: {error}"),
+            )
+        }
+    };
+    let target_clang = match resolve_m20_target_clang() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let cxx_headers = match resolve_m20_cxx_headers(&target_clang) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let relibc_headers = std::env::var_os("NAGI_RELIBC_HEADERS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            root.join("out/m17-mesa/relibc-target/x86_64-unknown-nagi-user/include")
+        });
+    if !relibc_headers.join("pthread.h").is_file() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25-whisper-inference: generated Nagi relibc headers are missing at {}",
+                relibc_headers.display()
+            ),
+        );
+    }
+    let llvm_bin = target_clang.parent().unwrap_or_else(|| Path::new("."));
+    let llvm_ar = match resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let llvm_ranlib = match resolve_m20_llvm_tool("NAGI_LLVM_RANLIB", "llvm-ranlib", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m25-whisper-inference: system clock: {error}"),
+            )
+        }
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out/logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let whisper_build_log = logs.join(format!("m25-whisper-target-build-{run_id}.log"));
+    let build_dir = root.join("out/m25-whisper-target");
+    let mut build = ProcessCommand::new("bash");
+    build
+        .arg("tools/whisper/build-nagi-target.sh")
+        .current_dir(root)
+        .env("NAGI_WHISPER_SOURCE", &whisper_source)
+        .env("NAGI_WHISPER_BUILD", &build_dir)
+        .env("NAGI_TARGET_CLANG", &target_clang)
+        .env("NAGI_CXX_HEADERS", &cxx_headers)
+        .env("NAGI_RELIBC_HEADERS", &relibc_headers)
+        .env("NAGI_LLVM_AR", &llvm_ar)
+        .env("NAGI_LLVM_RANLIB", &llvm_ranlib);
+    let build_output = match build.output() {
+        Ok(output) => output,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m25-whisper-inference: cannot start target build: {error}"),
+            )
+        }
+    };
+    let build_detail = command_output(&build_output);
+    if let Err(error) = fs::write(&whisper_build_log, &build_detail) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25-whisper-inference: cannot write target build log {}: {error}",
+                whisper_build_log.display()
+            ),
+        );
+    }
+    if !build_output.status.success() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25-whisper-inference: Nagi-target whisper.cpp build failed ({}); log {}",
+                build_output.status,
+                whisper_build_log.display()
+            ),
+        );
+    }
+
+    let expected_text_path = logs.join(format!("m25-whisper-expected-text-{run_id}.txt"));
+    let mut expected_output = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&expected_text_path)
+    {
+        Ok(file) => file,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m25-whisper-inference: cannot create expected-text fixture {}: {error}",
+                    expected_text_path.display()
+                ),
+            )
+        }
+    };
+    if let Err(error) = expected_output.write_all(expected_text.as_bytes()) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25-whisper-inference: cannot write expected-text fixture {}: {error}",
+                expected_text_path.display()
+            ),
+        );
+    }
+    drop(expected_output);
+
+    let cargo_env = [
+        ("NAGI_WHISPER_BUILD", build_dir.as_path()),
+        ("NAGI_WHISPER_SOURCE", whisper_source.as_path()),
+        ("NAGI_TARGET_CLANG", target_clang.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        ("NAGI_RELIBC_HEADERS", relibc_headers.as_path()),
+        ("NAGI_LLVM_AR", llvm_ar.as_path()),
+        ("NAGI_LLVM_RANLIB", llvm_ranlib.as_path()),
+    ];
+    let evidence_inputs = [
+        ModelStoreEvidenceInput {
+            environment: Some("NAGI_M25_WHISPER_PCM_FIXTURE"),
+            source: &pcm_path,
+            evidence_name: "whisper-input-16khz-mono-s16le.pcm",
+        },
+        ModelStoreEvidenceInput {
+            environment: Some("NAGI_M25_WHISPER_EXPECTED_TEXT_FILE"),
+            source: &expected_text_path,
+            evidence_name: "expected-transcript.txt",
+        },
+        ModelStoreEvidenceInput {
+            environment: None,
+            source: &whisper_build_log,
+            evidence_name: "whisper-target-build.log",
+        },
+    ];
+    let required_markers = ["Nagi M25 Whisper Japanese fixture inference PASS"];
+    let early_exit_markers = [
+        "Nagi M20 Model Store capability FAIL",
+        "Nagi M25 Whisper artifact digest FAIL",
+        "Nagi M25 Whisper Japanese fixture inference FAIL",
+    ];
+    let options = ModelStoreAcceptanceOptions {
+        acceptance_marker: "Nagi M25 Whisper Japanese fixture inference PASS",
+        required_markers: &required_markers,
+        early_exit_markers: &early_exit_markers,
+        cargo_env: &cargo_env,
+        evidence_inputs: &evidence_inputs,
+        timeout: Duration::from_secs(3600),
+        claims: "The guest loads the pinned model through its read-only Model Store capability and runs whisper.cpp against the checksummed raw mono 16 kHz S16LE fixture. It verifies that inference includes the supplied expected Japanese text. This does not use a microphone, grant site or app authority, or execute the transcript.",
+        success_summary: "guest Model Store load and Japanese Whisper fixture inference acceptance",
+    };
+    let result = execute_model_store_artifact_with_options(
+        args,
+        root,
+        probe,
+        ModelStoreArtifactProfile {
+            command_name: "m25-whisper-inference",
+            model_id: model.model_id,
+            artifact_id: model.artifact_id,
+            source_uri: model.repository,
+            source_revision: model.revision,
+            file_name: model.file_name,
+            format: model.format,
+            size_bytes: model.size_bytes,
+            sha256: model.sha256,
+            init_feature: "m25-whisper-inference-acceptance",
+            kernel_features: &["m25-whisper-memory"],
+            image_prefix: "nagi-0.1-m25-whisper-inference",
+            evidence_prefix: "m25-whisper-inference",
+            vars_name: "whisper-inference-OVMF_VARS.fd",
+            serial_name: "whisper-inference-qemu.log",
+            digest_marker: "Nagi M25 Whisper artifact digest PASS",
+        },
+        &options,
+    );
+    let _ = fs::remove_file(expected_text_path);
+    result
 }
 
 fn execute_m26_model(
@@ -1619,6 +1893,7 @@ fn execute_m26_model(
             size_bytes: pin.size_bytes,
             sha256: pin.sha256.to_owned(),
             init_feature,
+            kernel_features: &[],
             image_prefix: match model {
                 M26Model::Qwen => "nagi-0.1-m26-qwen",
                 M26Model::Gemma => "nagi-0.1-m26-gemma",
@@ -1648,6 +1923,26 @@ fn execute_model_store_artifact(
     root: &Path,
     probe: &dyn HostProbe,
     profile: ModelStoreArtifactProfile,
+) -> CommandResult {
+    let options = ModelStoreAcceptanceOptions {
+        acceptance_marker: "Nagi M20 Model Store capability PASS",
+        required_markers: &[],
+        early_exit_markers: &[],
+        cargo_env: &[],
+        evidence_inputs: &[],
+        timeout: Duration::from_secs(1800),
+        claims: "The guest verifies the pinned artifact bytes through its read-only Model Store capability. No backend is loaded and no inference is performed.",
+        success_summary: "guest Model Store artifact digest acceptance",
+    };
+    execute_model_store_artifact_with_options(args, root, probe, profile, &options)
+}
+
+fn execute_model_store_artifact_with_options(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+    profile: ModelStoreArtifactProfile,
+    options: &ModelStoreAcceptanceOptions<'_>,
 ) -> CommandResult {
     let requested_path = PathBuf::from(&args[0]);
     let artifact_path = if requested_path.is_absolute() {
@@ -1724,11 +2019,38 @@ fn execute_model_store_artifact(
             )
         }
     };
+    let mut copied_evidence_inputs = Vec::new();
+    let mut owned_cargo_env: Vec<(String, PathBuf)> = options
+        .cargo_env
+        .iter()
+        .map(|(name, path)| ((*name).to_owned(), (*path).to_path_buf()))
+        .collect();
+    for input in options.evidence_inputs {
+        let destination = evidence.join(input.evidence_name);
+        if let Err(error) = fs::copy(input.source, &destination) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: preserve evidence input {}: {error}",
+                    profile.command_name,
+                    input.source.display()
+                ),
+            );
+        }
+        if let Some(environment) = input.environment {
+            owned_cargo_env.push((environment.to_owned(), destination.clone()));
+        }
+        copied_evidence_inputs.push((destination, input.evidence_name.to_owned()));
+    }
+    let borrowed_cargo_env: Vec<(&str, &Path)> = owned_cargo_env
+        .iter()
+        .map(|(name, path)| (name.as_str(), path.as_path()))
+        .collect();
     let image_name = format!("{}-{}.qcow2", profile.image_prefix, run_id);
     let image_path = artifacts.join(&image_name);
     let evidence_readme = evidence.join("README.md");
     let initial_readme = format!(
-        "# {} Model Store acceptance\n\nModel ID: {}\nArtifact ID: {}\nSource: {} at {}\nLocked filename: {}\nModel Store filename: {}\nExternal artifact: {}\nFormat: {}\nExpected size: {} bytes\nExpected SHA-256: {}\n\nThe host verifies the external artifact against its source lock before streaming it into a separate GPT Model Store. The guest reads the complete artifact through the read-only capability and verifies its exact bytes. This does not load a backend or perform inference.\n",
+        "# {} Model Store acceptance\n\nModel ID: {}\nArtifact ID: {}\nSource: {} at {}\nLocked filename: {}\nModel Store filename: {}\nExternal artifact: {}\nFormat: {}\nExpected size: {} bytes\nExpected SHA-256: {}\n\nThe host verifies the external artifact against its source lock before streaming it into a separate GPT Model Store. {}\n",
         profile.command_name,
         profile.model_id,
         profile.artifact_id,
@@ -1739,7 +2061,8 @@ fn execute_model_store_artifact(
         artifact_path.display(),
         profile.format,
         profile.size_bytes,
-        profile.sha256
+        profile.sha256,
+        options.claims
     );
     if let Err(error) = fs::write(&evidence_readme, initial_readme) {
         return failure(
@@ -1798,12 +2121,12 @@ fn execute_model_store_artifact(
         None,
         ImageBuildRequest {
             image_name: &image_name,
-            cargo_env: &[],
+            cargo_env: &borrowed_cargo_env,
             recovery_init: Some(&recovery_init),
             image_writer: write_reference_disk_qcow2,
             external_model_store_file: Some((&file_name, &artifact_path)),
             build_features: ImageBuildFeatures {
-                kernel: &[],
+                kernel: profile.kernel_features,
                 loader: &["m27-ab-slot-boot-control"],
             },
         },
@@ -1823,6 +2146,8 @@ fn execute_model_store_artifact(
         );
     }
     let serial_log = evidence.join(profile.serial_name);
+    let first_boot_log_name = format!("{}-first-boot.log", profile.evidence_prefix);
+    let first_boot_log = evidence.join(&first_boot_log_name);
     let config = QemuConfig {
         qemu: &host.qemu,
         ovmf_code: &host.ovmf_code,
@@ -1831,26 +2156,33 @@ fn execute_model_store_artifact(
         persistent_disk: &image_path,
         vars_copy: &vars_copy,
         serial_log: &serial_log,
-        acceptance_marker: "Nagi M20 Model Store capability PASS",
-        timeout: Duration::from_secs(1800),
+        acceptance_marker: options.acceptance_marker,
+        timeout: options.timeout,
     };
-    let qemu_status = match run_qemu_until_any_acceptance_marker(
-        &config,
-        &["Nagi M20 Model Store capability PASS"],
-    ) {
-        Ok(status) => status,
-        Err(error) => {
-            return failure(
-                EXIT_CONFIG_ERROR,
-                format!(
-                    "{}: QEMU acceptance failed; log {}: {error}",
-                    profile.command_name,
-                    serial_log.display()
-                ),
-            )
-        }
+    let mut qemu_stop_markers = vec![options.acceptance_marker];
+    qemu_stop_markers.extend_from_slice(options.early_exit_markers);
+    qemu_stop_markers.push("Nagi M5 process exit FAIL");
+    let mut first_boot_stop_markers = qemu_stop_markers.clone();
+    first_boot_stop_markers.push("Nagi M7 reboot required PASS");
+    let first_boot_config = QemuConfig {
+        serial_log: &first_boot_log,
+        ..config
     };
-    let serial = match fs::read_to_string(&serial_log) {
+    let first_boot_status =
+        match run_qemu_until_any_acceptance_marker(&first_boot_config, &first_boot_stop_markers) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "{}: QEMU acceptance failed; log {}: {error}",
+                        profile.command_name,
+                        first_boot_log.display()
+                    ),
+                )
+            }
+        };
+    let first_boot_serial = match fs::read_to_string(&first_boot_log) {
         Ok(serial) => serial,
         Err(error) => {
             return failure(
@@ -1858,16 +2190,97 @@ fn execute_model_store_artifact(
                 format!(
                     "{}: cannot read {}: {error}",
                     profile.command_name,
-                    serial_log.display()
+                    first_boot_log.display()
                 ),
             )
         }
     };
-    for marker in [
+    let mut first_boot_log_for_manifest = None;
+    let (qemu_status, serial) = if first_boot_serial.contains("Nagi M7 reboot required PASS") {
+        for marker in [
+            "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi M20 Model Store capability PASS",
+            profile.digest_marker,
+            "Nagi M7 ext2 format PASS",
+            "Nagi M7 persistent write PASS",
+        ] {
+            if !first_boot_serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "{}: User Data bootstrap did not print `{marker}` (log {})",
+                        profile.command_name,
+                        first_boot_log.display()
+                    ),
+                );
+            }
+        }
+        let restart_config = QemuConfig {
+            serial_log: &serial_log,
+            ..config
+        };
+        let status = match run_qemu_until_any_acceptance_marker_reusing_ovmf_vars(
+                &restart_config,
+                &qemu_stop_markers,
+            ) {
+                Ok(status) => status,
+                Err(error) => {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "{}: QEMU restart acceptance failed; first boot log {}, restart log {}: {error}",
+                            profile.command_name,
+                            first_boot_log.display(),
+                            serial_log.display()
+                        ),
+                    )
+                }
+            };
+        let serial = match fs::read_to_string(&serial_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "{}: cannot read {}: {error}",
+                        profile.command_name,
+                        serial_log.display()
+                    ),
+                )
+            }
+        };
+        first_boot_log_for_manifest = Some(first_boot_log_name.clone());
+        (status, serial)
+    } else {
+        if let Err(error) = fs::copy(&first_boot_log, &serial_log) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: preserve QEMU log {}: {error}",
+                    profile.command_name,
+                    serial_log.display()
+                ),
+            );
+        }
+        if let Err(error) = fs::remove_file(&first_boot_log) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: remove temporary first-boot log {}: {error}",
+                    profile.command_name,
+                    first_boot_log.display()
+                ),
+            );
+        }
+        (first_boot_status, first_boot_serial)
+    };
+    let mut required_markers = vec![
         "Nagi M30 GPT partition boot: System A PASS",
         "Nagi M20 Model Store capability PASS",
         profile.digest_marker,
-    ] {
+    ];
+    required_markers.extend_from_slice(options.required_markers);
+    for marker in required_markers {
         if !serial.contains(marker) {
             return failure(
                 EXIT_CONFIG_ERROR,
@@ -1903,8 +2316,16 @@ fn execute_model_store_artifact(
             )
         }
     }
+    let bootstrap_note = first_boot_log_for_manifest.as_ref().map_or_else(
+        || "The host acceptance runner did not need a separate User Data bootstrap restart.".to_owned(),
+        |first_boot_log_name| {
+            format!(
+                "The host acceptance runner relaunched QEMU after User Data bootstrap, reusing the same qcow2 image and OVMF variables; first-boot log: {first_boot_log_name}."
+            )
+        },
+    );
     let final_readme = format!(
-        "# {} Model Store acceptance\n\nStatus: PASS\nModel ID: {}\nArtifact ID: {}\nSource: {} at {}\nLocked filename: {}\nModel Store filename: {}\nExternal artifact: {}\nFormat: {}\nSize: {} bytes\nSHA-256: {}\n\nThe guest booted System A, read the complete artifact through the separate read-only Model Store FAT32 reader, and verified its actual bytes against the locked SHA-256. qemu-img check passed for {}. No backend was loaded and no inference was performed. QEMU log: {}.\n",
+        "# {} Model Store acceptance\n\nStatus: PASS\nModel ID: {}\nArtifact ID: {}\nSource: {} at {}\nLocked filename: {}\nModel Store filename: {}\nExternal artifact: {}\nFormat: {}\nSize: {} bytes\nSHA-256: {}\n\nThe guest booted System A, read the complete artifact through the separate read-only Model Store FAT32 reader, and verified its actual bytes against the locked SHA-256. qemu-img check passed for {}. {} {} QEMU log: {}.\n",
         profile.command_name,
         profile.model_id,
         profile.artifact_id,
@@ -1917,6 +2338,8 @@ fn execute_model_store_artifact(
         profile.size_bytes,
         profile.sha256,
         image_path.display(),
+        bootstrap_note,
+        options.claims,
         profile.serial_name
     );
     if let Err(error) = fs::write(&evidence_readme, final_readme) {
@@ -1925,7 +2348,7 @@ fn execute_model_store_artifact(
             format!("{}: cannot update README: {error}", profile.command_name),
         );
     }
-    let manifest_paths = [
+    let mut manifest_paths = vec![
         (evidence_readme.as_path(), "README.md".to_owned()),
         (
             image_path.as_path(),
@@ -1934,6 +2357,14 @@ fn execute_model_store_artifact(
         (vars_copy.as_path(), profile.vars_name.to_owned()),
         (serial_log.as_path(), profile.serial_name.to_owned()),
     ];
+    manifest_paths.extend(
+        copied_evidence_inputs
+            .iter()
+            .map(|(path, relative)| (path.as_path(), relative.clone())),
+    );
+    if let Some(first_boot_log_name) = first_boot_log_for_manifest.as_ref() {
+        manifest_paths.push((first_boot_log.as_path(), first_boot_log_name.clone()));
+    }
     if let Err(error) = write_sha256_manifest(&evidence.join("SHA256SUMS"), &manifest_paths) {
         return failure(
             EXIT_CONFIG_ERROR,
@@ -1943,8 +2374,9 @@ fn execute_model_store_artifact(
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS {} guest Model Store artifact digest acceptance (image {}; artifact {}; log {}; evidence {})",
+            "PASS {} {} (image {}; artifact {}; log {}; evidence {})",
             profile.command_name,
+            options.success_summary,
             image_path.display(),
             artifact_path.display(),
             serial_log.display(),
@@ -7478,7 +7910,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -7540,6 +7972,34 @@ mod tests {
         assert!(
             parse_command(&["m25-whisper".into(), "model.bin".into(), "extra".into()]).is_err()
         );
+    }
+
+    #[test]
+    fn m25_whisper_inference_requires_model_pcm_and_expected_text() {
+        assert_eq!(
+            parse_command(&[
+                "m25-whisper-inference".into(),
+                "model.bin".into(),
+                "voice.pcm".into(),
+                "アルバートを開いて".into(),
+            ]),
+            Ok(Command::M25WhisperInference)
+        );
+        assert!(parse_command(&["m25-whisper-inference".into()]).is_err());
+        assert!(parse_command(&[
+            "m25-whisper-inference".into(),
+            "model.bin".into(),
+            "voice.pcm".into(),
+        ])
+        .is_err());
+        assert!(parse_command(&[
+            "m25-whisper-inference".into(),
+            "model.bin".into(),
+            "voice.pcm".into(),
+            "expected".into(),
+            "extra".into(),
+        ])
+        .is_err());
     }
 
     #[test]

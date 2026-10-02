@@ -34,9 +34,14 @@ pub const USER_TLS_CHILD_BASE: u64 = USER_TLS_BASE + USER_TLS_PAGES_PER_THREAD a
 pub const USER_TLS_CHILD_CONTROL_BASE: u64 = USER_TLS_CHILD_BASE + PAGE_SIZE;
 pub const USER_TLS_LIMIT: u64 = USER_TLS_BASE + USER_TLS_PAGE_COUNT as u64 * PAGE_SIZE;
 pub const USER_MMAP_BASE: u64 = USER_IMAGE_LIMIT + 0x0080_0000;
-#[cfg(feature = "m18-browser-memory")]
+#[cfg(feature = "m25-whisper-memory")]
+const USER_MMAP_PAGE_TABLES: usize = 768;
+#[cfg(all(not(feature = "m25-whisper-memory"), feature = "m18-browser-memory"))]
 const USER_MMAP_PAGE_TABLES: usize = 256;
-#[cfg(not(feature = "m18-browser-memory"))]
+#[cfg(all(
+    not(feature = "m25-whisper-memory"),
+    not(feature = "m18-browser-memory")
+))]
 const USER_MMAP_PAGE_TABLES: usize = 128;
 pub const USER_MMAP_PAGES: usize = PAGE_TABLE_ENTRIES * USER_MMAP_PAGE_TABLES;
 pub const USER_MMAP_LIMIT: u64 = USER_MMAP_BASE + USER_MMAP_PAGES as u64 * PAGE_SIZE;
@@ -174,8 +179,10 @@ pub(crate) struct BootstrapStorage {
     pub(crate) pml4: PageTable,
     pdpt: PageTable,
     pd: PageTable,
-    #[cfg(feature = "m18-browser-memory")]
+    #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
     mmap_pd_extra: PageTable,
+    #[cfg(feature = "m25-whisper-memory")]
+    mmap_pd_extra2: PageTable,
     pub(crate) image_pt: PageTable,
     image_extra_pts: [PageTable; USER_IMAGE_PAGE_TABLE_COUNT - 1],
     pub(crate) stack_pt: PageTable,
@@ -198,8 +205,10 @@ impl BootstrapStorage {
             pml4: PageTable::empty(),
             pdpt: PageTable::empty(),
             pd: PageTable::empty(),
-            #[cfg(feature = "m18-browser-memory")]
+            #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
             mmap_pd_extra: PageTable::empty(),
+            #[cfg(feature = "m25-whisper-memory")]
+            mmap_pd_extra2: PageTable::empty(),
             image_pt: PageTable::empty(),
             image_extra_pts: [const { PageTable::empty() }; USER_IMAGE_PAGE_TABLE_COUNT - 1],
             stack_pt: PageTable::empty(),
@@ -221,8 +230,10 @@ impl BootstrapStorage {
         self.pml4.clear();
         self.pdpt.clear();
         self.pd.clear();
-        #[cfg(feature = "m18-browser-memory")]
+        #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
         self.mmap_pd_extra.clear();
+        #[cfg(feature = "m25-whisper-memory")]
+        self.mmap_pd_extra2.clear();
         self.image_pt.clear();
         for table in &mut self.image_extra_pts {
             table.clear();
@@ -1373,18 +1384,27 @@ fn map_hierarchy(storage: &mut BootstrapStorage) -> Result<(), UserProcessError>
     let hierarchy_flags = PageTableEntry::PRESENT | PageTableEntry::WRITABLE | PageTableEntry::USER;
     let pdpt = table_address(&storage.pdpt)?;
     let pd = table_address(&storage.pd)?;
-    #[cfg(feature = "m18-browser-memory")]
+    #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
     let mmap_pd_extra = table_address(&storage.mmap_pd_extra)?;
+    #[cfg(feature = "m25-whisper-memory")]
+    let mmap_pd_extra2 = table_address(&storage.mmap_pd_extra2)?;
     let stack_pt = table_address(&storage.stack_pt)?;
     let tls_pt = table_address(&storage.tls_pt)?;
     let surface_pt = table_address(&storage.surface_pt)?;
     map_leaf(&mut storage.pml4, USER_PML4_INDEX, pdpt, hierarchy_flags)?;
     map_leaf(&mut storage.pdpt, USER_PDPT_INDEX, pd, hierarchy_flags)?;
-    #[cfg(feature = "m18-browser-memory")]
+    #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
     map_leaf(
         &mut storage.pdpt,
         USER_PDPT_INDEX + 1,
         mmap_pd_extra,
+        hierarchy_flags,
+    )?;
+    #[cfg(feature = "m25-whisper-memory")]
+    map_leaf(
+        &mut storage.pdpt,
+        USER_PDPT_INDEX + 2,
+        mmap_pd_extra2,
         hierarchy_flags,
     )?;
     for table_index in 0..USER_IMAGE_PAGE_TABLE_COUNT {
@@ -1419,15 +1439,25 @@ fn map_hierarchy(storage: &mut BootstrapStorage) -> Result<(), UserProcessError>
         let pd_index = user_pd_index(USER_MMAP_BASE) + table_index;
         if pd_index < PAGE_TABLE_ENTRIES {
             map_leaf(&mut storage.pd, pd_index, mmap_pt, hierarchy_flags)?;
-        } else {
-            #[cfg(feature = "m18-browser-memory")]
+        } else if pd_index < 2 * PAGE_TABLE_ENTRIES {
+            #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
             map_leaf(
                 &mut storage.mmap_pd_extra,
                 pd_index - PAGE_TABLE_ENTRIES,
                 mmap_pt,
                 hierarchy_flags,
             )?;
-            #[cfg(not(feature = "m18-browser-memory"))]
+            #[cfg(not(any(feature = "m18-browser-memory", feature = "m25-whisper-memory")))]
+            return Err(UserProcessError::InvalidLoadPlan);
+        } else {
+            #[cfg(feature = "m25-whisper-memory")]
+            map_leaf(
+                &mut storage.mmap_pd_extra2,
+                pd_index - 2 * PAGE_TABLE_ENTRIES,
+                mmap_pt,
+                hierarchy_flags,
+            )?;
+            #[cfg(not(feature = "m25-whisper-memory"))]
             return Err(UserProcessError::InvalidLoadPlan);
         }
     }
@@ -1825,7 +1855,9 @@ mod tests {
 
     #[test]
     fn bootstrap_mmap_window_matches_the_enabled_browser_memory_budget() {
-        let expected_window_bytes = if cfg!(feature = "m18-browser-memory") {
+        let expected_window_bytes = if cfg!(feature = "m25-whisper-memory") {
+            1536 * 1024 * 1024
+        } else if cfg!(feature = "m18-browser-memory") {
             512 * 1024 * 1024
         } else {
             256 * 1024 * 1024
@@ -1860,7 +1892,22 @@ mod tests {
         let first_pd_index = super::user_pd_index(USER_MMAP_BASE);
         let last_pd_index = first_pd_index + USER_MMAP_PAGE_TABLES - 1;
         assert!(storage.pd.raw_entry(first_pd_index).is_some());
-        if cfg!(feature = "m18-browser-memory") {
+        if cfg!(feature = "m25-whisper-memory") {
+            assert_eq!(last_pd_index, 2 * PAGE_TABLE_ENTRIES + 3);
+            assert!(storage.pd.raw_entry(PAGE_TABLE_ENTRIES - 1).is_some());
+            #[cfg(feature = "m25-whisper-memory")]
+            {
+                assert!(storage.pdpt.raw_entry(USER_PDPT_INDEX + 1).is_some());
+                assert!(storage.pdpt.raw_entry(USER_PDPT_INDEX + 2).is_some());
+                assert!(storage.mmap_pd_extra.raw_entry(0).is_some());
+                assert!(storage
+                    .mmap_pd_extra
+                    .raw_entry(PAGE_TABLE_ENTRIES - 1)
+                    .is_some());
+                assert!(storage.mmap_pd_extra2.raw_entry(0).is_some());
+                assert!(storage.mmap_pd_extra2.raw_entry(3).is_some());
+            }
+        } else if cfg!(feature = "m18-browser-memory") {
             assert_eq!(last_pd_index, PAGE_TABLE_ENTRIES + 3);
             assert!(storage.pd.raw_entry(PAGE_TABLE_ENTRIES - 1).is_some());
             #[cfg(feature = "m18-browser-memory")]

@@ -5,7 +5,8 @@
 #[cfg(any(
     feature = "m16-package",
     feature = "m19-search",
-    feature = "m27-recovery"
+    feature = "m27-recovery",
+    feature = "m25-whisper-inference-acceptance"
 ))]
 extern crate alloc;
 
@@ -15,7 +16,8 @@ extern crate alloc;
     any(
         feature = "m16-package",
         feature = "m19-search",
-        feature = "m27-recovery"
+        feature = "m27-recovery",
+        feature = "m25-whisper-inference-acceptance"
     )
 ))]
 struct GuestAllocator;
@@ -26,7 +28,8 @@ struct GuestAllocator;
     any(
         feature = "m16-package",
         feature = "m19-search",
-        feature = "m27-recovery"
+        feature = "m27-recovery",
+        feature = "m25-whisper-inference-acceptance"
     )
 ))]
 unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
@@ -53,7 +56,8 @@ unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
     any(
         feature = "m16-package",
         feature = "m19-search",
-        feature = "m27-recovery"
+        feature = "m27-recovery",
+        feature = "m25-whisper-inference-acceptance"
     )
 ))]
 #[global_allocator]
@@ -110,6 +114,8 @@ mod m20_model_store_fixture;
 mod m22_history;
 #[cfg(all(target_os = "nagi", feature = "m25-voice-acceptance"))]
 mod m25_voice;
+#[cfg(all(target_os = "nagi", feature = "m25-whisper-inference-acceptance"))]
+mod m25_whisper;
 #[cfg(all(
     target_os = "nagi",
     feature = "m12-network",
@@ -931,6 +937,44 @@ pub extern "C" fn _start(
     audio_capability: u64,
     model_store_capability: u64,
 ) -> ! {
+    // Check the kernel-provided ring-3 FPU state before C/C++ ELF constructors
+    // run. Those user-space initializers may legitimately use SIMD registers,
+    // so checking after them would test constructor residue instead of the
+    // process-entry contract.
+    if !libnagi::fpu_state_is_initial() {
+        libnagi::console_write(static_message!(
+            NAGI_INIT_FPU_STATE_FAIL,
+            FPU_STATE_FAIL_LEN
+        ));
+        libnagi::exit(1);
+    }
+    libnagi::console_write(static_message!(
+        NAGI_INIT_FPU_STATE_INITIAL_PASS,
+        FPU_STATE_INITIAL_PASS_LEN
+    ));
+    let message: *const u8;
+    unsafe {
+        asm!(
+            "lea {message}, [rip + {symbol}]",
+            message = out(reg) message,
+            symbol = sym NAGI_INIT_MESSAGE,
+            options(nostack, preserves_flags, readonly),
+        );
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(message, MESSAGE_LEN) };
+    libnagi::console_write(bytes);
+    if !libnagi::fpu_state_is_initial() {
+        libnagi::console_write(static_message!(
+            NAGI_INIT_FPU_STATE_FAIL,
+            FPU_STATE_FAIL_LEN
+        ));
+        libnagi::exit(1);
+    }
+    libnagi::console_write(static_message!(
+        NAGI_INIT_FPU_STATE_ROUND_TRIP_PASS,
+        FPU_STATE_ROUND_TRIP_PASS_LEN
+    ));
+
     unsafe { run_elf_initializers() };
 
     #[cfg(feature = "m20-llama-link-smoke")]
@@ -1030,39 +1074,6 @@ pub extern "C" fn _start(
     let _ = net_capability;
     #[cfg(not(feature = "m14-audio"))]
     let _ = audio_capability;
-    if !libnagi::fpu_state_is_initial() {
-        libnagi::console_write(static_message!(
-            NAGI_INIT_FPU_STATE_FAIL,
-            FPU_STATE_FAIL_LEN
-        ));
-        libnagi::exit(1);
-    }
-    libnagi::console_write(static_message!(
-        NAGI_INIT_FPU_STATE_INITIAL_PASS,
-        FPU_STATE_INITIAL_PASS_LEN
-    ));
-    let message: *const u8;
-    unsafe {
-        asm!(
-            "lea {message}, [rip + {symbol}]",
-            message = out(reg) message,
-            symbol = sym NAGI_INIT_MESSAGE,
-            options(nostack, preserves_flags, readonly),
-        );
-    }
-    let bytes = unsafe { core::slice::from_raw_parts(message, MESSAGE_LEN) };
-    libnagi::console_write(bytes);
-    if !libnagi::fpu_state_is_initial() {
-        libnagi::console_write(static_message!(
-            NAGI_INIT_FPU_STATE_FAIL,
-            FPU_STATE_FAIL_LEN
-        ));
-        libnagi::exit(1);
-    }
-    libnagi::console_write(static_message!(
-        NAGI_INIT_FPU_STATE_ROUND_TRIP_PASS,
-        FPU_STATE_ROUND_TRIP_PASS_LEN
-    ));
     #[cfg(feature = "m20-model-store-acceptance")]
     if !run_m20_model_store_capability_acceptance(model_store_capability) {
         libnagi::console_write(b"Nagi M20 Model Store capability FAIL\r\n");
@@ -1151,7 +1162,22 @@ pub extern "C" fn _start(
         ))
     )))]
     let _ = volume;
-    #[cfg(feature = "m25-voice-acceptance")]
+    #[cfg(feature = "m25-whisper-inference-acceptance")]
+    {
+        if exit_code != 0 {
+            libnagi::exit(exit_code);
+        }
+        if !m25_whisper::run(model_store_capability) {
+            libnagi::console_write(b"Nagi M25 Whisper Japanese fixture inference FAIL\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M25 Whisper Japanese fixture inference PASS\r\n");
+        libnagi::exit(0);
+    }
+    #[cfg(all(
+        feature = "m25-voice-acceptance",
+        not(feature = "m25-whisper-inference-acceptance")
+    ))]
     {
         if exit_code != 0 {
             libnagi::exit(exit_code);

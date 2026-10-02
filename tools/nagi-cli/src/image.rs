@@ -1568,6 +1568,14 @@ pub fn run_qemu_until_any_acceptance_marker(
     run_qemu_with_qmp_file_markers(config, acceptance_markers, false, false)
 }
 
+/// Run a subsequent guest boot without replacing the existing OVMF variables.
+pub fn run_qemu_until_any_acceptance_marker_reusing_ovmf_vars(
+    config: &QemuConfig<'_>,
+    acceptance_markers: &[&str],
+) -> Result<i32, String> {
+    run_qemu_with_qmp_file_markers(config, acceptance_markers, false, true)
+}
+
 pub fn run_qemu_until_any_acceptance_marker_with_read_only_boot_disk(
     config: &QemuConfig<'_>,
     acceptance_markers: &[&str],

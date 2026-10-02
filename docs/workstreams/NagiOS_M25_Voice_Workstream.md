@@ -25,6 +25,17 @@
   `AudioService` and a system-selected stream ID. The device adapter and
   `libnagi` dependency are compiled only for `target_os = "nagi"`; host tests
   exercise the orchestration contract with an injected fixture source.
+- `user/nagi-init/src/m25_whisper.rs` now implements a target
+  `SpeechToTextProvider` backed by the pinned whisper.cpp CPU library. It reads
+  the exact Whisper Small artifact through the guest's read-only Model Store
+  capability, accepts bounded mono 16 kHz PCM, and returns bounded UTF-8
+  transcript bytes through the existing push-to-talk coordinator. The
+  opt-in `./nagi m25-whisper-inference` gate requires real guest inference to
+  contain the expected Japanese fixture phrase; it does not execute it.
+- The C++ adapter sets whisper.cpp's supported per-utterance audio context to
+  the sample-derived duration plus a one-second zero tail, capped at the model
+  limit. Compile-time boundary checks cover empty, short, and capped inputs.
+  The normal M30 image and default memory limits remain unchanged.
 - `TextToSpeechProvider` is a replaceable, authority-free provider contract.
   It accepts at most 1 KiB of validated UTF-8 plus an explicit utterance
   language, and returns signed 16-bit little-endian PCM in 4 KiB chunks. The
@@ -150,14 +161,15 @@ intentionally verifies orchestration without relying on host audio.
 2. Connect `MicrophoneActivityIndicator` to the system-owned, localized UI and
    register the system push-to-talk shortcut. The contract test uses an
    in-memory indicator fixture.
-3. Implement the target whisper.cpp provider and Japanese transcription. The
-   upstream source is pinned in `third_party/sources.lock` at
+3. Finish the real Japanese transcription acceptance. The target whisper.cpp
+   provider is now connected and a fresh QEMU run loaded the pinned model and
+   entered inference, but no transcript or PASS marker has been observed yet.
+   The upstream source is pinned in `third_party/sources.lock` at
    `927cfce34f31707e17f2bff35c349632fb9e2c3a`. `./nagi fetch` validates that
    clean source and applies the Nagi-owned patch in
    `third_party/whisper-cpp-patches/` to a generated checkout under
-   `out/cache/whisper-cpp-nagi/`. The generated tree now builds the CPU-only
-   `whisper` target with Nagi's no-exception toolchain, but no provider is
-   connected to `SpeechToTextProvider` and no transcription has run. The
+   `out/cache/whisper-cpp-nagi/`. The generated tree builds the CPU-only
+   `whisper` target with Nagi's no-exception toolchain. The
    multilingual Whisper small artifact is pinned in `third_party/models.lock`
    to immutable Hugging Face revision
    `5359861c739e955e79d9a303bcbc70fb988958b1`, size 487,601,967 bytes, SHA-256
@@ -412,3 +424,41 @@ synthesize speech, or execute the fixture transcript. QEMU still reports no
 host `virtio-sound.in` driver. Authenticated permission/UI, a real Japanese STT
 provider and inference, concrete local TTS, and spoken-command acceptance
 remain incomplete; M25 stays `PARTIAL`.
+
+## Guest Whisper provider and inference attempt — 2026-10-03
+
+The target provider is implemented in `user/nagi-init/src/m25_whisper.rs` and
+is wired to the existing `SpeechToTextProvider` interface. The provider opens
+the pinned `openai.whisper-small-multilingual` artifact by stable Model Store
+ID through a read-only guest capability; the whisper.cpp loader receives
+bounded read/EOF/close callbacks and has no host or guest path interface. The
+provider supplies the requested Japanese language and converted 16 kHz mono
+fixture to the real `whisper_full` API. The current Nagi patch keeps this CPU
+path single-threaded until a target worker-pool capability is available. The
+provider does not execute transcript content.
+
+The opt-in `./nagi m25-whisper-inference <artifact.bin> <pcm> <expected>`
+command validates the model lock and bounded raw PCM format, builds the pinned
+Nagi-target Whisper library, installs the artifact only on a disposable
+reference image, and boots with M25-only memory bounds. The guest verifies the
+artifact digest through Model Store before whisper.cpp loads it. On 2026-10-03,
+QEMU logged the exact locked model metadata, completed weight loading and
+state/compute-buffer allocation, and entered the CPU inference call. The
+current optimized run
+(`out/evidence/m25-whisper-inference-1790978330938078000/`) has remained
+CPU-bound under QEMU TCG for more than 30 minutes without producing a
+transcript or acceptance marker. This is not an inference PASS; the command's
+one-hour timeout remains active. An earlier run without the shorter
+per-utterance audio context ran for more than two hours and was stopped. The
+context optimization keeps all fixture samples and adds a one-second tail, but
+its runtime and transcript quality still require acceptance evidence.
+
+`./nagi fmt` passes. The 16 `nagi-posix` tests pass with the M25 heap feature,
+the focused M25 kernel page-table-bound test passes, and the three focused
+`nagi-cli` M25 Whisper command/model-lock tests pass. The target library and
+guest image build as part of the active QEMU command. The pinned artifact and
+fixture are local ignored test inputs; the regular M30 image is unchanged.
+
+Authenticated microphone permission and activity UI, real audio capture,
+concrete local TTS, a completed Japanese inference PASS, and safe voice-command
+integration remain incomplete. M25 stays `PARTIAL`.
