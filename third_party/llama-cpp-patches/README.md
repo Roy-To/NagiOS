@@ -39,10 +39,21 @@ state size to the empty baseline, and preserves another sequence's logits.
 This is host regression coverage for the rollback contract; it does not remove
 the current exception-based error propagation.
 
+Patch `0008-nagi-tensor-weight-status.patch` replaces the throwing tensor
+weight constructor with checked initialization. It rejects absent tensor
+metadata and truncated or overflowed file extents before inserting a weight,
+stops loader construction on the first failure, and returns the existing model
+load failure status before metadata output or model creation. Duplicate tensor
+names remain rejected through the same status path. Its focused host test
+covers valid extents, missing metadata index, EOF truncation, and addition
+overflow; a separate target compile checks the helper with exceptions disabled.
+
 The current no-exception coverage is incremental: the GGUF parser/writer,
 chat-template status lookup, and grammar parser translation unit compile
 without exceptions. The full Nagi-target `llama` build still fails on exception
 syntax in shared model loading, context, KV-cache, tokenizer, sampler, and
-model-specific sources. Further patches must propagate those errors
+model-specific sources. Patch 0008 removes the header constructor's two
+exception diagnostics, but does not make the loader or central model-load
+translation units compile yet. Further patches must propagate those errors
 explicitly; replacing them with aborts or omitting required model paths would
 not preserve runtime behavior.

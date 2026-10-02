@@ -823,6 +823,40 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_tensor_weight_patch_returns_status_before_model_creation() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0008-nagi-tensor-weight-status.patch"),
+        )
+        .expect("Nagi tensor weight status patch");
+        let loader = patch
+            .split_once("diff --git a/src/llama-model-loader.h")
+            .expect("loader header patch")
+            .1
+            .split_once("diff --git a/src/llama.cpp")
+            .expect("model-load status patch")
+            .0;
+        let model_load = patch
+            .split_once("diff --git a/src/llama.cpp")
+            .expect("model-load status patch")
+            .1
+            .split("\ndiff --git ")
+            .next()
+            .expect("model-load patch section");
+
+        assert!(loader.contains("tensor_idx < 0"));
+        assert!(loader.contains("data_offset > file_size"));
+        assert!(loader.contains("tensor_offset > file_size - data_offset"));
+        assert!(loader.contains("tensor_size > file_size - tensor_data_offset"));
+        assert_eq!(loader.matches("if (!add_tensor_weight(").count(), 3);
+        assert!(loader.contains("tensor_weights_valid = false"));
+        assert!(model_load.contains("if (!ml.tensor_weights_valid)"));
+        assert!(
+            model_load.find("if (!ml.tensor_weights_valid)") < model_load.find("ml.print_info()")
+        );
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

@@ -568,3 +568,35 @@ The CLI suite passed 163 unit and 21 integration tests; Model Manager passed
 target. This verifies Model Store placement and artifact integrity only. The
 regular M30 image remains empty, no backend loaded the model, and no inference
 was performed. M20 remains `PARTIAL`.
+
+## Tensor-weight extent status propagation — 2026-10-02
+
+Patch `0008-nagi-tensor-weight-status.patch` replaces the throwing
+`llama_tensor_weight` constructor with explicit checked initialization. It
+rejects missing tensor metadata and out-of-file data before inserting a weight,
+checks both additions by subtraction-based bounds, preserves duplicate-name
+rejection, and stops the loader constructor on the first error. The model-load
+boundary checks this status before `print_info()` or model creation and returns
+the existing `{-1, nullptr}` failure result. The pin in
+`third_party/llama.cpp` remains clean.
+
+The new `test-model-loader-bounds` CTest passed on the host and covers a valid
+extent, missing tensor index, data offset beyond EOF, tensor offset beyond EOF,
+truncated tensor data, and offset-addition overflow. The same test source
+compiled as a Nagi target object with exceptions disabled. Its focused CLI
+patch-contract test passed, as did `./nagi test`, `./nagi fmt`, `./nagi lint`,
+and `./nagi build`.
+
+`./nagi fetch` generated and validated the patched llama.cpp checkout with
+patches 0001–0008, then stopped at the existing mismatched generated Servo
+checkout. That checkout was preserved without modification. With Homebrew LLVM
+19 and its libc++ headers supplied to the target wrapper, the focused
+`llama-model-loader.cpp` and `llama.cpp` object build still fails on unrelated
+exception syntax in the broader loader and model-load paths. The previous
+inline tensor-constructor errors are gone; this patch does not claim a complete
+Nagi-target `llama` build, backend, or inference. The target diagnostics are
+preserved at `out/logs/m20-loader-weight-status-target-build-20261002.log`.
+The test source, host CTest output, target object, build log, patch, and generated
+checkout marker have a verified manifest at
+`out/evidence/m20-tensor-weight-status-20261002/SHA256SUMS`. M20 remains
+`PARTIAL`.

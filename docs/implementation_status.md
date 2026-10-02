@@ -113,6 +113,23 @@ source, the CLI contract suite and four C++ example builds pass, and both change
 Swift files typecheck. Top-level `./nagi fetch` currently stops earlier at a
 pre-existing mismatched generated Servo checkout, so it did not reach llama.cpp.
 M20 remains `PARTIAL`.
+Patch `0008-nagi-tensor-weight-status.patch` now replaces the throwing tensor
+weight constructor with checked file-range initialization across the main,
+split-shard, and file-pointer loader paths. Missing tensor metadata, duplicate
+names, truncated ranges, and overflow fail before a weight enters the map; the
+model-load status is checked before metadata printing and model creation. Its
+host CTest passes the valid, missing-index, beyond-EOF, truncated, and overflow
+cases, and the same test translation unit compiles for Nagi with exceptions
+disabled. The focused CLI patch-contract test and `./nagi test`, `fmt`, `lint`,
+and `build` pass. `./nagi fetch` generated the numbered 0001–0008 llama.cpp
+checkout, then stopped at the pre-existing mismatched Servo checkout without
+modifying it. Focused target object compilation still fails on other
+exception-based loader and model-load paths; see
+`out/logs/m20-loader-weight-status-target-build-20261002.log`. No complete
+backend or inference is claimed. The patch, test source, host CTest output,
+target object and build log have a verified manifest at
+`out/evidence/m20-tensor-weight-status-20261002/SHA256SUMS`. M20 remains
+`PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
