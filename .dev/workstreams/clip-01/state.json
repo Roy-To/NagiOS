@@ -1,0 +1,213 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "clip-01",
+  "current_milestone": "Host-only clipboard / data-transfer contract and in-memory reference",
+  "current_checkpoint": "foundation-acceptance-pass;integrated-into-integration-next-phase;ci-green",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "02e05f3fa7d3c6e35aee14f67064adadcc307377",
+    "verified_at": "2026-10-02T04:30:37Z",
+    "normal_state": "CLIP-01 host-only Foundation acceptance is PASS on codex/0.2-clip-01, branched from codex/integration-next-phase a235eb9f7d6c15a71873b431a57271cd1aeba260. The clipboard implementation is commit 53f47bf08862bfa7225e4abf27458f4b8aa0a1ff; registration commit 4595e7ddb2437adc85df0a90220955a8952bc820 appends the reviewed clip-01 row to .dev/workstreams.json on this dedicated branch only, at the repository owner's direction. All 27 focused host acceptance tests, rustfmt --check, warning-denied Clippy, rustdoc, and git diff --check pass. ./nagi dev verify passes with 20 registered workstreams and 13 state files including clip-01, and ./nagi dev status accepts the branch. CI run 36963174425 at 4595e7d is green (ubuntu-host and windows-launcher success, including Verify development workstream state; nagi-target skipped as non-target-sensitive). The earlier run 36958468012 failed only because the branch was not yet registered. PASS covers host Foundation acceptance only: no compositor, IPC, target/QEMU, Capability wiring, or first-party clipboard acceptance is claimed. Nagi 0.1 M17-M30 work was not touched. Integration checkpoint: at the repository owner's direction, codex/0.2-clip-01 (ad7bb8d) was merged with --no-ff into codex/integration-next-phase as merge commit 02e05f3fa7d3c6e35aee14f67064adadcc307377 (parents a235eb9, ad7bb8d). The merge adds 16 files and changes no existing file except one appended clip-01 row in .dev/workstreams.json. On the integration branch the 27-test suite, fmt, warning-denied Clippy, git diff --check, and ./nagi dev verify (20 workstreams, 13 states) pass, and CI run 36964103446 at 02e05f3 succeeded. This integrates the host foundation only; runtime activation still requires M30 PASS and an explicit checkpoint naming CLIP-01.",
+    "commands": [
+      "git fetch origin --prune",
+      "git worktree add -b codex/0.2-clip-01 ~/.codex/worktrees/clip-01/NagiOS origin/codex/integration-next-phase",
+      "cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked --offline",
+      "cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check",
+      "cargo clippy --manifest-path crates/nagi-clipboard-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo doc --manifest-path crates/nagi-clipboard-core/Cargo.toml --offline --no-deps",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "python3 jsonschema validation of .dev/workstreams/clip-01/state.json against .dev/schemas/workstream-state.schema.json",
+      "git diff --cached --check",
+      "git show --stat HEAD",
+      "git push -u origin codex/0.2-clip-01",
+      "git ls-remote origin refs/heads/codex/0.2-clip-01",
+      "GitHub Actions list_workflow_runs branch=codex/0.2-clip-01",
+      "GitHub Actions get_job_logs for jobs 110686630321 (ubuntu-host) and 110686630386 (windows-launcher)",
+      "Append clip-01 registry_entry to .dev/workstreams.json on codex/0.2-clip-01",
+      "git push origin codex/0.2-clip-01",
+      "GitHub Actions list_workflow_jobs run 36963174425",
+      "git merge --no-ff origin/codex/0.2-clip-01 (on codex/integration-next-phase)",
+      "git push origin codex/integration-next-phase",
+      "GitHub Actions list_workflow_runs branch=codex/integration-next-phase"
+    ],
+    "tests": [
+      {
+        "name": "CLIP-01 focused host acceptance",
+        "command": "cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 acceptance tests passed, 0 failed; library and doc-test targets passed. Covers empty read, write/read, replacement, clear and idempotent empty clear, multiple representations, multiple ordered items, unsupported format, invalid media types/content/metadata, payload and total bounds without truncation, limit validation, generation increment/no-advance-on-failure/exhaustion, stale write/clear/read, denied write/read/clear/formats/generation, unavailable authorizer, restricted representation, claimed-origin non-authority with verified origin, non-destructive Move intent, unsupported contract version, envelope roundtrip/determinism, unsupported version/bad magic/every truncated prefix/trailing bytes/unknown tags/bounds-before-allocation/invalid UTF-8/duplicate metadata key, Debug/diagnostics payload redaction, sink failure isolation, permission mapping, and repeated deterministic runs."
+      },
+      {
+        "name": "CLIP-01 mutation sanity check",
+        "command": "temporarily treat AuthorizationDecision::Deny as Allow, then separately skip content validation in InMemoryClipboard::write; rerun cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked --offline; restore source",
+        "outcome": "PASS",
+        "exit_code": 101,
+        "evidence": "Both mutations were detected (5 and 4 failing tests respectively; cargo test exit 101 as expected). Source was restored and the suite returned to 27 passed."
+      },
+      {
+        "name": "CLIP-01 formatting",
+        "command": "cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Crate and acceptance test target are rustfmt-clean."
+      },
+      {
+        "name": "CLIP-01 warning-denied Clippy",
+        "command": "cargo clippy --manifest-path crates/nagi-clipboard-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All crate targets including the acceptance test pass Clippy with -D warnings."
+      },
+      {
+        "name": "DF-01 registered-state verifier",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 20 registered workstreams, 13 state files validated on codex/0.2-clip-01, including clip-01 after registration commit 4595e7d."
+      },
+      {
+        "name": "DF-01 workstream status",
+        "command": "./nagi dev status",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "After registration, dev status reports workstream clip-01 on codex/0.2-clip-01 with status PASS. Before registration it exited 4 (branch not registered)."
+      },
+      {
+        "name": "CLIP-01 state schema validation",
+        "command": "python3 jsonschema validation of .dev/workstreams/clip-01/state.json against .dev/schemas/workstream-state.schema.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "State validates against the current DF-01 workstream-state schema (jsonschema 4.26.0, Draft 2020-12)."
+      },
+      {
+        "name": "CLIP-01 owned commit scope",
+        "command": "git show --stat HEAD",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Commit 53f47bf contains exactly 14 files under crates/nagi-clipboard-core/**, tests/clipboard-core/**, .dev/workstreams/clip-01/**, and the CLIP-01 workstream document. No root workspace, lockfile, CI, registry, schema, IDL/ABI, kernel, user, sdk, nagi-model, nagi-capability, or 0.1 milestone file changed. Registration commit 4595e7d changes only .dev/workstreams.json (one appended clip-01 row, no other rows) and the clip-01 registration proposal."
+      },
+      {
+        "name": "Shared CI host jobs",
+        "command": "Nagi CI push workflow on codex/0.2-clip-01",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Run 36963174425 at 4595e7d: ubuntu-host and windows-launcher succeeded in every step (format, lint, build, test host workspace, focused M0 acceptance, Verify development workstream state). Earlier run 36958468012 at 53f47bf failed only in the nagi-cli dev-status test because the branch was unregistered; registration resolved it with no code change."
+      },
+      {
+        "name": "Integration checkpoint verification",
+        "command": "On codex/integration-next-phase at 02e05f3: cargo test/fmt --check/clippy -D warnings for crates/nagi-clipboard-core; git diff --check HEAD^1 HEAD; ./nagi dev verify; scope audit of HEAD^1..HEAD",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 passed; fmt and Clippy clean; diff check clean; dev verify PASS with 20 registered workstreams and 13 state files; changed paths limited to CLIP-01 paths plus an append-only clip-01 registry row; root Cargo.toml/Cargo.lock, .github, and .dev/schemas unchanged."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36964103446,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36964103446",
+        "head_sha": "02e05f3fa7d3c6e35aee14f67064adadcc307377",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Push workflow on codex/integration-next-phase for the CLIP-01 merge commit succeeded. The standalone clipboard crate is outside the root workspace, so CI did not run its 27-test suite (passed locally on the integration branch)."
+      },
+      {
+        "run_id": 36963174425,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36963174425",
+        "head_sha": "4595e7ddb2437adc85df0a90220955a8952bc820",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "target_classification, ubuntu-host, and windows-launcher succeeded; nagi-target skipped (no target-sensitive change). Includes DF-01 Verify development workstream state with clip-01 registered. The standalone clipboard crate is outside the root workspace, so CI did not run its 27-test suite (passed locally)."
+      },
+      {
+        "run_id": 36958468012,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36958468012",
+        "head_sha": "53f47bf08862bfa7225e4abf27458f4b8aa0a1ff",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "target_classification passed; nagi-target skipped (no target-sensitive change). ubuntu-host passed format, CI parser regression, lint, and build, then failed Test host-compatible workspace; windows-launcher passed build and failed the same step. Both failures are the single nagi-cli dev-status test that requires the current branch to be registered in .dev/workstreams.json. The standalone clipboard crate is outside the root workspace, so CI did not run its 27-test suite (passed locally)."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "AGENTS.md; docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md; docs/0.2/WORKSTREAMS.md; .dev/workstreams.json; Nagi_OS_0.2_Codex_Implementation_Spec.md; Nagi_OS_0.2_Parallel_Execution_Rules.md; docs/workstreams/NagiOS_0.2_Clipboard_Data_Transfer_Foundation_Workstream.md",
+    "last_checked_at": "2026-10-02T04:30:37Z",
+    "activation_requirement": "CLIP-01 host-only Foundation acceptance is PASS. Compositor/window-manager clipboard ownership, keyboard shortcuts, primary selection, drag-and-drop plumbing, production IPC, target/QEMU service, durable history, Capability enforcement wiring, Activity/Wayback/AI integration, and first-party adoption require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming CLIP-01. Current repository evidence keeps 0.1 M30 NOT STARTED."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": "No CLIP-01 failure remains. The only CI failure (run 36958468012, nagi-cli dev-status test rejecting the unregistered branch) was resolved by registration commit 4595e7d; run 36963174425 is green.",
+    "attempted_fixes": [
+      "Replaced an awkward stale-generation assertion and a meaningless Debug-redaction assertion in the acceptance test with exact expectations.",
+      "Rejected duplicate metadata keys in the envelope decoder (DecodeError::DuplicateMetadataKey) instead of letting a map insert collapse them silently.",
+      "Removed a trailing blank line from the copied workstream document so git diff --check passes; content is otherwise identical to the supplied specification.",
+      "Classified the CI failure from job logs and reproduced it with ./nagi dev status; did not edit .dev/workstreams.json, tools/nagi-cli, or CI because they are owned by the Integration Owner / development-foundation (Parallel Execution Rules section 6).",
+      "Applied the reviewed registry_entry on the dedicated branch only (NOTIFY-01 precedent) at the repository owner's direction; CI turned green with no code change."
+    ],
+    "do_not_try": [
+      "Do not edit .dev/workstreams.json, .dev/schemas/**, root Cargo.toml/Cargo.lock, .github/workflows/**, idl/**, schemas/**, sdk/**, crates/nagi-model/**, or crates/nagi-capability/**; submit changes through registration-proposal.json.",
+      "Do not modify Nagi 0.1 kernel, compositor, GUI, browser, Albert/Servo, runtime, active milestone branches, or worktrees.",
+      "Do not push to main, codex/integration-next-phase, or another workstream branch; push only codex/0.2-clip-01.",
+      "Do not add clipboard history, durable persistence, compositor/IPC/target wiring, Capability enforcement wiring, or Activity/Wayback/AI/telemetry payload recording before the M30 checkpoint.",
+      "Do not use ClaimedOrigin or content metadata for authorization or attribution.",
+      "Do not change other workstream rows in .dev/workstreams.json or push the registry change to codex/integration-next-phase outside an Integration Owner checkpoint."
+    ]
+  },
+  "next_action": "CLIP-01 host foundation is integrated into codex/integration-next-phase. Remaining owner actions: route the clipboard.write permission proposal to capability-permissions and the media-type reconciliation note to app-sdk-contract; optionally approve the proposed standalone CI steps. After Nagi 0.1 M30 PASS and an explicit checkpoint naming CLIP-01, bind CallerContext to the system-service IPC caller, ClipboardAuthorizer to the Capability enforcer, scope instances per profile/session, and integrate compositor/shell/Albert consumers. Do not merge to main without explicit user direction.",
+  "acceptance_criteria": [
+    "PASS: pre-implementation audit recorded; no existing clip-01 branch, registry row, or clipboard/pasteboard/data-offer/drag-drop contract exists; user/nagi-albert/src/clipboard.rs on 0.1 M18 branches is a future consumer and was not modified.",
+    "PASS (4.1): ClipboardGeneration, ordered ClipboardItems, alternative Representations, canonical MediaType, Text/Binary/ObjectReference payloads, non-destructive TransferIntent, untrusted ClaimedOrigin using nagi-model AppId/AppSessionId, and bounded untrusted metadata; no AppId, session, principal, ObjectId, or storage handle is redefined.",
+    "PASS (4.2): ClipboardService write/replace, formats/metadata, read selected representation, clear, generation, and stale expected_generation for write/clear/read with documented replacement semantics.",
+    "PASS (4.3): deterministic InMemoryClipboard reference, documented as non-persistent and history-free.",
+    "PASS (4.4): injected ClipboardAuthorizer seam keyed only on the trusted CallerContext; denied/unavailable write, read, clear, formats, and generation fail closed without state change; representation-level restriction hides and denies restricted formats; DenyAllAuthorizer is the only bundled authorizer.",
+    "PASS (4.5): explicit limits with hard caps; invalid media types, metadata, origin labels, payload/media mismatches, duplicates, unsupported contract and envelope versions, and oversized inline payloads are rejected without truncation.",
+    "PASS (4.6): the content model doubles as a generic data offer; Move is a non-destructive hint and CLIP-01 never deletes source data. Drag-and-drop plumbing is deferred.",
+    "PASS (5): every applicable required host test is implemented and passes (27 tests), including malformed/unsupported serialized version rejection and repeated deterministic runs.",
+    "PASS (6): caller authority comes only from CallerContext; claimed origin is preserved but never consulted; Debug output and diagnostics never contain payload, metadata values, or origin labels; diagnostics are opt-in and metadata-only; no cloud, cross-device, telemetry, AI, Activity, or Wayback recording.",
+    "PASS: format, warning-denied Clippy, rustdoc, git diff --check, and ./nagi dev verify pass; the clip-01 state validates against the DF-01 schema.",
+    "PASS: changes stay within CLIP-01 paths plus one appended clip-01 row in .dev/workstreams.json on the dedicated branch (owner-directed registration); shared schema, CI, root workspace/lockfile, IDL/ABI, SDK, Capability engine, other workstream rows, and 0.1 files are untouched.",
+    "PASS: codex/0.2-clip-01 is pushed, remote HEAD equals the verified commit, clip-01 is registered and included in ./nagi dev verify, and CI run 36963174425 is green.",
+    "PASS: integrated into codex/integration-next-phase as merge commit 02e05f3 with green CI run 36964103446; not merged to main."
+  ],
+  "deferred": [
+    "Shared CI steps for the standalone crate (proposal only).",
+    "Canonical clipboard.write permission registration (capability-permissions owner); production ClipboardAuthorizer binding to the Capability enforcer.",
+    "Binding CallerContext to authenticated system-service IPC callers; production IPC transport.",
+    "Per-profile/per-session clipboard scoping once IDENT-01 ProfileId is integrated.",
+    "Compositor/window-manager clipboard ownership, keyboard shortcuts, primary selection, drag-and-drop GUI plumbing, shell UI/toasts/paste menus.",
+    "Target/QEMU clipboard service and first-party adoption, including the M27 Albert permission-aware clipboard path.",
+    "Durable clipboard history, Activity/Wayback recording, cloud/cross-device clipboard.",
+    "Reconciling CLIP-01 MediaType with the app-sdk-contract manifest media-type validator."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 workstream state schema, ownership, registration, and verification rules.",
+      "version": "workstream-state-v1 at baseline a235eb9f7d6c15a71873b431a57271cd1aeba260",
+      "status": "PASS: clip-01 is registered on its dedicated branch and validated by ./nagi dev verify."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Canonical AppId, AppSessionId, ExecutionInstanceId, ObjectId from nagi-model.",
+      "version": "nagi-model 0.1.0",
+      "status": "PASS: consumed via path dependency; nothing redefined."
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "clipboard.read permission (master spec section 10.1) and a CapabilityEnforcer at service boundaries.",
+      "version": "nagi-capability 0.2.0 (inspected read-only)",
+      "status": "ADAPTER ONLY: ClipboardAuthorizer seam with host mocks; clipboard.write is proposed, not registered."
+    },
+    {
+      "workstream_id": "integration-next-phase",
+      "contract": "Registration, shared CI, and the post-M30 activation checkpoint.",
+      "version": "codex/integration-next-phase 02e05f3fa7d3c6e35aee14f67064adadcc307377",
+      "status": "PASS: host foundation and registry row integrated by merge commit 02e05f3; CI run 36964103446 green. Runtime activation remains gated."
+    }
+  ]
+}
