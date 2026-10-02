@@ -8249,3 +8249,22 @@ SHA-256 manifest are under `out/evidence/m22-regression-20261003/`. This
 confirms fixture persistence and undo behavior only; M19/M22 still lack
 authenticated production service callers and production Action/Activity
 service integration.
+
+## Completion Sweep — package/SDK regression and DF-01 availability (2026-10-03)
+
+`./nagi m16` rebuilt the out-of-tree Hello Nagi sample and its NAPP/.xapp
+packages, regenerated and compared the Rust/C IDL bindings, and built the
+feature target image. It then timed out in QEMU after printing `Nagi M14
+capture FAIL`; the host QEMU reports that it cannot open `virtio-sound.in`
+because no host audio input backend is available. The M16 guest install,
+launch, atomic update, and remove markers were not reached. This does not
+invalidate prior M16 acceptance, but this macOS rerun cannot revalidate those
+guest steps. Pre-run fixed-path state is under
+`out/evidence/m16-pre-regression-20261003/`; this attempt's image, User Data,
+OVMF vars, sample artifacts, generated bindings, and logs are preserved with a
+SHA-256 manifest under `out/evidence/m16-regression-20261003/`.
+
+The requested `DF-01 verify` regression has no implementation in this
+checkout: there is no `.dev` registry or verify command in the CLI. The M19
+workstream records that this baseline predates DF-01 state tooling. No DF-01
+result is claimed; rerun it only when that tooling is present in the branch.
