@@ -2,7 +2,7 @@
   "proposal_version": 1,
   "workstream_id": "clip-01",
   "name": "Clipboard / Data Transfer Foundation",
-  "proposal_status": "REGISTERED_ON_DEDICATED_BRANCH",
+  "proposal_status": "REGISTERED_AND_INTEGRATED",
   "proposal_baseline": {
     "commit_sha": "a235eb9f7d6c15a71873b431a57271cd1aeba260",
     "branch_observed": "codex/integration-next-phase",
@@ -51,7 +51,7 @@
     "note": "27 host acceptance tests pass with the repository-pinned nightly-2025-08-01 toolchain, together with rustfmt --check and warning-denied Clippy on all targets. These host checks do not establish compositor, IPC, target, or first-party clipboard acceptance."
   },
   "integration_owner_actions": [
-    "DONE on codex/0.2-clip-01: registry_entry appended to .dev/workstreams.json so ./nagi dev verify validates .dev/workstreams/clip-01/state.json and ./nagi dev status accepts the branch. Carry the row into codex/integration-next-phase at the next integration checkpoint.",
+    "DONE: registry_entry applied on codex/0.2-clip-01 (4595e7d) and integrated into codex/integration-next-phase (02e05f3).",
     "Ask the capability-permissions owner to register a clipboard.write permission (or an equivalent canonical ID) for write/clear; CLIP-01 only proposes the mapping via ClipboardOperation::proposed_permission and registers nothing.",
     "When a canonical MediaType contract is chosen, reconcile CLIP-01 MediaType with the private valid_media_type validator in sdk/rust/src/app_contract/manifest.rs (owned by app-sdk-contract); CLIP-01 is stricter (canonical lowercase, no parameters or wildcards).",
     "After Nagi 0.1 M30 PASS, publish an explicit checkpoint naming CLIP-01 before any compositor, IPC, target, Capability wiring, or first-party adoption work.",
@@ -80,6 +80,7 @@
   "registration_record": {
     "registered_at": "2026-10-02",
     "authorized_by": "Repository owner instruction to proceed with the listed Integration Owner action 1 (registration) in the CLIP-01 session",
-    "scope": "The registry_entry above was appended verbatim to .dev/workstreams.json on codex/0.2-clip-01 only, following the NOTIFY-01 precedent. codex/integration-next-phase, shared CI, schemas, and other workstream rows were not changed; the row reaches the integration branch only through a reviewed Integration Owner checkpoint."
+    "scope": "The registry_entry above was appended verbatim to .dev/workstreams.json on codex/0.2-clip-01 only, following the NOTIFY-01 precedent. codex/integration-next-phase, shared CI, schemas, and other workstream rows were not changed; the row reaches the integration branch only through a reviewed Integration Owner checkpoint.",
+    "integration": "Merged into codex/integration-next-phase by merge commit 02e05f3fa7d3c6e35aee14f67064adadcc307377 at the repository owner's direction; CI run 36964103446 green."
   }
 }
