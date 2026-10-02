@@ -920,3 +920,41 @@ Command Line Tools libc++ stops in availability/threading headers before
 compiling the loader body (20 errors). See
 `out/logs/m20-loader-status-0017-target-build.log`. No complete target backend
 or inference is claimed; M20 remains `PARTIAL`.
+
+## Model architecture failure status — 2026-10-02
+
+Added numbered patch
+`third_party/llama-cpp-patches/0018-nagi-llama-model-architecture-status.patch`.
+Unknown architecture and unsupported tensor-split requests now return null
+under `__NAGI__`; the loader overload also sets sticky loader failure status.
+Ordinary host builds preserve the existing exception behavior. The
+loader-bounds regression exercises each contract, including an unsupported
+GROK tensor split.
+
+Fresh generated-cache builds and focused CTests pass 1/1 in Nagi-macro and
+ordinary host configurations. All 181 CLI library tests, `./nagi test`,
+`./nagi fmt`, and `./nagi lint` pass. Logs are
+`out/logs/m20-loader-status-0018-final-nagi-build.log`,
+`out/logs/m20-loader-status-0018-final-nagi-ctest.log`,
+`out/logs/m20-loader-status-0018-final-host-build.log`,
+`out/logs/m20-loader-status-0018-final-host-ctest.log`,
+`out/logs/m20-loader-status-0018-final-cli-test.log`,
+`out/logs/m20-loader-status-0018-final-nagi-test.log`,
+`out/logs/m20-loader-status-0018-final-fmt.log`, and
+`out/logs/m20-loader-status-0018-final-lint.log`.
+
+Fresh `./nagi fetch` applied patches 0001–0018 with patch fingerprint
+`fnv1a64:5ed73ca7fd0df78e` and checkout fingerprint
+`fnv1a64:f501486afee21d41`; reverse `git apply --check` confirms patch 0018 is
+present. Fetch stopped at the pre-existing modified Servo checkout and did not
+touch it; `third_party/llama.cpp` remains clean. The complete pre-fetch
+generated checkout has a verified 3,674-entry SHA-256 manifest at
+`out/evidence/m20-loader-status-0018-20261002/SHA256SUMS`.
+
+With LLVM 19 and its libc++ selected explicitly, the no-exceptions target
+compile now reaches `llama-model.cpp`. Patch 0018 removes the architecture
+failure diagnostics; 15 remaining throw diagnostics identify 13 source sites
+in model initialization, metadata, buffer selection/allocation, and ggml
+context creation. See
+`out/logs/m20-loader-status-0018-final-target-model-build.log`. There is still
+no complete target backend or real local inference; M20 remains `PARTIAL`.

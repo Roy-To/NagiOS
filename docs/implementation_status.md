@@ -231,6 +231,29 @@ Command Line Tools libc++ fails in availability/threading headers before
 compiling the loader body (20 errors); see
 `out/logs/m20-loader-status-0017-target-build.log`. No complete target backend
 or in-guest inference is claimed; M20 remains `PARTIAL`.
+Patch `0018-nagi-llama-model-architecture-status.patch` routes unsupported
+model architectures and unsupported tensor-split mode to null/status failures
+under `__NAGI__`, while preserving the ordinary host exceptions. The
+loader-bounds regression checks both target and host contracts. Fresh generated
+cache builds and CTests pass 1/1 in both Nagi-macro and host configurations; all
+181 CLI library tests, `./nagi test`, `./nagi fmt`, and `./nagi lint` pass.
+
+Fresh `./nagi fetch` applied patches 0001–0018 with patch fingerprint
+`fnv1a64:5ed73ca7fd0df78e` and checkout fingerprint
+`fnv1a64:f501486afee21d41`; reverse `git apply --check` confirms patch 0018 is
+present. Fetch stopped at the pre-existing modified Servo checkout without
+touching it; `third_party/llama.cpp` remains clean. The preserved pre-fetch
+generated checkout and its verified 3,674-entry SHA-256 manifest are under
+`out/evidence/m20-loader-status-0018-20261002/generated-working-copy/`.
+
+Using the installed LLVM 19 compiler and libc++ explicitly, the Nagi
+no-exceptions compile reaches `llama-model.cpp` and reports 15 remaining throw
+diagnostics across 13 source sites; the architecture throw paths covered by
+patch 0018 are gone. See
+`out/logs/m20-loader-status-0018-final-target-model-build.log`. The remaining
+model initialization, metadata, buffer, and context failure paths continue in
+the next M20 slice. No complete target backend or in-guest inference is
+claimed; M20 remains `PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure

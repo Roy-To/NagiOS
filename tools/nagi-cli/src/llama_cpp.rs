@@ -1060,6 +1060,29 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_model_architecture_failures_have_nagi_status_returns() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch =
+            fs::read_to_string(root.join(
+                "third_party/llama-cpp-patches/0018-nagi-llama-model-architecture-status.patch",
+            ))
+            .expect("Nagi model architecture status patch");
+
+        assert!(patch.contains("unsupported model architecture '%s'"));
+        assert!(patch.contains("return nullptr;"));
+        assert!(patch.contains("LLAMA_SPLIT_MODE_TENSOR not implemented"));
+        assert!(
+            patch.contains("ml.fail_load(\"unknown model architecture: '\" + ml.get_arch_name()")
+        );
+        assert!(patch.contains("unsupported model architecture: '\") + llm_arch_name(arch)"));
+        assert!(patch.contains("model_architecture_failures_return_status"));
+        assert!(
+            patch.contains("failed_closed = !threw && model == nullptr && !loader.loader_valid;")
+        );
+        assert!(patch.contains("failed_closed = threw && model == nullptr && loader.loader_valid;"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
