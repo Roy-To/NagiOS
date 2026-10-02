@@ -887,7 +887,27 @@ payloads. The recursive walk uses `followlinks=False`, so an untracked
 directory symlink cannot hide external files outside checksum and manifest
 inventories. The new regression failed before the change and passes afterward;
 all 16 release-tool tests pass. `./nagi fmt`, `./nagi lint`, `./nagi test`, and
-`./nagi build` pass. The clean-source `./nagi m30` acceptance is being rerun
-from the committed checkpoint; M30 remains `PARTIAL` pending that result and
-the existing authenticated-update, remaining M18–M29, and redistribution
-review criteria.
+`./nagi build` pass.
+
+From commit `65f4d6f8773e0b373f237067960738f66e454f3b`, `./nagi m30` run
+`1790926329664045000` passed System A, User Data restart persistence, M19
+Search, M22 Ledger/Move/Copy, GPT Recovery, unchanged A/B journal, unstaged
+System B rejection, post-Recovery restart, and the separate M20 Model Store
+reader fixture. The source-bound 64 GiB qcow2 SHA-256 is
+`bda4e15274f52b9005497d05dff0ff732d01aac93d8fec5cd26fe87b50929258`; its
+build-info binds the image to the source commit. The host has no
+`virtio-sound.in` driver, though the configured sound device did not prevent
+acceptance.
+
+Clean-source release preflight passed. Assembly to
+`out/artifacts/m30-release-bundle-65f4d6f/`, release verification, all 23
+bundle checksums, byte identity between bundle and pristine qcow2, and both
+`qemu-img check` runs passed. The 17-entry run manifest verifies at
+`out/evidence/m30-release-1790926329664045000/SHA256SUMS`. The stale fixed-path
+image bound to `25e0b54` was preserved with its sidecar and a verified manifest
+at `out/evidence/m30-release-symlink-stale-image-65f4d6f/`.
+
+The release manifest retains `m30_acceptance=NOT_EVALUATED`; no model was
+loaded and no inference is claimed. M30 remains `PARTIAL` for authenticated
+System B updates, remaining M18–M29 acceptance, and human redistribution
+review.
