@@ -1,0 +1,85 @@
+{
+  "proposal_version": 1,
+  "workstream_id": "clip-01",
+  "name": "Clipboard / Data Transfer Foundation",
+  "proposal_status": "REGISTERED_ON_DEDICATED_BRANCH",
+  "proposal_baseline": {
+    "commit_sha": "a235eb9f7d6c15a71873b431a57271cd1aeba260",
+    "branch_observed": "codex/integration-next-phase",
+    "base_approval": "USER-DIRECTED: dedicated branch created from the current remote HEAD of the approved integration base after fetch/prune on 2026-10-02; no existing clip-01 branch, registry row, or clipboard workstream was found on any remote branch."
+  },
+  "registry_entry": {
+    "id": "clip-01",
+    "owner": "Codex CLIP-01 workstream",
+    "owner_branch": "codex/0.2-clip-01",
+    "recommended_worktree": "~/.codex/worktrees/clip-01/NagiOS",
+    "state_file": ".dev/workstreams/clip-01/state.json",
+    "dependencies": [
+      "development-foundation"
+    ],
+    "allowed_paths": [
+      "crates/nagi-clipboard-core/**",
+      "tests/clipboard-core/**",
+      ".dev/workstreams/clip-01/**",
+      "docs/workstreams/NagiOS_0.2_Clipboard_Data_Transfer_Foundation_Workstream.md"
+    ],
+    "forbidden_paths": [
+      "Cargo.toml",
+      "Cargo.lock",
+      ".github/workflows/**",
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      "docs/implementation_status.md",
+      "idl/**",
+      "schemas/**",
+      "kernel/**",
+      "loader/**",
+      "user/**",
+      "sdk/**",
+      "crates/nagi-model/**",
+      "crates/nagi-capability/**",
+      "third_party/**",
+      "out/**",
+      "target/**"
+    ],
+    "activation_gate": "Host clipboard/data-transfer contracts, the versioned content envelope, the authorization seam, tests, and the in-memory reference may be prepared on this dedicated branch. Compositor/window-manager clipboard ownership, keyboard shortcuts, primary selection, drag-and-drop plumbing, production IPC, target/QEMU service, durable history, Capability enforcement wiring, Activity/Wayback/AI integration, and first-party adoption require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming CLIP-01.",
+    "merge_boundary": "Dedicated codex/0.2-clip-01 branch only; integrate through an explicit checkpoint after review, and never merge directly to main, codex/integration-next-phase, or another workstream branch."
+  },
+  "proposed_host_test_command": {
+    "command": "cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked --offline",
+    "status": "PASS_IN_DEDICATED_WORKTREE",
+    "note": "27 host acceptance tests pass with the repository-pinned nightly-2025-08-01 toolchain, together with rustfmt --check and warning-denied Clippy on all targets. These host checks do not establish compositor, IPC, target, or first-party clipboard acceptance."
+  },
+  "integration_owner_actions": [
+    "DONE on codex/0.2-clip-01: registry_entry appended to .dev/workstreams.json so ./nagi dev verify validates .dev/workstreams/clip-01/state.json and ./nagi dev status accepts the branch. Carry the row into codex/integration-next-phase at the next integration checkpoint.",
+    "Ask the capability-permissions owner to register a clipboard.write permission (or an equivalent canonical ID) for write/clear; CLIP-01 only proposes the mapping via ClipboardOperation::proposed_permission and registers nothing.",
+    "When a canonical MediaType contract is chosen, reconcile CLIP-01 MediaType with the private valid_media_type validator in sdk/rust/src/app_contract/manifest.rs (owned by app-sdk-contract); CLIP-01 is stricter (canonical lowercase, no parameters or wildcards).",
+    "After Nagi 0.1 M30 PASS, publish an explicit checkpoint naming CLIP-01 before any compositor, IPC, target, Capability wiring, or first-party adoption work.",
+    "Do not merge this dedicated branch directly to main or another workstream branch."
+  ],
+  "scope_notes": [
+    "Only development-foundation is a hard dependency. capability-permissions, system-service-ipc, ident-01, diagnostics, and app-sdk-contract are adapter targets, not implied dependencies or edit permission.",
+    "The standalone crate depends only on the existing nagi-model 0.1.0 crate for AppId, AppSessionId, ExecutionInstanceId, and ObjectId. It defines no competing app, session, profile, principal, object, capability, or storage-handle identity.",
+    "The master 0.2 specification assigns no dedicated clipboard milestone; its clipboard references are the clipboard.read permission (section 10.1) and the M27 permission-aware Albert clipboard path. CLIP-01 host acceptance is therefore the workstream document's sections 4-6.",
+    "user/nagi-albert/src/clipboard.rs exists only on the active 0.1 M18 branches (ClipboardRuntime, ClipboardContext, TrustedClipboardGesture). It is a future consumer and was inspected read-only; CLIP-01 changes nothing on 0.1 branches.",
+    "One clipboard instance is profile/session-agnostic; per-profile or per-session scoping is a composition concern for the runtime owner once IDENT-01 ProfileId is integrated.",
+    "No clipboard history, durable persistence, cloud or cross-device sync, telemetry, AI ingestion, or Activity/Wayback payload recording is included.",
+    "Registration is applied on the dedicated branch only. Its state is now part of ./nagi dev verify on this branch; PASS still covers host Foundation acceptance only."
+  ],
+  "ci_proposal": {
+    "status": "PROPOSAL_ONLY_NO_SHARED_CI_EDIT",
+    "target": ".github/workflows/ci.yml",
+    "reason": "The clipboard crate is intentionally standalone and is not a root workspace member, so the current CI format, Clippy, build, and test commands do not compile or run its 27 acceptance cases.",
+    "suggested_steps": [
+      "cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check",
+      "cargo clippy --manifest-path crates/nagi-clipboard-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked --offline"
+    ],
+    "ownership_note": "A later Integration Owner/CI-acceptance checkpoint should approve and apply the shared workflow change; .github/workflows/ci.yml is forbidden to this workstream."
+  },
+  "registration_record": {
+    "registered_at": "2026-10-02",
+    "authorized_by": "Repository owner instruction to proceed with the listed Integration Owner action 1 (registration) in the CLIP-01 session",
+    "scope": "The registry_entry above was appended verbatim to .dev/workstreams.json on codex/0.2-clip-01 only, following the NOTIFY-01 precedent. codex/integration-next-phase, shared CI, schemas, and other workstream rows were not changed; the row reaches the integration branch only through a reviewed Integration Owner checkpoint."
+  }
+}
