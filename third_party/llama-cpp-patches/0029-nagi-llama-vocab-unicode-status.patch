@@ -1,0 +1,866 @@
+diff --git a/src/llama-vocab.cpp b/src/llama-vocab.cpp
+index e038637..0c8ccc7 100644
+--- a/src/llama-vocab.cpp
++++ b/src/llama-vocab.cpp
+@@ -907,7 +907,8 @@ struct llm_tokenizer_ugm : llm_tokenizer {
+ 
+             // First four bytes of precompiled_charsmap contains length of binary
+             // blob containing XOR-compressed compact double array (XCDA) entries
+-            uint32_t xcda_blob_size = *(const uint32_t *) &precompiled_charsmap[0];
++            uint32_t xcda_blob_size = 0;
++            std::memcpy(&xcda_blob_size, precompiled_charsmap.data(), sizeof(xcda_blob_size));
+             charsmap_offset += sizeof(xcda_blob_size);
+ 
+             // Next xcda_blob_size bytes contain entries of XOR-compressed compact
+@@ -1153,7 +1154,7 @@ private:
+     private:
+         uint32_t get_node(size_t index) {
+             if (index >= xcda_array_size) {
+-                throw std::runtime_error("Index out of array bounds in XCDA array!");
++                return 0;
+             }
+             return xcda_array[index];
+         }
+@@ -1199,6 +1200,9 @@ private:
+                     break;
+                 }
+                 node_index ^= c;
++                if (node_index >= tokenizer.xcda_array_size) {
++                    break;
++                }
+                 // if value of LCHECK is not c it means that this is not a child of
+                 // the previous node, so we stop matching
+                 if (xcda_view.get_lcheck(node_index) != c) {
+@@ -1211,6 +1215,9 @@ private:
+                 // containing index of replacement sequence for currently matched input prefix
+                 if (is_leaf)
+                 {
++                    if (node_index >= tokenizer.xcda_array_size) {
++                        return { "\xef\xbf\xbd", 3, 1 };
++                    }
+                     longest_prefix_length = prefix_offset - input_offset + 1;
+                     // get index of replacement sequence for currently matched input prefix
+                     longest_prefix_offset = xcda_view.get_value(node_index);
+@@ -1221,7 +1228,7 @@ private:
+         if (longest_prefix_length > 0) {
+             // we have a match, so return the replacement sequence
+             if (longest_prefix_offset >= tokenizer.prefix_replacements_size) {
+-                throw std::runtime_error("Index out of array bounds in precompiled charsmap!");
++                return { "\xef\xbf\xbd", 3, 1 };
+             }
+             const char * prefix_replacement = &(tokenizer.prefix_replacements)[longest_prefix_offset];
+             size_t max_len = tokenizer.prefix_replacements_size - longest_prefix_offset;
+@@ -1230,21 +1237,20 @@ private:
+                 repl_len++;
+             }
+             if (repl_len == max_len) {
+-                throw std::runtime_error("Unterminated string in precompiled charsmap!");
++                return { "\xef\xbf\xbd", 3, 1 };
+             }
+             return { prefix_replacement, repl_len, longest_prefix_length };
+         }
+ 
+         // check if the input prefix contains a valid sequence of UTF-8 code units
+-        try {
+-            // if yes, return this sequence unmodified
+-            size_t prefix_offset = input_offset;
+-            unicode_cpt_from_utf8(input, prefix_offset);
++        // if yes, return this sequence unmodified
++        size_t prefix_offset = input_offset;
++        [[maybe_unused]] uint32_t codepoint = 0;
++        if (unicode_cpt_from_utf8_checked(input, prefix_offset, codepoint)) {
+             return { &input[input_offset], prefix_offset - input_offset, prefix_offset - input_offset };
+-        } catch (std::invalid_argument & /*ex*/) {
+-            // if no, consume 1 byte and return U+FFFD - REPLACEMENT CHARACTER
+-            return { "\xEF\xBF\xBD", 3, 1 };
+         }
++        // if no, consume 1 byte and return U+FFFD - REPLACEMENT CHARACTER
++        return { "\xEF\xBF\xBD", 3, 1 };
+     }
+ 
+     const llama_vocab & vocab;
+@@ -1416,7 +1422,8 @@ struct llm_tokenizer_plamo2 : llm_tokenizer {
+         // Check that all byte tokens are set
+         for (int i = 0; i < 256; ++i) {
+             if (bytes_[i] == 0) {
+-                throw std::runtime_error("Byte token for <0x" + std::to_string(i) + "> is not set");
++                error_message_ = format("Byte token for <0x%02X> is not set", i);
++                return;
+             }
+         }
+ 
+@@ -1603,6 +1610,15 @@ struct llm_tokenizer_plamo2 : llm_tokenizer {
+ 
+         return token_ids;
+     }
++
++    bool valid() const {
++        return error_message_.empty();
++    }
++
++    const std::string & error_message() const {
++        return error_message_;
++    }
++
+ private:
+     // Constants for table structure
+     static constexpr int32_t TABLE_PIECE_LENGTH = 0;
+@@ -1631,6 +1647,7 @@ private:
+     // Flattened table representing the Trie structure
+     // Each row contains: [piece_length, token_id, score, piece_id]
+     std::vector<std::vector<int32_t>> table_;
++    std::string error_message_;
+ };
+ 
+ struct llm_tokenizer_plamo2_session {
+@@ -1859,6 +1876,7 @@ struct llama_vocab::impl {
+     std::vector<llama_token> suppress_tokens;
+ 
+     std::unique_ptr<llm_tokenizer> tokenizer;
++    std::string tokenizer_error;
+ 
+     std::vector<char> precompiled_charsmap;
+ 
+@@ -1885,7 +1903,7 @@ struct llama_vocab::impl {
+ 
+     llama_token_attr token_get_attr(llama_token id) const;
+ 
+-    void init_tokenizer(enum llama_vocab_type type);
++    bool init_tokenizer(enum llama_vocab_type type);
+ 
+     void tokenizer_st_partition(std::forward_list<fragment_buffer_variant> & buffer, bool parse_special) const;
+ 
+@@ -1936,6 +1954,9 @@ private:
+     const llama_vocab & vocab;
+ };
+ 
++#define LLAMA_VOCAB_FAIL_METADATA(ml, message) do { if (!(ml).fail_metadata(message)) return; } while (0)
++#define LLAMA_VOCAB_FAIL_LOAD(ml, message) do { if (!(ml).fail_load(message)) return; } while (0)
++
+ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+     struct gguf_context * ctx = ml.metadata;
+ 
+@@ -1945,6 +1966,9 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+         ml.get_key(LLM_KV_TOKENIZER_PRE,   tokenizer_pre, false);
+ 
+         ml.get_key(LLM_KV_TOKENIZER_TOKEN_TYPE_COUNT, n_token_types, false);
++        if (!ml.metadata_valid || !ml.loader_valid) {
++            return;
++        }
+ 
+         if (tokenizer_model == "no_vocab" || tokenizer_model == "none") {
+             type = LLAMA_VOCAB_TYPE_NONE;
+@@ -2000,14 +2024,14 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+ 
+             if (merges_keyidx == -1) {
+                 if (!is_kimi_k2) {
+-                    throw std::runtime_error("cannot find tokenizer merges in model file\n");
++                    LLAMA_VOCAB_FAIL_METADATA(ml, "cannot find tokenizer merges in model file\n");
+                 }
+                 // Kimi-K2 doesn't need merges, skip
+                 LLAMA_LOG_INFO("%s: Kimi-K2 tokenizer detected, skipping BPE merges\n", __func__);
+             } else {
+                 if (gguf_get_kv_type(ctx, merges_keyidx) != GGUF_TYPE_ARRAY ||
+                     gguf_get_arr_type(ctx, merges_keyidx) != GGUF_TYPE_STRING) {
+-                    throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_MERGES).c_str()));
++                    LLAMA_VOCAB_FAIL_METADATA(ml, format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_MERGES).c_str()));
+                 }
+                 const int n_merges = gguf_get_arr_n(ctx, merges_keyidx);
+                 for (int i = 0; i < n_merges; i++) {
+@@ -2049,34 +2073,78 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+             const int precompiled_charsmap_keyidx = gguf_find_key(ctx, kv(LLM_KV_TOKENIZER_PRECOMPILED_CHARSMAP).c_str());
+             if (precompiled_charsmap_keyidx != -1) {
+                 if (gguf_get_kv_type(ctx, precompiled_charsmap_keyidx) != GGUF_TYPE_ARRAY) {
+-                    throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_PRECOMPILED_CHARSMAP).c_str()));
++                    LLAMA_VOCAB_FAIL_METADATA(ml, format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_PRECOMPILED_CHARSMAP).c_str()));
+                 }
+                 const gguf_type pc_type = gguf_get_arr_type(ctx, precompiled_charsmap_keyidx);
+                 if (pc_type != GGUF_TYPE_INT8 && pc_type != GGUF_TYPE_UINT8) {
+-                    throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_PRECOMPILED_CHARSMAP).c_str()));
++                    LLAMA_VOCAB_FAIL_METADATA(ml, format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_PRECOMPILED_CHARSMAP).c_str()));
+                 }
+ 
+                 const size_t n_precompiled_charsmap = gguf_get_arr_n(ctx, precompiled_charsmap_keyidx);
+                 const char * pc = (const char *) gguf_get_arr_data(ctx, precompiled_charsmap_keyidx);
+-                precompiled_charsmap.assign(pc, pc + n_precompiled_charsmap);
++                if (n_precompiled_charsmap != 0) {
++                    if (pc == nullptr) {
++                        LLAMA_VOCAB_FAIL_METADATA(ml, "precompiled_charsmap data is null");
++                    }
++                    precompiled_charsmap.assign(pc, pc + n_precompiled_charsmap);
++                } else {
++                    precompiled_charsmap.clear();
++                }
+                 if (precompiled_charsmap.size() < sizeof(uint32_t)) {
+-                    throw std::runtime_error("precompiled_charsmap too small for xcda_blob_size header!");
++                    LLAMA_VOCAB_FAIL_METADATA(ml, "precompiled_charsmap too small for xcda_blob_size header!");
+                 }
+-                uint32_t * xcda_blob_size = (uint32_t *) &precompiled_charsmap[0];
++                uint32_t xcda_blob_size = 0;
++                std::memcpy(&xcda_blob_size, precompiled_charsmap.data(), sizeof(xcda_blob_size));
+ #if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+-                *xcda_blob_size = __builtin_bswap32(*xcda_blob_size);
++                xcda_blob_size = __builtin_bswap32(xcda_blob_size);
+ #endif
+-                if (*xcda_blob_size + sizeof(uint32_t) >= precompiled_charsmap.size()) {
+-                    throw std::runtime_error("Index out of array bounds in precompiled charsmap!");
++                if (xcda_blob_size % sizeof(uint32_t) != 0 ||
++                        xcda_blob_size >= precompiled_charsmap.size() - sizeof(uint32_t)) {
++                    LLAMA_VOCAB_FAIL_METADATA(ml, "invalid XCDA array size in precompiled charsmap");
+                 }
++                std::memcpy(precompiled_charsmap.data(), &xcda_blob_size, sizeof(xcda_blob_size));
+ #if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+                 // correct endianness of data in precompiled_charsmap binary blob
+-                size_t xcda_array_size = *xcda_blob_size / sizeof(uint32_t);
+-                uint32_t * xcda_array = (uint32_t *) &precompiled_charsmap[sizeof(uint32_t)];
++                size_t xcda_array_size = xcda_blob_size / sizeof(uint32_t);
+                 for (size_t i = 0; i < xcda_array_size; ++i) {
+-                    xcda_array[i] = __builtin_bswap32(xcda_array[i]);
++                    uint32_t entry = 0;
++                    const size_t entry_offset = sizeof(uint32_t) + i * sizeof(entry);
++                    std::memcpy(&entry, precompiled_charsmap.data() + entry_offset, sizeof(entry));
++                    entry = __builtin_bswap32(entry);
++                    std::memcpy(precompiled_charsmap.data() + entry_offset, &entry, sizeof(entry));
+                 }
+ #endif
++
++                const size_t xcda_array_size = xcda_blob_size / sizeof(uint32_t);
++                const size_t replacements_offset = sizeof(uint32_t) + xcda_blob_size;
++                const size_t replacements_size = precompiled_charsmap.size() - replacements_offset;
++                const char * replacements = precompiled_charsmap.data() + replacements_offset;
++                for (size_t i = 0; i < xcda_array_size; ++i) {
++                    uint32_t packed_node = 0;
++                    const size_t node_offset = sizeof(uint32_t) + i * sizeof(packed_node);
++                    std::memcpy(&packed_node, precompiled_charsmap.data() + node_offset, sizeof(packed_node));
++                    if ((packed_node & (1U << 31)) != 0 || ((packed_node >> 8) & 1) == 0) {
++                        continue;
++                    }
++
++                    const uint32_t base = (packed_node >> 10) << ((packed_node & (1U << 9)) >> 6);
++                    const size_t value_index = i ^ base;
++                    if (value_index >= xcda_array_size) {
++                        LLAMA_VOCAB_FAIL_METADATA(ml, "precompiled_charsmap leaf points outside the XCDA array");
++                    }
++
++                    uint32_t replacement_node = 0;
++                    const size_t value_offset = sizeof(uint32_t) + value_index * sizeof(replacement_node);
++                    std::memcpy(&replacement_node, precompiled_charsmap.data() + value_offset, sizeof(replacement_node));
++                    if ((replacement_node & (1U << 31)) == 0) {
++                        LLAMA_VOCAB_FAIL_METADATA(ml, "precompiled_charsmap leaf does not reference a replacement string");
++                    }
++                    const size_t replacement_offset = replacement_node & ((1U << 31) - 1);
++                    if (replacement_offset >= replacements_size ||
++                            std::memchr(replacements + replacement_offset, '\0', replacements_size - replacement_offset) == nullptr) {
++                        LLAMA_VOCAB_FAIL_METADATA(ml, "invalid replacement string in precompiled_charsmap");
++                    }
++                }
+             }
+         } else if (tokenizer_model == "rwkv") {
+             type = LLAMA_VOCAB_TYPE_RWKV;
+@@ -2113,12 +2181,12 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+             // read bpe merges and populate bpe ranks
+             const int merges_keyidx = gguf_find_key(ctx, kv(LLM_KV_TOKENIZER_MERGES).c_str());
+             if (merges_keyidx == -1) {
+-                throw std::runtime_error("cannot find tokenizer merges in model file\n");
++                LLAMA_VOCAB_FAIL_METADATA(ml, "cannot find tokenizer merges in model file\n");
+             }
+             {
+                 if (gguf_get_kv_type(ctx, merges_keyidx) != GGUF_TYPE_ARRAY ||
+                     gguf_get_arr_type(ctx, merges_keyidx) != GGUF_TYPE_STRING) {
+-                    throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_MERGES).c_str()));
++                    LLAMA_VOCAB_FAIL_METADATA(ml, format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_MERGES).c_str()));
+                 }
+                 const int n_merges = gguf_get_arr_n(ctx, merges_keyidx);
+                 for (int i = 0; i < n_merges; i++) {
+@@ -2148,7 +2216,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+ 
+             tokenizer_pre = "gemma4";
+         } else {
+-            throw std::runtime_error(format("unknown tokenizer: '%s'", tokenizer_model.c_str()));
++            LLAMA_VOCAB_FAIL_LOAD(ml, format("unknown tokenizer: '%s'", tokenizer_model.c_str()));
+         }
+ 
+         // for now, only BPE models have pre-tokenizers
+@@ -2420,7 +2488,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+                 tokenizer_pre == "mellum2") {
+                 pre_type = LLAMA_VOCAB_PRE_TYPE_MELLUM2;
+             } else {
+-                throw std::runtime_error(format("unknown pre-tokenizer type: '%s'", tokenizer_pre.c_str()));
++                LLAMA_VOCAB_FAIL_LOAD(ml, format("unknown pre-tokenizer type: '%s'", tokenizer_pre.c_str()));
+             }
+         } else if (type == LLAMA_VOCAB_TYPE_SPM) {
+             pre_type = LLAMA_VOCAB_PRE_TYPE_DEFAULT;
+@@ -2455,12 +2523,12 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+ 
+     const int token_idx = gguf_find_key(ctx, kv(LLM_KV_TOKENIZER_LIST).c_str());
+     if (token_idx == -1) {
+-        throw std::runtime_error("cannot find tokenizer vocab in model file\n");
++        LLAMA_VOCAB_FAIL_METADATA(ml, "cannot find tokenizer vocab in model file\n");
+     }
+ 
+     if (gguf_get_kv_type(ctx, token_idx) != GGUF_TYPE_ARRAY ||
+         gguf_get_arr_type(ctx, token_idx) != GGUF_TYPE_STRING) {
+-        throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_LIST).c_str()));
++        LLAMA_VOCAB_FAIL_METADATA(ml, format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_LIST).c_str()));
+     }
+ 
+     const uint32_t n_tokens = gguf_get_arr_n(ctx, token_idx);
+@@ -2473,11 +2541,11 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+         const gguf_type arr_type = kv_type == GGUF_TYPE_ARRAY ? gguf_get_arr_type(ctx, score_idx) : GGUF_TYPE_COUNT;
+         if (arr_type != GGUF_TYPE_INT32 &&
+             arr_type != GGUF_TYPE_FLOAT32) {
+-            throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_SCORES).c_str()));
++            LLAMA_VOCAB_FAIL_METADATA(ml, format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_SCORES).c_str()));
+         }
+         const uint32_t n_scores = gguf_get_arr_n(ctx, score_idx);
+         if (n_scores < n_tokens) {
+-            throw std::runtime_error("Index out of array bounds for scores (" + std::to_string(n_scores) + " < " + std::to_string(n_tokens) + ")\n");
++            LLAMA_VOCAB_FAIL_METADATA(ml, format("Index out of array bounds for scores (%u < %u)\n", n_scores, n_tokens));
+         }
+         if (arr_type == GGUF_TYPE_INT32) {
+             iscores = (const int *) gguf_get_arr_data(ctx, score_idx);
+@@ -2491,11 +2559,11 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+     if (toktype_idx != -1) {
+         if (gguf_get_kv_type(ctx, toktype_idx) != GGUF_TYPE_ARRAY ||
+             gguf_get_arr_type(ctx, toktype_idx) != GGUF_TYPE_INT32) {
+-            throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_TOKEN_TYPE).c_str()));
++            LLAMA_VOCAB_FAIL_METADATA(ml, format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_TOKEN_TYPE).c_str()));
+         }
+         const uint32_t n_toktypes = gguf_get_arr_n(ctx, toktype_idx);
+         if (n_toktypes < n_tokens) {
+-            throw std::runtime_error("Index out of array bounds for toktypes (" + std::to_string(n_toktypes) + " < " + std::to_string(n_tokens) + ")\n");
++            LLAMA_VOCAB_FAIL_METADATA(ml, format("Index out of array bounds for toktypes (%u < %u)\n", n_toktypes, n_tokens));
+         }
+         toktypes = (const int * ) gguf_get_arr_data(ctx, toktype_idx);
+     }
+@@ -2555,15 +2623,22 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+         }
+     }
+ 
+-    init_tokenizer(type);
++    if (!init_tokenizer(type)) {
++        LLAMA_VOCAB_FAIL_LOAD(ml, tokenizer_error);
++    }
+ 
+     // determine the newline token: LLaMA "<0x0A>" == 10 == '\n', Falcon 193 == '\n'
+     if (type == LLAMA_VOCAB_TYPE_SPM) {
+-        try {
+-            linefeed_id = vocab.byte_to_token('\n');
+-        } catch (const std::exception & e) {
+-            LLAMA_LOG_WARN("%s: SPM vocabulary, but newline token not found: %s! Using special_pad_id instead.", __func__, e.what());
++        auto newline_token = token_to_id.find("<0x0A>");
++        if (newline_token == token_to_id.end()) {
++            const char newline_text[] = { '\n', '\0' };
++            newline_token = token_to_id.find(newline_text);
++        }
++        if (newline_token == token_to_id.end()) {
++            LLAMA_LOG_WARN("%s: SPM vocabulary, but newline token not found. Using special_pad_id instead.\n", __func__);
+             linefeed_id = special_pad_id;
++        } else {
++            linefeed_id = newline_token->second;
+         }
+     } else if (type == LLAMA_VOCAB_TYPE_WPM) {
+         linefeed_id = special_pad_id;
+@@ -2663,7 +2738,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+             if (suppress_idx != -1) {
+                 if (gguf_get_kv_type(ctx, suppress_idx) != GGUF_TYPE_ARRAY ||
+                     gguf_get_arr_type(ctx, suppress_idx) != GGUF_TYPE_INT32) {
+-                    throw std::runtime_error(format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_SUPPRESS_TOKENS).c_str()));
++                    LLAMA_VOCAB_FAIL_METADATA(ml, format("invalid gguf type for %s", kv(LLM_KV_TOKENIZER_SUPPRESS_TOKENS).c_str()));
+                 }
+                 const int n = gguf_get_arr_n(ctx, suppress_idx);
+                 const int32_t * data = (const int32_t *) gguf_get_arr_data(ctx, suppress_idx);
+@@ -3131,6 +3206,9 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
+     }
+ }
+ 
++#undef LLAMA_VOCAB_FAIL_METADATA
++#undef LLAMA_VOCAB_FAIL_LOAD
++
+ enum llama_vocab_type llama_vocab::impl::get_type() const {
+     return type;
+ }
+@@ -3211,8 +3289,10 @@ llama_token_attr llama_vocab::impl::token_get_attr(llama_token id) const {
+     return id_to_token.at(id).attr;
+ }
+ 
+-void llama_vocab::impl::init_tokenizer(enum llama_vocab_type type) {
++bool llama_vocab::impl::init_tokenizer(enum llama_vocab_type type) {
+     LLAMA_LOG_DEBUG("%s: initializing tokenizer for type %d\n", __func__, type);
++    tokenizer.reset();
++    tokenizer_error.clear();
+ 
+     switch (type) {
+         case LLAMA_VOCAB_TYPE_SPM:
+@@ -3231,14 +3311,22 @@ void llama_vocab::impl::init_tokenizer(enum llama_vocab_type type) {
+             tokenizer = std::make_unique<llm_tokenizer_rwkv>(vocab);
+             break;
+         case LLAMA_VOCAB_TYPE_PLAMO2:
+-            tokenizer = std::make_unique<llm_tokenizer_plamo2>(vocab);
++        {
++            auto plamo2 = std::make_unique<llm_tokenizer_plamo2>(vocab);
++            if (!plamo2->valid()) {
++                tokenizer_error = plamo2->error_message();
++                return false;
++            }
++            tokenizer = std::move(plamo2);
+             break;
++        }
+         case LLAMA_VOCAB_TYPE_TEST:
+             tokenizer = std::make_unique<llm_tokenizer>();
+             break;
+         default:
+             GGML_ABORT("unsupported vocab type");
+     }
++    return true;
+ }
+ 
+ //
+@@ -3396,9 +3484,10 @@ static std::string llama_decode_text(const std::string & text) {
+     const auto cpts = unicode_cpts_from_utf8(text);
+     for (const auto cpt : cpts) {
+         const auto utf8 = unicode_cpt_to_utf8(cpt);
+-        try {
+-            decoded_text += unicode_utf8_to_byte(utf8);
+-        } catch (const std::out_of_range & /*e*/) {
++        uint8_t byte = 0;
++        if (unicode_utf8_to_byte_checked(utf8, byte)) {
++            decoded_text.push_back(static_cast<char>(byte));
++        } else {
+             decoded_text += "[UNK_BYTE_0x";
+             for (const auto c : utf8) {
+                 decoded_text += format("%02x", (uint8_t) c);
+diff --git a/src/unicode.cpp b/src/unicode.cpp
+index 93996f9..32af01b 100644
+--- a/src/unicode.cpp
++++ b/src/unicode.cpp
+@@ -5,6 +5,7 @@
+ #include <cassert>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstdlib>
+ #include <map>
+ #include <regex>
+ #include <stdexcept>
+@@ -27,41 +28,74 @@ static std::string unicode_cpts_to_utf8(const std::vector<uint32_t> & cps) {
+     return result;
+ }
+ 
+-uint32_t unicode_cpt_from_utf8(const std::string & utf8, size_t & offset) {
+-    assert(offset < utf8.size());
+-    if (!(utf8[offset + 0] & 0x80)) {
+-        auto result = utf8[offset + 0];
+-        offset += 1;
+-        return result;
+-    }
+-    if (!(utf8[offset + 0] & 0x40)) {
+-        throw std::invalid_argument("invalid character");
++bool unicode_cpt_from_utf8_checked(const std::string & utf8, size_t & offset, uint32_t & cpt) {
++    if (offset >= utf8.size()) {
++        return false;
+     }
+-    if (!(utf8[offset + 0] & 0x20)) {
+-        if (offset + 1 >= utf8.size() || ! ((utf8[offset + 1] & 0xc0) == 0x80)) {
+-            throw std::invalid_argument("invalid character");
++
++    const auto byte = [&utf8](size_t index) {
++        return static_cast<uint8_t>(utf8[index]);
++    };
++    const uint8_t first = byte(offset);
++    size_t length = 0;
++    uint32_t result = 0;
++
++    if (first <= 0x7f) {
++        length = 1;
++        result = first;
++    } else if (first >= 0xc2 && first <= 0xdf) {
++        length = 2;
++        if (length > utf8.size() - offset || (byte(offset + 1) & 0xc0) != 0x80) {
++            return false;
+         }
+-        auto result = ((utf8[offset + 0] & 0x1f) << 6) | (utf8[offset + 1] & 0x3f);
+-        offset += 2;
+-        return result;
+-    }
+-    if (!(utf8[offset + 0] & 0x10)) {
+-        if (offset + 2 >= utf8.size() || ! ((utf8[offset + 1] & 0xc0) == 0x80) || ! ((utf8[offset + 2] & 0xc0) == 0x80)) {
+-            throw std::invalid_argument("invalid character");
++        result = ((first & 0x1f) << 6) | (byte(offset + 1) & 0x3f);
++    } else if (first >= 0xe0 && first <= 0xef) {
++        length = 3;
++        if (length > utf8.size() - offset ||
++                (byte(offset + 1) & 0xc0) != 0x80 ||
++                (byte(offset + 2) & 0xc0) != 0x80 ||
++                (first == 0xe0 && byte(offset + 1) < 0xa0) ||
++                (first == 0xed && byte(offset + 1) >= 0xa0)) {
++            return false;
+         }
+-        auto result = ((utf8[offset + 0] & 0x0f) << 12) | ((utf8[offset + 1] & 0x3f) << 6) | (utf8[offset + 2] & 0x3f);
+-        offset += 3;
+-        return result;
+-    }
+-    if (!(utf8[offset + 0] & 0x08)) {
+-        if (offset + 3 >= utf8.size() || ! ((utf8[offset + 1] & 0xc0) == 0x80) || ! ((utf8[offset + 2] & 0xc0) == 0x80) || !((utf8[offset + 3] & 0xc0) == 0x80)) {
+-            throw std::invalid_argument("invalid character");
++        result = ((first & 0x0f) << 12) | ((byte(offset + 1) & 0x3f) << 6) | (byte(offset + 2) & 0x3f);
++    } else if (first >= 0xf0 && first <= 0xf4) {
++        length = 4;
++        if (length > utf8.size() - offset ||
++                (byte(offset + 1) & 0xc0) != 0x80 ||
++                (byte(offset + 2) & 0xc0) != 0x80 ||
++                (byte(offset + 3) & 0xc0) != 0x80 ||
++                (first == 0xf0 && byte(offset + 1) < 0x90) ||
++                (first == 0xf4 && byte(offset + 1) > 0x8f)) {
++            return false;
+         }
+-        auto result = ((utf8[offset + 0] & 0x07) << 18) | ((utf8[offset + 1] & 0x3f) << 12) | ((utf8[offset + 2] & 0x3f) << 6) | (utf8[offset + 3] & 0x3f);
+-        offset += 4;
++        result = ((first & 0x07) << 18) | ((byte(offset + 1) & 0x3f) << 12) |
++                ((byte(offset + 2) & 0x3f) << 6) | (byte(offset + 3) & 0x3f);
++    } else {
++        return false;
++    }
++
++    cpt = result;
++    offset += length;
++    return true;
++}
++
++uint32_t unicode_cpt_from_utf8(const std::string & utf8, size_t & offset) {
++    uint32_t result = 0;
++    if (unicode_cpt_from_utf8_checked(utf8, offset, result)) {
+         return result;
+     }
++#ifndef __NAGI__
++    if (offset < utf8.size() && static_cast<uint8_t>(utf8[offset]) <= 0xf7) {
++        throw std::invalid_argument("invalid character");
++    }
+     throw std::invalid_argument("failed to convert utf8 to codepoint");
++#else
++    if (offset < utf8.size()) {
++        ++offset;
++    }
++    return 0xfffd;
++#endif
+ }
+ 
+ //static std::vector<uint16_t> unicode_cpt_to_utf16(uint32_t cpt) {
+@@ -1085,33 +1119,45 @@ static std::vector<size_t> unicode_regex_split_custom(const std::string & text,
+ // interface
+ //
+ 
+-std::string unicode_cpt_to_utf8(uint32_t cpt) {
+-    std::string result;
++bool unicode_cpt_to_utf8_checked(uint32_t cpt, std::string & result) {
++    result.clear();
+ 
+     if (/* 0x00 <= cpt && */ cpt <= 0x7f) {
+         result.push_back(cpt);
+-        return result;
++        return true;
+     }
+     if (0x80 <= cpt && cpt <= 0x7ff) {
+         result.push_back(0xc0 | ((cpt >> 6) & 0x1f));
+         result.push_back(0x80 | (cpt & 0x3f));
+-        return result;
++        return true;
+     }
+-    if (0x800 <= cpt && cpt <= 0xffff) {
++    if (0x800 <= cpt && cpt <= 0xffff && !(0xd800 <= cpt && cpt <= 0xdfff)) {
+         result.push_back(0xe0 | ((cpt >> 12) & 0x0f));
+         result.push_back(0x80 | ((cpt >> 6) & 0x3f));
+         result.push_back(0x80 | (cpt & 0x3f));
+-        return result;
++        return true;
+     }
+     if (0x10000 <= cpt && cpt <= 0x10ffff) {
+         result.push_back(0xf0 | ((cpt >> 18) & 0x07));
+         result.push_back(0x80 | ((cpt >> 12) & 0x3f));
+         result.push_back(0x80 | ((cpt >> 6) & 0x3f));
+         result.push_back(0x80 | (cpt & 0x3f));
+-        return result;
++        return true;
+     }
+ 
++    return false;
++}
++
++std::string unicode_cpt_to_utf8(uint32_t cpt) {
++    std::string result;
++    if (unicode_cpt_to_utf8_checked(cpt, result)) {
++        return result;
++    }
++#ifndef __NAGI__
+     throw std::invalid_argument("invalid codepoint");
++#else
++    return "\xef\xbf\xbd";
++#endif
+ }
+ 
+ std::vector<uint32_t> unicode_cpts_normalize_nfd(const std::vector<uint32_t> & cpts) {
+@@ -1132,11 +1178,11 @@ std::vector<uint32_t> unicode_cpts_from_utf8(const std::string & utf8) {
+     result.reserve(utf8.size());
+     size_t offset = 0;
+     while (offset < utf8.size()) {
+-        try {
+-            result.push_back(unicode_cpt_from_utf8(utf8, offset));
+-        }
+-        catch (const std::invalid_argument & /*ex*/) {
+-            // Silently ignore invalid UTF-8 input to avoid leaking the exception beyond llama_tokenize
++        uint32_t cpt = 0;
++        if (unicode_cpt_from_utf8_checked(utf8, offset, cpt)) {
++            result.push_back(cpt);
++        } else {
++            // Replace invalid UTF-8 bytes one at a time to avoid leaking a conversion error beyond llama_tokenize.
+             ++offset;
+             result.emplace_back(0xFFFD); // replacement character
+         }
+@@ -1165,8 +1211,25 @@ std::string unicode_byte_to_utf8(uint8_t byte) {
+ }
+ 
+ uint8_t unicode_utf8_to_byte(const std::string & utf8) {
++    uint8_t byte = 0;
++    if (unicode_utf8_to_byte_checked(utf8, byte)) {
++        return byte;
++    }
++#ifndef __NAGI__
++    throw std::out_of_range("UTF-8 codepoint has no corresponding byte");
++#else
++    return 0;
++#endif
++}
++
++bool unicode_utf8_to_byte_checked(const std::string & utf8, uint8_t & byte) {
+     static std::unordered_map<std::string, uint8_t> map = unicode_utf8_to_byte_map();
+-    return map.at(utf8);
++    const auto it = map.find(utf8);
++    if (it == map.end()) {
++        return false;
++    }
++    byte = it->second;
++    return true;
+ }
+ 
+ uint32_t unicode_tolower(uint32_t cpt) {
+@@ -1298,7 +1361,9 @@ std::vector<std::string> unicode_regex_split(const std::string & text, const std
+         }
+ 
+         // fallback to general-purpose std::regex / std::wregex
++#ifndef __NAGI__
+         try {
++#endif
+             // if a unicode category is used in the regex, we use the collapsed text and replace the unicode category
+             // with the corresponding collapsed representation
+             bool use_collapsed = false;
+@@ -1314,7 +1379,11 @@ std::vector<std::string> unicode_regex_split(const std::string & text, const std
+                 // sanity-check that the original regex does not contain any non-ASCII characters
+                 for (size_t i = 0; i < cpts_regex.size(); ++i) {
+                     if (cpts_regex[i] >= 128) {
++#ifndef __NAGI__
+                         throw std::runtime_error("Regex includes both unicode categories and non-ASCII characters - not supported");
++#else
++                        std::abort();
++#endif
+                     }
+                 }
+ 
+@@ -1381,11 +1450,13 @@ std::vector<std::string> unicode_regex_split(const std::string & text, const std
+                 //printf("regex_expr: %s\n", regex_expr.c_str());
+                 bpe_offsets = unicode_regex_split_stl(wtext, wregex_expr, bpe_offsets);
+             }
++#ifndef __NAGI__
+         } catch (std::regex_error & e) {
+             fprintf(stderr, "Failed to process regex: '%s'\n", regex_expr.c_str());
+             fprintf(stderr, "Regex error: %s\n", e.what());
+             throw std::runtime_error("Failed to process regex");
+         }
++#endif
+     }
+ 
+     std::vector<std::string> bpe_words;
+diff --git a/src/unicode.h b/src/unicode.h
+index 600ab92..4d13cc3 100644
+--- a/src/unicode.h
++++ b/src/unicode.h
+@@ -93,6 +93,8 @@ size_t unicode_len_utf8(char src);
+ 
+ std::string unicode_cpt_to_utf8  (uint32_t cpt);
+ uint32_t    unicode_cpt_from_utf8(const std::string & utf8, size_t & offset);
++bool        unicode_cpt_to_utf8_checked(uint32_t cpt, std::string & utf8);
++bool        unicode_cpt_from_utf8_checked(const std::string & utf8, size_t & offset, uint32_t & cpt);
+ 
+ std::vector<uint32_t> unicode_cpts_from_utf8(const std::string & utf8);
+ 
+@@ -103,6 +105,7 @@ unicode_cpt_flags unicode_cpt_flags_from_utf8(const std::string & utf8);
+ 
+ std::string unicode_byte_to_utf8(uint8_t byte);
+ uint8_t     unicode_utf8_to_byte(const std::string & utf8);
++bool        unicode_utf8_to_byte_checked(const std::string & utf8, uint8_t & byte);
+ 
+ uint32_t unicode_tolower(uint32_t cpt);
+ 
+diff --git a/tests/test-model-loader-bounds.cpp b/tests/test-model-loader-bounds.cpp
+index f49e0dc..a740b81 100644
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -1,6 +1,8 @@
+ #include "llama-model-loader.h"
+ #include "llama-model.h"
+ #include "llama-io.h"
++#include "llama-vocab.h"
++#include "unicode.h"
+ 
+ #include <cstdio>
+ #include <limits>
+@@ -717,9 +719,150 @@ static bool llama_mmap_empty_file_returns_failure() {
+     return valid;
+ }
+ 
++static bool unicode_checked_utf8_rejects_invalid_sequences() {
++    const std::string valid_utf8 = "\xf0\x9f\x8c\x8a";
++    size_t offset = 0;
++    uint32_t codepoint = 0;
++    if (!unicode_cpt_from_utf8_checked(valid_utf8, offset, codepoint) ||
++            codepoint != 0x1f30a || offset != valid_utf8.size()) {
++        std::fprintf(stderr, "checked UTF-8 decoder rejected a valid four-byte codepoint\n");
++        return false;
++    }
++
++    const std::string invalid_utf8 = "\xed\xa0\x80";
++    offset = 0;
++    if (unicode_cpt_from_utf8_checked(invalid_utf8, offset, codepoint) || offset != 0) {
++        std::fprintf(stderr, "checked UTF-8 decoder accepted a surrogate sequence or changed its offset\n");
++        return false;
++    }
++    const auto repaired = unicode_cpts_from_utf8(invalid_utf8);
++    if (repaired != std::vector<uint32_t>(invalid_utf8.size(), 0xfffd)) {
++        std::fprintf(stderr, "UTF-8 replacement did not consume malformed input one byte at a time\n");
++        return false;
++    }
++
++    std::string encoded;
++    if (!unicode_cpt_to_utf8_checked(0x1f30a, encoded) || encoded != valid_utf8 ||
++            unicode_cpt_to_utf8_checked(0xd800, encoded)) {
++        std::fprintf(stderr, "checked codepoint encoder accepted an invalid Unicode scalar\n");
++        return false;
++    }
++
++    uint8_t byte = 0;
++    if (!unicode_utf8_to_byte_checked("A", byte) || byte != static_cast<uint8_t>('A') ||
++            unicode_utf8_to_byte_checked("\xff", byte)) {
++        std::fprintf(stderr, "checked tokenizer byte conversion returned an invalid mapping\n");
++        return false;
++    }
++    return true;
++}
++
++static bool invalid_tokenizer_metadata_returns_checked_status() {
++    struct gguf_context * metadata = gguf_init_empty();
++    if (metadata == nullptr) {
++        std::fprintf(stderr, "cannot allocate invalid-tokenizer metadata fixture\n");
++        return false;
++    }
++    gguf_set_val_str(metadata, "general.architecture", "llama");
++    gguf_set_val_str(metadata, "tokenizer.ggml.model", "nagi-invalid-tokenizer");
++
++    std::vector<std::string> splits;
++    bool valid = true;
++    {
++        llama_model_loader loader(metadata, nullptr, nullptr, "", splits, nullptr,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        llama_vocab vocab;
++        bool threw = false;
++        try {
++            vocab.load(loader, LLM_KV(LLM_ARCH_LLAMA));
++        } catch (const std::exception &) {
++            threw = true;
++        }
++#ifdef __NAGI__
++        valid = !threw && !loader.loader_valid;
++#else
++        valid = threw && loader.loader_valid;
++#endif
++    }
++    gguf_free(metadata);
++    if (!valid) {
++        std::fprintf(stderr, "unknown tokenizer did not reach the loader failure status\n");
++        return false;
++    }
++
++    metadata = gguf_init_empty();
++    if (metadata == nullptr) {
++        std::fprintf(stderr, "cannot allocate malformed-charsmap metadata fixture\n");
++        return false;
++    }
++    gguf_set_val_str(metadata, "general.architecture", "llama");
++    gguf_set_val_str(metadata, "tokenizer.ggml.model", "t5");
++    const uint8_t short_charsmap[] = { 0, 0, 0 };
++    gguf_set_arr_data(metadata, "tokenizer.ggml.precompiled_charsmap", GGUF_TYPE_UINT8,
++            short_charsmap, sizeof(short_charsmap));
++
++    valid = true;
++    {
++        llama_model_loader loader(metadata, nullptr, nullptr, "", splits, nullptr,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        llama_vocab vocab;
++        bool threw = false;
++        try {
++            vocab.load(loader, LLM_KV(LLM_ARCH_LLAMA));
++        } catch (const std::exception &) {
++            threw = true;
++        }
++#ifdef __NAGI__
++        valid = !threw && !loader.metadata_valid;
++#else
++        valid = threw && loader.metadata_valid;
++#endif
++    }
++    gguf_free(metadata);
++    if (!valid) {
++        std::fprintf(stderr, "malformed charsmap did not return checked metadata failure\n");
++        return false;
++    }
++
++    metadata = gguf_init_empty();
++    if (metadata == nullptr) {
++        std::fprintf(stderr, "cannot allocate malformed-XCDA metadata fixture\n");
++        return false;
++    }
++    gguf_set_val_str(metadata, "general.architecture", "llama");
++    gguf_set_val_str(metadata, "tokenizer.ggml.model", "t5");
++    const uint8_t malformed_leaf_charsmap[] = { 4, 0, 0, 0, 0, 0x15, 0, 0, 0 };
++    gguf_set_arr_data(metadata, "tokenizer.ggml.precompiled_charsmap", GGUF_TYPE_UINT8,
++            malformed_leaf_charsmap, sizeof(malformed_leaf_charsmap));
++
++    valid = true;
++    {
++        llama_model_loader loader(metadata, nullptr, nullptr, "", splits, nullptr,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        llama_vocab vocab;
++        bool threw = false;
++        try {
++            vocab.load(loader, LLM_KV(LLM_ARCH_LLAMA));
++        } catch (const std::exception &) {
++            threw = true;
++        }
++#ifdef __NAGI__
++        valid = !threw && !loader.metadata_valid;
++#else
++        valid = threw && loader.metadata_valid;
++#endif
++    }
++    gguf_free(metadata);
++    if (!valid) {
++        std::fprintf(stderr, "out-of-range charsmap leaf did not return checked metadata failure\n");
++    }
++    return valid;
++}
++
+ int main() {
+     if (!state_io_short_string_returns_failure() || !llama_file_io_short_read_returns_failure() ||
+-            !llama_mmap_empty_file_returns_failure() || !llama_load_mode_status() ||
++            !llama_mmap_empty_file_returns_failure() || !unicode_checked_utf8_rejects_invalid_sequences() ||
++            !invalid_tokenizer_metadata_returns_checked_status() || !llama_load_mode_status() ||
+             !invalid_context_parameters_return_null()) {
+         return 1;
+     }

@@ -1174,6 +1174,139 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_next_model_architecture_failures_return_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0023-nagi-llama-model-load-status.patch"),
+        )
+        .expect("Nagi next model architecture status patch");
+
+        assert!(patch.contains("LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN"));
+        assert!(patch.contains("LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN"));
+        assert!(patch.contains("src/models/cohere2moe.cpp"));
+        assert!(patch.contains("src/models/dbrx.cpp"));
+        assert!(patch.contains("src/models/deepseek.cpp"));
+        assert!(patch.contains("src/models/deepseek2.cpp"));
+        assert!(patch.contains("src/models/deepseek2ocr.cpp"));
+        assert!(patch.contains("src/models/deepseek32.cpp"));
+        assert!(patch.contains("src/models/deepseek4.cpp"));
+        assert!(patch.contains("src/models/dflash.cpp"));
+        assert!(patch.contains("src/models/eagle3.cpp"));
+        assert!(patch.contains("src/models/exaone-moe.cpp"));
+        assert!(patch.contains("src/models/gemma4-assistant.cpp"));
+        assert!(patch.contains("src/models/gemma4.cpp"));
+        assert!(patch.contains("src/models/glm-dsa.cpp"));
+        assert!(patch.contains("src/models/granite-swa.cpp"));
+        assert!(patch.contains("src/models/granite-switch.cpp"));
+        assert!(patch.contains("src/models/granite.cpp"));
+        assert!(patch.contains("src/models/grok.cpp"));
+        assert!(patch.contains("src/models/hy-v4.cpp"));
+        assert!(patch.contains("src/models/jina-bert-v3.cpp"));
+    }
+
+    #[test]
+    fn llama_cpp_additional_model_architecture_failures_return_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0024-nagi-llama-model-load-status.patch"),
+        )
+        .expect("Nagi additional model architecture status patch");
+
+        assert!(patch.contains("LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN"));
+        assert!(patch.contains("src/models/arwkv7.cpp"));
+        assert!(patch.contains("src/models/bailingmoe.cpp"));
+        assert!(patch.contains("src/models/bert.cpp"));
+        assert!(patch.contains("src/models/dots1.cpp"));
+        assert!(patch.contains("src/models/dots3note.cpp"));
+    }
+
+    #[test]
+    fn llama_cpp_model_load_status_does_not_require_exceptions() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0025-nagi-llama-model-load-status.patch"),
+        )
+        .expect("Nagi llama model load status patch");
+
+        assert!(patch.contains("include/llama.h"));
+        assert!(patch.contains("LLAMA_LOAD_MODE_INVALID"));
+        assert!(patch.contains("case LLAMA_LOAD_MODE_INVALID"));
+        assert!(patch.contains("src/llama.cpp"));
+        assert!(patch.contains("tests/test-model-loader-bounds.cpp"));
+        assert!(patch.contains("metadata_valid"));
+        assert!(patch.contains("error loading model hyperparameters"));
+        assert!(patch.contains("error loading model vocabulary"));
+        assert!(patch.contains("CLIP cannot be used as main model"));
+    }
+
+    #[test]
+    fn llama_cpp_context_initialization_returns_checked_failure_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0026-nagi-llama-context-status.patch"),
+        )
+        .expect("Nagi llama context status patch");
+
+        assert!(patch.contains("src/llama-context.cpp"));
+        assert!(patch.contains("src/llama-context.h"));
+        assert!(patch.contains("is_initialized()"));
+        assert!(patch.contains("bool llama_context::sched_reserve()"));
+        assert!(patch.contains("invalid_context_parameters_return_null"));
+        assert!(patch.contains("output_resolve_row"));
+    }
+
+    #[test]
+    fn llama_cpp_state_io_failures_return_checked_status_without_exceptions() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0027-nagi-llama-state-io-status.patch"),
+        )
+        .expect("Nagi llama state I/O status patch");
+
+        assert!(patch.contains("bool failed() const"));
+        assert!(patch.contains("read_string(std::string & str)"));
+        assert!(patch.contains("maximum state string size"));
+        assert!(patch.contains("state_read_data(llama_io_read_i & io)"));
+        assert!(patch.contains("io.failed()"));
+        assert!(patch.contains("state_seq_set_data"));
+        assert!(patch.contains("discard()"));
+        assert!(patch.contains("state_io_short_string_returns_failure"));
+    }
+
+    #[test]
+    fn llama_cpp_file_and_mapping_io_failures_return_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0028-nagi-llama-file-io-status.patch"),
+        )
+        .expect("Nagi llama file I/O status patch");
+
+        assert!(patch.contains("src/llama-mmap.h"));
+        assert!(patch.contains("src/llama-mmap.cpp"));
+        assert!(patch.contains("bool failed() const"));
+        assert!(patch.contains("mapping->failed()"));
+        assert!(patch.contains("file->failed()"));
+        assert!(patch.contains("llama_file_io_short_read_returns_failure"));
+        assert!(patch.contains("llama_mmap_empty_file_returns_failure"));
+    }
+
+    #[test]
+    fn llama_cpp_vocab_and_unicode_failures_return_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0029-nagi-llama-vocab-unicode-status.patch"),
+        )
+        .expect("Nagi llama vocabulary and Unicode status patch");
+
+        assert!(patch.contains("src/llama-vocab.cpp"));
+        assert!(patch.contains("src/unicode.cpp"));
+        assert!(patch.contains("unicode_cpt_from_utf8_checked"));
+        assert!(patch.contains("LLAMA_VOCAB_FAIL_METADATA"));
+        assert!(patch.contains("precompiled_charsmap leaf points outside the XCDA array"));
+        assert!(patch.contains("invalid_tokenizer_metadata_returns_checked_status"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

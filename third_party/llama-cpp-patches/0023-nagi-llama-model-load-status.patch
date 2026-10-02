@@ -1,0 +1,503 @@
+diff --git a/src/models/cohere2moe.cpp b/src/models/cohere2moe.cpp
+--- a/src/models/cohere2moe.cpp
++++ b/src/models/cohere2moe.cpp
+@@ -4,7 +4,7 @@
+     const bool found_norm     = ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS,     hparams.f_norm_eps,     false);
+     const bool found_norm_rms = ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps, false);
+     if (!found_norm && !found_norm_rms) {
+-        throw std::runtime_error("missing Cohere2 MoE norm epsilon");
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "missing Cohere2 MoE norm epsilon");
+     }
+     if (!found_norm_rms) {
+         hparams.f_norm_rms_eps = 0.0f;
+@@ -65,10 +65,10 @@
+     }
+ 
+     if (n_expert == 0) {
+-        throw std::runtime_error("n_expert must be > 0 for Cohere2Moe");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0 for Cohere2Moe");
+     }
+     if (n_expert_used == 0) {
+-        throw std::runtime_error("n_expert_used must be > 0 for Cohere2Moe");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0 for Cohere2Moe");
+     }
+ 
+     auto load_block_trunk = [&](int i, int flags) {
+diff --git a/src/models/dbrx.cpp b/src/models/dbrx.cpp
+--- a/src/models/dbrx.cpp
++++ b/src/models/dbrx.cpp
+@@ -14,7 +14,7 @@
+     LLAMA_LOAD_LOCALS;
+ 
+     if (n_expert == 0) {
+-        throw std::runtime_error("DBRX model cannot have zero experts");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "DBRX model cannot have zero experts");
+     }
+ 
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+diff --git a/src/models/deepseek.cpp b/src/models/deepseek.cpp
+--- a/src/models/deepseek.cpp
++++ b/src/models/deepseek.cpp
+@@ -45,14 +45,14 @@
+             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
+             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
+         } else {
+-            layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+-
+             if (n_expert == 0) {
+-                throw std::runtime_error("n_expert must be > 0");
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "n_expert must be > 0");
+             }
+             if (n_expert_used == 0) {
+-                throw std::runtime_error("n_expert_used must be > 0");
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "n_expert_used must be > 0");
+             }
++
++            layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+ 
+             // MoE branch
+             layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
+diff --git a/src/models/deepseek2.cpp b/src/models/deepseek2.cpp
+--- a/src/models/deepseek2.cpp
++++ b/src/models/deepseek2.cpp
+@@ -128,15 +128,15 @@
+             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, flags);
+             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, flags);
+         } else {
++            if (n_expert == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0");
++            }
++            if (n_expert_used == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0");
++            }
++
+             layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, flags);
+             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED | flags);
+-
+-            if (n_expert == 0) {
+-                throw std::runtime_error("n_expert must be > 0");
+-            }
+-            if (n_expert_used == 0) {
+-                throw std::runtime_error("n_expert_used must be > 0");
+-            }
+ 
+             // MoE branch
+             layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, flags);
+diff --git a/src/models/deepseek2ocr.cpp b/src/models/deepseek2ocr.cpp
+--- a/src/models/deepseek2ocr.cpp
++++ b/src/models/deepseek2ocr.cpp
+@@ -52,15 +52,15 @@
+             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
+             layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
+         } else {
++            if (n_expert == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "n_expert must be > 0");
++            }
++            if (n_expert_used == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "n_expert_used must be > 0");
++            }
++
+             layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
+-
+-            if (n_expert == 0) {
+-                throw std::runtime_error("n_expert must be > 0");
+-            }
+-            if (n_expert_used == 0) {
+-                throw std::runtime_error("n_expert_used must be > 0");
+-            }
+ 
+             // MoE branch
+             layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, 0);
+diff --git a/src/models/deepseek32.cpp b/src/models/deepseek32.cpp
+--- a/src/models/deepseek32.cpp
++++ b/src/models/deepseek32.cpp
+@@ -58,7 +58,7 @@
+ 
+     const bool is_mla = hparams.is_mla();
+     if (!is_mla) {
+-        throw std::runtime_error("DEEPSEEK32 architecture requires MLA");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "DEEPSEEK32 architecture requires MLA");
+     }
+ 
+     // note: these are the actual head sizes you get when treating as MHA or after "decompression" using wv_b for MLA
+@@ -117,15 +117,15 @@
+             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, flags);
+             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, flags);
+         } else {
++            if (n_expert == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0");
++            }
++            if (n_expert_used == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0");
++            }
++
+             layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, flags);
+             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
+-
+-            if (n_expert == 0) {
+-                throw std::runtime_error("n_expert must be > 0");
+-            }
+-            if (n_expert_used == 0) {
+-                throw std::runtime_error("n_expert_used must be > 0");
+-            }
+ 
+             // MoE branch
+             layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, flags);
+diff --git a/src/models/deepseek4.cpp b/src/models/deepseek4.cpp
+--- a/src/models/deepseek4.cpp
++++ b/src/models/deepseek4.cpp
+@@ -55,14 +55,14 @@
+     uint32_t n_compress_ratios = 0;
+     ml.get_arr_n(LLM_KV_ATTENTION_COMPRESS_RATIOS, n_compress_ratios);
+     if (n_compress_ratios < hparams.n_layer_all) {
+-        throw std::runtime_error("DeepSeek-V4 compress_ratios is shorter than block_count");
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "DeepSeek-V4 compress_ratios is shorter than block_count");
+     }
+     GGML_ASSERT(n_compress_ratios <= LLAMA_MAX_LAYERS);
+     ml.get_arr(LLM_KV_ATTENTION_COMPRESS_RATIOS, hparams.dsv4_compress_ratios);
+ 
+     ml.get_key(LLM_KV_EXPERT_GATING_FUNC, hparams.expert_gating_func);
+     if (hparams.expert_gating_func != LLAMA_EXPERT_GATING_FUNC_TYPE_SQRT_SOFTPLUS) {
+-        throw std::runtime_error("DeepSeek-V4 loader currently expects sqrtsoftplus MoE scoring");
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "DeepSeek-V4 loader currently expects sqrtsoftplus MoE scoring");
+     }
+     hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
+     hparams.set_swa_pattern(0);
+@@ -107,6 +107,11 @@
+     hc_head_scale = create_tensor(tn(LLM_TENSOR_HC_HEAD_SCALE, "weight"), {1}, 0);
+ 
+     for (int i = 0; i < n_layer_all; ++i) {
++        const int64_t ratio = hparams.dsv4_compress_ratios[i];
++        if (ratio != 0 && ratio != 4 && ratio != 128) {
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "DeepSeek-V4 loader only supports compression ratios 0, 4, and 128");
++        }
++
+         auto & layer = layers[i];
+         const int flags = i < n_layer ? trunk_flags : mtp_flags;
+ 
+@@ -129,7 +134,6 @@
+         layer.hc_ffn_base   = create_tensor(tn(LLM_TENSOR_HC_FFN_BASE,   "weight", i), {hc_mix_dim}, flags);
+         layer.hc_ffn_scale  = create_tensor(tn(LLM_TENSOR_HC_FFN_SCALE,  "weight", i), {3}, flags);
+ 
+-        const int64_t ratio = hparams.dsv4_compress_ratios[i];
+         if (ratio != 0) {
+             const int64_t coff = ratio == 4 ? 2 : 1;
+ 
+@@ -148,8 +152,6 @@
+                 layer.indexer_comp_wgate = create_tensor(tn(LLM_TENSOR_INDEXER_COMPRESSOR_WGATE, "weight", i), {n_embd, 2 * n_embd_indexer}, flags);
+                 layer.indexer_comp_ape   = create_tensor(tn(LLM_TENSOR_INDEXER_COMPRESSOR_APE,   "weight", i), {2 * n_embd_indexer, ratio}, flags);
+                 layer.indexer_comp_norm  = create_tensor(tn(LLM_TENSOR_INDEXER_COMPRESSOR_NORM,  "weight", i), {n_embd_indexer}, flags);
+-            } else if (ratio != 128) {
+-                throw std::runtime_error("DeepSeek-V4 loader only supports compression ratios 0, 4, and 128");
+             }
+         }
+ 
+diff --git a/src/models/dflash.cpp b/src/models/dflash.cpp
+--- a/src/models/dflash.cpp
++++ b/src/models/dflash.cpp
+@@ -15,7 +15,7 @@
+         if (hidden_act == "gelu" || hidden_act == "gelu_pytorch_tanh") {
+             hparams.llm_ffn_op = LLM_FFN_GELU;
+         } else if (hidden_act != "silu") {
+-            throw std::runtime_error("unsupported DFlash hidden activation: " + hidden_act);
++            LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "unsupported DFlash hidden activation: " + hidden_act);
+         }
+     }
+ 
+@@ -34,7 +34,7 @@
+     ml.get_key(LLM_KV_DFLASH_SELECTOR_TOP_K,   hparams.dflash_selector_top_k,   false);
+ 
+     if (!ml.get_arr(LLM_KV_TARGET_LAYERS, target_layer_ids, false)) {
+-        throw std::runtime_error("DFlash model requires 'target_layers' in GGUF metadata");
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "DFlash model requires 'target_layers' in GGUF metadata");
+     }
+ 
+     hparams.n_embd_inp_enc_impl = (uint32_t) target_layer_ids.size() * hparams.n_embd;
+@@ -71,11 +71,11 @@
+         GGML_ASSERT(hparams.dsv4_o_group_count > 0); // avoid div by zero
+ 
+         if (hparams.expert_gating_func != LLAMA_EXPERT_GATING_FUNC_TYPE_SQRT_SOFTPLUS) {
+-            throw std::runtime_error("DSpark DSV4 draft expects sqrtsoftplus MoE scoring");
++            LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "DSpark DSV4 draft expects sqrtsoftplus MoE scoring");
+         }
+         for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
+             if (hparams.dsv4_compress_ratios[il] != 0) {
+-                throw std::runtime_error("DSpark DSV4 draft expects uncompressed attention on all stages");
++                LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "DSpark DSV4 draft expects uncompressed attention on all stages");
+             }
+         }
+ 
+@@ -140,13 +140,13 @@
+         const int64_t rank = hparams.dflash_selector_rank;
+         if (rank <= 0 || hparams.dflash_block_size <= 0 || hparams.dflash_selector_top_k <= 0 ||
+                 hparams.dflash_conv_kernel_size <= 0 || hparams.dflash_conv_group_size <= 0) {
+-            throw std::runtime_error("DFlash2 model is missing conv/selector metadata");
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "DFlash2 model is missing conv/selector metadata");
+         }
+         if (n_embd % hparams.dflash_conv_group_size != 0) {
+-            throw std::runtime_error("DFlash2 hidden size must be divisible by conv_group_size");
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "DFlash2 hidden size must be divisible by conv_group_size");
+         }
+         if (n_embd < hparams.dflash_selector_top_k * (hparams.dflash_selector_top_k + 1)) {
+-            throw std::runtime_error("DFlash2 hidden size is too small for the selector lattice");
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "DFlash2 hidden size is too small for the selector lattice");
+         }
+ 
+         dflash_selector_prev   = create_tensor(tn(LLM_TENSOR_DFLASH_SELECTOR_PREV,   "weight"), { rank, n_vocab }, 0);
+diff --git a/src/models/eagle3.cpp b/src/models/eagle3.cpp
+--- a/src/models/eagle3.cpp
++++ b/src/models/eagle3.cpp
+@@ -4,10 +4,10 @@
+     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+ 
+     if (!ml.get_arr(LLM_KV_TARGET_LAYERS, target_layer_ids, false)) {
+-        throw std::runtime_error("EAGLE3 model requires 'extract_layers' in GGUF metadata");
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "EAGLE3 model requires 'extract_layers' in GGUF metadata");
+     }
+     if (target_layer_ids.size() != 3) {
+-        throw std::runtime_error("EAGLE3 requires exactly 3 entries in 'extract_layers'");
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "EAGLE3 requires exactly 3 entries in 'extract_layers'");
+     }
+     LLAMA_LOG_INFO("%s: EAGLE3 extract_layers = [%d, %d, %d]\n", __func__,
+             target_layer_ids[0],
+diff --git a/src/models/exaone-moe.cpp b/src/models/exaone-moe.cpp
+--- a/src/models/exaone-moe.cpp
++++ b/src/models/exaone-moe.cpp
+@@ -69,15 +69,15 @@
+             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff, n_embd}, flags);
+             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd, n_ff}, flags);
+         } else {
++            if (n_expert == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "n_expert must be > 0");
++            }
++            if (n_expert_used == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "n_expert_used must be > 0");
++            }
++
+             layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), {n_embd, n_expert}, flags);
+             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED | flags);
+-
+-            if (n_expert == 0) {
+-                throw std::runtime_error("n_expert must be > 0");
+-            }
+-            if (n_expert_used == 0) {
+-                throw std::runtime_error("n_expert_used must be > 0");
+-            }
+ 
+             layer.ffn_gate_exps  = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS,  "weight", i), {n_embd, n_ff_exp, n_expert}, flags);
+             layer.ffn_down_exps  = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS,  "weight", i), {n_ff_exp, n_embd, n_expert}, flags);
+diff --git a/src/models/gemma4-assistant.cpp b/src/models/gemma4-assistant.cpp
+--- a/src/models/gemma4-assistant.cpp
++++ b/src/models/gemma4-assistant.cpp
+@@ -22,13 +22,13 @@
+     LLAMA_LOAD_LOCALS;
+ 
+     if (n_embd_head_k != n_embd_head_v) {
+-        throw std::runtime_error("Gemma 4 assistant requires n_embd_head_k == n_embd_head_v");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "Gemma 4 assistant requires n_embd_head_k == n_embd_head_v");
+     }
+     if (hparams.n_embd_head_k_swa != hparams.n_embd_head_v_swa) {
+-        throw std::runtime_error("Gemma 4 assistant requires n_embd_head_k_swa == n_embd_head_v_swa");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "Gemma 4 assistant requires n_embd_head_k_swa == n_embd_head_v_swa");
+     }
+     if (hparams.n_embd_out() == n_embd) {
+-        throw std::runtime_error("Gemma 4 assistant requires embedding_length_out to carry the target hidden size");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "Gemma 4 assistant requires embedding_length_out to carry the target hidden size");
+     }
+ 
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, 0);
+diff --git a/src/models/gemma4.cpp b/src/models/gemma4.cpp
+--- a/src/models/gemma4.cpp
++++ b/src/models/gemma4.cpp
+@@ -40,10 +40,10 @@
+     const int64_t  n_ff_exp         = hparams.n_ff_exp();
+ 
+     if (n_embd_head_k != n_embd_head_v) {
+-        throw std::runtime_error("Gemma 4 requires n_embd_head_k == n_embd_head_v");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "Gemma 4 requires n_embd_head_k == n_embd_head_v");
+     }
+     if (hparams.n_embd_head_k_swa != hparams.n_embd_head_v_swa) {
+-        throw std::runtime_error("Gemma 4 requires n_embd_head_k_swa == n_embd_head_v_swa");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "Gemma 4 requires n_embd_head_k_swa == n_embd_head_v_swa");
+     }
+ 
+     output = create_tensor(tn(LLM_TENSOR_OUTPUT, "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
+diff --git a/src/models/glm-dsa.cpp b/src/models/glm-dsa.cpp
+--- a/src/models/glm-dsa.cpp
++++ b/src/models/glm-dsa.cpp
+@@ -91,7 +91,7 @@
+ 
+     const bool is_mla = hparams.is_mla();
+     if (!is_mla) {
+-        throw std::runtime_error("GLM_DSA architecture requires MLA");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "GLM_DSA architecture requires MLA");
+     }
+ 
+     // note: these are the actual head sizes you get when treating as MHA or after "decompression" using wv_b for MLA
+@@ -151,15 +151,15 @@
+             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, flags);
+             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, flags);
+         } else {
++            if (n_expert == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0");
++            }
++            if (n_expert_used == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0");
++            }
++
+             layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, flags);
+             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
+-
+-            if (n_expert == 0) {
+-                throw std::runtime_error("n_expert must be > 0");
+-            }
+-            if (n_expert_used == 0) {
+-                throw std::runtime_error("n_expert_used must be > 0");
+-            }
+ 
+             // MoE branch
+             layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, flags);
+diff --git a/src/models/granite-swa.cpp b/src/models/granite-swa.cpp
+--- a/src/models/granite-swa.cpp
++++ b/src/models/granite-swa.cpp
+@@ -35,7 +35,7 @@
+         if (val > hparams.n_deepstack_layers) {
+             std::stringstream ss;
+             ss << "Invalid deepstack index: " << val << " > " << hparams.n_deepstack_layers;
+-            throw std::runtime_error(ss.str());
++            LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, ss.str());
+         }
+     }
+ 
+diff --git a/src/models/granite-switch.cpp b/src/models/granite-switch.cpp
+--- a/src/models/granite-switch.cpp
++++ b/src/models/granite-switch.cpp
+@@ -28,10 +28,10 @@
+ 
+     // bound counts that size tensors
+     if (n_adapters > 4096) {
+-        throw std::runtime_error(format("graniteswitch: invalid adapter count %u", n_adapters));
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, format("graniteswitch: invalid adapter count %u", n_adapters));
+     }
+     if (max_lora_rank > 4096) {
+-        throw std::runtime_error(format("graniteswitch: invalid lora rank %u", max_lora_rank));
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, format("graniteswitch: invalid lora rank %u", max_lora_rank));
+     }
+ 
+     std::vector<llama_token> token_ids;
+@@ -40,7 +40,7 @@
+     ml.get_arr(LLM_KV_ADAPTER_TOKEN_IDS_SUBSTITUTE, substitute_ids);
+ 
+     if (token_ids.size() != n_adapters || substitute_ids.size() != n_adapters) {
+-        throw std::runtime_error(format(
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, format(
+             "graniteswitch: adapter token id arrays (%zu activate, %zu substitute) do not match adapter count %u",
+             token_ids.size(), substitute_ids.size(), n_adapters));
+     }
+@@ -60,7 +60,7 @@
+     // llama_model_n_layer_nextn() getter and a re-saved nextn_predict_layers
+     const uint32_t n_real = hparams.n_layer();
+     if (n_real >= LLAMA_MAX_LAYERS) {
+-        throw std::runtime_error(format("graniteswitch: block count %u exceeds LLAMA_MAX_LAYERS", n_real));
++        LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, format("graniteswitch: block count %u exceeds LLAMA_MAX_LAYERS", n_real));
+     }
+     hparams.router_layer  = (int32_t) n_real;
+     hparams.n_layer_all   = n_real + 1;
+@@ -79,16 +79,16 @@
+     const int64_t n_embd_q    = n_embd_head_k * n_head;
+     const int64_t n_embd_kv   = n_embd_k_gqa;
+ 
+-    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+-
+     // substitute ids index tok_embd rows directly; range-check against n_vocab
+     for (const auto & kv : adapter_token_to_substitute) {
+         const llama_token sub = kv.second;
+         if (sub < 0 || (int64_t) sub >= n_vocab) {
+-            throw std::runtime_error(format(
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, format(
+                 "graniteswitch: substitute token id %d out of range [0, %d)", sub, (int) n_vocab));
+         }
+     }
++
++    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
+     output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
+diff --git a/src/models/granite.cpp b/src/models/granite.cpp
+--- a/src/models/granite.cpp
++++ b/src/models/granite.cpp
+@@ -26,7 +26,7 @@
+         if (val > hparams.n_deepstack_layers) {
+             std::stringstream ss;
+             ss << "Invalid deepstack index: " << val << " > " << hparams.n_deepstack_layers;
+-            throw std::runtime_error(ss.str());
++            LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, ss.str());
+         }
+     }
+ 
+diff --git a/src/models/grok.cpp b/src/models/grok.cpp
+--- a/src/models/grok.cpp
++++ b/src/models/grok.cpp
+@@ -36,7 +36,7 @@
+     LLAMA_LOAD_LOCALS;
+ 
+     if (n_expert == 0) {
+-        throw std::runtime_error(arch_name() + " model cannot have zero experts");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, arch_name() + " model cannot have zero experts");
+     }
+ 
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+diff --git a/src/models/hy-v4.cpp b/src/models/hy-v4.cpp
+--- a/src/models/hy-v4.cpp
++++ b/src/models/hy-v4.cpp
+@@ -53,12 +53,12 @@
+         hparams.f_norm_eps = hparams.f_norm_rms_eps;
+ 
+         if (hparams.indexer_n_head == 0 || hparams.indexer_head_size <= hparams.n_rot()) {
+-            throw std::runtime_error("hy_v4: bad indexer head count / key length");
++            LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "hy_v4: bad indexer head count / key length");
+         }
+ 
+         ml.get_key_or_arr(LLM_KV_ATTENTION_INDEXER_TYPES, hparams.is_indexer_full_impl, hparams.n_layer(), false);
+         if (!hparams.is_indexer_full(0)) {
+-            throw std::runtime_error("hy_v4: layer 0 must own an indexer, nothing precedes it to share");
++            LLAMA_MODEL_ARCH_FAIL_METADATA_RETURN(ml, "hy_v4: layer 0 must own an indexer, nothing precedes it to share");
+         }
+     }
+ 
+@@ -133,15 +133,15 @@
+             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
+             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
+         } else {
++            if (n_expert == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "n_expert must be > 0");
++            }
++            if (n_expert_used == 0) {
++                LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, "n_expert_used must be > 0");
++            }
++
+             layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,    "weight", i), {n_embd, n_expert}, 0);
+             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias",   i), {n_expert}, TENSOR_NOT_REQUIRED);
+-
+-            if (n_expert == 0) {
+-                throw std::runtime_error("n_expert must be > 0");
+-            }
+-            if (n_expert_used == 0) {
+-                throw std::runtime_error("n_expert_used must be > 0");
+-            }
+ 
+             layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd,   n_ff_exp, n_expert}, 0);
+             layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd,   n_ff_exp, n_expert}, 0);
+diff --git a/src/models/jina-bert-v3.cpp b/src/models/jina-bert-v3.cpp
+--- a/src/models/jina-bert-v3.cpp
++++ b/src/models/jina-bert-v3.cpp
+@@ -14,7 +14,7 @@
+     LLAMA_LOAD_LOCALS;
+ 
+     if (n_token_types == 0) {
+-        throw std::runtime_error(arch_name() + " model needs to define token type count");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(*ml, arch_name() + " model needs to define token type count");
+     }
+     tok_embd     = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD,  "weight"), {n_embd, n_vocab}, 0);
+     type_embd    = create_tensor(tn(LLM_TENSOR_TOKEN_TYPES, "weight"), {n_embd, n_token_types}, TENSOR_NOT_REQUIRED);

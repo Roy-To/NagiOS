@@ -1134,3 +1134,26 @@ limit. The next model slice is in `cohere2moe.cpp`, `dbrx.cpp`,
 This patch verifies loader status propagation and host builds only; it does not
 complete the Nagi backend or establish in-guest inference. M20 remains
 `PARTIAL`.
+
+## Vocabulary and Unicode checked status — 2026-10-02
+
+Added llama.cpp patches 0023–0029 to the existing Nagi-owned patch stack.
+Patches 0023–0025 extend loader failure status through the remaining model
+architectures and model-load boundary; 0026 adds explicit context
+initialization status; 0027–0028 make state, file, and mmap I/O failures
+observable without target exceptions; 0029 validates T5 charsmap structure,
+returns tokenizer metadata/load errors through the loader, and adds checked
+UTF-8 scalar and byte conversion APIs. Host exception behavior remains enabled.
+
+Host and Nagi-macro CMake builds of `test-model-loader-bounds` passed. The
+focused CTest passed 1/1 in both configurations, including invalid tokenizer
+metadata, malformed charsmap leaves, and malformed UTF-8 fixtures. `cargo test
+-p nagi-cli` passed 192 library tests and 21 CLI integration tests. The
+Nagi-configured no-exceptions syntax sweep passed 27 of 32 top-level llama.cpp
+translation units; the remaining five are KV cache, DSV4 cache, recurrent
+memory, quantization, and sampler. The exact per-unit diagnostics are in
+`out/logs/m20-loader-status-0029-noexceptions-tu.log`; build and CTest logs
+are in `out/logs/m20-loader-status-0029-{host,nagi}-{build,ctest}.log`.
+
+This is compile and checked-error-propagation progress only. Granite has not
+been loaded or run for inference, so M20 remains `PARTIAL`.
