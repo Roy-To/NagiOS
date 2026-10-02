@@ -943,6 +943,22 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_loader_constructor_errors_fail_closed_without_target_exceptions() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch =
+            fs::read_to_string(root.join(
+                "third_party/llama-cpp-patches/0012-nagi-llama-loader-constructor-status.patch",
+            ))
+            .expect("Nagi loader constructor status patch");
+
+        assert!(patch.contains("fail_load(const std::string & message)"));
+        assert!(patch.contains("loader_valid = false"));
+        assert!(patch.contains("invalid_gguf_constructor_status"));
+        assert!(patch.contains("GGUF_TYPE_UINT16"));
+        assert!(patch.contains("!ml.loader_valid"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

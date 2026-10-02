@@ -696,3 +696,41 @@ tensor-loading `throw`/`try` syntax (20 diagnostics before the compiler's error
 limit). The exact failure is logged at
 `out/logs/m20-loader-status-0011-fetch-target-build.log`. This does not build a
 target backend or demonstrate inference. M20 remains `PARTIAL`.
+
+## Loader constructor status — 2026-10-02
+
+Added `third_party/llama-cpp-patches/0012-nagi-llama-loader-constructor-status.patch`.
+The loader now records invalid base-file, split-shard, split-index/count, and
+embedded-GGUF alignment failures in `loader_valid` on the Nagi target. The
+model-load boundary checks that status before printing metadata or creating a
+model. Host builds retain the prior exception behavior. A malformed file
+pointer fixture first reproduced an exception under `__NAGI__`; after the
+change, the same fixture returns with `loader_valid=false` and no throw.
+
+The regenerated-cache `test-model-loader-bounds` build and focused CTest pass
+in both the `__NAGI__` host fixture and ordinary host configurations (1/1
+each). All 175 CLI library tests and the `nagi-cli` format check pass. Logs are
+`out/logs/m20-loader-status-0012-fetch-nagi-build.log`,
+`out/logs/m20-loader-status-0012-fetch-nagi-ctest.log`,
+`out/logs/m20-loader-status-0012-fetch-upstream-build.log`,
+`out/logs/m20-loader-status-0012-fetch-upstream-ctest.log`,
+`out/logs/m20-loader-status-0012-cli-test.log`, and
+`out/logs/m20-loader-status-0012-target-build.log`.
+
+`./nagi fetch` regenerated a clean pinned llama.cpp checkout from patches
+0001–0012, with patch fingerprint `fnv1a64:74da9be6f2caabf9` and checkout
+fingerprint `fnv1a64:3c19b1e2cbab2fda`. Reverse `git apply --check` confirmed
+patch 0012 is present. Fetch then stopped at the pre-existing modified
+generated Servo checkout without modifying it. The prior generated working
+copy and its 3,674-entry SHA-256 manifest are under
+`out/evidence/m20-loader-status-0012-generated-checkout/`; all entries verified.
+The pinned `third_party/llama.cpp` source remains clean.
+
+The focused Nagi-target loader object no longer reports constructor failures;
+it still fails on tensor lookup/shape checks, context/tensor creation, and data
+loading exception paths (17 diagnostics before the compiler error limit). The
+`llama.cpp` object still has seven exception-related diagnostics in its load
+wrappers. Logs are `out/logs/m20-loader-status-0012-fetch-target-build.log` and
+`out/logs/m20-loader-status-0012-fetch-boundary-target-build.log`. These checks
+do not establish a complete target backend or inference. M20 remains
+`PARTIAL`.
