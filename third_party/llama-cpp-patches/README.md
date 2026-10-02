@@ -48,12 +48,38 @@ names remain rejected through the same status path. Its focused host test
 covers valid extents, missing metadata index, EOF truncation, and addition
 overflow; a separate target compile checks the helper with exceptions disabled.
 
-The current no-exception coverage is incremental: the GGUF parser/writer,
-chat-template status lookup, and grammar parser translation unit compile
-without exceptions. The full Nagi-target `llama` build still fails on exception
-syntax in shared model loading, context, KV-cache, tokenizer, sampler, and
-model-specific sources. Patch 0008 removes the header constructor's two
-exception diagnostics, but does not make the loader or central model-load
-translation units compile yet. Further patches must propagate those errors
-explicitly; replacing them with aborts or omitting required model paths would
-not preserve runtime behavior.
+Patch `0031-nagi-llama-dsv4-checked-status.patch` propagates invalid DSV4 batch,
+stream, compressor-plan, and rollback metadata through `FAILED_PREPARE` rather
+than throwing on Nagi. It constructs and validates compressor plans before
+reserving raw cache slots, and stops state serialization after the first
+checked I/O failure. Host validation still throws as before. Host and
+Nagi-macro loader-bounds builds cover integration; DSV4-specific malformed
+batch and state-writer fault injection are not yet available.
+
+Patch `0032-nagi-llama-sampler-ring-status.patch` replaces sampler ring-buffer
+throws with checked reads and a sticky failure bit on Nagi. Sampling returns
+`LLAMA_TOKEN_NULL` after a ring failure. Backend graph probes now report
+allocation/setup failure; a failed chain probe clears its partial backend
+prefix and leaves CPU sampling available. Host ring and probe errors retain
+their exceptions. The no-exception syntax check and existing host/Nagi
+sampling tests cover compilation and normal sampler behavior; a direct
+fault-injection test for internal ring corruption is still unavailable.
+
+Patch `0033-nagi-llama-quantize-checked-status.patch` propagates checked status
+through tensor type selection, dequantization, row quantization, and the model
+quantization driver. Invalid layer metadata, unsupported conversions, invalid
+imatrix data, and failed quantized-row validation stop the operation. The
+`llama_quant_compute_types` helper now returns `bool`, initializes result slots
+to `GGML_TYPE_COUNT`, and stages assignments so a failure cannot expose a
+partial type list. Host builds retain their exception behavior. The host and
+Nagi-macro quantization type-selection CTests pass; the Nagi test includes a
+checked-status regression for an invalid quantization state.
+
+The current incremental no-exception syntax sweep passes all 32 top-level
+`src/*.cpp` translation units, including the DSV4 cache, sampler, and
+quantizer. This is not a complete Nagi-target `llama` build: the last full
+target attempt, before patches 0031–0033, stopped on exception syntax in
+model-specific translation units, and that full target has not yet been
+re-run. Direct fault injection for DSV4 malformed batches/state I/O and
+sampler ring corruption is also unavailable. These compile and checked-status
+results do not establish Granite inference; M20 remains `PARTIAL`.

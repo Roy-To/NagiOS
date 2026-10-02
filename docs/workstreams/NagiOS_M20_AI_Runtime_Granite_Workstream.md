@@ -1176,3 +1176,34 @@ establishes compilation and checked propagation wiring, not an induced OOM
 acceptance. Logs are under `out/logs/m20-loader-status-0030-`.
 
 No model inference has run; M20 remains `PARTIAL`.
+
+## DSV4, sampler, and quantizer checked status — 2026-10-02
+
+Added llama.cpp patches 0031–0033 in the tracked patch directory. Patch 0031
+validates DSV4 coupled batch metadata, stream/slot layout, compression plans,
+and rollback indices before cache mutation, then stops state serialization on
+the first failed I/O operation. Patch 0032 replaces Nagi sampler ring throws
+with checked access and a sticky error state; sampling returns
+`LLAMA_TOKEN_NULL`, and a failed backend graph probe clears its partial setup
+before CPU sampling continues. Patch 0033 returns checked status through
+quantization type selection, dequantization, row validation, imatrix checks,
+and the model quantization driver. `llama_quant_compute_types` stages all
+results and uses `GGML_TYPE_COUNT` as its failure sentinel. Host builds retain
+exception behavior throughout.
+
+The focused host and Nagi-macro builds and CTests pass for sampler and
+quantization (`test-sampling` and `test-quant-type-selection`, 1/1 each).
+`test-model-loader-bounds` also built and passed in both configurations for
+the prior DSV4 slice. `cargo test -p nagi-cli` passes 196 library tests and 21
+CLI integration tests, and `cargo fmt --all -- --check` passes. A direct
+Nagi-configured no-exceptions syntax sweep now passes all 32 top-level
+`src/*.cpp` translation units; the complete full-target build has not been
+rerun and its last recorded attempt still fails in model-specific sources.
+Logs are `out/logs/m20-loader-status-0031-*`,
+`out/logs/m20-loader-status-0032-*`, and
+`out/logs/m20-loader-status-0033-*`.
+
+Direct DSV4 malformed-batch/state-writer and sampler ring fault-injection
+tests are unavailable. This work establishes checked compilation and normal
+host/Nagi test behavior, not the missing failure injections or guest model
+inference. M20 remains `PARTIAL`.

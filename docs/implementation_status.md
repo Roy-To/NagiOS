@@ -8136,3 +8136,31 @@ establishes compilation and checked propagation wiring, not an induced OOM
 acceptance. Logs are under `out/logs/m20-loader-status-0030-`.
 
 No model inference has run; M20 remains `PARTIAL`.
+
+## Completion Sweep — M20 DSV4, sampler, and quantization checked status (2026-10-02)
+
+Added llama.cpp patches 0031–0033. DSV4 batch, stream, compressor-plan, and
+rollback metadata now return checked preparation/I/O failures on Nagi, with
+compression plans validated before raw cache slots are reserved. Sampler ring
+access and backend graph setup now latch and propagate failure; sampling
+returns `LLAMA_TOKEN_NULL` after a failed ring operation. Quantizer type
+selection, dequantization, row validation, importance-matrix checks, and model
+quantization now propagate checked status. `llama_quant_compute_types` returns
+`bool`, leaves `GGML_TYPE_COUNT` in the result array on failure, and publishes
+types only after the full assignment succeeds. Host exception behavior remains
+enabled.
+
+Host and Nagi-macro builds of `test-model-loader-bounds`, `test-sampling`, and
+`test-quant-type-selection` passed. Focused CTests passed 1/1 for sampler and
+quantization in both configurations. `cargo test -p nagi-cli` passed 196
+library tests and 21 CLI integration tests, and `cargo fmt --all -- --check`
+passed. A fresh Nagi-configured `-fno-exceptions -fsyntax-only` sweep passed
+all 32 top-level llama.cpp `src/*.cpp` translation units; the result is in
+`out/logs/m20-loader-status-0033-noexceptions-tu.log`. Build and test logs are
+under `out/logs/m20-loader-status-003{1,2,3}-`.
+
+The full Nagi-target `llama` build has not been rerun after these patches. Its
+last recorded attempt stopped on exception syntax in model-specific source
+files. Direct fault injection for DSV4 malformed batch/state-I/O paths and
+sampler ring corruption is not available. No Granite inference has run, so
+M20 remains `PARTIAL`.

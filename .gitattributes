@@ -1,7 +1,8 @@
 * text=auto
 *.patch text eol=lf
-# Unified-diff context lines use a trailing space to represent blank source lines.
-third_party/llama-cpp-patches/*.patch whitespace=-blank-at-eol
+# Unified-diff context lines use a trailing space to represent blank source lines,
+# including when the final context line is at EOF.
+third_party/llama-cpp-patches/*.patch whitespace=-blank-at-eol,-blank-at-eof
 third_party/whisper-cpp-patches/0002-nagi-whisper-model-read-counts.patch whitespace=-blank-at-eol
 nagi text eol=lf
 tests/acceptance/*.sh text eol=lf

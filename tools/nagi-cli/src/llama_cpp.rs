@@ -1324,6 +1324,59 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_dsv4_runtime_validation_returns_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0031-nagi-llama-dsv4-checked-status.patch"),
+        )
+        .expect("Nagi llama DSV4 checked status patch");
+
+        assert!(patch.contains("bool dsv4_build_comp_plan("));
+        assert!(patch.contains("DSV4 CSA sequence positions are not contiguous"));
+        assert!(patch.contains("DSV4 raw write stream not found for coupled read"));
+        assert!(patch.contains("DSV4 recurrent state rollback index out of range"));
+        assert!(patch.contains("io.failed()"));
+        assert!(patch.contains("std::move(plans_csa)"));
+    }
+
+    #[test]
+    fn llama_cpp_sampler_failures_return_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0032-nagi-llama-sampler-ring-status.patch"),
+        )
+        .expect("Nagi llama sampler checked status patch");
+
+        assert!(patch.contains("bool rat(size_t i, T & value) const"));
+        assert!(patch.contains("ring buffer: capacity is zero"));
+        assert!(patch.contains("llama_sampler_has_failed_ring"));
+        assert!(patch.contains("sampler ring buffer is in a failed state"));
+        assert!(patch.contains("failed to create sampler backend graph"));
+        assert!(patch.contains("entry.is_backend = false"));
+    }
+
+    #[test]
+    fn llama_cpp_quantization_failures_return_checked_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch =
+            fs::read_to_string(root.join(
+                "third_party/llama-cpp-patches/0033-nagi-llama-quantize-checked-status.patch",
+            ))
+            .expect("Nagi llama quantization checked status patch");
+
+        assert!(patch.contains("static bool llama_quantization_error"));
+        assert!(patch.contains("static bool llama_tensor_dequantize_impl("));
+        assert!(patch.contains("static bool llama_tensor_quantize_impl("));
+        assert!(patch.contains("if (!llama_tensor_dequantize_impl("));
+        assert!(patch.contains("if (!llama_tensor_quantize_impl("));
+        assert!(patch.contains("LLAMA_API bool llama_quant_compute_types("));
+        assert!(patch.contains("std::fill_n(result_types, n_tensors, GGML_TYPE_COUNT)"));
+        assert!(patch.contains("if (!llama_tensor_get_type(*qs"));
+        assert!(patch.contains("#if !defined(__NAGI__)"));
+        assert!(patch.contains("run_checked_quant_status_test"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");
