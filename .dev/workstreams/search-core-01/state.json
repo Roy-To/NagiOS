@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "search-core-01",
   "current_milestone": "0.2-M19 host Foundation: provider/index boundary over canonical nagi-search",
-  "current_checkpoint": "host-foundation-acceptance-complete;registration-and-canonical-dependency-integration-pending;runtime-gated",
+  "current_checkpoint": "host-foundation-acceptance-complete;shared-ci-blocked-on-registry-registration;runtime-gated",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "20f8567a69c7b6ea334c2260d69924303e0016ba",
-    "verified_at": "2026-10-02T03:00:11Z",
-    "normal_state": "Every host-side Foundation acceptance item in the SEARCH-CORE-01 workstream document (section 6) and every host-testable 0.2-M19 item assigned to it is implemented and passes: 29 deterministic acceptance tests, rustfmt, and warning-denied Clippy on code commit 20f8567a69c7b6ea334c2260d69924303e0016ba (toolchain nightly-2025-08-01, rustc 1.90.0-nightly adcb3d3b4, x86_64 Linux cloud worktree). Four deliberate mutations (scope check, source-claim check, stale-revision check, caller visibility) were each caught by the suite and reverted. The status stays PARTIAL, not PASS, because (1) 0.2-M19 acceptance includes target persistence surviving restart, daemon/IPC, and provider adoption, all gated on Nagi 0.1 M30 PASS plus an explicit Integration Owner checkpoint; (2) the canonical nagi-search contract this foundation reuses exists only on the active 0.1 line (pinned read-only at de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa) and is not yet on the 0.2 integration base; (3) the workstream is not registered, so the root DF-01 verifier does not yet load this state. The base docs/implementation_status.md records M17 BLOCKED, M19 NOT STARTED (active M19 Search code exists only on codex/m19-m22-continuation), and M30 NOT STARTED, so the runtime gate is closed. No 0.1, shared registry, root workspace, CI, or other workstream file was changed.",
+    "commit_sha": "7a422e9dab31a16b7502b708a1901f3d317346f5",
+    "verified_at": "2026-10-02T04:08:33Z",
+    "normal_state": "Every host-side Foundation acceptance item in the SEARCH-CORE-01 workstream document (section 6) and every host-testable 0.2-M19 item assigned to it is implemented and passes: 29 deterministic acceptance tests, rustfmt, and warning-denied Clippy on code commit 20f8567a69c7b6ea334c2260d69924303e0016ba (toolchain nightly-2025-08-01, rustc 1.90.0-nightly adcb3d3b4, x86_64 Linux cloud worktree). Four deliberate mutations (scope check, source-claim check, stale-revision check, caller visibility) were each caught by the suite and reverted. The status stays PARTIAL, not PASS, because (1) 0.2-M19 acceptance includes target persistence surviving restart, daemon/IPC, and provider adoption, all gated on Nagi 0.1 M30 PASS plus an explicit Integration Owner checkpoint; (2) the canonical nagi-search contract this foundation reuses exists only on the active 0.1 line (pinned read-only at de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa) and is not yet on the 0.2 integration base; (3) the workstream is not registered: the root DF-01 verifier does not yet load this state, and shared CI run 36958301027 fails in nagi-cli test dev_status_resume_and_verify_read_the_registered_workstream because that test requires the current branch to be in .dev/workstreams.json (integration-owned). The SEARCH-CORE-01 code is not built or run by shared CI and is not implicated. The base docs/implementation_status.md records M17 BLOCKED, M19 NOT STARTED (active M19 Search code exists only on codex/m19-m22-continuation), and M30 NOT STARTED, so the runtime gate is closed. No 0.1, shared registry, root workspace, CI, or other workstream file was changed.",
     "commands": [
       "git fetch origin --prune; git ls-remote --heads origin",
       "git worktree add -b codex/0.2-search-core-01 ~/.codex/worktrees/search-core-01/NagiOS origin/codex/integration-next-phase",
@@ -22,7 +22,10 @@
       "python3 jsonschema validation of state.json against .dev/schemas/workstream-state.schema.json",
       "./nagi dev verify in a scratch copy with the proposed registry_entry applied",
       "git diff --cached --check",
-      "python3 owned-path audit of staged files against registration-proposal allowed/forbidden paths"
+      "python3 owned-path audit of staged files against registration-proposal allowed/forbidden paths",
+      "GitHub Actions run 36958301027 jobs and failed-job logs (ubuntu-host, windows-launcher)",
+      "./nagi dev status (local reproduction of the CI failure message)",
+      "cargo test -p nagi-cli --locked --offline --test cli (local; not runnable: third_party/cc-nagi absent until Servo bootstrap fetch)"
     ],
     "tests": [
       {
@@ -73,31 +76,54 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "PASS development state: 20 registered workstreams, 13 state files validated; branch codex/0.2-search-core-01. The scratch copy was discarded; the shared registry in this branch is unchanged."
+      },
+      {
+        "name": "Shared CI unregistered-branch reproduction",
+        "command": "./nagi dev status",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "FAIL branch `codex/0.2-search-core-01` is not registered in .dev/workstreams.json; create/assign a workstream before using dev status. Same message as the CI test panic. The same command passed in the scratch copy with the proposed registry_entry applied."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 36958301027,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36958301027",
+        "head_sha": "7a422e9dab31a16b7502b708a1901f3d317346f5",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "target_classification passed. ubuntu-host: format, CI parser regression, lint, and build passed; Test host-compatible workspace failed only in nagi-cli tests/cli.rs dev_status_resume_and_verify_read_the_registered_workstream (25 passed, 1 failed) with CliError code 4: branch codex/0.2-search-core-01 is not registered in .dev/workstreams.json. windows-launcher failed in the same test with the same message. Later steps (M0 acceptance, workstream state verification) were skipped; nagi-target was skipped. The standalone nagi-search-core crate is outside the root workspace and was not compiled by CI."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md on codex/integration-next-phase a235eb9f7d6c15a71873b431a57271cd1aeba260; .dev/workstreams/integration-next-phase/state.json; Nagi_OS_0.2_Codex_Implementation_Spec.md section 2.1 and 0.2-M00",
-    "last_checked_at": "2026-10-02T03:00:11Z",
+    "last_checked_at": "2026-10-02T04:08:33Z",
     "activation_requirement": "Nagi 0.1 M30 PASS, an explicit 0.2 release boundary, and an Integration Owner checkpoint naming SEARCH-CORE-01 before any daemon, IPC, guest persistence, provider adoption, UI, capability wiring, or target work."
   },
   "blocker": {
-    "active": false,
-    "class": null,
-    "summary": null,
-    "reproduction_commands": [],
-    "failure_log_summary": null,
-    "attempted_fixes": [],
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Shared host CI fails on this dedicated branch until the integration-owned registry .dev/workstreams.json contains the SEARCH-CORE-01 row; nagi-cli requires the current branch to be registered. Same situation as build-provenance.",
+    "reproduction_commands": [
+      "./nagi dev status",
+      "cargo test -p nagi-cli --locked --test cli dev_status_resume_and_verify_read_the_registered_workstream (after ./nagi fetch provides third_party/cc-nagi)"
+    ],
+    "failure_log_summary": "thread 'dev_status_resume_and_verify_read_the_registered_workstream' panicked at tools/nagi-cli/tests/cli.rs:206:10: registered workstream status: CliError { message: \"branch `codex/0.2-search-core-01` is not registered in .dev/workstreams.json; create/assign a workstream before using dev status\", code: 4 }",
+    "attempted_fixes": [
+      "Verified in a discarded scratch copy that appending registration-proposal.json registry_entry makes ./nagi dev verify and ./nagi dev status pass (20 workstreams, 13 states)."
+    ],
     "do_not_try": [
       "Do not copy, edit, or fork user/nagi-search or crates/nagi-model; consume the canonical contract and bump the pinned revision instead.",
       "Do not edit .dev/workstreams.json, .dev/schemas/**, root Cargo.toml/Cargo.lock, or .github/workflows/** from this branch; use registration-proposal.json.",
       "Do not add a second lexical/ranking index or body-text matcher here; propose it to the canonical nagi-search owner.",
       "Do not treat MetadataRecord.source_app or other payload fields as caller or provider identity.",
-      "Do not mark PASS on host evidence alone while 0.2-M19 target acceptance is gated."
+      "Do not mark PASS on host evidence alone while 0.2-M19 target acceptance is gated.",
+      "Do not weaken or skip the nagi-cli branch-registration test to turn this branch green.",
+      "Do not push empty commits or re-run CI expecting a different result before the registry row exists."
     ]
   },
-  "next_action": "Integration Owner: review registration-proposal.json and add the registry row; commit the master 0.2 spec and Parallel Execution Rules under docs/0.2/; decide platform-apis vs separate stream mapping and the canonical provider identity (AppId vs nagi-home-search ProviderId). Once user/nagi-search is on the integration base, switch the git pins to path dependencies and re-run the acceptance suite. Runtime work waits for M30 PASS plus a checkpoint naming SEARCH-CORE-01.",
+  "next_action": "Integration Owner: apply registration-proposal.json registry_entry to .dev/workstreams.json (this unblocks shared host CI on codex/0.2-search-core-01), then rerun host CI; commit the master 0.2 spec and Parallel Execution Rules under docs/0.2/; decide platform-apis vs separate stream mapping and the canonical provider identity (AppId vs nagi-home-search ProviderId). Once user/nagi-search is on the integration base, switch the git pins to path dependencies and re-run the acceptance suite. Runtime work waits for M30 PASS plus a checkpoint naming SEARCH-CORE-01.",
   "acceptance_criteria": [
     "HOST PASS: insert then query returns the object with provider and revision provenance.",
     "HOST PASS: upsert of the same identity and revision is idempotent; a newer revision replaces content incrementally.",
