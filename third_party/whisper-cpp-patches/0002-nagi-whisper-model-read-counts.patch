@@ -1,0 +1,284 @@
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -975,0 +976,45 @@
++enum class ModelReadStatus {
++    Complete,
++    Stalled,
++    InvalidCount,
++};
++
++static ModelReadStatus read_model_data(whisper_model_loader * loader,
++                                       void * output,
++                                       size_t read_size,
++                                       size_t & bytes_read) {
++    bytes_read = 0;
++    auto * destination = static_cast<uint8_t *>(output);
++    while (bytes_read < read_size) {
++        const size_t remaining = read_size - bytes_read;
++        const size_t count = loader->read(loader->context, destination + bytes_read, remaining);
++        if (count > remaining) {
++            return ModelReadStatus::InvalidCount;
++        }
++        if (count == 0) {
++            return ModelReadStatus::Stalled;
++        }
++        bytes_read += count;
++    }
++    return ModelReadStatus::Complete;
++}
++
++static bool read_model_bytes(whisper_model_loader * loader, void * output, size_t read_size) {
++    size_t bytes_read = 0;
++    if (read_model_data(loader, output, read_size, bytes_read) != ModelReadStatus::Complete) {
++        WHISPER_LOG_ERROR("%s: truncated model file (expected %zu bytes, read %zu)\n",
++                          __func__, read_size, bytes_read);
++        return false;
++    }
++    return true;
++}
++
++template<typename T>
++static bool read_safe_model_value(whisper_model_loader * loader, T & dest) {
++    if (!read_model_bytes(loader, &dest, sizeof(T))) {
++        return false;
++    }
++    BYTESWAP_VALUE(dest);
++    return true;
++}
++
+@@ -1516 +1561,3 @@
+-        read_safe(loader, magic);
++        if (!read_safe_model_value(loader, magic)) {
++            return false;
++        }
+@@ -1527,11 +1574,33 @@
+-        read_safe(loader, hparams.n_vocab);
+-        read_safe(loader, hparams.n_audio_ctx);
+-        read_safe(loader, hparams.n_audio_state);
+-        read_safe(loader, hparams.n_audio_head);
+-        read_safe(loader, hparams.n_audio_layer);
+-        read_safe(loader, hparams.n_text_ctx);
+-        read_safe(loader, hparams.n_text_state);
+-        read_safe(loader, hparams.n_text_head);
+-        read_safe(loader, hparams.n_text_layer);
+-        read_safe(loader, hparams.n_mels);
+-        read_safe(loader, hparams.ftype);
++        if (!read_safe_model_value(loader, hparams.n_vocab)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_audio_ctx)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_audio_state)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_audio_head)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_audio_layer)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_text_ctx)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_text_state)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_text_head)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_text_layer)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.n_mels)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, hparams.ftype)) {
++            return false;
++        }
+@@ -1598,2 +1667,6 @@
+-        read_safe(loader, filters.n_mel);
+-        read_safe(loader, filters.n_fft);
++        if (!read_safe_model_value(loader, filters.n_mel)) {
++            return false;
++        }
++        if (!read_safe_model_value(loader, filters.n_fft)) {
++            return false;
++        }
+@@ -1602 +1675,3 @@
+-        loader->read(loader->context, filters.data.data(), filters.data.size() * sizeof(float));
++        if (!read_model_bytes(loader, filters.data.data(), filters.data.size() * sizeof(float))) {
++            return false;
++        }
+@@ -1609 +1684,3 @@
+-        read_safe(loader, n_vocab);
++        if (!read_safe_model_value(loader, n_vocab)) {
++            return false;
++        }
+@@ -1624 +1701,3 @@
+-            read_safe(loader, len);
++            if (!read_safe_model_value(loader, len)) {
++                return false;
++            }
+@@ -1628 +1707,3 @@
+-                loader->read(loader->context, &tmp[0], tmp.size()); // read to buffer
++                if (!read_model_bytes(loader, &tmp[0], tmp.size())) {
++                    return false;
++                } // read to buffer
+@@ -1917,9 +1998,5 @@
+-            int32_t n_dims;
+-            int32_t length;
+-            int32_t ttype;
+-
+-            read_safe(loader, n_dims);
+-            read_safe(loader, length);
+-            read_safe(loader, ttype);
+-
+-            if (loader->eof(loader->context)) {
++            int32_t header[3];
++            size_t header_bytes = 0;
++            const ModelReadStatus header_status = read_model_data(
++                loader, header, sizeof(header), header_bytes);
++            if (header_status == ModelReadStatus::Stalled && header_bytes == 0 && loader->eof(loader->context)) {
+@@ -1927,0 +2005,4 @@
++            if (header_status != ModelReadStatus::Complete) {
++                WHISPER_LOG_ERROR("%s: truncated tensor header in model file\n", __func__);
++                return false;
++            }
+@@ -1929,4 +2010,6 @@
+-             if (n_dims < 0 || n_dims > 4) {
+-                  WHISPER_LOG_ERROR("%s: invalid n_dims %d in model file (expected 0 <= n_dims <= 4)\n", __func__, n_dims);
+-                  return false;
+-              }
++            int32_t n_dims = header[0];
++            int32_t length = header[1];
++            int32_t ttype = header[2];
++            BYTESWAP_VALUE(n_dims);
++            BYTESWAP_VALUE(length);
++            BYTESWAP_VALUE(ttype);
+@@ -1933,0 +2017,4 @@
++            if (n_dims < 0 || n_dims > 4) {
++                WHISPER_LOG_ERROR("%s: invalid n_dims %d in model file (expected 0 <= n_dims <= 4)\n", __func__, n_dims);
++                return false;
++            }
+@@ -1934,0 +2022 @@
++
+@@ -1938 +2026,3 @@
+-                read_safe(loader, ne[i]);
++                if (!read_safe_model_value(loader, ne[i])) {
++                    return false;
++                }
+@@ -1941,0 +2032,5 @@
++            if (length <= 0) {
++                WHISPER_LOG_ERROR("%s: invalid tensor name length %d in model file\n", __func__, length);
++                return false;
++            }
++
+@@ -1944 +2039,3 @@
+-            loader->read(loader->context, &tmp[0], tmp.size()); // read to buffer
++            if (!read_model_bytes(loader, &tmp[0], tmp.size())) {
++                return false;
++            } // read to buffer
+@@ -1977 +2074,3 @@
+-                loader->read(loader->context, tensor->data, ggml_nbytes(tensor));
++                if (!read_model_bytes(loader, tensor->data, ggml_nbytes(tensor))) {
++                    return false;
++                }
+@@ -1983 +2082,3 @@
+-                loader->read(loader->context, read_buf.data(), read_buf.size());
++                if (!read_model_bytes(loader, read_buf.data(), read_buf.size())) {
++                    return false;
++                }
+@@ -3766 +3867 @@
+-        return read_size;
++        return static_cast<size_t>(fin->gcount());
+--- a/tests/test-whisper-buffer-loader.cpp
++++ b/tests/test-whisper-buffer-loader.cpp
+@@ -4,0 +5,2 @@
++#include <cstring>
++#include <vector>
+@@ -10,0 +13,8 @@
++struct partial_model_source {
++    const uint8_t * bytes;
++    size_t size;
++    size_t offset;
++    size_t read_calls;
++    size_t max_chunk;
++};
++
+@@ -21,0 +32,75 @@
++    auto initialize_from_source = [&cparams](partial_model_source & source) {
++        whisper_model_loader loader = {};
++        loader.context = &source;
++        loader.read = [](void * context, void * output, size_t read_size) {
++            partial_model_source * input = static_cast<partial_model_source *>(context);
++            input->read_calls++;
++            const size_t available = input->size - input->offset;
++            size_t bytes_to_copy = available < read_size ? available : read_size;
++            if (bytes_to_copy > input->max_chunk) {
++                bytes_to_copy = input->max_chunk;
++            }
++            if (bytes_to_copy != 0) {
++                std::memcpy(output, input->bytes + input->offset, bytes_to_copy);
++                input->offset += bytes_to_copy;
++            }
++            return bytes_to_copy;
++        };
++        loader.eof = [](void * context) {
++            partial_model_source * input = static_cast<partial_model_source *>(context);
++            return input->offset >= input->size;
++        };
++        loader.close = [](void *) {};
++        return whisper_init_with_params_no_state(&loader, cparams);
++    };
++
++    // Positive short reads are accumulated. A later incomplete field must fail
++    // at that field instead of using its partially filled value.
++    const uint8_t partial_model[] = { 0x6c, 0x6d, 0x67, 0x67, 0x01 };
++    partial_model_source partial_source = { partial_model, sizeof(partial_model), 0, 0, 2 };
++    struct whisper_context * ctx_partial = initialize_from_source(partial_source);
++    assert(ctx_partial == nullptr);
++    assert(partial_source.read_calls == 4);
++
++    auto append_u32 = [](std::vector<uint8_t> & bytes, uint32_t value) {
++        for (unsigned shift = 0; shift < 32; shift += 8) {
++            bytes.push_back(static_cast<uint8_t>((value >> shift) & 0xff));
++        }
++    };
++    std::vector<uint8_t> empty_tensor_model;
++    append_u32(empty_tensor_model, 0x67676d6c); // GGML_FILE_MAGIC
++    const int32_t hparams[] = { 1, 1, 1, 1, 4, 1, 1, 1, 1, 1, 0 };
++    for (int32_t value : hparams) {
++        append_u32(empty_tensor_model, static_cast<uint32_t>(value));
++    }
++    append_u32(empty_tensor_model, 1); // n_mel
++    append_u32(empty_tensor_model, 1); // n_fft
++    append_u32(empty_tensor_model, 0); // one zero-valued filter
++    append_u32(empty_tensor_model, 1); // vocabulary size
++    append_u32(empty_tensor_model, 1); // token length
++    empty_tensor_model.push_back('x');
++
++    // A complete tiny model with no tensor payload is the supported test-file
++    // shape: EOF before the first tensor header is a clean end of the model.
++    partial_model_source clean_source = {
++        empty_tensor_model.data(), empty_tensor_model.size(), 0, 0, 7
++    };
++    struct whisper_context * ctx_clean_eof = initialize_from_source(clean_source);
++    assert(ctx_clean_eof != nullptr);
++    whisper_free(ctx_clean_eof);
++
++    // Any bytes of a tensor header followed by EOF are corruption, including
++    // a header that ends exactly after its first or last byte.
++    const uint8_t tensor_header[12] = { 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0 };
++    for (size_t partial_size = 1; partial_size < sizeof(tensor_header); ++partial_size) {
++        std::vector<uint8_t> partial_header_model = empty_tensor_model;
++        partial_header_model.insert(partial_header_model.end(),
++                                    tensor_header,
++                                    tensor_header + partial_size);
++        partial_model_source header_source = {
++            partial_header_model.data(), partial_header_model.size(), 0, 0, 7
++        };
++        struct whisper_context * ctx_partial_header = initialize_from_source(header_source);
++        assert(ctx_partial_header == nullptr);
++    }
++

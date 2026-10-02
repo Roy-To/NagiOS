@@ -666,6 +666,7 @@ mod tests {
         validate_patched_checkout, validate_whisper_cpp_source_lock,
         validate_whisper_model_artifact_lock, whisper_cpp_patch_files, WhisperCppSourceSpec,
     };
+    use std::ffi::OsStr;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -748,6 +749,35 @@ mod tests {
         );
         assert_eq!(model.artifact_id, "openai.whisper-small-multilingual");
         assert_eq!(model.storage, "model_store");
+    }
+
+    #[test]
+    fn standard_model_loader_read_count_hardening_is_a_numbered_patch() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let source = validate_whisper_cpp_source_lock(&root).expect("whisper.cpp source pin");
+        let patches = whisper_cpp_patch_files(&root, &source).expect("ordered Whisper patches");
+        let patch_name = "0002-nagi-whisper-model-read-counts.patch";
+        let patch_path = root.join(&source.patch_path).join(patch_name);
+        let patch_position = patches
+            .iter()
+            .position(|path| path.file_name().and_then(OsStr::to_str) == Some(patch_name))
+            .expect("numbered read-count patch is in the patch boundary");
+        let noexceptions_position = patches
+            .iter()
+            .position(|path| {
+                path.file_name().and_then(OsStr::to_str)
+                    == Some("0001-nagi-whisper-target-noexceptions.patch")
+            })
+            .expect("base Nagi target patch is in the patch boundary");
+        assert!(noexceptions_position < patch_position);
+
+        let patch = fs::read_to_string(patch_path).expect("read-count patch contents");
+        assert!(patch.contains("src/whisper.cpp"));
+        assert!(patch.contains("read_model_data"));
+        assert!(patch.contains("header_bytes == 0"));
+        assert!(patch.contains("tests/test-whisper-buffer-loader.cpp"));
+        assert!(patch.contains("partial_size < sizeof(tensor_header)"));
+        assert!(patch.contains("fin->gcount()"));
     }
 
     #[test]

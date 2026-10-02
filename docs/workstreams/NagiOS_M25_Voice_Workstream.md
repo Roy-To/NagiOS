@@ -331,3 +331,32 @@ microphone, or claim speech recognition. The regular M30 Model Store remains
 unchanged, and M25 remains `PARTIAL` pending authenticated permission/UI, a
 real Japanese STT provider and inference, concrete local TTS, and
 spoken-command acceptance.
+
+## Standard model loader read-count hardening — 2026-10-02
+
+Added the ordered Nagi patch
+`third_party/whisper-cpp-patches/0002-nagi-whisper-model-read-counts.patch`.
+The standard Whisper model loader now accumulates positive short reads, checks
+every scalar and payload read, rejects stalled or over-reported reads, and
+reports the actual byte count from its file adapter. It reads each three-field
+tensor header as one 12-byte unit. EOF is accepted only when the loader reads
+zero bytes at the beginning of that header and confirms EOF; partial headers
+are rejected. The separate VAD loader path is unchanged.
+
+The host `test-whisper-buffer-loader` regression passed. It loads a synthetic
+minimal no-tensor model with chunked reads, accepts clean EOF at the tensor
+section, rejects a truncated hyperparameter, and rejects every partial tensor
+header length from 1 through 11 bytes. The Nagi-target CMake `whisper` library
+build passed. `./nagi fmt`, `./nagi test`, and `./nagi lint` also passed.
+
+`./nagi fetch` applied patch 0002 to a fresh generated checkout and wrote a
+matching checkout marker, then stopped with exit 4 at the existing modified
+generated Servo checkout. The pinned raw `third_party/whisper.cpp` remains
+clean. The pre-change generated checkout is preserved with a verified
+SHA-256 manifest at
+`out/evidence/m25-whisper-read-count-20261002/pre-change-SHA256SUMS`.
+
+The synthetic model test does not load the 487,601,967-byte artifact or run
+inference. A connected Japanese STT provider, authenticated permission/UI,
+local TTS, system microphone indicator, and spoken-command acceptance remain
+incomplete; M25 remains `PARTIAL`.
