@@ -846,3 +846,40 @@ fails with 12 exception-related diagnostics, down from 13 after removal of the
 `prepatch` log prefix reflects its initial filename; its patch source and test
 were final, and fresh fetch regenerated the same numbered patch sequence. No
 complete target backend or inference is claimed; M20 remains `PARTIAL`.
+
+## Tensor requirement status — 2026-10-02
+
+Added numbered patch
+`third_party/llama-cpp-patches/0016-nagi-llama-tensor-requirement-status.patch`.
+Missing required weight or tensor metadata and required tensor-shape mismatches
+now set sticky loader failure and return null on Nagi. Required errors retain
+the existing exception behavior on ordinary host builds. An optional missing
+tensor still returns null while leaving the loader valid. The one-tensor GGUF
+regression covers missing weight, missing metadata, a missing required tensor,
+a mismatched shape, and an absent optional tensor.
+
+Fresh generated-cache builds and focused CTests pass 1/1 in both the
+`__NAGI__` host fixture and ordinary host configurations. All 179 CLI library
+tests and `cargo fmt --check` pass. Logs are
+`out/logs/m20-loader-status-0016-final-nagi-build.log`,
+`out/logs/m20-loader-status-0016-final-nagi-ctest.log`,
+`out/logs/m20-loader-status-0016-final-upstream-build.log`,
+`out/logs/m20-loader-status-0016-final-upstream-ctest.log`,
+`out/logs/m20-loader-status-0016-cli-test.log`, and
+`out/logs/m20-loader-status-0016-fmt-check.log`.
+
+Fresh `./nagi fetch` applied patches 0001–0016 with patch fingerprint
+`fnv1a64:247231d8ca687200` and checkout fingerprint
+`fnv1a64:2dc66e2176707e4b`. Reverse `git apply --check` confirms patch 0016 is
+present. Fetch stopped at the pre-existing modified Servo checkout without
+touching it; the raw pinned `third_party/llama.cpp` remains clean. The complete
+pre-fetch generated checkout was preserved, and all 3,674 entries in its
+SHA-256 manifest verified under
+`out/evidence/m20-loader-status-0016-20261002/generated-working-copy/`.
+
+The focused no-exceptions target compile could not reach the loader body in
+this environment. The previously used Homebrew LLVM libc++ path is absent; the
+available Command Line Tools libc++ fails in its availability and threading
+headers with 20 errors. The diagnostic is
+`out/logs/m20-loader-status-0016-target-build.log`. This does not verify the
+complete target backend or inference; M20 remains `PARTIAL`.

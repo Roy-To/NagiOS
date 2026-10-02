@@ -1026,6 +1026,24 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_tensor_requirement_failures_set_sticky_loader_status() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch =
+            fs::read_to_string(root.join(
+                "third_party/llama-cpp-patches/0016-nagi-llama-tensor-requirement-status.patch",
+            ))
+            .expect("Nagi tensor requirement status patch");
+
+        assert!(patch.contains("require_weight(const char * name)"));
+        assert!(
+            patch.contains("LLAMA_MODEL_LOADER_FAIL_POINTER(format(\"%s: tensor '%s' not found\"")
+        );
+        assert!(patch.contains("has wrong shape; expected %s, got %s"));
+        assert!(patch.contains("missing_optional_tensor"));
+        assert!(patch.contains("loader.loader_valid == !expected_failure"));
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

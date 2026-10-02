@@ -185,6 +185,30 @@ CLI-contract, and format logs are `out/logs/m20-loader-status-0015-final-nagi-ct
 `out/logs/m20-loader-status-0015-prepatch-cli-test.log`, and
 `out/logs/m20-loader-status-0015-prepatch-fmt-check.log`. No complete target
 backend or in-guest inference is claimed; M20 remains `PARTIAL`.
+Patch `0016-nagi-llama-tensor-requirement-status.patch` moves missing required
+weight/meta lookup and required tensor shape failures into sticky loader status
+and a null result on Nagi. Optional tensor absence still returns null without
+invalidating the loader; ordinary host builds keep throwing for required
+failures. The synthetic one-tensor GGUF regression checks missing weight,
+missing metadata, required missing tensor, wrong shape, and the optional-missing
+case. Fresh generated-cache builds and CTests pass 1/1 in both Nagi-macro and
+ordinary host configurations; all 179 CLI library tests and `cargo fmt --check`
+pass.
+
+Fresh `./nagi fetch` applied patches 0001–0016 with patch fingerprint
+`fnv1a64:247231d8ca687200` and checkout fingerprint
+`fnv1a64:2dc66e2176707e4b`; reverse `git apply --check` confirms patch 0016 is
+present. Fetch stopped at the pre-existing modified Servo checkout without
+touching it. The full pre-fetch generated checkout and its verified 3,674-entry
+manifest are under
+`out/evidence/m20-loader-status-0016-20261002/generated-working-copy/`.
+
+The focused no-exceptions target compile could not reach loader diagnostics in
+this environment: the previously used Homebrew LLVM libc++ path is absent, and
+the available Command Line Tools libc++ stops in its availability/threading
+headers with 20 errors before compiling the loader body. See
+`out/logs/m20-loader-status-0016-target-build.log`. No complete target backend
+or in-guest inference is claimed; M20 remains `PARTIAL`.
 **M21 evidence:** Added `NagiPlan@1`, a bounded generative planner adapter,
 DecisionProvider/LLM routing, context visibility filtering, deterministic
 capability/object/parameter validation, and sequential partial-failure
