@@ -654,3 +654,22 @@ M22 Undo checks. Their evidence directories are
 `out/evidence/m27-ab-rollback-1790900764105897000/`; both SHA-256 manifests
 verify. This repeated QEMU result does not supply authenticated update or slot
 manifest authority, so M27 remains `PARTIAL`.
+
+## Standalone A/B and Recovery rerun — 2026-10-03
+
+A fresh `./nagi m27` run `1790980651240874000` passed the complete legacy and
+GPT A/B/Recovery acceptance after the previous M28 repetition-2 OVMF timeout.
+Three malformed System B trials rolled back to persistent System A; the
+healthy B trial was promoted only after guest readiness; Recovery preserved
+the journal and undid the committed M22 `file.move` group across restart. Both
+GPT slot images pass `qemu-img check`. The run's README and 38-entry
+`SHA256SUMS` cover all 30 local evidence files and seven run-stamped images;
+all entries verify from
+`out/evidence/m27-ab-rollback-1790980651240874000/`.
+
+The isolated fresh-state rerun did not reproduce the earlier OVMF startup
+loop, but it does not reconstruct that M28 repetition's exact pre-boot state
+and does not resolve the intermittent firmware failure. The host again lacked
+`virtio-sound.in`; this gate does not exercise audio. M27 remains `PARTIAL`
+for authenticated update/readiness authority, authenticated slot manifests,
+full session readiness, and remaining Recovery features.
