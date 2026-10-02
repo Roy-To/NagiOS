@@ -1,6 +1,9 @@
 --- a/src/whisper.cpp
 +++ b/src/whisper.cpp
-@@ -975,0 +976,45 @@
+@@ -973,6 +973,51 @@
+     BYTESWAP_VALUE(dest);
+ }
+ 
 +enum class ModelReadStatus {
 +    Complete,
 +    Stalled,
@@ -46,12 +49,24 @@
 +    return true;
 +}
 +
-@@ -1516 +1561,3 @@
+ static bool whisper_kv_cache_init(
+              struct whisper_kv_cache & cache,
+                       ggml_backend_t   backend,
+@@ -1513,7 +1558,9 @@
+     // verify magic
+     {
+         uint32_t magic;
 -        read_safe(loader, magic);
 +        if (!read_safe_model_value(loader, magic)) {
 +            return false;
 +        }
-@@ -1527,11 +1574,33 @@
+         if (magic != GGML_FILE_MAGIC) {
+             WHISPER_LOG_ERROR("%s: invalid model data (bad magic)\n", __func__);
+             return false;
+@@ -1524,17 +1571,39 @@
+     {
+         auto & hparams = model.hparams;
+ 
 -        read_safe(loader, hparams.n_vocab);
 -        read_safe(loader, hparams.n_audio_ctx);
 -        read_safe(loader, hparams.n_audio_state);
@@ -96,7 +111,13 @@
 +        if (!read_safe_model_value(loader, hparams.ftype)) {
 +            return false;
 +        }
-@@ -1598,2 +1667,6 @@
+ 
+         assert(hparams.n_text_state == hparams.n_audio_state);
+ 
+@@ -1595,18 +1664,26 @@
+     {
+         auto & filters = wctx.model.filters;
+ 
 -        read_safe(loader, filters.n_mel);
 -        read_safe(loader, filters.n_fft);
 +        if (!read_safe_model_value(loader, filters.n_mel)) {
@@ -105,27 +126,47 @@
 +        if (!read_safe_model_value(loader, filters.n_fft)) {
 +            return false;
 +        }
-@@ -1602 +1675,3 @@
+ 
+         filters.data.resize(filters.n_mel * filters.n_fft);
 -        loader->read(loader->context, filters.data.data(), filters.data.size() * sizeof(float));
 +        if (!read_model_bytes(loader, filters.data.data(), filters.data.size() * sizeof(float))) {
 +            return false;
 +        }
-@@ -1609 +1684,3 @@
+         BYTESWAP_FILTERS(filters);
+     }
+ 
+     // load vocab
+     {
+         int32_t n_vocab = 0;
 -        read_safe(loader, n_vocab);
 +        if (!read_safe_model_value(loader, n_vocab)) {
 +            return false;
 +        }
-@@ -1624 +1701,3 @@
+ 
+         //if (n_vocab != model.hparams.n_vocab) {
+         //    WHISPER_LOG_ERROR("%s: invalid model file '%s' (bad vocab size %d != %d)\n",
+@@ -1621,11 +1698,15 @@
+ 
+         for (int i = 0; i < n_vocab; i++) {
+             uint32_t len;
 -            read_safe(loader, len);
 +            if (!read_safe_model_value(loader, len)) {
 +                return false;
 +            }
-@@ -1628 +1707,3 @@
+ 
+             if (len > 0) {
+                 tmp.resize(len);
 -                loader->read(loader->context, &tmp[0], tmp.size()); // read to buffer
 +                if (!read_model_bytes(loader, &tmp[0], tmp.size())) {
 +                    return false;
 +                } // read to buffer
-@@ -1917,9 +1998,5 @@
+                 word.assign(&tmp[0], tmp.size());
+             } else {
+                 // seems like we have an empty-string token in multi-language models (i = 50256)
+@@ -1914,34 +1995,50 @@
+         std::vector<char> read_buf;
+ 
+         while (true) {
 -            int32_t n_dims;
 -            int32_t length;
 -            int32_t ttype;
@@ -140,12 +181,13 @@
 +            const ModelReadStatus header_status = read_model_data(
 +                loader, header, sizeof(header), header_bytes);
 +            if (header_status == ModelReadStatus::Stalled && header_bytes == 0 && loader->eof(loader->context)) {
-@@ -1927,0 +2005,4 @@
+                 break;
+             }
 +            if (header_status != ModelReadStatus::Complete) {
 +                WHISPER_LOG_ERROR("%s: truncated tensor header in model file\n", __func__);
 +                return false;
 +            }
-@@ -1929,4 +2010,6 @@
+ 
 -             if (n_dims < 0 || n_dims > 4) {
 -                  WHISPER_LOG_ERROR("%s: invalid n_dims %d in model file (expected 0 <= n_dims <= 4)\n", __func__, n_dims);
 -                  return false;
@@ -156,48 +198,80 @@
 +            BYTESWAP_VALUE(n_dims);
 +            BYTESWAP_VALUE(length);
 +            BYTESWAP_VALUE(ttype);
-@@ -1933,0 +2017,4 @@
+ 
 +            if (n_dims < 0 || n_dims > 4) {
 +                WHISPER_LOG_ERROR("%s: invalid n_dims %d in model file (expected 0 <= n_dims <= 4)\n", __func__, n_dims);
 +                return false;
 +            }
-@@ -1934,0 +2022 @@
+ 
 +
-@@ -1938 +2026,3 @@
+             int32_t nelements = 1;
+             int32_t ne[4] = { 1, 1, 1, 1 };
+             for (int i = 0; i < n_dims; ++i) {
 -                read_safe(loader, ne[i]);
 +                if (!read_safe_model_value(loader, ne[i])) {
 +                    return false;
 +                }
-@@ -1941,0 +2032,5 @@
+                 nelements *= ne[i];
+             }
+ 
 +            if (length <= 0) {
 +                WHISPER_LOG_ERROR("%s: invalid tensor name length %d in model file\n", __func__, length);
 +                return false;
 +            }
 +
-@@ -1944 +2039,3 @@
+             std::string name;
+             std::vector<char> tmp(length); // create a buffer
 -            loader->read(loader->context, &tmp[0], tmp.size()); // read to buffer
 +            if (!read_model_bytes(loader, &tmp[0], tmp.size())) {
 +                return false;
 +            } // read to buffer
-@@ -1977 +2074,3 @@
+             name.assign(&tmp[0], tmp.size());
+ 
+             if (model.tensors.find(name) == model.tensors.end()) {
+@@ -1974,13 +2071,17 @@
+ 
+             if (ggml_backend_buffer_is_host(tensor->buffer)) {
+                 // for the CPU and Metal backend, we can read directly into the tensor
 -                loader->read(loader->context, tensor->data, ggml_nbytes(tensor));
 +                if (!read_model_bytes(loader, tensor->data, ggml_nbytes(tensor))) {
 +                    return false;
 +                }
-@@ -1983 +2082,3 @@
+                 BYTESWAP_TENSOR(tensor);
+             } else {
+                 // read into a temporary buffer first, then copy to device memory
+                 read_buf.resize(ggml_nbytes(tensor));
+ 
 -                loader->read(loader->context, read_buf.data(), read_buf.size());
 +                if (!read_model_bytes(loader, read_buf.data(), read_buf.size())) {
 +                    return false;
 +                }
-@@ -3766 +3867 @@
+ 
+                 ggml_backend_tensor_set(tensor, read_buf.data(), 0, ggml_nbytes(tensor));
+             }
+@@ -3763,7 +3864,7 @@
+     loader.read = [](void * ctx, void * output, size_t read_size) {
+         std::ifstream * fin = (std::ifstream*)ctx;
+         fin->read((char *)output, read_size);
 -        return read_size;
 +        return static_cast<size_t>(fin->gcount());
+     };
+ 
+     loader.eof = [](void * ctx) {
 --- a/tests/test-whisper-buffer-loader.cpp
 +++ b/tests/test-whisper-buffer-loader.cpp
-@@ -4,0 +5,2 @@
+@@ -2,12 +2,22 @@
+ 
+ #include <cstdint>
+ #include <cstdio>
 +#include <cstring>
 +#include <vector>
-@@ -10,0 +13,8 @@
+ 
+ #ifdef NDEBUG
+ #undef NDEBUG
+ #endif
+ #include <cassert>
+ 
 +struct partial_model_source {
 +    const uint8_t * bytes;
 +    size_t size;
@@ -206,7 +280,13 @@
 +    size_t max_chunk;
 +};
 +
-@@ -21,0 +32,75 @@
+ int main() {
+     struct whisper_context_params cparams = whisper_context_default_params();
+     cparams.use_gpu = false;
+@@ -19,6 +29,81 @@
+     struct whisper_context * ctx_trunc = whisper_init_from_buffer_with_params(truncated, sizeof(truncated), cparams);
+     assert(ctx_trunc == nullptr);
+ 
 +    auto initialize_from_source = [&cparams](partial_model_source & source) {
 +        whisper_model_loader loader = {};
 +        loader.context = &source;
@@ -282,3 +362,6 @@
 +        assert(ctx_partial_header == nullptr);
 +    }
 +
+     printf("test-whisper-buffer-loader: OK\n");
+     return 0;
+ }

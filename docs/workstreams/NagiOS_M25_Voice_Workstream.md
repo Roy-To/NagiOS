@@ -360,3 +360,25 @@ The synthetic model test does not load the 487,601,967-byte artifact or run
 inference. A connected Japanese STT provider, authenticated permission/UI,
 local TTS, system microphone indicator, and spoken-command acceptance remain
 incomplete; M25 remains `PARTIAL`.
+
+## Clean-checkout patch correction — 2026-10-02
+
+GitHub CI runs for commits `6d15f43` and `1107fba` failed at clean-source
+application because patch 0002's zero-context hunks did not match the pinned
+whisper.cpp checkout. Patch 0002 now uses contextual unified-diff hunks, and
+`.gitattributes` scopes the blank context-line whitespace exception to this
+patch. Forward and reverse `git apply --check` both pass against the preserved
+pre-change and prior generated checkouts. A fresh clone of pinned revision
+`927cfce34f31707e17f2bff35c349632fb9e2c3a` also accepted both numbered
+patches in order. `./nagi fetch` regenerated the Whisper checkout with patch
+fingerprint `fnv1a64:0752e44c02fe91e8` and
+checkout fingerprint `fnv1a64:5a3c628c90d404d3`; it then stopped safely at the
+existing modified generated Servo checkout. The old generated Whisper
+checkout was moved intact and hash-manifested at
+`out/evidence/m25-whisper-old-generated-checkout-20261002/`.
+
+The focused `test-whisper-buffer-loader` CTest passed (1/1), and the Nagi-target
+CMake library build passed. A local CLI patch-contract `cargo test` could not
+link because this host's installed Command Line Tools do not provide an
+x86_64-compatible `libxcrun`; the clean-host CI result remains pending. The
+loader test uses synthetic data only, and M25 remains `PARTIAL`.
