@@ -7452,7 +7452,10 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         vars_copy: &vars_copy,
         serial_log: &recovery_journal_log,
         acceptance_marker: "Nagi M27 Recovery command help PASS",
-        timeout: Duration::from_secs(90),
+        // Recovery boots through the interactive UEFI path and runs the
+        // four-vCPU M3 scheduler self-test before the console marker. Allow
+        // additional TCG time while keeping the exact guest acceptance gate.
+        timeout: Duration::from_secs(180),
     };
     let recovery_commands = b"check\nlog\nfiles\nslots\nhelp\n";
     let recovery_journal_status =
