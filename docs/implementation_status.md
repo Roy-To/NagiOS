@@ -3,6 +3,26 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**User consent for manifest grants (ADR 0051), 2026-10-03:** A signed
+manifest's `grant=` line is now only a request.
+
+- **Effective grants.** A capability is effective only for a live session
+  whose manifest requests it *and* for which an authenticated, unlocked user
+  recorded `Allow`, or `AllowOnce` for that session. The default is
+  `ConsentRequired`, which fails closed. `Deny` overrides the manifest.
+- **Who decides.** Developer Mode and the Owner role do not imply consent.
+  Launched processes have no route to the decision API.
+- **Result.** `./nagi isolated-process` verified fail-closed defaults,
+  locked-session refusal, `AllowOnce` scoping across two live sessions and
+  its expiry at exit, and `Deny`/`Allow`/`Ask`.
+
+Still open:
+
+- the trusted consent dialog (acceptance decisions come from a fixture
+  account);
+- persisting decisions;
+- foreground/background distinctions.
+
 **Concurrent isolated processes (ADR 0050), 2026-10-03:** The kernel now
 runs two isolated processes at once.
 
@@ -38,7 +58,7 @@ pass locally.
 
 Still open:
 - trust-store provisioning beyond the pinned Developer Preview key;
-- user consent for grants;
+- user consent for grants (addressed by ADR 0051);
 - installing packages through the Package Service store instead of the
   init image.
 

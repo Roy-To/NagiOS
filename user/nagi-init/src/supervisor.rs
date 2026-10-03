@@ -9,13 +9,18 @@
 //!   `ProcessId -> LaunchRecord`.
 //! - Services resolve kernel-stamped sender IDs through `resolve`.
 //! - Services consult `has_grant` for capabilities. A grant exists only while
-//!   the launched session is live.
+//!   the launched session is live, its signed manifest requests it, and an
+//!   authenticated user allowed it (ADR 0051).
 //! - `reap` waits for the kernel exit status and revokes the launch.
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use libnagi::launch::{AppManifest, LaunchError, LaunchPlacement, LaunchRecord, LaunchRegistry};
+use libnagi::launch::{
+    AppManifest, GrantCheck, GrantDecision, LaunchError, LaunchPlacement, LaunchRecord,
+    LaunchRegistry,
+};
+use libnagi::security::{AccountStore, Role, Session};
 use libnagi::{
     channel_create_pair, channel_send, handle_close, process_spawn, process_wait,
     ChannelSendRequest, RIGHT_READ, RIGHT_WAIT, RIGHT_WRITE,
@@ -166,8 +171,68 @@ pub fn has_grant(
     app_session_id: nagi_model::AppSessionId,
     capability: &[u8],
 ) -> bool {
-    with_registry(|registry| registry.has_grant(app_id, app_session_id, capability))
-        .unwrap_or(false)
+    check_grant(app_id, app_session_id, capability) == GrantCheck::Granted
+}
+
+/// Why `capability` is or is not effective for the live session.
+pub fn check_grant(
+    app_id: AppId,
+    app_session_id: nagi_model::AppSessionId,
+    capability: &[u8],
+) -> GrantCheck {
+    with_registry(|registry| registry.check_grant(app_id, app_session_id, capability))
+        .unwrap_or(GrantCheck::NotLive)
+}
+
+/// Record an authenticated user's decision for `app_id`'s use of
+/// `capability`. This is the OS-owned consent path; launched processes have
+/// no route to it.
+pub fn record_user_decision(
+    user: &Session,
+    app_id: AppId,
+    capability: &[u8],
+    decision: GrantDecision,
+) -> Result<(), LaunchFailure> {
+    with_registry(|registry| registry.record_decision(user, app_id, capability, decision))
+        .ok_or(LaunchFailure::ManifestsUnavailable)?
+        .map_err(LaunchFailure::Registry)
+}
+
+/// The acceptance user's authenticated session. The trusted consent dialog
+/// is not wired yet (ADR 0051), so acceptance scenarios record the user's
+/// decisions through `record_user_decision` with this fixture session.
+pub fn acceptance_user() -> Option<Session> {
+    let mut accounts = AccountStore::new();
+    accounts
+        .add_account(b"user", Role::Standard, b"acceptance-user")
+        .ok()?;
+    accounts.authenticate(b"user", b"acceptance-user").ok()
+}
+
+/// The M19/M21/M22 acceptance user's decisions: allow each acceptance
+/// application the capabilities its scenario exercises. Grants the signed
+/// manifests do not request stay ineffective regardless.
+#[cfg(feature = "m19-search-ipc")]
+pub fn record_acceptance_consents() -> bool {
+    const DECISIONS: [(&[u8], &[u8]); 5] = [
+        (b"org.nagi.acceptance.m19-search", b"search.query"),
+        (b"org.nagi.acceptance.m19-search", b"files.search"),
+        (b"org.nagi.acceptance.foreign-client", b"search.query"),
+        (b"org.nagi.acceptance.m22-files", b"files.move"),
+        (b"org.nagi.acceptance.m22-files", b"files.copy"),
+    ];
+    let Some(user) = acceptance_user() else {
+        return false;
+    };
+    DECISIONS.iter().all(|(app, capability)| {
+        record_user_decision(
+            &user,
+            AppId::from_identifier(app),
+            capability,
+            GrantDecision::Allow,
+        )
+        .is_ok()
+    })
 }
 
 /// Check launch preconditions for `app_id` at `placement` without spawning.

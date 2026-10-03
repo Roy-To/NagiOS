@@ -12,9 +12,16 @@
 //!   exact application session. Exiting revokes it, and a payload can never
 //!   name or strengthen it.
 //!
+//! - **Consent (ADR 0051).** A manifest grant is only a *request*. It
+//!   becomes effective once an authenticated, unlocked user decides `Allow`,
+//!   or `AllowOnce` for one live session. The default is `Ask`, and `Deny`
+//!   overrides the manifest. Neither the launched process, Developer Mode,
+//!   nor the Owner role can supply a decision on the user's behalf.
+//!
 //! The registry is bounded, allocation-free, and has no kernel dependency, so
 //! its policy is host-testable.
 
+use crate::security::Session;
 use nagi_model::{AppId, AppSessionId, NodeId, WorkspaceId};
 
 pub const MAX_APP_MANIFESTS: usize = 8;
@@ -23,6 +30,8 @@ pub const MAX_APP_GRANTS: usize = 8;
 pub const MAX_APP_IDENTIFIER: usize = 64;
 pub const MAX_GRANT_NAME: usize = 32;
 pub const MAX_APP_MANIFEST_BYTES: usize = 1024;
+/// Recorded user decisions, one per (application, capability).
+pub const MAX_CONSENT_DECISIONS: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LaunchError {
@@ -36,6 +45,37 @@ pub enum LaunchError {
     SessionAlreadyLive,
     LaunchTableFull,
     InitProcess,
+    /// No authenticated, unlocked user session is present to decide.
+    ConsentUnavailable,
+    /// An `AllowOnce` decision named a session that is not live.
+    SessionNotLive,
+    ConsentTableFull,
+}
+
+/// A user's decision for one (application, capability) pair (spec §23).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GrantDecision {
+    /// Withdraw any earlier decision; use of the capability needs a prompt.
+    Ask,
+    Allow,
+    /// Allow only the named live session; dropped when that session exits.
+    AllowOnce(AppSessionId),
+    Deny,
+}
+
+/// Why a capability is or is not effective for a session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GrantCheck {
+    Granted,
+    /// No live launch holds this application session.
+    NotLive,
+    /// The application's signed manifest does not request the capability.
+    NotDeclared,
+    /// Requested, but the user has not decided (or `AllowOnce` names
+    /// another session). A trusted OS dialog would ask; until then it fails
+    /// closed.
+    ConsentRequired,
+    Denied,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -196,9 +236,17 @@ pub struct LaunchPlacement {
     pub workspace_id: Option<WorkspaceId>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Consent {
+    app_id: AppId,
+    capability: Name<MAX_GRANT_NAME>,
+    decision: GrantDecision,
+}
+
 pub struct LaunchRegistry {
     manifests: [Option<AppManifest>; MAX_APP_MANIFESTS],
     launches: [Option<LaunchRecord>; MAX_LIVE_LAUNCHES],
+    consents: [Option<Consent>; MAX_CONSENT_DECISIONS],
 }
 
 impl Default for LaunchRegistry {
@@ -212,6 +260,7 @@ impl LaunchRegistry {
         Self {
             manifests: [None; MAX_APP_MANIFESTS],
             launches: [None; MAX_LIVE_LAUNCHES],
+            consents: [None; MAX_CONSENT_DECISIONS],
         }
     }
 
@@ -320,23 +369,96 @@ impl LaunchRegistry {
             .find(|record| record.process_id == process_id)
     }
 
+    fn is_live(&self, app_id: AppId, app_session_id: AppSessionId) -> bool {
+        self.launches
+            .iter()
+            .flatten()
+            .any(|record| record.app_id == app_id && record.app_session_id == app_session_id)
+    }
+
+    fn consent(&self, app_id: AppId, capability: &[u8]) -> Option<GrantDecision> {
+        self.consents
+            .iter()
+            .flatten()
+            .find(|consent| consent.app_id == app_id && consent.capability.as_bytes() == capability)
+            .map(|consent| consent.decision)
+    }
+
+    /// Record `user`'s decision for `app_id`'s use of `capability`. Only an
+    /// authenticated, unlocked session can decide; the registry never
+    /// infers consent. `Ask` withdraws an earlier decision.
+    pub fn record_decision(
+        &mut self,
+        user: &Session,
+        app_id: AppId,
+        capability: &[u8],
+        decision: GrantDecision,
+    ) -> Result<(), LaunchError> {
+        if user.token() == 0 || user.is_locked() {
+            return Err(LaunchError::ConsentUnavailable);
+        }
+        let capability = Name::<MAX_GRANT_NAME>::parse(capability)?;
+        if let GrantDecision::AllowOnce(session) = decision {
+            if !self.is_live(app_id, session) {
+                return Err(LaunchError::SessionNotLive);
+            }
+        }
+        let existing = self.consents.iter().position(|slot| {
+            slot.is_some_and(|consent| consent.app_id == app_id && consent.capability == capability)
+        });
+        if decision == GrantDecision::Ask {
+            if let Some(index) = existing {
+                self.consents[index] = None;
+            }
+            return Ok(());
+        }
+        let index = existing
+            .or_else(|| self.consents.iter().position(Option::is_none))
+            .ok_or(LaunchError::ConsentTableFull)?;
+        self.consents[index] = Some(Consent {
+            app_id,
+            capability,
+            decision,
+        });
+        Ok(())
+    }
+
     /// Whether the live application session `(app_id, app_session_id)` may
-    /// exercise `capability`. Identities that no live launch holds, including
-    /// exited or forged sessions, have no grants.
+    /// exercise `capability`: the session is live, its manifest requests the
+    /// capability, and the user allowed it. Identities that no live launch
+    /// holds, including exited or forged sessions, have no grants.
+    pub fn check_grant(
+        &self,
+        app_id: AppId,
+        app_session_id: AppSessionId,
+        capability: &[u8],
+    ) -> GrantCheck {
+        if !self.is_live(app_id, app_session_id) {
+            return GrantCheck::NotLive;
+        }
+        if !self
+            .manifest(app_id)
+            .is_some_and(|manifest| manifest.grants(capability))
+        {
+            return GrantCheck::NotDeclared;
+        }
+        match self.consent(app_id, capability) {
+            Some(GrantDecision::Allow) => GrantCheck::Granted,
+            Some(GrantDecision::AllowOnce(session)) if session == app_session_id => {
+                GrantCheck::Granted
+            }
+            Some(GrantDecision::Deny) => GrantCheck::Denied,
+            _ => GrantCheck::ConsentRequired,
+        }
+    }
+
     pub fn has_grant(
         &self,
         app_id: AppId,
         app_session_id: AppSessionId,
         capability: &[u8],
     ) -> bool {
-        let live = self
-            .launches
-            .iter()
-            .flatten()
-            .any(|record| record.app_id == app_id && record.app_session_id == app_session_id);
-        live && self
-            .manifest(app_id)
-            .is_some_and(|manifest| manifest.grants(capability))
+        self.check_grant(app_id, app_session_id, capability) == GrantCheck::Granted
     }
 
     /// Remove an exited process's launch, revoking its session's grants.
@@ -345,7 +467,17 @@ impl LaunchRegistry {
             .launches
             .iter_mut()
             .find(|slot| slot.is_some_and(|record| record.process_id == process_id))?;
-        slot.take()
+        let record = slot.take()?;
+        // An `AllowOnce` decision ends with the session it was given to.
+        for slot in &mut self.consents {
+            if slot.is_some_and(|consent| {
+                consent.app_id == record.app_id
+                    && consent.decision == GrantDecision::AllowOnce(record.app_session_id)
+            }) {
+                *slot = None;
+            }
+        }
+        Some(record)
     }
 
     pub fn live_launches(&self) -> usize {
@@ -356,6 +488,15 @@ impl LaunchRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::{AccountStore, Role};
+
+    fn user() -> Session {
+        let mut accounts = AccountStore::new();
+        accounts
+            .add_account(b"user", Role::Standard, b"user-pass")
+            .expect("account");
+        accounts.authenticate(b"user", b"user-pass").expect("login")
+    }
 
     const PLACEMENT: LaunchPlacement = LaunchPlacement {
         app_session_id: AppSessionId(0x51),
@@ -440,6 +581,13 @@ mod tests {
         );
         // No live session: no grant, even for the declared app.
         assert!(!registry.has_grant(app, PLACEMENT.app_session_id, b"files.search"));
+        registry
+            .record_decision(&user(), app, b"files.search", GrantDecision::Allow)
+            .expect("consent");
+        assert_eq!(
+            registry.check_grant(app, PLACEMENT.app_session_id, b"files.search"),
+            GrantCheck::NotLive
+        );
 
         let record = registry.record_launch(2, app, PLACEMENT).expect("launch");
         assert_eq!(registry.resolve(2), Some(record));
@@ -570,5 +718,146 @@ mod tests {
             registry.register_or_match(widened),
             Err(LaunchError::ConflictingManifest)
         );
+    }
+
+    #[test]
+    fn manifest_grants_need_user_consent() {
+        let (mut registry, app) =
+            registry_with(b"app=org.nagi.example\ngrant=files.search\ngrant=files.move\n");
+        let other = LaunchPlacement {
+            app_session_id: AppSessionId(0x61),
+            ..PLACEMENT
+        };
+        registry.record_launch(2, app, PLACEMENT).expect("launch");
+        registry
+            .record_launch(3, app, other)
+            .expect("second launch");
+        let session = PLACEMENT.app_session_id;
+        // Requested but undecided: fail closed.
+        assert_eq!(
+            registry.check_grant(app, session, b"files.search"),
+            GrantCheck::ConsentRequired
+        );
+        assert_eq!(
+            registry.check_grant(app, session, b"files.copy"),
+            GrantCheck::NotDeclared
+        );
+
+        // Only an authenticated, unlocked user decides.
+        let mut locked = user();
+        locked.lock();
+        assert_eq!(
+            registry.record_decision(&locked, app, b"files.search", GrantDecision::Allow),
+            Err(LaunchError::ConsentUnavailable)
+        );
+        assert_eq!(
+            registry.record_decision(&user(), app, b"Files", GrantDecision::Allow),
+            Err(LaunchError::InvalidManifest)
+        );
+        // Consenting to an undeclared capability does not create it.
+        registry
+            .record_decision(&user(), app, b"files.copy", GrantDecision::Allow)
+            .expect("decision");
+        assert_eq!(
+            registry.check_grant(app, session, b"files.copy"),
+            GrantCheck::NotDeclared
+        );
+
+        // Allow once covers exactly one live session and ends with it.
+        assert_eq!(
+            registry.record_decision(
+                &user(),
+                app,
+                b"files.search",
+                GrantDecision::AllowOnce(AppSessionId(0x99))
+            ),
+            Err(LaunchError::SessionNotLive)
+        );
+        registry
+            .record_decision(
+                &user(),
+                app,
+                b"files.search",
+                GrantDecision::AllowOnce(session),
+            )
+            .expect("allow once");
+        assert!(registry.has_grant(app, session, b"files.search"));
+        assert_eq!(
+            registry.check_grant(app, other.app_session_id, b"files.search"),
+            GrantCheck::ConsentRequired
+        );
+        assert!(!registry.has_grant(app, session, b"files.move"));
+        registry.record_exit(2).expect("exit");
+        registry.record_launch(4, app, PLACEMENT).expect("relaunch");
+        assert_eq!(
+            registry.check_grant(app, session, b"files.search"),
+            GrantCheck::ConsentRequired
+        );
+
+        // Deny overrides the manifest; Allow covers every session; Ask
+        // withdraws the decision.
+        registry
+            .record_decision(&user(), app, b"files.search", GrantDecision::Deny)
+            .expect("deny");
+        assert_eq!(
+            registry.check_grant(app, session, b"files.search"),
+            GrantCheck::Denied
+        );
+        registry
+            .record_decision(&user(), app, b"files.search", GrantDecision::Allow)
+            .expect("allow");
+        assert!(registry.has_grant(app, session, b"files.search"));
+        assert!(registry.has_grant(app, other.app_session_id, b"files.search"));
+        registry
+            .record_decision(&user(), app, b"files.search", GrantDecision::Ask)
+            .expect("ask");
+        assert_eq!(
+            registry.check_grant(app, other.app_session_id, b"files.search"),
+            GrantCheck::ConsentRequired
+        );
+    }
+
+    #[test]
+    fn developer_mode_and_owner_do_not_imply_consent() {
+        let (mut registry, app) = registry_with(b"app=org.nagi.example\ngrant=files.search\n");
+        let mut accounts = AccountStore::new();
+        accounts
+            .add_account(b"owner", Role::Owner, b"owner-pass")
+            .expect("owner");
+        let mut owner = accounts
+            .authenticate(b"owner", b"owner-pass")
+            .expect("login");
+        assert!(accounts.enable_developer_mode(&mut owner));
+        registry.record_launch(2, app, PLACEMENT).expect("launch");
+        assert_eq!(
+            registry.check_grant(app, PLACEMENT.app_session_id, b"files.search"),
+            GrantCheck::ConsentRequired
+        );
+    }
+
+    #[test]
+    fn consent_table_is_bounded() {
+        let (mut registry, app) = registry_with(b"app=org.nagi.example\n");
+        let names = b"abcdefghijklmnopq";
+        for name in &names[..MAX_CONSENT_DECISIONS] {
+            let capability = [b'g', b'.', *name];
+            registry
+                .record_decision(&user(), app, &capability, GrantDecision::Deny)
+                .expect("decision");
+        }
+        // Replacing an existing decision needs no new slot.
+        registry
+            .record_decision(&user(), app, b"g.a", GrantDecision::Allow)
+            .expect("replace");
+        assert_eq!(
+            registry.record_decision(&user(), app, b"g.z", GrantDecision::Allow),
+            Err(LaunchError::ConsentTableFull)
+        );
+        registry
+            .record_decision(&user(), app, b"g.b", GrantDecision::Ask)
+            .expect("withdraw");
+        assert!(registry
+            .record_decision(&user(), app, b"g.z", GrantDecision::Allow)
+            .is_ok());
     }
 }

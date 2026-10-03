@@ -1042,6 +1042,12 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
         return None;
     }
     libnagi::console_write(b"Nagi bootstrap Channel ABI PASS\r\n");
+    // ADR 0051: manifest grants take effect only with the user's consent.
+    #[cfg(feature = "m19-search-ipc")]
+    if !crate::supervisor::record_acceptance_consents() {
+        libnagi::console_write(b"Nagi Supervisor acceptance consent FAIL\r\n");
+        return None;
+    }
     let was_persisted = {
         let Ok(mut service) = open_search(block_capability) else {
             return None;

@@ -6,7 +6,7 @@
 //! kernel-stamped `sender_process_id`. Identity claims inside the payload are
 //! data, never authority.
 
-use libnagi::launch::{LaunchError, LaunchPlacement};
+use libnagi::launch::{GrantCheck, GrantDecision, LaunchError, LaunchPlacement};
 use libnagi::PROCESS_EXIT_KIND_FAULTED;
 use libnagi::{
     channel_create_pair, channel_receive, channel_send, console_write, handle_close, process_spawn,
@@ -45,6 +45,8 @@ const DECISION_ALLOW: u8 = 1;
 const ALL_CHILD_CHECKS: u32 = (1 << 11) - 1;
 /// The acceptance's privileged operation; no embedded manifest grants it.
 const PRIVILEGED_CAPABILITY: &[u8] = b"system.acceptance-privileged";
+/// Requested by the faulting app's signed manifest (ADR 0051).
+const CONSENT_CAPABILITY: &[u8] = b"acceptance.consent-probe";
 const PLACEMENT: LaunchPlacement = LaunchPlacement {
     app_session_id: AppSessionId(0x4e41_4749_0043_0001),
     node_id: NodeId(0x4e41_4749_0043_0002),
@@ -272,6 +274,9 @@ fn fault_containment() -> bool {
         return fail(b"extra channel");
     }
     console_write(b"Nagi isolated processes concurrent PASS\r\n");
+    if !consent_before_exit(&first, &second) {
+        return false;
+    }
 
     // A fault in one live process leaves the other running.
     let second_id = second.record.process_id;
@@ -287,9 +292,89 @@ fn fault_containment() -> bool {
     let Some(third) = launch_faulting(session) else {
         return fail(b"slot reuse after faults");
     };
+    if !consent_after_exit(&third) {
+        return false;
+    }
     if !raise_fault(&third, gp_kind) || !reaped_with_fault(third, gp_vector) {
         return fail(b"third fault");
     }
     console_write(b"Nagi isolated process fault containment PASS\r\n");
+    true
+}
+
+fn grant_of(launched: &supervisor::Launched) -> GrantCheck {
+    supervisor::check_grant(
+        launched.record.app_id,
+        launched.record.app_session_id,
+        CONSENT_CAPABILITY,
+    )
+}
+
+/// ADR 0051, with two live sessions of the same application: a manifest
+/// grant is only a request until an authenticated, unlocked user decides,
+/// and `AllowOnce` covers exactly the session it names.
+fn consent_before_exit(first: &supervisor::Launched, second: &supervisor::Launched) -> bool {
+    if grant_of(first) != GrantCheck::ConsentRequired
+        || supervisor::check_grant(
+            FAULTING_APP,
+            first.record.app_session_id,
+            PRIVILEGED_CAPABILITY,
+        ) != GrantCheck::NotDeclared
+    {
+        return fail(b"manifest grant effective without consent");
+    }
+    let Some(user) = supervisor::acceptance_user() else {
+        return fail(b"acceptance user");
+    };
+    let mut locked = user;
+    locked.lock();
+    if supervisor::record_user_decision(
+        &locked,
+        FAULTING_APP,
+        CONSENT_CAPABILITY,
+        GrantDecision::Allow,
+    ) != Err(LaunchFailure::Registry(LaunchError::ConsentUnavailable))
+        || grant_of(first) != GrantCheck::ConsentRequired
+    {
+        return fail(b"locked session recorded consent");
+    }
+    if supervisor::record_user_decision(
+        &user,
+        FAULTING_APP,
+        CONSENT_CAPABILITY,
+        GrantDecision::AllowOnce(first.record.app_session_id),
+    )
+    .is_err()
+        || grant_of(first) != GrantCheck::Granted
+        || grant_of(second) != GrantCheck::ConsentRequired
+    {
+        return fail(b"allow once scope");
+    }
+    console_write(b"Nagi Supervisor grant consent required PASS\r\n");
+    true
+}
+
+/// After the `AllowOnce` session exited, the same session ID relaunched
+/// must ask again; `Deny` overrides the manifest and `Allow` persists.
+fn consent_after_exit(third: &supervisor::Launched) -> bool {
+    if grant_of(third) != GrantCheck::ConsentRequired {
+        return fail(b"allow once outlived its session");
+    }
+    let Some(user) = supervisor::acceptance_user() else {
+        return fail(b"acceptance user");
+    };
+    let decide = |decision| {
+        supervisor::record_user_decision(&user, FAULTING_APP, CONSENT_CAPABILITY, decision).is_ok()
+    };
+    if !decide(GrantDecision::Deny)
+        || grant_of(third) != GrantCheck::Denied
+        || !decide(GrantDecision::Allow)
+        || grant_of(third) != GrantCheck::Granted
+        || !decide(GrantDecision::Ask)
+        || grant_of(third) != GrantCheck::ConsentRequired
+    {
+        return fail(b"deny, allow, or ask decision");
+    }
+    console_write(b"Nagi Supervisor grant decisions PASS\r\n");
     true
 }
