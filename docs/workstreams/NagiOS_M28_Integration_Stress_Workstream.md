@@ -730,3 +730,22 @@ preserved the failed-attempt serial and variables in evidence sidecars. This
 does not resolve the firmware loop's root cause. A new two-repetition M28 run
 with the current retry changes remains necessary; the reference combined-load
 and resource-pressure workload is still unmeasured.
+
+## Completion Sweep — retry journal-state correction (2026-10-03)
+
+Run `out/evidence/m28-run-20261003T024610Z-52844/` passed the M19 and M22
+sub-gates, then exited with status 130 after the harness printed its M27 start
+line but before it recorded an M27 result. The run was deliberately
+interrupted after review found that the previous M27 retry could consume a
+second persistent trial count if `begin_boot()` completed before the guest
+kernel-start marker. The archive preserves the M19/M22 outputs and its SHA-256
+manifest verifies; zero complete repetitions passed, so it is not an M28
+acceptance. The unarchived M27 directory from that interrupted invocation is
+unverified and not counted.
+
+M27 retry now saves the exact pre-attempt OVMF variables, preserves the
+post-failure state separately, checks for evidence collisions before the
+initial boot, and restores the saved state before retry. Corrected standalone
+M27 run `out/evidence/m27-ab-rollback-1790995870248251000/` passed, but did not
+trigger the retry. M28's current-source two-repetition gate and its formal
+combined-load/resource-pressure measurements remain outstanding.

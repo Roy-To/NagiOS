@@ -8480,3 +8480,24 @@ evidence directory, and both run-stamped GPT images pass `qemu-img check`.
 `bash -n`, `--self-test`, and `--dry-run` pass. The dry-run confirms the real
 gate will rerun M19 before M22 and M27; its prior M19 serial log is absent and
 is not counted as evidence.
+
+## Completion Sweep — M27 retry journal-state correction (2026-10-03)
+
+Read-only review of commit `f2aca56` found that retrying with the first
+attempt's post-boot OVMF variables could consume a second durable trial count:
+the loader can persist `begin_boot()` before emitting the kernel-start marker.
+The current M27 retry now snapshots the vars before QEMU starts, refuses
+existing retry-sidecar collisions before boot, preserves the first attempt's
+post-boot vars, writes the pre-boot snapshot to a separate sidecar, and restores
+that snapshot before the single retry. Its regression simulates a first-attempt
+journal increment and verifies the retry starts from the original state.
+
+M28 run `out/evidence/m28-run-20261003T024610Z-52844/` passed M19 and M22,
+then was interrupted after the harness announced its M27 invocation but
+before it recorded an M27 result. The M28 archive manifest verifies and records
+zero complete repetitions, so this is not an M28 pass. An unarchived M27
+directory from that interrupted invocation is explicitly unverified and is
+not counted. Corrected standalone `./nagi m27` run
+`1790995870248251000` then passed the A/B and Recovery acceptance. Its 39-entry
+manifest verifies and both GPT images pass `qemu-img check`; that run did not
+trigger the retry, whose journal restoration is covered by the regression.

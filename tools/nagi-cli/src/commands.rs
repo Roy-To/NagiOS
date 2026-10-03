@@ -6739,6 +6739,39 @@ fn run_m27_headless_with_pre_guest_retry_using(
     config: &QemuConfig<'_>,
     mut run: impl FnMut(&QemuConfig<'_>) -> Result<i32, String>,
 ) -> Result<i32, String> {
+    let first_serial = path_with_suffix(config.serial_log, ".pre-guest-timeout-1");
+    let first_vars = path_with_suffix(config.vars_copy, ".pre-guest-timeout-1");
+    let retry_source_vars_path = path_with_suffix(config.vars_copy, ".pre-guest-retry-source-1");
+    let retry_note = path_with_suffix(config.serial_log, ".pre-guest-retry-1.txt");
+    for path in [
+        &first_serial,
+        &first_vars,
+        &retry_source_vars_path,
+        &retry_note,
+    ] {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return Err(format!(
+                    "refusing to overwrite retry evidence {}",
+                    path.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect retry evidence {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    }
+
+    let retry_source_vars = fs::read(config.vars_copy).map_err(|read_error| {
+        format!(
+            "cannot snapshot OVMF variables {} before M27 QEMU attempt: {read_error}",
+            config.vars_copy.display()
+        )
+    })?;
     let first_error = match run(config) {
         Ok(status) => return Ok(status),
         Err(error) => error,
@@ -6753,26 +6786,6 @@ fn run_m27_headless_with_pre_guest_retry_using(
         return Err(first_error);
     }
 
-    let first_serial = path_with_suffix(config.serial_log, ".pre-guest-timeout-1");
-    let first_vars = path_with_suffix(config.vars_copy, ".pre-guest-timeout-1");
-    let retry_note = path_with_suffix(config.serial_log, ".pre-guest-retry-1.txt");
-    for path in [&first_serial, &first_vars, &retry_note] {
-        match fs::symlink_metadata(path) {
-            Ok(_) => {
-                return Err(format!(
-                    "{first_error}; refusing to overwrite retry evidence {}",
-                    path.display()
-                ));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "{first_error}; cannot inspect retry evidence {}: {error}",
-                    path.display()
-                ));
-            }
-        }
-    }
     fs::copy(config.serial_log, &first_serial).map_err(|error| {
         format!(
             "{first_error}; cannot preserve first-attempt log {}: {error}",
@@ -6786,15 +6799,31 @@ fn run_m27_headless_with_pre_guest_retry_using(
             first_vars.display()
         )
     })?;
+    fs::write(&retry_source_vars_path, &retry_source_vars).map_err(|error| {
+        format!(
+            "{first_error}; failed-attempt evidence is preserved at {}, but pre-attempt OVMF variables could not be saved at {}: {error}",
+            first_vars.display(),
+            retry_source_vars_path.display()
+        )
+    })?;
+    fs::write(config.vars_copy, &retry_source_vars).map_err(|error| {
+        format!(
+            "{first_error}; failed-attempt and pre-attempt OVMF variables are preserved at {} and {}, but the pre-attempt state could not be restored at {}: {error}",
+            first_vars.display(),
+            retry_source_vars_path.display(),
+            config.vars_copy.display()
+        )
+    })?;
 
     match run(config) {
         Ok(status) => {
             fs::write(
                 &retry_note,
                 format!(
-                    "The first M27 QEMU attempt timed out before the guest kernel-start marker. QMP reported a running CPU and captured registers and an instruction window. One retry reused the same OVMF variables and reached its configured acceptance marker with QEMU exit status {status}.\nInitial error: {first_error}\nPreserved first serial log: {}\nPreserved first OVMF variables: {}\n",
+                    "The first M27 QEMU attempt timed out before the guest kernel-start marker. QMP reported a running CPU and captured registers and an instruction window. Before retry, the exact pre-attempt OVMF variables were restored so the boot journal starts from the same state. The retry reached its configured acceptance marker with QEMU exit status {status}.\nInitial error: {first_error}\nPreserved first serial log: {}\nPreserved first post-attempt OVMF variables: {}\nPreserved pre-attempt OVMF variables: {}\n",
                     first_serial.display(),
-                    first_vars.display()
+                    first_vars.display(),
+                    retry_source_vars_path.display()
                 ),
             )
             .map_err(|error| {
@@ -8421,7 +8450,7 @@ mod tests {
     }
 
     #[test]
-    fn m27_pre_guest_retry_is_bounded_and_preserves_first_attempt_state() {
+    fn m27_pre_guest_retry_restores_journal_state_and_preserves_both_snapshots() {
         use std::fs;
         use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -8465,14 +8494,16 @@ mod tests {
             attempts += 1;
             if attempts == 1 {
                 fs::write(config.serial_log, diagnostics).expect("write first-attempt log");
-                fs::write(config.vars_copy, b"failed attempt OVMF variables")
+                fs::write(config.vars_copy, b"first attempt advanced boot journal")
                     .expect("mutate first-attempt variables");
                 Err("QEMU did not reach acceptance within 180 seconds".to_owned())
             } else {
                 assert_eq!(
                     fs::read(config.vars_copy).expect("read reused OVMF variables"),
-                    b"failed attempt OVMF variables"
+                    b"initial OVMF variables"
                 );
+                fs::write(config.vars_copy, b"retry advanced boot journal once")
+                    .expect("persist one retry journal attempt");
                 fs::write(
                     config.serial_log,
                     "Nagi Kernel started\nNagi M7 acceptance PASS\n",
@@ -8491,12 +8522,21 @@ mod tests {
         assert_eq!(
             fs::read(path_with_suffix(&vars_copy, ".pre-guest-timeout-1"))
                 .expect("preserved first-attempt OVMF variables"),
-            b"failed attempt OVMF variables"
+            b"first attempt advanced boot journal"
+        );
+        assert_eq!(
+            fs::read(path_with_suffix(&vars_copy, ".pre-guest-retry-source-1"))
+                .expect("preserved pre-attempt OVMF variables"),
+            b"initial OVMF variables"
         );
         assert!(
             fs::read_to_string(path_with_suffix(&serial_log, ".pre-guest-retry-1.txt"))
                 .expect("retry evidence note")
-                .contains("reused the same OVMF variables")
+                .contains("pre-attempt OVMF variables were restored")
+        );
+        assert_eq!(
+            fs::read(&vars_copy).expect("read retry OVMF variables"),
+            b"retry advanced boot journal once"
         );
         fs::remove_dir_all(root).expect("remove temporary evidence directory");
     }

@@ -706,3 +706,20 @@ does not establish the firmware loop's root cause or fix the underlying OVMF
 behavior. M27 stays `PARTIAL` for authenticated update/readiness authority,
 authenticated slot manifests, full session readiness, and remaining Recovery
 features. A new current-source two-repetition M28 gate is still required.
+
+## Completion Sweep — retry preserves the boot journal (2026-10-03)
+
+Review identified that `begin_boot()` can persist a trial increment before the
+kernel-start marker. Reusing the first attempt's post-boot OVMF variables
+could therefore consume two trial attempts for one logical boot. The host
+retry now snapshots the OVMF variables before each M27 QEMU attempt, rejects
+sidecar collisions before starting QEMU, preserves both the post-failure and
+pre-attempt vars, and restores the pre-attempt snapshot before retrying. A
+regression simulates the first attempt advancing the journal and confirms the
+retry sees the original state. Corrected standalone run
+`out/evidence/m27-ab-rollback-1790995870248251000/` passed the full A/B and
+Recovery acceptance; its 39-entry manifest verifies and both GPT images pass
+`qemu-img check`. That QEMU run did not trigger the retry, so its journal-state
+restoration path is verified by the regression. M27 stays `PARTIAL` for
+authenticated update/readiness authority, authenticated slot manifests, full
+session readiness, and remaining Recovery requirements.
