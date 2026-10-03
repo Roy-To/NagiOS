@@ -6552,7 +6552,10 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(existing) => existing,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
     };
-    let timeout = Duration::from_secs(90);
+    // Repeated TCG integration boots have stalled in firmware past 90 seconds
+    // before the guest emits serial output. Keep the same guest marker gates
+    // while allowing a slow firmware start to finish.
+    let timeout = Duration::from_secs(180);
 
     if !had_persistent_disk {
         let config = QemuConfig {
@@ -6773,7 +6776,9 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             ),
         );
     }
-    let timeout = Duration::from_secs(90);
+    // The repeated M28 gate boots M22 several times with persistent UEFI
+    // state. Preserve all guest markers while allowing a slow firmware start.
+    let timeout = Duration::from_secs(180);
 
     if !had_persistent_disk {
         let config = QemuConfig {

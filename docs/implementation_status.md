@@ -8415,3 +8415,11 @@ acceptance markers. Standalone `./nagi m27` then passed at run
 GPT images pass `qemu-img check`. M28 still needs a fresh two-repetition pass;
 its combined Desktop/Files/Notes/Albert, real Granite, audio, OOM, and leak
 soak acceptance remains unmeasured, so M27/M28 remain `PARTIAL`.
+
+The next M28 two-repetition run,
+`out/evidence/m28-run-20261003T013706Z-44453/`, stopped during repetition 1
+M19 after its 90-second pre-guest timeout. Its serial log contains only the
+UEFI screen-clear sequence; QMP reported the guest still running at RIP
+`0x7eb84171`. M19 and M22 now use a 180-second QEMU acceptance timeout while
+retaining their existing guest markers. The failed archive and SHA-256
+manifest are preserved; no M28 pass is claimed from that run.

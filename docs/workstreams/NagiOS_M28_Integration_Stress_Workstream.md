@@ -672,3 +672,17 @@ and seven run-stamped images have a SHA-256 manifest. Both GPT images pass
 marker. A new two-repetition integration run is still required. M28 remains
 `PARTIAL` because its Desktop/Files/Notes/Albert, real Granite, audio-pressure,
 OOM, and leak-soak workload is unmeasured.
+
+## Completion Sweep — pre-guest firmware timeout follow-up (2026-10-03)
+
+Run `out/evidence/m28-run-20261003T013706Z-44453/` ended in repetition 1
+when M19 reached its 90-second timeout before guest acceptance. The serial log
+contains the UEFI screen-clear sequence only; QMP reported `status=running` at
+RIP `0x7eb84171`, matching the earlier pre-guest firmware stalls. The failed
+attempt is preserved with its SHA-256 manifest and is not counted as a pass.
+
+M19's initial/restart boots and M22's bootstrap/three history boots now allow
+180 seconds to reach the existing guest markers. The two-repetition QEMU gate
+will be rerun at this source state. This timeout adjustment does not measure
+the formal Desktop/Files/Notes/Albert, real Granite, audio, OOM, or leak-soak
+workload; M28 remains `PARTIAL`.
