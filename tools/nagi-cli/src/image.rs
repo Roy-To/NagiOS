@@ -13,6 +13,12 @@ pub const IMAGE_SIZE: usize = 1_474_560;
 // and exactly 4,084 32 KiB data clusters. This is the largest valid FAT12
 // volume geometry and leaves room for the current Servo init ELF plus kernel.
 pub const M17_IMAGE_SIZE: usize = 261_415 * SECTOR_SIZE;
+/// 4 MiB FAT12 boot image with 2 KiB clusters for images that embed signed
+/// isolated-application packages (ADR 0049). It stays smaller than the User
+/// Data disk, because the kernel selects the largest writable VirtIO Block
+/// device as User Data.
+pub const ISOLATED_APPS_IMAGE_SIZE: usize = 4 * 1024 * 1024;
+const ISOLATED_APPS_SECTORS_PER_CLUSTER: usize = 4;
 pub const PERSISTENT_DISK_SIZE: u64 = 18 * 1024 * 1024;
 pub const NAGI_WRITE_MARKER: &str = "Nagi M7 persistent write PASS";
 pub const GUEST_ACCEPTANCE_MARKER: &str = "Nagi M7 acceptance PASS";
@@ -320,6 +326,22 @@ pub fn write_fat12_image(
     _recovery_init: Option<&[u8]>,
 ) -> Result<ImageLayout, String> {
     write_fat12_image_with_geometry(path, bootloader, kernel, init, Fat12Geometry::legacy())
+}
+
+/// Write a boot image for init builds that embed signed acceptance packages.
+pub fn write_isolated_apps_fat12_image(
+    path: &Path,
+    bootloader: &[u8],
+    kernel: &[u8],
+    init: &[u8],
+    _recovery_init: Option<&[u8]>,
+) -> Result<ImageLayout, String> {
+    let geometry = Fat12Geometry::new(
+        ISOLATED_APPS_IMAGE_SIZE,
+        ISOLATED_APPS_SECTORS_PER_CLUSTER,
+        ROOT_ENTRY_COUNT,
+    )?;
+    write_fat12_image_with_geometry(path, bootloader, kernel, init, geometry)
 }
 
 pub fn write_m17_fat12_image(
@@ -3768,5 +3790,19 @@ mod tests {
         assert!(build_fat12_image(&[], b"kernel", b"init").is_err());
         assert!(build_fat12_image(b"loader", &[], b"init").is_err());
         assert!(build_fat12_image(b"loader", b"kernel", &[]).is_err());
+    }
+
+    #[test]
+    fn isolated_apps_image_is_valid_fat12_and_smaller_than_user_data() {
+        let geometry = super::Fat12Geometry::new(
+            super::ISOLATED_APPS_IMAGE_SIZE,
+            super::ISOLATED_APPS_SECTORS_PER_CLUSTER,
+            ROOT_ENTRY_COUNT,
+        )
+        .expect("valid FAT12 geometry");
+        assert!(geometry.data_clusters() <= 4084);
+        assert!(geometry.data_clusters() * 2048 > 3 * 1024 * 1024);
+        assert!((super::ISOLATED_APPS_IMAGE_SIZE as u64) < PERSISTENT_DISK_SIZE);
+        assert!((super::ISOLATED_APPS_IMAGE_SIZE as u64) < LEGACY_PERSISTENT_DISK_SIZE);
     }
 }

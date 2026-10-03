@@ -17,14 +17,14 @@ The Supervisor refuses:
 
 `./nagi isolated-process` verified this on QEMU.
 
-**Known regression (unfixed, paused at the user's request):** with the five
-signed packages embedded, the `./nagi m22` init no longer fits the legacy
-1.44 MB FAT12 boot image ("guest files require 2934 FAT12 clusters; image has
-2847"). `./nagi m19` and `./nagi isolated-process` pass. Proposed fix: have
-`execute_image_with_isolated_clients` and `execute_isolated_process` in
-`tools/nagi-cli/src/commands.rs` call
-`execute_image_with_init_build_env_using_writer(..., write_m17_fat12_image, ...)`,
-the large FAT12 geometry already used by M17/M18.
+**Boot image size:** embedding the signed packages made the M22 init too
+large for the legacy 1.44 MB FAT12 boot image. Isolated-client and
+isolated-process images now use a 4 MiB FAT12 image (`ISOLATED_APPS_IMAGE_SIZE`,
+2 KiB clusters). It stays smaller than the User Data disk, because the
+kernel selects the largest writable VirtIO Block device as User Data; a
+128 MB M17-style image made M7 select the boot disk. After the change,
+`./nagi m22` (all three boots), `./nagi m19`, and `./nagi isolated-process`
+pass locally.
 
 Still open:
 - trust-store provisioning beyond the pinned Developer Preview key;

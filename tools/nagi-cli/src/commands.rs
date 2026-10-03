@@ -22,11 +22,11 @@ use crate::image::{
     run_qemu_until_any_acceptance_marker, run_qemu_until_any_acceptance_marker_reusing_ovmf_vars,
     run_qemu_until_any_acceptance_marker_with_read_only_boot_disk,
     run_qemu_with_read_only_boot_disk, validate_reference_disk_qcow2, write_fat12_image,
-    write_m17_fat12_image, write_m20_model_store_fixture_reference_disk_qcow2,
-    write_m27_broken_slot_image, write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image,
-    write_m27_recovery_image, write_reference_disk_qcow2,
-    write_reference_disk_qcow2_with_external_model_store_file, ImageLayout, QemuConfig,
-    GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    write_isolated_apps_fat12_image, write_m17_fat12_image,
+    write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
+    write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
+    write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
+    ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -6693,15 +6693,14 @@ fn execute_image_with_isolated_clients(
         "-Zbuild-std=core,alloc,compiler_builtins",
         "--release",
     ];
-    // Signed acceptance packages exceed the legacy 1.44 MB FAT12 image;
-    // use the large FAT12 geometry already used by M17/M18.
+    // Signed acceptance packages exceed the legacy 1.44 MB FAT12 image.
     execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
         None,
         image_name,
         &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
-        write_m17_fat12_image,
+        write_isolated_apps_fat12_image,
         ImageBuildFeatures::default(),
     )
 }
@@ -6730,7 +6729,7 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
         None,
         image_name,
         &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
-        write_m17_fat12_image,
+        write_isolated_apps_fat12_image,
         ImageBuildFeatures::default(),
     );
     if image_result.exit_code != EXIT_SUCCESS {
