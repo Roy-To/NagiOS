@@ -1,0 +1,4 @@
+# A declared application that may query Search but owns no fixture objects
+# and holds no file-action grants.
+app=org.nagi.acceptance.foreign-client
+grant=search.query

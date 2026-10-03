@@ -1,0 +1,4 @@
+# M19/M21 acceptance application: may query Search and run file.search.
+app=org.nagi.acceptance.m19-search
+grant=search.query
+grant=files.search

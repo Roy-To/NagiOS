@@ -1,17 +1,19 @@
-//! Supervisor-side acceptance for ADR 0043: spawn a real ELF into its own
-//! address space and authorize its requests by kernel-stamped caller
-//! identity.
+//! Supervisor-side acceptance for ADR 0043/0046: launch a real ELF into its
+//! own address space through the Supervisor launch registry, and authorize
+//! its requests by kernel-stamped caller identity.
 //!
-//! The Supervisor keeps the launch record `ProcessId -> (AppId,
-//! AppSessionId)`. A request's identity is always the record found by the
+//! A request's identity is always the launch record resolved from the
 //! kernel-stamped `sender_process_id`. Identity claims inside the payload are
 //! data, never authority.
 
+use libnagi::launch::{LaunchError, LaunchPlacement};
 use libnagi::{
     channel_create_pair, channel_receive, channel_send, console_write, handle_close, process_spawn,
-    ChannelReceiveResult, ChannelSendRequest, RIGHT_READ, RIGHT_WAIT, RIGHT_WRITE,
+    ChannelReceiveResult, ChannelSendRequest, RIGHT_READ, RIGHT_WRITE,
 };
-use nagi_model::{AppId, AppSessionId};
+use nagi_model::{AppId, AppSessionId, NodeId};
+
+use crate::supervisor::{self, LaunchFailure, ISOLATED_APP};
 
 static ISOLATED_APP_ELF: &[u8] = include_bytes!(env!("NAGI_ISOLATED_APP_ELF"));
 
@@ -25,64 +27,13 @@ const FORGED_CLAIM: &[u8] = b"caller=org.nagi.system;pid=1";
 const DECISION_DENY: u8 = 0;
 const DECISION_ALLOW: u8 = 1;
 const ALL_CHILD_CHECKS: u32 = (1 << 11) - 1;
-// Stay below the Channel queue capacity so a live peer cannot make a probe
-// send fail with QueueFull and be mistaken for an exit.
-const EXIT_OBSERVATION_YIELDS: usize = 8;
-
-const ISOLATED_APP_ID: &[u8] = b"org.nagi.acceptance.isolated-app";
-const SYSTEM_APP_ID: &[u8] = b"org.nagi.system";
-
-#[derive(Clone, Copy)]
-struct LaunchRecord {
-    process_id: u32,
-    app_id: AppId,
-    session_id: AppSessionId,
-}
-
-/// Bounded Supervisor launch table: the only source of process-to-app
-/// identity. A process ID with no record has no identity.
-struct LaunchRecords {
-    records: [Option<LaunchRecord>; 2],
-}
-
-impl LaunchRecords {
-    const fn new() -> Self {
-        Self { records: [None; 2] }
-    }
-
-    fn record(&mut self, record: LaunchRecord) -> bool {
-        let Some(slot) = self.records.iter_mut().find(|slot| slot.is_none()) else {
-            return false;
-        };
-        *slot = Some(record);
-        true
-    }
-
-    fn resolve(&self, process_id: u32) -> Option<LaunchRecord> {
-        self.records
-            .iter()
-            .flatten()
-            .copied()
-            .find(|record| record.process_id == process_id)
-    }
-
-    fn remove(&mut self, process_id: u32) {
-        for slot in &mut self.records {
-            if slot.is_some_and(|record| record.process_id == process_id) {
-                *slot = None;
-            }
-        }
-    }
-}
-
-/// Policy for the acceptance's privileged operation: only the system app may
-/// perform it. The decision depends solely on the resolved launch record.
-fn decide(caller: Option<LaunchRecord>) -> u8 {
-    match caller {
-        Some(record) if record.app_id == AppId::from_identifier(SYSTEM_APP_ID) => DECISION_ALLOW,
-        _ => DECISION_DENY,
-    }
-}
+/// The acceptance's privileged operation; no embedded manifest grants it.
+const PRIVILEGED_CAPABILITY: &[u8] = b"system.acceptance-privileged";
+const PLACEMENT: LaunchPlacement = LaunchPlacement {
+    app_session_id: AppSessionId(0x4e41_4749_0043_0001),
+    node_id: NodeId(0x4e41_4749_0043_0002),
+    workspace_id: None,
+};
 
 fn fail(reason: &[u8]) -> bool {
     console_write(b"Nagi isolated process acceptance FAIL ");
@@ -102,36 +53,29 @@ fn reply(endpoint: u64, resolved: u32, decision: u8, app_id: AppId) -> bool {
 
 pub fn run() -> bool {
     console_write(b"Nagi isolated process acceptance START\r\n");
-    let Some(endpoints) = channel_create_pair() else {
-        return fail(b"channel");
-    };
-    let Some(child_pid) = process_spawn(
-        ISOLATED_APP_ELF,
-        endpoints.endpoint_b,
-        RIGHT_READ | RIGHT_WRITE | RIGHT_WAIT,
-    ) else {
-        return fail(b"spawn");
-    };
-    if child_pid <= 1 {
-        return fail(b"child pid");
+    // An application without a manifest is refused before any process exists.
+    if supervisor::check(AppId::from_identifier(b"org.nagi.system"), PLACEMENT)
+        != Err(LaunchFailure::Registry(LaunchError::UnknownApplication))
+    {
+        return fail(b"undeclared application was launchable");
     }
-    let mut launches = LaunchRecords::new();
-    let isolated_app = AppId::from_identifier(ISOLATED_APP_ID);
-    if !launches.record(LaunchRecord {
-        process_id: child_pid,
-        app_id: isolated_app,
-        session_id: AppSessionId(u64::from(child_pid)),
-    }) {
+    console_write(b"Nagi Supervisor undeclared application refused PASS\r\n");
+    let launched = match supervisor::launch(ISOLATED_APP_ELF, ISOLATED_APP, PLACEMENT) {
+        Ok(launched) => launched,
+        Err(_) => return fail(b"supervisor launch"),
+    };
+    let child_pid = launched.record.process_id;
+    if child_pid <= 1 || supervisor::resolve(child_pid) != Some(launched.record) {
         return fail(b"launch record");
     }
-    // The moved endpoint is no longer in init's handle table.
-    if channel_send(
-        endpoints.endpoint_b,
-        &ChannelSendRequest::new(PROTOCOL_ID, PROTOCOL_VERSION, 0, 0),
-    ) {
-        return fail(b"moved endpoint still usable by init");
+    // The same live application session cannot be launched twice.
+    if supervisor::check(ISOLATED_APP, PLACEMENT)
+        != Err(LaunchFailure::Registry(LaunchError::SessionAlreadyLive))
+    {
+        return fail(b"duplicate live session accepted");
     }
-    // A second spawn is refused while the isolated slot is occupied.
+    // Kernel bound: a second spawn is refused while the isolated slot is
+    // occupied, even when called directly.
     if let Some(second) = channel_create_pair() {
         let refused = process_spawn(
             ISOLATED_APP_ELF,
@@ -149,7 +93,7 @@ pub fn run() -> bool {
     }
 
     let mut message = ChannelReceiveResult::default();
-    if channel_receive(endpoints.endpoint_a, &mut message).is_none() {
+    if channel_receive(launched.endpoint, &mut message).is_none() {
         return fail(b"request receive");
     }
     if message.protocol_id != PROTOCOL_ID || message.opcode != OPCODE_REQUEST {
@@ -163,20 +107,24 @@ pub fn run() -> bool {
         return fail(b"sender pid not kernel-stamped child");
     }
     console_write(b"Nagi isolated process kernel-stamped sender PASS\r\n");
-    let caller = launches.resolve(message.sender_process_id);
-    let Some(record) = caller else {
+    let Some(record) = supervisor::resolve(message.sender_process_id) else {
         return fail(b"unresolved caller");
     };
-    if record.app_id != isolated_app || record.session_id != AppSessionId(u64::from(child_pid)) {
+    if record.app_id != ISOLATED_APP || record.app_session_id != PLACEMENT.app_session_id {
         return fail(b"launch record mismatch");
     }
-    let decision = decide(caller);
+    let decision =
+        if supervisor::has_grant(record.app_id, record.app_session_id, PRIVILEGED_CAPABILITY) {
+            DECISION_ALLOW
+        } else {
+            DECISION_DENY
+        };
     if decision != DECISION_DENY {
         return fail(b"forged system claim was authorized");
     }
     console_write(b"Nagi isolated process forged payload identity denied PASS\r\n");
     if !reply(
-        endpoints.endpoint_a,
+        launched.endpoint,
         record.process_id,
         decision,
         record.app_id,
@@ -184,7 +132,7 @@ pub fn run() -> bool {
         return fail(b"reply send");
     }
 
-    if channel_receive(endpoints.endpoint_a, &mut message).is_none() {
+    if channel_receive(launched.endpoint, &mut message).is_none() {
         return fail(b"report receive");
     }
     if message.opcode != OPCODE_REPORT
@@ -212,29 +160,20 @@ pub fn run() -> bool {
     }
     console_write(b"Nagi isolated process address space and syscall isolation PASS\r\n");
 
-    // Let the child run to its exit. Its handles are then closed by the
-    // kernel and the Channel peer becomes unreachable.
-    let mut exited = false;
-    for _ in 0..EXIT_OBSERVATION_YIELDS {
-        libnagi::sleep_ns(0);
-        if !channel_send(
-            endpoints.endpoint_a,
-            &ChannelSendRequest::new(PROTOCOL_ID, PROTOCOL_VERSION, 2, 0),
-        ) {
-            exited = true;
-            break;
-        }
-        // A message queued before exit is discarded with the Channel.
+    // The child exits after its report; the kernel closes its handles and
+    // the Supervisor revokes its launch record.
+    if !supervisor::reap(launched) {
+        return fail(b"child exit or launch revocation");
     }
-    if !exited {
-        return fail(b"child exit not observed");
-    }
-    launches.remove(child_pid);
-    if launches.resolve(child_pid).is_some() {
+    if supervisor::resolve(child_pid).is_some()
+        || supervisor::has_grant(
+            ISOLATED_APP,
+            PLACEMENT.app_session_id,
+            PRIVILEGED_CAPABILITY,
+        )
+        || supervisor::check(ISOLATED_APP, PLACEMENT).is_err()
+    {
         return fail(b"stale launch record");
-    }
-    if !handle_close(endpoints.endpoint_a) {
-        return fail(b"endpoint close");
     }
     console_write(b"Nagi isolated process exit cleanup PASS\r\n");
     console_write(b"Nagi isolated process acceptance PASS\r\n");

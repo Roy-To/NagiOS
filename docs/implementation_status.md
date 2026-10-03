@@ -3,6 +3,33 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**Supervisor launch registry (ADR 0046), 2026-10-03:** `libnagi::launch`
+adds manifest-declared applications and a Supervisor launch registry.
+
+- **Manifests and identity.** Each application's `AppId` is derived from its
+  manifest identifier. Grants come from the manifest's `grant=` lines.
+- **Session-bound grants.** A grant counts only while a live launched session
+  holds it. Exit revokes it. An undeclared application, a duplicate live
+  session, or relabeling PID 1 is refused before spawn.
+- **Single launch path.** init's `supervisor.rs` loads the embedded manifests
+  from `user/nagi-init/manifests/`. It is the only launch and resolve path for
+  the isolated-process, Search IPC, and action IPC acceptances.
+- **Grant sources.** Search requires a live `search.query` grant. The M19/M22
+  action policies take `files.search` and `files.move` from manifests through
+  `GrantSource::Supervisor`.
+- **Local results.** `./nagi isolated-process`, a fresh-disk `./nagi m19`, and
+  `./nagi m22` passed locally. One earlier M22 attempt hit the pre-existing
+  intermittent kernel stall in the M3 SMP scheduler workload before user
+  space; its log is preserved in `out/evidence/m22-m3-smp-stall-20261003/`,
+  and the immediate rerun passed.
+
+Still open:
+
+- manifests are image-embedded acceptance declarations, not signed package
+  manifests, and grants have no user consent;
+- the in-process acceptance caller remains for `file.copy`, the
+  rejection/partial-execution fixtures, and the M27/M30 images.
+
 **M21/M22 action IPC (ADR 0045), 2026-10-03:** M21 `file.search` and M22
 `file.move` are now requested by isolated `nagi-action-client` processes over
 `action@1` (`crates/nagi-action-ipc`).
@@ -763,11 +790,13 @@ under `out/evidence/m30-clean-release-144cc0d/` and
 **Next action:** ADR 0044 and ADR 0045 moved M19 Search and M21/M22
 `file.search`/`file.move` callers onto the isolated-process boundary. Next:
 
-- generalize the acceptance-scoped launch records and grant tables into a
-  Supervisor launch registry with manifest-defined grants;
+- ADR 0046 now provides the Supervisor launch registry with manifest-defined
+  grants;
 - move the remaining in-process M21/M22 fixtures and the M27/M30 images to
-  that path;
-- contain ring-3 faults to a child-only exit. Earlier note: Continue the highest-priority shared
+  the registry path;
+- bind manifests to signed M16 packages;
+- contain ring-3 faults to a child-only exit;
+- investigate the intermittent M3 SMP scheduler stall. Earlier note: Continue the highest-priority shared
 Service/IPC/Capability boundary audit and implementation for M18–M23, reusing
 the existing foundations and preserving fixture-only caller identity. Continue independent
 M20, M22–M29 work while authenticated update and provider dependencies remain.

@@ -1,4 +1,4 @@
-use crate::m19_search::M19SearchActivity;
+use crate::m19_search::{GrantSource, M19SearchActivity};
 use alloc::{rc::Rc, string::String, vec, vec::Vec};
 use core::cell::Cell;
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_FILE_SIZE};
@@ -24,8 +24,10 @@ use nagi_model_manager::CapabilityId;
 
 type GuestVolume = Vfs<SyscallBlockDevice>;
 
+/// The application is declared by
+/// `manifests/org.nagi.acceptance.m22-files.manifest`.
 const CALLER: ActivityContext = ActivityContext {
-    app_id: AppId(0x4d22),
+    app_id: AppId::from_identifier(b"org.nagi.acceptance.m22-files"),
     app_session_id: AppSessionId(0x2201),
     node_id: NodeId(0x2202),
     surface_id: Some(SurfaceId(0x2203)),
@@ -71,14 +73,16 @@ struct M22FileHandle {
     contents: &'static [u8],
 }
 
-/// Authority for the private M22 acceptance fixture only. Production caller
-/// identity and capabilities must come from the authenticated service
-/// boundary, which is not available to guest applications yet.
+/// Authority for the M22 acceptance objects. Object ownership is the fixture
+/// rule. Capability grants come from `grants`: the Supervisor launch
+/// registry for isolated callers (ADR 0046), or the in-process acceptance
+/// table otherwise.
 #[derive(Clone)]
 struct M22FixturePolicy {
     deny_modifications: bool,
     deny_copy: bool,
     copy_created: Rc<Cell<bool>>,
+    grants: GrantSource,
 }
 
 impl Default for M22FixturePolicy {
@@ -87,6 +91,7 @@ impl Default for M22FixturePolicy {
             deny_modifications: false,
             deny_copy: false,
             copy_created: Rc::new(Cell::new(false)),
+            grants: GrantSource::InProcessAcceptance,
         }
     }
 }
@@ -133,9 +138,14 @@ impl ActionPolicy for M22FixturePolicy {
         caller: CallerIdentity,
         capability: &CapabilityId,
     ) -> Result<(), PolicyDenied> {
-        let permitted = capability.as_str() == M22_MOVE_CAPABILITY
-            || (capability.as_str() == M22_COPY_CAPABILITY && !self.deny_copy);
-        if Self::caller_is_fixture(caller) && permitted {
+        let disabled = capability.as_str() == M22_COPY_CAPABILITY && self.deny_copy;
+        let granted = self
+            .grants
+            .permits(caller, capability.as_str(), |caller, capability| {
+                Self::caller_is_fixture(caller)
+                    && (capability == M22_MOVE_CAPABILITY || capability == M22_COPY_CAPABILITY)
+            });
+        if !disabled && granted {
             Ok(())
         } else {
             Err(PolicyDenied::Capability)
@@ -638,13 +648,21 @@ fn run_file_move_action_ipc(
 ) -> bool {
     use nagi_action_ipc::{ActionResult, ActionStatus};
 
-    let foreign = CallerIdentity {
-        app_id: AppId(CALLER.app_id.0.wrapping_add(0x100)),
-        ..MOVE_APP_CALLER
+    use crate::action_ipc::{placement_of, serve_isolated_request};
+
+    let foreign_placement = libnagi::launch::LaunchPlacement {
+        app_session_id: AppSessionId(CALLER.app_session_id.0.wrapping_add(0x100)),
+        ..placement_of(MOVE_APP_CALLER)
     };
-    let policy = M22FixturePolicy::default();
-    let denied =
-        crate::action_ipc::serve_isolated_request(foreign, M22_MOVE_INTENT, |caller, intent| {
+    let policy = M22FixturePolicy {
+        grants: GrantSource::Supervisor,
+        ..M22FixturePolicy::default()
+    };
+    let denied = serve_isolated_request(
+        crate::supervisor::FOREIGN_APP,
+        foreign_placement,
+        M22_MOVE_INTENT,
+        |caller, intent| {
             let Ok(capability) = CapabilityId::new(M22_MOVE_CAPABILITY) else {
                 return ActionResult::status_only(ActionStatus::Failed);
             };
@@ -660,7 +678,8 @@ fn run_file_move_action_ipc(
                 // The foreign launch record must never reach execution.
                 ActionResult::status_only(ActionStatus::Failed)
             }
-        });
+        },
+    );
     if denied.map(|result| result.status) != Some(ActionStatus::Denied) {
         libnagi::console_write(b"Nagi M22 foreign isolated caller FAIL\r\n");
         return false;
@@ -668,8 +687,9 @@ fn run_file_move_action_ipc(
     libnagi::console_write(b"Nagi M22 foreign isolated caller denied PASS\r\n");
 
     let move_ids = MOVES.map(|(object_id, _, _, _)| object_id.0);
-    let reported = crate::action_ipc::serve_isolated_request(
-        MOVE_APP_CALLER,
+    let reported = serve_isolated_request(
+        CALLER.app_id,
+        placement_of(MOVE_APP_CALLER),
         M22_MOVE_INTENT,
         |caller, intent| {
             if intent != M22_MOVE_INTENT {
@@ -682,6 +702,7 @@ fn run_file_move_action_ipc(
                 activity_ledger,
                 search_activity,
                 caller,
+                GrantSource::Supervisor,
             ) {
                 ActionResult::succeeded(&move_ids)
                     .unwrap_or(ActionResult::status_only(ActionStatus::Failed))
@@ -708,8 +729,12 @@ fn run_file_move_action(
     activity_ledger: ActivityLedger,
     search_activity: M19SearchActivity,
     caller: CallerIdentity,
+    grants: GrantSource,
 ) -> bool {
-    let policy = M22FixturePolicy::default();
+    let policy = M22FixturePolicy {
+        grants,
+        ..M22FixturePolicy::default()
+    };
     let candidate_objects: Vec<_> = MOVES
         .iter()
         .map(|(object_id, _, _, _)| *object_id)
@@ -1300,6 +1325,7 @@ pub fn run(block_capability: u64, search_activity: M19SearchActivity) -> bool {
             activity_ledger,
             search_activity,
             MOVE_APP_CALLER,
+            GrantSource::InProcessAcceptance,
         );
         return moved && run_file_copy_action(block_capability);
     }

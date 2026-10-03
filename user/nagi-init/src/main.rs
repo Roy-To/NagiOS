@@ -144,6 +144,11 @@ mod security;
     not(feature = "m13-posix")
 ))]
 mod shell;
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "isolated-process-acceptance", feature = "m19-search-ipc")
+))]
+mod supervisor;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod ui;
 #[cfg(all(target_os = "nagi", feature = "m9-window"))]

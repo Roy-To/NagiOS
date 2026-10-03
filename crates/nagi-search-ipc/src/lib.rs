@@ -40,6 +40,8 @@ pub enum ResultStatus {
     InvalidRequest = 2,
     /// The service failed to evaluate a valid request.
     Unavailable = 3,
+    /// The caller's live launch holds no `search.query` grant.
+    Denied = 4,
 }
 
 impl ResultStatus {
@@ -49,6 +51,7 @@ impl ResultStatus {
             1 => Some(Self::UnknownCaller),
             2 => Some(Self::InvalidRequest),
             3 => Some(Self::Unavailable),
+            4 => Some(Self::Denied),
             _ => None,
         }
     }
@@ -246,6 +249,10 @@ mod tests {
         assert!(length <= MAX_CHANNEL_INLINE_PAYLOAD);
         assert_eq!(decode_results(&buffer[..length]), Ok(results));
 
+        let refused = SearchResults::status_only(ResultStatus::Denied);
+        let length = encode_results(&refused, &mut buffer).expect("encode refused");
+        assert_eq!(decode_results(&buffer[..length]), Ok(refused));
+
         let denied = SearchResults::status_only(ResultStatus::UnknownCaller);
         let length = encode_results(&denied, &mut buffer).expect("encode denied");
         assert_eq!(decode_results(&buffer[..length]), Ok(denied));
@@ -256,6 +263,7 @@ mod tests {
         );
         assert_eq!(decode_results(&[0, 2, 1, 0]), Err(WireError::InvalidStatus));
         assert_eq!(decode_results(&[7, 0, 0, 0]), Err(WireError::InvalidStatus));
+        assert_eq!(decode_results(&[5, 0, 0, 0]), Err(WireError::InvalidStatus));
         assert_eq!(decode_results(&[0, 1, 1, 0]), Err(WireError::Truncated));
     }
 }

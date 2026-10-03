@@ -1,0 +1,3 @@
+# M22 acceptance application: may run the grouped file.move action.
+app=org.nagi.acceptance.m22-files
+grant=files.move
