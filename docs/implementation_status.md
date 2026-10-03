@@ -8839,3 +8839,32 @@ pass, along with `./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build`.
 Current-source `./nagi m25` QEMU run `1791003281517596000` passes the existing
 fixture acceptance. It uses no real audio input or TTS engine; M25 remains
 `PARTIAL` for its production providers and command acceptance.
+
+## Completion Sweep — M3 initial-frame fault reproduced and fix stress-tested (2026-10-03)
+
+Independent confirmation of the ADR 0047 M3 root cause, on an Ubuntu host
+with QEMU 8.2 and OVMF (q35, 4 vCPU, 8 GiB, `-no-reboot`). The test image
+was a kernel-only ESP containing the release kernel with no features. It
+reaches `Nagi M3 acceptance PASS` and then stops at M7 because the image has
+no data disk. To create vCPU contention, eight instances ran in parallel on a
+4-core host.
+
+- **Before the fix (`956cd88`).** 3 of 24 boots died after
+  `Nagi M3 scheduler workload START` or during SIPI. QEMU `-d int` captured
+  the full chain for one of them. A timer IRQ (`v=20`) was delivered at
+  `smp::thread_entry`'s first instruction with `SP=0000:0000000000000000`.
+  That caused `v=0e e=0002 CR2=fffffffffffffff8`, then `v=08`, then
+  `check_exception old: 0x8 new 0xd`, then `Triple fault`. The IRQ was
+  already pending at `iretq` because the vCPU had stalled for longer than one
+  10 ms APIC period inside the timer handler. That explains why the failure
+  depends on host load.
+- **After the fix (`b96cf54`).** 48 of 48 boots under the same 8-way
+  contention reached `Nagi M3 acceptance PASS`. The 152 kernel library tests
+  pass.
+- **Equivalent alternative.** An alternative patch built the same 20-word
+  frame and also removed `thread_entry`'s inline `mov rsp`. It passed 104 of
+  104 contended boots. With a valid initial RSP that `mov rsp` is redundant,
+  because it reloads the same value, but it is harmless.
+
+Full `./nagi m22`, `./nagi m27` and M28 gates were not rerun here because
+this host lacks the fetched Servo/Mesa inputs. M27 and M28 stay `PARTIAL`.
