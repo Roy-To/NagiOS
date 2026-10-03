@@ -88,9 +88,7 @@ pub fn bounded_origin(origin: &str) -> String {
 /// Hit-test the three visible controls. Only a primary-button press should be
 /// passed here; coordinates outside the controls cannot resolve a request.
 pub fn action_at(width: u32, height: u32, x: u32, y: u32) -> Option<PermissionPromptAction> {
-    let Some(layout) = PromptLayout::new(width, height) else {
-        return None;
-    };
+    let layout = PromptLayout::new(width, height)?;
     if x < layout.buttons_x
         || x >= layout.buttons_right
         || y < layout.buttons_y
