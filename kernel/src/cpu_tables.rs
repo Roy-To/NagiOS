@@ -37,6 +37,18 @@ impl TaskStateSegment {
             iomap_base: TSS_SIZE as u16,
         }
     }
+
+    /// A TSS with RSP0 and IST1..=IST3 set to `ist_tops` (see
+    /// [`exception_ist`]) and no I/O permission bitmap.
+    pub const fn with_ist_stacks(rsp0: u64, ist_tops: [u64; IST_STACK_COUNT]) -> Self {
+        let mut tss = Self::new(rsp0, 0);
+        let mut index = 0;
+        while index < IST_STACK_COUNT {
+            tss.ist[index] = ist_tops[index];
+            index += 1;
+        }
+        tss
+    }
 }
 
 /// Encode the 16-byte available 64-bit TSS descriptor (type 9, DPL 0,
@@ -49,6 +61,27 @@ pub const fn tss_descriptor(base: u64) -> [u64; 2] {
         | (((limit >> 16) & 0xf) << 48)
         | (((base >> 24) & 0xff) << 56);
     [low, base >> 32]
+}
+
+/// Interrupt Stack Table slots used by Nagi. Each exception that may arrive
+/// while the current kernel stack is unusable gets its own known-good stack:
+/// #DF after a stack fault (ADR 0047/0048), and NMI and #MC, which are
+/// asynchronous and can interrupt any instruction (ADR 0049).
+pub const DOUBLE_FAULT_IST: u8 = 1;
+pub const NMI_IST: u8 = 2;
+pub const MACHINE_CHECK_IST: u8 = 3;
+/// Number of IST stacks each CPU provides (IST1..=IST3).
+pub const IST_STACK_COUNT: usize = 3;
+
+/// IST index for an exception vector's gate, or 0 to stay on the current
+/// stack.
+pub const fn exception_ist(vector: u8) -> u8 {
+    match vector {
+        2 => NMI_IST,
+        8 => DOUBLE_FAULT_IST,
+        18 => MACHINE_CHECK_IST,
+        _ => 0,
+    }
 }
 
 /// 64-bit kernel code and flat kernel data descriptors, as at selectors 0x08
@@ -94,9 +127,30 @@ pub const fn fault_exit_code(vector: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ap_gdt, exception_has_error_code, fault_exit_code, interrupt_gate_options, tss_descriptor,
-        TaskStateSegment, KERNEL_CODE_DESCRIPTOR, KERNEL_DATA_DESCRIPTOR, TSS_SIZE,
+        ap_gdt, exception_has_error_code, exception_ist, fault_exit_code, interrupt_gate_options,
+        tss_descriptor, TaskStateSegment as Tss, TaskStateSegment, DOUBLE_FAULT_IST,
+        IST_STACK_COUNT, KERNEL_CODE_DESCRIPTOR, KERNEL_DATA_DESCRIPTOR, MACHINE_CHECK_IST,
+        NMI_IST, TSS_SIZE,
     };
+
+    #[test]
+    fn nmi_double_fault_and_machine_check_use_distinct_ist_slots() {
+        assert_eq!(exception_ist(2), NMI_IST);
+        assert_eq!(exception_ist(8), DOUBLE_FAULT_IST);
+        assert_eq!(exception_ist(18), MACHINE_CHECK_IST);
+        for vector in (0..32).filter(|vector| ![2, 8, 18].contains(vector)) {
+            assert_eq!(exception_ist(vector), 0, "vector {vector}");
+        }
+        let slots = [NMI_IST, DOUBLE_FAULT_IST, MACHINE_CHECK_IST];
+        for slot in slots {
+            assert!((1..=IST_STACK_COUNT as u8).contains(&slot));
+            assert_eq!(slots.iter().filter(|other| **other == slot).count(), 1);
+        }
+        let tss = Tss::with_ist_stacks(0x1000, [0x2000, 0x3000, 0x4000]);
+        let (rsp0, ist) = (tss.rsp[0], tss.ist);
+        assert_eq!(rsp0, 0x1000);
+        assert_eq!(ist, [0x2000, 0x3000, 0x4000, 0, 0, 0, 0]);
+    }
 
     #[test]
     fn ap_gdt_has_kernel_segments_and_tss_at_bsp_selectors() {

@@ -211,9 +211,10 @@ nagi_ap_trampoline_protected:
     mov es, ax
     mov ss, ax
     mov eax, cr4
-    // PAE, plus OSFXSR and OSXMMEXCPT so compiled kernel code may use SSE on
-    // APs as it does on the BSP, where firmware already enabled them.
-    or eax, 0x620
+    // PAE and MCE, plus OSFXSR and OSXMMEXCPT, matching the BSP where
+    // firmware already set them: compiled kernel code may use SSE, and a
+    // machine check raises #MC instead of shutting the machine down.
+    or eax, 0x660
     mov cr4, eax
     mov eax, dword ptr [ebx + TRAMP_CR3]
     mov cr3, eax
@@ -414,6 +415,11 @@ pub fn initialize(
             return Err(SmpError::ApTimeout);
         }
         super::serial_write(b"Nagi M3 AP online\r\n");
+        #[cfg(feature = "m3-ap-ist-probe")]
+        if index == MAX_CPUS - 1 {
+            // The second-to-last AP is left for a host-injected #MC.
+            unsafe { interrupts::send_nmi(apic_ids[index]) };
+        }
     }
 
     super::serial_write(b"Nagi M3 scheduler workload START\r\n");
@@ -632,6 +638,11 @@ extern "C" fn ap_entry(index: u32) -> ! {
     if index as usize == MAX_CPUS - 1 {
         ap_double_fault_probe();
     }
+    #[cfg(feature = "m3-ap-ist-probe")]
+    if index as usize >= MAX_CPUS - 2 {
+        CPU_ONLINE[index as usize].store(1, Ordering::Release);
+        ap_ist_probe(index);
+    }
     CPU_ONLINE[index as usize].store(1, Ordering::Release);
     unsafe { interrupts::enable_interrupts() };
     run_scheduler_workload(index as usize);
@@ -817,6 +828,30 @@ fn ap_double_fault_probe() -> ! {
     super::serial_write(b"Nagi M3 AP double-fault probe START\r\n");
     unsafe {
         asm!("xor esp, esp", "push rax", options(noreturn));
+    }
+}
+
+/// Diagnostic only (ADR 0049): park this AP with RSP=0 and interrupts
+/// disabled. An NMI (sent by the BSP to the last AP) or a host-injected #MC
+/// (on the second-to-last AP) must then be delivered on its IST stack and
+/// reported; without IST the CPU cannot push the frame and triple-faults.
+#[cfg(feature = "m3-ap-ist-probe")]
+fn ap_ist_probe(index: u32) -> ! {
+    let message: &[u8] = if index as usize == MAX_CPUS - 1 {
+        b"Nagi M3 AP IST probe READY nmi\r\n"
+    } else {
+        b"Nagi M3 AP IST probe READY mce\r\n"
+    };
+    super::serial_write(message);
+    unsafe {
+        asm!(
+            "cli",
+            "xor esp, esp",
+            "2:",
+            "pause",
+            "jmp 2b",
+            options(noreturn)
+        );
     }
 }
 

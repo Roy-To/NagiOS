@@ -14,6 +14,10 @@ m25-whisper-memory = []
 # Diagnostic: force a kernel stack fault on the last AP to prove its #DF
 # handler runs on IST1 (ADR 0048). Never enabled in product images.
 m3-ap-double-fault-probe = []
+# Diagnostic: park the last two APs with RSP=0, NMI the last one, and leave
+# the other for a host-injected #MC, to prove both run on IST stacks
+# (ADR 0049). Never enabled in product images.
+m3-ap-ist-probe = []
 
 [lib]
 name = "nagi_kernel"

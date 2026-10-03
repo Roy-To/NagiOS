@@ -8891,3 +8891,23 @@ Evidence:
 
 `./nagi m22`/`m27`/M28 were not rerun in this session because the host
 lacks the Servo/Mesa inputs.
+
+## Completion Sweep — NMI and #MC IST stacks (ADR 0049, 2026-10-03)
+
+Every CPU with a TSS now gives NMI and #MC their own IST stacks, alongside
+#DF. Slot selection is shared through `cpu_tables::exception_ist`: #DF uses
+IST1, NMI IST2, and #MC IST3. The AP trampoline now also sets CR4.MCE.
+Without it, a machine check shut an AP down instead of raising #MC.
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **IST probe.** The `m3-ap-ist-probe` kernel parks two APs with RSP=0 and
+  interrupts disabled. A BSP NMI IPI to AP 3 is reported as `vector=2`. A
+  QEMU monitor `mce` injection into CPU 2 is reported as `vector=18`. Both
+  arrived with `rsp=0x0`, and QEMU logged no triple fault.
+- **#DF probe.** It still reports `vector=8`.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention
+  reach `Nagi M3 acceptance PASS`.
+
+Remaining gap: the BSP has no IST coverage before the M5 GDT switch.
