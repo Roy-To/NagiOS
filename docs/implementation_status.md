@@ -8868,3 +8868,26 @@ no data disk. To create vCPU contention, eight instances ran in parallel on a
 
 Full `./nagi m22`, `./nagi m27` and M28 gates were not rerun here because
 this host lacks the fetched Servo/Mesa inputs. M27 and M28 stay `PARTIAL`.
+
+## Completion Sweep — AP #DF handler on IST1 (ADR 0048, 2026-10-03)
+
+Each AP now loads its own kernel-only GDT and TSS with a dedicated IST1 #DF
+stack, plus a shared AP exception IDT that the BSP fills before any SIPI.
+`exception_entry` reports an AP fault and halts only that AP. The AP
+trampoline now enables SSE (CR4.OSFXSR/OSXMMEXCPT, CR0.MP/NE) like the BSP.
+Without that, the first compiler-emitted SSE store on an AP raised #UD.
+
+Evidence:
+
+- **Kernel host tests.** 153 pass, including the `ap_gdt` layout and the
+  updated ADR 0047 GDT-transition source-order test.
+- **Diagnostic probe.** The `m3-ap-double-fault-probe` kernel was run on
+  QEMU/OVMF (q35, 4 vCPU). The last AP forces RSP=0 and pushes. The serial
+  log shows `Nagi AP exception apic=3 vector=8 ... rsp=0x0
+  cr2=0xfffffffffffffff8`, and QEMU logged no triple fault. This is the
+  exact M3 failure signature, now caught and diagnosed.
+- **Default kernel stress run.** 48 of 48 boots reached
+  `Nagi M3 acceptance PASS` under 8-way parallel QEMU contention.
+
+`./nagi m22`/`m27`/M28 were not rerun in this session because the host
+lacks the Servo/Mesa inputs.
