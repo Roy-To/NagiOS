@@ -136,6 +136,7 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
         }
     }
     serial_write(b"Nagi M3 scheduler workloads PASS\r\n");
+    serial_write(b"Nagi M3 CPU scheduler fairness PASS\r\n");
     serial_write(b"Nagi M3 acceptance PASS\r\n");
     serial_write(b"Nagi M4 handles/VMO/IPC START\r\n");
     if !nagi_kernel::m4::run_acceptance() {

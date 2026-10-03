@@ -625,3 +625,31 @@ but their cause remains unknown. QEMU still reports that the host lacks
 `virtio-sound.in`; this gate does not exercise audio. Desktop/Files/Notes/Albert
 concurrent load, real Granite inference, audio pressure, OOM, CPU fairness, and
 leak soak remain unmeasured. M28 remains `PARTIAL`.
+
+## Completion Sweep — bounded scheduler fairness regression (2026-10-03)
+
+The M3 preemptive scheduler self-test now runs two busy kernel tasks per CPU
+for 32 work steps and counts timer dispatches. A CPU passes only when both
+tasks ran and their dispatch counts differ by at most one; successful M19/M22
+acceptance logs include `Nagi M3 CPU scheduler fairness PASS`. The M28 harness
+requires that marker. A host regression also runs 131,072 cooperative yields
+with all 64 bootstrap slots runnable and checks for starvation or excess skew.
+The focused kernel scheduler suite passed 13 tests; callback adapter tests
+passed 3 tests. The M28 shell syntax check, harness self-test (including
+rejection of a missing fairness marker), and two-repetition dry-run passed.
+
+The current-source one-repetition QEMU run
+`out/evidence/m28-run-20261003T004328Z-37332/` passed M19, the three-boot M22
+gate, and M27 A/B rollback, promotion, and Recovery. Its M27 sub-run is
+`out/evidence/m27-ab-rollback-1790988224518631000/`; the archive and sub-run
+manifests verify, and both M27 GPT images pass `qemu-img check`.
+
+Two additional two-repetition attempts did not complete: run
+`out/evidence/m28-run-20261003T002909Z-34387/` passed repetition 1, then
+repetition 2's M19 boot timed out before guest output; an immediate standalone
+M19 retry passed. Run `out/evidence/m28-run-20261003T003659Z-36156/` passed
+repetition 1 M19 and M22, then its first M27 System B boot timed out before
+guest acceptance. QMP reported the recurring OVMF loop at RIP `0x7eb84171`.
+These attempts remain incomplete and are not counted as passes. CPU fairness
+during real Granite inference and the broader Desktop/Files/Notes/Albert,
+audio, OOM, and leak-soak workload remain unmeasured. M28 remains `PARTIAL`.

@@ -5,14 +5,16 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use nagi_bootinfo::BootInfo;
 use nagi_kernel::acpi::{CpuTopology, MAX_CPUS};
 use nagi_kernel::memory;
-use nagi_kernel::scheduler::{wake_transition, BLOCKED, DONE, RUNNABLE, RUNNING};
+use nagi_kernel::scheduler::{
+    scheduler_dispatch_counts_are_fair, wake_transition, BLOCKED, DONE, RUNNABLE, RUNNING,
+};
 
 use super::interrupts;
 use super::memory::{PageAllocator, PAGE_SIZE};
 
 const TRAMPOLINE_LIMIT: u64 = 0x1_0000;
 const STACK_SIZE: usize = 16 * 1024;
-const WORKLOAD_STEPS: u32 = 3;
+const WORKLOAD_STEPS: u32 = 32;
 const THREAD_COUNT: usize = 2;
 const CONTEXT_WORDS: usize = 18;
 const NO_CURRENT_TASK: u32 = u32::MAX;
@@ -84,6 +86,16 @@ static CPU_WORKLOAD_DONE: [AtomicU32; MAX_CPUS] = [
     AtomicU32::new(0),
 ];
 static TASK_PROGRESS: [AtomicU32; MAX_CPUS * THREAD_COUNT] = [
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+];
+static TASK_DISPATCHES: [AtomicU32; MAX_CPUS * THREAD_COUNT] = [
     AtomicU32::new(0),
     AtomicU32::new(0),
     AtomicU32::new(0),
@@ -326,6 +338,7 @@ pub fn initialize(
         for task in 0..THREAD_COUNT {
             let task_index = index * THREAD_COUNT + task;
             TASK_PROGRESS[task_index].store(0, Ordering::Release);
+            TASK_DISPATCHES[task_index].store(0, Ordering::Release);
             TASK_STATE[task_index].store(BLOCKED, Ordering::Release);
         }
     }
@@ -656,12 +669,14 @@ pub fn timer_preempt(frame: *mut u64, apic_id: u32) -> *mut u64 {
     let (next_task, next) = if current_task == NO_CURRENT_TASK {
         TASK_STATE[index * THREAD_COUNT].store(RUNNING, Ordering::Release);
         CPU_BOOTSTRAP_CONTEXT[index].store(frame as u64, Ordering::Release);
+        TASK_DISPATCHES[task_zero_index].fetch_add(1, Ordering::AcqRel);
         (0, TASK_CONTEXTS[task_zero_index].load(Ordering::Acquire))
     } else if current_task == 0 {
         TASK_CONTEXTS[task_zero_index].store(frame as u64, Ordering::Release);
         TASK_STATE[task_zero_index].store(RUNNABLE, Ordering::Release);
         wake_task(task_one_index);
         TASK_STATE[task_one_index].store(RUNNING, Ordering::Release);
+        TASK_DISPATCHES[task_one_index].fetch_add(1, Ordering::AcqRel);
         (1, TASK_CONTEXTS[task_one_index].load(Ordering::Acquire))
     } else if current_task == 1 {
         TASK_CONTEXTS[task_one_index].store(frame as u64, Ordering::Release);
@@ -679,6 +694,7 @@ pub fn timer_preempt(frame: *mut u64, apic_id: u32) -> *mut u64 {
         } else {
             TASK_STATE[task_one_index].store(RUNNABLE, Ordering::Release);
             TASK_STATE[task_zero_index].store(RUNNING, Ordering::Release);
+            TASK_DISPATCHES[task_zero_index].fetch_add(1, Ordering::AcqRel);
             (0, TASK_CONTEXTS[task_zero_index].load(Ordering::Acquire))
         }
     } else {
@@ -697,8 +713,18 @@ pub fn cpu_pass(index: usize) -> bool {
         && CPU_PREEMPTIONS[index].load(Ordering::Acquire) != 0
         && CPU_CONTEXT_SWITCHES[index].load(Ordering::Acquire) != 0
         && CPU_WAKE_EVENTS[index].load(Ordering::Acquire) != 0
+        && scheduler_fairness_pass(index)
         && TASK_STATE[index * THREAD_COUNT].load(Ordering::Acquire) == DONE
         && TASK_STATE[index * THREAD_COUNT + 1].load(Ordering::Acquire) == DONE
+}
+
+fn scheduler_fairness_pass(index: usize) -> bool {
+    if index >= MAX_CPUS {
+        return false;
+    }
+    let task_zero_dispatches = TASK_DISPATCHES[index * THREAD_COUNT].load(Ordering::Acquire);
+    let task_one_dispatches = TASK_DISPATCHES[index * THREAD_COUNT + 1].load(Ordering::Acquire);
+    scheduler_dispatch_counts_are_fair(task_zero_dispatches, task_one_dispatches)
 }
 
 fn wake_task(task_index: usize) -> bool {

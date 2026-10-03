@@ -9,6 +9,12 @@ pub fn wake_transition(state: u32) -> Option<u32> {
     (state == BLOCKED).then_some(RUNNABLE)
 }
 
+/// Require both continuously runnable tasks to receive service with at most
+/// one dispatch of skew across the measured interval.
+pub fn scheduler_dispatch_counts_are_fair(task_zero: u32, task_one: u32) -> bool {
+    task_zero > 0 && task_one > 0 && task_zero.abs_diff(task_one) <= 1
+}
+
 const NO_THREAD: u8 = u8::MAX;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -314,6 +320,16 @@ mod tests {
     }
 
     #[test]
+    fn scheduler_dispatch_fairness_rejects_starvation_and_excess_skew() {
+        assert!(super::scheduler_dispatch_counts_are_fair(8, 8));
+        assert!(super::scheduler_dispatch_counts_are_fair(8, 9));
+        assert!(super::scheduler_dispatch_counts_are_fair(9, 8));
+        assert!(!super::scheduler_dispatch_counts_are_fair(8, 10));
+        assert!(!super::scheduler_dispatch_counts_are_fair(0, 8));
+        assert!(!super::scheduler_dispatch_counts_are_fair(8, 0));
+    }
+
+    #[test]
     fn allocation_is_bounded_and_reuses_released_slots() {
         let mut threads = BootstrapUserThreads::new();
         let mut ids = [0_u8; BOOTSTRAP_USER_THREAD_COUNT - 1];
@@ -334,6 +350,42 @@ mod tests {
         assert_eq!(threads.yield_current(0), Some(1));
         assert_eq!(threads.yield_current(0), Some(2));
         assert_eq!(threads.yield_current(0), Some(0));
+    }
+
+    #[test]
+    fn yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable() {
+        const SCHEDULER_TURNS: usize = 131_072;
+
+        let mut threads = BootstrapUserThreads::new();
+        for expected in 1..BOOTSTRAP_USER_THREAD_COUNT {
+            assert_eq!(threads.allocate(), Some(expected as u8));
+        }
+
+        let mut dispatches = [0_usize; BOOTSTRAP_USER_THREAD_COUNT];
+        for _ in 0..SCHEDULER_TURNS {
+            let current = threads.current();
+            assert_eq!(
+                threads.state(current),
+                Some(UserThreadState::Running),
+                "the selected thread must own the running state"
+            );
+            dispatches[current as usize] += 1;
+            assert!(
+                threads.yield_current(0).is_some(),
+                "every runnable thread must yield to another runnable thread"
+            );
+        }
+
+        let least_service = *dispatches.iter().min().unwrap();
+        let most_service = *dispatches.iter().max().unwrap();
+        assert!(
+            least_service > 0,
+            "every continuously runnable thread must receive service: {dispatches:?}"
+        );
+        assert!(
+            most_service - least_service <= 1,
+            "round-robin service skew exceeded one dispatch: {dispatches:?}"
+        );
     }
 
     #[test]

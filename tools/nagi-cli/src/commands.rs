@@ -6621,6 +6621,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         };
         for marker in [
             "Nagi Kernel started",
+            "Nagi M3 CPU scheduler fairness PASS",
             "Nagi M3 acceptance PASS",
             "Nagi M7 VirtIO Block PASS",
             "Nagi M13 Rust PAL PASS",
@@ -6841,6 +6842,7 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         };
         for marker in [
             "Nagi Kernel started",
+            "Nagi M3 CPU scheduler fairness PASS",
             "Nagi M3 acceptance PASS",
             "Nagi M7 VirtIO Block PASS",
             "Nagi M13 C POSIX PASS",

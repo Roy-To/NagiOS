@@ -55,6 +55,7 @@ validate_log() {
 validate_m19_log() {
     validate_log "$1" \
         'Nagi Kernel started' \
+        'Nagi M3 CPU scheduler fairness PASS' \
         'Nagi M3 acceptance PASS' \
         'Nagi M7 VirtIO Block PASS' \
         'Nagi M13 Rust PAL PASS' \
@@ -71,6 +72,7 @@ validate_m19_log() {
 validate_m22_log() {
     validate_log "$1" \
         'Nagi Kernel started' \
+        'Nagi M3 CPU scheduler fairness PASS' \
         'Nagi M3 acceptance PASS' \
         'Nagi M7 VirtIO Block PASS' \
         'Nagi M13 C POSIX PASS' \
@@ -141,7 +143,7 @@ print_unmeasured_workload() {
 M28 reference-load items not measured by this Search/History slice:
   - Desktop and Files usability while the combined workload runs
   - Notes app activity and Albert with 3–5 concurrent browser tabs
-  - real Granite inference, unload/reload, and CPU fairness under load
+  - real Granite inference and unload/reload, plus CPU fairness during Granite inference
   - sustained audio playback and audio-underrun pressure
   - kernel OOM, handle growth, and memory-leak soak telemetry
 EOF
@@ -222,14 +224,13 @@ write_m28_evidence_metadata() {
 - Result: $run_result; $completed_repetitions complete repetition(s) passed. Per-repetition M19/M22 artifacts and logs are preserved in the matching repetition directory.
 - This run emitted the host QEMU warning that virtio-sound.in is unavailable; these gates do not measure audio.
 - OVMF startup timeouts remain intermittent and unexplained.
-- Formal M28 Desktop/Files/Notes/Albert, real Granite inference, audio pressure, OOM, CPU fairness, and leak-soak criteria remain unmeasured; M28 remains PARTIAL.
-
-## M27 sub-run evidence
+- Formal M28 Desktop/Files/Notes/Albert, real Granite inference, CPU fairness during Granite inference, audio pressure, OOM, and leak-soak criteria remain unmeasured; M28 remains PARTIAL.
 EOF
     if [ -n "$failure_summary" ]; then
-        printf '\n- Failed repetition: %s\n- Failure: %s\n' \
+        printf '\n## Run failure\n\n- Failed repetition: %s\n- Failure: %s\n' \
             "$failed_repetition" "$failure_summary" >>"$evidence_dir/README.md"
     fi
+    printf '\n## M27 sub-run evidence\n' >>"$evidence_dir/README.md"
     if [ -n "$m27_evidence_paths" ]; then
         printf '%s\n' "$m27_evidence_paths" | while IFS= read -r evidence_path; do
             [ -n "$evidence_path" ] || continue
@@ -270,6 +271,7 @@ self_test() {
 
     cat >"$temporary_dir/m19.log" <<'EOF'
 Nagi Kernel started
+Nagi M3 CPU scheduler fairness PASS
 Nagi M3 acceptance PASS
 Nagi M7 VirtIO Block PASS
 Nagi M13 Rust PAL PASS
@@ -284,6 +286,7 @@ Nagi M13 acceptance PASS
 EOF
     cat >"$temporary_dir/m22.log" <<'EOF'
 Nagi Kernel started
+Nagi M3 CPU scheduler fairness PASS
 Nagi M3 acceptance PASS
 Nagi M7 VirtIO Block PASS
 Nagi M13 C POSIX PASS
@@ -338,6 +341,11 @@ EOF
     if validate_m27_output 'FAIL M27: guest did not reach Recovery' >/dev/null 2>&1; then
         fail 'M27 failure output accepted as a completed gate'
     fi
+    sed '/Nagi M3 CPU scheduler fairness PASS/d' "$temporary_dir/m19.log" \
+        >"$temporary_dir/m19-no-fairness.log"
+    if validate_m19_log "$temporary_dir/m19-no-fairness.log" >/dev/null 2>&1; then
+        fail 'M19 log without the scheduler fairness marker was accepted'
+    fi
     printf 'Nagi M19 guest search persistence PASS\n' >"$temporary_dir/incomplete.log"
     if validate_m19_log "$temporary_dir/incomplete.log" >/dev/null 2>&1; then
         fail 'incomplete M19 log accepted'
@@ -354,6 +362,20 @@ EOF
     [ -f "$temporary_dir/archive/SHA256SUMS" ] || fail 'M28 archive manifest was not written'
     [ -f "$temporary_dir/archive/source-worktree.diff" ] \
         || fail 'M28 source worktree diff was not preserved'
+    mkdir "$temporary_dir/partial-archive" "$temporary_dir/partial-archive/repetition-1"
+    printf 'M28 partial self-test evidence\n' \
+        >"$temporary_dir/partial-archive/repetition-1/fixture.log"
+    write_m28_evidence_metadata \
+        "$temporary_dir/partial-archive" self-test-partial self-test-revision 2 \
+        "$m27_self_test_paths" PARTIAL 1 2 'M19 QEMU timeout on repetition 2'
+    awk '
+        /^## Run failure$/ { section = "failure"; failure_line = NR; next }
+        /^## M27 sub-run evidence$/ { section = "m27"; m27_line = NR; next }
+        section == "failure" && /M19 QEMU timeout on repetition 2/ { found = 1 }
+        END { exit !(found && failure_line > 0 && failure_line < m27_line) }
+    ' "$temporary_dir/partial-archive/README.md" \
+        || fail 'M28 failure details were not separated from M27 sub-run evidence'
+    verify_evidence_manifest "$temporary_dir/partial-archive"
     mkdir "$temporary_dir/m27"
     printf 'M27 self-test evidence\n' >"$temporary_dir/m27/fixture.log"
     write_m27_evidence_metadata "$temporary_dir/m27" 1 PASS 'fixture accepted'
