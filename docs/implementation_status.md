@@ -8431,3 +8431,52 @@ READY`. QMP was still running at the recurring RIP `0x7eb84171`. The failed
 attempt's parent and M27 manifests verify. M27's three readiness-promotion
 boots now allow 180 seconds with their original markers; no two-repetition
 pass is claimed yet.
+
+## Completion Sweep — bounded M22 pre-guest firmware retry (2026-10-03)
+
+Current-source M28 run `out/evidence/m28-run-20261003T020520Z-47383/` passed
+repetition 1 across M19, M22's three boots, and M27. Repetition 2 passed M19,
+then its M22 bootstrap timed out after 180 seconds before `Nagi Kernel started`;
+the serial stream had only the 87-byte UEFI screen-clear prefix before
+diagnostics, and QMP reported a running guest at RIP `0x7eb84171`. The run and
+M27 sub-run SHA-256 manifests verify. The second repetition did not pass, so
+this archive is not a two-repetition acceptance.
+
+M22 bootstrap now retries once only when the timeout has no guest kernel-start
+marker and QMP captured a running state plus CPU registers and instruction
+window. It preserves the first serial log and OVMF variables, then starts from
+a fresh copy of the configured OVMF template. A failure after the kernel
+marker is never retried; all M22 guest acceptance markers remain unchanged.
+The M28 harness archives both retry artifacts when present. The classifier
+regression and `./nagi test`, `./nagi fmt`, `./nagi lint`, `./nagi build`,
+`bash -n`, and harness self-test pass. A fresh standalone `./nagi m22` passed
+all three QEMU boots at run `1790993965845089000`; that run did not trigger the
+new retry path. M28 remains `PARTIAL`; a current-source repeated gate and the
+formal Desktop/Files/Notes/Albert, Granite, audio, OOM, and leak-soak workload
+remain outstanding.
+
+## Completion Sweep — M27 pre-guest retry exercised (2026-10-03)
+
+Fresh standalone `./nagi m27` run
+`out/evidence/m27-ab-rollback-1790994710275400000/` passed the A/B and
+Recovery acceptance: three malformed System B trials rolled back to persistent
+System A, a healthy System B was promoted only after guest readiness, Recovery
+preserved the boot journal, and Recovery undid a committed M22 `file.move`
+group across restart. Boot 5's first attempt timed out after 180 seconds before
+the guest kernel-start marker; QMP reported a running CPU looping at RIP
+`0x7eb84171`. The bounded retry reused the same OVMF variables and passed its
+original guest marker. The first serial log, first OVMF variables, and retry
+note are preserved as `.pre-guest-timeout-1` and `.pre-guest-retry-1.txt`
+sidecars. This validates recovery from the observed startup stall, not its
+root cause. M27 remains `PARTIAL` for authenticated update/readiness authority,
+authenticated slot manifests, and remaining Recovery requirements; M28's
+two-repetition integration gate is also still outstanding.
+
+The retry unit regression confirms the two-attempt bound, same-vars reuse, and
+first-attempt evidence; a Unix path test confirms sidecar suffixes preserve
+non-UTF-8 path bytes. The run's 41-entry `SHA256SUMS` verifies from its
+evidence directory, and both run-stamped GPT images pass `qemu-img check`.
+`./nagi fmt`, `./nagi test`, `./nagi lint`, `./nagi build`, M28 harness
+`bash -n`, `--self-test`, and `--dry-run` pass. The dry-run confirms the real
+gate will rerun M19 before M22 and M27; its prior M19 serial log is absent and
+is not counted as evidence.

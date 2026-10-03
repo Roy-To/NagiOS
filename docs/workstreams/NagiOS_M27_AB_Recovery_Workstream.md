@@ -687,3 +687,22 @@ The repeated fresh-state passes did not reproduce the earlier OVMF startup
 loop, but they do not determine its cause. Authenticated update/readiness
 authority, authenticated slot manifests, full session readiness, and
 remaining Recovery work keep M27 `PARTIAL`.
+
+## Completion Sweep — current-source pre-guest retry (2026-10-03)
+
+Fresh standalone run `1790994710275400000` passed the malformed-System-B
+rollback trials, healthy-System-B readiness and promotion, Recovery journal
+preservation, and M22 `file.move` group Undo across restart. On boot 5, the
+first QEMU attempt timed out after 180 seconds before `Nagi Kernel started`;
+QMP reported the still-running CPU at the recurring OVMF RIP `0x7eb84171` and
+captured registers and an instruction window. The bounded one-time retry
+reused the same OVMF variables and reached the original acceptance marker. The
+first serial log and OVMF variables remain in `.pre-guest-timeout-1` sidecars,
+with the outcome recorded in `.pre-guest-retry-1.txt` under
+`out/evidence/m27-ab-rollback-1790994710275400000/`.
+
+The retry makes this acceptance resilient to the observed startup stall; it
+does not establish the firmware loop's root cause or fix the underlying OVMF
+behavior. M27 stays `PARTIAL` for authenticated update/readiness authority,
+authenticated slot manifests, full session readiness, and remaining Recovery
+features. A new current-source two-repetition M28 gate is still required.

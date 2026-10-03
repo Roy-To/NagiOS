@@ -694,3 +694,39 @@ READY`. QMP remained running at RIP `0x7eb84171`; the sub-run and parent
 manifests verify. The three readiness-promotion boots now have a 180-second
 budget with the same decision and desktop markers. The integrated
 two-repetition gate is still outstanding.
+
+## Completion Sweep — bounded M22 pre-guest firmware retry (2026-10-03)
+
+Run `out/evidence/m28-run-20261003T020520Z-47383/` completed repetition 1
+across M19, M22's three boots, and M27. Repetition 2 passed M19, then M22's
+bootstrap timed out after 180 seconds before `Nagi Kernel started`. Its serial
+stream had only the 87-byte UEFI screen-clear prefix before QMP diagnostics;
+QMP reported `status=running` at RIP `0x7eb84171`. The parent and M27
+sub-run manifests verify. Only one repetition completed, so the run is not a
+two-repetition pass.
+
+The M22 bootstrap now performs one bounded retry only for this pre-guest
+timeout shape: the QEMU timeout is present, the guest kernel-start marker is
+absent, and QMP captured a running status plus CPU registers and the
+instruction window. The failed serial log and OVMF variables are preserved;
+the retry starts with a fresh copy of the configured OVMF variables template.
+No retry occurs after the guest kernel-start marker, and M22 acceptance
+markers are unchanged. The harness includes both retry artifacts in its
+per-repetition archive. Classifier tests, top-level format/test/lint/build,
+shell syntax, and the harness self-test pass. A standalone M22 QEMU run
+`1790993965845089000` passed all three boots but did not trigger the retry.
+A new two-repetition run is still needed; M28 remains `PARTIAL` for this
+repeated gate and its unmeasured combined Desktop/Files/Notes/Albert, real
+Granite, audio, OOM, and leak-soak workload.
+
+## Completion Sweep — current-source M27 firmware retry (2026-10-03)
+
+Standalone M27 run `out/evidence/m27-ab-rollback-1790994710275400000/` passed
+the A/B and Recovery acceptance after one narrowly classified pre-guest
+firmware timeout on boot 5. The first attempt retained the same QMP running
+state and OVMF instruction-loop signature seen in earlier failures. One retry
+reused the same OVMF variables, reached the original guest marker, and
+preserved the failed-attempt serial and variables in evidence sidecars. This
+does not resolve the firmware loop's root cause. A new two-repetition M28 run
+with the current retry changes remains necessary; the reference combined-load
+and resource-pressure workload is still unmeasured.

@@ -6706,6 +6706,113 @@ fn execute_m22(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     result
 }
 
+fn has_pre_guest_firmware_timeout_signature(error: &str, serial: &str) -> bool {
+    error.contains("QEMU did not reach acceptance within")
+        && !serial.contains("Nagi Kernel started")
+        && serial.contains("QEMU timeout diagnostics:")
+        && serial.contains("QMP query-status:")
+        && serial.contains("\"status\": \"running\"")
+        && serial.contains("QMP CPU registers:")
+        && serial.contains("QMP CPU instruction window:")
+}
+
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut output = path.as_os_str().to_os_string();
+    output.push(suffix);
+    PathBuf::from(output)
+}
+
+fn run_m27_headless_with_pre_guest_retry(
+    config: &QemuConfig<'_>,
+    read_only_boot_disk: bool,
+) -> Result<i32, String> {
+    run_m27_headless_with_pre_guest_retry_using(config, |config| {
+        if read_only_boot_disk {
+            run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(config)
+        } else {
+            run_qemu_reusing_ovmf_vars(config)
+        }
+    })
+}
+
+fn run_m27_headless_with_pre_guest_retry_using(
+    config: &QemuConfig<'_>,
+    mut run: impl FnMut(&QemuConfig<'_>) -> Result<i32, String>,
+) -> Result<i32, String> {
+    let first_error = match run(config) {
+        Ok(status) => return Ok(status),
+        Err(error) => error,
+    };
+    let serial = fs::read_to_string(config.serial_log).map_err(|read_error| {
+        format!(
+            "{first_error}; cannot inspect pre-guest timeout log {}: {read_error}",
+            config.serial_log.display()
+        )
+    })?;
+    if !has_pre_guest_firmware_timeout_signature(&first_error, &serial) {
+        return Err(first_error);
+    }
+
+    let first_serial = path_with_suffix(config.serial_log, ".pre-guest-timeout-1");
+    let first_vars = path_with_suffix(config.vars_copy, ".pre-guest-timeout-1");
+    let retry_note = path_with_suffix(config.serial_log, ".pre-guest-retry-1.txt");
+    for path in [&first_serial, &first_vars, &retry_note] {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return Err(format!(
+                    "{first_error}; refusing to overwrite retry evidence {}",
+                    path.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "{first_error}; cannot inspect retry evidence {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    fs::copy(config.serial_log, &first_serial).map_err(|error| {
+        format!(
+            "{first_error}; cannot preserve first-attempt log {}: {error}",
+            first_serial.display()
+        )
+    })?;
+    fs::copy(config.vars_copy, &first_vars).map_err(|error| {
+        format!(
+            "{first_error}; first-attempt log is preserved at {}, but OVMF variables could not be preserved at {}: {error}",
+            first_serial.display(),
+            first_vars.display()
+        )
+    })?;
+
+    match run(config) {
+        Ok(status) => {
+            fs::write(
+                &retry_note,
+                format!(
+                    "The first M27 QEMU attempt timed out before the guest kernel-start marker. QMP reported a running CPU and captured registers and an instruction window. One retry reused the same OVMF variables and reached its configured acceptance marker with QEMU exit status {status}.\nInitial error: {first_error}\nPreserved first serial log: {}\nPreserved first OVMF variables: {}\n",
+                    first_serial.display(),
+                    first_vars.display()
+                ),
+            )
+            .map_err(|error| {
+                format!(
+                    "M27 QEMU retry reached its marker (exit {status}) but retry evidence could not be written at {}: {error}",
+                    retry_note.display()
+                )
+            })?;
+            Ok(status)
+        }
+        Err(retry_error) => Err(format!(
+            "{first_error}; one pre-guest retry also failed ({retry_error}); first-attempt evidence is {}, {}",
+            first_serial.display(),
+            first_vars.display()
+        )),
+    }
+}
+
 fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_nanos().to_string(),
@@ -6728,6 +6835,12 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let persistent_disk = artifacts.join(format!("nagi-0.1-m22-history-user-data-{run_id}.img"));
     let vars_copy = artifacts.join(format!("nagi-0.1-m22-history-vars-{run_id}.fd"));
     let bootstrap_log = logs.join(format!("m22-history-bootstrap-{run_id}.log"));
+    let firmware_timeout_log = logs.join(format!(
+        "m22-history-bootstrap-{run_id}-pre-guest-timeout-1.log"
+    ));
+    let firmware_timeout_vars = artifacts.join(format!(
+        "nagi-0.1-m22-history-vars-{run_id}-pre-guest-timeout-1.fd"
+    ));
     let boot_logs = (1..=3)
         .map(|boot_index| logs.join(format!("m22-history-{run_id}-boot-{boot_index}.log")))
         .collect::<Vec<_>>();
@@ -6736,6 +6849,8 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         &persistent_disk,
         &vars_copy,
         &bootstrap_log,
+        &firmware_timeout_log,
+        &firmware_timeout_vars,
         &boot_logs[0],
         &boot_logs[1],
         &boot_logs[2],
@@ -6780,6 +6895,7 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     // state. Preserve all guest markers while allowing a slow firmware start.
     let timeout = Duration::from_secs(180);
 
+    let mut firmware_retry_evidence = None;
     if !had_persistent_disk {
         let config = QemuConfig {
             qemu: &host.qemu,
@@ -6793,14 +6909,50 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             timeout,
         };
         if let Err(error) = run_qemu(&config) {
-            return failure(EXIT_CONFIG_ERROR, format!("m22: bootstrap boot: {error}"));
+            let serial = fs::read_to_string(&bootstrap_log).unwrap_or_default();
+            if !has_pre_guest_firmware_timeout_signature(&error, &serial) {
+                return failure(EXIT_CONFIG_ERROR, format!("m22: bootstrap boot: {error}"));
+            }
+            if let Err(copy_error) = fs::copy(&bootstrap_log, &firmware_timeout_log) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: pre-guest timeout detected ({error}); cannot preserve first serial log {}: {copy_error}",
+                        firmware_timeout_log.display()
+                    ),
+                );
+            }
+            if let Err(copy_error) = fs::copy(&vars_copy, &firmware_timeout_vars) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: pre-guest timeout detected ({error}); first serial log is preserved at {}, but cannot preserve OVMF variables {}: {copy_error}",
+                        firmware_timeout_log.display(),
+                        firmware_timeout_vars.display()
+                    ),
+                );
+            }
+            if let Err(retry_error) = run_qemu(&config) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: bootstrap boot failed after one pre-guest firmware retry: initial timeout ({error}); retry failed ({retry_error}); first-attempt evidence is {}, {}",
+                        firmware_timeout_log.display(),
+                        firmware_timeout_vars.display()
+                    ),
+                );
+            }
+            firmware_retry_evidence = Some((firmware_timeout_log, firmware_timeout_vars));
         }
         match fs::read_to_string(&bootstrap_log) {
             Ok(serial) if serial.contains(NAGI_WRITE_MARKER) => {}
             Ok(_) => {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("m22: bootstrap did not print `{NAGI_WRITE_MARKER}`"),
+                    format!(
+                        "m22: bootstrap did not print `{NAGI_WRITE_MARKER}` (log {})",
+                        bootstrap_log.display()
+                    ),
                 );
             }
             Err(error) => {
@@ -6983,12 +7135,20 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         );
     }
 
+    let mut lines = vec![format!(
+        "PASS M21/M22 guest fixture: VFS file.move and file.copy, NH16 Create/Move transactions, Activity Ledger, composite Undo, and restored state survived QEMU restarts (log {})",
+        last_log.display()
+    )];
+    if let Some((serial_log, vars)) = firmware_retry_evidence {
+        lines.push(format!(
+            "INFO M22 bootstrap recovered from a pre-guest OVMF timeout after one bounded retry; failed attempt preserved at {} and {}",
+            serial_log.display(),
+            vars.display()
+        ));
+    }
     CommandResult {
         exit_code: EXIT_SUCCESS,
-        lines: vec![format!(
-            "PASS M21/M22 guest fixture: VFS file.move and file.copy, NH16 Create/Move transactions, Activity Ledger, composite Undo, and restored state survived QEMU restarts (log {})",
-            last_log.display()
-        )],
+        lines,
     }
 }
 
@@ -7164,7 +7324,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         acceptance_marker: M27_BOOTSTRAP_COMPLETION_MARKER,
         timeout: Duration::from_secs(90),
     };
-    let bootstrap_status = match run_qemu_reusing_ovmf_vars(&bootstrap_config) {
+    let bootstrap_status = match run_m27_headless_with_pre_guest_retry(&bootstrap_config, false) {
         Ok(status) => status,
         Err(error) => {
             return failure(
@@ -7402,16 +7562,16 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         acceptance_marker: "Nagi Loader: invalid ELF",
         timeout: Duration::from_secs(90),
     };
-    let first_trial_status =
-        match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&first_trial_config) {
-            Ok(status) => status,
-            Err(error) => {
-                return failure(
-                    EXIT_CONFIG_ERROR,
-                    format!("m27: initial System B trial: {error}"),
-                );
-            }
-        };
+    let first_trial_status = match run_m27_headless_with_pre_guest_retry(&first_trial_config, true)
+    {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: initial System B trial: {error}"),
+            );
+        }
+    };
     let first_trial_serial = match fs::read_to_string(&first_trial_log) {
         Ok(serial) => serial,
         Err(error) => {
@@ -7525,7 +7685,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         ..first_trial_config
     };
     let second_trial_status =
-        match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&second_trial_config) {
+        match run_m27_headless_with_pre_guest_retry(&second_trial_config, true) {
             Ok(status) => status,
             Err(error) => {
                 return failure(
@@ -7601,7 +7761,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             // host load.
             timeout: Duration::from_secs(180),
         };
-        let status = match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&config) {
+        let status = match run_m27_headless_with_pre_guest_retry(&config, true) {
             Ok(status) => status,
             Err(error) => {
                 return failure(
@@ -7713,7 +7873,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             acceptance_marker: "Nagi M10 desktop READY",
             timeout: readiness_timeout,
         };
-        let status = match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&config) {
+        let status = match run_m27_headless_with_pre_guest_retry(&config, true) {
             Ok(status) => status,
             Err(error) => {
                 return failure(
@@ -7904,7 +8064,7 @@ fn execute_m27_gpt_acceptance(
             acceptance_marker: "Nagi Loader: invalid ELF",
             timeout: Duration::from_secs(120),
         };
-        let status = run_qemu_reusing_ovmf_vars(&config)
+        let status = run_m27_headless_with_pre_guest_retry(&config, false)
             .map_err(|error| format!("GPT System B trial {attempt}: {error}"))?;
         let serial =
             fs::read_to_string(&log).map_err(|error| format!("read {}: {error}", log.display()))?;
@@ -7993,7 +8153,7 @@ fn execute_m27_gpt_acceptance(
             acceptance_marker: "Nagi M7 acceptance PASS",
             timeout: Duration::from_secs(120),
         };
-        let status = run_qemu_reusing_ovmf_vars(&config)
+        let status = run_m27_headless_with_pre_guest_retry(&config, false)
             .map_err(|error| format!("GPT rollback/confirmed boot {boot}: {error}"))?;
         let serial =
             fs::read_to_string(&log).map_err(|error| format!("read {}: {error}", log.display()))?;
@@ -8056,7 +8216,7 @@ fn execute_m27_gpt_acceptance(
         acceptance_marker: "Nagi M10 desktop READY",
         timeout: Duration::from_secs(120),
     };
-    let status = run_qemu_reusing_ovmf_vars(&trial_config)
+    let status = run_m27_headless_with_pre_guest_retry(&trial_config, false)
         .map_err(|error| format!("GPT healthy System B trial: {error}"))?;
     let serial = fs::read_to_string(&trial_log)
         .map_err(|error| format!("read {}: {error}", trial_log.display()))?;
@@ -8129,7 +8289,7 @@ fn execute_m27_gpt_acceptance(
         acceptance_marker: GUEST_ACCEPTANCE_MARKER,
         timeout: Duration::from_secs(120),
     };
-    let status = run_qemu_reusing_ovmf_vars(&confirmed_config)
+    let status = run_m27_headless_with_pre_guest_retry(&confirmed_config, false)
         .map_err(|error| format!("GPT confirmed System B boot: {error}"))?;
     let serial = fs::read_to_string(&confirmed_log)
         .map_err(|error| format!("read {}: {error}", confirmed_log.display()))?;
@@ -8219,14 +8379,140 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_nagi_target_archive_tools, last_serial_lines, m17_trace_excerpt,
-        m27_bootstrap_markers_present, m27_readiness_consumed_before_promotion,
-        m27_readiness_persisted_before_desktop, m27_trial_failure_observed,
-        m30_image_build_info_matches, parse_command, pinned_granite_manifest, scoped_artifact_name,
-        verify_external_artifact, Command, NAGI_WRITE_MARKER,
+        append_nagi_target_archive_tools, has_pre_guest_firmware_timeout_signature,
+        last_serial_lines, m17_trace_excerpt, m27_bootstrap_markers_present,
+        m27_readiness_consumed_before_promotion, m27_readiness_persisted_before_desktop,
+        m27_trial_failure_observed, m30_image_build_info_matches, parse_command, path_with_suffix,
+        pinned_granite_manifest, run_m27_headless_with_pre_guest_retry_using, scoped_artifact_name,
+        verify_external_artifact, Command, QemuConfig, NAGI_WRITE_MARKER,
     };
     use sha2::{Digest, Sha256};
     use std::path::Path;
+
+    #[test]
+    fn m22_retries_only_a_running_pre_guest_firmware_timeout_with_diagnostics() {
+        let firmware_timeout = concat!(
+            "\u{1b}[2J\u{1b}[01;01H\u{1b}[=3h\u{1b}[2J\u{1b}[01;01H\n",
+            "QEMU timeout diagnostics:\n",
+            "QMP query-status: {\"return\": {\"status\": \"running\", \"running\": true}}\n",
+            "QMP CPU registers: RIP=000000007eb84171\n",
+            "QMP CPU instruction window: 0x7eb84171: jmp 0x7eb84150\n"
+        );
+        let timeout = "QEMU did not reach acceptance within 180 seconds";
+        assert!(has_pre_guest_firmware_timeout_signature(
+            timeout,
+            firmware_timeout
+        ));
+        assert!(!has_pre_guest_firmware_timeout_signature(
+            "QEMU exited before acceptance",
+            firmware_timeout
+        ));
+        assert!(!has_pre_guest_firmware_timeout_signature(
+            timeout,
+            &firmware_timeout.replace(
+                "QMP CPU instruction window:",
+                "Nagi Kernel started\nQMP CPU instruction window:"
+            )
+        ));
+        assert!(!has_pre_guest_firmware_timeout_signature(
+            timeout,
+            "QEMU timeout diagnostics: no CPU state captured"
+        ));
+    }
+
+    #[test]
+    fn m27_pre_guest_retry_is_bounded_and_preserves_first_attempt_state() {
+        use std::fs;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let root = std::env::temp_dir().join(format!(
+            "nagi-m27-pre-guest-retry-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create temporary evidence directory");
+        let qemu = root.join("qemu");
+        let ovmf_code = root.join("OVMF_CODE.fd");
+        let ovmf_vars_template = root.join("OVMF_VARS.template.fd");
+        let disk_image = root.join("boot.img");
+        let persistent_disk = root.join("user-data.img");
+        let vars_copy = root.join("OVMF_VARS.fd");
+        let serial_log = root.join("boot-4.log");
+        fs::write(&vars_copy, b"initial OVMF variables").expect("seed OVMF variables");
+        let config = QemuConfig {
+            qemu: &qemu,
+            ovmf_code: &ovmf_code,
+            ovmf_vars_template: &ovmf_vars_template,
+            disk_image: &disk_image,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &serial_log,
+            acceptance_marker: "Nagi M7 acceptance PASS",
+            timeout: Duration::from_secs(180),
+        };
+        let diagnostics = concat!(
+            "\u{1b}[2J\u{1b}[01;01H\u{1b}[=3h\u{1b}[2J\u{1b}[01;01H\n",
+            "QEMU timeout diagnostics:\n",
+            "QMP query-status: {\"return\": {\"status\": \"running\", \"running\": true}}\n",
+            "QMP CPU registers: RIP=000000007eb84171\n",
+            "QMP CPU instruction window: 0x7eb84171: jmp 0x7eb84150\n"
+        );
+        let mut attempts = 0;
+        let result = run_m27_headless_with_pre_guest_retry_using(&config, |config| {
+            attempts += 1;
+            if attempts == 1 {
+                fs::write(config.serial_log, diagnostics).expect("write first-attempt log");
+                fs::write(config.vars_copy, b"failed attempt OVMF variables")
+                    .expect("mutate first-attempt variables");
+                Err("QEMU did not reach acceptance within 180 seconds".to_owned())
+            } else {
+                assert_eq!(
+                    fs::read(config.vars_copy).expect("read reused OVMF variables"),
+                    b"failed attempt OVMF variables"
+                );
+                fs::write(
+                    config.serial_log,
+                    "Nagi Kernel started\nNagi M7 acceptance PASS\n",
+                )
+                .expect("write retry acceptance log");
+                Ok(7)
+            }
+        });
+        assert_eq!(result, Ok(7));
+        assert_eq!(attempts, 2);
+        assert_eq!(
+            fs::read(path_with_suffix(&serial_log, ".pre-guest-timeout-1"))
+                .expect("preserved first-attempt serial log"),
+            diagnostics.as_bytes()
+        );
+        assert_eq!(
+            fs::read(path_with_suffix(&vars_copy, ".pre-guest-timeout-1"))
+                .expect("preserved first-attempt OVMF variables"),
+            b"failed attempt OVMF variables"
+        );
+        assert!(
+            fs::read_to_string(path_with_suffix(&serial_log, ".pre-guest-retry-1.txt"))
+                .expect("retry evidence note")
+                .contains("reused the same OVMF variables")
+        );
+        fs::remove_dir_all(root).expect("remove temporary evidence directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_evidence_path_suffix_preserves_non_utf8_path_bytes() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        use std::path::PathBuf;
+
+        let path = PathBuf::from(OsString::from_vec(b"/tmp/nagi-\xff".to_vec()));
+        let suffixed = path_with_suffix(&path, ".retry");
+
+        assert_eq!(suffixed.as_os_str().as_bytes(), b"/tmp/nagi-\xff.retry");
+    }
 
     #[test]
     fn m29_command_selects_the_settings_acceptance() {
