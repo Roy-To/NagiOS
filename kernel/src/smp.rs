@@ -16,7 +16,7 @@ const TRAMPOLINE_LIMIT: u64 = 0x1_0000;
 const STACK_SIZE: usize = 16 * 1024;
 const WORKLOAD_STEPS: u32 = 32;
 const THREAD_COUNT: usize = 2;
-const CONTEXT_WORDS: usize = 18;
+use nagi_kernel::scheduler::{m3_initial_task_frame, M3_TASK_FRAME_WORDS as CONTEXT_WORDS};
 const NO_CURRENT_TASK: u32 = u32::MAX;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -343,7 +343,12 @@ pub fn initialize(
         }
     }
     unsafe { asm!("cli", options(nomem, nostack, preserves_flags)) };
-    unsafe { initialize_thread_contexts(interrupts::current_code_selector()) };
+    unsafe {
+        initialize_thread_contexts(
+            interrupts::current_code_selector(),
+            interrupts::current_stack_selector(),
+        )
+    };
     for index in 0..MAX_CPUS {
         TASK_STATE[index * THREAD_COUNT].store(RUNNABLE, Ordering::Release);
     }
@@ -740,20 +745,26 @@ fn wake_task(task_index: usize) -> bool {
     was_blocked
 }
 
-unsafe fn initialize_thread_contexts(code_selector: u16) {
+unsafe fn initialize_thread_contexts(code_selector: u16, stack_selector: u16) {
     for cpu in 0..MAX_CPUS {
         for task in 0..THREAD_COUNT {
             let stack = &THREAD_STACKS[cpu * THREAD_COUNT + task].0;
+            // SysV entry alignment: RSP is 8 mod 16 at function entry.
             let stack_top = stack.as_ptr() as usize + STACK_SIZE - 8;
+            let words = m3_initial_task_frame(
+                cpu,
+                task,
+                thread_entry as usize as u64,
+                code_selector,
+                stack_selector,
+                stack_top as u64,
+            );
+            // The frame lives entirely below `stack_top`; once `iretq`
+            // consumes it, the task's stack grows down over it.
             let frame = (stack_top - CONTEXT_WORDS * core::mem::size_of::<u64>()) as *mut u64;
-            for word in 0..CONTEXT_WORDS {
-                frame.add(word).write_volatile(0);
+            for (index, word) in words.iter().enumerate() {
+                frame.add(index).write_volatile(*word);
             }
-            frame.add(9).write_volatile(cpu as u64);
-            frame.add(10).write_volatile(task as u64);
-            frame.add(15).write_volatile(thread_entry as usize as u64);
-            frame.add(16).write_volatile(u64::from(code_selector));
-            frame.add(17).write_volatile(0x202);
             TASK_CONTEXTS[cpu * THREAD_COUNT + task].store(frame as u64, Ordering::Release);
         }
     }

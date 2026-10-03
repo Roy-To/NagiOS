@@ -21,15 +21,18 @@ use libnagi::{
 use nagi_model::AppId;
 
 /// Supervisor-owned application declarations embedded in the system image.
-const MANIFESTS: [&[u8]; 4] = [
+const MANIFESTS: [&[u8]; 5] = [
     include_bytes!("../manifests/org.nagi.acceptance.isolated-app.manifest"),
     include_bytes!("../manifests/org.nagi.acceptance.m19-search.manifest"),
     include_bytes!("../manifests/org.nagi.acceptance.m22-files.manifest"),
     include_bytes!("../manifests/org.nagi.acceptance.foreign-client.manifest"),
+    include_bytes!("../manifests/org.nagi.acceptance.faulting-app.manifest"),
 ];
 
 #[cfg(feature = "isolated-process-acceptance")]
 pub const ISOLATED_APP: AppId = AppId::from_identifier(b"org.nagi.acceptance.isolated-app");
+#[cfg(feature = "isolated-process-acceptance")]
+pub const FAULTING_APP: AppId = AppId::from_identifier(b"org.nagi.acceptance.faulting-app");
 /// Declared application that may query Search but owns no fixture objects
 /// and holds no file-action grants.
 #[cfg(feature = "m19-search-ipc")]

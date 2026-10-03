@@ -58,12 +58,9 @@ capability bypass.
 - The scheduler remains cooperative with ring-3 interrupts disabled
   (ADR-0029). A child that never makes a syscall can stall the system. This is
   recorded as a known limit, not hidden.
-- Ring-3 exceptions are not yet contained. There is still no TSS-backed
-  privilege-transition stack (ADR-0029), so a CPU exception in either user
-  process stops the machine instead of terminating only that process. The
-  kernel never maps init memory into the child, so a stray child access
-  faults rather than reading or writing init state. Converting child faults
-  into a child-only exit is the next kernel step.
+- Ring-3 exceptions: superseded by ADR 0047. The BSP now has a TSS and an
+  exception IDT. A fault in an isolated process terminates only that process
+  with exit code 128 + vector. Faults in init or the kernel remain fatal.
 - This ADR does not claim that production Files, Browser, or Search services
   have moved out of init. It provides the authenticated caller primitive those
   services require.

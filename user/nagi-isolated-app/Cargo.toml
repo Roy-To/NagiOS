@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 # Minimal applications launched by the Supervisor into their own address
-# spaces (ADR 0043–0045). They use raw Nagi syscalls only: no allocator,
+# spaces (ADR 0043–0047). They use raw Nagi syscalls only: no allocator,
 # no TLS, and no device capabilities.
 
 [[bin]]
@@ -23,6 +23,12 @@ bench = false
 [[bin]]
 name = "nagi-action-client"
 path = "src/bin/action_client.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "nagi-faulting-app"
+path = "src/bin/faulting_app.rs"
 test = false
 bench = false
 

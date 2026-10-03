@@ -1,3 +1,5 @@
-# M22 acceptance application: may run the grouped file.move action.
+# M22 acceptance application: may run the grouped file.move and the
+# recoverable file.copy actions.
 app=org.nagi.acceptance.m22-files
 grant=files.move
+grant=files.copy

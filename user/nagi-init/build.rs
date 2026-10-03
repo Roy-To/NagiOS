@@ -6,6 +6,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_ISOLATED_APP_ELF");
+    println!("cargo:rerun-if-env-changed=NAGI_FAULTING_APP_ELF");
     println!("cargo:rerun-if-env-changed=NAGI_M19_SEARCH_CLIENT_ELF");
     println!("cargo:rerun-if-env-changed=NAGI_ACTION_CLIENT_ELF");
     if env::var_os("CARGO_FEATURE_M21_ACTION_IPC").is_some() {
@@ -25,6 +26,10 @@ fn main() {
             .map(PathBuf::from)
             .expect("isolated-process-acceptance requires NAGI_ISOLATED_APP_ELF");
         println!("cargo:rerun-if-changed={}", elf.display());
+        let faulting = env::var_os("NAGI_FAULTING_APP_ELF")
+            .map(PathBuf::from)
+            .expect("isolated-process-acceptance requires NAGI_FAULTING_APP_ELF");
+        println!("cargo:rerun-if-changed={}", faulting.display());
     }
     println!("cargo:rerun-if-env-changed=NAGI_TARGET_CLANG");
     println!("cargo:rerun-if-env-changed=NAGI_MESA_BUILD");

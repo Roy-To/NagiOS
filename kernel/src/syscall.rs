@@ -420,6 +420,39 @@ nagi_syscall_entry:
 );
 
 #[cfg(not(test))]
+global_asm!(
+    r#"
+.global nagi_resume_user_context
+nagi_resume_user_context:
+    mov rsp, rdi
+    mov rax, qword ptr [rsp + {fs_base_offset}]
+    mov rdx, rax
+    shr rdx, 32
+    mov ecx, 0xC0000100
+    wrmsr
+    fxrstor64 [rsp + 144]
+    mov rax, qword ptr [rsp + 0]
+    mov rbx, qword ptr [rsp + 8]
+    mov rdx, qword ptr [rsp + 24]
+    mov rsi, qword ptr [rsp + 32]
+    mov rdi, qword ptr [rsp + 40]
+    mov rbp, qword ptr [rsp + 48]
+    mov r8, qword ptr [rsp + 56]
+    mov r9, qword ptr [rsp + 64]
+    mov r10, qword ptr [rsp + 72]
+    mov r12, qword ptr [rsp + 88]
+    mov r13, qword ptr [rsp + 96]
+    mov r14, qword ptr [rsp + 104]
+    mov r15, qword ptr [rsp + 112]
+    mov rcx, qword ptr [rsp + 120]
+    mov r11, qword ptr [rsp + 128]
+    mov rsp, qword ptr [rsp + 136]
+    sysretq
+"#,
+    fs_base_offset = const core::mem::offset_of!(UserThreadContext, user_fs_base),
+);
+
+#[cfg(not(test))]
 extern "C" {
     static nagi_syscall_entry: u8;
 }
@@ -603,6 +636,18 @@ fn process_spawn(address: u64, length: u64) -> u64 {
 /// leave its address space before scrubbing it. Never halts the system.
 #[cfg(not(test))]
 fn isolated_process_exit(caller: u32, code: u64) -> u64 {
+    let current = current_user_thread();
+    let next = terminate_isolated_process(caller, code);
+    switch_to_thread(current, next, b"process-exit");
+    u64::MAX
+}
+
+/// Tear down an isolated process and return the thread to run next. The
+/// process's handles are closed, its thread is removed, and init's address
+/// space is restored before the child's pages are scrubbed. Shared by
+/// `SYS_PROCESS_EXIT` and ring-3 fault containment (ADR 0047).
+#[cfg(not(test))]
+fn terminate_isolated_process(caller: u32, code: u64) -> u8 {
     serial_write(b"Nagi ADR0043 isolated process exit pid=");
     serial_write_decimal(caller as usize);
     serial_write(b" code=");
@@ -624,11 +669,72 @@ fn isolated_process_exit(caller: u32, code: u64) -> u64 {
     }
     child_process::set_active_process(INIT_PROCESS_ID);
     unsafe { child_process::release_child() };
-    let next = next
-        .or_else(|| wait_until_runnable(false))
-        .unwrap_or_else(|| halt_forever());
-    switch_to_thread(current, next, b"process-exit");
-    u64::MAX
+    next.or_else(|| wait_until_runnable(false))
+        .unwrap_or_else(|| halt_forever())
+}
+
+#[cfg(not(test))]
+fn serial_write_hex(value: u64) {
+    let mut digits = [0_u8; 18];
+    digits[0] = b'0';
+    digits[1] = b'x';
+    for (index, digit) in digits[2..].iter_mut().enumerate() {
+        *digit = b"0123456789abcdef"[((value >> (60 - index * 4)) & 0xf) as usize];
+    }
+    serial_write(&digits);
+}
+
+/// BSP CPU-exception entry (ADR 0047). `frame` points at
+/// `[vector, error, rip, cs, rflags, rsp, ss]`.
+///
+/// - **Kernel fault (CPL 0).** Still fatal, but reported.
+/// - **Fault in init.** Still fatal: init is the Supervisor.
+/// - **Fault in an isolated process.** Only that process is terminated.
+///   Its exit code is 128 + vector, and the next runnable thread resumes.
+#[cfg(not(test))]
+pub(crate) extern "sysv64" fn exception_entry(frame: *const u64) -> ! {
+    let word = |index: usize| unsafe { frame.add(index).read_volatile() };
+    let (vector, error, rip, cs) = (word(0), word(1), word(2), word(3));
+    let fault_address: u64;
+    unsafe { asm!("mov {}, cr2", out(reg) fault_address, options(nomem, nostack)) };
+    let from_user = cs & 3 == 3;
+    let owner = thread_table().current_owner();
+    if !from_user || owner == INIT_PROCESS_ID {
+        serial_write(if from_user {
+            b"Nagi init process fault vector="
+        } else {
+            b"Nagi kernel exception vector="
+        });
+        serial_write_decimal(vector as usize);
+        serial_write(b" error=");
+        serial_write_hex(error);
+        serial_write(b" rip=");
+        serial_write_hex(rip);
+        serial_write(b" cr2=");
+        serial_write_hex(fault_address);
+        serial_write(b"\r\n");
+        halt_forever()
+    }
+    serial_write(b"Nagi ADR0047 isolated process fault pid=");
+    serial_write_decimal(owner as usize);
+    serial_write(b" vector=");
+    serial_write_decimal(vector as usize);
+    serial_write(b" rip=");
+    serial_write_hex(rip);
+    serial_write(b" cr2=");
+    serial_write_hex(fault_address);
+    serial_write(b"\r\n");
+    let next = terminate_isolated_process(owner, nagi_kernel::cpu_tables::fault_exit_code(vector));
+    trace_user_thread_event(b"fault-exit", next, next);
+    sync_address_space();
+    unsafe { nagi_resume_user_context(core::ptr::addr_of!(NAGI_THREAD_CONTEXTS[next as usize])) }
+}
+
+#[cfg(not(test))]
+extern "sysv64" {
+    /// Resume a saved user thread context with `sysretq`, exactly as the
+    /// syscall return path does after a thread switch.
+    fn nagi_resume_user_context(context: *const UserThreadContext) -> !;
 }
 
 #[cfg(not(test))]

@@ -13,9 +13,21 @@ use libnagi::{
 };
 use nagi_model::{AppId, AppSessionId, NodeId};
 
-use crate::supervisor::{self, LaunchFailure, ISOLATED_APP};
+use crate::supervisor::{self, LaunchFailure, FAULTING_APP, ISOLATED_APP};
 
 static ISOLATED_APP_ELF: &[u8] = include_bytes!(env!("NAGI_ISOLATED_APP_ELF"));
+static FAULTING_APP_ELF: &[u8] = include_bytes!(env!("NAGI_FAULTING_APP_ELF"));
+
+// Keep in sync with `user/nagi-isolated-app/src/bin/faulting_app.rs`.
+const FAULT_PROTOCOL_ID: u16 = 0x4643;
+const OPCODE_LAUNCH_FAULT: u16 = 1;
+/// Page fault, invalid opcode, and general protection, in that order.
+const FAULT_KINDS: [u8; 3] = [1, 2, 3];
+const FAULT_PLACEMENT: LaunchPlacement = LaunchPlacement {
+    app_session_id: AppSessionId(0x4e41_4749_0047_0001),
+    node_id: NodeId(0x4e41_4749_0047_0002),
+    workspace_id: None,
+};
 
 // Keep in sync with `user/nagi-isolated-app/src/main.rs`.
 const PROTOCOL_ID: u16 = 0x4f43;
@@ -176,6 +188,35 @@ pub fn run() -> bool {
         return fail(b"stale launch record");
     }
     console_write(b"Nagi isolated process exit cleanup PASS\r\n");
+    if !fault_containment() {
+        return false;
+    }
     console_write(b"Nagi isolated process acceptance PASS\r\n");
+    true
+}
+
+/// ADR 0047: an isolated process raising a CPU exception is terminated
+/// alone. The kernel closes its handles (so its endpoint becomes
+/// unreachable), the Supervisor revokes its launch, init keeps running, and
+/// the slot can be used again by the next launch.
+fn fault_containment() -> bool {
+    for kind in FAULT_KINDS {
+        let launched = match supervisor::launch(FAULTING_APP_ELF, FAULTING_APP, FAULT_PLACEMENT) {
+            Ok(launched) => launched,
+            Err(_) => return fail(b"faulting app launch"),
+        };
+        let mut request =
+            ChannelSendRequest::new(FAULT_PROTOCOL_ID, PROTOCOL_VERSION, 0, OPCODE_LAUNCH_FAULT);
+        request.payload[0] = kind;
+        request.payload_len = 1;
+        if !channel_send(launched.endpoint, &request) {
+            return fail(b"fault launch argument");
+        }
+        let process_id = launched.record.process_id;
+        if !supervisor::reap(launched) || supervisor::resolve(process_id).is_some() {
+            return fail(b"faulting process was not terminated and reaped");
+        }
+    }
+    console_write(b"Nagi isolated process fault containment PASS\r\n");
     true
 }

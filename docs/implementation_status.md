@@ -3,6 +3,43 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**Ring-3 fault containment and M3 stall fix (ADR 0047), 2026-10-03:**
+
+- **M3 stall root cause.** The intermittent "M3 scheduler workload" stall
+  (QMP `shutdown`, RIP=`smp::thread_entry`, RSP=0, CR2=-8) came from an
+  18-word initial task frame. `iretq` pops 20 words, so a task could start
+  with RSP=0 and interrupts enabled; a timer interrupt arriving before its
+  first stack switch then triple-faulted.
+- **M3 fix.** The frame now carries an explicit RSP and SS, and a lib test in
+  CI pins its layout.
+- **TSS and exception IDT.** The BSP now has a TSS (RSP0 fault stack, IST1
+  for #DF) and its own exception IDT using the M5 kernel selector.
+- **Fault policy.** A CPU exception in an isolated process terminates only
+  that process (exit code 128 + vector), and the next thread resumes.
+  Kernel and init faults are reported, then halt.
+- **QEMU evidence.** `./nagi isolated-process` now launches
+  `nagi-faulting-app` three times. #PF, #UD, and #GP were each contained
+  (exit codes 142, 134 and 141), the launches were reaped, and init
+  continued.
+- **Repeated-boot evidence.** Before the fault-containment code was added,
+  13 consecutive `./nagi run` boots on the M3 fix passed. A 25-boot run on
+  the final kernel is recorded under the Last updated line.
+
+**Remaining in-process callers migrated, 2026-10-03:** These paths now run
+with the caller resolved from an isolated client's launch record and
+Supervisor manifest grants:
+
+- the M22 `file.copy` action, including its denied-policy and bad-name plans
+  (the `m22-files` manifest grants `files.copy`);
+- the M21 plan-rejection and partial-execution fixtures;
+- the `./nagi m27` Recovery-Undo image and both `./nagi m30` images, now
+  built with `m21-action-ipc`.
+
+`GrantSource::InProcessAcceptance` remains only for images built without
+`m21-action-ipc`. A local `./nagi m22` passed all three boots with the
+`file.copy` isolated-caller marker. See the Last updated line for the M27/M30
+local results.
+
 **Supervisor launch registry (ADR 0046), 2026-10-03:** `libnagi::launch`
 adds manifest-declared applications and a Supervisor launch registry.
 
@@ -795,8 +832,9 @@ under `out/evidence/m30-clean-release-144cc0d/` and
 - move the remaining in-process M21/M22 fixtures and the M27/M30 images to
   the registry path;
 - bind manifests to signed M16 packages;
-- contain ring-3 faults to a child-only exit;
-- investigate the intermittent M3 SMP scheduler stall. Earlier note: Continue the highest-priority shared
+- ADR 0047 contains ring-3 faults to a child-only exit and fixes the M3
+  SMP stall;
+- add a Supervisor process-exit wait/status. Earlier note: Continue the highest-priority shared
 Service/IPC/Capability boundary audit and implementation for M18–M23, reusing
 the existing foundations and preserving fixture-only caller identity. Continue independent
 M20, M22–M29 work while authenticated update and provider dependencies remain.

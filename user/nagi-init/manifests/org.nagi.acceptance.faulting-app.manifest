@@ -1,0 +1,2 @@
+# ADR 0047 fault-containment probe. Deliberately holds no grants.
+app=org.nagi.acceptance.faulting-app

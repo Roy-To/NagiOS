@@ -46,6 +46,8 @@ jobs:
         run: cargo test --locked -p nagi-kernel --lib display::tests::scales_the_logical_surface_to_the_full_scanout_without_stretching
       - name: Test bootstrap scheduler fairness under sustained contention
         run: cargo test --locked -p nagi-kernel --lib scheduler::tests::yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable
+      - name: Test M3 self-test task frame layout
+        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout
       - name: Test Albert browser state and input adapters
         run: cargo test --manifest-path user/nagi-albert/Cargo.toml --locked
       - name: M0 doctor acceptance

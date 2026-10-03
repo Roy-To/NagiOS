@@ -270,13 +270,9 @@ type M24SemanticIndex =
 /// Where an action policy takes capability grants from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GrantSource {
-    /// The in-process acceptance caller and its fixed grant table (images
-    /// built without `m21-action-ipc`, and the remaining in-process M22
-    /// fixtures).
-    #[cfg_attr(
-        all(feature = "m21-action-ipc", not(feature = "m22-history")),
-        allow(dead_code)
-    )]
+    /// The in-process acceptance caller and its fixed grant table, used only
+    /// by images built without `m21-action-ipc`.
+    #[cfg_attr(feature = "m21-action-ipc", allow(dead_code))]
     InProcessAcceptance,
     /// The live Supervisor launch registry: only a launched session's
     /// manifest grants count (ADR 0046).

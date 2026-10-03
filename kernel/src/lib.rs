@@ -6,6 +6,7 @@ extern crate std;
 pub mod acpi;
 pub mod audio;
 pub mod boot_control;
+pub mod cpu_tables;
 pub mod display;
 pub mod gpt;
 pub mod handles;

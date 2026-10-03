@@ -16,6 +16,43 @@ pub fn scheduler_dispatch_counts_are_fair(task_zero: u32, task_one: u32) -> bool
 }
 
 const NO_THREAD: u8 = u8::MAX;
+
+/// Saved M3 self-test task frame: 15 general-purpose registers pushed by the
+/// timer stub, then the five words `iretq` always pops in 64-bit mode
+/// (RIP, CS, RFLAGS, RSP, SS).
+pub const M3_TASK_FRAME_WORDS: usize = 20;
+const FRAME_ARG_CPU: usize = 9;
+const FRAME_ARG_TASK: usize = 10;
+const FRAME_RIP: usize = 15;
+const FRAME_CS: usize = 16;
+const FRAME_RFLAGS: usize = 17;
+const FRAME_RSP: usize = 18;
+const FRAME_SS: usize = 19;
+
+/// Build the first `iretq` frame of an M3 self-test task. The frame must
+/// carry an explicit RSP and SS: `iretq` always pops them, and the task
+/// starts with interrupts enabled. A timer interrupt delivered before the
+/// entry function sets up its own stack would otherwise push onto whatever
+/// RSP the missing word contained. This was observed as RSP=0,
+/// CR2=0xffff_ffff_ffff_fff8 and a triple fault at the task entry.
+pub fn m3_initial_task_frame(
+    cpu: usize,
+    task: usize,
+    entry: u64,
+    code_selector: u16,
+    stack_selector: u16,
+    stack_top: u64,
+) -> [u64; M3_TASK_FRAME_WORDS] {
+    let mut frame = [0_u64; M3_TASK_FRAME_WORDS];
+    frame[FRAME_ARG_CPU] = cpu as u64;
+    frame[FRAME_ARG_TASK] = task as u64;
+    frame[FRAME_RIP] = entry;
+    frame[FRAME_CS] = u64::from(code_selector);
+    frame[FRAME_RFLAGS] = 0x202;
+    frame[FRAME_RSP] = stack_top;
+    frame[FRAME_SS] = u64::from(stack_selector);
+    frame
+}
 /// Kernel Process ID of the bootstrap `nagi-init` process (ADR 0043).
 pub const INIT_PROCESS_ID: u32 = 1;
 
@@ -573,5 +610,18 @@ mod tests {
         assert_eq!(threads.owner(child), None);
         assert_eq!(threads.current_owner(), super::INIT_PROCESS_ID);
         assert_eq!(threads.exit_process(2, 0), None);
+    }
+
+    #[test]
+    fn m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout() {
+        assert_eq!(super::M3_TASK_FRAME_WORDS, 15 + 5);
+        let frame = super::m3_initial_task_frame(2, 1, 0x4000_1000, 0x38, 0x30, 0x7000_fff8);
+        assert_eq!(frame[9], 2, "rdi carries the CPU index");
+        assert_eq!(frame[10], 1, "rsi carries the task index");
+        assert_eq!(frame[15], 0x4000_1000);
+        assert_eq!(frame[16], 0x38);
+        assert_eq!(frame[17], 0x202);
+        assert_eq!(frame[18], 0x7000_fff8, "iretq must load a real stack");
+        assert_eq!(frame[19], 0x30);
     }
 }

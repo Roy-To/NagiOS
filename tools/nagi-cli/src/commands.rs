@@ -2898,12 +2898,19 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         };
+        let client_env = match isolated_client_env(root) {
+            Ok(env) => env,
+            Err(result) => return result,
+        };
+        let client_env_refs = client_env
+            .each_ref()
+            .map(|(key, path)| (*key, path.as_path()));
         let init_args = [
             "build",
             "-p",
             "nagi-init",
             "--features",
-            "m10-desktop,m19-search,m20-model-store-acceptance,m22-history",
+            "m10-desktop,m19-search,m20-model-store-acceptance,m22-history,m21-action-ipc",
             "--target",
             "targets/x86_64-unknown-nagi-user.json",
             "-Zbuild-std=core,alloc,compiler_builtins",
@@ -2916,7 +2923,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             None,
             ImageBuildRequest {
                 image_name,
-                cargo_env: &[],
+                cargo_env: &client_env_refs,
                 recovery_init: Some(&recovery_init),
                 image_writer: write_reference_disk_qcow2,
                 external_model_store_file: None,
@@ -3286,12 +3293,19 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
     };
     let fixture_image_name = format!("nagi-0.1-m20-reader-{run_id}.qcow2");
+    let fixture_client_env = match isolated_client_env(root) {
+        Ok(env) => env,
+        Err(result) => return result,
+    };
+    let fixture_client_env_refs = fixture_client_env
+        .each_ref()
+        .map(|(key, path)| (*key, path.as_path()));
     let fixture_init_args = [
         "build",
         "-p",
         "nagi-init",
         "--features",
-        "m10-desktop,m19-search,m20-fixture-acceptance,m22-history",
+        "m10-desktop,m19-search,m20-fixture-acceptance,m22-history,m21-action-ipc",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -3304,7 +3318,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         None,
         ImageBuildRequest {
             image_name: &fixture_image_name,
-            cargo_env: &[],
+            cargo_env: &fixture_client_env_refs,
             recovery_init: Some(&recovery_init),
             image_writer: write_m20_model_store_fixture_reference_disk_qcow2,
             external_model_store_file: None,
@@ -6517,7 +6531,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
-const ISOLATED_PROCESS_MARKERS: [&str; 7] = [
+const ISOLATED_PROCESS_MARKERS: [&str; 11] = [
     "Nagi Kernel started",
     "Nagi ADR0043 isolated process spawned pid=2",
     "Nagi isolated process kernel-stamped sender PASS",
@@ -6525,6 +6539,10 @@ const ISOLATED_PROCESS_MARKERS: [&str; 7] = [
     "Nagi isolated process address space and syscall isolation PASS",
     "Nagi ADR0043 isolated process exit pid=2 code=0",
     "Nagi isolated process exit cleanup PASS",
+    "Nagi ADR0047 isolated process fault pid=2 vector=14",
+    "Nagi ADR0047 isolated process fault pid=2 vector=6",
+    "Nagi ADR0047 isolated process fault pid=2 vector=13",
+    "Nagi isolated process fault containment PASS",
 ];
 const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PASS";
 
@@ -6555,6 +6573,19 @@ fn build_isolated_apps(root: &Path) -> Result<PathBuf, CommandResult> {
         .join("target")
         .join("x86_64-unknown-nagi-user")
         .join("release"))
+}
+
+/// Build the isolated client ELFs and return the `NAGI_*_ELF` environment an
+/// init build with `m21-action-ipc` needs.
+fn isolated_client_env(root: &Path) -> Result<[(&'static str, PathBuf); 2], CommandResult> {
+    let release = build_isolated_apps(root)?;
+    Ok([
+        (
+            "NAGI_M19_SEARCH_CLIENT_ELF",
+            release.join("nagi-m19-search-client"),
+        ),
+        ("NAGI_ACTION_CLIENT_ELF", release.join("nagi-action-client")),
+    ])
 }
 
 /// Build an init image whose M19/M21/M22 callers are isolated client
@@ -6594,10 +6625,12 @@ fn execute_image_with_isolated_clients(
 }
 
 fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let app_elf = match build_isolated_apps(root) {
-        Ok(directory) => directory.join("nagi-isolated-app"),
+    let release = match build_isolated_apps(root) {
+        Ok(directory) => directory,
         Err(result) => return result,
     };
+    let app_elf = release.join("nagi-isolated-app");
+    let faulting_elf = release.join("nagi-faulting-app");
     let init_args = [
         "build",
         "-p",
@@ -6616,7 +6649,10 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
         &init_args,
         None,
         image_name,
-        &[("NAGI_ISOLATED_APP_ELF", app_elf.as_path())],
+        &[
+            ("NAGI_ISOLATED_APP_ELF", app_elf.as_path()),
+            ("NAGI_FAULTING_APP_ELF", faulting_elf.as_path()),
+        ],
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
@@ -6686,7 +6722,9 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
 }
 
 fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
-    if serial.contains("Nagi isolated process acceptance FAIL") {
+    if serial.contains("Nagi isolated process acceptance FAIL")
+        || serial.contains("Nagi faulting app survived its fault FAIL")
+    {
         return Some(ISOLATED_PROCESS_PASS_MARKER);
     }
     ISOLATED_PROCESS_MARKERS
@@ -7304,6 +7342,7 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 "Nagi M21 file.search isolated caller PASS",
                 "Nagi M22 foreign isolated caller denied PASS",
                 "Nagi M22 file.move isolated caller PASS",
+                "Nagi M22 file.copy isolated caller PASS",
             ]
             .into_iter()
             .find(|marker| !serial.contains(marker))
@@ -7662,8 +7701,11 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 
     let recovery_undo_image_name = format!("nagi-0.1-m27-recovery-undo-{run_id}.img");
-    let recovery_undo_image_result =
-        execute_image_with_features(root, Some("m22-history"), &recovery_undo_image_name);
+    let recovery_undo_image_result = execute_image_with_isolated_clients(
+        root,
+        "m22-history,m21-action-ipc",
+        &recovery_undo_image_name,
+    );
     if recovery_undo_image_result.exit_code != EXIT_SUCCESS {
         return recovery_undo_image_result;
     }

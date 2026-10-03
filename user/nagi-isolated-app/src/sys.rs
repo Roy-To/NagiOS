@@ -1,5 +1,6 @@
 //! Raw Nagi syscalls available to a Supervisor-spawned isolated process
 //! (ADR 0043). No allocator, TLS, or device capability is required.
+#![allow(dead_code)] // Each isolated binary uses a different subset.
 
 use core::arch::asm;
 

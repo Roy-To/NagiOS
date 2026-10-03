@@ -66,8 +66,11 @@ acceptance caller" checks. Three gaps remained:
 - **Supervisor-chosen sessions.** The Supervisor chooses sessions, either new
   or restored. A real session manager is later work.
 - **Remaining in-process paths.** The in-process acceptance caller
-  (`GrantSource::InProcessAcceptance`) remains for `file.copy`, the
-  plan-rejection and partial-execution fixtures, and the M27/M30 images.
+  (`GrantSource::InProcessAcceptance`) remains only for images built without
+  `m21-action-ipc`. Update 2026-10-03: `file.copy` (granted by the
+  `m22-files` manifest), the plan-rejection and partial-execution fixtures,
+  and the M27/M30 images now run with the isolated caller and Supervisor
+  grants.
 - **Capacity.** The registry tracks four live launches, but the kernel still
   provides one isolated slot (ADR 0043).
 

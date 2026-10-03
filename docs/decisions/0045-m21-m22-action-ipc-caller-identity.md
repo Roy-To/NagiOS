@@ -51,12 +51,14 @@ so M21 and M22 remained `PARTIAL` for "authenticated M21/M22 authority".
 
 - The intent is supplied to the client by the Supervisor as a launch
   argument. Nagi Bar / Albert as real requesters are later work.
-- `file.copy`, plan-rejection, and partial-execution fixtures still run
-  in-process with the acceptance caller.
-- `./nagi m27` and `./nagi m30` images keep the in-process caller
-  (`m22-history` without `m21-action-ipc`).
-- The grant tables are still acceptance-scoped. A Supervisor launch
-  registry with manifest-defined grants is later work.
+- Superseded 2026-10-03 (see ADR 0046):
+  - `file.copy` is now also requested by an isolated client;
+  - the plan-rejection and partial-execution fixtures now evaluate with the
+    resolved caller and Supervisor grants;
+  - the `./nagi m27` and `./nagi m30` images are built with
+    `m21-action-ipc`.
+- Grants now come from the ADR 0046 Supervisor launch registry and its
+  manifests.
 - One isolated client at a time (ADR 0043).
 
 ## Verification
