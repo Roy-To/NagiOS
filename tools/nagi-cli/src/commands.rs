@@ -7590,7 +7590,11 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             vars_copy: &vars_copy,
             serial_log: &log_path,
             acceptance_marker,
-            timeout: Duration::from_secs(90),
+            // Repeated TCG boots through the persisted journal sequence can
+            // exceed the standalone boot budget. Keep guest markers as the
+            // acceptance gate while allowing the sequence to finish under
+            // host load.
+            timeout: Duration::from_secs(180),
         };
         let status = match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&config) {
             Ok(status) => status,

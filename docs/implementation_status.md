@@ -8402,3 +8402,16 @@ bound to `4fae687` and its build-info sidecar were preserved and verified at
 This host has no `virtio-sound.in` input driver. Authenticated update/System B
 installation and human binary redistribution review remain open, so M30 stays
 `PARTIAL`.
+
+## Completion Sweep — repeated M27 startup timeout follow-up (2026-10-03)
+
+Current-source M28 run `out/evidence/m28-run-20261003T011836Z-42073/` passed
+all three gates in repetition 1. Repetition 2 passed M19 and M22, but M27
+boot 5 did not reach the confirmed-System-A marker within its 90-second
+timeout. This remains a failed two-repetition attempt. The M27 persisted
+journal decision-boot timeout is now 180 seconds without changing guest
+acceptance markers. Standalone `./nagi m27` then passed at run
+`1790991014827320000`; its SHA-256 evidence manifest verifies, and both M27
+GPT images pass `qemu-img check`. M28 still needs a fresh two-repetition pass;
+its combined Desktop/Files/Notes/Albert, real Granite, audio, OOM, and leak
+soak acceptance remains unmeasured, so M27/M28 remain `PARTIAL`.

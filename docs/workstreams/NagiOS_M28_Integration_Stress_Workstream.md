@@ -653,3 +653,22 @@ guest acceptance. QMP reported the recurring OVMF loop at RIP `0x7eb84171`.
 These attempts remain incomplete and are not counted as passes. CPU fairness
 during real Granite inference and the broader Desktop/Files/Notes/Albert,
 audio, OOM, and leak-soak workload remain unmeasured. M28 remains `PARTIAL`.
+
+## Completion Sweep — repeated M27 startup timeout follow-up (2026-10-03)
+
+Current-source run `out/evidence/m28-run-20261003T011836Z-42073/` passed the
+full M19/M22/M27 sequence in repetition 1. Repetition 2 passed M19 and all
+three M22 boots, then M27 timed out on boot 5 while checking the persisted
+System A confirmation decision at the existing 90-second limit. The failed
+run and its M27 sub-run evidence remain hash-verified; this attempt is not a
+two-repetition pass.
+
+The repeated-journal decision boot timeout is now 180 seconds. The guest
+acceptance markers and boot decision checks are unchanged. A fresh standalone
+`./nagi m27` run passed at
+`out/evidence/m27-ab-rollback-1790991014827320000/`; its logs, source diff,
+and seven run-stamped images have a SHA-256 manifest. Both GPT images pass
+`qemu-img check`, and the Recovery log includes the M3 CPU scheduler fairness
+marker. A new two-repetition integration run is still required. M28 remains
+`PARTIAL` because its Desktop/Files/Notes/Albert, real Granite, audio-pressure,
+OOM, and leak-soak workload is unmeasured.
