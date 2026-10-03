@@ -936,3 +936,29 @@ and qcow2 structure verify. Current run evidence and its 15-file SHA-256
 manifest are at `out/evidence/m30-release-1790985901890315000/`. The QEMU host
 has no `virtio-sound.in` backend; the guest sound initialization marker passed,
 but this adds no microphone/audio-capture evidence.
+
+## Current-source release acceptance — 2026-10-03
+
+On clean source commit `9b16eaae729b8c61403aa929912de5ab5da19d4b`, `./nagi m30`
+passed System A initialization, User Data persistence across restart,
+Recovery with the boot journal unchanged, rejection of an unstaged System B,
+and the post-Recovery System A restart. The separate disposable M20 Model
+Store fixture passed its guest FAT32 read check; this does not claim inference.
+The 64 GiB GPT reference image SHA-256 is
+`e815da59636642c91b06fb6d9f75b038113eabadf7dfd2eb4a251cd61ac2f349`.
+QEMU's mutable acceptance copy and the source image pass `qemu-img check`.
+
+The 16 release-tool tests passed. Clean-source preflight, assembly to
+`out/artifacts/m30-release-bundle-9b16eaa/`, verification, all 23 bundle
+checksums, byte identity between the bundled and source image, and bundled
+`qemu-img check` passed. The release manifest correctly retains
+`m30_acceptance=NOT_EVALUATED`; integrity verification remains separate from
+guest acceptance. Run evidence and its 11-entry verified SHA-256 manifest are
+under `out/evidence/m30-release-1790988888019354000/`.
+
+The previous fixed-path image bound to `4fae687` was preserved with its
+build-info sidecar under
+`out/evidence/m30-stale-image-pre-9b16eaa-20261003/`; its hashes and qcow2
+structure verify. QEMU reported that this host has no `virtio-sound.in` input
+driver, so this run adds no audio-capture evidence. Authenticated updates and
+human binary redistribution review remain open; M30 stays `PARTIAL`.
