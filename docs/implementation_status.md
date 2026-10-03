@@ -8423,3 +8423,11 @@ UEFI screen-clear sequence; QMP reported the guest still running at RIP
 `0x7eb84171`. M19 and M22 now use a 180-second QEMU acceptance timeout while
 retaining their existing guest markers. The failed archive and SHA-256
 manifest are preserved; no M28 pass is claimed from that run.
+
+After those changes, M28 run `out/evidence/m28-run-20261003T014330Z-45609/`
+passed M19 and M22 in repetition 1 but timed out at 90 seconds on M27's third
+readiness-promotion boot, before confirmed System B and `Nagi M10 desktop
+READY`. QMP was still running at the recurring RIP `0x7eb84171`. The failed
+attempt's parent and M27 manifests verify. M27's three readiness-promotion
+boots now allow 180 seconds with their original markers; no two-repetition
+pass is claimed yet.

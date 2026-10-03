@@ -686,3 +686,11 @@ M19's initial/restart boots and M22's bootstrap/three history boots now allow
 will be rerun at this source state. This timeout adjustment does not measure
 the formal Desktop/Files/Notes/Albert, real Granite, audio, OOM, or leak-soak
 workload; M28 remains `PARTIAL`.
+
+Run `out/evidence/m28-run-20261003T014330Z-45609/` then passed M19 and all
+three M22 boots in repetition 1, but M27 readiness-promotion boot 3 timed out
+at 90 seconds while waiting for confirmed System B plus `Nagi M10 desktop
+READY`. QMP remained running at RIP `0x7eb84171`; the sub-run and parent
+manifests verify. The three readiness-promotion boots now have a 180-second
+budget with the same decision and desktop markers. The integrated
+two-repetition gate is still outstanding.

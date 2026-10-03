@@ -7695,6 +7695,9 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             false,
         ),
     ];
+    // Confirmation and post-promotion boots can exceed 90 seconds under
+    // repeated TCG load. Keep the exact readiness and desktop markers.
+    let readiness_timeout = Duration::from_secs(180);
     for (index, (log_name, expected_decision, expect_consumed_readiness)) in
         readiness_boots.iter().enumerate()
     {
@@ -7708,7 +7711,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             vars_copy: &readiness_vars,
             serial_log: &log_path,
             acceptance_marker: "Nagi M10 desktop READY",
-            timeout: Duration::from_secs(90),
+            timeout: readiness_timeout,
         };
         let status = match run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(&config) {
             Ok(status) => status,
