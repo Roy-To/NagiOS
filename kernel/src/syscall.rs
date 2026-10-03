@@ -556,14 +556,17 @@ fn sync_address_space() {
     let cr3 = if owner == INIT_PROCESS_ID {
         nagi_kernel::user_process::init_cr3()
     } else {
-        unsafe { CHILD_CR3 }
+        match child_process::cr3_of(owner) {
+            Some(cr3) => cr3,
+            None => {
+                serial_write(b"Nagi scheduler selected a thread with no address space\r\n");
+                halt_forever()
+            }
+        }
     };
     unsafe { asm!("mov cr3, {}", in(reg) cr3, options(nostack, preserves_flags)) };
     child_process::set_active_process(owner);
 }
-
-#[cfg(not(test))]
-static mut CHILD_CR3: u64 = 0;
 
 /// Isolated-process IDs, exit records, and the Supervisor waiter
 /// (ADR 0048). Mutated only from syscall and exception paths on the BSP.
@@ -683,24 +686,23 @@ fn process_spawn(address: u64, length: u64) -> u64 {
     ) {
         Ok(handle) => handle,
         Err(_) => {
-            unsafe { child_process::release_child() };
+            unsafe { child_process::release_child(context.process_id) };
             serial_write(b"Nagi ADR0043 spawn rejected: endpoint transfer\r\n");
             return u64::MAX;
         }
     };
     let Some(thread) = thread_table().allocate_for_process(context.process_id) else {
         let _ = nagi_kernel::user_ipc::exit_process(context.process_id);
-        unsafe { child_process::release_child() };
+        unsafe { child_process::release_child(context.process_id) };
         serial_write(b"Nagi ADR0043 spawn rejected: thread pool full\r\n");
         return u64::MAX;
     };
     if !exit_table().commit_spawn(context.process_id) {
         let _ = thread_table().exit_process(context.process_id, interrupts::timer_ticks());
         let _ = nagi_kernel::user_ipc::exit_process(context.process_id);
-        unsafe { child_process::release_child() };
+        unsafe { child_process::release_child(context.process_id) };
         return u64::MAX;
     }
-    unsafe { CHILD_CR3 = context.cr3 };
     let thread_context = &mut thread_contexts()[thread as usize];
     *thread_context = UserThreadContext::empty();
     thread_context.rdi = child_endpoint;
@@ -752,10 +754,9 @@ fn terminate_isolated_process(caller: u32, code: u64, kind: ExitKind) -> u8 {
             in(reg) nagi_kernel::user_process::init_cr3(),
             options(nostack, preserves_flags)
         );
-        CHILD_CR3 = 0;
     }
     child_process::set_active_process(INIT_PROCESS_ID);
-    unsafe { child_process::release_child() };
+    unsafe { child_process::release_child(caller) };
     next.or_else(|| wait_until_runnable(false))
         .unwrap_or_else(|| halt_forever())
 }

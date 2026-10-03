@@ -110,26 +110,6 @@ pub fn run() -> bool {
     {
         return fail(b"duplicate live session accepted");
     }
-    // Kernel bound: a second spawn is refused while the isolated slot is
-    // occupied, even when called directly.
-    if let Some(second) = channel_create_pair() {
-        let refused = process_spawn(
-            nagi_package::PackageView::parse(ISOLATED_APP_PACKAGE)
-                .map(|view| view.executable())
-                .unwrap_or_default(),
-            second.endpoint_b,
-            RIGHT_READ | RIGHT_WRITE,
-        )
-        .is_none();
-        let _ = handle_close(second.endpoint_a);
-        let _ = handle_close(second.endpoint_b);
-        if !refused {
-            return fail(b"second spawn accepted");
-        }
-    } else {
-        return fail(b"second channel");
-    }
-
     let mut message = ChannelReceiveResult::default();
     if channel_receive(launched.endpoint, &mut message).is_none() {
         return fail(b"request receive");
@@ -233,32 +213,82 @@ pub fn run() -> bool {
 /// alone. The kernel closes its handles (so its endpoint becomes
 /// unreachable), the Supervisor revokes its launch, init keeps running, and
 /// the slot can be used again by the next launch.
+fn launch_faulting(session: u64) -> Option<supervisor::Launched> {
+    let placement = LaunchPlacement {
+        app_session_id: AppSessionId(session),
+        ..FAULT_PLACEMENT
+    };
+    supervisor::launch(FAULTING_APP_PACKAGE, FAULTING_APP, placement).ok()
+}
+
+fn raise_fault(launched: &supervisor::Launched, kind: u8) -> bool {
+    let mut request =
+        ChannelSendRequest::new(FAULT_PROTOCOL_ID, PROTOCOL_VERSION, 0, OPCODE_LAUNCH_FAULT);
+    request.payload[0] = kind;
+    request.payload_len = 1;
+    channel_send(launched.endpoint, &request)
+}
+
+fn reaped_with_fault(launched: supervisor::Launched, vector: u64) -> bool {
+    let process_id = launched.record.process_id;
+    supervisor::reap(launched).is_some_and(|status| {
+        status.kind == PROCESS_EXIT_KIND_FAULTED
+            && status.fault_vector == vector
+            && status.code == 128 + vector
+            && status.process_id == process_id
+    }) && supervisor::resolve(process_id).is_none()
+}
+
 fn fault_containment() -> bool {
-    for (kind, vector) in FAULT_KINDS {
-        let launched = match supervisor::launch(FAULTING_APP_PACKAGE, FAULTING_APP, FAULT_PLACEMENT)
-        {
-            Ok(launched) => launched,
-            Err(_) => return fail(b"faulting app launch"),
-        };
-        let mut request =
-            ChannelSendRequest::new(FAULT_PROTOCOL_ID, PROTOCOL_VERSION, 0, OPCODE_LAUNCH_FAULT);
-        request.payload[0] = kind;
-        request.payload_len = 1;
-        if !channel_send(launched.endpoint, &request) {
-            return fail(b"fault launch argument");
+    let [(page_kind, page_vector), (opcode_kind, opcode_vector), (gp_kind, gp_vector)] =
+        FAULT_KINDS;
+    // ADR 0050: two isolated processes are live at once, each in its own
+    // address space and slot.
+    let session = FAULT_PLACEMENT.app_session_id.0;
+    let (Some(first), Some(second)) = (launch_faulting(session), launch_faulting(session + 1))
+    else {
+        return fail(b"concurrent isolated launches");
+    };
+    if first.record.process_id == second.record.process_id {
+        return fail(b"concurrent processes share an ID");
+    }
+    // Kernel bound: with every isolated slot occupied, even a direct spawn
+    // is refused.
+    if let Some(extra) = channel_create_pair() {
+        let refused = process_spawn(
+            nagi_package::PackageView::parse(FAULTING_APP_PACKAGE)
+                .map(|view| view.executable())
+                .unwrap_or_default(),
+            extra.endpoint_b,
+            RIGHT_READ | RIGHT_WRITE,
+        )
+        .is_none();
+        let _ = handle_close(extra.endpoint_a);
+        let _ = handle_close(extra.endpoint_b);
+        if !refused {
+            return fail(b"spawn beyond the isolated slots accepted");
         }
-        let process_id = launched.record.process_id;
-        let Some(status) = supervisor::reap(launched) else {
-            return fail(b"faulting process was not terminated and reaped");
-        };
-        if status.kind != PROCESS_EXIT_KIND_FAULTED
-            || status.fault_vector != vector
-            || status.code != 128 + vector
-            || status.process_id != process_id
-            || supervisor::resolve(process_id).is_some()
-        {
-            return fail(b"fault exit status");
-        }
+    } else {
+        return fail(b"extra channel");
+    }
+    console_write(b"Nagi isolated processes concurrent PASS\r\n");
+
+    // A fault in one live process leaves the other running.
+    let second_id = second.record.process_id;
+    if !raise_fault(&first, page_kind) || !reaped_with_fault(first, page_vector) {
+        return fail(b"first concurrent fault");
+    }
+    if supervisor::resolve(second_id).is_none() {
+        return fail(b"sibling did not survive a fault");
+    }
+    if !raise_fault(&second, opcode_kind) || !reaped_with_fault(second, opcode_vector) {
+        return fail(b"second concurrent fault");
+    }
+    let Some(third) = launch_faulting(session) else {
+        return fail(b"slot reuse after faults");
+    };
+    if !raise_fault(&third, gp_kind) || !reaped_with_fault(third, gp_vector) {
+        return fail(b"third fault");
     }
     console_write(b"Nagi isolated process fault containment PASS\r\n");
     true

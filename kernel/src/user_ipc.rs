@@ -22,8 +22,8 @@ use crate::ipc::{
 
 pub const BOOTSTRAP_PROCESS_ID: u32 = 1;
 /// Number of kernel Processes the bootstrap IPC manager can hold: init plus
-/// one spawned isolated process.
-pub const MAX_USER_PROCESSES: usize = 2;
+/// the concurrent isolated processes (ADR 0050).
+pub const MAX_USER_PROCESSES: usize = 1 + crate::process_exit::MAX_LIVE_PROCESSES;
 const CHANNEL_CAPACITY: usize = 16;
 const HANDLE_CAPACITY: usize = 64;
 const OBJECT_CAPACITY: usize = 128;
@@ -1042,9 +1042,10 @@ mod tests {
     }
 
     #[test]
-    fn only_init_spawns_and_only_one_isolated_slot_exists() {
+    fn only_init_spawns_and_isolated_slots_are_bounded() {
         let mut ipc = UserIpcState::new();
         let endpoints = ipc.create_pair(INIT).expect("pair");
+        let extra = ipc.create_pair(INIT).expect("second pair");
         let rights = Rights::READ | Rights::WRITE;
         assert_eq!(
             ipc.register_spawned_process(CHILD, CHILD, endpoints.endpoint_b, rights),
@@ -1066,12 +1067,14 @@ mod tests {
             "a live Process ID cannot be registered twice"
         );
         assert_eq!(
-            ipc.register_spawned_process(INIT, CHILD + 1, endpoints.endpoint_a, rights),
-            Err(UserIpcError::Capacity)
-        );
-        assert_eq!(
-            ipc.create_pair(3).map(|_| ()),
+            ipc.create_pair(CHILD + 1).map(|_| ()),
             Err(UserIpcError::InvalidProcess)
+        );
+        ipc.register_spawned_process(INIT, CHILD + 1, extra.endpoint_b, rights)
+            .expect("second concurrent isolated process");
+        assert_eq!(
+            ipc.register_spawned_process(INIT, CHILD + 2, endpoints.endpoint_a, rights),
+            Err(UserIpcError::Capacity)
         );
     }
 

@@ -3,6 +3,16 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**Concurrent isolated processes (ADR 0050), 2026-10-03:** The kernel now
+runs two isolated processes at once.
+
+- **Per-process resources.** Each process has its own address-space slot
+  and CR3. The IPC manager and the exit table track each process with its
+  own waiter.
+- **Result.** `./nagi isolated-process` ran PIDs 3 and 4 concurrently and
+  refused a third spawn. A fault in one left the other running, and a freed
+  slot was reused.
+
 **Signed launch packages (ADR 0049), 2026-10-03:** Isolated applications now
 launch only from Ed25519-signed M16 `.xapp` packages, built by
 `nagi-pkg build-signed`. Their identity and grants come solely from the

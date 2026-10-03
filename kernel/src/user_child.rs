@@ -7,7 +7,7 @@
 //! mapped, so the child cannot address init memory at all.
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::memory::{PageTable, PageTableEntry, PAGE_SIZE, PAGE_TABLE_ENTRIES};
 use crate::user_elf::{self, UserLoadPlan, PF_W, PF_X, USER_IMAGE_BASE};
@@ -84,13 +84,41 @@ impl ChildStorage {
 
 struct ChildCell(UnsafeCell<ChildStorage>);
 
-// The child slot is claimed through `CHILD_IN_USE`; storage is only mutated
-// by the claimant while the child is not the active address space.
+// A slot is claimed by storing its Process ID in `CHILD_SLOT_PROCESS`; its
+// storage is mutated only by the claimant while that child is not the active
+// address space.
 unsafe impl Sync for ChildCell {}
 
-static CHILD_STORAGE: ChildCell = ChildCell(UnsafeCell::new(ChildStorage::new()));
-static CHILD_IN_USE: AtomicBool = AtomicBool::new(false);
+/// Concurrent isolated processes (ADR 0050), one bounded address space each.
+pub const MAX_CHILD_PROCESSES: usize = crate::process_exit::MAX_LIVE_PROCESSES;
+const FREE_SLOT: u32 = 0;
+
+static CHILD_STORAGE: [ChildCell; MAX_CHILD_PROCESSES] =
+    [const { ChildCell(UnsafeCell::new(ChildStorage::new())) }; MAX_CHILD_PROCESSES];
+static CHILD_SLOT_PROCESS: [AtomicU32; MAX_CHILD_PROCESSES] =
+    [const { AtomicU32::new(FREE_SLOT) }; MAX_CHILD_PROCESSES];
 static ACTIVE_PROCESS: AtomicU32 = AtomicU32::new(INIT_PROCESS_ID);
+
+fn slot_of(process_id: u32) -> Option<usize> {
+    if process_id <= INIT_PROCESS_ID {
+        return None;
+    }
+    CHILD_SLOT_PROCESS
+        .iter()
+        .position(|slot| slot.load(Ordering::Acquire) == process_id)
+}
+
+/// The PML4 of a live isolated process, for the scheduler's CR3 switch.
+pub fn cr3_of(process_id: u32) -> Option<u64> {
+    let slot = slot_of(process_id)?;
+    table_address(unsafe { &(*CHILD_STORAGE[slot].0.get()).pml4 }).ok()
+}
+
+/// The storage of the active isolated process, if the active process is one.
+fn active_child_storage() -> Option<&'static ChildStorage> {
+    let slot = slot_of(active_process())?;
+    Some(unsafe { &*CHILD_STORAGE[slot].0.get() })
+}
 
 /// Kernel Process ID whose address space is loaded in CR3. Every user-pointer
 /// check consults this process's mappings only.
@@ -119,13 +147,16 @@ pub fn prepare_child(
     }
     let plan = user_elf::parse(image).map_err(UserProcessError::InvalidElf)?;
     validate_child_plan(&plan, image)?;
-    if CHILD_IN_USE
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
-        return Err(UserProcessError::KernelUserSlotOccupied);
+    if process_id <= INIT_PROCESS_ID || slot_of(process_id).is_some() {
+        return Err(UserProcessError::InvalidLoadPlan);
     }
-    let storage = unsafe { &mut *CHILD_STORAGE.0.get() };
+    let Some(slot) = CHILD_SLOT_PROCESS.iter().position(|slot| {
+        slot.compare_exchange(FREE_SLOT, process_id, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }) else {
+        return Err(UserProcessError::KernelUserSlotOccupied);
+    };
+    let storage = unsafe { &mut *CHILD_STORAGE[slot].0.get() };
     let result =
         build_child_address_space(&plan, image, kernel_pml4, storage).map(|context| ChildContext {
             process_id,
@@ -133,22 +164,22 @@ pub fn prepare_child(
         });
     if result.is_err() {
         storage.clear();
-        CHILD_IN_USE.store(false, Ordering::Release);
+        CHILD_SLOT_PROCESS[slot].store(FREE_SLOT, Ordering::Release);
     }
     result
 }
 
-/// Scrub and release the child slot after its process exits.
+/// Scrub and release `process_id`'s slot after it exits.
 ///
 /// # Safety
 ///
 /// The child's PML4 must not be the active CR3 on any CPU.
-pub unsafe fn release_child() {
-    if !CHILD_IN_USE.load(Ordering::Acquire) {
+pub unsafe fn release_child(process_id: u32) {
+    let Some(slot) = slot_of(process_id) else {
         return;
-    }
-    (*CHILD_STORAGE.0.get()).clear();
-    CHILD_IN_USE.store(false, Ordering::Release);
+    };
+    (*CHILD_STORAGE[slot].0.get()).clear();
+    CHILD_SLOT_PROCESS[slot].store(FREE_SLOT, Ordering::Release);
 }
 
 fn validate_child_plan(plan: &UserLoadPlan, image: &[u8]) -> Result<(), UserProcessError> {
@@ -264,10 +295,6 @@ pub(crate) fn build_child_address_space(
     })
 }
 
-fn child_storage() -> &'static ChildStorage {
-    unsafe { &*CHILD_STORAGE.0.get() }
-}
-
 fn image_or_stack_mapped(
     storage: &ChildStorage,
     address: u64,
@@ -292,27 +319,32 @@ fn image_or_stack_mapped(
 }
 
 pub(crate) fn child_readable(address: u64, length: usize) -> bool {
-    CHILD_IN_USE.load(Ordering::Acquire)
-        && image_or_stack_mapped(
-            child_storage(),
+    active_child_storage().is_some_and(|storage| {
+        image_or_stack_mapped(
+            storage,
             address,
             length,
             PageTableEntry::PRESENT | PageTableEntry::USER,
         )
+    })
 }
 
 pub(crate) fn child_writable(address: u64, length: usize) -> bool {
-    CHILD_IN_USE.load(Ordering::Acquire)
-        && image_or_stack_mapped(
-            child_storage(),
+    active_child_storage().is_some_and(|storage| {
+        image_or_stack_mapped(
+            storage,
             address,
             length,
             PageTableEntry::PRESENT | PageTableEntry::USER | PageTableEntry::WRITABLE,
         )
+    })
 }
 
 pub(crate) fn child_executable(address: u64, length: usize) -> bool {
-    if !CHILD_IN_USE.load(Ordering::Acquire) || length == 0 || address < USER_IMAGE_BASE {
+    let Some(storage) = active_child_storage() else {
+        return false;
+    };
+    if length == 0 || address < USER_IMAGE_BASE {
         return false;
     }
     let Some(end) = address.checked_add(length as u64) else {
@@ -321,7 +353,6 @@ pub(crate) fn child_executable(address: u64, length: usize) -> bool {
     if end > CHILD_IMAGE_LIMIT {
         return false;
     }
-    let storage = child_storage();
     let first = ((address - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
     let last = ((end - 1 - USER_IMAGE_BASE) / PAGE_SIZE) as usize;
     (first..=last).all(|index| {

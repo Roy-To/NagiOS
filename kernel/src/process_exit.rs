@@ -11,6 +11,9 @@
 pub const FIRST_ISOLATED_PROCESS_ID: u32 = 2;
 /// Bound on exit records kept for unconsumed (unwaited) processes.
 pub const MAX_EXIT_RECORDS: usize = 4;
+/// Isolated processes that may be live at once (ADR 0050). Each needs its
+/// own bounded address-space slot in `user_process::child`.
+pub const MAX_LIVE_PROCESSES: usize = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExitKind {
@@ -44,14 +47,14 @@ pub enum ExitTableError {
     RecordsFull,
     /// The Process ID space is exhausted.
     IdsExhausted,
-    /// Another isolated process is still live.
+    /// Every isolated-process slot is live.
     AlreadyLive,
 }
 
 pub struct ExitTable {
     next_process_id: u32,
-    live: Option<u32>,
-    waiter: Option<(u32, u8)>,
+    /// Live isolated processes and, per process, the thread waiting on it.
+    live: [Option<(u32, Option<u8>)>; MAX_LIVE_PROCESSES],
     records: [Option<ExitRecord>; MAX_EXIT_RECORDS],
 }
 
@@ -65,19 +68,27 @@ impl ExitTable {
     pub const fn new() -> Self {
         Self {
             next_process_id: FIRST_ISOLATED_PROCESS_ID,
-            live: None,
-            waiter: None,
+            live: [None; MAX_LIVE_PROCESSES],
             records: [None; MAX_EXIT_RECORDS],
         }
     }
 
-    /// Reserve the next Process ID for a spawn. A spawn is refused while
-    /// the exit-record table is full, so no exit status can ever be dropped.
+    fn live_count(&self) -> usize {
+        self.live.iter().flatten().count()
+    }
+
+    fn free_records(&self) -> usize {
+        self.records.iter().filter(|slot| slot.is_none()).count()
+    }
+
+    /// Reserve the next Process ID for a spawn. A spawn is refused unless an
+    /// exit-record slot remains for every live process plus the new one, so
+    /// no exit status can ever be dropped.
     pub fn reserve(&self) -> Result<u32, ExitTableError> {
-        if self.live.is_some() {
+        if self.live_count() == MAX_LIVE_PROCESSES {
             return Err(ExitTableError::AlreadyLive);
         }
-        if self.records.iter().all(Option::is_some) {
+        if self.free_records() < self.live_count() + 1 {
             return Err(ExitTableError::RecordsFull);
         }
         if self.next_process_id == u32::MAX {
@@ -88,38 +99,41 @@ impl ExitTable {
 
     /// Mark the reserved ID live after the spawn succeeded.
     pub fn commit_spawn(&mut self, process_id: u32) -> bool {
-        if self.live.is_some() || process_id != self.next_process_id {
+        if process_id != self.next_process_id || self.reserve() != Ok(process_id) {
             return false;
         }
-        self.live = Some(process_id);
+        let Some(slot) = self.live.iter_mut().find(|slot| slot.is_none()) else {
+            return false;
+        };
+        *slot = Some((process_id, None));
         self.next_process_id += 1;
         true
     }
 
-    pub fn live(&self) -> Option<u32> {
+    pub fn is_live(&self, process_id: u32) -> bool {
         self.live
+            .iter()
+            .flatten()
+            .any(|(live, _)| *live == process_id)
     }
 
-    /// Record the live process's exit. Returns the waiting thread to wake,
+    /// Record a live process's exit. Returns the waiting thread to wake,
     /// if any.
     pub fn record_exit(&mut self, process_id: u32, code: u64, kind: ExitKind) -> Option<u8> {
-        if self.live != Some(process_id) {
-            return None;
+        let live = self
+            .live
+            .iter_mut()
+            .find(|slot| slot.is_some_and(|(live, _)| live == process_id))?;
+        let (_, waiter) = live.take().expect("matched live process");
+        // `reserve` kept a free record for every live process.
+        if let Some(slot) = self.records.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(ExitRecord {
+                process_id,
+                code,
+                kind,
+            });
         }
-        self.live = None;
-        let slot = self.records.iter_mut().find(|slot| slot.is_none())?;
-        *slot = Some(ExitRecord {
-            process_id,
-            code,
-            kind,
-        });
-        match self.waiter {
-            Some((waited, thread)) if waited == process_id => {
-                self.waiter = None;
-                Some(thread)
-            }
-            _ => None,
-        }
+        waiter
     }
 
     /// Consume `process_id`'s exit record, or register `thread` to wait for
@@ -133,18 +147,35 @@ impl ExitTable {
             let record = slot.take().expect("matched record");
             return WaitOutcome::Ready(record);
         }
-        if self.live == Some(process_id) && self.waiter.is_none() {
-            self.waiter = Some((process_id, thread));
-            return WaitOutcome::Blocked;
+        if self
+            .live
+            .iter()
+            .flatten()
+            .any(|(_, waiter)| *waiter == Some(thread))
+        {
+            return WaitOutcome::Invalid;
         }
-        WaitOutcome::Invalid
+        match self
+            .live
+            .iter_mut()
+            .flatten()
+            .find(|(live, _)| *live == process_id)
+        {
+            Some((_, waiter @ None)) => {
+                *waiter = Some(thread);
+                WaitOutcome::Blocked
+            }
+            _ => WaitOutcome::Invalid,
+        }
     }
 
     /// Withdraw a wait that cannot complete (no other thread can run).
     pub fn cancel_wait(&mut self, thread: u8) -> bool {
-        if self.waiter.is_some_and(|(_, waiting)| waiting == thread) {
-            self.waiter = None;
-            return true;
+        for (_, waiter) in self.live.iter_mut().flatten() {
+            if *waiter == Some(thread) {
+                *waiter = None;
+                return true;
+            }
         }
         false
     }
@@ -168,14 +199,15 @@ mod tests {
         let mut table = ExitTable::new();
         let first = spawn(&mut table);
         assert_eq!(first, FIRST_ISOLATED_PROCESS_ID);
-        assert_eq!(table.reserve(), Err(ExitTableError::AlreadyLive));
-        table.record_exit(first, 0, ExitKind::Exited);
         let second = spawn(&mut table);
         assert_eq!(second, first + 1);
+        assert_eq!(table.reserve(), Err(ExitTableError::AlreadyLive));
         assert!(
             !table.commit_spawn(second),
             "a committed ID cannot be reused"
         );
+        table.record_exit(first, 0, ExitKind::Exited);
+        assert_eq!(spawn(&mut table), second + 1);
     }
 
     #[test]
@@ -223,7 +255,7 @@ mod tests {
         assert!(table.cancel_wait(1));
         assert!(!table.cancel_wait(1));
         assert_eq!(table.record_exit(id + 9, 0, ExitKind::Exited), None);
-        assert_eq!(table.live(), Some(id));
+        assert!(table.is_live(id));
         assert_eq!(table.record_exit(id, 0, ExitKind::Exited), None);
     }
 
@@ -235,10 +267,42 @@ mod tests {
             table.record_exit(id, 0, ExitKind::Exited);
         }
         assert_eq!(table.reserve(), Err(ExitTableError::RecordsFull));
+        // A record is held back for every live process.
+        let mut table = ExitTable::new();
+        for _ in 0..MAX_EXIT_RECORDS - 1 {
+            let id = spawn(&mut table);
+            table.record_exit(id, 0, ExitKind::Exited);
+        }
+        let live = spawn(&mut table);
+        assert_eq!(table.reserve(), Err(ExitTableError::RecordsFull));
+        table.record_exit(live, 9, ExitKind::Exited);
+        assert!(matches!(table.wait(live, 0), WaitOutcome::Ready(_)));
         assert!(matches!(
             table.wait(FIRST_ISOLATED_PROCESS_ID, 0),
             WaitOutcome::Ready(_)
         ));
         assert!(table.reserve().is_ok());
+    }
+
+    #[test]
+    fn concurrent_processes_have_independent_waiters() {
+        let mut table = ExitTable::new();
+        let first = spawn(&mut table);
+        let second = spawn(&mut table);
+        assert_eq!(table.wait(first, 1), WaitOutcome::Blocked);
+        assert_eq!(
+            table.wait(second, 1),
+            WaitOutcome::Invalid,
+            "one wait per thread"
+        );
+        assert_eq!(table.wait(second, 2), WaitOutcome::Blocked);
+        assert_eq!(table.record_exit(second, 0, ExitKind::Exited), Some(2));
+        assert!(table.is_live(first));
+        assert_eq!(
+            table.record_exit(first, 141, ExitKind::Faulted { vector: 13 }),
+            Some(1)
+        );
+        assert!(matches!(table.wait(first, 1), WaitOutcome::Ready(record) if record.code == 141));
+        assert!(matches!(table.wait(second, 2), WaitOutcome::Ready(record) if record.code == 0));
     }
 }
