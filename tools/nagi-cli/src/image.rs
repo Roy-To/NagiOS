@@ -2663,18 +2663,54 @@ fn quit_qemu_after_acceptance(
     serial_log: &Path,
     serial: &[u8],
 ) -> Result<i32, String> {
-    if let Err(error) = qmp_exchange(
+    let quit_request = qmp_exchange(
         qmp_stream,
         r#"{"execute":"quit"}"#,
         Instant::now() + Duration::from_secs(5),
-    ) {
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    if let Err(error) = quit_request {
+        let qmp_disconnected = error.starts_with("QMP closed before sending a response")
+            || error.starts_with("cannot read QMP response:");
+        if qmp_disconnected {
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        fs::write(serial_log, serial).map_err(|error| {
+                            format!("cannot write serial log {}: {error}", serial_log.display())
+                        })?;
+                        if status.success() {
+                            return Ok(0);
+                        }
+                        return Err(format!(
+                            "cannot request QEMU to quit after acceptance: {error}; QEMU exited with status {}",
+                            status.code().unwrap_or(-1)
+                        ));
+                    }
+                    Ok(None) if Instant::now() < deadline => {
+                        thread::sleep(Duration::from_millis(20));
+                    }
+                    Ok(None) => {
+                        terminate_qemu(child, serial_log, serial);
+                        return Err(format!(
+                            "cannot request QEMU to quit after acceptance: {error}; QEMU remained running after the QMP disconnect"
+                        ));
+                    }
+                    Err(poll_error) => {
+                        terminate_qemu(child, serial_log, serial);
+                        return Err(format!(
+                            "cannot request QEMU to quit after acceptance: {error}; cannot poll QEMU after the QMP disconnect: {poll_error}"
+                        ));
+                    }
+                }
+            }
+        }
         terminate_qemu(child, serial_log, serial);
         return Err(format!(
             "cannot request QEMU to quit after acceptance: {error}"
         ));
     }
 
-    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -2941,11 +2977,11 @@ mod tests {
         ensure_new_screenshot_path, ensure_persistent_disk, guest_reached_acceptance,
         guest_reached_any_acceptance, guest_reached_failure, image_drive_argument, initialize_fats,
         json_string_field, json_u64_field, m20_model_store_fixture_filename, prepare_ovmf_vars,
-        qemu_audio_driver_for_host, qmp_json_quote, read_qmp_line, reference_partitions,
-        write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET, FAT_COUNT,
-        GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE, M17_IMAGE_SIZE,
-        M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, QMP_MAX_LINE_BYTES, REFERENCE_DISK_SECTORS,
-        ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
+        qemu_audio_driver_for_host, qmp_json_quote, quit_qemu_after_acceptance, read_qmp_line,
+        reference_partitions, write_chain, AbSlotImages, Fat12Geometry, SlotPayload, DATA_OFFSET,
+        FAT_COUNT, GUEST_ACCEPTANCE_MARKER, IMAGE_SIZE, LEGACY_PERSISTENT_DISK_SIZE,
+        M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, QMP_MAX_LINE_BYTES,
+        REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
     };
 
     #[test]
@@ -3093,6 +3129,47 @@ mod tests {
         .expect_err("reject oversized QMP line");
         server.join().expect("QMP fixture thread");
         assert!(error.contains("line limit"));
+    }
+
+    #[test]
+    fn accepted_qemu_exit_survives_qmp_disconnect_during_shutdown() {
+        use std::io::{BufRead, BufReader};
+        use std::net::{TcpListener, TcpStream};
+        use std::process::{Command, Stdio};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind QMP fixture");
+        let address = listener.local_addr().expect("QMP fixture address");
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept QMP fixture");
+            let mut reader = BufReader::new(stream);
+            let mut command = String::new();
+            reader
+                .read_line(&mut command)
+                .expect("read QMP quit command");
+            assert_eq!(command.trim(), r#"{"execute":"quit"}"#);
+            drop(reader);
+        });
+
+        let mut child = Command::new(std::env::current_exe().expect("test executable"))
+            .arg("--list")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn completed QEMU fixture");
+        assert!(child.wait().expect("wait for QEMU fixture").success());
+
+        let mut qmp = TcpStream::connect(address).expect("connect QMP fixture");
+        let serial_log = unique_persistent_disk_path("qmp-quit-disconnect");
+        let status = quit_qemu_after_acceptance(&mut child, &mut qmp, &serial_log, b"accepted\n")
+            .expect("accept a clean QEMU exit after the QMP socket closes");
+        server.join().expect("QMP fixture thread");
+
+        assert_eq!(status, 0);
+        assert_eq!(
+            std::fs::read(&serial_log).expect("read preserved serial log"),
+            b"accepted\n"
+        );
+        std::fs::remove_file(serial_log).expect("remove serial fixture");
     }
 
     #[test]

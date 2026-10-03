@@ -8589,3 +8589,38 @@ On this final code, `./nagi fmt`, `./nagi test`, `./nagi lint`, `./nagi build`,
 M28 shell syntax, and M28 harness self-test passed. M22/M27/M28 remain
 `PARTIAL` for their production authority and broader unmeasured acceptance
 requirements.
+
+## Completion Sweep — M18 accepted QMP shutdown race (2026-10-03)
+
+After the guest has printed its acceptance marker, QEMU can close the QMP
+connection while processing `quit`, before sending the command response. The
+CLI now treats that disconnect as an ambiguous shutdown result and waits up to
+30 seconds for the QEMU child: a clean exit preserves the accepted serial log
+and succeeds, while a nonzero exit, poll error, or timeout remains a failure.
+Other QMP errors still fail immediately. The new
+`accepted_qemu_exit_survives_qmp_disconnect_during_shutdown` regression passed.
+
+The first M18 retry without an activated Mesa virtual environment stopped at
+the pinned Mako requirement. Activating the existing `out/mesa-venv` advanced
+the build, but the default macOS 27 SDK libc++ headers were incompatible with
+the selected Apple Clang for Nagi's target ABI shim (`__libcpp_thread_yield`
+and related declarations were missing). Both C++ ABI probe objects compiled
+with the installed Homebrew LLVM 19 compiler and libc++ headers. With that
+toolchain selected, local `./nagi m18` run `1791001974237346000` passed target
+build and the three-site HTTPS/QEMU acceptance; TLS chain/hostname checks and
+real Servo frames for `example.com`, `example.org`, and `example.net` reached
+Nagi Surface. The command log is
+`out/logs/m18-completion-sweep-20261003-llvm19.log`; the saved browser image and
+run evidence are under `out/evidence/m29-browser-1791001974237346000/`. QEMU
+reported that the host has no `virtio-sound.in` driver; audio is not part of
+this browser gate.
+
+On the same source, the focused QMP test, `./nagi fmt`, `./nagi test`,
+`./nagi lint`, and `./nagi build` passed. `./nagi m18` with the default macOS
+SDK toolchain failed during C++ compilation; the successful local invocation
+activated `out/mesa-venv` and explicitly set
+`NAGI_TARGET_CLANG=/opt/homebrew/opt/llvm@19/bin/clang`,
+`NAGI_CXX_HEADERS=/opt/homebrew/opt/llvm@19/include/c++/v1`, and
+`NAGI_TARGET_LD=/opt/homebrew/opt/lld@19/bin/ld.lld`.
+M18 remains `PARTIAL` because authenticated providers for browser permissions,
+file selection/transfers, clipboard, and IME are still outstanding.
