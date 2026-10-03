@@ -1,4 +1,4 @@
-# A declared application that may query Search but owns no fixture objects
-# and holds no file-action grants.
-app=org.nagi.acceptance.foreign-client
+id=org.nagi.acceptance.foreign-client
+name=Foreign acceptance client
+version=0.1.0
 grant=search.query

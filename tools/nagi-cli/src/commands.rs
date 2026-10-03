@@ -6531,7 +6531,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
-const ISOLATED_PROCESS_MARKERS: [&str; 12] = [
+const ISOLATED_PROCESS_MARKERS: [&str; 13] = [
     "Nagi Kernel started",
     "Nagi ADR0043 isolated process spawned pid=2",
     "Nagi isolated process kernel-stamped sender PASS",
@@ -6544,6 +6544,7 @@ const ISOLATED_PROCESS_MARKERS: [&str; 12] = [
     "Nagi ADR0047 isolated process fault pid=5 vector=13",
     "Nagi isolated process fault containment PASS",
     "Nagi Supervisor process exit status PASS",
+    "Nagi Supervisor signed package verification PASS",
 ];
 const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PASS";
 
@@ -6570,23 +6571,104 @@ fn build_isolated_apps(root: &Path) -> Result<PathBuf, CommandResult> {
     if app_build.exit_code != EXIT_SUCCESS {
         return Err(app_build);
     }
-    Ok(root
+    let release = root
         .join("target")
         .join("x86_64-unknown-nagi-user")
-        .join("release"))
+        .join("release");
+    let packages = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("artifacts")
+            .join("acceptance-packages"),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return Err(failure(
+                EXIT_CONFIG_ERROR,
+                format!("acceptance packages: {error}"),
+            ))
+        }
+    };
+    for (name, application, executable) in ACCEPTANCE_PACKAGES {
+        let manifest = root
+            .join("user")
+            .join("nagi-init")
+            .join("manifests")
+            .join(format!("{application}.manifest"));
+        let elf = release.join(executable);
+        let output = packages.join(format!("{name}.xapp"));
+        let (manifest, elf, output) = (
+            manifest.display().to_string(),
+            elf.display().to_string(),
+            output.display().to_string(),
+        );
+        let packaged = run_cargo(
+            root,
+            "acceptance package signing",
+            &[
+                "run",
+                "--quiet",
+                "--locked",
+                "--manifest-path",
+                "tools/nagi-pkg/Cargo.toml",
+                "--",
+                "build-signed",
+                &manifest,
+                &elf,
+                &output,
+            ],
+        );
+        if packaged.exit_code != EXIT_SUCCESS {
+            return Err(packaged);
+        }
+    }
+    Ok(packages)
 }
 
-/// Build the isolated client ELFs and return the `NAGI_*_ELF` environment an
-/// init build with `m21-action-ipc` needs.
-fn isolated_client_env(root: &Path) -> Result<[(&'static str, PathBuf); 2], CommandResult> {
-    let release = build_isolated_apps(root)?;
-    Ok([
-        (
-            "NAGI_M19_SEARCH_CLIENT_ELF",
-            release.join("nagi-m19-search-client"),
-        ),
-        ("NAGI_ACTION_CLIENT_ELF", release.join("nagi-action-client")),
-    ])
+/// Signed `.xapp` packages the Supervisor launches in acceptances
+/// (ADR 0049): `(package name, manifest application ID, isolated ELF)`.
+const ACCEPTANCE_PACKAGES: [(&str, &str, &str); 7] = [
+    (
+        "isolated-app",
+        "org.nagi.acceptance.isolated-app",
+        "nagi-isolated-app",
+    ),
+    (
+        "faulting-app",
+        "org.nagi.acceptance.faulting-app",
+        "nagi-faulting-app",
+    ),
+    (
+        "m19-search-search-client",
+        "org.nagi.acceptance.m19-search",
+        "nagi-m19-search-client",
+    ),
+    (
+        "m19-search-action-client",
+        "org.nagi.acceptance.m19-search",
+        "nagi-action-client",
+    ),
+    (
+        "foreign-search-client",
+        "org.nagi.acceptance.foreign-client",
+        "nagi-m19-search-client",
+    ),
+    (
+        "foreign-action-client",
+        "org.nagi.acceptance.foreign-client",
+        "nagi-action-client",
+    ),
+    (
+        "m22-files-action-client",
+        "org.nagi.acceptance.m22-files",
+        "nagi-action-client",
+    ),
+];
+
+/// Build and sign the acceptance packages and return the environment an
+/// init build with isolated applications needs.
+fn isolated_client_env(root: &Path) -> Result<[(&'static str, PathBuf); 1], CommandResult> {
+    Ok([("NAGI_ACCEPTANCE_PACKAGES", build_isolated_apps(root)?)])
 }
 
 /// Build an init image whose M19/M21/M22 callers are isolated client
@@ -6596,12 +6678,10 @@ fn execute_image_with_isolated_clients(
     features: &str,
     image_name: &str,
 ) -> CommandResult {
-    let release = match build_isolated_apps(root) {
+    let packages = match build_isolated_apps(root) {
         Ok(directory) => directory,
         Err(result) => return result,
     };
-    let search_client = release.join("nagi-m19-search-client");
-    let action_client = release.join("nagi-action-client");
     let init_args = [
         "build",
         "-p",
@@ -6613,25 +6693,24 @@ fn execute_image_with_isolated_clients(
         "-Zbuild-std=core,alloc,compiler_builtins",
         "--release",
     ];
-    execute_image_with_init_build_env(
+    // Signed acceptance packages exceed the legacy 1.44 MB FAT12 image;
+    // use the large FAT12 geometry already used by M17/M18.
+    execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
         None,
         image_name,
-        &[
-            ("NAGI_M19_SEARCH_CLIENT_ELF", search_client.as_path()),
-            ("NAGI_ACTION_CLIENT_ELF", action_client.as_path()),
-        ],
+        &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
+        write_m17_fat12_image,
+        ImageBuildFeatures::default(),
     )
 }
 
 fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let release = match build_isolated_apps(root) {
+    let packages = match build_isolated_apps(root) {
         Ok(directory) => directory,
         Err(result) => return result,
     };
-    let app_elf = release.join("nagi-isolated-app");
-    let faulting_elf = release.join("nagi-faulting-app");
     let init_args = [
         "build",
         "-p",
@@ -6645,15 +6724,14 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
         "--locked",
     ];
     let image_name = "nagi-0.1-isolated-process.img";
-    let image_result = execute_image_with_init_build_env(
+    let image_result = execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
         None,
         image_name,
-        &[
-            ("NAGI_ISOLATED_APP_ELF", app_elf.as_path()),
-            ("NAGI_FAULTING_APP_ELF", faulting_elf.as_path()),
-        ],
+        &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
+        write_m17_fat12_image,
+        ImageBuildFeatures::default(),
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;

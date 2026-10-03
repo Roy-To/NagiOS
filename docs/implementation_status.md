@@ -3,6 +3,35 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**Signed launch packages (ADR 0049), 2026-10-03:** Isolated applications now
+launch only from Ed25519-signed M16 `.xapp` packages, built by
+`nagi-pkg build-signed`. Their identity and grants come solely from the
+signed manifest, which gained `grant=` lines. Package size was raised to
+64 KiB.
+
+The Supervisor refuses:
+- tampered packages (`UnsignedPackage`);
+- packages requested as another application (`WrongApplication`);
+- malformed packages (`InvalidPackage`);
+- conflicting declarations of the same application.
+
+`./nagi isolated-process` verified this on QEMU.
+
+**Known regression (unfixed, paused at the user's request):** with the five
+signed packages embedded, the `./nagi m22` init no longer fits the legacy
+1.44 MB FAT12 boot image ("guest files require 2934 FAT12 clusters; image has
+2847"). `./nagi m19` and `./nagi isolated-process` pass. Proposed fix: have
+`execute_image_with_isolated_clients` and `execute_isolated_process` in
+`tools/nagi-cli/src/commands.rs` call
+`execute_image_with_init_build_env_using_writer(..., write_m17_fat12_image, ...)`,
+the large FAT12 geometry already used by M17/M18.
+
+Still open:
+- trust-store provisioning beyond the pinned Developer Preview key;
+- user consent for grants;
+- installing packages through the Package Service store instead of the
+  init image.
+
 **Supervisor exit wait/status (ADR 0048), 2026-10-03:**
 
 - **Unique IDs.** Isolated processes now receive unique, never-reused

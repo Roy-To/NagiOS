@@ -16,8 +16,11 @@ use nagi_model::{AppId, AppSessionId, NodeId};
 
 use crate::supervisor::{self, LaunchFailure, FAULTING_APP, ISOLATED_APP};
 
-static ISOLATED_APP_ELF: &[u8] = include_bytes!(env!("NAGI_ISOLATED_APP_ELF"));
-static FAULTING_APP_ELF: &[u8] = include_bytes!(env!("NAGI_FAULTING_APP_ELF"));
+static ISOLATED_APP_PACKAGE: &[u8] = crate::acceptance_package!("isolated-app");
+static FAULTING_APP_PACKAGE: &[u8] = crate::acceptance_package!("faulting-app");
+/// Scratch copy for the tampered-package refusal check.
+static mut TAMPERED_PACKAGE: [u8; nagi_package::MAX_PACKAGE_BYTES] =
+    [0; nagi_package::MAX_PACKAGE_BYTES];
 
 // Keep in sync with `user/nagi-isolated-app/src/bin/faulting_app.rs`.
 const FAULT_PROTOCOL_ID: u16 = 0x4643;
@@ -73,7 +76,27 @@ pub fn run() -> bool {
         return fail(b"undeclared application was launchable");
     }
     console_write(b"Nagi Supervisor undeclared application refused PASS\r\n");
-    let launched = match supervisor::launch(ISOLATED_APP_ELF, ISOLATED_APP, PLACEMENT) {
+    // ADR 0049: only signed packages launch, and only as the application
+    // their signed manifest declares.
+    let tampered = unsafe { &mut *core::ptr::addr_of_mut!(TAMPERED_PACKAGE) };
+    let length = ISOLATED_APP_PACKAGE.len();
+    tampered[..length].copy_from_slice(ISOLATED_APP_PACKAGE);
+    // Flip one executable byte inside the signed region.
+    tampered[length - nagi_package::SIGNATURE_BYTES - 64] ^= 0x01;
+    if !matches!(
+        supervisor::launch(&tampered[..length], ISOLATED_APP, PLACEMENT),
+        Err(LaunchFailure::UnsignedPackage)
+    ) || !matches!(
+        supervisor::launch(ISOLATED_APP_PACKAGE, FAULTING_APP, PLACEMENT),
+        Err(LaunchFailure::WrongApplication)
+    ) || !matches!(
+        supervisor::launch(&ISOLATED_APP_PACKAGE[..length - 1], ISOLATED_APP, PLACEMENT),
+        Err(LaunchFailure::InvalidPackage)
+    ) {
+        return fail(b"unsigned, mismatched, or malformed package was accepted");
+    }
+    console_write(b"Nagi Supervisor signed package verification PASS\r\n");
+    let launched = match supervisor::launch(ISOLATED_APP_PACKAGE, ISOLATED_APP, PLACEMENT) {
         Ok(launched) => launched,
         Err(_) => return fail(b"supervisor launch"),
     };
@@ -91,7 +114,9 @@ pub fn run() -> bool {
     // occupied, even when called directly.
     if let Some(second) = channel_create_pair() {
         let refused = process_spawn(
-            ISOLATED_APP_ELF,
+            nagi_package::PackageView::parse(ISOLATED_APP_PACKAGE)
+                .map(|view| view.executable())
+                .unwrap_or_default(),
             second.endpoint_b,
             RIGHT_READ | RIGHT_WRITE,
         )
@@ -210,7 +235,8 @@ pub fn run() -> bool {
 /// the slot can be used again by the next launch.
 fn fault_containment() -> bool {
     for (kind, vector) in FAULT_KINDS {
-        let launched = match supervisor::launch(FAULTING_APP_ELF, FAULTING_APP, FAULT_PLACEMENT) {
+        let launched = match supervisor::launch(FAULTING_APP_PACKAGE, FAULTING_APP, FAULT_PLACEMENT)
+        {
             Ok(launched) => launched,
             Err(_) => return fail(b"faulting app launch"),
         };

@@ -5,31 +5,20 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
-    println!("cargo:rerun-if-env-changed=NAGI_ISOLATED_APP_ELF");
-    println!("cargo:rerun-if-env-changed=NAGI_FAULTING_APP_ELF");
-    println!("cargo:rerun-if-env-changed=NAGI_M19_SEARCH_CLIENT_ELF");
-    println!("cargo:rerun-if-env-changed=NAGI_ACTION_CLIENT_ELF");
-    if env::var_os("CARGO_FEATURE_M21_ACTION_IPC").is_some() {
-        let elf = env::var_os("NAGI_ACTION_CLIENT_ELF")
+    println!("cargo:rerun-if-env-changed=NAGI_ACCEPTANCE_PACKAGES");
+    if env::var_os("CARGO_FEATURE_ISOLATED_PROCESS_ACCEPTANCE").is_some()
+        || env::var_os("CARGO_FEATURE_M19_SEARCH_IPC").is_some()
+    {
+        let packages = env::var_os("NAGI_ACCEPTANCE_PACKAGES")
             .map(PathBuf::from)
-            .expect("m21-action-ipc requires NAGI_ACTION_CLIENT_ELF");
-        println!("cargo:rerun-if-changed={}", elf.display());
-    }
-    if env::var_os("CARGO_FEATURE_M19_SEARCH_IPC").is_some() {
-        let elf = env::var_os("NAGI_M19_SEARCH_CLIENT_ELF")
-            .map(PathBuf::from)
-            .expect("m19-search-ipc requires NAGI_M19_SEARCH_CLIENT_ELF");
-        println!("cargo:rerun-if-changed={}", elf.display());
-    }
-    if env::var_os("CARGO_FEATURE_ISOLATED_PROCESS_ACCEPTANCE").is_some() {
-        let elf = env::var_os("NAGI_ISOLATED_APP_ELF")
-            .map(PathBuf::from)
-            .expect("isolated-process-acceptance requires NAGI_ISOLATED_APP_ELF");
-        println!("cargo:rerun-if-changed={}", elf.display());
-        let faulting = env::var_os("NAGI_FAULTING_APP_ELF")
-            .map(PathBuf::from)
-            .expect("isolated-process-acceptance requires NAGI_FAULTING_APP_ELF");
-        println!("cargo:rerun-if-changed={}", faulting.display());
+            .expect(
+                "isolated applications require NAGI_ACCEPTANCE_PACKAGES (signed .xapp directory)",
+            );
+        println!("cargo:rerun-if-changed={}", packages.display());
+        for entry in fs::read_dir(&packages).expect("read acceptance package directory") {
+            let path = entry.expect("package entry").path();
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
     println!("cargo:rerun-if-env-changed=NAGI_TARGET_CLANG");
     println!("cargo:rerun-if-env-changed=NAGI_MESA_BUILD");

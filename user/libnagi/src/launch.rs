@@ -29,6 +29,8 @@ pub enum LaunchError {
     InvalidManifest,
     DuplicateManifest,
     ManifestTableFull,
+    /// A manifest for this AppId with different grants is already registered.
+    ConflictingManifest,
     UnknownApplication,
     ProcessAlreadyLaunched,
     SessionAlreadyLive,
@@ -132,6 +134,33 @@ impl AppManifest {
         })
     }
 
+    /// Build a declaration from an already-verified source, such as a signed
+    /// M16 package manifest (ADR 0049). The same naming rules apply as for
+    /// text manifests.
+    pub fn from_declaration<'a>(
+        identifier: &[u8],
+        grants: impl IntoIterator<Item = &'a [u8]>,
+    ) -> Result<Self, LaunchError> {
+        let identifier = Name::<MAX_APP_IDENTIFIER>::parse(identifier)?;
+        let mut manifest = Self {
+            app_id: AppId::from_identifier(identifier.as_bytes()),
+            identifier,
+            grants: [Name::EMPTY; MAX_APP_GRANTS],
+            grant_count: 0,
+        };
+        for grant in grants {
+            let grant = Name::parse(grant)?;
+            if manifest.grants[..manifest.grant_count].contains(&grant)
+                || manifest.grant_count == MAX_APP_GRANTS
+            {
+                return Err(LaunchError::InvalidManifest);
+            }
+            manifest.grants[manifest.grant_count] = grant;
+            manifest.grant_count += 1;
+        }
+        Ok(manifest)
+    }
+
     pub const fn app_id(&self) -> AppId {
         self.app_id
     }
@@ -202,6 +231,17 @@ impl LaunchRegistry {
             .ok_or(LaunchError::ManifestTableFull)?;
         *slot = Some(manifest);
         Ok(manifest.app_id)
+    }
+
+    /// Register `manifest`, or accept it if an identical declaration for the
+    /// same application is already registered. One application may ship
+    /// several packages, but they must agree on its grants.
+    pub fn register_or_match(&mut self, manifest: AppManifest) -> Result<AppId, LaunchError> {
+        match self.manifest(manifest.app_id) {
+            Some(existing) if *existing == manifest => Ok(manifest.app_id),
+            Some(_) => Err(LaunchError::ConflictingManifest),
+            None => self.register_manifest(manifest),
+        }
     }
 
     fn manifest(&self, app_id: AppId) -> Option<&AppManifest> {
@@ -495,6 +535,40 @@ mod tests {
         assert_eq!(
             registry.record_launch(99, app, PLACEMENT),
             Err(LaunchError::LaunchTableFull)
+        );
+    }
+
+    #[test]
+    fn package_declarations_match_text_manifests_and_must_agree() {
+        let declared = AppManifest::from_declaration(
+            b"org.nagi.example",
+            [&b"files.search"[..], &b"search.query"[..]],
+        )
+        .expect("declaration");
+        let text =
+            AppManifest::parse(b"app=org.nagi.example\ngrant=files.search\ngrant=search.query\n")
+                .expect("manifest");
+        assert_eq!(declared, text);
+        assert_eq!(
+            AppManifest::from_declaration(b"Org", core::iter::empty()),
+            Err(LaunchError::InvalidManifest)
+        );
+        assert_eq!(
+            AppManifest::from_declaration(b"org.a", [&b"x.y"[..], &b"x.y"[..]]),
+            Err(LaunchError::InvalidManifest)
+        );
+
+        let mut registry = LaunchRegistry::new();
+        let app = registry.register_or_match(declared).expect("first package");
+        assert_eq!(registry.register_or_match(declared), Ok(app));
+        let widened = AppManifest::from_declaration(
+            b"org.nagi.example",
+            [&b"files.search"[..], &b"files.delete"[..]],
+        )
+        .expect("declaration");
+        assert_eq!(
+            registry.register_or_match(widened),
+            Err(LaunchError::ConflictingManifest)
         );
     }
 }

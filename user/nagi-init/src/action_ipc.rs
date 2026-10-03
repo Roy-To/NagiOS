@@ -21,7 +21,21 @@ use nagi_model::AppId;
 
 use crate::supervisor::{self, Launched};
 
-static ACTION_CLIENT_ELF: &[u8] = include_bytes!(env!("NAGI_ACTION_CLIENT_ELF"));
+/// Signed `nagi-action-client` packages, one per declared application.
+static ACTION_CLIENT_PACKAGES: [(AppId, &[u8]); 3] = [
+    (
+        AppId::from_identifier(b"org.nagi.acceptance.m19-search"),
+        crate::acceptance_package!("m19-search-action-client"),
+    ),
+    (
+        AppId::from_identifier(b"org.nagi.acceptance.m22-files"),
+        crate::acceptance_package!("m22-files-action-client"),
+    ),
+    (
+        AppId::from_identifier(b"org.nagi.acceptance.foreign-client"),
+        crate::acceptance_package!("foreign-action-client"),
+    ),
+];
 
 /// Acceptance-only report opcode; keep in sync with
 /// `user/nagi-isolated-app/src/bin/action_client.rs`.
@@ -99,7 +113,10 @@ pub fn serve_isolated_request(
     intent: &str,
     handle: impl FnOnce(CallerIdentity, &str) -> ActionResult,
 ) -> Option<ActionResult> {
-    let launched = supervisor::launch(ACTION_CLIENT_ELF, app_id, placement).ok()?;
+    let (_, package) = ACTION_CLIENT_PACKAGES
+        .iter()
+        .find(|(packaged, _)| *packaged == app_id)?;
+    let launched = supervisor::launch(package, app_id, placement).ok()?;
     let mut launch =
         ChannelSendRequest::new(PROTOCOL_ID, PROTOCOL_VERSION, 0, OPCODE_LAUNCH_INTENT);
     launch.payload_len = encode_intent(intent, &mut launch.payload).ok()? as u32;

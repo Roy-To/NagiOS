@@ -24,7 +24,8 @@ use nagi_search_ipc::{
 use super::{M19SearchService, APP_ID, NODE_ID, SESSION_ID, WORKSPACE_ID};
 use crate::supervisor::{self, FOREIGN_APP};
 
-static SEARCH_CLIENT_ELF: &[u8] = include_bytes!(env!("NAGI_M19_SEARCH_CLIENT_ELF"));
+static M19_SEARCH_CLIENT_PACKAGE: &[u8] = crate::acceptance_package!("m19-search-search-client");
+static FOREIGN_SEARCH_CLIENT_PACKAGE: &[u8] = crate::acceptance_package!("foreign-search-client");
 
 /// Acceptance-only client report; keep in sync with
 /// `user/nagi-isolated-app/src/bin/search_client.rs`.
@@ -107,7 +108,12 @@ fn run_client(
         node_id: NODE_ID,
         workspace_id: Some(WORKSPACE_ID),
     };
-    let launched = supervisor::launch(SEARCH_CLIENT_ELF, app_id, placement).ok()?;
+    let package = if app_id == APP_ID {
+        M19_SEARCH_CLIENT_PACKAGE
+    } else {
+        FOREIGN_SEARCH_CLIENT_PACKAGE
+    };
+    let launched = supervisor::launch(package, app_id, placement).ok()?;
     if !serve_one(service, launched.endpoint) {
         return None;
     }

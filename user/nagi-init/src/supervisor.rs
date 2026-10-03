@@ -1,9 +1,11 @@
-//! nagi-init's Supervisor launch registry (ADR 0046).
+//! nagi-init's Supervisor launch registry (ADR 0046, ADR 0049).
 //!
 //! The registry is the only way for init to start an isolated application:
 //!
-//! - Every launch must name a manifest-declared application. The registry
-//!   checks the launch before spawning, then records
+//! - Every launch is a signed M16 `.xapp` package. The Supervisor verifies
+//!   its Ed25519 signature against the pinned trust key, and takes the
+//!   application identity and grants only from the signed manifest. It then
+//!   checks the launch before spawning the package's ELF, and records
 //!   `ProcessId -> LaunchRecord`.
 //! - Services resolve kernel-stamped sender IDs through `resolve`.
 //! - Services consult `has_grant` for capabilities. A grant exists only while
@@ -20,15 +22,21 @@ use libnagi::{
 };
 use libnagi::{ProcessExitStatus, PROCESS_EXIT_KIND_EXITED};
 use nagi_model::AppId;
+use nagi_package::PackageView;
 
-/// Supervisor-owned application declarations embedded in the system image.
-const MANIFESTS: [&[u8]; 5] = [
-    include_bytes!("../manifests/org.nagi.acceptance.isolated-app.manifest"),
-    include_bytes!("../manifests/org.nagi.acceptance.m19-search.manifest"),
-    include_bytes!("../manifests/org.nagi.acceptance.m22-files.manifest"),
-    include_bytes!("../manifests/org.nagi.acceptance.foreign-client.manifest"),
-    include_bytes!("../manifests/org.nagi.acceptance.faulting-app.manifest"),
-];
+/// Embed a signed acceptance package built by `./nagi` into
+/// `NAGI_ACCEPTANCE_PACKAGES` (see `user/nagi-init/manifests/README.md`).
+#[macro_export]
+macro_rules! acceptance_package {
+    ($name:literal) => {
+        include_bytes!(concat!(
+            env!("NAGI_ACCEPTANCE_PACKAGES"),
+            "/",
+            $name,
+            ".xapp"
+        ))
+    };
+}
 
 #[cfg(feature = "isolated-process-acceptance")]
 pub const ISOLATED_APP: AppId = AppId::from_identifier(b"org.nagi.acceptance.isolated-app");
@@ -41,7 +49,6 @@ pub const FOREIGN_APP: AppId = AppId::from_identifier(b"org.nagi.acceptance.fore
 
 struct SupervisorState {
     locked: AtomicBool,
-    loaded: UnsafeCell<bool>,
     registry: UnsafeCell<LaunchRegistry>,
 }
 
@@ -50,13 +57,10 @@ unsafe impl Sync for SupervisorState {}
 
 static SUPERVISOR: SupervisorState = SupervisorState {
     locked: AtomicBool::new(false),
-    loaded: UnsafeCell::new(false),
     registry: UnsafeCell::new(LaunchRegistry::new()),
 };
 
-/// Run `operation` on the registry, loading the embedded manifests on first
-/// use. Returns `None` if any embedded manifest is invalid, so a broken
-/// manifest disables launches instead of granting defaults.
+/// Run `operation` on the registry.
 fn with_registry<R>(operation: impl FnOnce(&mut LaunchRegistry) -> R) -> Option<R> {
     while SUPERVISOR
         .locked
@@ -66,14 +70,7 @@ fn with_registry<R>(operation: impl FnOnce(&mut LaunchRegistry) -> R) -> Option<
         core::hint::spin_loop();
     }
     let registry = unsafe { &mut *SUPERVISOR.registry.get() };
-    let loaded = unsafe { &mut *SUPERVISOR.loaded.get() };
-    if !*loaded {
-        *loaded = MANIFESTS.iter().all(|text| {
-            AppManifest::parse(text)
-                .is_ok_and(|manifest| registry.register_manifest(manifest).is_ok())
-        });
-    }
-    let result = loaded.then(|| operation(registry));
+    let result = Some(operation(registry));
     SUPERVISOR.locked.store(false, Ordering::Release);
     result
 }
@@ -88,18 +85,44 @@ pub struct Launched {
 pub enum LaunchFailure {
     Registry(LaunchError),
     ManifestsUnavailable,
+    /// The bytes are not a well-formed `.xapp`.
+    InvalidPackage,
+    /// The package signature is missing or does not verify.
+    UnsignedPackage,
+    /// The signed package declares a different application than requested.
+    WrongApplication,
     Channel,
     Spawn,
 }
 
-/// Launch `elf` as the declared application `app_id` at `placement`. The
-/// registry check runs before the process exists. The child receives one
-/// read/write/wait endpoint and no transfer right.
+/// Launch the signed package `package` as application `app_id` at
+/// `placement`. The order is:
+///
+/// 1. verify the signature;
+/// 2. register or match the signed declaration (identity plus grants);
+/// 3. check the launch;
+/// 4. spawn the package's ELF.
+///
+/// The child receives one read/write/wait endpoint and no transfer right.
 pub fn launch(
-    elf: &[u8],
+    package: &[u8],
     app_id: AppId,
     placement: LaunchPlacement,
 ) -> Result<Launched, LaunchFailure> {
+    let view = PackageView::parse(package).map_err(|_| LaunchFailure::InvalidPackage)?;
+    if !view.is_signed() {
+        return Err(LaunchFailure::UnsignedPackage);
+    }
+    let signed = view.manifest();
+    let manifest = AppManifest::from_declaration(signed.id(), signed.grants())
+        .map_err(LaunchFailure::Registry)?;
+    if manifest.app_id() != app_id || signed.app_id() != app_id {
+        return Err(LaunchFailure::WrongApplication);
+    }
+    with_registry(|registry| registry.register_or_match(manifest))
+        .ok_or(LaunchFailure::ManifestsUnavailable)?
+        .map_err(LaunchFailure::Registry)?;
+    let elf = view.executable();
     with_registry(|registry| registry.check_launch(app_id, placement))
         .ok_or(LaunchFailure::ManifestsUnavailable)?
         .map_err(LaunchFailure::Registry)?;
