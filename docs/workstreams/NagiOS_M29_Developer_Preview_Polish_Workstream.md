@@ -10,7 +10,7 @@ finished consumer onboarding flow or complete product UX.
 
 | Surface | Current evidence | M29 result / remaining work |
 | --- | --- | --- |
-| First boot and onboarding | `./nagi image` and `./nagi run` create and boot the QEMU reference image; the implementation status records QEMU acceptance by milestone. | The Japanese guide documents the host and first QEMU workflow. No first-run setup wizard, physical installer, or onboarding screenshots are present. |
+| First boot and onboarding | `./nagi image` and `./nagi run` create and boot the QEMU reference image; the implementation status records QEMU acceptance by milestone. | The Japanese guide documents the host and first QEMU workflow and links the available M10, M18, and M29 guest screenshots below. No first-run setup wizard or physical installer is present. |
 | Desktop, defaults, and Settings | `user/nagi-init/src/desktop.rs` draws four M10 acceptance panels and a Settings overlay with an `en-US` / `ja-JP` System language selector. Tab cycles keyboard focus through Settings and the four panels; Enter/Space activates a panel, and the existing Settings locale controls retain Tab/arrow/Enter/Space/Escape input. An amber ring marks focus. The selected locale is also identified by localized `Selected` / `選択中` text, in addition to the teal selection border. The strict language code is stored in the User Data VFS file `system-language` and loaded before the first Desktop frame; `./nagi m29` verifies it after a guest restart. | This is a narrow fixed acceptance surface, not a complete app launcher, general focus service, default-app selector, persistent settings service, or integrated system settings experience. Other processes do not yet receive the selected language. |
 | Errors and missing providers | CLI commands expose host diagnostics and per-acceptance serial logs; M20–M26 workstreams record typed provider boundaries and unavailable paths. | The guide separates host failures from guest providers and says when a capability is not available. There is no shared end-user error center or provider-management UI. |
 | Recovery and update | M16 verifies a sample package install/list/info/launch/atomic-update/remove fixture. M27 QEMU acceptance covers GPT-backed A/B trial rollback/promotion and a read-only Recovery path, including recovery with a pending journal. | Documentation distinguishes the M16 fixture from M27 guest recovery. Authenticated slot manifests, GPT-integrated update installation, account-login readiness, and a user-facing recovery flow remain. |
@@ -56,6 +56,10 @@ not a claim that browser UX or localization is complete.
 
 ## Verification
 
+- The Developer Preview guide now links its three checked-in QEMU screenshots
+  and describes them as milestone acceptance surfaces, not finished UX.
+- A local relative-link audit checked all 15 links in the Developer Preview
+  guide; every target exists.
 - The POSIX root launcher now prefers Cargo beside the discovered rustup
   executable and prepends that directory so Cargo also resolves its matching
   rustc shim. This avoids an x86_64 Homebrew Cargo/rustc pair shadowing the

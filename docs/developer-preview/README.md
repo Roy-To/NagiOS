@@ -122,9 +122,12 @@ cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- \
 - ブート障害の共通ダイアログ、Recovery Environment の画面、起動時間の測定値は
   まだありません。回復機能は [M27 の記録](../workstreams/NagiOS_M27_AB_Recovery_Workstream.md)
   と実際の acceptance 状態を確認してください。
-- この Developer Preview 文書には Nagi の画面キャプチャを含めていません。
-  実画面を確認する場合は QEMU を起動してください。シリアルログや静的な受け入れ用
-  描画を実際のスクリーンショットとして扱わないでください。
+- このリポジトリには QEMU ゲスト画面の受け入れ用キャプチャがあります。
+  [M10 の固定デスクトップ](../assets/screenshots/nagi-m10-qemu-desktop.png)、
+  [M18 の Albert ブラウザー](../assets/screenshots/nagi-m18-qemu-browser.png)、
+  [M29 の日本語 Settings](../assets/screenshots/nagi-m29-settings-ja-jp.png)
+  を参照してください。これらは各受け入れ時点の画面であり、完成した UX、
+  全画面の翻訳、アクセシビリティ対応を示すものではありません。
 
 ## 未接続プロバイダーを切り分ける
 
