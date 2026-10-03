@@ -211,7 +211,9 @@ nagi_ap_trampoline_protected:
     mov es, ax
     mov ss, ax
     mov eax, cr4
-    or eax, 0x20
+    // PAE, plus OSFXSR and OSXMMEXCPT so compiled kernel code may use SSE on
+    // APs as it does on the BSP, where firmware already enabled them.
+    or eax, 0x620
     mov cr4, eax
     mov eax, dword ptr [ebx + TRAMP_CR3]
     mov cr3, eax
@@ -220,7 +222,9 @@ nagi_ap_trampoline_protected:
     or eax, 0x100
     wrmsr
     mov eax, cr0
-    or eax, 0x80000000
+    // PG, plus MP and NE to match the BSP's x87/SSE configuration. INIT
+    // leaves EM clear.
+    or eax, 0x80000022
     mov cr0, eax
     mov eax, ebx
     .byte 0x05
@@ -345,6 +349,7 @@ pub fn initialize(
     unsafe { asm!("cli", options(nomem, nostack, preserves_flags)) };
     unsafe {
         initialize_thread_contexts(
+            topology.bsp_index(),
             interrupts::current_code_selector(),
             interrupts::current_stack_selector(),
         )
@@ -622,7 +627,11 @@ extern "C" fn ap_entry(index: u32) -> ! {
     if index as usize >= MAX_CPUS {
         halt_ap();
     }
-    unsafe { interrupts::initialize_ap() };
+    unsafe { interrupts::initialize_ap(index as usize) };
+    #[cfg(feature = "m3-ap-double-fault-probe")]
+    if index as usize == MAX_CPUS - 1 {
+        ap_double_fault_probe();
+    }
     CPU_ONLINE[index as usize].store(1, Ordering::Release);
     unsafe { interrupts::enable_interrupts() };
     run_scheduler_workload(index as usize);
@@ -745,8 +754,19 @@ fn wake_task(task_index: usize) -> bool {
     was_blocked
 }
 
-unsafe fn initialize_thread_contexts(code_selector: u16, stack_selector: u16) {
+/// Build every M3 task's first frame. BSP tasks run on the firmware GDT that
+/// is still active during M3; AP tasks run on each AP's own kernel GDT
+/// (ADR 0048), so they use its kernel selectors.
+unsafe fn initialize_thread_contexts(bsp_index: usize, bsp_code: u16, bsp_stack: u16) {
     for cpu in 0..MAX_CPUS {
+        let (code_selector, stack_selector) = if cpu == bsp_index {
+            (bsp_code, bsp_stack)
+        } else {
+            (
+                interrupts::KERNEL_CODE_SELECTOR,
+                interrupts::KERNEL_DATA_SELECTOR,
+            )
+        };
         for task in 0..THREAD_COUNT {
             let stack = &THREAD_STACKS[cpu * THREAD_COUNT + task].0;
             // SysV entry alignment: RSP is 8 mod 16 at function entry.
@@ -785,6 +805,18 @@ extern "C" fn thread_entry(cpu: u32, task: u32) -> ! {
         TASK_PROGRESS[cpu * THREAD_COUNT + task].fetch_add(1, Ordering::AcqRel);
         CPU_WORKLOAD[cpu].fetch_add(1, Ordering::AcqRel);
         unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
+    }
+}
+
+/// Diagnostic only (ADR 0048): reproduce the original M3 failure class on an
+/// AP. With RSP=0 the push faults (#PF), the #PF cannot push its own frame
+/// either, and the CPU escalates to #DF. #DF must arrive on the AP's IST1
+/// stack and be reported instead of triple-faulting the guest.
+#[cfg(feature = "m3-ap-double-fault-probe")]
+fn ap_double_fault_probe() -> ! {
+    super::serial_write(b"Nagi M3 AP double-fault probe START\r\n");
+    unsafe {
+        asm!("xor esp, esp", "push rax", options(noreturn));
     }
 }
 

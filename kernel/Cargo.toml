@@ -11,6 +11,9 @@ m18-browser-threads = ["nagi-abi/m18-browser-threads"]
 m18-browser-memory = ["m18-browser-threads"]
 m20-llama-memory = []
 m25-whisper-memory = []
+# Diagnostic: force a kernel stack fault on the last AP to prove its #DF
+# handler runs on IST1 (ADR 0048). Never enabled in product images.
+m3-ap-double-fault-probe = []
 
 [lib]
 name = "nagi_kernel"

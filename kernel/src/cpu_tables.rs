@@ -51,6 +51,29 @@ pub const fn tss_descriptor(base: u64) -> [u64; 2] {
     [low, base >> 32]
 }
 
+/// 64-bit kernel code and flat kernel data descriptors, as at selectors 0x08
+/// and 0x10 of the BSP's M5 GDT.
+pub const KERNEL_CODE_DESCRIPTOR: u64 = 0x00af_9a00_0000_ffff;
+pub const KERNEL_DATA_DESCRIPTOR: u64 = 0x00cf_9200_0000_ffff;
+
+/// Kernel-only GDT for one application processor. It keeps the BSP's
+/// selector layout (kernel code 0x08, kernel data 0x10, TSS 0x28) so the
+/// same gate selector and `ltr` value work on every CPU. The user code and
+/// data slots stay null: APs never enter ring 3, so a stray user selector
+/// faults instead of loading.
+pub const fn ap_gdt(tss_base: u64) -> [u64; 7] {
+    let [tss_low, tss_high] = tss_descriptor(tss_base);
+    [
+        0,
+        KERNEL_CODE_DESCRIPTOR,
+        KERNEL_DATA_DESCRIPTOR,
+        0,
+        0,
+        tss_low,
+        tss_high,
+    ]
+}
+
 /// Interrupt-gate options word: present, DPL 0, 64-bit interrupt gate, with
 /// an optional IST index (1-7).
 pub const fn interrupt_gate_options(ist: u8) -> u16 {
@@ -71,9 +94,28 @@ pub const fn fault_exit_code(vector: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        exception_has_error_code, fault_exit_code, interrupt_gate_options, tss_descriptor,
-        TaskStateSegment, TSS_SIZE,
+        ap_gdt, exception_has_error_code, fault_exit_code, interrupt_gate_options, tss_descriptor,
+        TaskStateSegment, KERNEL_CODE_DESCRIPTOR, KERNEL_DATA_DESCRIPTOR, TSS_SIZE,
     };
+
+    #[test]
+    fn ap_gdt_has_kernel_segments_and_tss_at_bsp_selectors() {
+        let gdt = ap_gdt(0x0400_1230);
+        assert_eq!(gdt[0], 0, "null descriptor");
+        assert_eq!(gdt[0x08 / 8], KERNEL_CODE_DESCRIPTOR);
+        assert_eq!(gdt[0x10 / 8], KERNEL_DATA_DESCRIPTOR);
+        assert_eq!(gdt[3], 0, "no user data segment on APs");
+        assert_eq!(gdt[4], 0, "no user code segment on APs");
+        assert_eq!(
+            [gdt[0x28 / 8], gdt[0x28 / 8 + 1]],
+            tss_descriptor(0x0400_1230)
+        );
+        // Long-mode code: L=1, D=0, present, DPL 0, execute/read.
+        assert_eq!((KERNEL_CODE_DESCRIPTOR >> 53) & 1, 1);
+        assert_eq!((KERNEL_CODE_DESCRIPTOR >> 54) & 1, 0);
+        assert_eq!((KERNEL_CODE_DESCRIPTOR >> 40) & 0xff, 0x9a);
+        assert_eq!((KERNEL_DATA_DESCRIPTOR >> 40) & 0xff, 0x92);
+    }
 
     #[test]
     fn tss_layout_matches_the_architecture() {

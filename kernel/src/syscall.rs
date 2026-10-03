@@ -684,9 +684,11 @@ fn serial_write_hex(value: u64) {
     serial_write(&digits);
 }
 
-/// BSP CPU-exception entry (ADR 0047). `frame` points at
+/// CPU-exception entry (ADR 0047, ADR 0048). `frame` points at
 /// `[vector, error, rip, cs, rflags, rsp, ss]`.
 ///
+/// - **Fault on an AP.** APs run only kernel code. The fault, including a
+///   #DF taken on the AP's IST1 stack, is reported and that AP halts.
 /// - **Kernel fault (CPL 0).** Still fatal, but reported.
 /// - **Fault in init.** Still fatal: init is the Supervisor.
 /// - **Fault in an isolated process.** Only that process is terminated.
@@ -697,6 +699,22 @@ pub(crate) extern "sysv64" fn exception_entry(frame: *const u64) -> ! {
     let (vector, error, rip, cs) = (word(0), word(1), word(2), word(3));
     let fault_address: u64;
     unsafe { asm!("mov {}, cr2", out(reg) fault_address, options(nomem, nostack)) };
+    if !interrupts::is_bsp() {
+        serial_write(b"Nagi AP exception apic=");
+        serial_write_decimal(interrupts::local_apic_id() as usize);
+        serial_write(b" vector=");
+        serial_write_decimal(vector as usize);
+        serial_write(b" error=");
+        serial_write_hex(error);
+        serial_write(b" rip=");
+        serial_write_hex(rip);
+        serial_write(b" rsp=");
+        serial_write_hex(word(5));
+        serial_write(b" cr2=");
+        serial_write_hex(fault_address);
+        serial_write(b"\r\n");
+        halt_forever()
+    }
     let from_user = cs & 3 == 3;
     let owner = thread_table().current_owner();
     if !from_user || owner == INIT_PROCESS_ID {
@@ -1858,8 +1876,17 @@ mod tests {
             .split("pub unsafe fn enable_interrupts()")
             .next()
             .unwrap();
-        assert!(install.find("\"cli\"").unwrap() < install.find("\"lgdt").unwrap());
+        assert!(install.find("\"cli\"").unwrap() < install.find("load_kernel_gdt(").unwrap());
         assert!(!install.contains("\"sti\""));
+        let load = interrupts
+            .split("unsafe fn load_kernel_gdt(")
+            .nth(1)
+            .unwrap()
+            .split("\n}\n")
+            .next()
+            .unwrap();
+        assert!(load.contains("\"lgdt"));
+        assert!(!load.contains("\"sti\""));
         assert!(!initialize.contains("\"sti\""));
     }
 
