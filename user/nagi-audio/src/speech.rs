@@ -125,6 +125,7 @@ pub trait SpeechPermissionAuthority {
 /// visible for the full interval in which microphone capture can occur.
 pub trait MicrophoneActivityIndicator {
     fn show(&mut self, consumer: SpeechConsumer) -> Result<(), IndicatorError>;
+    /// Clears visible or partially initialized state; safe after `show` fails.
     fn hide(&mut self, consumer: SpeechConsumer);
 }
 
@@ -597,9 +598,10 @@ where
             SpeechPermissionDecision::Deny => return Err(SpeechError::PermissionDenied),
         }
 
-        self.indicator
-            .show(consumer)
-            .map_err(|IndicatorError::Unavailable| SpeechError::IndicatorUnavailable)?;
+        if self.indicator.show(consumer).is_err() {
+            self.indicator.hide(consumer);
+            return Err(SpeechError::IndicatorUnavailable);
+        }
 
         let options = SpeechOptions {
             language,
@@ -967,16 +969,23 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct FixtureIndicator(Rc<Cell<bool>>);
+    struct FixtureIndicator {
+        visible: Rc<Cell<bool>>,
+        fail_after_show: bool,
+    }
 
     impl MicrophoneActivityIndicator for FixtureIndicator {
         fn show(&mut self, _consumer: SpeechConsumer) -> Result<(), IndicatorError> {
-            self.0.set(true);
-            Ok(())
+            self.visible.set(true);
+            if self.fail_after_show {
+                Err(IndicatorError::Unavailable)
+            } else {
+                Ok(())
+            }
         }
 
         fn hide(&mut self, _consumer: SpeechConsumer) {
-            self.0.set(false);
+            self.visible.set(false);
         }
     }
 
@@ -1046,10 +1055,29 @@ mod tests {
         let service = PushToTalkService::new(
             input,
             FixtureAuthority(decision),
-            FixtureIndicator(Rc::clone(&indicator_active)),
+            FixtureIndicator {
+                visible: Rc::clone(&indicator_active),
+                fail_after_show: false,
+            },
             FixtureProvider::default(),
         );
         (service, calls, indicator_active)
+    }
+
+    #[test]
+    fn indicator_failure_hides_partial_indicator_before_returning() {
+        let (mut service, capture_calls, indicator_active) =
+            service(SpeechPermissionDecision::Allow, &[1, 2, 3, 4]);
+        service.indicator.fail_after_show = true;
+
+        assert_eq!(
+            service.begin(SpeechConsumer::NagiBar, SpeechLanguage::Japanese),
+            Err(SpeechError::IndicatorUnavailable)
+        );
+        assert!(!indicator_active.get());
+        assert_eq!(capture_calls.get(), 0);
+        assert_eq!(service.provider.begin_calls, 0);
+        assert_eq!(service.capture_next_chunk(), Err(SpeechError::NotActive));
     }
 
     #[test]

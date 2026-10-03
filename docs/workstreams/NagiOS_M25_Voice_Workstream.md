@@ -478,3 +478,22 @@ script now uses `usize::is_multiple_of`, and the Albert chrome test imports its
 label type. The focused `nagi-albert` suite passes 60/60 and `./nagi lint`
 passes locally; the full Linux/Windows CI rerun is pending on the next pushed
 checkpoint.
+
+## Indicator cleanup after a failed display attempt — 2026-10-03
+
+`PushToTalkService::begin` previously returned immediately when the trusted
+microphone indicator reported an error. An indicator that had partially
+initialized before returning that error could remain visible. The coordinator
+now calls the idempotent `hide` cleanup path before returning
+`IndicatorUnavailable`; provider startup and PCM capture remain unstarted.
+
+The new regression simulates `show` setting the visible state and then failing.
+It failed before the fix, confirming the stale-indicator path, and now verifies
+the state is hidden, the provider is untouched, and capture never occurs.
+All 21 `nagi-audio` tests pass, as does warnings-denied Clippy for the package.
+`./nagi fmt`, `./nagi test`, `./nagi lint`, `./nagi build`, and current-source
+QEMU `./nagi m25` run `1791003281517596000` pass. The host QEMU has no
+`virtio-sound.in` input driver; the fixture uses bounded test PCM and does not
+claim microphone capture, STT inference, or TTS synthesis. M25 remains
+`PARTIAL` pending production permission/indicator providers, real capture,
+local TTS, and voice-command acceptance.

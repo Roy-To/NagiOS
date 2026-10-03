@@ -8645,3 +8645,15 @@ The focused source-contract regression passed (1/1), and `./nagi fmt`,
 `./nagi test`, `./nagi lint`, and `./nagi build` all passed. The generated
 llama.cpp checkout confirms patch 0035 is applied. No model load or guest
 inference is claimed. M20 remains `PARTIAL`.
+
+## Completion Sweep — M25 failed-indicator cleanup (2026-10-03)
+
+`PushToTalkService::begin` now calls `hide` if the trusted microphone
+indicator's `show` returns an error, cleaning partial UI state before returning
+`IndicatorUnavailable`. The provider and capture source are not started on
+this path. A regression reproduced the stale indicator before the fix and
+passes after it. All 21 `nagi-audio` tests and warnings-denied package Clippy
+pass, along with `./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build`.
+Current-source `./nagi m25` QEMU run `1791003281517596000` passes the existing
+fixture acceptance. It uses no real audio input or TTS engine; M25 remains
+`PARTIAL` for its production providers and command acceptance.
