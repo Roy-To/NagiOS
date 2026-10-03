@@ -559,11 +559,25 @@ archive_iteration_outputs() {
         out/artifacts/nagi-0.1-m22-history-"$m22_run_id".img \
         out/artifacts/nagi-0.1-m22-history-user-data-"$m22_run_id".img \
         out/artifacts/nagi-0.1-m22-history-vars-"$m22_run_id".fd \
-        out/artifacts/nagi-0.1-m22-history-vars-"$m22_run_id"-pre-guest-timeout-1.fd \
         out/logs/m22-history-bootstrap-"$m22_run_id".log \
-        out/logs/m22-history-bootstrap-"$m22_run_id"-pre-guest-timeout-1.log \
+        out/logs/m22-history-bootstrap-"$m22_run_id".log.pre-guest-timeout-1 \
+        out/logs/m22-history-bootstrap-"$m22_run_id".log.ovmf-vars.pre-guest-timeout-1 \
+        out/logs/m22-history-bootstrap-"$m22_run_id".log.ovmf-vars.pre-guest-retry-source-1 \
+        out/logs/m22-history-bootstrap-"$m22_run_id".log.pre-guest-retry-1.txt \
         out/logs/m22-history-"$m22_run_id"-boot-1.log \
         out/logs/m22-history-"$m22_run_id"-boot-2.log \
+        out/logs/m22-history-"$m22_run_id"-boot-1.log.pre-guest-timeout-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-1.log.ovmf-vars.pre-guest-timeout-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-1.log.ovmf-vars.pre-guest-retry-source-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-1.log.pre-guest-retry-1.txt \
+        out/logs/m22-history-"$m22_run_id"-boot-2.log.pre-guest-timeout-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-2.log.ovmf-vars.pre-guest-timeout-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-2.log.ovmf-vars.pre-guest-retry-source-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-2.log.pre-guest-retry-1.txt \
+        out/logs/m22-history-"$m22_run_id"-boot-3.log.pre-guest-timeout-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-3.log.ovmf-vars.pre-guest-timeout-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-3.log.ovmf-vars.pre-guest-retry-source-1 \
+        out/logs/m22-history-"$m22_run_id"-boot-3.log.pre-guest-retry-1.txt \
         "$(m22_final_boot_log_path "$m22_run_id")" \
         "$m22_log"; do
         if [ -e "$output" ]; then

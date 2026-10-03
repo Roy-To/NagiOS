@@ -749,3 +749,70 @@ initial boot, and restores the saved state before retry. Corrected standalone
 M27 run `out/evidence/m27-ab-rollback-1790995870248251000/` passed, but did not
 trigger the retry. M28's current-source two-repetition gate and its formal
 combined-load/resource-pressure measurements remain outstanding.
+
+## Completion Sweep — Recovery restart firmware timeout and bounded retry (2026-10-03)
+
+M28 run `out/evidence/m28-run-20261003T031921Z-57898/` completed repetition 1
+across M19, M22, and M27. Repetition 2 passed M19 and all three M22 boots,
+then its M27 Recovery Undo restart verification timed out after 90 seconds
+before guest output. QMP reported the running OVMF loop at RIP `0x7eb84171`;
+the serial log contains only the 87-byte UEFI screen-clear prefix. The parent
+and both M27 sub-run manifests verify. One of two repetitions passed, so the
+run remains a failed two-repetition gate.
+
+The timeout was a pre-guest firmware stall, not an Undo assertion failure.
+M27's M13 HTTP fixture boot and Recovery Undo restart verification now share
+the existing one-retry policy. The wrapper restores pre-attempt OVMF variables
+only after SHA-256 confirms that all writable disks stayed unchanged; a
+changed disk suppresses retry and leaves the failed state intact. The retry
+limit remains one, and the guest acceptance markers are unchanged. The
+separate diagnostic replay reached `Nagi M10 desktop READY` in 5.78 seconds
+from saved input copies, but does not change the failed M28 result. A new
+current-source two-repetition gate was run next; its final result is recorded
+below. M28 remains `PARTIAL` for the formal combined Desktop/Files/Notes/Albert,
+real Granite inference, audio, OOM, and leak-soak workload.
+
+## Completion Sweep — current-source two-repetition pass (2026-10-03)
+
+The current-source run `out/evidence/m28-run-20261003T033818Z-60771/` passed
+two consecutive repetitions of M19 VFS/ObjectId/Search, M22 three-boot
+Move/Copy plus NH16/NAL1 grouped Undo, and M27 GPT A/B/Recovery acceptance.
+The parent archive and both M27 sub-run SHA-256 manifests verify. Repetition 2
+of M27 reproduced the pre-guest firmware loop on boot 1; the guarded retry
+verified unchanged writable-disk SHA-256 and reached the original acceptance
+marker. The raw GPT User Data images have valid primary and backup header and
+partition-table CRCs. The qemu-img checker does not support raw image checks.
+
+The immediately preceding current-source run
+`out/evidence/m28-run-20261003T032603Z-59318/` passed M19 and M22 boots 1–2,
+then M22 boot 3 timed out after 180 seconds before `Nagi Kernel started`.
+Serial output contained only the 87-byte UEFI screen-clear prefix; QMP reported
+the running CPU at RIP `0x7eb84171` in the OVMF loop. Its archive manifest
+verifies and records zero complete repetitions. M22's bootstrap and numbered
+guest boots now use the guarded one-retry policy with per-boot evidence
+sidecars, but that retry was not needed by M22 in the passing two-repetition
+run. The policy's regressions verify disk-change suppression and isolated
+evidence for all three numbered boots sharing the same vars image.
+
+M28 remains `PARTIAL`: this repeated gate does not measure the formal combined
+Desktop/Files/Notes/Albert workload, real Granite inference and CPU fairness,
+audio pressure, OOM, or leak soak. The intermittent OVMF startup loop remains
+unexplained.
+
+## Completion Sweep — guarded M22 bootstrap and repeated gate (2026-10-03)
+
+After applying the same guarded retry to M22 bootstrap and all three numbered
+guest boots, current-source run `out/evidence/m28-run-20261003T035340Z-63277/`
+passed two complete repetitions of M19 Search, M22 grouped Move/Copy and
+NH16/NAL1 Undo, and M27 GPT A/B/Recovery. The parent archive and both M27
+sub-run manifests verify. Repetition 1 exercised the M27 Recovery Undo
+restart retry after a 90-second pre-guest OVMF stall; disk hashes were
+unchanged and the retry reached the original marker. The M22 retry path was
+not needed in this run.
+
+The immediately preceding run `out/evidence/m28-run-20261003T032603Z-59318/`
+passed zero repetitions when M22 boot 3 timed out before the guest kernel
+marker. Its manifest verifies and the failed result remains recorded. M28
+remains `PARTIAL` because the formal combined Desktop/Files/Notes/Albert load,
+real Granite inference/fairness, audio pressure, OOM, and leak-soak workload
+remain unmeasured; the intermittent OVMF failure's cause is still unknown.

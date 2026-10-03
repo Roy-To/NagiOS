@@ -287,3 +287,46 @@ and boot logs, invocation output, README, and checksums are preserved under
 `out/evidence/m22-regression-20261003/`. The run continues to validate the
 fixture path only; no production Activity Ledger service or authenticated
 caller boundary is claimed.
+
+## Completion Sweep — guarded pre-guest retries and repeated M28 acceptance (2026-10-03)
+
+The M22 bootstrap and all three numbered guest QEMU boots now use the same
+one-retry policy for the diagnosed pre-guest OVMF timeout shape. The runner
+snapshots each boot's template-initialized OVMF variables and hashes the
+writable boot and User Data images before launch; it preserves the failed-attempt
+state and retries only
+if both disks remain byte-identical. Retry sidecars are scoped by boot log and
+the M28 harness archives them. The policy does not retry a QEMU failure after
+`Nagi Kernel started`, and all existing guest acceptance markers remain
+unchanged. Unit regressions cover OVMF restoration, changed-disk suppression,
+and three M22 boots sharing one vars path without evidence collisions.
+
+Fresh standalone M22 run `1790998679703245000` and both M22 sub-runs in
+`out/evidence/m28-run-20261003T033818Z-60771/` passed all three boots. The new
+M22 retry was not needed in those runs. A separate M28 run
+`out/evidence/m28-run-20261003T032603Z-59318/` stopped after M22 boot 3 hit the
+same pre-guest OVMF loop; its zero-complete-repetition result remains preserved
+and is not counted as acceptance. The current two-repetition M28 gate passed
+M19, M22, and M27 in both repetitions. M22 remains `PARTIAL` for fixture-only
+policy and caller identity, real inference, general production actions, and a
+production Activity Ledger service.
+
+## Completion Sweep — bootstrap and three-boot retry guard verified (2026-10-03)
+
+The final current-source M22 path applies the same one-retry policy to the
+bootstrap and each numbered guest boot. Each initializes OVMF variables from
+the configured template, snapshots that state, and hashes the writable boot
+image and User Data before launch. Retry occurs only for the diagnosed
+pre-guest OVMF timeout signature and only when both disk hashes remain
+unchanged. Boot-specific serial/OVMF sidecars are preserved and archived by
+the M28 harness. No retry occurs after `Nagi Kernel started`.
+
+Standalone run `1790999599873700000` and both M22 sub-runs in the final M28
+archive `out/evidence/m28-run-20261003T035340Z-63277/` passed bootstrap plus
+all three numbered guest boots; the M22 retry was not needed. The final M28
+archive and its M27 sub-run manifests verify. The earlier run
+`out/evidence/m28-run-20261003T032603Z-59318/` still records zero complete
+repetitions after M22 boot 3 timed out pre-guest, and is not counted as a pass.
+M22 remains `PARTIAL` for fixture-only caller/policy, real inference,
+authenticated production authority, general production actions, and a
+production Activity Ledger service.

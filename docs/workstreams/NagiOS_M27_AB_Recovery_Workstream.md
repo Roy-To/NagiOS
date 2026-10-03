@@ -723,3 +723,78 @@ Recovery acceptance; its 39-entry manifest verifies and both GPT images pass
 restoration path is verified by the regression. M27 stays `PARTIAL` for
 authenticated update/readiness authority, authenticated slot manifests, full
 session readiness, and remaining Recovery requirements.
+
+## Completion Sweep — retry disk-state guard and Recovery fixture boots (2026-10-03)
+
+The M27 one-time pre-guest retry now hashes every writable boot and persistent
+disk before QEMU starts. It retries only if each disk remains byte-identical
+after the diagnosed pre-guest timeout; a changed disk is preserved in its
+post-attempt state and the retry is suppressed. OVMF variables are restored
+only after that check passes, so the journal and disk inputs remain consistent.
+The Recovery Undo M13 fixture and its restart verification now use the same
+bounded retry wrapper. The existing one-retry limit and guest acceptance
+markers are unchanged.
+
+`./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build` passed after this
+change. The regression simulates a changed writable User Data disk and proves
+that the wrapper retains that state and starts no second attempt; the existing
+regression verifies that unchanged disks and pre-attempt OVMF variables are
+used for retry.
+
+M28 run `out/evidence/m28-run-20261003T031921Z-57898/` completed repetition 1
+across M19, M22, and M27. Repetition 2 passed M19 and all three M22 boots, then
+timed out before guest output at M27 Recovery Undo restart verification. QMP
+reported the same running OVMF loop at RIP `0x7eb84171`; the 87-byte UEFI
+screen-clear prefix contained no kernel-start marker. The parent and both M27
+sub-run SHA-256 manifests verify. This attempt passed only one of two
+repetitions and remains a failed M28 gate.
+
+An isolated diagnostic replay from copies of the archived healthy slot image,
+User Data image, and pre-promotion OVMF variables reached `Nagi M10 desktop
+READY` in 5.78 seconds. Its 10-entry manifest verifies at
+`out/evidence/m27-replay-promotion-1790996199847179000/`. This shows that the
+saved copies can boot; it does not identify the firmware stall, prove the
+pre-failure User Data bytes, or convert the original M27/M28 result into a
+pass. A new current-source two-repetition gate was then run with the Recovery
+fixture boots covered by the guarded retry; its result is recorded below.
+M27 remains `PARTIAL` for authenticated updates, slot manifests, full session
+readiness, and Recovery requirements.
+
+## Completion Sweep — guarded retry exercised in repeated M28 gate (2026-10-03)
+
+Both current-source M27 sub-runs in
+`out/evidence/m28-run-20261003T033818Z-60771/` passed GPT A/B rollback,
+healthy-B readiness promotion, Recovery journal preservation, and committed
+M22 Undo across restart. The second sub-run reproduced the diagnosed startup
+stall on boot 1: it timed out after 90 seconds before the kernel marker, with
+QMP reporting a running CPU at the recurring OVMF loop. The wrapper preserved
+the first log and OVMF state, verified the writable 18 MiB User Data image's
+SHA-256 was unchanged, restored pre-attempt variables, and made one retry;
+that retry reached the original acceptance path. The retry note and all
+sidecars are covered by the sub-run manifest.
+
+Both sub-run manifests verify. Their archived User Data images are raw GPT
+disks, so `qemu-img check` reports that the format does not support checks;
+primary and backup GPT headers and partition tables were instead verified by
+their CRCs. M27 remains `PARTIAL`: this QEMU acceptance does not supply
+authenticated update/readiness authority, authenticated slot manifests, full
+session readiness, or the remaining Recovery features. The intermittent
+firmware loop's root cause is still unknown.
+
+## Completion Sweep — final-source recovery retry in M28 (2026-10-03)
+
+The M27 sub-runs in `out/evidence/m28-run-20261003T035340Z-63277/` both
+passed GPT A/B rollback and promotion, Recovery journal preservation, and
+committed M22 Undo across restart. In repetition 1, the Recovery Undo restart
+verification hit the known pre-guest OVMF loop after 90 seconds. The wrapper
+verified SHA-256 equality for both the writable Recovery image and User Data,
+restored pre-attempt OVMF variables, and retried once; the original M13
+acceptance marker passed. Its note, both OVMF snapshots, and first-attempt
+serial log are covered by the sub-run manifest.
+
+Both current sub-run manifests verify. Their archived 18 MiB User Data files
+are raw GPT disks; primary and backup GPT header and partition-table CRCs
+pass, while `qemu-img check` is unsupported for raw. The root cause of the
+intermittent firmware loop remains unknown. M27 stays `PARTIAL` for
+authenticated update/readiness authority, authenticated slot manifests, full
+session readiness, and remaining Recovery features.
