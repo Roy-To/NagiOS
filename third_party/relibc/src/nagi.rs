@@ -1513,6 +1513,42 @@ pub unsafe extern "C" fn ftell(stream: *mut c_void) -> c_long {
     if position < 0 { -1 } else { position as c_long }
 }
 
+/// Return the descriptor-backed FILE cursor using the target's 64-bit POSIX
+/// `off_t` width. This is required by seekable model readers larger than 2 GiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ftello(stream: *mut c_void) -> c_longlong {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return -1;
+    }
+    let stream = unsafe { &*stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        unsafe { set_errno(EBADF) };
+        return -1;
+    }
+    unsafe { nagi_posix_lseek(stream.fd, 0, 1) }
+}
+
+/// Seek a descriptor-backed FILE stream without truncating the target's
+/// 64-bit `off_t` offset.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fseeko(stream: *mut c_void, offset: c_longlong, whence: c_int) -> c_int {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        unsafe { set_errno(EBADF) };
+        return EOF;
+    }
+    if unsafe { nagi_posix_lseek(stream.fd, offset, whence) } < 0 {
+        EOF
+    } else {
+        0
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fflush(stream: *mut c_void) -> c_int {
     if stream.is_null() {
@@ -2038,6 +2074,28 @@ pub unsafe extern "C" fn isspace(value: c_int) -> c_int {
     }
 }
 
+/// C-locale printable ASCII classification for the Nagi target.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isprint(value: c_int) -> c_int {
+    c_int::from((0x20..=0x7e).contains(&value))
+}
+
+/// ASCII range test retained for C and libc++ callers on the Nagi target.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isascii(value: c_int) -> c_int {
+    c_int::from((value & !0x7f) == 0)
+}
+
+/// Hexadecimal digit classification in the target's C locale.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isxdigit(value: c_int) -> c_int {
+    c_int::from(
+        (b'0' as c_int..=b'9' as c_int).contains(&value)
+            || (b'a' as c_int..=b'f' as c_int).contains(&value)
+            || (b'A' as c_int..=b'F' as c_int).contains(&value),
+    )
+}
+
 /// Target-owned C-locale lower-case conversion. `tolower` accepts only EOF or
 /// a value representable as `unsigned char`; every valid non-ASCII byte is
 /// unchanged in Nagi's C/POSIX locale.
@@ -2048,6 +2106,64 @@ pub unsafe extern "C" fn tolower(value: c_int) -> c_int {
     } else {
         value
     }
+}
+
+/// C-locale uppercase conversion for the Nagi target.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toupper(value: c_int) -> c_int {
+    if (b'a' as c_int..=b'z' as c_int).contains(&value) {
+        value - (b'a' as c_int - b'A' as c_int)
+    } else {
+        value
+    }
+}
+
+/// Compiler-runtime alias used by pinned libc++ and llama.cpp headers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __isinff(value: c_float) -> c_int {
+    c_int::from(value.is_infinite())
+}
+
+/// Bounded wide-character search for the Nagi x86-64 `wchar_t` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmemchr(
+    wide_string: *const c_int,
+    value: c_int,
+    count: usize,
+) -> *mut c_int {
+    if count == 0 {
+        return ptr::null_mut();
+    }
+    if wide_string.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    for index in 0..count {
+        if unsafe { wide_string.add(index).read() } == value {
+            return unsafe { wide_string.add(index).cast_mut() };
+        }
+    }
+    ptr::null_mut()
+}
+
+/// Bounded wide-character comparison for the Nagi x86-64 `wchar_t` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmemcmp(first: *const c_int, second: *const c_int, count: usize) -> c_int {
+    if count == 0 {
+        return 0;
+    }
+    if first.is_null() || second.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0;
+    }
+    for index in 0..count {
+        let left = unsafe { first.add(index).read() };
+        let right = unsafe { second.add(index).read() };
+        if left != right {
+            return if left < right { -1 } else { 1 };
+        }
+    }
+    0
 }
 
 /// Target-owned forward character search. The Nagi target does not select

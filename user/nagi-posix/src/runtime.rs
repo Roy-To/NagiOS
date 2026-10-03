@@ -1,4 +1,5 @@
 use crate::net::{socket_is_nonblocking, socket_status_flags, O_NONBLOCK};
+use crate::readonly_callback_file::{CallbackFileError, ReadAtCallback, ReadOnlyCallbackFile};
 #[cfg(all(feature = "browser-storage", target_os = "nagi"))]
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
@@ -52,6 +53,7 @@ enum FdEntry {
         pipe: usize,
         nonblocking: bool,
     },
+    CallbackFile(ReadOnlyCallbackFile),
 }
 
 #[derive(Clone, Copy)]
@@ -164,6 +166,7 @@ const BROWSER_STORAGE_PENDING_FILE: &[u8] = b".nagi-browser-pending";
 pub enum RuntimeError {
     NotInitialized,
     InvalidFd,
+    InvalidArgument,
     Storage(StorageError),
     Network(NetError),
     EntropyUnavailable,
@@ -172,6 +175,8 @@ pub enum RuntimeError {
     WouldBlock,
     BrokenPipe,
     Unsupported,
+    ReadOnly,
+    CallbackReadFailed,
 }
 
 pub fn initialize(capability: u64) -> bool {
@@ -455,6 +460,16 @@ pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeErr
     drop(filesystem);
 
     allocate_descriptor(FdEntry::File { handle, offset: 0 })
+}
+
+pub unsafe fn open_readonly_callback(
+    context: *mut core::ffi::c_void,
+    length: u64,
+    read_at: ReadAtCallback,
+) -> Result<i32, RuntimeError> {
+    let file = unsafe { ReadOnlyCallbackFile::new(context, length, read_at) }
+        .map_err(map_callback_file_error)?;
+    allocate_descriptor(FdEntry::CallbackFile(file))
 }
 
 fn allocate_descriptor(entry: FdEntry) -> Result<i32, RuntimeError> {
@@ -966,6 +981,11 @@ pub fn read(fd: i32, destination: &mut [u8]) -> Result<usize, RuntimeError> {
             update_offset(fd, handle, offset + count)?;
             Ok(count)
         }
+        FdEntry::CallbackFile(mut file) => {
+            let count = file.read(destination).map_err(map_callback_file_error)?;
+            update_callback_file(fd, file)?;
+            Ok(count)
+        }
         FdEntry::Socket {
             connected: true,
             read_shutdown: true,
@@ -1041,7 +1061,13 @@ fn read_pipe(
 }
 
 pub fn read_at(fd: i32, offset: usize, destination: &mut [u8]) -> Result<usize, RuntimeError> {
-    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+    let entry = descriptor(fd)?;
+    if let FdEntry::CallbackFile(file) = entry {
+        return file
+            .read_at(offset, destination)
+            .map_err(map_callback_file_error);
+    }
+    let FdEntry::File { handle, .. } = entry else {
         return Err(RuntimeError::InvalidFd);
     };
     let mut filesystem = FILESYSTEM.lock();
@@ -1068,6 +1094,13 @@ pub fn readiness(fd: i32, requested: i16) -> Result<i16, RuntimeError> {
             let mut ready = requested & 0x0004;
             if requested & 0x0001 != 0 && offset < file_size(handle)? {
                 ready |= 0x0001;
+            }
+            Ok(ready)
+        }
+        FdEntry::CallbackFile(file) => {
+            let mut ready = 0;
+            if requested & POLLIN != 0 && file.offset() < file.len() {
+                ready |= POLLIN;
             }
             Ok(ready)
         }
@@ -1164,6 +1197,7 @@ pub fn write(fd: i32, bytes: &[u8]) -> Result<usize, RuntimeError> {
             update_offset(fd, handle, bytes.len())?;
             Ok(bytes.len())
         }
+        FdEntry::CallbackFile(_) => Err(RuntimeError::ReadOnly),
         FdEntry::Socket {
             connected: true,
             write_shutdown: true,
@@ -1240,10 +1274,18 @@ fn write_pipe(pipe_index: usize, nonblocking: bool, bytes: &[u8]) -> Result<usiz
 }
 
 pub fn seek(fd: i32, offset: isize, whence: i32) -> Result<usize, RuntimeError> {
+    let entry = descriptor(fd)?;
+    if let FdEntry::CallbackFile(mut file) = entry {
+        let position = file
+            .seek(offset as i64, whence)
+            .map_err(map_callback_file_error)?;
+        update_callback_file(fd, file)?;
+        return Ok(position);
+    }
     let FdEntry::File {
         handle,
         offset: current,
-    } = descriptor(fd)?
+    } = entry
     else {
         return Err(RuntimeError::InvalidFd);
     };
@@ -1262,7 +1304,11 @@ pub fn seek(fd: i32, offset: isize, whence: i32) -> Result<usize, RuntimeError> 
 }
 
 pub fn size(fd: i32) -> Result<usize, RuntimeError> {
-    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+    let entry = descriptor(fd)?;
+    if let FdEntry::CallbackFile(file) = entry {
+        return Ok(file.len());
+    }
+    let FdEntry::File { handle, .. } = entry else {
         return Err(RuntimeError::InvalidFd);
     };
     file_size(handle)
@@ -1367,6 +1413,28 @@ fn update_offset(fd: i32, handle: FileHandle, offset: usize) -> Result<(), Runti
     }
 }
 
+fn update_callback_file(fd: i32, file: ReadOnlyCallbackFile) -> Result<(), RuntimeError> {
+    let mut descriptors = FILE_DESCRIPTORS.lock();
+    let entry = descriptors
+        .get_mut(fd as usize)
+        .and_then(Option::as_mut)
+        .ok_or(RuntimeError::InvalidFd)?;
+    match entry {
+        FdEntry::CallbackFile(current) => {
+            *current = file;
+            Ok(())
+        }
+        _ => Err(RuntimeError::InvalidFd),
+    }
+}
+
+fn map_callback_file_error(error: CallbackFileError) -> RuntimeError {
+    match error {
+        CallbackFileError::InvalidRange => RuntimeError::InvalidArgument,
+        CallbackFileError::ReadFailed => RuntimeError::CallbackReadFailed,
+    }
+}
+
 fn file_size(handle: FileHandle) -> Result<usize, RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
@@ -1380,6 +1448,7 @@ pub fn map_error(error: RuntimeError) -> i32 {
     match error {
         RuntimeError::NotInitialized => 38,
         RuntimeError::InvalidFd => 9,
+        RuntimeError::InvalidArgument => 22,
         RuntimeError::EntropyUnavailable => 5,
         RuntimeError::Storage(StorageError::NotFound) => 2,
         RuntimeError::Storage(StorageError::AlreadyExists) => 17,
@@ -1397,6 +1466,8 @@ pub fn map_error(error: RuntimeError) -> i32 {
         RuntimeError::WouldBlock => 11,
         RuntimeError::BrokenPipe => 32,
         RuntimeError::Unsupported => 95,
+        RuntimeError::ReadOnly => 30,
+        RuntimeError::CallbackReadFailed => 5,
         RuntimeError::Storage(_) => 5,
     }
 }

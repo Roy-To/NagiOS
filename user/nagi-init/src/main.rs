@@ -16,6 +16,7 @@ extern crate alloc;
     any(
         feature = "m16-package",
         feature = "m19-search",
+        feature = "m20-llama-inference-acceptance",
         feature = "m27-recovery",
         feature = "m25-whisper-inference-acceptance"
     )
@@ -28,6 +29,7 @@ struct GuestAllocator;
     any(
         feature = "m16-package",
         feature = "m19-search",
+        feature = "m20-llama-inference-acceptance",
         feature = "m27-recovery",
         feature = "m25-whisper-inference-acceptance"
     )
@@ -107,6 +109,8 @@ mod m15_history;
 mod m16_package;
 #[cfg(all(target_os = "nagi", feature = "m19-search"))]
 mod m19_search;
+#[cfg(all(target_os = "nagi", feature = "m20-llama-inference-acceptance"))]
+mod m20_granite;
 #[cfg(feature = "m20-fixture-acceptance")]
 #[path = "../../../tests/fixtures/m20_model_store_reader.rs"]
 mod m20_model_store_fixture;
@@ -1138,6 +1142,19 @@ pub extern "C" fn _start(
         ));
         libnagi::exit(1);
     };
+    #[cfg(feature = "m20-llama-inference-acceptance")]
+    {
+        if relibc::nagi_backend_probe() != 0x4e41_4749 {
+            libnagi::console_write(b"Nagi M20 relibc link FAIL\r\n");
+            libnagi::exit(1);
+        }
+        if exit_code != 0 || !m20_granite::run(model_store_capability) {
+            libnagi::console_write(b"Nagi M20 Granite structured inference FAIL\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M20 Granite structured inference PASS\r\n");
+        libnagi::exit(0);
+    }
     #[cfg(all(
         feature = "m10-desktop",
         not(any(

@@ -34,11 +34,18 @@ pub const USER_TLS_CHILD_BASE: u64 = USER_TLS_BASE + USER_TLS_PAGES_PER_THREAD a
 pub const USER_TLS_CHILD_CONTROL_BASE: u64 = USER_TLS_CHILD_BASE + PAGE_SIZE;
 pub const USER_TLS_LIMIT: u64 = USER_TLS_BASE + USER_TLS_PAGE_COUNT as u64 * PAGE_SIZE;
 pub const USER_MMAP_BASE: u64 = USER_IMAGE_LIMIT + 0x0080_0000;
-#[cfg(feature = "m25-whisper-memory")]
+#[cfg(feature = "m20-llama-memory")]
+const USER_MMAP_PAGE_TABLES: usize = 2048;
+#[cfg(all(not(feature = "m20-llama-memory"), feature = "m25-whisper-memory"))]
 const USER_MMAP_PAGE_TABLES: usize = 768;
-#[cfg(all(not(feature = "m25-whisper-memory"), feature = "m18-browser-memory"))]
+#[cfg(all(
+    not(feature = "m20-llama-memory"),
+    not(feature = "m25-whisper-memory"),
+    feature = "m18-browser-memory"
+))]
 const USER_MMAP_PAGE_TABLES: usize = 256;
 #[cfg(all(
+    not(feature = "m20-llama-memory"),
     not(feature = "m25-whisper-memory"),
     not(feature = "m18-browser-memory")
 ))]
@@ -1855,7 +1862,9 @@ mod tests {
 
     #[test]
     fn bootstrap_mmap_window_matches_the_enabled_browser_memory_budget() {
-        let expected_window_bytes = if cfg!(feature = "m25-whisper-memory") {
+        let expected_window_bytes = if cfg!(feature = "m20-llama-memory") {
+            4096 * 1024 * 1024
+        } else if cfg!(feature = "m25-whisper-memory") {
             1536 * 1024 * 1024
         } else if cfg!(feature = "m18-browser-memory") {
             512 * 1024 * 1024

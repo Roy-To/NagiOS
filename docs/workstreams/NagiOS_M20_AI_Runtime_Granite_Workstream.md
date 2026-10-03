@@ -1247,3 +1247,61 @@ but the guest M14 device initialization and M20 acceptance marker both pass;
 this smoke makes no audio-capture claim. It establishes target static linking
 and CPU backend initialization only. It does not load Granite, exercise Model
 Manager, or run inference, so M20 remains `PARTIAL`.
+
+## Completion Sweep — Granite guest inference link boundary (2026-10-03)
+
+Added a read-only seekable callback descriptor to `nagi-posix`. It exposes
+bounded random reads from a caller-owned context through the regular descriptor
+table, supports `read`/`pread`/`seek`/`size`, and rejects writes. Three focused
+tests cover bounded reads, stable EOF, signed seek bounds, and callback
+over-reporting. The M20 guest adapter implements a provider-neutral
+`ModelBackend` around the pinned CPU llama.cpp archive. It supplies a seekable
+descriptor to `fdopen` and `llama_model_load_from_file_ptr` with mmap disabled,
+requests one bounded JSON `answer`, constrains tokens with llama.cpp grammar,
+and relies on `ModelRuntime` for actual artifact digest and schema validation.
+The command `./nagi m20-granite-inference <artifact.gguf>` builds the pinned
+target archives, prepares a disposable Model Store image, and gates acceptance
+on a guest-generated structured response. The feature is opt-in and increases
+the target mmap window and POSIX heap for this 3B model path.
+
+`./nagi fmt` passed. All 200 `nagi-cli` library tests passed, including the
+new exact-arity command parser case; the standalone callback-file test passed
+3/3. The first Nagi target integration build found and fixed a missing
+`GenerativeProvider` trait import. The target llama.cpp archives and provider
+adapter then compiled. Final `nagi-init` linking stopped before image creation
+with 142 unresolved-symbol diagnostics, including target `fdopen`, libc++
+future/thread, regex, iostream/locale, filesystem, and random-device symbols.
+The Nagi target currently has selective libc++ ABI providers, not a complete
+libc++ runtime. Linking the host runtime is not a valid workaround for this
+independent OS. The exact cargo link log is preserved at
+`out/evidence/m20-granite-inference-1790984128856579000/target-link.log`; its
+SHA-256 is `ff449d03314230a3192af75bf458628bc6eabfc901817da999837062888cad72`.
+The attempt README records that host artifact verification completed, but no
+guest image/QEMU run or inference occurred. M20 remains `PARTIAL`; the next
+M20 experiment is to establish the required target-owned C++ runtime providers
+without importing a host runtime or bypassing Model Store/ModelRuntime checks.
+
+### C/POSIX providers resolved; target C++ runtime remains — 2026-10-03
+
+The first link log showed that the M20 feature did not directly reference
+relibc, so the target C runtime archive was omitted. The feature now anchors the
+Nagi relibc archive, and the target owns the missing `fseeko`, `ftello`, C
+classification/conversion, and wide-character entry points required by the
+llama archive. `fdopen` and the other missing C/POSIX symbols no longer appear
+in the relink diagnostics.
+
+The official `./nagi m20-granite-inference` acceptance was rerun against the
+exact pinned artifact. The target archive and adapter compile, but final
+`nagi-init` linking still fails before Model Store image creation with 88
+unresolved target C++ standard-library symbols. The unresolved surface spans
+stream and string methods, locale/collation, filesystem, regex, random-device,
+shared ownership, exception pointers, and thread/future support. The current
+link log is
+`out/evidence/m20-granite-inference-1790985332307332000/target-link-after-relibc-providers.log`
+(SHA-256
+`19442fbc322d5fc5168717d5567f81890e4735ad96c774610038b5b8ffb90927`); the
+official attempt README and target archive build log are beside it. No host
+libc++ archive is linked. There is no image, guest model load, generated
+response, or QEMU inference acceptance from this attempt. M20 remains
+`PARTIAL` until a Nagi-owned C++ runtime and the required ABI integration are
+available.

@@ -301,7 +301,9 @@ fn main() {
         cxx_output.display()
     );
 
-    if env::var_os("CARGO_FEATURE_M20_LLAMA_LINK_SMOKE").is_some() {
+    if env::var_os("CARGO_FEATURE_M20_LLAMA_LINK_SMOKE").is_some()
+        || env::var_os("CARGO_FEATURE_M20_LLAMA_INFERENCE_ACCEPTANCE").is_some()
+    {
         let llama_build = env::var_os("NAGI_LLAMA_BUILD")
             .map(PathBuf::from)
             .expect("NAGI_LLAMA_BUILD must point to the Nagi-target llama.cpp build");
@@ -336,25 +338,65 @@ fn main() {
             }
             println!("cargo:rerun-if-changed={}", header.display());
         }
-        let smoke_source = llama_source.join("nagi-backend-smoke.c");
-        println!("cargo:rerun-if-changed={}", smoke_source.display());
         let target_cc_wrapper = repository_root.join("tools/nagi-target-cc.sh");
-        let smoke_object = out_dir.join("nagi-llama-backend-smoke.o");
-        let status = Command::new("bash")
-            .arg(&target_cc_wrapper)
-            .args(["-x", "c", "-fno-asynchronous-unwind-tables", "-c"])
-            .arg("-I")
-            .arg(generated_source.join("include"))
-            .arg("-I")
-            .arg(generated_source.join("ggml/include"))
-            .arg(&smoke_source)
-            .arg("-o")
-            .arg(&smoke_object)
-            .status()
-            .unwrap_or_else(|error| panic!("failed to compile Nagi llama smoke adapter: {error}"));
-        if !status.success() {
-            panic!("Nagi llama smoke adapter compilation failed with {status}");
-        }
+        let smoke_object = if env::var_os("CARGO_FEATURE_M20_LLAMA_LINK_SMOKE").is_some() {
+            let smoke_source = llama_source.join("nagi-backend-smoke.c");
+            println!("cargo:rerun-if-changed={}", smoke_source.display());
+            let smoke_object = out_dir.join("nagi-llama-backend-smoke.o");
+            let status = Command::new("bash")
+                .arg(&target_cc_wrapper)
+                .args(["-x", "c", "-fno-asynchronous-unwind-tables", "-c"])
+                .arg("-I")
+                .arg(generated_source.join("include"))
+                .arg("-I")
+                .arg(generated_source.join("ggml/include"))
+                .arg(&smoke_source)
+                .arg("-o")
+                .arg(&smoke_object)
+                .status()
+                .unwrap_or_else(|error| {
+                    panic!("failed to compile Nagi llama smoke adapter: {error}")
+                });
+            if !status.success() {
+                panic!("Nagi llama smoke adapter compilation failed with {status}");
+            }
+            Some(smoke_object)
+        } else {
+            None
+        };
+        let provider_object =
+            if env::var_os("CARGO_FEATURE_M20_LLAMA_INFERENCE_ACCEPTANCE").is_some() {
+                let provider_source = repository_root.join("tools/llama/nagi-provider-adapter.cpp");
+                println!("cargo:rerun-if-changed={}", provider_source.display());
+                let provider_object = out_dir.join("nagi-llama-provider-adapter.o");
+                let status = Command::new("bash")
+                    .arg(&target_cc_wrapper)
+                    .args([
+                        "-x",
+                        "c++",
+                        "-fno-asynchronous-unwind-tables",
+                        "-fno-exceptions",
+                        "-fno-rtti",
+                        "-c",
+                    ])
+                    .arg("-I")
+                    .arg(generated_source.join("include"))
+                    .arg("-I")
+                    .arg(generated_source.join("ggml/include"))
+                    .arg(&provider_source)
+                    .arg("-o")
+                    .arg(&provider_object)
+                    .status()
+                    .unwrap_or_else(|error| {
+                        panic!("failed to compile Nagi llama provider adapter: {error}")
+                    });
+                if !status.success() {
+                    panic!("Nagi llama provider adapter compilation failed with {status}");
+                }
+                Some(provider_object)
+            } else {
+                None
+            };
         // llama.cpp's real CPU backend reaches C/POSIX and math functions from
         // the target relibc archive. Root only those implemented providers so
         // rust-lld extracts them before scanning the static C++ archives.
@@ -379,7 +421,36 @@ fn main() {
             "cosf",
             "sinf",
             "atoi",
+            "abs",
+            "__errno_location",
+            "fclose",
+            "fdopen",
+            "feof",
+            "ferror",
+            "fopen",
+            "fread",
+            "fseeko",
+            "ftello",
+            "isascii",
+            "isprint",
+            "isspace",
+            "isxdigit",
+            "memchr",
+            "pow",
+            "puts",
+            "qsort",
+            "sscanf",
+            "strerror",
+            "strncpy",
+            "strstr",
+            "strtol",
+            "toupper",
+            "wmemcmp",
+            "wmemchr",
+            "dlopen",
             "dlclose",
+            "dlsym",
+            "dlerror",
             "tolower",
             "strcmp",
             "erff",
@@ -416,12 +487,21 @@ fn main() {
             cxx_abi_object.display()
         );
 
+        if let Some(provider_object) = provider_object {
+            println!(
+                "cargo:rustc-link-arg-bin=nagi-init={}",
+                provider_object.display()
+            );
+        }
+
         println!("cargo:rustc-link-arg-bin=nagi-init=--error-limit=0");
         println!("cargo:rustc-link-arg-bin=nagi-init=--gc-sections");
-        println!(
-            "cargo:rustc-link-arg-bin=nagi-init={}",
-            smoke_object.display()
-        );
+        if let Some(smoke_object) = smoke_object {
+            println!(
+                "cargo:rustc-link-arg-bin=nagi-init={}",
+                smoke_object.display()
+            );
+        }
         println!("cargo:rustc-link-arg-bin=nagi-init=-Bstatic");
         println!("cargo:rustc-link-arg-bin=nagi-init=--start-group");
         for archive in &archives {

@@ -6,6 +6,8 @@ pub mod fs;
 pub mod net;
 pub mod process;
 #[cfg(any(target_os = "nagi", test))]
+pub mod readonly_callback_file;
+#[cfg(any(target_os = "nagi", test))]
 mod threads;
 
 #[cfg(target_os = "nagi")]
@@ -17,6 +19,22 @@ pub use abi::{
     nagi_posix_close, nagi_posix_ensure_directory, nagi_posix_initialize_filesystem,
     nagi_posix_initialize_network, nagi_posix_open, nagi_posix_write_fd,
 };
+
+/// Register a read-only descriptor backed by a bounded random-access callback.
+///
+/// # Safety
+/// `context` and `read_at` must remain valid until the descriptor is closed.
+/// Access to the callback context must be serialized while the descriptor is
+/// open. The callback must write no more than the requested output length and
+/// return the number of bytes written, or a negative value on failure.
+#[cfg(target_os = "nagi")]
+pub unsafe fn open_readonly_callback(
+    context: *mut core::ffi::c_void,
+    length: u64,
+    read_at: readonly_callback_file::ReadAtCallback,
+) -> Result<i32, i32> {
+    runtime::open_readonly_callback(context, length, read_at).map_err(runtime::map_error)
+}
 
 /// Copy the current guest process name into a C buffer through the kernel's
 /// process-info ABI. The result is NUL-terminated when capacity is nonzero.
@@ -87,16 +105,24 @@ use errno::{set_errno, EBADF, EINVAL, ENOSYS};
 #[cfg(target_os = "nagi")]
 use nagi_pal::time::{Clock, GuestClock};
 
-#[cfg(all(any(target_os = "nagi", test), feature = "m25-whisper-memory"))]
-const POSIX_HEAP_SIZE: usize = 1280 * 1024 * 1024;
 #[cfg(all(
     any(target_os = "nagi", test),
+    not(feature = "m20-llama-memory"),
+    feature = "m25-whisper-memory"
+))]
+const POSIX_HEAP_SIZE: usize = 1280 * 1024 * 1024;
+#[cfg(all(any(target_os = "nagi", test), feature = "m20-llama-memory"))]
+const POSIX_HEAP_SIZE: usize = 3584 * 1024 * 1024;
+#[cfg(all(
+    any(target_os = "nagi", test),
+    not(feature = "m20-llama-memory"),
     not(feature = "m25-whisper-memory"),
     feature = "browser-storage"
 ))]
 const POSIX_HEAP_SIZE: usize = 128 * 1024 * 1024;
 #[cfg(all(
     any(target_os = "nagi", test),
+    not(feature = "m20-llama-memory"),
     not(feature = "m25-whisper-memory"),
     not(feature = "browser-storage")
 ))]
@@ -788,7 +814,9 @@ mod tests {
 
     #[test]
     fn posix_heap_budget_is_bounded_by_the_enabled_memory_feature() {
-        let expected = if cfg!(feature = "m25-whisper-memory") {
+        let expected = if cfg!(feature = "m20-llama-memory") {
+            3584 * 1024 * 1024
+        } else if cfg!(feature = "m25-whisper-memory") {
             1280 * 1024 * 1024
         } else if cfg!(feature = "browser-storage") {
             128 * 1024 * 1024

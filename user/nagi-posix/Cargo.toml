@@ -6,6 +6,7 @@ publish = false
 
 [features]
 browser-storage = ["nagi-net/m18-browser-network"]
+m20-llama-memory = []
 m25-whisper-memory = []
 
 [dependencies]

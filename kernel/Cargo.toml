@@ -9,6 +9,7 @@ autobins = false
 default = []
 m18-browser-threads = ["nagi-abi/m18-browser-threads"]
 m18-browser-memory = ["m18-browser-threads"]
+m20-llama-memory = []
 m25-whisper-memory = []
 
 [lib]

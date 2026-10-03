@@ -166,6 +166,7 @@ pub enum Command {
     M27,
     M30,
     M20Granite,
+    M20GraniteInference,
     M20LlamaSmoke,
     M26Qwen,
     M26Gemma,
@@ -242,6 +243,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m27" => Command::M27,
         "m30" => Command::M30,
         "m20-granite" => Command::M20Granite,
+        "m20-granite-inference" => Command::M20GraniteInference,
         "m20-llama-smoke" => Command::M20LlamaSmoke,
         "m26-qwen" => Command::M26Qwen,
         "m26-gemma" => Command::M26Gemma,
@@ -264,6 +266,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
             args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--allow-missing")
         }
         Command::M20Granite => args.len() == 2,
+        Command::M20GraniteInference => args.len() == 2,
         Command::M20LlamaSmoke => args.len() == 1,
         Command::M26Qwen => args.len() == 2,
         Command::M26Gemma => args.len() == 3 && args[2] == "--accept-gemma-terms",
@@ -458,6 +461,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
         Command::M20Granite => execute_m20_granite(&args[1..], root, probe),
+        Command::M20GraniteInference => execute_m20_granite_inference(&args[1..], root, probe),
         Command::M20LlamaSmoke => execute_m20_llama_smoke(root, probe),
         Command::M26Qwen => execute_m26_model(&args[1..], root, probe, M26Model::Qwen),
         Command::M26Gemma => execute_m26_model(&args[1..], root, probe, M26Model::Gemma),
@@ -966,6 +970,278 @@ fn execute_m20_granite(args: &[String], root: &Path, probe: &dyn HostProbe) -> C
             serial_name: "m20-granite-qemu.log",
             digest_marker: "Nagi M20 Granite artifact digest PASS",
         },
+    )
+}
+
+fn execute_m20_granite_inference(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+) -> CommandResult {
+    let manifest = match pinned_granite_manifest(root) {
+        Ok(manifest) => manifest,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+    let Some(source) = manifest.source.as_ref() else {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m20-granite-inference: manifest source metadata is missing",
+        );
+    };
+    let (
+        nagi_model_manager::ArtifactReference::ModelStore { artifact_id },
+        Some(size_bytes),
+        Some(integrity),
+    ) = (
+        &manifest.artifact.reference,
+        manifest.artifact.size_bytes,
+        manifest.artifact.integrity.as_ref(),
+    )
+    else {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m20-granite-inference: pinned manifest lacks Model Store size or integrity metadata",
+        );
+    };
+
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite-inference: system clock: {error}"),
+            )
+        }
+    };
+    let target_evidence = root
+        .join("out/evidence")
+        .join(format!("m20-granite-inference-target-{run_id}"));
+    if let Err(error) = fs::create_dir_all(&target_evidence) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite-inference: create target evidence directory: {error}"),
+        );
+    }
+
+    let llama_source = match ensure_llama_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite-inference: pinned llama.cpp source: {error}"),
+            )
+        }
+    };
+    let target_clang = match resolve_m20_target_clang() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+    let cxx_headers = match resolve_m20_cxx_headers(&target_clang) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+    let relibc_headers = std::env::var_os("NAGI_RELIBC_HEADERS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            root.join("out/m17-mesa/relibc-target/x86_64-unknown-nagi-user/include")
+        });
+    if !relibc_headers.join("pthread.h").is_file() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: generated Nagi relibc headers are missing at {}; complete the target header generation first",
+                relibc_headers.display()
+            ),
+        );
+    }
+    let llvm_bin = target_clang.parent().unwrap_or_else(|| Path::new("."));
+    let llvm_ar = match resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+    let llvm_ranlib = match resolve_m20_llvm_tool("NAGI_LLVM_RANLIB", "llvm-ranlib", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+
+    let build_dir = target_evidence.join("target-build");
+    let build_log = target_evidence.join("target-build.log");
+    let mut build = ProcessCommand::new("bash");
+    build
+        .args(["tools/llama/build-nagi-target.sh"])
+        .current_dir(root)
+        .env("NAGI_LLAMA_BUILD", &build_dir)
+        .env("NAGI_TARGET_CLANG", &target_clang)
+        .env("NAGI_CXX_HEADERS", &cxx_headers)
+        .env("NAGI_RELIBC_HEADERS", &relibc_headers)
+        .env("NAGI_LLVM_AR", &llvm_ar)
+        .env("NAGI_LLVM_RANLIB", &llvm_ranlib);
+    let build_output = match build.output() {
+        Ok(output) => output,
+        Err(error) => {
+            let detail = format!("cannot start target archive build: {error}");
+            let _ = fs::write(&build_log, &detail);
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-granite-inference: {detail} (evidence {})",
+                    target_evidence.display()
+                ),
+            );
+        }
+    };
+    let build_detail = command_output(&build_output);
+    if let Err(error) = fs::write(&build_log, &build_detail) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: cannot write {}: {error}",
+                build_log.display()
+            ),
+        );
+    }
+    if !build_output.status.success() {
+        let _ = fs::write(
+            target_evidence.join("README.md"),
+            format!(
+                "# M20 Granite inference target archives\n\nStatus: BLOCKED\nPinned llama.cpp source: {}\nTarget archive build exited with {}.\nBuild log: target-build.log\n",
+                llama_source.display(),
+                build_output.status
+            ),
+        );
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: target archive build failed ({}); log {}; evidence {}",
+                build_output.status,
+                build_log.display(),
+                target_evidence.display()
+            ),
+        );
+    }
+    let pre_run = target_evidence.join("pre-run-target-artifacts");
+    if let Err(error) = fs::create_dir(&pre_run) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite-inference: create target artifact archive: {error}"),
+        );
+    }
+    for (relative, name) in [
+        (
+            "target/x86_64-unknown-nagi-user/release/nagi-init",
+            "nagi-init",
+        ),
+        (
+            "target/x86_64-unknown-nagi/release/nagi-kernel",
+            "nagi-kernel",
+        ),
+        (
+            "loader/target/x86_64-unknown-uefi/release/nagi-loader.efi",
+            "nagi-loader.efi",
+        ),
+    ] {
+        let source = root.join(relative);
+        match fs::symlink_metadata(&source) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                if let Err(error) = fs::copy(&source, pre_run.join(name)) {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "m20-granite-inference: preserve {}: {error}",
+                            source.display()
+                        ),
+                    );
+                }
+            }
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m20-granite-inference: refusing non-regular generated artifact {}",
+                        source.display()
+                    ),
+                )
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m20-granite-inference: inspect {}: {error}",
+                        source.display()
+                    ),
+                )
+            }
+        }
+    }
+    if let Err(error) = fs::write(
+        target_evidence.join("README.md"),
+        format!(
+            "# M20 Granite inference target archives\n\nStatus: PASS\nPinned llama.cpp source: {}\nTarget archive directory: target-build\nTarget compiler: {}\nNagi C++ headers: {}\nNagi relibc headers: {}\nBuild log: target-build.log\nPrior generated target artifacts: pre-run-target-artifacts/\n",
+            llama_source.display(),
+            target_clang.display(),
+            cxx_headers.display(),
+            relibc_headers.display()
+        ),
+    ) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite-inference: cannot write target build README: {error}"),
+        );
+    }
+
+    let cargo_env = [
+        ("NAGI_LLAMA_BUILD", build_dir.as_path()),
+        ("NAGI_LLAMA_SOURCE", llama_source.as_path()),
+        ("NAGI_TARGET_CLANG", target_clang.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        ("NAGI_RELIBC_HEADERS", relibc_headers.as_path()),
+        ("NAGI_LLVM_AR", llvm_ar.as_path()),
+        ("NAGI_LLVM_RANLIB", llvm_ranlib.as_path()),
+    ];
+    let evidence_inputs = [ModelStoreEvidenceInput {
+        environment: None,
+        source: &build_log,
+        evidence_name: "llama-target-build.log",
+    }];
+    let required_markers = ["Nagi M20 Granite structured inference PASS"];
+    let early_exit_markers = [
+        "Nagi M20 Model Store capability FAIL",
+        "Nagi M20 Granite structured inference FAIL",
+    ];
+    let options = ModelStoreAcceptanceOptions {
+        acceptance_marker: "Nagi M20 Granite structured inference PASS",
+        required_markers: &required_markers,
+        early_exit_markers: &early_exit_markers,
+        cargo_env: &cargo_env,
+        evidence_inputs: &evidence_inputs,
+        timeout: Duration::from_secs(21_600),
+        claims: "The guest ModelRuntime verifies the pinned Granite artifact before loading it through a seekable read-only Model Store descriptor into the target llama.cpp CPU backend. It generates a schema-constrained JSON response inside Nagi, then ModelRuntime validates that response. No host inference is used.",
+        success_summary: "guest Model Store load and structured Granite inference acceptance",
+    };
+    execute_model_store_artifact_with_options(
+        args,
+        root,
+        probe,
+        ModelStoreArtifactProfile {
+            command_name: "m20-granite-inference",
+            model_id: manifest.model_id.as_str().to_owned(),
+            artifact_id: artifact_id.as_str().to_owned(),
+            source_uri: source.uri.clone(),
+            source_revision: source.revision.clone(),
+            file_name: source.file_name.clone(),
+            format: manifest.artifact.format.as_str().to_owned(),
+            size_bytes,
+            sha256: integrity.digest.clone(),
+            init_feature: "m20-llama-inference-acceptance",
+            kernel_features: &["m20-llama-memory"],
+            image_prefix: "nagi-0.1-m20-granite-inference",
+            evidence_prefix: "m20-granite-inference",
+            vars_name: "granite-inference-OVMF_VARS.fd",
+            serial_name: "granite-inference-qemu.log",
+            digest_marker: "Nagi M20 Model Store capability PASS",
+        },
+        &options,
     )
 }
 
@@ -7910,7 +8186,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
                 .into(),
         ],
     }
@@ -7951,6 +8227,21 @@ mod tests {
         assert!(
             parse_command(&["m20-granite".into(), "model.gguf".into(), "extra".into()]).is_err()
         );
+    }
+
+    #[test]
+    fn m20_granite_inference_command_requires_exactly_one_external_artifact_path() {
+        assert_eq!(
+            parse_command(&["m20-granite-inference".into(), "model.gguf".into()]),
+            Ok(Command::M20GraniteInference)
+        );
+        assert!(parse_command(&["m20-granite-inference".into()]).is_err());
+        assert!(parse_command(&[
+            "m20-granite-inference".into(),
+            "model.gguf".into(),
+            "extra".into()
+        ])
+        .is_err());
     }
 
     #[test]
