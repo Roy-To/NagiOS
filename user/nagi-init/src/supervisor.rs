@@ -8,16 +8,17 @@
 //! - Services resolve kernel-stamped sender IDs through `resolve`.
 //! - Services consult `has_grant` for capabilities. A grant exists only while
 //!   the launched session is live.
-//! - `reap` observes exit and revokes the launch.
+//! - `reap` waits for the kernel exit status and revokes the launch.
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use libnagi::launch::{AppManifest, LaunchError, LaunchPlacement, LaunchRecord, LaunchRegistry};
 use libnagi::{
-    channel_create_pair, channel_send, handle_close, process_spawn, sleep_ns, ChannelSendRequest,
-    RIGHT_READ, RIGHT_WAIT, RIGHT_WRITE,
+    channel_create_pair, channel_send, handle_close, process_spawn, process_wait,
+    ChannelSendRequest, RIGHT_READ, RIGHT_WAIT, RIGHT_WRITE,
 };
+use libnagi::{ProcessExitStatus, PROCESS_EXIT_KIND_EXITED};
 use nagi_model::AppId;
 
 /// Supervisor-owned application declarations embedded in the system image.
@@ -37,10 +38,6 @@ pub const FAULTING_APP: AppId = AppId::from_identifier(b"org.nagi.acceptance.fau
 /// and holds no file-action grants.
 #[cfg(feature = "m19-search-ipc")]
 pub const FOREIGN_APP: AppId = AppId::from_identifier(b"org.nagi.acceptance.foreign-client");
-
-// Stay below the Channel queue capacity so a live peer cannot make a probe
-// send fail with QueueFull and be mistaken for an exit.
-const EXIT_OBSERVATION_YIELDS: usize = 8;
 
 struct SupervisorState {
     locked: AtomicBool,
@@ -158,23 +155,27 @@ pub fn check(app_id: AppId, placement: LaunchPlacement) -> Result<(), LaunchFail
         .map_err(LaunchFailure::Registry)
 }
 
-/// Observe the launched process's exit (its endpoint becomes unreachable),
-/// then revoke its launch record and release the endpoint.
-pub fn reap(launched: Launched) -> bool {
-    let mut exited = false;
-    for _ in 0..EXIT_OBSERVATION_YIELDS {
-        sleep_ns(0);
-        if !channel_send(launched.endpoint, &ChannelSendRequest::new(0, 0, 0, 0)) {
-            exited = true;
-            break;
-        }
-    }
-    if !exited {
-        return false;
-    }
-    let revoked = with_registry(|registry| registry.record_exit(launched.record.process_id))
+/// Wait for the launched process to exit (`SYS_PROCESS_WAIT`, ADR 0048),
+/// confirm the kernel closed its handles, then revoke its launch record and
+/// release the endpoint. Returns the consumed exit status.
+pub fn reap(launched: Launched) -> Option<ProcessExitStatus> {
+    let process_id = launched.record.process_id;
+    let status = process_wait(process_id)?;
+    // After exit no process can reach the peer endpoint.
+    let peer_closed = !channel_send(launched.endpoint, &ChannelSendRequest::new(0, 0, 0, 0));
+    let revoked = with_registry(|registry| registry.record_exit(process_id))
         .flatten()
         .is_some_and(|record| record == launched.record);
-    let still_granted = resolve(launched.record.process_id).is_some();
-    handle_close(launched.endpoint) && revoked && !still_granted
+    let closed = handle_close(launched.endpoint);
+    (status.process_id == process_id
+        && peer_closed
+        && revoked
+        && closed
+        && resolve(process_id).is_none())
+    .then_some(status)
+}
+
+/// Whether `status` is a clean `SYS_PROCESS_EXIT(0)`.
+pub fn exited_cleanly(status: &ProcessExitStatus) -> bool {
+    status.kind == PROCESS_EXIT_KIND_EXITED && status.code == 0
 }

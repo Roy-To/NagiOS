@@ -6531,7 +6531,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
-const ISOLATED_PROCESS_MARKERS: [&str; 11] = [
+const ISOLATED_PROCESS_MARKERS: [&str; 12] = [
     "Nagi Kernel started",
     "Nagi ADR0043 isolated process spawned pid=2",
     "Nagi isolated process kernel-stamped sender PASS",
@@ -6539,10 +6539,11 @@ const ISOLATED_PROCESS_MARKERS: [&str; 11] = [
     "Nagi isolated process address space and syscall isolation PASS",
     "Nagi ADR0043 isolated process exit pid=2 code=0",
     "Nagi isolated process exit cleanup PASS",
-    "Nagi ADR0047 isolated process fault pid=2 vector=14",
-    "Nagi ADR0047 isolated process fault pid=2 vector=6",
-    "Nagi ADR0047 isolated process fault pid=2 vector=13",
+    "Nagi ADR0047 isolated process fault pid=3 vector=14",
+    "Nagi ADR0047 isolated process fault pid=4 vector=6",
+    "Nagi ADR0047 isolated process fault pid=5 vector=13",
     "Nagi isolated process fault containment PASS",
+    "Nagi Supervisor process exit status PASS",
 ];
 const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PASS";
 

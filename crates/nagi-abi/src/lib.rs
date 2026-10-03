@@ -48,6 +48,14 @@ pub const SYS_CHANNEL_WAIT_READABLE: u64 = 35;
 /// process (the Supervisor) may call it (ADR 0043). Returns the child's
 /// kernel Process ID.
 pub const SYS_PROCESS_SPAWN: u64 = 36;
+/// Wait for an isolated process spawned by the caller (init only) to exit
+/// and consume its `ProcessExitStatus` (ADR 0048). Returns 0 with the
+/// status written, `PROCESS_WAIT_RETRY` after a wake (call again), or
+/// failure for an unknown or already-consumed Process ID.
+pub const SYS_PROCESS_WAIT: u64 = 37;
+pub const PROCESS_WAIT_RETRY: u64 = 1;
+pub const PROCESS_EXIT_KIND_EXITED: u32 = 1;
+pub const PROCESS_EXIT_KIND_FAULTED: u32 = 2;
 
 /// Optional `SYS_THREAD_CREATE` flag for a child that should be detached
 /// before it can be scheduled.
@@ -293,6 +301,17 @@ pub struct ProcessSpawnRequest {
     pub endpoint: u64,
     pub endpoint_rights: u32,
     pub reserved: u32,
+}
+
+/// Exit status of an isolated process, written by `SYS_PROCESS_WAIT`.
+/// `fault_vector` is meaningful only for `PROCESS_EXIT_KIND_FAULTED`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProcessExitStatus {
+    pub process_id: u32,
+    pub kind: u32,
+    pub code: u64,
+    pub fault_vector: u64,
 }
 
 /// One handle moved with an attenuated rights set in a Channel message.

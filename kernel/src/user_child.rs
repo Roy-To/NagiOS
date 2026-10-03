@@ -20,8 +20,9 @@ use super::{
 
 /// Kernel Process ID of the bootstrap `nagi-init` process.
 pub const INIT_PROCESS_ID: u32 = 1;
-/// Kernel Process ID assigned to the single isolated child slot.
-pub const CHILD_PROCESS_ID: u32 = 2;
+/// Process ID of the first isolated child. Later children receive
+/// increasing IDs from `process_exit::ExitTable` (ADR 0048).
+pub const CHILD_PROCESS_ID: u32 = crate::process_exit::FIRST_ISOLATED_PROCESS_ID;
 /// Upper bound on the child ELF's mapped image: 1 MiB.
 pub const CHILD_IMAGE_PAGES: usize = 256;
 /// Child stack: 64 KiB at the top of the stack span, below an unmapped guard.
@@ -111,6 +112,7 @@ pub fn set_active_process(process_id: u32) {
 pub fn prepare_child(
     image: &[u8],
     kernel_pml4: &PageTable,
+    process_id: u32,
 ) -> Result<ChildContext, UserProcessError> {
     if image.len() > MAX_CHILD_ELF_BYTES {
         return Err(UserProcessError::ImageTooLarge);
@@ -124,7 +126,11 @@ pub fn prepare_child(
         return Err(UserProcessError::KernelUserSlotOccupied);
     }
     let storage = unsafe { &mut *CHILD_STORAGE.0.get() };
-    let result = build_child_address_space(&plan, image, kernel_pml4, storage);
+    let result =
+        build_child_address_space(&plan, image, kernel_pml4, storage).map(|context| ChildContext {
+            process_id,
+            ..context
+        });
     if result.is_err() {
         storage.clear();
         CHILD_IN_USE.store(false, Ordering::Release);

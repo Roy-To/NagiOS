@@ -7,6 +7,7 @@
 //! data, never authority.
 
 use libnagi::launch::{LaunchError, LaunchPlacement};
+use libnagi::PROCESS_EXIT_KIND_FAULTED;
 use libnagi::{
     channel_create_pair, channel_receive, channel_send, console_write, handle_close, process_spawn,
     ChannelReceiveResult, ChannelSendRequest, RIGHT_READ, RIGHT_WRITE,
@@ -22,7 +23,7 @@ static FAULTING_APP_ELF: &[u8] = include_bytes!(env!("NAGI_FAULTING_APP_ELF"));
 const FAULT_PROTOCOL_ID: u16 = 0x4643;
 const OPCODE_LAUNCH_FAULT: u16 = 1;
 /// Page fault, invalid opcode, and general protection, in that order.
-const FAULT_KINDS: [u8; 3] = [1, 2, 3];
+const FAULT_KINDS: [(u8, u64); 3] = [(1, 14), (2, 6), (3, 13)];
 const FAULT_PLACEMENT: LaunchPlacement = LaunchPlacement {
     app_session_id: AppSessionId(0x4e41_4749_0047_0001),
     node_id: NodeId(0x4e41_4749_0047_0002),
@@ -174,9 +175,17 @@ pub fn run() -> bool {
 
     // The child exits after its report; the kernel closes its handles and
     // the Supervisor revokes its launch record.
-    if !supervisor::reap(launched) {
+    let Some(status) = supervisor::reap(launched) else {
         return fail(b"child exit or launch revocation");
+    };
+    if !supervisor::exited_cleanly(&status) || status.process_id != child_pid {
+        return fail(b"child exit status");
     }
+    // The status was consumed: waiting again, or on an unknown ID, fails.
+    if libnagi::process_wait(child_pid).is_some() || libnagi::process_wait(u32::MAX).is_some() {
+        return fail(b"exit status consumed twice");
+    }
+    console_write(b"Nagi Supervisor process exit status PASS\r\n");
     if supervisor::resolve(child_pid).is_some()
         || supervisor::has_grant(
             ISOLATED_APP,
@@ -200,7 +209,7 @@ pub fn run() -> bool {
 /// unreachable), the Supervisor revokes its launch, init keeps running, and
 /// the slot can be used again by the next launch.
 fn fault_containment() -> bool {
-    for kind in FAULT_KINDS {
+    for (kind, vector) in FAULT_KINDS {
         let launched = match supervisor::launch(FAULTING_APP_ELF, FAULTING_APP, FAULT_PLACEMENT) {
             Ok(launched) => launched,
             Err(_) => return fail(b"faulting app launch"),
@@ -213,8 +222,16 @@ fn fault_containment() -> bool {
             return fail(b"fault launch argument");
         }
         let process_id = launched.record.process_id;
-        if !supervisor::reap(launched) || supervisor::resolve(process_id).is_some() {
+        let Some(status) = supervisor::reap(launched) else {
             return fail(b"faulting process was not terminated and reaped");
+        };
+        if status.kind != PROCESS_EXIT_KIND_FAULTED
+            || status.fault_vector != vector
+            || status.code != 128 + vector
+            || status.process_id != process_id
+            || supervisor::resolve(process_id).is_some()
+        {
+            return fail(b"fault exit status");
         }
     }
     console_write(b"Nagi isolated process fault containment PASS\r\n");

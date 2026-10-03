@@ -46,7 +46,12 @@ use nagi_abi::{
     SYS_CHANNEL_SEND, SYS_CHANNEL_TRY_RECEIVE, SYS_HANDLE_CLOSE, SYS_NET_RECEIVE, SYS_NET_SEND,
 };
 #[cfg(not(test))]
-use nagi_abi::{ProcessSpawnRequest, SYS_PROCESS_SPAWN};
+use nagi_abi::{
+    ProcessExitStatus, ProcessSpawnRequest, PROCESS_EXIT_KIND_EXITED, PROCESS_EXIT_KIND_FAULTED,
+    PROCESS_WAIT_RETRY, SYS_PROCESS_SPAWN, SYS_PROCESS_WAIT,
+};
+#[cfg(not(test))]
+use nagi_kernel::process_exit::{ExitKind, ExitTable, WaitOutcome};
 #[cfg(not(test))]
 use nagi_kernel::user_process::child::{self as child_process, INIT_PROCESS_ID};
 
@@ -560,6 +565,73 @@ fn sync_address_space() {
 #[cfg(not(test))]
 static mut CHILD_CR3: u64 = 0;
 
+/// Isolated-process IDs, exit records, and the Supervisor waiter
+/// (ADR 0048). Mutated only from syscall and exception paths on the BSP.
+#[cfg(not(test))]
+static mut EXIT_TABLE: ExitTable = ExitTable::new();
+
+#[cfg(not(test))]
+fn exit_table() -> &'static mut ExitTable {
+    unsafe { &mut *core::ptr::addr_of_mut!(EXIT_TABLE) }
+}
+
+/// `SYS_PROCESS_WAIT` (init only). A blocked caller is resumed with
+/// `PROCESS_WAIT_RETRY` when the process exits and then consumes the status.
+#[cfg(not(test))]
+fn process_wait(process_id: u64, address: u64, length: u64, frame: &SyscallFrame) -> u64 {
+    if length != core::mem::size_of::<ProcessExitStatus>() as u64
+        || !nagi_kernel::user_process::is_user_writable_range_mapped(
+            address,
+            core::mem::size_of::<ProcessExitStatus>(),
+        )
+    {
+        return u64::MAX;
+    }
+    let Ok(process_id) = u32::try_from(process_id) else {
+        return u64::MAX;
+    };
+    let caller = current_user_thread();
+    match exit_table().wait(process_id, caller) {
+        WaitOutcome::Ready(record) => {
+            let (kind, fault_vector) = match record.kind {
+                ExitKind::Exited => (PROCESS_EXIT_KIND_EXITED, 0),
+                ExitKind::Faulted { vector } => (PROCESS_EXIT_KIND_FAULTED, u64::from(vector)),
+            };
+            copy_kernel_bytes_to_user(
+                address,
+                &ProcessExitStatus {
+                    process_id: record.process_id,
+                    kind,
+                    code: record.code,
+                    fault_vector,
+                },
+            );
+            0
+        }
+        WaitOutcome::Blocked => {
+            save_current_thread_context(frame, PROCESS_WAIT_RETRY);
+            if !thread_table().block_current_on_channel() {
+                let _ = exit_table().cancel_wait(caller);
+                return u64::MAX;
+            }
+            let now = interrupts::timer_ticks();
+            if let Some(next) = thread_table()
+                .select_runnable(now)
+                .or_else(|| wait_until_runnable(false))
+            {
+                switch_to_thread(caller, next, b"process-wait");
+                PROCESS_WAIT_RETRY
+            } else {
+                // Nothing else can run, so the process can never exit.
+                let _ = exit_table().cancel_wait(caller);
+                let _ = thread_table().abort_current_channel_wait();
+                u64::MAX
+            }
+        }
+        WaitOutcome::Invalid => u64::MAX,
+    }
+}
+
 #[cfg(not(test))]
 fn process_spawn(address: u64, length: u64) -> u64 {
     if length != core::mem::size_of::<ProcessSpawnRequest>() as u64
@@ -592,7 +664,11 @@ fn process_spawn(address: u64, length: u64) -> u64 {
         unsafe { core::slice::from_raw_parts(request.image_address as *const u8, image_len) };
     let active_pml4 =
         unsafe { &*(nagi_kernel::memory::current_cr3() as *const nagi_kernel::memory::PageTable) };
-    let context = match child_process::prepare_child(image, active_pml4) {
+    let Ok(process_id) = exit_table().reserve() else {
+        serial_write(b"Nagi ADR0048 spawn rejected: exit records full or process live\r\n");
+        return u64::MAX;
+    };
+    let context = match child_process::prepare_child(image, active_pml4, process_id) {
         Ok(context) => context,
         Err(_) => {
             serial_write(b"Nagi ADR0043 spawn rejected: child image\r\n");
@@ -618,6 +694,12 @@ fn process_spawn(address: u64, length: u64) -> u64 {
         serial_write(b"Nagi ADR0043 spawn rejected: thread pool full\r\n");
         return u64::MAX;
     };
+    if !exit_table().commit_spawn(context.process_id) {
+        let _ = thread_table().exit_process(context.process_id, interrupts::timer_ticks());
+        let _ = nagi_kernel::user_ipc::exit_process(context.process_id);
+        unsafe { child_process::release_child() };
+        return u64::MAX;
+    }
     unsafe { CHILD_CR3 = context.cr3 };
     let thread_context = &mut thread_contexts()[thread as usize];
     *thread_context = UserThreadContext::empty();
@@ -637,7 +719,7 @@ fn process_spawn(address: u64, length: u64) -> u64 {
 #[cfg(not(test))]
 fn isolated_process_exit(caller: u32, code: u64) -> u64 {
     let current = current_user_thread();
-    let next = terminate_isolated_process(caller, code);
+    let next = terminate_isolated_process(caller, code, ExitKind::Exited);
     switch_to_thread(current, next, b"process-exit");
     u64::MAX
 }
@@ -647,7 +729,7 @@ fn isolated_process_exit(caller: u32, code: u64) -> u64 {
 /// space is restored before the child's pages are scrubbed. Shared by
 /// `SYS_PROCESS_EXIT` and ring-3 fault containment (ADR 0047).
 #[cfg(not(test))]
-fn terminate_isolated_process(caller: u32, code: u64) -> u8 {
+fn terminate_isolated_process(caller: u32, code: u64, kind: ExitKind) -> u8 {
     serial_write(b"Nagi ADR0043 isolated process exit pid=");
     serial_write_decimal(caller as usize);
     serial_write(b" code=");
@@ -656,6 +738,11 @@ fn terminate_isolated_process(caller: u32, code: u64) -> u8 {
     let current = current_user_thread();
     nagi_kernel::user_ipc::cancel_waiter(u32::from(current));
     let _ = nagi_kernel::user_ipc::exit_process(caller);
+    // Publish the exit status, then wake a Supervisor thread blocked in
+    // SYS_PROCESS_WAIT; it resumes with PROCESS_WAIT_RETRY and consumes it.
+    if let Some(waiter) = exit_table().record_exit(caller, code, kind) {
+        let _ = thread_table().wake_channel_waiter(waiter);
+    }
     let next = thread_table()
         .exit_process(caller, interrupts::timer_ticks())
         .flatten();
@@ -724,7 +811,13 @@ pub(crate) extern "sysv64" fn exception_entry(frame: *const u64) -> ! {
     serial_write(b" cr2=");
     serial_write_hex(fault_address);
     serial_write(b"\r\n");
-    let next = terminate_isolated_process(owner, nagi_kernel::cpu_tables::fault_exit_code(vector));
+    let next = terminate_isolated_process(
+        owner,
+        nagi_kernel::cpu_tables::fault_exit_code(vector),
+        ExitKind::Faulted {
+            vector: vector as u8,
+        },
+    );
     trace_user_thread_event(b"fault-exit", next, next);
     sync_address_space();
     unsafe { nagi_resume_user_context(core::ptr::addr_of!(NAGI_THREAD_CONTEXTS[next as usize])) }
@@ -776,6 +869,7 @@ fn dispatch_init(frame: &SyscallFrame) -> u64 {
         SYS_HANDLE_CLOSE => handle_close(frame.arg1),
         SYS_CHANNEL_WAIT_READABLE => channel_wait_readable(frame.arg1, frame),
         SYS_PROCESS_SPAWN => process_spawn(frame.arg1, frame.arg2),
+        SYS_PROCESS_WAIT => process_wait(frame.arg1, frame.arg2, frame.arg3, frame),
         _ => u64::MAX,
     }
 }

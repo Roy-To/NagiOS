@@ -3,6 +3,21 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**Supervisor exit wait/status (ADR 0048), 2026-10-03:**
+
+- **Unique IDs.** Isolated processes now receive unique, never-reused
+  Process IDs.
+- **Exit records.** The kernel keeps a bounded exit record for each process:
+  clean exit with its code, or fault with its vector.
+- **Wait syscall.** The init-only `SYS_PROCESS_WAIT` blocks until the
+  process exits and then consumes its status. `supervisor::reap` uses it in
+  place of yield-probing.
+- **Local QEMU result.** `./nagi isolated-process` verified PID 2's exit 0,
+  consume-once semantics, and blocked waits woken by the faults of PIDs 3–5
+  (vectors 14/6/13, codes 142/134/141).
+- **Earlier repeated-boot result.** The 25-boot `./nagi run` stress run on
+  the ADR 0047 kernel passed 25/25.
+
 **Ring-3 fault containment and M3 stall fix (ADR 0047), 2026-10-03:**
 
 - **M3 stall root cause.** The intermittent "M3 scheduler workload" stall

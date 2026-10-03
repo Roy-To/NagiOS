@@ -120,7 +120,9 @@ fn run_client(
     }
     let payload_len = (report.payload_len as usize).min(report.payload.len());
     let results = decode_results(&report.payload[..payload_len]).ok()?;
-    supervisor::reap(launched).then_some(results)
+    supervisor::reap(launched)
+        .filter(supervisor::exited_cleanly)
+        .map(|_| results)
 }
 
 pub fn run(service: &M19SearchService, live_file: ObjectId) -> bool {

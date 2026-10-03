@@ -82,7 +82,9 @@ fn finish(launched: Launched) -> Option<ActionResult> {
         return None;
     }
     let reported = decode_result(payload(&report)).ok()?;
-    supervisor::reap(launched).then_some(reported)
+    supervisor::reap(launched)
+        .filter(supervisor::exited_cleanly)
+        .map(|_| reported)
 }
 
 /// Launch the declared application `app_id` at `placement` with `intent`

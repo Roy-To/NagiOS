@@ -15,6 +15,7 @@ pub mod ipc;
 pub mod m4;
 pub mod memory;
 pub mod net;
+pub mod process_exit;
 pub mod random;
 pub mod scheduler;
 pub mod user_elf;

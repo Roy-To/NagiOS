@@ -118,15 +118,20 @@ impl UserIpcState {
         Ok(())
     }
 
-    fn process_index(process_id: u32) -> Result<usize, UserIpcError> {
-        let index = usize::try_from(process_id)
-            .ok()
-            .and_then(|id| id.checked_sub(1))
-            .ok_or(UserIpcError::InvalidProcess)?;
-        if index >= MAX_USER_PROCESSES {
-            return Err(UserIpcError::InvalidProcess);
+    /// Slot 0 always holds init (PID 1). Isolated processes occupy the
+    /// remaining slots under kernel-assigned, never-reused IDs (ADR 0048).
+    fn process_index(&self, process_id: u32) -> Result<usize, UserIpcError> {
+        if process_id == BOOTSTRAP_PROCESS_ID {
+            return Ok(0);
         }
-        Ok(index)
+        self.processes
+            .iter()
+            .position(|slot| {
+                slot.as_ref()
+                    .is_some_and(|process| process.id() == process_id)
+            })
+            .filter(|index| *index != 0)
+            .ok_or(UserIpcError::InvalidProcess)
     }
 
     fn process_mut(
@@ -134,14 +139,14 @@ impl UserIpcState {
         process_id: u32,
     ) -> Result<&mut Process<HANDLE_CAPACITY>, UserIpcError> {
         self.initialize()?;
-        let index = Self::process_index(process_id)?;
+        let index = self.process_index(process_id)?;
         self.processes[index]
             .as_mut()
             .ok_or(UserIpcError::InvalidProcess)
     }
 
     fn process_ref(&self, process_id: u32) -> Result<&Process<HANDLE_CAPACITY>, UserIpcError> {
-        let index = Self::process_index(process_id)?;
+        let index = self.process_index(process_id)?;
         self.processes[index]
             .as_ref()
             .ok_or(UserIpcError::InvalidProcess)
@@ -161,18 +166,22 @@ impl UserIpcState {
         rights: Rights,
     ) -> Result<u64, UserIpcError> {
         self.initialize()?;
-        if parent != BOOTSTRAP_PROCESS_ID || child == BOOTSTRAP_PROCESS_ID {
+        if parent != BOOTSTRAP_PROCESS_ID || child <= BOOTSTRAP_PROCESS_ID {
             return Err(UserIpcError::InvalidProcess);
         }
-        let child_index = Self::process_index(child)?;
-        if self.processes[child_index].is_some() {
-            return Err(UserIpcError::Capacity);
+        if self.process_index(child).is_ok() {
+            return Err(UserIpcError::InvalidProcess);
         }
+        let Some(child_index) =
+            (1..MAX_USER_PROCESSES).find(|index| self.processes[*index].is_none())
+        else {
+            return Err(UserIpcError::Capacity);
+        };
         let handle = Handle::from_raw(endpoint);
         self.locate_endpoint(parent, handle)?;
         let address_space = self.registry.create(ObjectKind::AddressSpace)?;
         let mut child_process = Process::new(child, address_space);
-        let parent_index = Self::process_index(parent)?;
+        let parent_index = self.process_index(parent)?;
         let token = {
             let parent_process = self.processes[parent_index]
                 .as_mut()
@@ -217,7 +226,7 @@ impl UserIpcState {
         if process_id == BOOTSTRAP_PROCESS_ID {
             return Err(UserIpcError::InvalidProcess);
         }
-        let index = Self::process_index(process_id)?;
+        let index = self.process_index(process_id)?;
         let Some(mut process) = self.processes[index].take() else {
             return Err(UserIpcError::InvalidProcess);
         };
@@ -256,7 +265,7 @@ impl UserIpcState {
             }
         };
         let rights = Rights::READ | Rights::WRITE | Rights::WAIT | Rights::TRANSFER;
-        let process = self.processes[Self::process_index(process_id)?]
+        let process = self.processes[self.process_index(process_id)?]
             .as_mut()
             .expect("validated process");
         let first = match process
@@ -336,7 +345,7 @@ impl UserIpcState {
         if !peer.is_some_and(|peer| self.endpoint_reachable(peer)) {
             return Err(UserIpcError::PeerClosed);
         }
-        let process = self.processes[Self::process_index(process_id)?]
+        let process = self.processes[self.process_index(process_id)?]
             .as_mut()
             .expect("validated process");
         let pair = self.channels[channel_index]
@@ -392,7 +401,7 @@ impl UserIpcState {
         self.process_mut(process_id)?;
         let handle = Handle::from_raw(endpoint);
         let (channel_index, _) = self.locate_endpoint(process_id, handle)?;
-        let process = self.processes[Self::process_index(process_id)?]
+        let process = self.processes[self.process_index(process_id)?]
             .as_mut()
             .expect("validated process");
         let received = self.channels[channel_index]
@@ -427,7 +436,7 @@ impl UserIpcState {
         self.process_mut(process_id)?;
         let handle = Handle::from_raw(raw_handle);
         self.locate_endpoint(process_id, handle)?;
-        self.processes[Self::process_index(process_id)?]
+        self.processes[self.process_index(process_id)?]
             .as_mut()
             .expect("validated process")
             .handles
@@ -1046,13 +1055,18 @@ mod tests {
             Err(UserIpcError::InvalidProcess)
         );
         assert_eq!(
-            ipc.register_spawned_process(INIT, 3, endpoints.endpoint_b, rights),
+            ipc.register_spawned_process(INIT, 0, endpoints.endpoint_b, rights),
             Err(UserIpcError::InvalidProcess)
         );
         ipc.register_spawned_process(INIT, CHILD, endpoints.endpoint_b, rights)
             .expect("first spawn");
         assert_eq!(
             ipc.register_spawned_process(INIT, CHILD, endpoints.endpoint_a, rights),
+            Err(UserIpcError::InvalidProcess),
+            "a live Process ID cannot be registered twice"
+        );
+        assert_eq!(
+            ipc.register_spawned_process(INIT, CHILD + 1, endpoints.endpoint_a, rights),
             Err(UserIpcError::Capacity)
         );
         assert_eq!(
@@ -1103,7 +1117,14 @@ mod tests {
         assert_eq!(ipc.exit_process(CHILD), Err(UserIpcError::InvalidProcess));
         assert_eq!(ipc.exit_process(INIT), Err(UserIpcError::InvalidProcess));
         ipc.close(INIT, init_endpoint).expect("close init endpoint");
-        // Channel and process slots are reusable after cleanup.
-        spawn_child(&mut ipc);
+        // The slot is reusable after cleanup under a new kernel-assigned ID.
+        let endpoints = ipc.create_pair(INIT).expect("pair");
+        ipc.register_spawned_process(INIT, CHILD + 1, endpoints.endpoint_b, Rights::READ)
+            .expect("next process");
+        assert_eq!(
+            ipc.create_pair(CHILD).map(|_| ()),
+            Err(UserIpcError::InvalidProcess)
+        );
+        assert!(ipc.create_pair(CHILD + 1).is_ok());
     }
 }
