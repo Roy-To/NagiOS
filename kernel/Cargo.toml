@@ -18,6 +18,10 @@ m3-ap-double-fault-probe = []
 # the other for a host-injected #MC, to prove both run on IST stacks
 # (ADR 0049). Never enabled in product images.
 m3-ap-ist-probe = []
+# Diagnostic: park the BSP with RSP=0 right after kernel entry so a
+# host-injected NMI or #MC proves the early BSP IST stacks (ADR 0050).
+# Never enabled in product images.
+m2-bsp-ist-probe = []
 
 [lib]
 name = "nagi_kernel"

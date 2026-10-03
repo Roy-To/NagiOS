@@ -59,8 +59,6 @@ instead of raising #MC, so an #MC gate alone would never run on an AP.
 
 ## Bounds
 
-- Before the M5 GDT switch, the BSP still runs on the firmware GDT and the
-  shared M3 IDT. That IDT has no NMI or #MC gate and the BSP has no TSS, so
-  an NMI or #MC on the BSP during M2–M4 still resets the guest.
+- The BSP gap before the M5 GDT switch is closed by ADR 0050.
 - NMI is treated as fatal. No watchdog or profiling NMI source exists yet.
 - #MC is reported but not decoded: the MCi_STATUS banks are not read.

@@ -8911,3 +8911,27 @@ Evidence:
   reach `Nagi M3 acceptance PASS`.
 
 Remaining gap: the BSP has no IST coverage before the M5 GDT switch.
+
+## Completion Sweep — BSP tables from kernel entry (ADR 0050, 2026-10-03)
+
+The BSP now installs its GDT, TSS (RSP0 and the #DF/NMI/#MC IST stacks) and
+full exception IDT right after `serial_init` in `_start`. Before, it waited
+for M5. M2's expected page fault is a temporary vector-14 overlay until M5
+rebuilds the table. All M3 task frames now use the kernel selectors, and the
+shared firmware-selector IDT is removed.
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **BSP probe.** With `m2-bsp-ist-probe`, the BSP spins with RSP=0 before
+  M2. A monitor NMI is reported as `vector=2`, and an injected #MC as
+  `vector=18`. QEMU logged no triple fault in either boot.
+- **M5 reinstall check.** A scratch reinstall boot passes M3.
+- **M2 self-test.** The page-fault markers are unchanged.
+- **AP probes.** The #DF, NMI and #MC probes still pass.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention pass
+  M3.
+
+Not run: an end-to-end M5 boot, which needs the real init image, and
+`./nagi m22`/`m27`/M28. Both need the Servo/Mesa/relibc inputs that are
+absent on this host.

@@ -1,6 +1,6 @@
 use core::arch::{asm, global_asm};
 use core::ptr;
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use nagi_kernel::acpi::MAX_CPUS;
 use nagi_kernel::cpu_tables::{exception_ist, IST_STACK_COUNT};
@@ -55,7 +55,9 @@ static mut BSP_IST_STACKS: [FaultStack; IST_STACK_COUNT] =
     [const { FaultStack([0; FAULT_STACK_SIZE]) }; IST_STACK_COUNT];
 static mut BSP_TSS: nagi_kernel::cpu_tables::TaskStateSegment =
     nagi_kernel::cpu_tables::TaskStateSegment::new(0, 0);
-/// BSP-only IDT installed with the M5 GDT.
+/// BSP-only IDT, loaded with the BSP GDT and TSS at kernel entry
+/// (ADR 0050). During M2–M4, vector 14 temporarily routes to the M2
+/// expected-page-fault stub; M5 restores the full exception table.
 static mut BSP_IDT: [IdtEntry; 256] = [IdtEntry::MISSING; 256];
 
 /// Per-AP kernel GDT, TSS and IST stacks. Each AP loads its own GDT and TSS in
@@ -77,6 +79,7 @@ static APIC_BASE: AtomicU64 = AtomicU64::new(DEFAULT_APIC_BASE);
 static TIMER_TIMEKEEPER_APIC_ID: AtomicU32 = AtomicU32::new(u32::MAX);
 static BSP_APIC_ID: AtomicU32 = AtomicU32::new(u32::MAX);
 static BSP_TIMER_LAST_COUNT: AtomicU64 = AtomicU64::new(0);
+static AP_STARTUP_BEGUN: AtomicBool = AtomicBool::new(false);
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -120,8 +123,6 @@ struct Idtr {
     limit: u16,
     base: u64,
 }
-
-static mut IDT: [IdtEntry; 256] = [IdtEntry::MISSING; 256];
 
 global_asm!(
     r#"
@@ -397,8 +398,16 @@ extern "C" {
     fn nagi_trigger_expected_page_fault();
 }
 
+/// Load the BSP GDT, TSS (RSP0 and IST stacks) and exception IDT as the
+/// first kernel action, so #DF, NMI and #MC are reported from kernel entry
+/// onward instead of resetting the guest through the firmware tables
+/// (ADR 0050). Interrupts stay disabled until `initialize` enables them.
+pub unsafe fn install_early_bsp_tables() {
+    install_syscall_gdt();
+}
+
 pub unsafe fn initialize() {
-    load_idt();
+    install_m2_page_fault_gate();
     prepare_ap_idt();
     mask_pic();
     initialize_apic_timer();
@@ -464,9 +473,12 @@ unsafe fn prepare_ap_idt() {
         IdtEntry::new(ptr::addr_of!(nagi_timer_stub) as u64, KERNEL_CODE_SELECTOR);
 }
 
-/// Whether the executing CPU is the BSP.
+/// Whether the executing CPU is the BSP. Until the first SIPI only the BSP
+/// runs, so no APIC access is needed; this keeps early exception reports
+/// independent of the local APIC mapping.
 pub fn is_bsp() -> bool {
-    local_apic_id() == BSP_APIC_ID.load(Ordering::Acquire)
+    !AP_STARTUP_BEGUN.load(Ordering::Acquire)
+        || local_apic_id() == BSP_APIC_ID.load(Ordering::Acquire)
 }
 
 /// Load `gdtr`, reload CS with the kernel code selector through a far return,
@@ -493,9 +505,10 @@ unsafe fn load_kernel_gdt(gdtr: &Gdtr) {
     );
 }
 
-/// Install the M5 five-entry GDT on the BSP. Interrupts must stay disabled
-/// until the BSP exception IDT is loaded, because the M3 IDT's gates use the
-/// firmware code selector, which this GDT does not define.
+/// Install the BSP GDT (kernel and user segments plus the TSS), the TSS and
+/// the full BSP exception IDT. Called at kernel entry and again at M5, which
+/// rewrites the TSS descriptor as available so `ltr` accepts it. Interrupts
+/// must stay disabled until the matching IDT is loaded.
 pub unsafe fn install_syscall_gdt() {
     asm!("cli", options(nomem, nostack));
     let rsp0 = ptr::addr_of!(USER_FAULT_STACK) as u64 + FAULT_STACK_SIZE as u64;
@@ -540,19 +553,13 @@ pub unsafe fn enable_interrupts() {
     asm!("sti", options(nomem, nostack, preserves_flags));
 }
 
-unsafe fn load_idt() {
-    let selector = code_selector();
-    IDT[usize::from(TIMER_VECTOR)] = IdtEntry::new(ptr::addr_of!(nagi_timer_stub) as u64, selector);
-    IDT[14] = IdtEntry::new(ptr::addr_of!(nagi_page_fault_stub) as u64, selector);
-    load_idt_pointer();
-}
-
-unsafe fn load_idt_pointer() {
-    let idtr = Idtr {
-        limit: (core::mem::size_of::<[IdtEntry; 256]>() - 1) as u16,
-        base: ptr::addr_of!(IDT) as u64,
-    };
-    asm!("lidt [{}]", in(reg) &idtr, options(readonly, nostack, preserves_flags));
+/// Route #PF on the loaded BSP IDT to the M2 expected-page-fault stub until
+/// `install_syscall_gdt` rebuilds the full exception table at M5.
+unsafe fn install_m2_page_fault_gate() {
+    BSP_IDT[14] = IdtEntry::new(
+        ptr::addr_of!(nagi_page_fault_stub) as u64,
+        KERNEL_CODE_SELECTOR,
+    );
 }
 
 unsafe fn mask_pic() {
@@ -646,8 +653,9 @@ pub fn set_local_apic_base(address: u64) -> bool {
     true
 }
 
+/// Base of the IDT that APs load; it must be identity mapped for them.
 pub fn idt_base() -> u64 {
-    ptr::addr_of!(IDT) as u64
+    ptr::addr_of!(AP_IDT) as u64
 }
 
 extern "C" fn timer_interrupt(frame: *mut u64) -> *mut u64 {
@@ -718,19 +726,8 @@ pub fn local_apic_id() -> u32 {
     unsafe { apic_read(APIC_ID) >> 24 }
 }
 
-pub fn current_code_selector() -> u16 {
-    code_selector()
-}
-
-pub fn current_stack_selector() -> u16 {
-    let selector: u16;
-    unsafe {
-        asm!("mov {0:x}, ss", out(reg) selector, options(nomem, nostack, preserves_flags));
-    }
-    selector
-}
-
 pub unsafe fn send_init_sipi(apic_id: u32, vector: u8) -> bool {
+    AP_STARTUP_BEGUN.store(true, Ordering::Release);
     apic_write(APIC_ICR_HIGH, apic_id << 24);
     apic_write(APIC_ICR_LOW, 0x0000_4500);
     if !wait_for_icr_idle() {
@@ -774,12 +771,4 @@ fn delay_ipi() {
 
 pub unsafe fn trigger_expected_page_fault() {
     nagi_trigger_expected_page_fault();
-}
-
-fn code_selector() -> u16 {
-    let selector: u16;
-    unsafe {
-        asm!("mov {0:x}, cs", out(reg) selector, options(nomem, nostack, preserves_flags));
-    }
-    selector
 }

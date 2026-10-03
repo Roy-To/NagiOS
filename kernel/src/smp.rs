@@ -348,13 +348,7 @@ pub fn initialize(
         }
     }
     unsafe { asm!("cli", options(nomem, nostack, preserves_flags)) };
-    unsafe {
-        initialize_thread_contexts(
-            topology.bsp_index(),
-            interrupts::current_code_selector(),
-            interrupts::current_stack_selector(),
-        )
-    };
+    unsafe { initialize_thread_contexts() };
     for index in 0..MAX_CPUS {
         TASK_STATE[index * THREAD_COUNT].store(RUNNABLE, Ordering::Release);
     }
@@ -765,19 +759,15 @@ fn wake_task(task_index: usize) -> bool {
     was_blocked
 }
 
-/// Build every M3 task's first frame. BSP tasks run on the firmware GDT that
-/// is still active during M3; AP tasks run on each AP's own kernel GDT
-/// (ADR 0048), so they use its kernel selectors.
-unsafe fn initialize_thread_contexts(bsp_index: usize, bsp_code: u16, bsp_stack: u16) {
+/// Build every M3 task's first frame. The BSP (from kernel entry, ADR 0050)
+/// and every AP (ADR 0048) run on kernel GDTs with the same kernel code and
+/// data selectors.
+unsafe fn initialize_thread_contexts() {
+    let (code_selector, stack_selector) = (
+        interrupts::KERNEL_CODE_SELECTOR,
+        interrupts::KERNEL_DATA_SELECTOR,
+    );
     for cpu in 0..MAX_CPUS {
-        let (code_selector, stack_selector) = if cpu == bsp_index {
-            (bsp_code, bsp_stack)
-        } else {
-            (
-                interrupts::KERNEL_CODE_SELECTOR,
-                interrupts::KERNEL_DATA_SELECTOR,
-            )
-        };
         for task in 0..THREAD_COUNT {
             let stack = &THREAD_STACKS[cpu * THREAD_COUNT + task].0;
             // SysV entry alignment: RSP is 8 mod 16 at function entry.

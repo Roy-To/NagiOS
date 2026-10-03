@@ -23,6 +23,7 @@ static SERIAL_LOG_LENGTH: AtomicUsize = AtomicUsize::new(0);
 #[link_section = ".text.entry"]
 pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
     serial_init();
+    unsafe { interrupts::install_early_bsp_tables() };
     let boot_info = match unsafe { boot_info_from_ptr(boot_info) } {
         Ok(info) => info,
         Err(error) => {
@@ -52,6 +53,8 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
     syscall::set_realtime_epoch_ns(boot_info.realtime_epoch_ns);
 
     serial_write(b"Nagi Kernel started\r\n");
+    #[cfg(feature = "m2-bsp-ist-probe")]
+    bsp_ist_probe();
     let mut allocator = match unsafe { memory::PageAllocator::from_boot_info(boot_info) } {
         Ok(allocator) => allocator,
         Err(_) => {
@@ -439,6 +442,24 @@ pub(crate) fn serial_log_read(destination: &mut [u8]) -> usize {
     }
     SERIAL_LOCK.store(false, Ordering::Release);
     count
+}
+
+/// Diagnostic only (ADR 0050): park the BSP with RSP=0 and interrupts
+/// disabled before M2. A host-injected NMI or #MC must then be delivered on
+/// its IST stack and reported; with the firmware tables it reset the guest.
+#[cfg(feature = "m2-bsp-ist-probe")]
+fn bsp_ist_probe() {
+    serial_write(b"Nagi M2 BSP IST probe READY\r\n");
+    unsafe {
+        asm!(
+            "cli",
+            "xor esp, esp",
+            "2:",
+            "pause",
+            "jmp 2b",
+            options(noreturn)
+        );
+    }
 }
 
 fn halt_forever() -> ! {
