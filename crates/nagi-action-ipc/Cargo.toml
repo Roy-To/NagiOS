@@ -1,0 +1,14 @@
+[package]
+name = "nagi-action-ipc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Allocation-free `action@1` Channel wire format between isolated clients and
+# the init-hosted Plan/Validate/Execute service (ADR 0045).
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-abi = { path = "../nagi-abi" }

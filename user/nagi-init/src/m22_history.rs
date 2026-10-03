@@ -616,20 +616,100 @@ impl ActionHandler<M22FixturePolicy> for M22CopyAction {
     }
 }
 
-fn run_file_move_action(
+/// The application session the M22 acceptance grants `files.move`.
+const MOVE_APP_CALLER: CallerIdentity = CallerIdentity {
+    app_id: CALLER.app_id,
+    app_session_id: CALLER.app_session_id,
+    node_id: CALLER.node_id,
+    workspace_id: CALLER.workspace_id,
+};
+
+/// ADR 0045: `file.move` requested by an isolated client. A foreign
+/// application is denied by policy before any action is registered. The
+/// granted application's request executes with the identity resolved from
+/// its launch record.
+#[cfg(feature = "m21-action-ipc")]
+fn run_file_move_action_ipc(
     block_capability: u64,
     backend: HistoryArchiveBackend<M22Files>,
     history: HistoryService,
     activity_ledger: ActivityLedger,
     search_activity: M19SearchActivity,
 ) -> bool {
-    let policy = M22FixturePolicy::default();
-    let caller = CallerIdentity {
-        app_id: CALLER.app_id,
-        app_session_id: CALLER.app_session_id,
-        node_id: CALLER.node_id,
-        workspace_id: CALLER.workspace_id,
+    use nagi_action_ipc::{ActionResult, ActionStatus};
+
+    let foreign = CallerIdentity {
+        app_id: AppId(CALLER.app_id.0.wrapping_add(0x100)),
+        ..MOVE_APP_CALLER
     };
+    let policy = M22FixturePolicy::default();
+    let denied =
+        crate::action_ipc::serve_isolated_request(foreign, M22_MOVE_INTENT, |caller, intent| {
+            let Ok(capability) = CapabilityId::new(M22_MOVE_CAPABILITY) else {
+                return ActionResult::status_only(ActionStatus::Failed);
+            };
+            if intent != M22_MOVE_INTENT {
+                ActionResult::status_only(ActionStatus::InvalidRequest)
+            } else if policy.check_capability(caller, &capability).is_err()
+                && policy
+                    .check_object_access(caller, MOVES[0].0, ObjectAccess::Modify)
+                    .is_err()
+            {
+                ActionResult::status_only(ActionStatus::Denied)
+            } else {
+                // The foreign launch record must never reach execution.
+                ActionResult::status_only(ActionStatus::Failed)
+            }
+        });
+    if denied.map(|result| result.status) != Some(ActionStatus::Denied) {
+        libnagi::console_write(b"Nagi M22 foreign isolated caller FAIL\r\n");
+        return false;
+    }
+    libnagi::console_write(b"Nagi M22 foreign isolated caller denied PASS\r\n");
+
+    let move_ids = MOVES.map(|(object_id, _, _, _)| object_id.0);
+    let reported = crate::action_ipc::serve_isolated_request(
+        MOVE_APP_CALLER,
+        M22_MOVE_INTENT,
+        |caller, intent| {
+            if intent != M22_MOVE_INTENT {
+                return ActionResult::status_only(ActionStatus::InvalidRequest);
+            }
+            if run_file_move_action(
+                block_capability,
+                backend,
+                history,
+                activity_ledger,
+                search_activity,
+                caller,
+            ) {
+                ActionResult::succeeded(&move_ids)
+                    .unwrap_or(ActionResult::status_only(ActionStatus::Failed))
+            } else {
+                ActionResult::status_only(ActionStatus::Failed)
+            }
+        },
+    );
+    let passed = reported.is_some_and(|result| {
+        result.status == ActionStatus::Succeeded && result.object_ids() == move_ids
+    });
+    if passed {
+        libnagi::console_write(b"Nagi M22 file.move isolated caller PASS\r\n");
+    } else {
+        libnagi::console_write(b"Nagi M22 isolated caller file.move FAIL\r\n");
+    }
+    passed
+}
+
+fn run_file_move_action(
+    block_capability: u64,
+    backend: HistoryArchiveBackend<M22Files>,
+    history: HistoryService,
+    activity_ledger: ActivityLedger,
+    search_activity: M19SearchActivity,
+    caller: CallerIdentity,
+) -> bool {
+    let policy = M22FixturePolicy::default();
     let candidate_objects: Vec<_> = MOVES
         .iter()
         .map(|(object_id, _, _, _)| *object_id)
@@ -651,8 +731,9 @@ fn run_file_move_action(
         return false;
     }
 
-    // This deny check is part of the deterministic guest fixture. Production
-    // authority requires an authenticated capability provider.
+    // The grant table is private to the M22 guest acceptance. With
+    // `m21-action-ipc`, `caller` comes from an isolated client's launch
+    // record (ADR 0045).
     let foreign_caller = CallerIdentity {
         app_id: AppId(CALLER.app_id.0.wrapping_add(1)),
         ..caller
@@ -1203,13 +1284,24 @@ pub fn run(block_capability: u64, search_activity: M19SearchActivity) -> bool {
         if ledger_was_present || !ensure_original_fixture(&mut backend.file_store_mut().volume) {
             return false;
         }
-        return run_file_move_action(
+        #[cfg(feature = "m21-action-ipc")]
+        let moved = run_file_move_action_ipc(
             block_capability,
             backend,
             history,
             activity_ledger,
             search_activity,
-        ) && run_file_copy_action(block_capability);
+        );
+        #[cfg(not(feature = "m21-action-ipc"))]
+        let moved = run_file_move_action(
+            block_capability,
+            backend,
+            history,
+            activity_ledger,
+            search_activity,
+            MOVE_APP_CALLER,
+        );
+        return moved && run_file_copy_action(block_capability);
     }
     resume_m22_history(
         &mut backend,

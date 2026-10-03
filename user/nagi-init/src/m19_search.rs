@@ -342,18 +342,84 @@ impl ActionPolicy for M19ActionPolicy {
     }
 }
 
-fn run_file_search_action(
+/// The application session the M19 acceptance grants `files.search`.
+const FILE_SEARCH_APP_CALLER: CallerIdentity = CallerIdentity {
+    app_id: APP_ID,
+    app_session_id: SESSION_ID,
+    node_id: NODE_ID,
+    workspace_id: Some(WORKSPACE_ID),
+};
+
+/// ADR 0045: `file.search` requested by an isolated client. The caller is
+/// resolved from the kernel-stamped sender PID and launch record. A foreign
+/// application is denied before any action is registered.
+#[cfg(feature = "m21-action-ipc")]
+fn run_file_search_action_ipc(
     service: M19SearchService,
     live_file: ObjectId,
 ) -> Option<M19SearchActivity> {
+    use nagi_action_ipc::{ActionResult, ActionStatus};
+
+    let foreign = CallerIdentity {
+        app_id: AppId::from_identifier(b"org.nagi.acceptance.foreign-action-client"),
+        app_session_id: AppSessionId(0x4e41_4749_4d21_00ff),
+        ..FILE_SEARCH_APP_CALLER
+    };
+    let policy = M19ActionPolicy { live_file };
+    let reported = crate::action_ipc::serve_isolated_request(
+        foreign,
+        FILE_SEARCH_INTENT,
+        |caller, intent| {
+            let Ok(capability) = CapabilityId::new("files.search") else {
+                return ActionResult::status_only(ActionStatus::Failed);
+            };
+            if intent != FILE_SEARCH_INTENT {
+                ActionResult::status_only(ActionStatus::InvalidRequest)
+            } else if policy.check_capability(caller, &capability).is_err() {
+                ActionResult::status_only(ActionStatus::Denied)
+            } else {
+                // The foreign launch record must never reach execution.
+                ActionResult::status_only(ActionStatus::Failed)
+            }
+        },
+    )?;
+    if reported.status != ActionStatus::Denied {
+        libnagi::console_write(b"Nagi M21 foreign isolated caller FAIL\r\n");
+        return None;
+    }
+    libnagi::console_write(b"Nagi M21 foreign isolated caller denied PASS\r\n");
+
+    let mut activity = None;
+    let reported = crate::action_ipc::serve_isolated_request(
+        FILE_SEARCH_APP_CALLER,
+        FILE_SEARCH_INTENT,
+        |caller, intent| {
+            if intent != FILE_SEARCH_INTENT {
+                return ActionResult::status_only(ActionStatus::InvalidRequest);
+            }
+            activity = run_file_search_action(service, live_file, caller);
+            match activity {
+                Some(activity) => ActionResult::succeeded(&[activity.object_id.0])
+                    .unwrap_or(ActionResult::status_only(ActionStatus::Failed)),
+                None => ActionResult::status_only(ActionStatus::Failed),
+            }
+        },
+    )?;
+    if reported.status != ActionStatus::Succeeded || reported.object_ids() != [live_file.0] {
+        libnagi::console_write(b"Nagi M21 isolated caller file.search FAIL\r\n");
+        return None;
+    }
+    libnagi::console_write(b"Nagi M21 file.search isolated caller PASS\r\n");
+    activity
+}
+
+fn run_file_search_action(
+    service: M19SearchService,
+    live_file: ObjectId,
+    caller: CallerIdentity,
+) -> Option<M19SearchActivity> {
     libnagi::console_write(b"Nagi M21 trace file.search start\r\n");
     let policy = M19ActionPolicy { live_file };
-    let caller = CallerIdentity {
-        app_id: APP_ID,
-        app_session_id: SESSION_ID,
-        node_id: NODE_ID,
-        workspace_id: Some(WORKSPACE_ID),
-    };
     let Ok(context) = ContextResolver.resolve(
         ContextRequest {
             caller,
@@ -369,9 +435,9 @@ fn run_file_search_action(
         return None;
     }
 
-    // This capability and caller policy are private to the M19 guest fixture.
-    // Production authority must come from an authenticated user-space service
-    // boundary, which is not exposed to applications yet.
+    // The grant table is private to the M19 guest acceptance. With
+    // `m21-action-ipc`, `caller` comes from an isolated client's launch
+    // record (ADR 0045); otherwise it is the in-process acceptance caller.
     let foreign_caller = CallerIdentity {
         app_id: AppId(APP_ID.0.wrapping_add(1)),
         ..caller
@@ -413,11 +479,11 @@ fn run_file_search_action(
         Some(M19SearchActivity {
             occurred_at: libnagi::time_ticks(),
             context: ActivityContext {
-                app_id: APP_ID,
-                app_session_id: SESSION_ID,
-                node_id: NODE_ID,
+                app_id: caller.app_id,
+                app_session_id: caller.app_session_id,
+                node_id: caller.node_id,
                 surface_id: None,
-                workspace_id: Some(WORKSPACE_ID),
+                workspace_id: caller.workspace_id,
             },
             user_intent: FILE_SEARCH_INTENT,
             plan_summary: FILE_SEARCH_PLAN_SUMMARY,
@@ -1078,7 +1144,11 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
     let ipc_passed = true;
     let semantic_passed =
         run_m24_semantic_fixture(&service, block_capability, object_id_after_rename);
-    let search_activity = run_file_search_action(service, object_id_after_rename);
+    #[cfg(feature = "m21-action-ipc")]
+    let search_activity = run_file_search_action_ipc(service, object_id_after_rename);
+    #[cfg(not(feature = "m21-action-ipc"))]
+    let search_activity =
+        run_file_search_action(service, object_id_after_rename, FILE_SEARCH_APP_CALLER);
     let passed = search_activity.is_some()
         && ipc_passed
         && semantic_passed

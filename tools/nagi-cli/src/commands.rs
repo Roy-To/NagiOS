@@ -6557,6 +6557,42 @@ fn build_isolated_apps(root: &Path) -> Result<PathBuf, CommandResult> {
         .join("release"))
 }
 
+/// Build an init image whose M19/M21/M22 callers are isolated client
+/// processes (ADR 0044/0045). `features` must include `m21-action-ipc`.
+fn execute_image_with_isolated_clients(
+    root: &Path,
+    features: &str,
+    image_name: &str,
+) -> CommandResult {
+    let release = match build_isolated_apps(root) {
+        Ok(directory) => directory,
+        Err(result) => return result,
+    };
+    let search_client = release.join("nagi-m19-search-client");
+    let action_client = release.join("nagi-action-client");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+    ];
+    execute_image_with_init_build_env(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[
+            ("NAGI_M19_SEARCH_CLIENT_ELF", search_client.as_path()),
+            ("NAGI_ACTION_CLIENT_ELF", action_client.as_path()),
+        ],
+    )
+}
+
 fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let app_elf = match build_isolated_apps(root) {
         Ok(directory) => directory.join("nagi-isolated-app"),
@@ -6671,27 +6707,10 @@ fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let search_client = match build_isolated_apps(root) {
-        Ok(directory) => directory.join("nagi-m19-search-client"),
-        Err(result) => return result,
-    };
-    let init_args = [
-        "build",
-        "-p",
-        "nagi-init",
-        "--features",
-        "m19-search-ipc",
-        "--target",
-        "targets/x86_64-unknown-nagi-user.json",
-        "-Zbuild-std=core,alloc,compiler_builtins",
-        "--release",
-    ];
-    let image_result = execute_image_with_init_build_env(
+    let image_result = execute_image_with_isolated_clients(
         root,
-        &init_args,
-        None,
+        "m21-action-ipc",
         "nagi-0.1-m19-vfs-objectid.img",
-        &[("NAGI_M19_SEARCH_CLIENT_ELF", search_client.as_path())],
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
@@ -6801,6 +6820,8 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi M19 Search IPC authorized isolated client PASS",
             "Nagi M19 Search IPC foreign isolated client hidden PASS",
             "Nagi M19 Search IPC authenticated caller PASS",
+            "Nagi M21 foreign isolated caller denied PASS",
+            "Nagi M21 file.search isolated caller PASS",
             "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M19 acceptance PASS",
@@ -7153,7 +7174,8 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             }
         }
     }
-    let image_result = execute_image_with_features(root, Some("m22-history"), &image_name);
+    let image_result =
+        execute_image_with_isolated_clients(root, "m22-history,m21-action-ipc", &image_name);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -7275,6 +7297,25 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     log_path.display()
                 ),
             );
+        }
+        if boot_index == 0 && !had_persistent_disk {
+            if let Some(marker) = [
+                "Nagi M21 foreign isolated caller denied PASS",
+                "Nagi M21 file.search isolated caller PASS",
+                "Nagi M22 foreign isolated caller denied PASS",
+                "Nagi M22 file.move isolated caller PASS",
+            ]
+            .into_iter()
+            .find(|marker| !serial.contains(marker))
+            {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: fresh guest did not print isolated-caller marker `{marker}` (QEMU exit {final_status}; log {})",
+                        log_path.display()
+                    ),
+                );
+            }
         }
         if boot_index == 0
             && !had_persistent_disk

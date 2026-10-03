@@ -83,6 +83,8 @@ unsafe extern "C" {
     fn nagi_m20_llama_backend_init_smoke() -> i32;
 }
 
+#[cfg(all(target_os = "nagi", feature = "m21-action-ipc"))]
+mod action_ipc;
 #[cfg(all(
     target_os = "nagi",
     feature = "m10-desktop",

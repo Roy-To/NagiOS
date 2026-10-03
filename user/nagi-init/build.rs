@@ -7,6 +7,13 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_ISOLATED_APP_ELF");
     println!("cargo:rerun-if-env-changed=NAGI_M19_SEARCH_CLIENT_ELF");
+    println!("cargo:rerun-if-env-changed=NAGI_ACTION_CLIENT_ELF");
+    if env::var_os("CARGO_FEATURE_M21_ACTION_IPC").is_some() {
+        let elf = env::var_os("NAGI_ACTION_CLIENT_ELF")
+            .map(PathBuf::from)
+            .expect("m21-action-ipc requires NAGI_ACTION_CLIENT_ELF");
+        println!("cargo:rerun-if-changed={}", elf.display());
+    }
     if env::var_os("CARGO_FEATURE_M19_SEARCH_IPC").is_some() {
         let elf = env::var_os("NAGI_M19_SEARCH_CLIENT_ELF")
             .map(PathBuf::from)

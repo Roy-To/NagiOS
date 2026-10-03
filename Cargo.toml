@@ -6,6 +6,7 @@ members = [
     "crates/nagi-bootinfo",
     "crates/nagi-abi",
     "crates/nagi-model",
+    "crates/nagi-action-ipc",
     "crates/nagi-search-ipc",
     "kernel",
     "user/libnagi",

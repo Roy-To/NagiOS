@@ -32,6 +32,9 @@ m19-search = [
 # ADR 0044: serve M19 Search to isolated clients named by
 # NAGI_M19_SEARCH_CLIENT_ELF, authorized by kernel-stamped caller identity.
 m19-search-ipc = ["m19-search", "dep:nagi-search-ipc"]
+# ADR 0045: M21/M22 actions requested by isolated clients named by
+# NAGI_ACTION_CLIENT_ELF, authorized by kernel-stamped caller identity.
+m21-action-ipc = ["m19-search-ipc", "dep:nagi-action-ipc"]
 m20-model-store-acceptance = ["m19-search"]
 m20-fixture-acceptance = ["m20-model-store-acceptance"]
 m20-granite-artifact-acceptance = ["m20-model-store-acceptance"]
@@ -78,6 +81,7 @@ nagi-pal = { path = "../nagi-pal" }
 nagi-posix = { path = "../nagi-posix" }
 nagi-search = { path = "../nagi-search", optional = true }
 nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
+nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 nagi-albert = { path = "../nagi-albert", optional = true }

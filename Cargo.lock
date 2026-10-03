@@ -3398,6 +3398,13 @@ name = "nagi-abi"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-action-ipc"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+]
+
+[[package]]
 name = "nagi-ai"
 version = "0.1.0"
 dependencies = [
@@ -3458,6 +3465,7 @@ name = "nagi-init"
 version = "0.1.0"
 dependencies = [
  "libnagi",
+ "nagi-action-ipc",
  "nagi-ai",
  "nagi-albert",
  "nagi-audio",
@@ -3480,6 +3488,7 @@ name = "nagi-isolated-app"
 version = "0.1.0"
 dependencies = [
  "nagi-abi",
+ "nagi-action-ipc",
  "nagi-search-ipc",
 ]
 

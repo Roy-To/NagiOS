@@ -3,6 +3,31 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**M21/M22 action IPC (ADR 0045), 2026-10-03:** M21 `file.search` and M22
+`file.move` are now requested by isolated `nagi-action-client` processes over
+`action@1` (`crates/nagi-action-ipc`).
+
+- **Caller identity.** The caller passed to Context, Validate, Policy,
+  Execute, NH16, and the Activity Ledger is resolved only from the
+  kernel-stamped sender PID and the Supervisor launch record. Requests carry
+  no identity, capability, Object ID, or plan.
+- **Acceptance.** In `./nagi m19` and `./nagi m22`, a client launched as a
+  foreign application is denied by policy before any handler is registered.
+  The granted application's client then executes the real action.
+- **Result.** A local fresh-disk `./nagi m22` run passed all three boots,
+  including NH16 grouped Undo and restart verification, on the history
+  created by the isolated caller.
+
+Still open:
+
+- `file.copy`, plan-rejection, and partial-execution fixtures stay
+  in-process;
+- the M27/M30 images keep the in-process caller;
+- intents are Supervisor launch arguments, not Nagi Bar / Albert input;
+- grants are acceptance-scoped.
+
+M21 and M22 remain `PARTIAL`.
+
 **M19 Search IPC (ADR 0044), 2026-10-03:** M19 Search is now served over a
 Channel to isolated client processes.
 
@@ -26,7 +51,8 @@ M19 remains `PARTIAL` for three reasons:
 
 - the launch registry is still acceptance-scoped (one isolated slot);
 - the Files and Browser producers are not live sources;
-- the M21 `file.search` action still uses the fixture `CallerIdentity`.
+- the M21 `file.search` action identity was later moved to the isolated
+  caller (ADR 0045).
 
 **Shared service identity (ADR 0043), 2026-10-03:** The M18–M23 identity
 blocker now has a kernel primitive.
@@ -734,11 +760,14 @@ preflight/assembly/verify passed, and the assembled package's byte-identical
 copy passed two QEMU boots without changing the package checksum. Evidence is
 under `out/evidence/m30-clean-release-144cc0d/` and
 `out/evidence/m30-release-1790751471624505000/`.
-**Next action:** ADR 0044 moved M19 Search callers onto the isolated-process
-boundary. Next, move the M21 `file.search` and M22 action callers from the
-fixture `CallerIdentity` to launch-record identity. Generalize the
-acceptance-scoped launch records into a Supervisor launch registry, and
-contain ring-3 faults to child-only exit. Earlier note: Continue the highest-priority shared
+**Next action:** ADR 0044 and ADR 0045 moved M19 Search and M21/M22
+`file.search`/`file.move` callers onto the isolated-process boundary. Next:
+
+- generalize the acceptance-scoped launch records and grant tables into a
+  Supervisor launch registry with manifest-defined grants;
+- move the remaining in-process M21/M22 fixtures and the M27/M30 images to
+  that path;
+- contain ring-3 faults to a child-only exit. Earlier note: Continue the highest-priority shared
 Service/IPC/Capability boundary audit and implementation for M18–M23, reusing
 the existing foundations and preserving fixture-only caller identity. Continue independent
 M20, M22–M29 work while authenticated update and provider dependencies remain.
