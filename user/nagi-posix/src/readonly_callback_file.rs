@@ -138,6 +138,7 @@ mod tests {
     fn callback_file_reads_are_bounded_and_eof_is_stable() {
         let mut source = *b"NAGIOS";
         let mut file = file(&mut source);
+        assert_eq!(file.len(), 6);
         let mut output = [0; 8];
         assert_eq!(file.read(&mut output), Ok(6));
         assert_eq!(&output[..6], b"NAGIOS");
@@ -175,7 +176,8 @@ mod tests {
     fn callback_file_rejects_a_callback_that_overreports_bytes() {
         let callback: ReadAtCallback = invalid_read;
         let mut file =
-            unsafe { ReadOnlyCallbackFile::new(1usize as *mut c_void, 4, callback) }.unwrap();
+            unsafe { ReadOnlyCallbackFile::new(core::ptr::dangling_mut::<c_void>(), 4, callback) }
+                .unwrap();
         assert_eq!(file.read(&mut [0; 4]), Err(CallbackFileError::ReadFailed));
         assert_eq!(file.offset(), 0);
     }
