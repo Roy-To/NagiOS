@@ -1305,3 +1305,27 @@ libc++ archive is linked. There is no image, guest model load, generated
 response, or QEMU inference acceptance from this attempt. M20 remains
 `PARTIAL` until a Nagi-owned C++ runtime and the required ABI integration are
 available.
+
+### Synchronous tensor validation and updated link inventory — 2026-10-03
+
+Added reproducible patch `0035-nagi-model-tensor-validation-sync.patch` to run
+the existing `ggml_validate_row_data` validator inline in Nagi's mmap and
+file-backed tensor paths. It preserves the same invalid-tensor log and sticky
+failure result; host builds retain the upstream `std::async`/`std::future`
+implementation. The Nagi target archive build completed successfully with
+patch 0035 applied, including `libllama.a` and the ggml CPU/base archives.
+
+The exact-artifact `./nagi m20-granite-inference` attempt reached the final
+`nagi-init` link and stopped before image creation. Comparing diagnostics with
+the preceding C/POSIX-provider link attempt reduced unresolved target C++ ABI
+symbols from 88 to 75: 13 loader async/future/thread symbols disappeared, with
+no newly introduced unresolved symbols. Remaining diagnostics include
+`basic_string` methods, `to_string`, stream/stringstream vtables, locale and
+collation, filesystem, regex, and random-device APIs. The run log is
+`out/logs/m20-granite-inference-sync-loader-20261003.log`; the target archive
+and acceptance evidence are under
+`out/evidence/m20-granite-inference-target-1791002538031677000/` and
+`out/evidence/m20-granite-inference-1791002626571556000/` respectively. No
+Model Store image, guest model load, response, or QEMU inference was produced.
+M20 remains `PARTIAL` pending target-owned libc++ provider coverage and the
+full guest acceptance path.

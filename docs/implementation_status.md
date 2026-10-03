@@ -8624,3 +8624,24 @@ activated `out/mesa-venv` and explicitly set
 `NAGI_TARGET_LD=/opt/homebrew/opt/lld@19/bin/ld.lld`.
 M18 remains `PARTIAL` because authenticated providers for browser permissions,
 file selection/transfers, clipboard, and IME are still outstanding.
+
+## Completion Sweep — M20 synchronous loader validation boundary (2026-10-03)
+
+Added tracked llama.cpp patch `0035-nagi-model-tensor-validation-sync.patch`.
+Nagi now uses the same `ggml_validate_row_data` check synchronously for mapped
+and file-backed tensors, preserving invalid-data reporting and failure status;
+host builds retain the upstream asynchronous validation. A source-contract
+regression covers the Nagi and host branches.
+
+With LLVM 19 and the patch applied, the pinned Nagi target llama/ggml archives
+build successfully. The exact-artifact `./nagi m20-granite-inference` attempt
+still fails before guest image creation at final `nagi-init` link. Its unresolved
+target C++ ABI diagnostics dropped from 88 to 75: all 13 loader future/thread
+symbols disappeared, with no new symbols, while string, stream, locale,
+filesystem, regex, and random-device providers remain missing. The run is
+`out/logs/m20-granite-inference-sync-loader-20261003.log`; target archive
+evidence is `out/evidence/m20-granite-inference-target-1791002538031677000/`.
+The focused source-contract regression passed (1/1), and `./nagi fmt`,
+`./nagi test`, `./nagi lint`, and `./nagi build` all passed. The generated
+llama.cpp checkout confirms patch 0035 is applied. No model load or guest
+inference is claimed. M20 remains `PARTIAL`.

@@ -1390,6 +1390,27 @@ mod tests {
     }
 
     #[test]
+    fn llama_cpp_nagi_tensor_validation_avoids_threaded_future_runtime() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let patch = fs::read_to_string(
+            root.join("third_party/llama-cpp-patches/0035-nagi-model-tensor-validation-sync.patch"),
+        )
+        .expect("Nagi synchronous model tensor validation patch");
+
+        assert!(patch.contains("#if !defined(__NAGI__)\n #include <future>"));
+        assert!(patch.contains("std::async(std::launch::async"));
+        assert!(patch.contains(
+            "#if defined(__NAGI__)\n+                if (!ggml_validate_row_data(cur->type, data, n_size))"
+        ));
+        assert!(patch.contains(
+            "#if defined(__NAGI__)\n+                    if (!ggml_validate_row_data(cur->type, cur->data, n_size))"
+        ));
+        assert!(
+            patch.contains("#if !defined(__NAGI__)\n     for (auto & future : validation_result)")
+        );
+    }
+
+    #[test]
     fn llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree() {
         let root = fs::canonicalize(temporary_root("patch-apply")).expect("canonical root");
         let source = root.join("source");

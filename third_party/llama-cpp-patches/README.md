@@ -81,6 +81,16 @@ loader; the target links its CPU backend statically and initializes that
 registry through ggml's normal static registration path. Non-Nagi builds retain
 upstream dynamic backend discovery.
 
+Patch `0035-nagi-model-tensor-validation-sync.patch` runs the existing
+`ggml_validate_row_data` checks synchronously in Nagi's model loader. This keeps
+the same validation and failure result while avoiding `std::async`/`std::future`
+worker-thread runtime references that Nagi does not provide. Other targets keep
+the upstream parallel validation path. The Nagi target archives build with the
+patch, and the final guest link removes the loader's thread/future symbols; it
+still requires broader target libc++ providers for strings, streams, locale,
+filesystem, regex, and random-device APIs. No guest image or inference is
+claimed from that link attempt.
+
 The current incremental no-exception syntax sweep passes all 32 top-level
 `src/*.cpp` translation units, including the DSV4 cache, sampler, and
 quantizer. The complete LLVM 19/libc++ Nagi no-exceptions `llama` target also

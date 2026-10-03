@@ -1,0 +1,72 @@
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -11,7 +11,9 @@
+ #include <cinttypes>
+ #include <cstdint>
+ #include <cstring>
++#if !defined(__NAGI__)
+ #include <future>
++#endif
+ #include <limits>
+ #include <regex>
+ 
+@@ -1728,7 +1730,9 @@
+     }
+     GGML_ASSERT(size_data != 0 && "call init_mappings() first");
+ 
++#if !defined(__NAGI__)
+     std::vector<std::future<std::pair<ggml_tensor *, bool>>> validation_result;
++#endif
+     bool validation_failed = false;
+ 
+     // 4 staging buffers for async uploads, each sized 1MB seems to be a good default for single NVMe drives.
+@@ -1878,9 +1882,16 @@
+             uint8_t * data = (uint8_t *) mapping->addr() + weight->offs;
+ 
+             if (check_tensors) {
++#if defined(__NAGI__)
++                if (!ggml_validate_row_data(cur->type, data, n_size)) {
++                    LLAMA_LOG_ERROR("%s: tensor '%s' has invalid data\n", __func__, ggml_get_name(cur));
++                    validation_failed = true;
++                }
++#else
+                 validation_result.emplace_back(std::async(std::launch::async, [cur, data, n_size] {
+                     return std::make_pair(cur, ggml_validate_row_data(cur->type, data, n_size));
+                 }));
++#endif
+             }
+ 
+             GGML_ASSERT(buf_mmap || cur->data); // either we have a buffer to allocate the tensor in, or it is already allocated
+@@ -1914,9 +1925,16 @@
+                     break;
+                 }
+                 if (check_tensors) {
++#if defined(__NAGI__)
++                    if (!ggml_validate_row_data(cur->type, cur->data, n_size)) {
++                        LLAMA_LOG_ERROR("%s: tensor '%s' has invalid data\n", __func__, ggml_get_name(cur));
++                        validation_failed = true;
++                    }
++#else
+                     validation_result.emplace_back(std::async(std::launch::async, [cur, n_size] {
+                         return std::make_pair(cur, ggml_validate_row_data(cur->type, cur->data, n_size));
+                     }));
++#endif
+                 }
+             } else {
+                 // If upload_backend is valid load the tensor in chunks to pinned memory and upload the buffers asynchronously to the GPU.
+@@ -2026,6 +2044,7 @@
+     }
+ 
+     // check validation results
++#if !defined(__NAGI__)
+     for (auto & future : validation_result) {
+         auto result = future.get();
+         if (!result.second) {
+@@ -2033,6 +2052,7 @@
+             validation_failed = true;
+         }
+     }
++#endif
+     if (validation_failed) {
+         LLAMA_MODEL_LOADER_FAIL_BOOL("found tensors with invalid data");
+     }
