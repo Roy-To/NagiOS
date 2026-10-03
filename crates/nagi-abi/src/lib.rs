@@ -43,6 +43,11 @@ pub const SYS_HANDLE_CLOSE: u64 = 34;
 /// Block until a Channel endpoint becomes readable; the wake may be spurious
 /// if another receiver consumes the queued message first.
 pub const SYS_CHANNEL_WAIT_READABLE: u64 = 35;
+/// Spawn the single isolated child process from an ELF image in the caller's
+/// memory and move one Channel endpoint into it. Only the bootstrap init
+/// process (the Supervisor) may call it (ADR 0043). Returns the child's
+/// kernel Process ID.
+pub const SYS_PROCESS_SPAWN: u64 = 36;
 
 /// Optional `SYS_THREAD_CREATE` flag for a child that should be detached
 /// before it can be scheduled.
@@ -275,6 +280,19 @@ pub struct InputEvent {
 pub struct ChannelEndpoints {
     pub endpoint_a: u64,
     pub endpoint_b: u64,
+}
+
+/// Request for `SYS_PROCESS_SPAWN`. The child starts with the moved
+/// endpoint's child-local handle in `rdi` and its Process ID in `rsi`.
+/// `endpoint_rights` must be a subset of the caller's rights for `endpoint`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProcessSpawnRequest {
+    pub image_address: u64,
+    pub image_len: u64,
+    pub endpoint: u64,
+    pub endpoint_rights: u32,
+    pub reserved: u32,
 }
 
 /// One handle moved with an attenuated rights set in a Channel message.

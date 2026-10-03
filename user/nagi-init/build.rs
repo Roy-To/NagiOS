@@ -5,6 +5,13 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
+    println!("cargo:rerun-if-env-changed=NAGI_ISOLATED_APP_ELF");
+    if env::var_os("CARGO_FEATURE_ISOLATED_PROCESS_ACCEPTANCE").is_some() {
+        let elf = env::var_os("NAGI_ISOLATED_APP_ELF")
+            .map(PathBuf::from)
+            .expect("isolated-process-acceptance requires NAGI_ISOLATED_APP_ELF");
+        println!("cargo:rerun-if-changed={}", elf.display());
+    }
     println!("cargo:rerun-if-env-changed=NAGI_TARGET_CLANG");
     println!("cargo:rerun-if-env-changed=NAGI_MESA_BUILD");
     println!("cargo:rerun-if-env-changed=NAGI_LLAMA_BUILD");

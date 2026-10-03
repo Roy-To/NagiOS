@@ -38,6 +38,9 @@ m20-llama-inference-acceptance = [
     "nagi-posix/m20-llama-memory",
 ]
 m22-history = ["m19-search"]
+# ADR 0043: spawn the isolated app ELF named by NAGI_ISOLATED_APP_ELF and
+# verify kernel-stamped caller identity and address-space isolation.
+isolated-process-acceptance = []
 m27-ro-vfs-check = []
 m27-recovery = []
 m27-recovery-undo-acceptance = ["m27-recovery"]

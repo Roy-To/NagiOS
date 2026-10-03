@@ -16,6 +16,8 @@ pub fn scheduler_dispatch_counts_are_fair(task_zero: u32, task_one: u32) -> bool
 }
 
 const NO_THREAD: u8 = u8::MAX;
+/// Kernel Process ID of the bootstrap `nagi-init` process (ADR 0043).
+pub const INIT_PROCESS_ID: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UserThreadState {
@@ -33,6 +35,7 @@ struct ThreadSlot {
     state: UserThreadState,
     joiner: u8,
     detached: bool,
+    owner: u32,
 }
 
 impl ThreadSlot {
@@ -40,6 +43,7 @@ impl ThreadSlot {
         state: UserThreadState::Empty,
         joiner: NO_THREAD,
         detached: false,
+        owner: INIT_PROCESS_ID,
     };
 }
 
@@ -86,14 +90,63 @@ impl BootstrapUserThreads {
         self.slots.get(thread as usize).map(|slot| slot.state)
     }
 
+    /// Kernel Process ID that owns `thread`, or `None` for an empty or
+    /// out-of-range slot.
+    pub fn owner(&self, thread: u8) -> Option<u32> {
+        let slot = self.slots.get(thread as usize)?;
+        (slot.state != UserThreadState::Empty).then_some(slot.owner)
+    }
+
+    /// Kernel Process ID of the running thread.
+    pub fn current_owner(&self) -> u32 {
+        self.slots[self.current as usize].owner
+    }
+
+    /// Allocate a runnable thread in the calling thread's process.
     pub fn allocate(&mut self) -> Option<u8> {
+        let owner = self.current_owner();
+        self.allocate_for_process(owner)
+    }
+
+    /// Allocate the first runnable thread of a newly spawned process. Thread
+    /// slot 0 always remains the bootstrap init thread.
+    pub fn allocate_for_process(&mut self, owner: u32) -> Option<u8> {
         let id = (1..BOOTSTRAP_USER_THREAD_COUNT)
             .find(|&id| self.slots[id].state == UserThreadState::Empty)?;
         self.slots[id] = ThreadSlot {
             state: UserThreadState::Runnable,
+            owner,
             ..ThreadSlot::EMPTY
         };
         Some(id as u8)
+    }
+
+    /// Remove every thread owned by an exiting non-init process. If the
+    /// current thread belonged to it, select another runnable thread.
+    ///
+    /// Returns `None` when `owner` is init or owns no thread. Otherwise
+    /// returns the selected next thread, which may itself be `None` when no
+    /// other thread is runnable yet.
+    pub fn exit_process(&mut self, owner: u32, now: u64) -> Option<Option<u8>> {
+        if owner == INIT_PROCESS_ID {
+            return None;
+        }
+        let mut removed = false;
+        for slot in &mut self.slots {
+            if slot.state != UserThreadState::Empty && slot.owner == owner {
+                *slot = ThreadSlot::EMPTY;
+                removed = true;
+            }
+        }
+        if !removed {
+            return None;
+        }
+        // Joiners can only belong to the same process, so no surviving
+        // thread waits on a removed slot.
+        if self.slots[self.current as usize].state == UserThreadState::Empty {
+            return Some(self.select_runnable(now));
+        }
+        Some(Some(self.current))
     }
 
     pub fn discard_unstarted(&mut self, thread: u8) -> bool {
@@ -167,6 +220,9 @@ impl BootstrapUserThreads {
         }
 
         let target_index = target as usize;
+        if self.slots[target_index].owner != self.slots[caller as usize].owner {
+            return JoinOutcome::Invalid;
+        }
         let target_state = self.slots[target_index].state;
         let target_detached = self.slots[target_index].detached;
         let target_joiner = self.slots[target_index].joiner;
@@ -213,8 +269,12 @@ impl BootstrapUserThreads {
         if target == 0 || target as usize >= BOOTSTRAP_USER_THREAD_COUNT {
             return false;
         }
+        let caller_owner = self.current_owner();
         let slot = &mut self.slots[target as usize];
-        if slot.state == UserThreadState::Empty || slot.joiner != NO_THREAD {
+        if slot.state == UserThreadState::Empty
+            || slot.joiner != NO_THREAD
+            || slot.owner != caller_owner
+        {
             return false;
         }
         if matches!(slot.state, UserThreadState::Zombie { .. }) {
@@ -486,5 +546,32 @@ mod tests {
         assert_eq!(threads.current(), 2);
         assert_eq!(threads.join_current(1, 0), JoinOutcome::Invalid);
         assert_eq!(threads.state(2), Some(UserThreadState::Running));
+    }
+
+    #[test]
+    fn spawned_process_threads_are_owned_and_isolated_from_init_join_and_detach() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.current_owner(), super::INIT_PROCESS_ID);
+        let child = threads.allocate_for_process(2).expect("child thread");
+        assert_eq!(threads.owner(child), Some(2));
+        assert_eq!(threads.join_current(child, 0), JoinOutcome::Invalid);
+        assert!(!threads.detach(child));
+        let init_thread = threads.allocate().expect("init thread");
+        assert_eq!(threads.owner(init_thread), Some(super::INIT_PROCESS_ID));
+        assert!(threads.detach(init_thread));
+    }
+
+    #[test]
+    fn exiting_spawned_process_removes_only_its_threads_and_selects_init() {
+        let mut threads = BootstrapUserThreads::new();
+        let child = threads.allocate_for_process(2).expect("child thread");
+        assert_eq!(threads.exit_process(super::INIT_PROCESS_ID, 0), None);
+        assert_eq!(threads.yield_current(0), Some(child));
+        assert_eq!(threads.current_owner(), 2);
+        assert_eq!(threads.exit_process(2, 0), Some(Some(0)));
+        assert_eq!(threads.state(child), Some(UserThreadState::Empty));
+        assert_eq!(threads.owner(child), None);
+        assert_eq!(threads.current_owner(), super::INIT_PROCESS_ID);
+        assert_eq!(threads.exit_process(2, 0), None);
     }
 }

@@ -3475,6 +3475,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-isolated-app"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+]
+
+[[package]]
 name = "nagi-kernel"
 version = "0.1.0"
 dependencies = [

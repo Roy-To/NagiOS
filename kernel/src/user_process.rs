@@ -19,6 +19,9 @@ use crate::user_elf::{
 #[path = "syscall.rs"]
 mod syscall;
 
+#[path = "user_child.rs"]
+pub mod child;
+
 pub const USER_STACK_BASE: u64 = USER_IMAGE_LIMIT;
 // The M14 audio and M17 Servo/Softpipe bootstrap paths need deeper native
 // stacks than the early init path. Keep one bounded 2 MiB page-table span for
@@ -360,6 +363,13 @@ pub fn prepare_with_progress(
         BOOTSTRAP_IN_USE.store(false, Ordering::Release);
     }
     result
+}
+
+/// Physical address of the init process PML4, used to restore init's
+/// address space when switching away from an isolated child.
+pub fn init_cr3() -> u64 {
+    let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
+    (&storage.pml4 as *const PageTable) as u64
 }
 
 pub fn current_image_pages() -> usize {
@@ -832,6 +842,9 @@ fn invalidate_mmap_pages(start_page: usize, page_count: usize) {
 /// succeeds, and the M17 bootstrap permits only the BSP to enter this address
 /// space.
 pub fn is_user_image_range_mapped(address: u64, length: usize) -> bool {
+    if child::active_process() != child::INIT_PROCESS_ID {
+        return child::child_readable(address, length);
+    }
     let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
     mapped_image_range(
         storage,
@@ -842,6 +855,9 @@ pub fn is_user_image_range_mapped(address: u64, length: usize) -> bool {
 }
 
 pub fn is_user_readable_range_mapped(address: u64, length: usize) -> bool {
+    if child::active_process() != child::INIT_PROCESS_ID {
+        return child::child_readable(address, length);
+    }
     let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
     mapped_image_range(
         storage,
@@ -881,6 +897,9 @@ pub fn is_user_readable_range_mapped(address: u64, length: usize) -> bool {
 /// page.  Thread entry points are accepted only from the already-loaded Nagi
 /// image; writable mmap pages cannot be turned into arbitrary kernel launches.
 pub fn is_user_executable_range_mapped(address: u64, length: usize) -> bool {
+    if child::active_process() != child::INIT_PROCESS_ID {
+        return child::child_executable(address, length);
+    }
     if length == 0 || address < USER_IMAGE_BASE {
         return false;
     }
@@ -903,6 +922,9 @@ pub fn is_user_executable_range_mapped(address: u64, length: usize) -> bool {
 }
 
 pub fn is_user_writable_range_mapped(address: u64, length: usize) -> bool {
+    if child::active_process() != child::INIT_PROCESS_ID {
+        return child::child_writable(address, length);
+    }
     let storage = unsafe { &*BOOTSTRAP_STORAGE.0.get() };
     mapped_image_range(
         storage,

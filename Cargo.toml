@@ -20,6 +20,7 @@ members = [
     "services/nagi-ai",
     "user/nagi-servo",
     "user/nagi-init",
+    "user/nagi-isolated-app",
 ]
 default-members = [
     "tools/nagi-cli",

@@ -165,6 +165,7 @@ pub enum Command {
     M25,
     M27,
     M30,
+    IsolatedProcess,
     M20Granite,
     M20GraniteInference,
     M20LlamaSmoke,
@@ -242,6 +243,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m25" => Command::M25,
         "m27" => Command::M27,
         "m30" => Command::M30,
+        "isolated-process" => Command::IsolatedProcess,
         "m20-granite" => Command::M20Granite,
         "m20-granite-inference" => Command::M20GraniteInference,
         "m20-llama-smoke" => Command::M20LlamaSmoke,
@@ -296,6 +298,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M25
         | Command::M27
         | Command::M30
+        | Command::IsolatedProcess
         | Command::Test
         | Command::Clean
         | Command::Fmt
@@ -457,6 +460,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M18 => execute_m18(root, probe),
         Command::M19 => execute_m19(root, probe),
         Command::M22 => execute_m22(root, probe),
+        Command::IsolatedProcess => execute_isolated_process(root, probe),
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
@@ -6513,6 +6517,140 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
+const ISOLATED_PROCESS_MARKERS: [&str; 7] = [
+    "Nagi Kernel started",
+    "Nagi ADR0043 isolated process spawned pid=2",
+    "Nagi isolated process kernel-stamped sender PASS",
+    "Nagi isolated process forged payload identity denied PASS",
+    "Nagi isolated process address space and syscall isolation PASS",
+    "Nagi ADR0043 isolated process exit pid=2 code=0",
+    "Nagi isolated process exit cleanup PASS",
+];
+const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PASS";
+
+/// ADR 0043 acceptance: the Supervisor (init) spawns a real second ELF into
+/// its own address space and authorizes it only by kernel-stamped identity.
+fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let app_build = run_cargo(
+        root,
+        "isolated-process app build",
+        &[
+            "build",
+            "-p",
+            "nagi-isolated-app",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std-features=compiler-builtins-mem",
+            "--release",
+            "--locked",
+        ],
+    );
+    if app_build.exit_code != EXIT_SUCCESS {
+        return app_build;
+    }
+    let app_elf = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release")
+        .join("nagi-isolated-app");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "isolated-process-acceptance",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let image_name = "nagi-0.1-isolated-process.img";
+    let image_result = execute_image_with_init_build_env(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_ISOLATED_APP_ELF", app_elf.as_path())],
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let host = match resolve_qemu_host(root, probe, "isolated-process") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let image_path = artifacts.join(image_name);
+    let persistent_disk = artifacts.join("nagi-0.1-isolated-process-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-isolated-process-vars.fd");
+    let serial_log = logs.join("isolated-process.log");
+    if let Err(error) = ensure_persistent_disk(&persistent_disk) {
+        return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}"));
+    }
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &serial_log,
+        acceptance_marker: ISOLATED_PROCESS_PASS_MARKER,
+        timeout: Duration::from_secs(90),
+    };
+    let status = match run_qemu(&config) {
+        Ok(status) => status,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let serial = match fs::read_to_string(&serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "isolated-process: cannot read {}: {error}",
+                    serial_log.display()
+                ),
+            );
+        }
+    };
+    if let Some(missing) = missing_isolated_process_marker(&serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "isolated-process: guest did not print `{missing}` (QEMU exit {status}; log {})",
+                serial_log.display()
+            ),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS isolated-process: Supervisor spawned an isolated ELF, authorized it by kernel-stamped PID, denied a forged payload identity, and observed exit cleanup (exit {status}; log {})",
+            serial_log.display()
+        )],
+    }
+}
+
+fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
+    if serial.contains("Nagi isolated process acceptance FAIL") {
+        return Some(ISOLATED_PROCESS_PASS_MARKER);
+    }
+    ISOLATED_PROCESS_MARKERS
+        .into_iter()
+        .chain([ISOLATED_PROCESS_PASS_MARKER])
+        .find(|marker| !serial.contains(marker))
+}
+
 fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let mut fixture = match start_m13_http_fixture(root) {
         Ok(child) => child,
@@ -8443,7 +8581,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, test, clean, fmt, lint"
                 .into(),
         ],
     }

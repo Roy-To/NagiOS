@@ -67,6 +67,13 @@ necessary before the M19 fixture policy can be replaced by production
 authority. The post-M27 storage-check regression also passed `./nagi m19` and
 the three-boot `./nagi m22` QEMU flow on 2026-09-30; logs are in `out/logs/`.
 
+Update, 2026-10-03: ADR 0043 adds the missing kernel primitive. init can
+spawn one ELF into its own address space, and Channel messages carry its
+kernel-stamped PID. The Supervisor resolves that PID through a launch record,
+and payload identity claims are ignored. `./nagi isolated-process` verifies
+this on QEMU. Search has not yet been moved behind this boundary; that is the
+next M19 step.
+
 The host acceptance uses the explicitly host-only `HostFileBackend` and a
 fixture visibility policy. It proves the provider-neutral contract and
 reference snapshot restart behavior. The QEMU acceptance separately proves

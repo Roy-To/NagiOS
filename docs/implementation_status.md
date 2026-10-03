@@ -3,6 +3,63 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**Shared service identity (ADR 0043), 2026-10-03:** The M18–M23 identity
+blocker now has a kernel primitive.
+
+What was added:
+
+- **`SYS_PROCESS_SPAWN`.** The Supervisor (init, PID 1) can load a real
+  second ELF into its own PML4. The child's user half holds only its own image
+  pages and a 64 KiB stack; the kernel half is supervisor-only. Only init may
+  call spawn.
+- **Per-process handle tables.** The user IPC manager keeps one handle table
+  per process, and the spawn moves one attenuated Channel endpoint into the
+  child. Sending to an endpoint whose peer no process can reach now fails with
+  `PeerClosed`.
+- **Cross-process scheduling.** Each scheduler thread slot has an owning
+  process. Cross-process join and detach are rejected. The kernel switches
+  CR3 when the cooperative scheduler crosses a process boundary.
+- **Per-process pointer checks.** Every user-pointer check uses the calling
+  process's own page tables.
+- **Restricted child syscalls.** The child can use console, time,
+  yield/sleep, random, Channel, handle close, and exit. A child exit closes
+  its handles and scrubs its pages without halting the system.
+
+Acceptance: the new `./nagi isolated-process` acceptance passed locally on
+real QEMU/OVMF (Ubuntu 24.04, QEMU 8.2.2). The serial log is
+`out/logs/isolated-process.log`. In that run:
+
+- init spawned `nagi-isolated-app` as PID 2;
+- the child's request arrived with kernel-stamped sender PID 2, although its
+  payload claimed `org.nagi.system`/PID 1;
+- the Supervisor resolved the caller through its launch record to
+  `org.nagi.acceptance.isolated-app` and denied the system-only operation;
+- the child confirmed that init's TLS and mmap windows were unmapped for it;
+- the child confirmed that block, mmap, thread-create, spawn, and
+  process-info syscalls were rejected;
+- the child exited with code 0, and init observed peer closure and continued
+  its normal boot.
+
+Verification:
+
+- Kernel host tests: 148 passed, including new scheduler, IPC, and child
+  address-space tests.
+- Workspace Clippy passed with warnings denied.
+- Host workspace tests passed.
+- Regressions passed on the same local QEMU: `./nagi run` (M7 boot) and
+  `./nagi m19` (Channel ABI, wait/wake, and Search persistence across
+  restart).
+- The QEMU environment had no Mesa source, because gitlab.freedesktop.org is
+  blocked by its network policy. M17/M18 were therefore not rerun locally;
+  public CI covers them.
+
+The step is wired into CI after M18. Still open:
+
+- production Files, Browser, and Search callers still run inside init;
+- only one isolated slot exists;
+- ring-3 scheduling remains cooperative (ADR 0029).
+
+M18–M23 remain `PARTIAL`.
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. M18 remains `PARTIAL` because
 download/upload destinations, clipboard, IME text/composition events, and
@@ -652,9 +709,13 @@ preflight/assembly/verify passed, and the assembled package's byte-identical
 copy passed two QEMU boots without changing the package checksum. Evidence is
 under `out/evidence/m30-clean-release-144cc0d/` and
 `out/evidence/m30-release-1790751471624505000/`.
-**Next action:** Continue the highest-priority shared Service/IPC/Capability
-boundary audit and implementation for M18–M23, reusing the existing
-foundations and preserving fixture-only caller identity. Continue independent
+**Next action:** Build on ADR 0043. Move the M19 Search caller path onto the
+isolated-process boundary: an isolated client calls the init-hosted
+SearchService over a Channel. Authorize it from the Supervisor launch record
+instead of the fixture caller policy. Then extend the same pattern to M21 and
+M22 action callers. Earlier note: Continue the highest-priority shared
+Service/IPC/Capability boundary audit and implementation for M18–M23, reusing
+the existing foundations and preserving fixture-only caller identity. Continue independent
 M20, M22–M29 work while authenticated update and provider dependencies remain.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target

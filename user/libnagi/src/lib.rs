@@ -384,6 +384,33 @@ pub fn channel_receive(endpoint: u64, result_buffer: &mut ChannelReceiveResult) 
     }
 }
 
+/// Spawn the isolated child process from `image` (a static ELF) and move
+/// `endpoint` into it with `rights`. Only the Supervisor (init) may spawn;
+/// returns the child's kernel Process ID.
+#[inline]
+pub fn process_spawn(image: &[u8], endpoint: u64, rights: u32) -> Option<u32> {
+    let request = nagi_abi::ProcessSpawnRequest {
+        image_address: image.as_ptr() as u64,
+        image_len: image.len() as u64,
+        endpoint,
+        endpoint_rights: rights,
+        reserved: 0,
+    };
+    let mut result = nagi_abi::SYS_PROCESS_SPAWN;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") &request as *const nagi_abi::ProcessSpawnRequest,
+            in("rsi") core::mem::size_of::<nagi_abi::ProcessSpawnRequest>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    u32::try_from(result).ok()
+}
+
 /// Close a handle returned by the bootstrap Channel ABI or a Channel transfer.
 #[inline]
 pub fn handle_close(handle: u64) -> bool {
@@ -927,6 +954,8 @@ mod tests {
         assert_eq!(SYS_CHANNEL_SEND, 32);
         assert_eq!(SYS_CHANNEL_TRY_RECEIVE, 33);
         assert_eq!(SYS_HANDLE_CLOSE, 34);
+        assert_eq!(nagi_abi::SYS_PROCESS_SPAWN, 36);
+        assert_eq!(core::mem::size_of::<nagi_abi::ProcessSpawnRequest>(), 32);
         assert_eq!(THREAD_CREATE_DETACHED, 1);
         #[cfg(feature = "m18-browser-threads")]
         assert_eq!(BOOTSTRAP_USER_THREAD_COUNT, 64);

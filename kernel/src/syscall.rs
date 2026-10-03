@@ -45,6 +45,10 @@ use nagi_abi::{
     MemoryInfo, ProcessInfo, MAX_AUDIO_BUFFER, MAX_NET_FRAME_SIZE, SYS_CHANNEL_CREATE,
     SYS_CHANNEL_SEND, SYS_CHANNEL_TRY_RECEIVE, SYS_HANDLE_CLOSE, SYS_NET_RECEIVE, SYS_NET_SEND,
 };
+#[cfg(not(test))]
+use nagi_abi::{ProcessSpawnRequest, SYS_PROCESS_SPAWN};
+#[cfg(not(test))]
+use nagi_kernel::user_process::child::{self as child_process, INIT_PROCESS_ID};
 
 #[cfg(not(test))]
 const IA32_EFER: u32 = 0xC000_0080;
@@ -473,6 +477,162 @@ pub fn initialize() -> Result<(), SyscallError> {
 
 #[cfg(not(test))]
 extern "sysv64" fn dispatch(frame: &SyscallFrame) -> u64 {
+    let caller = thread_table().current_owner();
+    let result = if caller == INIT_PROCESS_ID {
+        dispatch_init(frame)
+    } else {
+        dispatch_isolated(caller, frame)
+    };
+    sync_address_space();
+    result
+}
+
+/// Syscalls available to a Supervisor-spawned isolated process (ADR 0043).
+/// Device, memory-mapping, thread, diagnostics and spawn syscalls are not
+/// reachable; the child holds no device capabilities either.
+#[cfg(not(test))]
+fn dispatch_isolated(caller: u32, frame: &SyscallFrame) -> u64 {
+    match frame.number {
+        SYS_CONSOLE_WRITE => console_write(frame.arg1, frame.arg2),
+        SYS_PROCESS_EXIT => isolated_process_exit(caller, frame.arg1),
+        SYS_TIME_READ => time_read(),
+        SYS_THREAD_SLEEP => thread_sleep(frame.arg1, frame),
+        SYS_RANDOM_GET => random_get(frame.arg1, frame.arg2),
+        SYS_CHANNEL_CREATE => channel_create(frame.arg1, frame.arg2),
+        SYS_CHANNEL_SEND => channel_send(frame.arg1, frame.arg2, frame.arg3),
+        SYS_CHANNEL_TRY_RECEIVE => channel_try_receive(frame.arg1, frame.arg2, frame.arg3),
+        SYS_HANDLE_CLOSE => handle_close(frame.arg1),
+        SYS_CHANNEL_WAIT_READABLE => channel_wait_readable(frame.arg1, frame),
+        _ => u64::MAX,
+    }
+}
+
+/// Load the address space of the thread selected to run next. Called after
+/// every syscall; a CR3 write happens only when the owning process changes.
+#[cfg(not(test))]
+fn sync_address_space() {
+    let owner = thread_table().current_owner();
+    if owner == child_process::active_process() {
+        return;
+    }
+    let cr3 = if owner == INIT_PROCESS_ID {
+        nagi_kernel::user_process::init_cr3()
+    } else {
+        unsafe { CHILD_CR3 }
+    };
+    unsafe { asm!("mov cr3, {}", in(reg) cr3, options(nostack, preserves_flags)) };
+    child_process::set_active_process(owner);
+}
+
+#[cfg(not(test))]
+static mut CHILD_CR3: u64 = 0;
+
+#[cfg(not(test))]
+fn process_spawn(address: u64, length: u64) -> u64 {
+    if length != core::mem::size_of::<ProcessSpawnRequest>() as u64
+        || !nagi_kernel::user_process::is_user_readable_range_mapped(
+            address,
+            core::mem::size_of::<ProcessSpawnRequest>(),
+        )
+    {
+        return u64::MAX;
+    }
+    let request = copy_user_value_from_user::<ProcessSpawnRequest>(address);
+    let Ok(image_len) = usize::try_from(request.image_len) else {
+        return u64::MAX;
+    };
+    if request.reserved != 0
+        || image_len == 0
+        || image_len > child_process::MAX_CHILD_ELF_BYTES
+        || !nagi_kernel::user_process::is_user_readable_range_mapped(
+            request.image_address,
+            image_len,
+        )
+    {
+        serial_write(b"Nagi ADR0043 spawn rejected: invalid request\r\n");
+        return u64::MAX;
+    }
+    let Some(rights) = nagi_kernel::handles::Rights::from_bits(request.endpoint_rights) else {
+        return u64::MAX;
+    };
+    let image =
+        unsafe { core::slice::from_raw_parts(request.image_address as *const u8, image_len) };
+    let active_pml4 =
+        unsafe { &*(nagi_kernel::memory::current_cr3() as *const nagi_kernel::memory::PageTable) };
+    let context = match child_process::prepare_child(image, active_pml4) {
+        Ok(context) => context,
+        Err(_) => {
+            serial_write(b"Nagi ADR0043 spawn rejected: child image\r\n");
+            return u64::MAX;
+        }
+    };
+    let child_endpoint = match nagi_kernel::user_ipc::register_spawned_process(
+        INIT_PROCESS_ID,
+        context.process_id,
+        request.endpoint,
+        rights,
+    ) {
+        Ok(handle) => handle,
+        Err(_) => {
+            unsafe { child_process::release_child() };
+            serial_write(b"Nagi ADR0043 spawn rejected: endpoint transfer\r\n");
+            return u64::MAX;
+        }
+    };
+    let Some(thread) = thread_table().allocate_for_process(context.process_id) else {
+        let _ = nagi_kernel::user_ipc::exit_process(context.process_id);
+        unsafe { child_process::release_child() };
+        serial_write(b"Nagi ADR0043 spawn rejected: thread pool full\r\n");
+        return u64::MAX;
+    };
+    unsafe { CHILD_CR3 = context.cr3 };
+    let thread_context = &mut thread_contexts()[thread as usize];
+    *thread_context = UserThreadContext::empty();
+    thread_context.rdi = child_endpoint;
+    thread_context.rsi = u64::from(context.process_id);
+    thread_context.user_rip = context.entry;
+    thread_context.user_rsp = context.user_stack_top;
+    thread_context.user_fs_base = 0;
+    serial_write(b"Nagi ADR0043 isolated process spawned pid=");
+    serial_write_decimal(context.process_id as usize);
+    serial_write(b"\r\n");
+    u64::from(context.process_id)
+}
+
+/// Terminate an isolated process: close its handles, free its thread, then
+/// leave its address space before scrubbing it. Never halts the system.
+#[cfg(not(test))]
+fn isolated_process_exit(caller: u32, code: u64) -> u64 {
+    serial_write(b"Nagi ADR0043 isolated process exit pid=");
+    serial_write_decimal(caller as usize);
+    serial_write(b" code=");
+    serial_write_decimal(code as usize);
+    serial_write(b"\r\n");
+    let current = current_user_thread();
+    nagi_kernel::user_ipc::cancel_waiter(u32::from(current));
+    let _ = nagi_kernel::user_ipc::exit_process(caller);
+    let next = thread_table()
+        .exit_process(caller, interrupts::timer_ticks())
+        .flatten();
+    unsafe {
+        asm!(
+            "mov cr3, {}",
+            in(reg) nagi_kernel::user_process::init_cr3(),
+            options(nostack, preserves_flags)
+        );
+        CHILD_CR3 = 0;
+    }
+    child_process::set_active_process(INIT_PROCESS_ID);
+    unsafe { child_process::release_child() };
+    let next = next
+        .or_else(|| wait_until_runnable(false))
+        .unwrap_or_else(|| halt_forever());
+    switch_to_thread(current, next, b"process-exit");
+    u64::MAX
+}
+
+#[cfg(not(test))]
+fn dispatch_init(frame: &SyscallFrame) -> u64 {
     match frame.number {
         SYS_CONSOLE_WRITE => console_write(frame.arg1, frame.arg2),
         SYS_PROCESS_EXIT => process_exit(frame.arg1),
@@ -509,8 +669,14 @@ extern "sysv64" fn dispatch(frame: &SyscallFrame) -> u64 {
         SYS_CHANNEL_TRY_RECEIVE => channel_try_receive(frame.arg1, frame.arg2, frame.arg3),
         SYS_HANDLE_CLOSE => handle_close(frame.arg1),
         SYS_CHANNEL_WAIT_READABLE => channel_wait_readable(frame.arg1, frame),
+        SYS_PROCESS_SPAWN => process_spawn(frame.arg1, frame.arg2),
         _ => u64::MAX,
     }
+}
+
+#[cfg(not(test))]
+fn current_process() -> u32 {
+    thread_table().current_owner()
 }
 
 #[cfg(not(test))]
@@ -523,7 +689,7 @@ fn channel_create(address: u64, length: u64) -> u64 {
     {
         return u64::MAX;
     }
-    match nagi_kernel::user_ipc::create_pair() {
+    match nagi_kernel::user_ipc::create_pair(current_process()) {
         Ok(endpoints) => {
             copy_kernel_bytes_to_user(address, &endpoints);
             0
@@ -543,7 +709,7 @@ fn channel_send(endpoint: u64, address: u64, length: u64) -> u64 {
         return u64::MAX;
     }
     let request = copy_user_value_from_user::<ChannelSendRequest>(address);
-    match nagi_kernel::user_ipc::send(endpoint, request) {
+    match nagi_kernel::user_ipc::send(current_process(), endpoint, request) {
         Ok(woken) => {
             for waiter_id in woken.iter() {
                 if let Ok(thread) = u8::try_from(waiter_id) {
@@ -560,9 +726,12 @@ fn channel_send(endpoint: u64, address: u64, length: u64) -> u64 {
 fn channel_wait_readable(endpoint: u64, frame: &SyscallFrame) -> u64 {
     let caller = current_user_thread();
     save_current_thread_context(frame, 0);
-    match nagi_kernel::user_ipc::wait_readable(endpoint, u32::from(caller), || {
-        thread_table().block_current_on_channel()
-    }) {
+    match nagi_kernel::user_ipc::wait_readable(
+        current_process(),
+        endpoint,
+        u32::from(caller),
+        || thread_table().block_current_on_channel(),
+    ) {
         Ok(nagi_kernel::user_ipc::ChannelWaitOutcome::Readable) => 0,
         Ok(nagi_kernel::user_ipc::ChannelWaitOutcome::Blocked) => {
             let now = interrupts::timer_ticks();
@@ -598,7 +767,7 @@ fn channel_try_receive(endpoint: u64, address: u64, length: u64) -> u64 {
     {
         return u64::MAX;
     }
-    match nagi_kernel::user_ipc::try_receive(endpoint) {
+    match nagi_kernel::user_ipc::try_receive(current_process(), endpoint) {
         Ok(Some(result)) => {
             copy_kernel_bytes_to_user(address, &result);
             1
@@ -610,7 +779,7 @@ fn channel_try_receive(endpoint: u64, address: u64, length: u64) -> u64 {
 
 #[cfg(not(test))]
 fn handle_close(handle: u64) -> u64 {
-    match nagi_kernel::user_ipc::close(handle) {
+    match nagi_kernel::user_ipc::close(current_process(), handle) {
         Ok(()) => 0,
         Err(_) => u64::MAX,
     }
@@ -939,7 +1108,11 @@ fn save_current_thread_context(frame: &SyscallFrame, result: u64) {
     let thread = current_user_thread() as usize;
     let context = &mut thread_contexts()[thread];
     context.rax = result;
-    context.user_fs_base = nagi_kernel::user_process::user_tls_control_base(thread).unwrap_or(0);
+    context.user_fs_base = if thread_table().current_owner() == INIT_PROCESS_ID {
+        nagi_kernel::user_process::user_tls_control_base(thread).unwrap_or(0)
+    } else {
+        0
+    };
     context.rbx = frame.rbx;
     context.rcx = frame.user_rip;
     context.rdx = frame.arg3;
