@@ -78,8 +78,8 @@ depended on timing, which made the stall intermittent.
 
 ## Bounds
 
-- Only the BSP runs user code, so only the BSP has a TSS and user-fault
-  path.
+- Only the BSP runs user code, so only the BSP has a user-fault path. APs
+  received their own TSS, #DF IST1 stack, and exception IDT in ADR 0048.
 - Faults in init and in the kernel remain fatal by design.
 - The Supervisor learns of the exit through peer closure. A process-exit
   wait or exit-status query for the Supervisor is later work.

@@ -8913,3 +8913,124 @@ pass, along with `./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build`.
 Current-source `./nagi m25` QEMU run `1791003281517596000` passes the existing
 fixture acceptance. It uses no real audio input or TTS engine; M25 remains
 `PARTIAL` for its production providers and command acceptance.
+
+## Completion Sweep — M3 initial-frame fault reproduced and fix stress-tested (2026-10-03)
+
+Independent confirmation of the ADR 0047 M3 root cause, on an Ubuntu host
+with QEMU 8.2 and OVMF (q35, 4 vCPU, 8 GiB, `-no-reboot`). The test image
+was a kernel-only ESP containing the release kernel with no features. It
+reaches `Nagi M3 acceptance PASS` and then stops at M7 because the image has
+no data disk. To create vCPU contention, eight instances ran in parallel on a
+4-core host.
+
+- **Before the fix (`956cd88`).** 3 of 24 boots died after
+  `Nagi M3 scheduler workload START` or during SIPI. QEMU `-d int` captured
+  the full chain for one of them. A timer IRQ (`v=20`) was delivered at
+  `smp::thread_entry`'s first instruction with `SP=0000:0000000000000000`.
+  That caused `v=0e e=0002 CR2=fffffffffffffff8`, then `v=08`, then
+  `check_exception old: 0x8 new 0xd`, then `Triple fault`. The IRQ was
+  already pending at `iretq` because the vCPU had stalled for longer than one
+  10 ms APIC period inside the timer handler. That explains why the failure
+  depends on host load.
+- **After the fix (`b96cf54`).** 48 of 48 boots under the same 8-way
+  contention reached `Nagi M3 acceptance PASS`. The 152 kernel library tests
+  pass.
+- **Equivalent alternative.** An alternative patch built the same 20-word
+  frame and also removed `thread_entry`'s inline `mov rsp`. It passed 104 of
+  104 contended boots. With a valid initial RSP that `mov rsp` is redundant,
+  because it reloads the same value, but it is harmless.
+
+Full `./nagi m22`, `./nagi m27` and M28 gates were not rerun here because
+this host lacks the fetched Servo/Mesa inputs. M27 and M28 stay `PARTIAL`.
+
+## Completion Sweep — AP #DF handler on IST1 (ADR 0048, 2026-10-03)
+
+Each AP now loads its own kernel-only GDT and TSS with a dedicated IST1 #DF
+stack, plus a shared AP exception IDT that the BSP fills before any SIPI.
+`exception_entry` reports an AP fault and halts only that AP. The AP
+trampoline now enables SSE (CR4.OSFXSR/OSXMMEXCPT, CR0.MP/NE) like the BSP.
+Without that, the first compiler-emitted SSE store on an AP raised #UD.
+
+Evidence:
+
+- **Kernel host tests.** 153 pass, including the `ap_gdt` layout and the
+  updated ADR 0047 GDT-transition source-order test.
+- **Diagnostic probe.** The `m3-ap-double-fault-probe` kernel was run on
+  QEMU/OVMF (q35, 4 vCPU). The last AP forces RSP=0 and pushes. The serial
+  log shows `Nagi AP exception apic=3 vector=8 ... rsp=0x0
+  cr2=0xfffffffffffffff8`, and QEMU logged no triple fault. This is the
+  exact M3 failure signature, now caught and diagnosed.
+- **Default kernel stress run.** 48 of 48 boots reached
+  `Nagi M3 acceptance PASS` under 8-way parallel QEMU contention.
+
+`./nagi m22`/`m27`/M28 were not rerun in this session because the host
+lacks the Servo/Mesa inputs.
+
+## Completion Sweep — NMI and #MC IST stacks (ADR 0049, 2026-10-03)
+
+Every CPU with a TSS now gives NMI and #MC their own IST stacks, alongside
+#DF. Slot selection is shared through `cpu_tables::exception_ist`: #DF uses
+IST1, NMI IST2, and #MC IST3. The AP trampoline now also sets CR4.MCE.
+Without it, a machine check shut an AP down instead of raising #MC.
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **IST probe.** The `m3-ap-ist-probe` kernel parks two APs with RSP=0 and
+  interrupts disabled. A BSP NMI IPI to AP 3 is reported as `vector=2`. A
+  QEMU monitor `mce` injection into CPU 2 is reported as `vector=18`. Both
+  arrived with `rsp=0x0`, and QEMU logged no triple fault.
+- **#DF probe.** It still reports `vector=8`.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention
+  reach `Nagi M3 acceptance PASS`.
+
+Remaining gap: the BSP has no IST coverage before the M5 GDT switch.
+
+## Completion Sweep — BSP tables from kernel entry (ADR 0050, 2026-10-03)
+
+The BSP now installs its GDT, TSS (RSP0 and the #DF/NMI/#MC IST stacks) and
+full exception IDT right after `serial_init` in `_start`. Before, it waited
+for M5. M2's expected page fault is a temporary vector-14 overlay until M5
+rebuilds the table. All M3 task frames now use the kernel selectors, and the
+shared firmware-selector IDT is removed.
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **BSP probe.** With `m2-bsp-ist-probe`, the BSP spins with RSP=0 before
+  M2. A monitor NMI is reported as `vector=2`, and an injected #MC as
+  `vector=18`. QEMU logged no triple fault in either boot.
+- **M5 reinstall check.** A scratch reinstall boot passes M3.
+- **M2 self-test.** The page-fault markers are unchanged.
+- **AP probes.** The #DF, NMI and #MC probes still pass.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention pass
+  M3.
+
+Not run: an end-to-end M5 boot, which needs the real init image, and
+`./nagi m22`/`m27`/M28. Both need the Servo/Mesa/relibc inputs that are
+absent on this host.
+
+## Completion Sweep — link-time entry tables (ADR 0051, 2026-10-03)
+
+`_start` is now assembly. Its first three instructions load link-time GDT,
+TSS and IDT tables (`lgdt`, `ltr`, `lidt`). From then on, NMI, #DF and #MC
+use their own IST stacks, and any other exception escalates to a reported
+#DF. `_start` then jumps to `nagi_kernel_entry`, which installs the full
+BSP tables as before (ADR 0050).
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **Linked ELF.** The descriptor and gate fields were checked in the linked
+  file.
+- **Entry probe.** With `entry-ist-probe`, the BSP spins with RSP=0 on the
+  link-time tables. An NMI is reported as `vector=2` and an injected #MC as
+  `vector=18`, with no triple fault.
+- **Escalation check.** A scratch `ud2` on the link-time tables is reported
+  as `vector=8`.
+- **Other probes.** The BSP and AP probes and the M2 markers are unchanged.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention pass
+  M3.
+
+The only remaining firmware-table window is the two instructions before
+`lidt`.
