@@ -24,7 +24,7 @@ launch record to an application/session identity; payload identity claims are
 ignored. Authentication requires isolated processes and a trusted supervisor
 binding kernel Process IDs, endpoint delivery, and launch records to
 application/session policy. ADR 0043 provides that primitive for one child
-process. Production Files, Browser, and Search callers have not yet moved into
-isolated processes. Event, Timer,
+process. ADR 0044 serves M19 Search to isolated clients over `search@1`.
+Files and Browser callers have not yet moved into isolated processes. Event, Timer,
 Process-exit, and service/socket readiness waits remain unavailable in the
 bootstrap user ABI.

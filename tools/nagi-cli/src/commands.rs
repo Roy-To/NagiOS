@@ -6530,10 +6530,12 @@ const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PAS
 
 /// ADR 0043 acceptance: the Supervisor (init) spawns a real second ELF into
 /// its own address space and authorizes it only by kernel-stamped identity.
-fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+/// Build the isolated application ELFs (ADR 0043/0044) and return the
+/// release output directory that contains them.
+fn build_isolated_apps(root: &Path) -> Result<PathBuf, CommandResult> {
     let app_build = run_cargo(
         root,
-        "isolated-process app build",
+        "isolated app build",
         &[
             "build",
             "-p",
@@ -6547,13 +6549,19 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
         ],
     );
     if app_build.exit_code != EXIT_SUCCESS {
-        return app_build;
+        return Err(app_build);
     }
-    let app_elf = root
+    Ok(root
         .join("target")
         .join("x86_64-unknown-nagi-user")
-        .join("release")
-        .join("nagi-isolated-app");
+        .join("release"))
+}
+
+fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let app_elf = match build_isolated_apps(root) {
+        Ok(directory) => directory.join("nagi-isolated-app"),
+        Err(result) => return result,
+    };
     let init_args = [
         "build",
         "-p",
@@ -6663,8 +6671,28 @@ fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let image_result =
-        execute_image_with_features(root, Some("m19-search"), "nagi-0.1-m19-vfs-objectid.img");
+    let search_client = match build_isolated_apps(root) {
+        Ok(directory) => directory.join("nagi-m19-search-client"),
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m19-search-ipc",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+    ];
+    let image_result = execute_image_with_init_build_env(
+        root,
+        &init_args,
+        None,
+        "nagi-0.1-m19-vfs-objectid.img",
+        &[("NAGI_M19_SEARCH_CLIENT_ELF", search_client.as_path())],
+    );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -6770,6 +6798,9 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi bootstrap Channel ABI PASS",
             "Nagi bootstrap Channel wait/wake PASS",
             "Nagi M24 semantic index ready PASS",
+            "Nagi M19 Search IPC authorized isolated client PASS",
+            "Nagi M19 Search IPC foreign isolated client hidden PASS",
+            "Nagi M19 Search IPC authenticated caller PASS",
             "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M19 acceptance PASS",

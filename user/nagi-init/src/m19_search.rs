@@ -28,6 +28,10 @@ use nagi_search::{
     VectorIndex, VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession, GUEST_FILE_BYTES,
 };
 
+#[cfg(feature = "m19-search-ipc")]
+#[path = "m19_search_ipc.rs"]
+mod search_ipc;
+
 const STORE_ROOT: &[u8] = b"/var/lib/nagi-search";
 const SEMANTIC_STORE_ROOT: &[u8] = b"/var/lib/nagi-search-semantic";
 const OBJECT_ID: ObjectId = ObjectId(0x4e41_4749_4d19_0001);
@@ -1068,10 +1072,15 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
                 .get(FILE_INODE_ATTRIBUTE)
                 == Some(&file_metadata.inode.to_string())
     });
+    #[cfg(feature = "m19-search-ipc")]
+    let ipc_passed = search_ipc::run(&service, object_id_after_rename);
+    #[cfg(not(feature = "m19-search-ipc"))]
+    let ipc_passed = true;
     let semantic_passed =
         run_m24_semantic_fixture(&service, block_capability, object_id_after_rename);
     let search_activity = run_file_search_action(service, object_id_after_rename);
     let passed = search_activity.is_some()
+        && ipc_passed
         && semantic_passed
         && file_passed
         && object_id_before_rename == object_id_after_restart

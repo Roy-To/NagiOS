@@ -3,6 +3,31 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**M19 Search IPC (ADR 0044), 2026-10-03:** M19 Search is now served over a
+Channel to isolated client processes.
+
+- **Protocol.** The allocation-free `search@1` codec lives in
+  `crates/nagi-search-ipc`. A request carries a query and no identity field.
+- **Authorization.** The init-hosted SearchService resolves each caller only
+  through the kernel-stamped sender PID and the Supervisor launch record,
+  then applies the normal `VisibilityFilter` with that `AccessContext`. A
+  sender with no record gets `UnknownCaller` before the index is read.
+- **Acceptance.** `./nagi m19` now builds the separate
+  `nagi-m19-search-client` ELF and runs it twice with the same query:
+  - launched as the M19 app session, it receives exactly the live VFS file's
+    stable ObjectId;
+  - launched as a foreign app, it receives zero visible matches.
+- **Result.** A fresh-disk local QEMU run passed the bootstrap, initial, and
+  restart boots, and both guest boots printed the three Search IPC PASS
+  markers. Logs are under `out/logs/m19-vfs-objectid-*.log`; the previous
+  User Data disk is kept in `out/evidence/pre-m19-search-ipc-20261003/`.
+
+M19 remains `PARTIAL` for three reasons:
+
+- the launch registry is still acceptance-scoped (one isolated slot);
+- the Files and Browser producers are not live sources;
+- the M21 `file.search` action still uses the fixture `CallerIdentity`.
+
 **Shared service identity (ADR 0043), 2026-10-03:** The M18–M23 identity
 blocker now has a kernel primitive.
 
@@ -709,11 +734,11 @@ preflight/assembly/verify passed, and the assembled package's byte-identical
 copy passed two QEMU boots without changing the package checksum. Evidence is
 under `out/evidence/m30-clean-release-144cc0d/` and
 `out/evidence/m30-release-1790751471624505000/`.
-**Next action:** Build on ADR 0043. Move the M19 Search caller path onto the
-isolated-process boundary: an isolated client calls the init-hosted
-SearchService over a Channel. Authorize it from the Supervisor launch record
-instead of the fixture caller policy. Then extend the same pattern to M21 and
-M22 action callers. Earlier note: Continue the highest-priority shared
+**Next action:** ADR 0044 moved M19 Search callers onto the isolated-process
+boundary. Next, move the M21 `file.search` and M22 action callers from the
+fixture `CallerIdentity` to launch-record identity. Generalize the
+acceptance-scoped launch records into a Supervisor launch registry, and
+contain ring-3 faults to child-only exit. Earlier note: Continue the highest-priority shared
 Service/IPC/Capability boundary audit and implementation for M18–M23, reusing
 the existing foundations and preserving fixture-only caller identity. Continue independent
 M20, M22–M29 work while authenticated update and provider dependencies remain.

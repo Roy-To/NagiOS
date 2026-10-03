@@ -3471,6 +3471,7 @@ dependencies = [
  "nagi-posix",
  "nagi-sdk",
  "nagi-search",
+ "nagi-search-ipc",
  "relibc",
 ]
 
@@ -3479,6 +3480,7 @@ name = "nagi-isolated-app"
 version = "0.1.0"
 dependencies = [
  "nagi-abi",
+ "nagi-search-ipc",
 ]
 
 [[package]]
@@ -3553,6 +3555,13 @@ name = "nagi-search"
 version = "0.1.0"
 dependencies = [
  "nagi-model",
+]
+
+[[package]]
+name = "nagi-search-ipc"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
 ]
 
 [[package]]

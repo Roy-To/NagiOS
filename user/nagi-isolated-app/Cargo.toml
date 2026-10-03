@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-# Minimal application launched by the Supervisor into its own address space
-# (ADR 0043). It uses raw Nagi syscalls only: no allocator, no TLS, and no
-# device capabilities.
+# Minimal applications launched by the Supervisor into their own address
+# spaces (ADR 0043, ADR 0044). They use raw Nagi syscalls only: no allocator,
+# no TLS, and no device capabilities.
 
 [[bin]]
 name = "nagi-isolated-app"
@@ -14,8 +14,15 @@ path = "src/main.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "nagi-m19-search-client"
+path = "src/bin/search_client.rs"
+test = false
+bench = false
+
 [dependencies]
 nagi-abi = { path = "../../crates/nagi-abi" }
+nagi-search-ipc = { path = "../../crates/nagi-search-ipc" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
