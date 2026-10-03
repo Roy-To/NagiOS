@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::arch::asm;
+use core::arch::{asm, global_asm};
 use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -19,10 +19,136 @@ static SERIAL_LOCK: AtomicBool = AtomicBool::new(false);
 static mut SERIAL_LOG: [u8; SERIAL_LOG_CAPACITY] = [0; SERIAL_LOG_CAPACITY];
 static SERIAL_LOG_LENGTH: AtomicUsize = AtomicUsize::new(0);
 
-#[no_mangle]
-#[link_section = ".text.entry"]
-pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
+// Kernel entry (ADR 0051). The loader calls `_start` with the win64 ABI and
+// the BootInfo pointer in RCX. The first three instructions load link-time
+// early tables so that NMI, #DF and #MC never use the firmware GDT/IDT:
+// `lgdt`, then `ltr` (IST stacks), then `lidt`. Only the early IDT's NMI,
+// #DF and #MC gates are present; any other early exception escalates to #DF
+// on IST1, which is reported. RCX and the loader's stack are preserved for
+// `nagi_kernel_entry`, which installs the full BSP tables
+// (`install_early_bsp_tables`, ADR 0050).
+global_asm!(
+    r#"
+.section .text.entry,"ax",@progbits
+.global _start
+_start:
+    lgdt [rip + nagi_early_gdtr]
+    mov ax, {tss_selector}
+    ltr ax
+    lidt [rip + nagi_early_idtr]
+    push {kernel_code}
+    lea rax, [rip + 2f]
+    push rax
+    retfq
+2:
+    mov ax, {kernel_data}
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    xor eax, eax
+    mov fs, ax
+    mov gs, ax
+    jmp {kernel_entry}
+
+.section .data.nagi_early_tables,"aw",@progbits
+.balign 16
+nagi_early_gdt:
+    .quad 0
+    .quad {kernel_code_descriptor}
+    .quad {kernel_data_descriptor}
+    .quad 0
+    .quad 0
+    .word {tss_limit}
+    .word __nagi_early_tss_base_0_15
+    .byte __nagi_early_tss_base_16_23
+    .byte 0x89
+    .byte 0
+    .byte __nagi_early_tss_base_24_31
+    .long __nagi_early_tss_base_32_63
+    .long 0
+nagi_early_gdt_end:
+
+.balign 16
+.global nagi_early_tss
+nagi_early_tss:
+    .long 0
+    .quad 0, 0, 0
+    .quad 0
+    .quad nagi_early_ist_stacks + {early_stack_size}
+    .quad nagi_early_ist_stacks + 2 * {early_stack_size}
+    .quad nagi_early_ist_stacks + 3 * {early_stack_size}
+    .quad 0, 0, 0, 0
+    .quad 0
+    .word 0
+    .word {tss_size}
+
+.balign 16
+nagi_early_idt:
+    .zero 2 * 16
+    .word __nagi_early_nmi_0_15
+    .word {kernel_code}
+    .byte {nmi_ist}
+    .byte 0x8e
+    .word __nagi_early_nmi_16_31
+    .long __nagi_early_nmi_32_63
+    .long 0
+    .zero 5 * 16
+    .word __nagi_early_df_0_15
+    .word {kernel_code}
+    .byte {df_ist}
+    .byte 0x8e
+    .word __nagi_early_df_16_31
+    .long __nagi_early_df_32_63
+    .long 0
+    .zero 9 * 16
+    .word __nagi_early_mc_0_15
+    .word {kernel_code}
+    .byte {mc_ist}
+    .byte 0x8e
+    .word __nagi_early_mc_16_31
+    .long __nagi_early_mc_32_63
+    .long 0
+    .zero 13 * 16
+nagi_early_idt_end:
+
+.section .rodata.nagi_early_tables,"a",@progbits
+.balign 8
+nagi_early_gdtr:
+    .word nagi_early_gdt_end - nagi_early_gdt - 1
+    .quad nagi_early_gdt
+.balign 8
+nagi_early_idtr:
+    .word nagi_early_idt_end - nagi_early_idt - 1
+    .quad nagi_early_idt
+
+.section .bss.nagi_early_ist_stacks,"aw",@nobits
+.balign 16
+.global nagi_early_ist_stacks
+nagi_early_ist_stacks:
+    .zero 3 * {early_stack_size}
+"#,
+    tss_selector = const interrupts::TSS_SELECTOR,
+    kernel_code = const interrupts::KERNEL_CODE_SELECTOR,
+    kernel_data = const interrupts::KERNEL_DATA_SELECTOR,
+    kernel_code_descriptor = const nagi_kernel::cpu_tables::KERNEL_CODE_DESCRIPTOR,
+    kernel_data_descriptor = const nagi_kernel::cpu_tables::KERNEL_DATA_DESCRIPTOR,
+    tss_limit = const nagi_kernel::cpu_tables::TSS_SIZE - 1,
+    tss_size = const nagi_kernel::cpu_tables::TSS_SIZE,
+    early_stack_size = const EARLY_IST_STACK_SIZE,
+    nmi_ist = const nagi_kernel::cpu_tables::NMI_IST,
+    df_ist = const nagi_kernel::cpu_tables::DOUBLE_FAULT_IST,
+    mc_ist = const nagi_kernel::cpu_tables::MACHINE_CHECK_IST,
+    kernel_entry = sym nagi_kernel_entry,
+);
+
+/// Size of each early IST stack used between `_start` and the full BSP
+/// tables. The exception report path needs well under this.
+const EARLY_IST_STACK_SIZE: usize = 8 * 1024;
+
+extern "win64" fn nagi_kernel_entry(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
     serial_init();
+    #[cfg(feature = "entry-ist-probe")]
+    bsp_ist_probe(b"Nagi entry IST probe READY\r\n");
     unsafe { interrupts::install_early_bsp_tables() };
     let boot_info = match unsafe { boot_info_from_ptr(boot_info) } {
         Ok(info) => info,
@@ -54,7 +180,7 @@ pub extern "win64" fn _start(boot_info: *const nagi_bootinfo::BootInfo) -> ! {
 
     serial_write(b"Nagi Kernel started\r\n");
     #[cfg(feature = "m2-bsp-ist-probe")]
-    bsp_ist_probe();
+    bsp_ist_probe(b"Nagi M2 BSP IST probe READY\r\n");
     let mut allocator = match unsafe { memory::PageAllocator::from_boot_info(boot_info) } {
         Ok(allocator) => allocator,
         Err(_) => {
@@ -444,12 +570,14 @@ pub(crate) fn serial_log_read(destination: &mut [u8]) -> usize {
     count
 }
 
-/// Diagnostic only (ADR 0050): park the BSP with RSP=0 and interrupts
-/// disabled before M2. A host-injected NMI or #MC must then be delivered on
-/// its IST stack and reported; with the firmware tables it reset the guest.
-#[cfg(feature = "m2-bsp-ist-probe")]
-fn bsp_ist_probe() {
-    serial_write(b"Nagi M2 BSP IST probe READY\r\n");
+/// Diagnostic only (ADR 0050, ADR 0051): park the BSP with RSP=0 and
+/// interrupts disabled, either on the link-time entry tables
+/// (`entry-ist-probe`) or on the full BSP tables before M2
+/// (`m2-bsp-ist-probe`). A host-injected NMI or #MC must then be delivered
+/// on its IST stack and reported.
+#[cfg(any(feature = "entry-ist-probe", feature = "m2-bsp-ist-probe"))]
+fn bsp_ist_probe(ready: &[u8]) {
+    serial_write(ready);
     unsafe {
         asm!(
             "cli",

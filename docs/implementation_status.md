@@ -8935,3 +8935,28 @@ Evidence:
 Not run: an end-to-end M5 boot, which needs the real init image, and
 `./nagi m22`/`m27`/M28. Both need the Servo/Mesa/relibc inputs that are
 absent on this host.
+
+## Completion Sweep — link-time entry tables (ADR 0051, 2026-10-03)
+
+`_start` is now assembly. Its first three instructions load link-time GDT,
+TSS and IDT tables (`lgdt`, `ltr`, `lidt`). From then on, NMI, #DF and #MC
+use their own IST stacks, and any other exception escalates to a reported
+#DF. `_start` then jumps to `nagi_kernel_entry`, which installs the full
+BSP tables as before (ADR 0050).
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **Linked ELF.** The descriptor and gate fields were checked in the linked
+  file.
+- **Entry probe.** With `entry-ist-probe`, the BSP spins with RSP=0 on the
+  link-time tables. An NMI is reported as `vector=2` and an injected #MC as
+  `vector=18`, with no triple fault.
+- **Escalation check.** A scratch `ud2` on the link-time tables is reported
+  as `vector=8`.
+- **Other probes.** The BSP and AP probes and the M2 markers are unchanged.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention pass
+  M3.
+
+The only remaining firmware-table window is the two instructions before
+`lidt`.

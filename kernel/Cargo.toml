@@ -22,6 +22,10 @@ m3-ap-ist-probe = []
 # host-injected NMI or #MC proves the early BSP IST stacks (ADR 0050).
 # Never enabled in product images.
 m2-bsp-ist-probe = []
+# Diagnostic: park the BSP with RSP=0 on the link-time entry tables, before
+# the full BSP tables are installed (ADR 0051). Never enabled in product
+# images.
+entry-ist-probe = []
 
 [lib]
 name = "nagi_kernel"

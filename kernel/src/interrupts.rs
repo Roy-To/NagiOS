@@ -41,7 +41,7 @@ static mut SYSCALL_GDT: [u64; 7] = [
     0,
     0,
 ];
-const TSS_SELECTOR: u16 = 0x28;
+pub(crate) const TSS_SELECTOR: u16 = 0x28;
 const FAULT_STACK_SIZE: usize = 16 * 1024;
 
 #[repr(C, align(16))]
