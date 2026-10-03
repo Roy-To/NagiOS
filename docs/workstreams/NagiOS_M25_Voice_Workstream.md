@@ -156,42 +156,32 @@ intentionally verifies orchestration without relying on host audio.
 
 ## Remaining acceptance blockers
 
-1. Connect `SpeechPermissionAuthority` to authenticated user/session policy and
-   explicit press state. No production adapter or IPC registration exists yet.
+A real Nagi-target whisper.cpp transcription now passes the short Japanese
+fixture acceptance: QEMU loaded the digest-verified Whisper Small artifact,
+ran `whisper_full`, and matched the expected phrase. That 1.48-second fixture
+took about 37 minutes under QEMU TCG, so this is a correctness check for one
+short sample, not a usable latency or sustained-resource result. It uses a
+local PCM fixture and does not verify microphone capture.
+
+1. Connect `SpeechPermissionAuthority` to authenticated user/session policy,
+   trusted foreground consumer selection, and explicit push-to-talk state.
+   No production adapter or IPC registration exists yet.
 2. Connect `MicrophoneActivityIndicator` to the system-owned, localized UI and
-   register the system push-to-talk shortcut. The contract test uses an
-   in-memory indicator fixture.
-3. Finish the real Japanese transcription acceptance. The target whisper.cpp
-   provider is now connected and a fresh QEMU run loaded the pinned model and
-   entered inference, but no transcript or PASS marker has been observed yet.
-   The upstream source is pinned in `third_party/sources.lock` at
-   `927cfce34f31707e17f2bff35c349632fb9e2c3a`. `./nagi fetch` validates that
-   clean source and applies the Nagi-owned patch in
-   `third_party/whisper-cpp-patches/` to a generated checkout under
-   `out/cache/whisper-cpp-nagi/`. The generated tree builds the CPU-only
-   `whisper` target with Nagi's no-exception toolchain. The
-   multilingual Whisper small artifact is pinned in `third_party/models.lock`
-   to immutable Hugging Face revision
-   `5359861c739e955e79d9a303bcbc70fb988958b1`, size 487,601,967 bytes, SHA-256
-   `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b`, and
-   upstream MIT metadata. The exact artifact bytes were later downloaded into
-   the ignored local cache and SHA-256 verified (see the 2026-10-02 evidence
-   below); they are not
-   installed in the guest Model Store, loaded, or used for inference.
-4. Add a concrete local TTS engine behind the new provider contract, select it
-   using the documented quality/CPU/RAM/portability/license criteria, and
-   verify real playback. The contract and target AudioService sink exist, but
-   there is no synthesis engine yet.
-5. Add QEMU acceptance proving real guest microphone capture, spoken Japanese
-   command handling (including launching Albert or a basic Nagi command),
-   failure behavior, and the visible consumer indicator. The new guest fixture
-   acceptance proves orchestration only; it does not claim device or
-   speech-model behavior.
+   register the system push-to-talk shortcut. The current contract tests use
+   an in-memory indicator fixture.
+3. Add a concrete local TTS engine behind the provider contract, choose it using
+   the documented quality/CPU/RAM/portability/license criteria, and verify
+   real playback. The contract and target AudioService sink exist, but there is
+   no synthesis engine yet.
+4. Add QEMU acceptance with actual guest microphone capture and a spoken
+   Japanese request routed through deterministic validation, permission,
+   executor, transaction, and Activity Ledger boundaries before it launches
+   Albert or performs a basic Nagi command. Transcript text must never execute
+   directly. The host currently provides no `virtio-sound.in` backend.
 
-M25 remains `PARTIAL` until authenticated permission, real Japanese STT, local
-TTS, the system indicator, and real guest voice-command acceptance are
-connected and verified.
-
+M25 remains `PARTIAL` pending authenticated permission, the visible system
+indicator and shortcut, real capture and safe command integration, local TTS,
+and practical inference latency/resource evidence.
 ## Nagi-owned target compatibility patch — 2026-10-01
 
 The pinned upstream checkout remains unchanged and clean. The reproducible
@@ -467,3 +457,24 @@ ignored test inputs; the regular M30 image is unchanged.
 Authenticated microphone permission and activity UI, real audio capture,
 concrete local TTS, real-device inference, and safe voice-command integration
 remain incomplete. M25 stays `PARTIAL`.
+
+## Current-source M25 orchestration regression — 2026-10-03
+
+On source commit `4fae6875d64752db8fbe0508a932c28da246e8af`, `./nagi m25`
+passed QEMU run `1790986320984425000`: fail-closed permission, indicator order,
+bounded PCM forwarding, provider cleanup, empty-transcript rejection, Japanese
+fixture transcript handoff, and the TTS provider/playback contract. First-boot
+User Data setup and persistent read after restart also passed. This remains a
+fixture-only orchestration result; no microphone, STT model, TTS engine, or
+transcript action was used. The host QEMU reports no `virtio-sound.in` driver.
+The image, data disk, OVMF variables, bootstrap/voice logs, README, and verified
+six-entry `SHA256SUMS` are under
+`out/evidence/m25-voice-current-source-1790986320984425000/`.
+
+The 2026-10-03 CI checkpoint for commit `4fae687` also found two host-check
+issues: current Clippy rejects the PCM fixture's modulo-based even-length check,
+and Windows host tests lacked an import for `PermissionPromptLabels`. The build
+script now uses `usize::is_multiple_of`, and the Albert chrome test imports its
+label type. The focused `nagi-albert` suite passes 60/60 and `./nagi lint`
+passes locally; the full Linux/Windows CI rerun is pending on the next pushed
+checkpoint.

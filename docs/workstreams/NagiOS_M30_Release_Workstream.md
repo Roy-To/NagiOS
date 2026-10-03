@@ -911,3 +911,28 @@ The release manifest retains `m30_acceptance=NOT_EVALUATED`; no model was
 loaded and no inference is claimed. M30 remains `PARTIAL` for authenticated
 System B updates, remaining M18–M29 acceptance, and human redistribution
 review.
+
+## Current-source M20/M22/M30 release regression — 2026-10-03
+
+On clean source `4fae6875d64752db8fbe0508a932c28da246e8af`, `./nagi m30` rebuilt
+the self-contained 64 GiB GPT reference image with SHA-256
+`1e81c7a89b4295bcadebfd835d4942ad53849ee1f81be3cb7ff5cc05395f379d`. QEMU run
+`1790985901890315000` passed System A boot, User Data persistence across
+restart, M19 Search/ObjectId persistence, M22 Activity Ledger/Move/Copy/Undo,
+Recovery, unstaged System B rejection, and post-Recovery restart. The separate
+M20 Model Store reader fixture passed. All QEMU images pass `qemu-img check`.
+
+Release preflight, assembly to `out/artifacts/m30-release-bundle-4fae687/`, and
+verification passed from the clean committed source. All 23 bundle checksums
+verify; its reference image is byte-identical to the source image, and the
+bundled qcow2 passes `qemu-img check`. The manifest records
+`m30_acceptance=NOT_EVALUATED`, which remains correct because this does not
+establish authenticated update acceptance or human redistribution approval.
+
+The stale pre-run image was bound to `65f4d6f8773e0b373f237067960738f66e454f3b`.
+Its qcow2 and sidecar were preserved at
+`out/evidence/m30-stale-image-pre-4fae687-20261003/`, where the image checksum
+and qcow2 structure verify. Current run evidence and its 15-file SHA-256
+manifest are at `out/evidence/m30-release-1790985901890315000/`. The QEMU host
+has no `virtio-sound.in` backend; the guest sound initialization marker passed,
+but this adds no microphone/audio-capture evidence.

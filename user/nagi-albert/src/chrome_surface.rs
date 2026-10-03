@@ -818,6 +818,7 @@ fn japanese_glyph(character: char) -> Option<[u8; 7]> {
 mod tests {
     use super::*;
     use crate::browser_state::BrowserState;
+    use crate::permission_prompt::PermissionPromptLabels;
     use crate::ui::view;
 
     #[test]

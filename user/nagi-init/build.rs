@@ -552,7 +552,7 @@ fn main() {
         println!("cargo:rerun-if-changed={}", pcm_fixture.display());
         let pcm = fs::read(&pcm_fixture).expect("read M25 Whisper PCM fixture");
         const MAX_PCM_BYTES: usize = 1_048_576;
-        if pcm.is_empty() || pcm.len() > MAX_PCM_BYTES || pcm.len() % 2 != 0 {
+        if pcm.is_empty() || pcm.len() > MAX_PCM_BYTES || !pcm.len().is_multiple_of(2) {
             panic!("M25 Whisper PCM fixture must be nonempty, even-sized, and at most 1 MiB");
         }
         fs::write(out_dir.join("m25-whisper-input.pcm"), &pcm)
