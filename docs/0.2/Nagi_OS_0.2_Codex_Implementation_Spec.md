@@ -227,6 +227,38 @@ Never report:
 - synchronized when only a local fixture changed;
 - target PASS from host-only evidence.
 
+## 4.6 Reuse-first, resource-constrained AI
+
+Nagi is intended to bring useful local AI to hardware people already own, not to
+require a new high-end “AI PC” merely to participate.
+
+Release rules:
+
+- the 8 GB reference configuration is a deliberate product constraint, not merely
+  a CI convenience;
+- core OS usability takes precedence over model residency, model size, or peak
+  inference throughput;
+- local AI must degrade gracefully through smaller models, tighter context
+  budgets, lazy load/unload, reduced concurrency, paused background work, or
+  non-AI fallback paths rather than making the shell, Files, or foreground work
+  unusable;
+- the standard local-AI path must not assume a discrete GPU/NPU or 32 GB+ RAM;
+- larger-memory systems may unlock larger models and richer multimodal workloads,
+  but they are an enhancement tier rather than the baseline architecture;
+- future ARM64, SBC, repurposed-PC, and mobile-class enablement must remain
+  possible without high-level services depending on x86-only or accelerator-only
+  behavior;
+- cloud inference may extend capability, but it must not be required for
+  local/offline platform behavior that Nagi defines as core;
+- “legacy-environment friendly” means local/offline deployment and usefulness on
+  constrained or repurposed hardware. It does not imply binary compatibility
+  with legacy Windows, macOS, Linux, or other operating-system applications.
+
+The product direction is:
+
+> **Use the computer you already have. Make small local models useful by making
+> the operating system context-aware and resource-aware.**
+
 ---
 
 # 5. Official 0.2 execution target
@@ -245,6 +277,15 @@ Nagi 0.2 officially remains centered on the **Nagi Virtual Reference Machine**:
 - VirtIO Sound;
 - VirtIO RNG;
 - defined keyboard/mouse input path.
+
+The 8 GB RAM target is intentional. A change that makes the normal 0.2 core plus
+representative local-AI use require more than the reference memory budget must
+be treated as an explicit product/release decision, not as an incidental
+regression accepted only because developer machines are larger.
+
+Lower-memory modes may be explored and are desirable for future repurposed,
+SBC, and mobile-class devices, but 0.2 does not claim a 4 GB AI acceptance
+baseline until measured target evidence exists.
 
 0.2 may prepare physical-hardware abstractions, but broad PC compatibility is
 not a release blocker.
@@ -2136,6 +2177,10 @@ Audio playback
 
 - no kernel OOM under reference load;
 - desktop remains interactive;
+- a representative local Granite inference request can complete within the
+  8 GB reference envelope without making the desktop unusable;
+- memory pressure can throttle or unload model work before core shell/Files/
+  foreground usability is sacrificed;
 - no sustained audio failure caused by background/platform work;
 - model runtime does not monopolize the machine;
 - no major handle/memory leak;
