@@ -4,19 +4,34 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cargo_path=$(command -v cargo || true)
 rustup_path=$(command -v rustup || true)
+toolchain_pinned=
 if [ -n "$rustup_path" ]; then
-    rustup_bin_dir=$(dirname "$rustup_path")
-    for rustup_cargo in "$rustup_bin_dir/cargo" "$rustup_bin_dir/cargo.exe"; do
-        if [ -x "$rustup_cargo" ]; then
-            cargo_path=$rustup_cargo
-            PATH="$rustup_bin_dir:$PATH"
-            export PATH
-            break
+    toolchain=$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$script_dir/rust-toolchain.toml")
+    if [ -n "$toolchain" ]; then
+        pinned_cargo=$("$rustup_path" which cargo --toolchain "$toolchain" 2>/dev/null || true)
+        pinned_rustc=$("$rustup_path" which rustc --toolchain "$toolchain" 2>/dev/null || true)
+        pinned_rustdoc=$("$rustup_path" which rustdoc --toolchain "$toolchain" 2>/dev/null || true)
+        if [ -n "$pinned_cargo" ] && [ -n "$pinned_rustc" ] && [ -n "$pinned_rustdoc" ]; then
+            cargo_path=$pinned_cargo
+            export RUSTC=$pinned_rustc
+            export RUSTDOC=$pinned_rustdoc
+            toolchain_pinned=1
         fi
-    done
+    fi
+    if [ -z "$toolchain_pinned" ]; then
+        rustup_bin_dir=$(dirname "$rustup_path")
+        for rustup_cargo in "$rustup_bin_dir/cargo" "$rustup_bin_dir/cargo.exe"; do
+            if [ -x "$rustup_cargo" ]; then
+                cargo_path=$rustup_cargo
+                PATH="$rustup_bin_dir:$PATH"
+                export PATH
+                break
+            fi
+        done
+    fi
 fi
 if [ -z "$cargo_path" ]; then
-    printf '%s\n' 'FAIL cannot start nagi: Cargo was not found; install rust-toolchain.toml' >&2
+    printf '%s\n' 'FAIL cannot start nagi: Cargo was not found; install the toolchain from rust-toolchain.toml' >&2
     exit 4
 fi
 if [ -x "/c/Program Files/LLVM/bin/lld-link.exe" ]; then
@@ -24,7 +39,9 @@ if [ -x "/c/Program Files/LLVM/bin/lld-link.exe" ]; then
     export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER='C:/Program Files/LLVM/bin/lld-link.exe'
     export LIB='C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/lib/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/ucrt/x64'
 fi
-if [ "${1:-}" = fetch ]; then
+case "${1:-}" in
+fetch|dev)
     exec "$cargo_path" run --locked --manifest-path "$script_dir/tools/nagi-bootstrap/Cargo.toml" -p nagi-bootstrap -- "$@"
-fi
+    ;;
+esac
 exec "$cargo_path" run --locked --manifest-path "$script_dir/Cargo.toml" -p nagi-cli -- "$@"

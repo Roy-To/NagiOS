@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "requested_capabilities": [
+    {
+      "capability": "filesystem.read",
+      "scope": {
+        "kind": "filesystem",
+        "path": "/Documents"
+      },
+      "purpose": "Open a document selected by the user"
+    },
+    {
+      "capability": "network.client",
+      "scope": {
+        "kind": "network_origin",
+        "origin": "https://sync.example"
+      },
+      "purpose": "Synchronize notes with the configured service"
+    }
+  ]
+}

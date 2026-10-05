@@ -1,0 +1,48 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: failed to load Boot0001 "UEFI Misc Device" from PciRoot(0x0)/Pci(0x7,0x0): Not Found
+BdsDxe: loading Boot0002 "UEFI Non-Block Boot Device" from PciRoot(0x0)/Pci(0x8,0x0)
+BdsDxe: starting Boot0002 "UEFI Non-Block Boot Device" from PciRoot(0x0)/Pci(0x8,0x0)
+Nagi Kernel started
+Nagi M2 page allocation/free PASS
+Nagi M3 ACPI discovery START
+Nagi M3 ACPI discovery PASS
+Nagi M2 timer interrupts PASS
+Nagi Page fault handled (vector 14)
+Nagi invalid access diagnostic PASS
+Nagi M2 acceptance PASS
+Nagi Page fault resume PASS
+Nagi M3 SMP startup START
+Nagi M3 SMP state ready
+Nagi M3 trampoline page ready
+Nagi M3 SIPI dispatch
+Nagi M3 AP online
+Nagi M3 SIPI dispatch
+Nagi M3 AP online
+Nagi M3 SIPI dispatch
+Nagi M3 AP online
+Nagi M3 scheduler workload START
+Nagi M3 scheduler workload DONE
+Nagi M3 CPU 0 online/workload PASS
+Nagi M3 CPU 1 online/workload PASS
+Nagi M3 CPU 2 online/workload PASS
+Nagi M3 CPU 3 online/workload PASS
+Nagi M3 scheduler workloads PASS
+Nagi M3 acceptance PASS
+Nagi M4 handles/VMO/IPC START
+Nagi M4 VMO basics PASS
+Nagi M4 channel round-trip PASS
+Nagi M4 rights attenuation PASS
+Nagi M4 wait primitives PASS
+Nagi M4 acceptance PASS
+Nagi M7 storage START
+Nagi M7 VirtIO Block PASS
+Nagi M12 VirtIO Net PASS
+Nagi M14 VirtIO Sound PASS
+Nagi M9 display setup PASS
+Nagi M9 input setup PASS
+Nagi M5 user process START
+Nagi M5 trace: BootInfo validated
+Nagi M5 trace: init image bytes=392512
+Nagi M5 trace: init image identity check started
+Nagi M5 trace: init image identity mapped
+Nagi M5 user address space FAIL
+reason: invalid-elf

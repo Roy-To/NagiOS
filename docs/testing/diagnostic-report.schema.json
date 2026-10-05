@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.invalid/schemas/diagnostic-report.schema.json",
+  "title": "Nagi local diagnostics and verification report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at_unix_ms",
+    "source_commit",
+    "host_os",
+    "host_arch",
+    "verification",
+    "events"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at_unix_ms": { "type": "integer", "minimum": 0 },
+    "source_commit": { "type": ["string", "null"] },
+    "host_os": { "type": "string", "minLength": 1 },
+    "host_arch": { "type": "string", "minLength": 1 },
+    "verification": { "$ref": "#/$defs/verificationReport" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/safeDiagnosticEvent" }
+    }
+  },
+  "$defs": {
+    "failureClass": {
+      "enum": [
+        "SOURCE", "BUILD", "LINK", "ABI", "RUNTIME", "BOOT", "DEVICE",
+        "STORAGE", "GRAPHICS", "NETWORK", "MODEL", "PERMISSION",
+        "ACCEPTANCE", "CI_INFRA", "HOST_ENV", "UNKNOWN"
+      ]
+    },
+    "severity": { "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"] },
+    "privacyClass": { "enum": ["PUBLIC", "SENSITIVE", "SECRET"] },
+    "evidenceKind": { "enum": ["HOST", "TARGET", "VM", "MOCKED"] },
+    "checkStatus": { "enum": ["PASS", "FAIL", "SKIPPED"] },
+    "safeSourceLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "line"],
+      "properties": {
+        "file": { "type": "string", "maxLength": 384 },
+        "line": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "safeDiagnosticField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "privacy"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "value": { "type": "string", "maxLength": 2048 },
+        "privacy": { "$ref": "#/$defs/privacyClass" }
+      }
+    },
+    "safeErrorCause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "code", "safe_message"],
+      "properties": {
+        "class": { "$ref": "#/$defs/failureClass" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "safe_message": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "safeDiagnosticEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "timestamp_unix_ms", "severity", "subsystem",
+        "event_code", "message_template", "operation_id", "error_class",
+        "source", "fields", "error_chain", "recovery_hint"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "timestamp_unix_ms": { "type": "integer", "minimum": 0 },
+        "severity": { "$ref": "#/$defs/severity" },
+        "subsystem": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "event_code": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "message_template": { "type": "string", "maxLength": 2048 },
+        "operation_id": { "type": ["string", "null"], "maxLength": 96 },
+        "error_class": { "anyOf": [{ "$ref": "#/$defs/failureClass" }, { "type": "null" }] },
+        "source": { "anyOf": [{ "$ref": "#/$defs/safeSourceLocation" }, { "type": "null" }] },
+        "fields": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/safeDiagnosticField" } },
+        "error_chain": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/safeErrorCause" } },
+        "recovery_hint": { "type": ["string", "null"], "maxLength": 2048 }
+      }
+    },
+    "verificationCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "scope", "title", "status", "evidence_kind", "failure_class", "summary", "evidence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "scope": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 192 },
+        "status": { "$ref": "#/$defs/checkStatus" },
+        "evidence_kind": { "$ref": "#/$defs/evidenceKind" },
+        "failure_class": { "anyOf": [{ "$ref": "#/$defs/failureClass" }, { "type": "null" }] },
+        "summary": { "type": "string", "maxLength": 2048 },
+        "evidence": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 2048 } }
+      }
+    },
+    "verificationReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "generated_at_unix_ms", "source_commit", "requested_scope", "outcome", "checks"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "generated_at_unix_ms": { "type": "integer", "minimum": 0 },
+        "source_commit": { "type": ["string", "null"] },
+        "requested_scope": { "type": ["string", "null"] },
+        "outcome": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/verificationCheck" } }
+      }
+    },
+    "crashRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "timestamp_unix_ms", "component", "build_id", "fatal_event", "recent_context", "recovery_hint"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "timestamp_unix_ms": { "type": "integer", "minimum": 0 },
+        "component": { "type": "string", "minLength": 1, "maxLength": 96 },
+        "build_id": { "type": ["string", "null"], "maxLength": 192 },
+        "fatal_event": { "$ref": "#/$defs/safeDiagnosticEvent" },
+        "recent_context": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/safeDiagnosticEvent" } },
+        "recovery_hint": { "type": ["string", "null"], "maxLength": 2048 }
+      }
+    }
+  }
+}

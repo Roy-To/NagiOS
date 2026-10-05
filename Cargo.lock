@@ -3448,6 +3448,8 @@ name = "nagi-cli"
 version = "0.1.0"
 dependencies = [
  "nagi-model-manager",
+ "serde",
+ "serde_json",
  "sha2",
 ]
 
@@ -3461,6 +3463,14 @@ version = "0.1.0"
 dependencies = [
  "nagi-model",
  "sha2",
+]
+
+[[package]]
+name = "nagi-i18n"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3492,6 +3502,7 @@ dependencies = [
  "nagi-sdk",
  "nagi-search",
  "nagi-search-ipc",
+ "nagi-ui",
  "relibc",
 ]
 
@@ -3592,6 +3603,10 @@ dependencies = [
  "libnagi",
  "nagi-abi",
 ]
+
+[[package]]
+name = "nagi-ui"
+version = "0.1.0"
 
 [[package]]
 name = "new_debug_unreachable"

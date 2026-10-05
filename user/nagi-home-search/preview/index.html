@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Nagi Home + Search Host Preview</title>
+    <link rel="stylesheet" href="/app.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#/" aria-label="Nagi Home">
+        <span class="brand-mark" aria-hidden="true">n</span>
+        <span>nagi</span>
+      </a>
+      <nav class="top-nav" aria-label="Primary navigation">
+        <a id="nav-home" href="#/">Home</a>
+        <a id="nav-search" href="#/search">Search</a>
+      </nav>
+      <label class="locale-control">
+        <span class="visually-hidden">Preview language</span>
+        <select id="locale-select" aria-label="Preview language">
+          <option value="en-US">English</option>
+          <option value="ja-JP">Japanese</option>
+        </select>
+      </label>
+    </header>
+
+    <div id="preview-banner" class="preview-banner" role="note"></div>
+    <main id="app" class="page" tabindex="-1" aria-live="polite">
+      <div class="loading-screen" role="status">Loading…</div>
+    </main>
+
+    <dialog id="action-dialog" class="action-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-topline">
+        <p id="dialog-eyebrow" class="eyebrow"></p>
+        <button id="dialog-close" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <h2 id="dialog-title"></h2>
+      <p id="dialog-description" class="dialog-description"></p>
+      <pre id="dialog-action" class="action-code"></pre>
+      <button id="dialog-done" class="button button-primary" type="button">Done</button>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

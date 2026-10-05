@@ -1,0 +1,256 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "search-core-01",
+  "current_milestone": "0.2-M19 host Foundation: provider/index boundary over canonical nagi-search",
+  "current_checkpoint": "host-foundation-integrated;integration-ci-green;ADR-0014-accepted;runtime-gated",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "a3cc23f1eb0094d6b0c1b5ff953b4665d3672c25",
+    "verified_at": "2026-10-02T05:05:56Z",
+    "normal_state": "Every host-side Foundation acceptance item in the SEARCH-CORE-01 workstream document (section 6) and every host-testable 0.2-M19 item assigned to it is implemented and passes: 29 deterministic acceptance tests, rustfmt, and warning-denied Clippy on code commit 20f8567a69c7b6ea334c2260d69924303e0016ba (toolchain nightly-2025-08-01, rustc 1.90.0-nightly adcb3d3b4, x86_64 Linux cloud worktree). Four deliberate mutations (scope check, source-claim check, stale-revision check, caller visibility) were each caught by the suite and reverted. The status stays PARTIAL, not PASS, because (1) 0.2-M19 acceptance includes target persistence surviving restart, daemon/IPC, and provider adoption, all gated on Nagi 0.1 M30 PASS plus an explicit Integration Owner checkpoint; (2) the canonical nagi-search contract this foundation reuses exists only on the active 0.1 line (pinned read-only at de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa) and is not yet on the 0.2 integration base; (3) the workstream is not registered: the root DF-01 verifier does not yet load this state, and shared CI run 36958301027 fails in nagi-cli test dev_status_resume_and_verify_read_the_registered_workstream because that test requires the current branch to be in .dev/workstreams.json (integration-owned). The SEARCH-CORE-01 code is not built or run by shared CI and is not implicated. The base docs/implementation_status.md records M17 BLOCKED, M19 NOT STARTED (active M19 Search code exists only on codex/m19-m22-continuation), and M30 NOT STARTED, so the runtime gate is closed. No 0.1, shared registry, root workspace, CI, or other workstream file was changed. UPDATE 2026-10-02T04:15:01Z: by explicit user direction the registration-proposal registry_entry was applied to .dev/workstreams.json on this dedicated branch (notify-01/job-01/ident-01 precedent). Locally ./nagi dev verify now reports 20 registered workstreams and 13 state files, and ./nagi dev status and ./nagi dev resume resolve search-core-01, which are the exact paths asserted by the failing nagi-cli test. The shared CI rerun on the registration commit is pending and is recorded in the next state update. UPDATE 2026-10-02T04:25:16Z: shared CI run 36963725628 on 8c29bcf completed with ubuntu-host and windows-launcher SUCCESS (including Test host-compatible workspace and Verify development workstream state); nagi-target was skipped by target classification. The earlier registration-only failure is resolved. A fresh clone of 8c29bcf with an empty CARGO_HOME passed the 29-test suite with --locked after one git fetch of the pinned revision. CLIP-01 already exists on codex/0.2-clip-01, owned by another active session, and was not touched; both branches append one row to .dev/workstreams.json, so integration needs a trivial keep-both merge. Status remains PARTIAL because 0.2-M19 target/runtime acceptance is gated on M30 PASS and the canonical nagi-search contract is not yet on the integration base. UPDATE 2026-10-02T04:32:59Z: codex/integration-next-phase advanced to b3076db (CLIP-01 integration checkpoint plus a standalone clipboard CI step). It was merged into this branch with a merge commit; the only conflict was the registry tail and both clip-01 and search-core-01 rows were kept unchanged. After the merge the diff against the integration base is exactly the 13 owned files plus the search-core-01 registry row; ./nagi dev verify reports 21 registered workstreams and 14 state files; the 29-test suite still passes. UPDATE 2026-10-02T04:41:04Z: shared CI run 36965039510 on the post-merge head 7946c76 completed SUCCESS (ubuntu-host including the Standalone clipboard core (CLIP-01) step and Verify development workstream state; windows-launcher; nagi-target skipped). All in-scope SEARCH-CORE-01 work is complete; remaining items are Integration Owner actions or gated on M30 PASS. UPDATE 2026-10-02T04:45:02Z: INTEGRATION CHECKPOINT. At the repository owner's direction the integration owner merged codex/0.2-search-core-01 (7e16fce) into codex/integration-next-phase as c0a5bda on top of dec6e7d (no conflicts; diff = the 13 owned files plus the search-core-01 registry row), added the 'Standalone search core (SEARCH-CORE-01)' ubuntu-host CI step (935649e), and added the verbatim master 0.2 spec and Parallel Execution Rules under docs/0.2/ (bb2a66c; SHA-256 096eeba4.../3c5ec3f1...). On the integrated tree the search-core suite (29), the clipboard-core suite (27), rustfmt, warning-denied Clippy, and ./nagi dev verify (21 workstreams, 14 states) pass. dec6e7d changed crates/nagi-model on the base only by adding a media-type grammar; AppId/ObjectId/WorkspaceId/AppSessionId definitions are identical to the pinned revision. Status stays PARTIAL: 0.2-M19 target/runtime acceptance is gated on M30 PASS and the canonical nagi-search crate is still not on the integration base. UPDATE 2026-10-02T04:57:03Z: integration CI run 36965918565 on a3cc23f completed SUCCESS, including the new 'Standalone search core (SEARCH-CORE-01)' step (fmt, -D warnings Clippy, 29 tests with a network fetch of the pinned revision), Standalone clipboard core (CLIP-01), host workspace tests, focused M0 acceptance, and Verify development workstream state on ubuntu-host and windows-launcher; nagi-target skipped. The integration checkpoint is complete. UPDATE 2026-10-02T05:05:56Z: the repository owner decided, recorded in docs/decisions/ADR-0014-search-provider-identity-and-m19-ownership.md, that the canonical Search provider identity is AppId (Home/Search ProviderId becomes a label mapped to one AppId at adoption) and that SEARCH-CORE-01 owns the 0.2-M19 Search/Index provider boundary while platform-apis keeps the Workspace part of M19. No code change was needed.",
+    "commands": [
+      "git fetch origin --prune; git ls-remote --heads origin",
+      "git worktree add -b codex/0.2-search-core-01 ~/.codex/worktrees/search-core-01/NagiOS origin/codex/integration-next-phase",
+      "git show origin/codex/m19-m22-continuation:user/nagi-search/src/{lib,model,search,store}.rs (read-only audit)",
+      "git show origin/codex/integration-next-phase:user/nagi-home-search/src/search.rs (read-only audit)",
+      "cargo fmt --manifest-path crates/nagi-search-core/Cargo.toml -- --check",
+      "cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked --offline",
+      "mutation check: sed-edit src/index.rs (4 variants), cargo test -q, restore from backup",
+      "./nagi dev verify",
+      "python3 jsonschema validation of state.json against .dev/schemas/workstream-state.schema.json",
+      "./nagi dev verify in a scratch copy with the proposed registry_entry applied",
+      "git diff --cached --check",
+      "python3 owned-path audit of staged files against registration-proposal allowed/forbidden paths",
+      "GitHub Actions run 36958301027 jobs and failed-job logs (ubuntu-host, windows-launcher)",
+      "./nagi dev status (local reproduction of the CI failure message)",
+      "cargo test -p nagi-cli --locked --offline --test cli (local; not runnable: third_party/cc-nagi absent until Servo bootstrap fetch)",
+      "python3 append registry_entry to .dev/workstreams.json (format-preserving, duplicate-checked)",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume",
+      "GitHub Actions run 36963725628 jobs (latest)",
+      "git clone --branch codex/0.2-search-core-01 (fresh) && CARGO_HOME=<empty> cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked",
+      "git ls-remote origin refs/heads/codex/0.2-clip-01; git log origin/codex/0.2-clip-01 (read-only)",
+      "git merge --no-ff origin/codex/integration-next-phase (b3076db); keep-both registry resolution",
+      "git diff --name-only origin/codex/integration-next-phase",
+      "./nagi dev verify",
+      "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked --offline",
+      "GitHub Actions run 36965039510 (latest jobs)",
+      "git merge --no-ff codex/0.2-search-core-01 into codex/integration-next-phase (dec6e7d)",
+      "cargo fmt/clippy/test --manifest-path crates/nagi-search-core/Cargo.toml --locked (integrated tree)",
+      "cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked (integrated tree)",
+      "./nagi dev verify; ./nagi dev status (codex/integration-next-phase)",
+      "git diff de3092c6 HEAD -- crates/nagi-model",
+      "GitHub Actions run 36965918565 (latest jobs)",
+      "docs/decisions/ADR-0014-search-provider-identity-and-m19-ownership.md (owner decision record)"
+    ],
+    "tests": [
+      {
+        "name": "SEARCH-CORE-01 focused host acceptance",
+        "command": "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "29 passed, 0 failed (tests/search-core/acceptance.rs). Covers insert/query with provenance, idempotent replay without rewrites, revision replacement, removal, stale/duplicate/conflicting revisions, no resurrection after delete, multiple providers and source scoping, scope before limit, provider isolation, payload source-claim spoofing, fail-closed and revoked provider authority, provider unregistration propagation, bounded result count, deterministic ordering and ties, empty index/query, malformed and oversized records, invalid scopes, denied-document non-leakage (results, counts, rationale, ordering, limit compared to a baseline index without the denied objects), out-of-scope non-leakage, temporal/metadata filters, ledger reopen, unsupported ledger version, 11 corrupt-snapshot cases, ledger persist/load and index write failures, and bit-for-bit deterministic repeated runs."
+      },
+      {
+        "name": "SEARCH-CORE-01 formatting",
+        "command": "cargo fmt --manifest-path crates/nagi-search-core/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Crate sources and the acceptance target are rustfmt-clean with the repository-pinned nightly toolchain."
+      },
+      {
+        "name": "SEARCH-CORE-01 warning-denied Clippy",
+        "command": "cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets, including the acceptance test, pass Clippy with warnings denied."
+      },
+      {
+        "name": "SEARCH-CORE-01 mutation sensitivity",
+        "command": "sed-mutate crates/nagi-search-core/src/index.rs; cargo test -q; restore",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Removing the provider-scope check failed 3 tests; removing the source-claim check failed 1; disabling the stale-revision check failed 3; dropping caller visibility failed the non-leakage test. The source was restored and diff-verified before commit."
+      },
+      {
+        "name": "DF-01 repository verifier",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 19 registered workstreams, 12 state files validated; branch codex/0.2-search-core-01. This workstream is unregistered, so the root verifier does not load its state; see the next two checks."
+      },
+      {
+        "name": "DF-01 state schema",
+        "command": "python3 -c 'jsonschema.validate(state, .dev/schemas/workstream-state.schema.json)'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "state.json validates against the DF-01 workstream-state JSON schema (draft 2020-12)."
+      },
+      {
+        "name": "DF-01 verifier with proposed registration applied (scratch copy)",
+        "command": "./nagi dev verify (scratch copy with registry_entry appended to .dev/workstreams.json)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 20 registered workstreams, 13 state files validated; branch codex/0.2-search-core-01. The scratch copy was discarded; the shared registry in this branch is unchanged."
+      },
+      {
+        "name": "Shared CI unregistered-branch reproduction",
+        "command": "./nagi dev status",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "FAIL branch `codex/0.2-search-core-01` is not registered in .dev/workstreams.json; create/assign a workstream before using dev status. Same message as the CI test panic. The same command passed in the scratch copy with the proposed registry_entry applied."
+      },
+      {
+        "name": "DF-01 verifier/status/resume after registration",
+        "command": "./nagi dev verify; ./nagi dev status; ./nagi dev resume",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 20 registered workstreams, 13 state files validated; branch codex/0.2-search-core-01. status reports Workstream: search-core-01 (Codex SEARCH-CORE-01 workstream); resume reports Next action."
+      },
+      {
+        "name": "Fresh-clone reproducible build",
+        "command": "CARGO_HOME=<empty> cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Fresh clone at 8c29bcf, empty Cargo home: one git fetch of RT-NISH/NagiOS@de3092c6, then 29 passed, 0 failed with --locked."
+      },
+      {
+        "name": "Post-merge verification on integration b3076db",
+        "command": "./nagi dev verify; ./nagi dev status; cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS development state: 21 registered workstreams, 14 state files validated; status resolves search-core-01; 29 passed, 0 failed."
+      },
+      {
+        "name": "Integrated-tree verification",
+        "command": "cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked; cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked; ./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "On codex/integration-next-phase c0a5bda: search-core 29 passed, clipboard-core 27 passed, fmt and -D warnings Clippy clean, PASS development state: 21 registered workstreams, 14 state files validated."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36965918565,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36965918565",
+        "head_sha": "a3cc23f1eb0094d6b0c1b5ff953b4665d3672c25",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Integration head with SEARCH-CORE-01: ubuntu-host (format, parser regression, lint, build, host workspace tests, Standalone clipboard core (CLIP-01), Standalone search core (SEARCH-CORE-01), focused M0 acceptance, Verify development workstream state) and windows-launcher succeeded; nagi-target skipped."
+      },
+      {
+        "run_id": 36965039510,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36965039510",
+        "head_sha": "7946c76c7bfee0ead8cb8079b243ccc467473939",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Post-merge head on integration b3076db: target_classification, ubuntu-host (format, parser regression, lint, build, host workspace tests, Standalone clipboard core (CLIP-01), focused M0 host acceptance, Verify development workstream state), and windows-launcher succeeded; nagi-target skipped (no target-sensitive change). nagi-search-core is not yet in shared CI; see ci_proposal."
+      },
+      {
+        "run_id": 36963725628,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36963725628",
+        "head_sha": "8c29bcf4ff6b6bf4debc4157817773f4bfa67d93",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "target_classification, ubuntu-host, and windows-launcher succeeded: format, CI parser regression, lint, build, host workspace tests (including the nagi-cli registered-branch test that failed in 36958301027), focused M0 host acceptance, Windows launcher checks, and Verify development workstream state. nagi-target skipped (no target-sensitive change). The standalone nagi-search-core suite is outside the root workspace and is evidenced by local and fresh-clone runs."
+      },
+      {
+        "run_id": 36958301027,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36958301027",
+        "head_sha": "7a422e9dab31a16b7502b708a1901f3d317346f5",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "target_classification passed. ubuntu-host: format, CI parser regression, lint, and build passed; Test host-compatible workspace failed only in nagi-cli tests/cli.rs dev_status_resume_and_verify_read_the_registered_workstream (25 passed, 1 failed) with CliError code 4: branch codex/0.2-search-core-01 is not registered in .dev/workstreams.json. windows-launcher failed in the same test with the same message. Later steps (M0 acceptance, workstream state verification) were skipped; nagi-target was skipped. The standalone nagi-search-core crate is outside the root workspace and was not compiled by CI."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md on codex/integration-next-phase b3076db (merged); .dev/workstreams/integration-next-phase/state.json; Nagi_OS_0.2_Codex_Implementation_Spec.md section 2.1 and 0.2-M00",
+    "last_checked_at": "2026-10-02T05:05:56Z",
+    "activation_requirement": "Nagi 0.1 M30 PASS, an explicit 0.2 release boundary, and an Integration Owner checkpoint naming SEARCH-CORE-01 before any daemon, IPC, guest persistence, provider adoption, UI, capability wiring, or target work."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [
+      "Run 36958301027 failed only because the branch was unregistered; fixed by applying the proposed registry row under explicit user direction."
+    ],
+    "do_not_try": [
+      "Do not copy, edit, or fork user/nagi-search or crates/nagi-model; consume the canonical contract and bump the pinned revision instead.",
+      "Do not edit .dev/schemas/**, root Cargo.toml/Cargo.lock, or .github/workflows/** from this branch; the only shared-file change is the user-directed registry row for search-core-01.",
+      "Do not add a second lexical/ranking index or body-text matcher here; propose it to the canonical nagi-search owner.",
+      "Do not treat MetadataRecord.source_app or other payload fields as caller or provider identity.",
+      "Do not mark PASS on host evidence alone while 0.2-M19 target acceptance is gated.",
+      "Do not weaken or skip the nagi-cli branch-registration test to turn this branch green.",
+      "Do not push empty commits or re-run CI expecting a different result before the registry row exists."
+    ]
+  },
+  "next_action": "No owned work remains before the gate. When user/nagi-search lands on the integration base, switch the git pins in crates/nagi-search-core/Cargo.toml to path dependencies and re-run the acceptance suite. After Nagi 0.1 M30 PASS and a checkpoint naming SEARCH-CORE-01: bind ProviderAuthority to the Capability search.provider decision and VisibilityFilter to authenticated caller/session context, add guest durable backends, wire service IPC, and adopt Files/Notes/Activity/Wayback providers; Home/Search adoption maps each ProviderId to one AppId per ADR-0014.",
+  "acceptance_criteria": [
+    "HOST PASS: insert then query returns the object with provider and revision provenance.",
+    "HOST PASS: upsert of the same identity and revision is idempotent; a newer revision replaces content incrementally.",
+    "HOST PASS: removal is revisioned and propagates to search and lookup; older or equal-revision replays cannot resurrect removed content.",
+    "HOST PASS: stale, duplicate, and conflicting revisions are classified deterministically.",
+    "HOST PASS: multiple providers are searchable; provider scope is applied before ranking and the result limit; providers cannot write or remove each other's objects.",
+    "HOST PASS: provider identity comes from the trusted binding, not payload fields; provider authority fails closed and revocation applies immediately.",
+    "HOST PASS: result count is bounded by the canonical limit; ordering and tie-breaking are deterministic across repeated runs.",
+    "HOST PASS: empty index and filter-only queries behave deterministically; blank text, malformed, oversized, and tombstoned inputs are rejected without side effects.",
+    "HOST PASS: denied and out-of-scope objects do not affect returned results, counts, rationale, ordering, or limits, and lookups of them are indistinguishable from unknown IDs.",
+    "HOST PASS: lexical and temporal/metadata search works with no AI or embedding provider present.",
+    "HOST PASS: the ledger snapshot is versioned and checksummed; unknown versions and corrupt, truncated, or oversized snapshots are rejected; persistence failures are reported truthfully and are recoverable.",
+    "GATED: guest durable index/ledger survives restart on the Nagi target.",
+    "GATED: provider-based Search service is reachable through system-service IPC with authenticated caller/session binding.",
+    "GATED: ProviderAuthority is bound to the Capability/Permissions search.provider decision and VisibilityFilter to real caller authority.",
+    "GATED: Files/Notes/Activity/Wayback providers adopt the ingestion boundary and Home/Search queries real providers."
+  ],
+  "deferred": [
+    "Target/QEMU search daemon and system-service IPC endpoint.",
+    "Guest durable metadata index and ledger backends.",
+    "Production provider registration and adoption by Files, Notes, Activity, Wayback, Settings, installed apps, and Albert.",
+    "Home/Search results UI, global search shell behavior, and Albert runtime integration.",
+    "Production capability enforcement wiring for search.provider and caller visibility.",
+    "Semantic/hybrid search and model inference (owned by the 0.1 M19/M24 semantic path).",
+    "Lexical body-text indexing (proposal to the canonical nagi-search owner).",
+    "Workspace membership/reference APIs through the provider boundary (canonical in nagi-search).",
+    "Shared CI job for this standalone crate (proposal only).",
+    "Running the pinned 0.1 nagi-search unit suite: in this cloud worktree a read-only checkout of de3092c6 fails before compiling with `failed to load source for dependency cc`, because that revision's root workspace patches cc to an unfetched third_party source. This is a 0.1-line environment matter outside SEARCH-CORE-01 ownership; the pinned crate itself compiles and its behavior is exercised through this suite."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 workstream registry/state schema and ./nagi dev verify",
+      "version": "schema_version 1",
+      "status": "PASS: state validates against the schema and the verifier with the proposed registration applied"
+    },
+    {
+      "workstream_id": "integration-next-phase",
+      "contract": "Registry registration, canonical nagi-search integration onto the 0.2 base, shared CI",
+      "version": "registration-proposal.json proposal_version 1",
+      "status": "PARTIAL: integrated, CI step and docs/0.2 applied, ADR-0014 recorded; canonical nagi-search integration remains"
+    },
+    {
+      "workstream_id": "platform-apis",
+      "contract": "0.2-M19 Search/Index/Workspace platform ownership",
+      "version": "master spec 0.2-M19",
+      "status": "DECIDED (ADR-0014): SEARCH-CORE-01 owns the M19 Search/Index provider boundary; platform-apis keeps Workspace"
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "search.provider platform capability and caller visibility decisions behind ProviderAuthority/VisibilityFilter",
+      "version": "SEARCH_CORE_CONTRACT_VERSION 1 seam; production binding not started",
+      "status": "GATED: test-only mocks in use"
+    },
+    {
+      "workstream_id": "first-party-integration",
+      "contract": "Home/Search coordinator and provider identity reconciliation (nagi-home-search ProviderId vs AppId)",
+      "version": "nagi-home-search 0.1.0 on codex/integration-next-phase",
+      "status": "DECIDED (ADR-0014): AppId is canonical; Home/Search ProviderId maps to one AppId at adoption (gated)"
+    }
+  ]
+}
