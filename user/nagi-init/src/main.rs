@@ -101,6 +101,8 @@ mod action_ipc;
     ))
 ))]
 mod boot;
+#[cfg(all(target_os = "nagi", feature = "consent-dialog-acceptance"))]
+mod consent_dialog;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod desktop;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
@@ -152,8 +154,17 @@ mod security;
 mod shell;
 #[cfg(all(
     target_os = "nagi",
-    any(feature = "isolated-process-acceptance", feature = "m19-search-ipc")
+    any(
+        feature = "isolated-process-acceptance",
+        feature = "m19-search-ipc",
+        feature = "consent-dialog-acceptance"
+    )
 ))]
+// The consent dialog acceptance uses only the launch and consent paths.
+#[cfg_attr(
+    not(any(feature = "isolated-process-acceptance", feature = "m19-search-ipc")),
+    allow(dead_code)
+)]
 mod supervisor;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod ui;

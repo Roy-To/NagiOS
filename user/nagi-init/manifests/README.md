@@ -10,7 +10,7 @@ manifest (ADR 0049).
 | Manifest | ELF | Grants |
 | --- | --- | --- |
 | `org.nagi.acceptance.isolated-app` | `nagi-isolated-app` | none |
-| `org.nagi.acceptance.faulting-app` | `nagi-faulting-app` | none |
+| `org.nagi.acceptance.faulting-app` | `nagi-faulting-app` | `acceptance.consent-probe` (ADR 0051/0053 consent probes) |
 | `org.nagi.acceptance.m19-search` | `nagi-m19-search-client` and `nagi-action-client` | `search.query`, `files.search` |
 | `org.nagi.acceptance.m22-files` | `nagi-action-client` | `files.move`, `files.copy` |
 | `org.nagi.acceptance.foreign-client` | `nagi-m19-search-client` and `nagi-action-client` | `search.query` |

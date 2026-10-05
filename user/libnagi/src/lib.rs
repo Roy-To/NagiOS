@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod boot;
+pub mod consent;
 pub mod launch;
 pub mod security;
 pub mod service;

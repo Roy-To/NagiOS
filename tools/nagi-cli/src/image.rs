@@ -2950,6 +2950,26 @@ fn qmp_exchange_response(
     }
 }
 
+/// A QMP `screendump` command that writes a PNG to `path`. Placed in an
+/// acceptance event list, it captures the guest before later input.
+pub fn qmp_screendump_command(path: &Path) -> Result<String, String> {
+    let path = path.to_str().ok_or_else(|| {
+        format!(
+            "QEMU screenshot path is not valid UTF-8: {}",
+            path.display()
+        )
+    })?;
+    let filename = qmp_json_quote(&external_path(Path::new(path)));
+    Ok(format!(
+        r#"{{"execute":"screendump","arguments":{{"filename":{filename},"format":"png"}}}}"#
+    ))
+}
+
+/// Check that `path` holds a PNG screenshot QEMU wrote.
+pub fn validate_screenshot(path: &Path) -> Result<(), String> {
+    validate_png_screenshot(path)
+}
+
 fn qmp_json_quote(value: &str) -> String {
     use std::fmt::Write as _;
 

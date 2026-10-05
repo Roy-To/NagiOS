@@ -36,6 +36,7 @@ use crate::image::{
     write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
     ImageLayout, QemuConfig, QmpEventStage, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
+use crate::image::{qmp_screendump_command, validate_screenshot};
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
 use crate::model_artifact::{validate_m26_model_lock, validate_m26_model_manifest, M26Model};
@@ -84,7 +85,13 @@ struct DesktopAcceptanceConfig {
     required_markers: &'static [&'static str],
     restart_marker: Option<&'static str>,
     restart_log_name: Option<&'static str>,
+    /// What the restart marker proves, for the PASS summary.
+    restart_summary: &'static str,
     unique_run_artifacts: bool,
+    /// Build init with the signed acceptance packages (ADR 0049).
+    acceptance_packages: bool,
+    /// Also capture the first desktop frame, before any input is sent.
+    ready_screenshot_name: Option<&'static str>,
 }
 
 /// Clipboard steps, each sent after the guest reports the previous one:
@@ -300,6 +307,7 @@ pub enum Command {
     M27,
     M30,
     IsolatedProcess,
+    Consent,
     M20Granite,
     M20GraniteInference,
     M20LlamaSmoke,
@@ -514,6 +522,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m27" => Command::M27,
         "m30" => Command::M30,
         "isolated-process" => Command::IsolatedProcess,
+        "consent" => Command::Consent,
         "m20-granite" => Command::M20Granite,
         "m20-granite-inference" => Command::M20GraniteInference,
         "m20-llama-smoke" => Command::M20LlamaSmoke,
@@ -586,6 +595,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M27
         | Command::M30
         | Command::IsolatedProcess
+        | Command::Consent
         | Command::Clean
         | Command::Fmt
         | Command::Lint => args.len() == 1,
@@ -758,6 +768,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M19 => execute_m19(root, probe),
         Command::M22 => execute_m22(root, probe),
         Command::IsolatedProcess => execute_isolated_process(root, probe),
+        Command::Consent => execute_consent(root, probe),
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
@@ -4520,6 +4531,28 @@ const M29_SETTINGS_EVENTS: [&str; 10] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"spc"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"spc"}}}]}}"#,
 ];
 
+/// ADR 0053 dialog input. The pointer starts at (80, 58) inside the dialog.
+/// A press on Deny released elsewhere must decide nothing; then Tab moves
+/// focus Deny -> Allow once -> Allow and Enter (press and release) allows.
+const CONSENT_DIALOG_EVENTS: [&str; 7] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":78}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":-40}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":false}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+];
+
+const CONSENT_DIALOG_REQUIRED_MARKERS: &[&str] = &[
+    "Nagi boot lock READY",
+    "Nagi M10 desktop READY",
+    "Nagi consent dialog SHOWN app=org.nagi.acceptance.faulting-app capability=acceptance.consent-probe",
+    "Nagi consent dialog decision PASS decision=allow",
+    "Nagi consent decision persisted PASS",
+    "Nagi consent dialog acceptance PASS",
+];
+
 const M10_DESKTOP_REQUIRED_MARKERS: &[&str] = &[
     "Nagi boot stage PLATFORM 15",
     "Nagi boot stage CORE_SERVICES 30",
@@ -4693,7 +4726,10 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             required_markers: M10_DESKTOP_REQUIRED_MARKERS,
             restart_marker: None,
             restart_log_name: None,
+            restart_summary: "",
             unique_run_artifacts: false,
+            acceptance_packages: false,
+            ready_screenshot_name: None,
         },
         &M10_DESKTOP_EVENTS,
     )
@@ -4720,9 +4756,75 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             required_markers: M29_SETTINGS_REQUIRED_MARKERS,
             restart_marker: Some("Nagi M29 settings preference restored PASS locale=ja-JP"),
             restart_log_name: Some("m29-settings-persistent-restart.log"),
+            restart_summary: "the selected system language was restored",
             unique_run_artifacts: true,
+            acceptance_packages: false,
+            ready_screenshot_name: None,
         },
         &events,
+    )
+}
+
+/// ADR 0053: the desktop's OS-owned consent dialog answers a signed
+/// application's grant request through real QMP input, and the persisted
+/// `Allow` holds after a restart without a new prompt.
+fn execute_consent(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    execute_desktop_acceptance(
+        root,
+        probe,
+        DesktopAcceptanceConfig {
+            label: "consent",
+            features: "consent-dialog-acceptance",
+            image_name: "nagi-0.1-consent-dialog.img",
+            persistent_disk_name: "nagi-0.1-consent-dialog-user-data.img",
+            vars_name: "nagi-0.1-consent-dialog-vars.fd",
+            first_log_name: "consent-dialog-first-boot.log",
+            run_log_name: "consent-dialog.log",
+            evidence_prefix: "consent-dialog",
+            screenshot_name: "nagi-consent-dialog-answered.png",
+            acceptance_marker: "Nagi consent dialog acceptance PASS",
+            required_markers: CONSENT_DIALOG_REQUIRED_MARKERS,
+            restart_marker: Some("Nagi consent decision restored PASS decision=allow"),
+            restart_log_name: Some("consent-dialog-restart.log"),
+            restart_summary: "the persisted Allow decision was restored without a prompt",
+            unique_run_artifacts: true,
+            acceptance_packages: true,
+            ready_screenshot_name: Some("nagi-consent-dialog-shown.png"),
+        },
+        &CONSENT_DIALOG_EVENTS,
+    )
+}
+
+/// Build a desktop init image that embeds the signed acceptance packages.
+fn execute_image_with_acceptance_packages(
+    root: &Path,
+    features: &str,
+    image_name: &str,
+) -> CommandResult {
+    let packages = match build_isolated_apps(root) {
+        Ok(directory) => directory,
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
+        write_isolated_apps_fat12_image,
+        ImageBuildFeatures::default(),
     )
 }
 
@@ -4769,7 +4871,11 @@ fn execute_desktop_acceptance(
     let restart_log_name = acceptance.restart_log_name.map(|name| {
         scoped_artifact_name(name, &screenshot_run_id, acceptance.unique_run_artifacts)
     });
-    let image_result = execute_image_with_features(root, Some(acceptance.features), &image_name);
+    let image_result = if acceptance.acceptance_packages {
+        execute_image_with_acceptance_packages(root, acceptance.features, &image_name)
+    } else {
+        execute_image_with_features(root, Some(acceptance.features), &image_name)
+    };
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -4796,6 +4902,20 @@ fn execute_desktop_acceptance(
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let screenshot_path = screenshot_directory.join(acceptance.screenshot_name);
+    let ready_screenshot_path = acceptance
+        .ready_screenshot_name
+        .map(|name| screenshot_directory.join(name));
+    let mut event_commands: Vec<String> = Vec::with_capacity(events.len() + 1);
+    if let Some(path) = &ready_screenshot_path {
+        match qmp_screendump_command(path) {
+            Ok(command) => event_commands.push(command),
+            Err(error) => {
+                return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label))
+            }
+        }
+    }
+    event_commands.extend(events.iter().map(|event| (*event).to_owned()));
+    let event_commands: Vec<&str> = event_commands.iter().map(String::as_str).collect();
     let image_path = artifacts.join(image_name);
     let persistent_disk = artifacts.join(persistent_disk_name);
     let vars_copy = artifacts.join(vars_name);
@@ -4861,7 +4981,7 @@ fn execute_desktop_acceptance(
     let outcome = match run_qemu_gui_with_events_and_screenshot(
         &config,
         "Nagi M10 desktop READY",
-        events,
+        &event_commands,
         &screenshot_path,
     ) {
         Ok(status) => status,
@@ -4905,6 +5025,14 @@ fn execute_desktop_acceptance(
                 desktop_log.display()
             ),
         );
+    }
+    if let Some(path) = &ready_screenshot_path {
+        if let Err(error) = validate_screenshot(path) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: first-frame screenshot: {error}", acceptance.label),
+            );
+        }
     }
     let Some(ready_after) = outcome.ready_after else {
         return failure(
@@ -4984,10 +5112,18 @@ fn execute_desktop_acceptance(
         desktop_log.display(),
         screenshot_path.display(),
     )];
+    if let Some(path) = &ready_screenshot_path {
+        lines.push(format!(
+            "PASS {}: first desktop frame captured before input (screenshot {})",
+            acceptance.label,
+            path.display()
+        ));
+    }
     if let Some(restart_log) = restart_log_path {
         lines.push(format!(
-            "PASS {}: the selected system language was restored after a QEMU restart (log {})",
+            "PASS {}: {} after a QEMU restart (log {})",
             acceptance.label,
+            acceptance.restart_summary,
             restart_log.display(),
         ));
     }
@@ -9677,7 +9813,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, consent, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }
@@ -10015,6 +10151,8 @@ mod tests {
     #[test]
     fn m29_command_selects_the_settings_acceptance() {
         assert_eq!(parse_command(&["m29".into()]), Ok(Command::M29));
+        assert_eq!(parse_command(&["consent".into()]), Ok(Command::Consent));
+        assert!(parse_command(&["consent".into(), "extra".into()]).is_err());
         assert!(parse_command(&["m29".into(), "extra".into()]).is_err());
     }
 
