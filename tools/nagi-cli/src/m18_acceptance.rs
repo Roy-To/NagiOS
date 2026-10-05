@@ -17,6 +17,12 @@ const PERMISSION_LINES: [&str; 3] = [
     "Nagi M18 site permission ALLOWED_BY_USER",
     "Nagi M18 permission PASS",
 ];
+/// M23: the public Browser Context API over live Servo state is denied until
+/// the user enables sharing, then returns the current page.
+const BROWSER_CONTEXT_LINES: [&str; 2] = [
+    "Nagi M23 browser context DENIED without user sharing",
+    "Nagi M23 live browser context PASS",
+];
 /// The embedder-loaded fixture must reach the chrome as content navigation
 /// before the clipboard steps.
 const CONTENT_NAVIGATION_LINE: &str = "Nagi M18 browser content navigation PASS";
@@ -226,9 +232,10 @@ fn validate_clipboard_evidence(
     summary: usize,
 ) -> Result<(), String> {
     let mut previous = last_page;
-    for expected in PERMISSION_LINES
+    for expected in BROWSER_CONTEXT_LINES
         .iter()
         .copied()
+        .chain(PERMISSION_LINES.iter().copied())
         .chain(std::iter::once(CONTENT_NAVIGATION_LINE))
         .chain(CLIPBOARD_LINES.iter().copied())
         .chain(IME_LINES.iter().copied())
@@ -300,6 +307,7 @@ mod tests {
             ));
         }
         lines.push(STORAGE_SAVE_LINE.to_owned());
+        lines.extend(BROWSER_CONTEXT_LINES.iter().map(|line| (*line).to_owned()));
         lines.extend(PERMISSION_LINES.iter().map(|line| (*line).to_owned()));
         lines.push(CONTENT_NAVIGATION_LINE.to_owned());
         lines.extend(CLIPBOARD_LINES.iter().map(|line| (*line).to_owned()));
@@ -344,6 +352,16 @@ mod tests {
         assert!(validate_serial_log(&missing)
             .unwrap_err()
             .contains("missing clipboard or IME evidence"));
+    }
+
+    #[test]
+    fn requires_live_browser_context_evidence() {
+        for line in BROWSER_CONTEXT_LINES {
+            let missing = valid_serial().replace(&format!("{line}\n"), "");
+            assert!(validate_serial_log(&missing)
+                .unwrap_err()
+                .contains("missing clipboard or IME evidence"));
+        }
     }
 
     #[test]

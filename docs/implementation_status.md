@@ -9690,3 +9690,27 @@ tests (two new), `nagi-cli` 259, warning-denied Clippy.
 M19 remains `PARTIAL`: continuous synchronization with production
 Files/page producers is still open; Search indexes files when its producer
 runs.
+
+## M23 live Browser Context from Servo (2026-10-05)
+
+Albert now implements the public `PublicBrowserContextApi` against live Servo
+state, closing the first item of the M23 workstream's remaining work (the API
+had only a test fixture). `LiveBrowserContext` reads the active WebView's URL
+and title and, as requested, `document.body.innerText` and the current
+selection through Servo's `evaluate_javascript`, each bounded in time; the
+result reaches `nagi-ai` as an untrusted snapshot that `ContextResolver`
+wraps as untrusted context. A host-tested `ContextSharingPolicy` denies every
+caller until the user enables sharing, and then serves only the Nagi Bar
+identity (`AppId::from_identifier(b"org.nagi.bar")`).
+
+The M18 scenario resolves the Nagi Bar's request on `example.net` through
+`ContextResolver::resolve_with_browser_api`: it must be denied while sharing
+is off (`Nagi M23 browser context DENIED without user sharing`), then return
+the real title, URL, and page text once sharing is enabled
+(`Nagi M23 live browser context PASS`, 1301 visible bytes). The acceptance
+enables sharing on the user's behalf; there is no settings UI for it yet.
+
+M23 stays `PARTIAL`: the Nagi Bar UI, authenticated caller binding for the
+context request, and the "Summarize this page" acceptance (which needs M20
+guest inference) remain. `nagi-albert` 91 tests, `nagi-cli` 260 tests,
+warning-denied Clippy.

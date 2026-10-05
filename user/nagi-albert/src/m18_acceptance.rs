@@ -96,6 +96,7 @@ mod guest {
     use url::Url;
 
     use super::{tls_verified, Ordering, HTTPS_PAGES, SERVO_CONFIG_DIR, VERIFIED_HOST_MASK};
+    use crate::assistant_context::{page_snapshot, ContextSharingPolicy, NAGI_BAR_APP_ID};
     use crate::browser_state::{BrowserState, NavigationEventResult};
     use crate::chrome_surface::{FilePickerView, PAGE_TOP};
     use crate::clipboard::{
@@ -122,6 +123,7 @@ mod guest {
     use nagi_clipboard::{ClipboardEndpoint, ClipboardError, GestureScope, GestureSource};
     use nagi_ime::{ImeKey, ImeResponse, InputMethod, InputMode, KanaCandidates};
     use nagi_localization::Locale;
+    use nagi_model::ObjectId;
     use servo::{CompositionEvent, CompositionState, EmbedderControlId, ImeEvent};
 
     const WIDTH: u32 = 320;
@@ -2380,6 +2382,181 @@ mod guest {
         }
     }
 
+    /// Evaluate `script` in the page and return its string result.
+    fn evaluate_page_string(
+        servo: &Servo,
+        signal: &Arc<EventLoopSignal>,
+        webview: &WebView,
+        script: &str,
+    ) -> Option<String> {
+        let result: Rc<RefCell<Option<Option<String>>>> = Rc::new(RefCell::new(None));
+        let sink = result.clone();
+        webview.evaluate_javascript(script, move |value| {
+            let text = match value {
+                Ok(servo::JSValue::String(text)) => Some(text),
+                _ => None,
+            };
+            sink.replace(Some(text));
+        });
+        let deadline = libnagi::time_ticks().saturating_add(SETTLE_FRAME_TICKS);
+        loop {
+            servo.spin_event_loop();
+            if let Some(text) = result.borrow_mut().take() {
+                return text;
+            }
+            if libnagi::time_ticks() >= deadline {
+                return None;
+            }
+            yield_guest_workers(signal);
+        }
+    }
+
+    /// Albert's live implementation of the public Browser Context API over
+    /// the active Servo WebView.
+    struct LiveBrowserContext<'a> {
+        servo: &'a Servo,
+        signal: &'a Arc<EventLoopSignal>,
+        runtime: &'a TabRuntime,
+        policy: ContextSharingPolicy,
+    }
+
+    impl nagi_ai::PublicBrowserContextApi for LiveBrowserContext<'_> {
+        fn current_page_context(
+            &mut self,
+            request: nagi_ai::BrowserContextRequest,
+        ) -> Result<Option<nagi_ai::BrowserPageSnapshot>, nagi_ai::BrowserContextApiError> {
+            self.policy.check(request.caller())?;
+            let webview = &self.runtime.webview;
+            let Some(url) = webview.url() else {
+                return Ok(None);
+            };
+            let selected = if request.includes_selected_text() {
+                evaluate_page_string(
+                    self.servo,
+                    self.signal,
+                    webview,
+                    "String(window.getSelection ? window.getSelection() : '')",
+                )
+            } else {
+                None
+            };
+            let visible = if request.includes_visible_text() {
+                let text = evaluate_page_string(
+                    self.servo,
+                    self.signal,
+                    webview,
+                    "document.body ? document.body.innerText : ''",
+                );
+                if text.is_none() {
+                    return Err(nagi_ai::BrowserContextApiError::Unavailable);
+                }
+                text
+            } else {
+                None
+            };
+            Ok(Some(page_snapshot(
+                self.runtime.id.0,
+                Some(url.to_string()),
+                webview.page_title(),
+                selected,
+                visible,
+                request.includes_selected_text(),
+                request.includes_visible_text(),
+            )))
+        }
+    }
+
+    struct NoObjectAccess;
+
+    impl nagi_ai::ContextAuthority for NoObjectAccess {
+        fn can_read_object(&self, _caller: nagi_ai::CallerIdentity, _object_id: ObjectId) -> bool {
+            false
+        }
+    }
+
+    /// Resolve the Nagi Bar's request for the current page through the
+    /// public Browser Context API against live Servo state: denied while the
+    /// user has not enabled page sharing, untrusted page text once enabled.
+    fn run_browser_context_acceptance(
+        servo: &Servo,
+        signal: &Arc<EventLoopSignal>,
+        browser_state: &BrowserState,
+        runtimes: &[TabRuntime],
+    ) {
+        let Some(runtime) = active_runtime(browser_state, runtimes) else {
+            fail(b"browser context acceptance has no active tab");
+        };
+        let request = || nagi_ai::ContextRequest {
+            caller: nagi_ai::CallerIdentity {
+                app_id: NAGI_BAR_APP_ID,
+                app_session_id: nagi_model::AppSessionId(1),
+                node_id: nagi_model::NodeId(1),
+                workspace_id: None,
+            },
+            selected_object: None,
+            candidate_objects: Vec::new(),
+        };
+        let mut api = LiveBrowserContext {
+            servo,
+            signal,
+            runtime,
+            policy: ContextSharingPolicy::disabled(),
+        };
+        match nagi_ai::ContextResolver.resolve_with_browser_api(
+            request(),
+            &NoObjectAccess,
+            &mut api,
+        ) {
+            Err(nagi_ai::BrowserContextError::ApiDenied) => {
+                let _ = libnagi::console_write(
+                    b"Nagi M23 browser context DENIED without user sharing\r\n",
+                );
+            }
+            _ => fail(b"browser context was shared without the user's policy"),
+        }
+        // The acceptance stands in for the user turning on page sharing for
+        // the assistant in Albert's trusted settings.
+        api.policy.enable_by_user();
+        let resolved = match nagi_ai::ContextResolver.resolve_with_browser_api(
+            request(),
+            &NoObjectAccess,
+            &mut api,
+        ) {
+            Ok(resolved) => resolved,
+            Err(_) => fail(b"live browser context could not be resolved"),
+        };
+        let Some(page) = resolved.browser_page() else {
+            fail(b"resolved context has no browser page");
+        };
+        let visible = page.visible_text().unwrap_or_default();
+        let mut excerpt_end = visible.len().min(80);
+        while !visible.is_char_boundary(excerpt_end) {
+            excerpt_end -= 1;
+        }
+        let trace = format!(
+            "Nagi M23 trace page title={:?} url={:?} visible={:?}\r\n",
+            page.title().unwrap_or_default(),
+            page.url().unwrap_or_default(),
+            &visible[..excerpt_end]
+        );
+        let _ = libnagi::console_write(trace.as_bytes());
+        if !page.is_untrusted()
+            || page.title() != Some("Example Domain")
+            || !visible.contains("This domain is for use in")
+            || !page
+                .url()
+                .is_some_and(|url| url.starts_with("https://example."))
+        {
+            fail(b"live browser context did not describe the current page");
+        }
+        let line = format!(
+            "Nagi M23 live browser context visible_bytes={}\r\n",
+            visible.len()
+        );
+        let _ = libnagi::console_write(line.as_bytes());
+        let _ = libnagi::console_write(b"Nagi M23 live browser context PASS\r\n");
+    }
+
     pub fn run(
         display_capability: u64,
         input_capability: u64,
@@ -2556,6 +2733,8 @@ mod guest {
             persist_browser_state(&browser_state, &mut browser_storage);
         }
 
+        // Before the permission phase, which changes the page title.
+        run_browser_context_acceptance(&servo, &signal, &browser_state, &runtimes);
         run_permission_acceptance(
             &servo,
             &context,
