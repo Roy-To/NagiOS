@@ -3450,6 +3450,7 @@ name = "nagi-cli"
 version = "0.1.0"
 dependencies = [
  "nagi-model-manager",
+ "nagi-slot-manifest",
  "serde",
  "serde_json",
  "sha2",
@@ -3604,6 +3605,14 @@ version = "0.1.0"
 dependencies = [
  "libnagi",
  "nagi-abi",
+]
+
+[[package]]
+name = "nagi-slot-manifest"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "sha2",
 ]
 
 [[package]]

@@ -448,7 +448,7 @@ pub fn write_reference_disk_qcow2(
         path,
         bootloader,
         kernel,
-        kernel,
+        SystemBSource::trusted(kernel),
         init,
         recovery_init,
     )
@@ -472,15 +472,16 @@ pub fn write_m20_model_store_fixture_reference_disk_qcow2(
         path,
         bootloader,
         kernel,
-        kernel,
+        SystemBSource::trusted(kernel),
         init,
         recovery_init,
         &files,
     )
 }
 
-/// Build a GPT acceptance image with a deliberately malformed System B
-/// kernel while keeping System A and Recovery bootable.
+/// Build a GPT acceptance image whose System B carries the same valid
+/// kernel and init as System A, but a slot manifest signed by an untrusted
+/// key (ADR 0054). The loader must refuse it although its ELF would boot.
 pub fn write_m27_gpt_broken_system_b_qcow2(
     path: &Path,
     bootloader: &[u8],
@@ -492,7 +493,10 @@ pub fn write_m27_gpt_broken_system_b_qcow2(
         path,
         bootloader,
         kernel,
-        b"invalid System B kernel",
+        SystemBSource {
+            kernel,
+            signer: &UNTRUSTED_SLOT_SIGNING_SECRET,
+        },
         init,
         recovery_init,
     )
@@ -502,7 +506,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel(
     path: &Path,
     bootloader: &[u8],
     kernel: &[u8],
-    system_b_kernel: &[u8],
+    system_b: SystemBSource<'_>,
     init: &[u8],
     recovery_init: Option<&[u8]>,
 ) -> Result<ImageLayout, String> {
@@ -510,7 +514,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel(
         path,
         bootloader,
         kernel,
-        system_b_kernel,
+        system_b,
         init,
         recovery_init,
         &[],
@@ -521,7 +525,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
     path: &Path,
     bootloader: &[u8],
     kernel: &[u8],
-    system_b_kernel: &[u8],
+    system_b: SystemBSource<'_>,
     init: &[u8],
     recovery_init: Option<&[u8]>,
     model_store_files: &[super::fat32::VolumeFile<'_>],
@@ -530,7 +534,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
         path,
         bootloader,
         kernel,
-        system_b_kernel,
+        system_b,
         init,
         recovery_init,
         ModelStoreFileSources {
@@ -560,7 +564,7 @@ pub fn write_reference_disk_qcow2_with_external_model_store_file(
         path,
         bootloader,
         kernel,
-        kernel,
+        SystemBSource::trusted(kernel),
         init,
         recovery_init,
         ModelStoreFileSources {
@@ -568,6 +572,42 @@ pub fn write_reference_disk_qcow2_with_external_model_store_file(
             external: &files,
         },
     )
+}
+
+/// System B's kernel and the key that signs its slot manifest.
+#[derive(Clone, Copy)]
+struct SystemBSource<'a> {
+    kernel: &'a [u8],
+    signer: &'a [u8; 32],
+}
+
+impl<'a> SystemBSource<'a> {
+    const fn trusted(kernel: &'a [u8]) -> Self {
+        Self {
+            kernel,
+            signer: &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET,
+        }
+    }
+}
+
+/// Rollback index of slot manifests written by this build (ADR 0054).
+pub const SLOT_ROLLBACK_INDEX: u64 = 1;
+/// A fixed key the loader does not trust, for refusal acceptances.
+const UNTRUSTED_SLOT_SIGNING_SECRET: [u8; 32] = [0x42; 32];
+
+/// The signed `SLOT.MAN` for a slot holding `kernel` and `init`.
+fn signed_slot_manifest(kernel: &[u8], init: &[u8], signer: &[u8; 32]) -> Result<Vec<u8>, String> {
+    use nagi_slot_manifest::{PayloadDigest, SlotManifest, MAX_SLOT_MANIFEST_BYTES};
+    let manifest = SlotManifest::new(
+        env!("CARGO_PKG_VERSION").as_bytes(),
+        SLOT_ROLLBACK_INDEX,
+        PayloadDigest::of(kernel),
+        PayloadDigest::of(init),
+    )
+    .map_err(|error| format!("cannot build slot manifest: {error:?}"))?;
+    let mut file = [0; MAX_SLOT_MANIFEST_BYTES];
+    let length = manifest.encode_signed(signer, &mut file);
+    Ok(file[..length].to_vec())
 }
 
 struct ModelStoreFileSources<'files, 'content> {
@@ -579,17 +619,22 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
     path: &Path,
     bootloader: &[u8],
     kernel: &[u8],
-    system_b_kernel: &[u8],
+    system_b: SystemBSource<'_>,
     init: &[u8],
     recovery_init: Option<&[u8]>,
     model_store_files: ModelStoreFileSources<'_, '_>,
 ) -> Result<ImageLayout, String> {
+    let system_b_kernel = system_b.kernel;
     if bootloader.is_empty() || kernel.is_empty() || system_b_kernel.is_empty() || init.is_empty() {
         return Err("GPT image requires non-empty loader, system kernels, and init ELF".to_owned());
     }
     let recovery_init = recovery_init
         .filter(|bytes| !bytes.is_empty())
         .ok_or_else(|| "release image requires the M27 Recovery init ELF".to_owned())?;
+    let trusted = &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET;
+    let system_a_manifest = signed_slot_manifest(kernel, init, trusted)?;
+    let system_b_manifest = signed_slot_manifest(system_b_kernel, init, system_b.signer)?;
+    let recovery_manifest = signed_slot_manifest(kernel, recovery_init, trusted)?;
     match fs::symlink_metadata(path) {
         Ok(_) => {
             return Err(format!(
@@ -641,7 +686,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
     super::gpt::write_gpt(&mut raw, REFERENCE_DISK_SECTORS, &partitions)?;
     let esp = &partitions[0];
     let system_a = &partitions[1];
-    let system_b = &partitions[2];
+    let system_b_partition = &partitions[2];
     let user_data = &partitions[3];
     let recovery = &partitions[4];
     let model_store = &partitions[5];
@@ -670,12 +715,16 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
                 path: "INIT.ELF",
                 contents: init,
             },
+            super::fat32::VolumeFile {
+                path: "SLOT.MAN",
+                contents: &system_a_manifest,
+            },
         ],
     )?;
     super::fat32::format_partition(
         &mut raw,
-        system_b.first_lba,
-        partition_sector_count(system_b)?,
+        system_b_partition.first_lba,
+        partition_sector_count(system_b_partition)?,
         "NAGI SYS B",
         &[
             super::fat32::VolumeFile {
@@ -685,6 +734,10 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
             super::fat32::VolumeFile {
                 path: "INIT.ELF",
                 contents: init,
+            },
+            super::fat32::VolumeFile {
+                path: "SLOT.MAN",
+                contents: &system_b_manifest,
             },
         ],
     )?;
@@ -704,6 +757,10 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
             super::fat32::VolumeFile {
                 path: "INIT.ELF",
                 contents: recovery_init,
+            },
+            super::fat32::VolumeFile {
+                path: "SLOT.MAN",
+                contents: &recovery_manifest,
             },
         ],
     )?;
@@ -913,6 +970,12 @@ fn build_fat12_ab_image(
         .recovery
         .map(|recovery| recovery.init)
         .unwrap_or(system_a_init);
+    // Each slot's signed manifest describes its payload exactly (ADR 0054),
+    // so a malformed payload is still refused by ELF validation.
+    let trusted = &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET;
+    let a_manifest = signed_slot_manifest(system_a_kernel, system_a_init, trusted)?;
+    let b_manifest = signed_slot_manifest(system_b_kernel, system_b_init, trusted)?;
+    let recovery_manifest = signed_slot_manifest(recovery_kernel, recovery_init, trusted)?;
     for (name, contents) in [
         ("UEFI bootloader", bootloader),
         ("System A kernel", system_a_kernel),
@@ -941,6 +1004,9 @@ fn build_fat12_ab_image(
     let b_init_clusters = clusters_for(system_b_init.len(), geometry.cluster_size());
     let recovery_kernel_clusters = clusters_for(recovery_kernel.len(), geometry.cluster_size());
     let recovery_init_clusters = clusters_for(recovery_init.len(), geometry.cluster_size());
+    let a_manifest_clusters = clusters_for(a_manifest.len(), geometry.cluster_size());
+    let b_manifest_clusters = clusters_for(b_manifest.len(), geometry.cluster_size());
+    let recovery_manifest_clusters = clusters_for(recovery_manifest.len(), geometry.cluster_size());
     let required_clusters = [
         6,
         bootloader_clusters,
@@ -950,6 +1016,9 @@ fn build_fat12_ab_image(
         b_init_clusters,
         recovery_kernel_clusters,
         recovery_init_clusters,
+        a_manifest_clusters,
+        b_manifest_clusters,
+        recovery_manifest_clusters,
     ]
     .into_iter()
     .try_fold(0usize, usize::checked_add)
@@ -977,6 +1046,10 @@ fn build_fat12_ab_image(
         allocate_chain_start(&mut next_cluster, recovery_kernel_clusters)?;
     let recovery_init_start_cluster =
         allocate_chain_start(&mut next_cluster, recovery_init_clusters)?;
+    let a_manifest_start_cluster = allocate_chain_start(&mut next_cluster, a_manifest_clusters)?;
+    let b_manifest_start_cluster = allocate_chain_start(&mut next_cluster, b_manifest_clusters)?;
+    let recovery_manifest_start_cluster =
+        allocate_chain_start(&mut next_cluster, recovery_manifest_clusters)?;
     let layout = ImageLayout {
         bootloader_start_cluster,
         bootloader_clusters,
@@ -1007,6 +1080,9 @@ fn build_fat12_ab_image(
         (b_init_start_cluster, b_init_clusters),
         (recovery_kernel_start_cluster, recovery_kernel_clusters),
         (recovery_init_start_cluster, recovery_init_clusters),
+        (a_manifest_start_cluster, a_manifest_clusters),
+        (b_manifest_start_cluster, b_manifest_clusters),
+        (recovery_manifest_start_cluster, recovery_manifest_clusters),
     ] {
         write_chain(&mut image, geometry, start_cluster, cluster_count);
     }
@@ -1064,6 +1140,13 @@ fn build_fat12_ab_image(
                 u32::try_from(recovery_init.len())
                     .map_err(|_| "Recovery init size overflow".to_owned())?,
             ),
+            (
+                short_name("SLOT", "MAN"),
+                0x20,
+                recovery_manifest_start_cluster,
+                u32::try_from(recovery_manifest.len())
+                    .map_err(|_| "slot manifest size overflow".to_owned())?,
+            ),
         ],
     );
     write_directory(
@@ -1086,6 +1169,13 @@ fn build_fat12_ab_image(
                 u32::try_from(system_a_init.len())
                     .map_err(|_| "System A init size overflow".to_owned())?,
             ),
+            (
+                short_name("SLOT", "MAN"),
+                0x20,
+                a_manifest_start_cluster,
+                u32::try_from(a_manifest.len())
+                    .map_err(|_| "slot manifest size overflow".to_owned())?,
+            ),
         ],
     );
     write_directory(
@@ -1107,6 +1197,13 @@ fn build_fat12_ab_image(
                 b_init_start_cluster,
                 u32::try_from(system_b_init.len())
                     .map_err(|_| "System B init size overflow".to_owned())?,
+            ),
+            (
+                short_name("SLOT", "MAN"),
+                0x20,
+                b_manifest_start_cluster,
+                u32::try_from(b_manifest.len())
+                    .map_err(|_| "slot manifest size overflow".to_owned())?,
             ),
         ],
     );
@@ -1141,6 +1238,14 @@ fn build_fat12_ab_image(
         geometry,
         recovery_init_start_cluster,
         recovery_init,
+    );
+    write_file(&mut image, geometry, a_manifest_start_cluster, &a_manifest);
+    write_file(&mut image, geometry, b_manifest_start_cluster, &b_manifest);
+    write_file(
+        &mut image,
+        geometry,
+        recovery_manifest_start_cluster,
+        &recovery_manifest,
     );
     Ok((image, layout))
 }

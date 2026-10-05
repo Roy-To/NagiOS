@@ -72,6 +72,15 @@ fn main() -> Status {
     let (image_selection, boot_control) = (BootImageSelection::Default, BootControlInfo::default());
     let selected_slot = image_selection.system_slot();
 
+    #[cfg(feature = "m27-ab-slot-boot-control")]
+    let slot_manifest = match verify_slot_manifest(image_selection, &boot_control) {
+        Ok(manifest) => manifest,
+        Err(message) => {
+            report_m27_trial_payload_rejection(selected_slot);
+            return fail(message);
+        }
+    };
+
     let kernel_size = match read_kernel(boot::image_handle(), image_selection) {
         Ok(size) => size,
         Err(message) => {
@@ -79,6 +88,16 @@ fn main() -> Status {
             return fail(message);
         }
     };
+    #[cfg(feature = "m27-ab-slot-boot-control")]
+    if let Err(message) = check_slot_payload(
+        image_selection,
+        &slot_manifest,
+        nagi_slot_manifest::PayloadKind::Kernel,
+        unsafe { &KERNEL_IMAGE[..kernel_size] },
+    ) {
+        report_m27_trial_payload_rejection(selected_slot);
+        return fail(message);
+    }
     let plan = {
         let bytes = unsafe { &KERNEL_IMAGE[..kernel_size] };
         match parse(bytes) {
@@ -100,6 +119,25 @@ fn main() -> Status {
             return fail(message);
         }
     };
+    #[cfg(feature = "m27-ab-slot-boot-control")]
+    if let Err(message) = check_slot_payload(
+        image_selection,
+        &slot_manifest,
+        nagi_slot_manifest::PayloadKind::Init,
+        // SAFETY: `read_init` filled exactly `size` bytes at `address`.
+        unsafe {
+            core::slice::from_raw_parts(init_image.address as *const u8, init_image.size as usize)
+        },
+    ) {
+        report_m27_trial_payload_rejection(selected_slot);
+        return fail(message);
+    }
+    #[cfg(feature = "m27-ab-slot-boot-control")]
+    uefi::println!(
+        "Nagi slot manifest verified slot={} rollback-index={} PASS",
+        selection_label(image_selection),
+        slot_manifest.rollback_index
+    );
 
     let framebuffer = match gather_framebuffer() {
         Ok(info) => info,
@@ -498,12 +536,8 @@ fn open_selected_volume_root(
     image_handle: Handle,
     selection: BootImageSelection,
 ) -> Result<(Directory, bool), &'static str> {
-    let unique_guid = match selection {
-        BootImageSelection::Default | BootImageSelection::SystemA => SYSTEM_A_UNIQUE_GUID,
-        BootImageSelection::SystemB => SYSTEM_B_UNIQUE_GUID,
-        BootImageSelection::Recovery => RECOVERY_UNIQUE_GUID,
-    };
-    if let Some(root) = open_partition_root(unique_guid)? {
+    let (root, from_partition) = open_volume_root_quietly(image_handle, selection)?;
+    if from_partition {
         if selection != BootImageSelection::Recovery {
             uefi::println!(
                 "Nagi M30 GPT partition boot: System {} PASS",
@@ -516,6 +550,22 @@ fn open_selected_volume_root(
         } else {
             uefi::println!("Nagi M30 GPT partition boot: Recovery PASS");
         }
+    }
+    Ok((root, from_partition))
+}
+
+/// Open the selected slot's volume: its GPT partition when present,
+/// otherwise the loader's own filesystem (directory-layout images).
+fn open_volume_root_quietly(
+    image_handle: Handle,
+    selection: BootImageSelection,
+) -> Result<(Directory, bool), &'static str> {
+    let unique_guid = match selection {
+        BootImageSelection::Default | BootImageSelection::SystemA => SYSTEM_A_UNIQUE_GUID,
+        BootImageSelection::SystemB => SYSTEM_B_UNIQUE_GUID,
+        BootImageSelection::Recovery => RECOVERY_UNIQUE_GUID,
+    };
+    if let Some(root) = open_partition_root(unique_guid)? {
         return Ok((root, true));
     }
 
@@ -566,6 +616,120 @@ fn open_partition_root(unique_guid: uefi::Guid) -> Result<Option<Directory>, &'s
         .open_volume()
         .map(Some)
         .map_err(|_| error_message("Nagi Loader: GPT partition volume unavailable"))
+}
+
+fn selection_label(selection: BootImageSelection) -> &'static str {
+    match selection {
+        BootImageSelection::Default => "default",
+        BootImageSelection::SystemA => "A",
+        BootImageSelection::SystemB => "B",
+        BootImageSelection::Recovery => "Recovery",
+    }
+}
+
+/// ADR 0054: read and verify the selected slot's signed `SLOT.MAN` before
+/// any payload byte is used. A trial slot must also not lower the confirmed
+/// slot's rollback index.
+#[cfg(feature = "m27-ab-slot-boot-control")]
+fn verify_slot_manifest(
+    selection: BootImageSelection,
+    boot_control: &BootControlInfo,
+) -> Result<nagi_slot_manifest::SlotManifest, &'static str> {
+    let manifest = read_slot_manifest(selection).map_err(|reason| {
+        reject_slot_manifest(selection, reason)
+    })?;
+    if boot_control.attempt != 0 {
+        let confirmed = match selection {
+            BootImageSelection::SystemB => BootImageSelection::SystemA,
+            _ => BootImageSelection::SystemB,
+        };
+        let confirmed_manifest = read_slot_manifest(confirmed)
+            .map_err(|_| reject_slot_manifest(selection, "confirmed-manifest"))?;
+        if !nagi_slot_manifest::permits_trial(&confirmed_manifest, &manifest) {
+            return Err(reject_slot_manifest(selection, "rollback"));
+        }
+    }
+    Ok(manifest)
+}
+
+#[cfg(feature = "m27-ab-slot-boot-control")]
+fn read_slot_manifest(
+    selection: BootImageSelection,
+) -> Result<nagi_slot_manifest::SlotManifest, &'static str> {
+    use nagi_slot_manifest::{
+        ManifestError, SlotManifest, MAX_SLOT_MANIFEST_BYTES, TRUSTED_SLOT_SIGNING_PUBLIC_KEY,
+    };
+    let (mut root, from_partition) =
+        open_volume_root_quietly(boot::image_handle(), selection).map_err(|_| "volume")?;
+    let path = if from_partition {
+        cstr16!("\\SLOT.MAN")
+    } else {
+        match selection {
+            BootImageSelection::SystemA => cstr16!("\\EFI\\NAGI\\SYSTEMA\\SLOT.MAN"),
+            BootImageSelection::SystemB => cstr16!("\\EFI\\NAGI\\SYSTEMB\\SLOT.MAN"),
+            BootImageSelection::Recovery => cstr16!("\\EFI\\NAGI\\RECOVERY\\SLOT.MAN"),
+            BootImageSelection::Default => cstr16!("\\EFI\\NAGI\\SLOT.MAN"),
+        }
+    };
+    let handle = root
+        .open(path, FileMode::Read, FileAttribute::empty())
+        .map_err(|_| "missing")?;
+    let mut file = match handle.into_type().map_err(|_| "missing")? {
+        FileType::Regular(file) => file,
+        FileType::Dir(_) => return Err("missing"),
+    };
+    let mut bytes = [0; MAX_SLOT_MANIFEST_BYTES];
+    let length = read_bounded_regular_file(
+        &mut file,
+        &mut bytes,
+        "size",
+        "size",
+        "read",
+        "read",
+        "read",
+    )
+    .map_err(|_| "size")?;
+    SlotManifest::verify(&bytes[..length], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY).map_err(
+        |error| match error {
+            ManifestError::InvalidLength => "size",
+            ManifestError::Signature => "signature",
+            ManifestError::Malformed => "malformed",
+        },
+    )
+}
+
+#[cfg(feature = "m27-ab-slot-boot-control")]
+fn check_slot_payload(
+    selection: BootImageSelection,
+    manifest: &nagi_slot_manifest::SlotManifest,
+    kind: nagi_slot_manifest::PayloadKind,
+    bytes: &[u8],
+) -> Result<(), &'static str> {
+    use nagi_slot_manifest::{PayloadError, PayloadKind};
+    manifest
+        .payload(kind)
+        .check(bytes)
+        .map_err(|error| {
+            reject_slot_manifest(
+                selection,
+                match (kind, error) {
+                    (PayloadKind::Kernel, PayloadError::Size) => "kernel-size",
+                    (PayloadKind::Kernel, PayloadError::Digest) => "kernel-digest",
+                    (PayloadKind::Init, PayloadError::Size) => "init-size",
+                    (PayloadKind::Init, PayloadError::Digest) => "init-digest",
+                },
+            )
+        })
+}
+
+#[cfg(feature = "m27-ab-slot-boot-control")]
+fn reject_slot_manifest(selection: BootImageSelection, reason: &'static str) -> &'static str {
+    uefi::println!(
+        "Nagi slot manifest REJECTED slot={} reason={}",
+        selection_label(selection),
+        reason
+    );
+    error_message("Nagi Loader: slot manifest rejected")
 }
 
 fn guid_matches(left: uefi::Guid, right: uefi::Guid) -> bool {

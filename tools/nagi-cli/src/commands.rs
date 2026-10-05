@@ -9359,6 +9359,7 @@ fn execute_m27_gpt_acceptance(
         &[
             "Nagi M27 manual selection: confirmed slot=A",
             "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi slot manifest verified slot=A rollback-index=1 PASS",
             "Nagi M7 ext2 format PASS",
             "Nagi M7 persistent write PASS",
             "Nagi M7 reboot required PASS",
@@ -9375,7 +9376,7 @@ fn execute_m27_gpt_acceptance(
             persistent_disk: &broken_image_path,
             vars_copy: &broken_vars,
             serial_log: &log,
-            acceptance_marker: "Nagi Loader: invalid ELF",
+            acceptance_marker: "Nagi Loader: slot manifest rejected",
             timeout: Duration::from_secs(120),
         };
         let status = run_m27_headless_with_pre_guest_retry(&config, false)
@@ -9385,16 +9386,16 @@ fn execute_m27_gpt_acceptance(
         let expected_decision =
             format!("Nagi M27 persistence decision: trial attempt={attempt} slot=B");
         require_m27_gpt_markers(
-            "GPT malformed System B trial",
+            "GPT untrusted System B trial",
             status,
             &log,
             &serial,
             &[
                 &expected_decision,
                 "Nagi M27 UEFI variable journal persistence PASS",
-                "Nagi M30 GPT partition boot: System B PASS",
+                "Nagi slot manifest REJECTED slot=B reason=signature",
                 "Nagi M27 trial payload rejected slot=B",
-                "Nagi Loader: invalid ELF",
+                "Nagi Loader: slot manifest rejected",
             ],
         )?;
         if !m27_trial_failure_observed(&serial) {
@@ -9436,6 +9437,7 @@ fn execute_m27_gpt_acceptance(
         &[
             "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
             "Nagi M30 GPT partition boot: Recovery PASS",
+            "Nagi slot manifest verified slot=Recovery rollback-index=1 PASS",
             "Nagi M27 Recovery VFS check PASS files=",
             "Nagi M27 Recovery current-boot log PASS",
             "Nagi M27 Recovery files PASS",
@@ -9543,6 +9545,7 @@ fn execute_m27_gpt_acceptance(
             "Nagi M27 persistence decision: trial attempt=1 slot=B",
             "Nagi M27 UEFI variable journal persistence PASS",
             "Nagi M30 GPT partition boot: System B PASS",
+            "Nagi slot manifest verified slot=B rollback-index=1 PASS",
             "Nagi M7 persistent read PASS",
             "Nagi M27 readiness persisted slot=B attempt=1 generation=",
             "Nagi M10 desktop READY",
@@ -9642,7 +9645,8 @@ fn require_m27_gpt_markers(
 
 fn m27_trial_failure_observed(serial: &str) -> bool {
     serial.contains("Nagi M27 trial payload rejected slot=B")
-        && serial.contains("Nagi Loader: invalid ELF")
+        && (serial.contains("Nagi Loader: invalid ELF")
+            || serial.contains("Nagi Loader: slot manifest rejected"))
         && !serial.contains("Nagi Kernel started")
         && !serial.contains("Nagi M27 readiness persisted")
 }
@@ -10213,6 +10217,9 @@ mod tests {
     fn m27_trial_acceptance_waits_for_loader_failure_after_rejection() {
         assert!(m27_trial_failure_observed(
             "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\n"
+        ));
+        assert!(m27_trial_failure_observed(
+            "Nagi slot manifest REJECTED slot=B reason=signature\nNagi M27 trial payload rejected slot=B\nNagi Loader: slot manifest rejected\n"
         ));
         assert!(!m27_trial_failure_observed(
             "Nagi M27 trial payload rejected slot=B\n"
