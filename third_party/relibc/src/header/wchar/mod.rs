@@ -40,7 +40,21 @@ pub use utf8::get_char_encoded_length;
 /// multi-byte) characters and wide characters.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct mbstate_t;
+pub struct mbstate_t {
+    // Nagi: give the conversion state real storage so C (size 0 for an empty
+    // struct) and C++ (size 1) agree on the ABI, and stateful UTF-8
+    // conversions can hold a partial sequence between calls.
+    pub __count: u32,
+    pub __value: u32,
+}
+
+impl mbstate_t {
+    /// The initial conversion state.
+    pub(crate) const INITIAL: Self = Self {
+        __count: 0,
+        __value: 0,
+    };
+}
 
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/btowc.html>.
 #[unsafe(no_mangle)]
@@ -52,7 +66,7 @@ pub unsafe extern "C" fn btowc(c: c_int) -> wint_t {
 
     let uc = c as u8;
     let c = uc as c_char;
-    let mut ps: mbstate_t = mbstate_t;
+    let mut ps: mbstate_t = mbstate_t::INITIAL;
     let mut wc: wchar_t = 0;
     let saved_errno = platform::ERRNO.get();
     let status = unsafe { mbrtowc(&raw mut wc, ptr::from_ref::<c_char>(&c), 1, &raw mut ps) };
@@ -147,7 +161,7 @@ pub unsafe extern "C" fn fgetws(ws: *mut wchar_t, n: c_int, stream: *mut FILE) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fputwc(wc: wchar_t, stream: *mut FILE) -> wint_t {
     //Convert wchar_t to multibytes first
-    static mut INTERNAL: mbstate_t = mbstate_t;
+    static mut INTERNAL: mbstate_t = mbstate_t::INITIAL;
     let mut bytes: [c_char; MB_CUR_MAX as usize] = [0; MB_CUR_MAX as usize];
 
     let amount = unsafe { wcrtomb(bytes.as_mut_ptr(), wc, &raw mut INTERNAL) };
@@ -213,7 +227,7 @@ pub unsafe extern "C" fn mbsinit(ps: *const mbstate_t) -> c_int {
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/mbrlen.html>.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mbrlen(s: *const c_char, n: size_t, ps: *mut mbstate_t) -> size_t {
-    static mut INTERNAL: mbstate_t = mbstate_t;
+    static mut INTERNAL: mbstate_t = mbstate_t::INITIAL;
     let ps = if ps.is_null() { &raw mut INTERNAL } else { ps };
     unsafe { mbrtowc(ptr::null_mut(), s, n, ps) }
 }
@@ -229,7 +243,7 @@ pub unsafe extern "C" fn mbrtowc(
     n: size_t,
     ps: *mut mbstate_t,
 ) -> size_t {
-    static mut INTERNAL: mbstate_t = mbstate_t;
+    static mut INTERNAL: mbstate_t = mbstate_t::INITIAL;
 
     let ps = if ps.is_null() { &raw mut INTERNAL } else { ps };
     if s.is_null() {
@@ -251,7 +265,7 @@ pub unsafe extern "C" fn mbsnrtowcs(
     dst_len: size_t,
     ps: *mut mbstate_t,
 ) -> size_t {
-    static mut INTERNAL: mbstate_t = mbstate_t;
+    static mut INTERNAL: mbstate_t = mbstate_t::INITIAL;
 
     let ps = if ps.is_null() { &raw mut INTERNAL } else { ps };
 
@@ -356,7 +370,7 @@ pub unsafe extern "C" fn ungetwc(wc: wint_t, stream: &mut FILE) -> wint_t {
     if wc == WEOF {
         return wc;
     }
-    static mut INTERNAL: mbstate_t = mbstate_t;
+    static mut INTERNAL: mbstate_t = mbstate_t::INITIAL;
     let mut bytes: [c_char; MB_CUR_MAX as usize] = [0; MB_CUR_MAX as usize];
 
     let amount = unsafe { wcrtomb(bytes.as_mut_ptr(), wc as wchar_t, &raw mut INTERNAL) };
@@ -491,7 +505,7 @@ pub unsafe extern "C" fn wcsrtombs(
     n: size_t,
     mut st: *mut mbstate_t,
 ) -> size_t {
-    let mut mbs = mbstate_t {};
+    let mut mbs = mbstate_t::INITIAL;
     if st.is_null() {
         st = &raw mut mbs;
     }
@@ -535,6 +549,16 @@ pub unsafe extern "C" fn wcscmp(ws1: *const wchar_t, ws2: *const wchar_t) -> c_i
 pub unsafe extern "C" fn wcscoll(ws1: *const wchar_t, ws2: *const wchar_t) -> c_int {
     //TODO: locale comparison
     unsafe { wcscmp(ws1, ws2) }
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wcscoll_l.html>.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcscoll_l(
+    ws1: *const wchar_t,
+    ws2: *const wchar_t,
+    _locale: crate::header::bits_locale_t::locale_t,
+) -> c_int {
+    unsafe { wcscoll(ws1, ws2) }
 }
 
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wcscpy.html>.
@@ -674,7 +698,7 @@ pub unsafe extern "C" fn wcsnrtombs(
     let mut written = 0;
     let mut read = 0;
     let mut buf: [c_char; MB_LEN_MAX as usize] = [0; MB_LEN_MAX as usize];
-    let mut mbs = mbstate_t {};
+    let mut mbs = mbstate_t::INITIAL;
 
     if ps.is_null() {
         ps = &raw mut mbs;
@@ -773,6 +797,12 @@ pub unsafe extern "C" fn wcsstr(ws1: *const wchar_t, ws2: *const wchar_t) -> *mu
             None => ptr::null_mut(),
         }
     }
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wcstof.html>.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wcstof(ptr: *const wchar_t, end: *mut *mut wchar_t) -> f32 {
+    unsafe { wcstod(ptr, end) as f32 }
 }
 
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wcstod.html>.
@@ -967,6 +997,17 @@ pub unsafe extern "C" fn wcswidth(pwcs: *const wchar_t, n: size_t) -> c_int {
 pub extern "C" fn wcsxfrm(ws1: *mut wchar_t, ws2: *const wchar_t, n: size_t) -> size_t {
     todo_skip!(0, "wcsxfrm is not implemented");
     0
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wcsxfrm_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn wcsxfrm_l(
+    ws1: *mut wchar_t,
+    ws2: *const wchar_t,
+    n: size_t,
+    _locale: crate::header::bits_locale_t::locale_t,
+) -> size_t {
+    wcsxfrm(ws1, ws2, n)
 }
 
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wctob.html>.

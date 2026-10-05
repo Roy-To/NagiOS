@@ -45,6 +45,7 @@ as missing license metadata rather than assigned an unverified value.
 | inventory-nagi | A + B + C | `0.3.24`, locked archive hash | MIT OR Apache-2.0 | `third_party/inventory-nagi`, `third_party/inventory-nagi-patches/` | Tracked source includes both license texts; verify notice preservation for a binary release |
 | llama.cpp-ggml-cpu | B + C | revision `c85b92c69c955961621193cd51da194f3cbcedf3` | MIT | `third_party/llama.cpp`, `third_party/llama-cpp-patches/` | Generated checkout includes the upstream license and component-license directory; review linked components before binary redistribution |
 | whisper.cpp-stt | B | revision `927cfce34f31707e17f2bff35c349632fb9e2c3a` | MIT | `third_party/whisper.cpp` | Source pin is fetched by `./nagi fetch`; review linked-source notices before binary redistribution |
+| llvm-libcxx (LLVM libc++) | B + C | `19.1.7`, release tarball SHA-256 | Apache-2.0 WITH LLVM-exception | no Nagi patch; built by `tools/libcxx/build-nagi-target.sh` | Source is fetched by `./nagi m20-granite-inference`; the static `libc++.a` linked into M20 guest images carries the LLVM exception; preserve `libcxx/LICENSE.TXT` with any binary redistribution |
 
 ## External model artifact pins
 
