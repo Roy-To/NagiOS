@@ -13,7 +13,7 @@
 //!   authenticated user allowed it (ADR 0051).
 //! - `reap` waits for the kernel exit status and revokes the launch.
 //! - A `ConsentRequired` use is queued with `request_consent`; the desktop's
-//!   OS-owned dialog answers it through `resolve_consent` (ADR 0053).
+//!   OS-owned dialog answers it through `resolve_consent` (ADR 0060).
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -249,7 +249,7 @@ pub fn restore_decisions(user: &Session, bytes: &[u8]) -> Result<usize, Decision
 /// The acceptance user's authenticated session. The desktop has no login
 /// UI yet, so acceptance scenarios use this fixture account as the
 /// signed-in user. Its decisions come either from explicit acceptance
-/// inputs (`record_user_decision`) or, with ADR 0053, from real input on
+/// inputs (`record_user_decision`) or, with ADR 0060, from real input on
 /// the OS-owned consent dialog.
 pub fn acceptance_user() -> Option<Session> {
     let mut accounts = AccountStore::new();

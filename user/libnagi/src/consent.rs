@@ -1,4 +1,4 @@
-//! Trusted consent prompt (ADR 0053).
+//! Trusted consent prompt (ADR 0060).
 //!
 //! The OS-owned dialog that turns a `GrantCheck::ConsentRequired` into a
 //! user decision (spec §23). The prompt is a pure input state machine; the

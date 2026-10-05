@@ -1,4 +1,4 @@
-//! OS-owned consent dialog (ADR 0053).
+//! OS-owned consent dialog (ADR 0060).
 //!
 //! The desktop shows this modal when the Supervisor has a pending
 //! `ConsentRequest`. It is drawn by init, takes every key and button event
@@ -238,7 +238,7 @@ fn persist_decisions(volume: &mut UserDataVolume) -> bool {
         .is_ok()
 }
 
-/// The ADR 0053 acceptance: a signed application whose manifest requests a
+/// The ADR 0060 acceptance: a signed application whose manifest requests a
 /// capability is launched; the desktop must ask the user before the grant
 /// is effective, and a persisted answer must hold after a restart.
 #[cfg(feature = "consent-dialog-acceptance")]

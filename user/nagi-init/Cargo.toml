@@ -52,7 +52,7 @@ m27-ro-vfs-check = []
 m27-recovery = []
 m27-recovery-undo-acceptance = ["m27-recovery"]
 m29-settings-acceptance = ["m10-desktop"]
-# ADR 0053: the desktop's OS-owned consent dialog answers a signed
+# ADR 0060: the desktop's OS-owned consent dialog answers a signed
 # acceptance application's grant request; needs NAGI_ACCEPTANCE_PACKAGES.
 consent-dialog-acceptance = ["m10-desktop"]
 m25-voice-acceptance = []

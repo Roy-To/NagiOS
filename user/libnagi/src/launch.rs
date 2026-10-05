@@ -18,7 +18,7 @@
 //!   overrides the manifest. Neither the launched process, Developer Mode,
 //!   nor the Owner role can supply a decision on the user's behalf.
 //!
-//! - **Prompts and persistence (ADR 0053).** A service that meets
+//! - **Prompts and persistence (ADR 0060).** A service that meets
 //!   `ConsentRequired` queues a `ConsentRequest`; the OS-owned dialog
 //!   (`crate::consent`) answers it through `resolve_consent`. `Allow` and
 //!   `Deny` survive a restart through `encode_decisions` /

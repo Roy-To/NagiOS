@@ -1,4 +1,4 @@
-# ADR 0053: Trusted consent dialog and persisted grant decisions
+# ADR 0060: Trusted consent dialog and persisted grant decisions
 
 Status: accepted
 Date: 2026-10-06

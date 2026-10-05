@@ -776,7 +776,7 @@ struct ConsentStart {
     outcome: Result<Option<libnagi::launch::GrantCheck>, &'static [u8]>,
 }
 
-/// ADR 0053: restore persisted decisions, launch the signed application,
+/// ADR 0060: restore persisted decisions, launch the signed application,
 /// and open the dialog if its requested capability needs an answer. The
 /// dialog is part of the first frame.
 #[cfg(feature = "consent-dialog-acceptance")]

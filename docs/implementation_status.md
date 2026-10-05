@@ -11,7 +11,7 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
-**Trusted consent dialog (ADR 0053), 2026-10-06:** A `ConsentRequired`
+**Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
 grant is now asked through an OS-owned dialog, and the answer survives a
 restart.
 
@@ -69,8 +69,8 @@ manifest's `grant=` line is now only a request.
 Still open:
 
 - the trusted consent dialog (acceptance decisions come from a fixture
-  account) — addressed by ADR 0053;
-- persisting decisions — addressed by ADR 0053;
+  account) — addressed by ADR 0060;
+- persisting decisions — addressed by ADR 0060;
 - foreground/background distinctions.
 
 **Concurrent isolated processes (ADR 0050), 2026-10-03:** The kernel now

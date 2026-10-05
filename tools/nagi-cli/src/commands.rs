@@ -4531,7 +4531,7 @@ const M29_SETTINGS_EVENTS: [&str; 10] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"spc"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"spc"}}}]}}"#,
 ];
 
-/// ADR 0053 dialog input. The pointer starts at (80, 58) inside the dialog.
+/// ADR 0060 dialog input. The pointer starts at (80, 58) inside the dialog.
 /// A press on Deny released elsewhere must decide nothing; then Tab moves
 /// focus Deny -> Allow once -> Allow and Enter (press and release) allows.
 const CONSENT_DIALOG_EVENTS: [&str; 7] = [
@@ -4765,7 +4765,7 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     )
 }
 
-/// ADR 0053: the desktop's OS-owned consent dialog answers a signed
+/// ADR 0060: the desktop's OS-owned consent dialog answers a signed
 /// application's grant request through real QMP input, and the persisted
 /// `Allow` holds after a restart without a new prompt.
 fn execute_consent(root: &Path, probe: &dyn HostProbe) -> CommandResult {
