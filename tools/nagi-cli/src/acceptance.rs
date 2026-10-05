@@ -817,19 +817,30 @@ fn run_case(root: &Path, case: &AcceptanceCase, log_directory: &Path, verbose: b
 fn terminate_process_tree(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
-        let process_group = format!("-{}", child.id());
+        // The child leads its own process group (`process_group(0)`). Never
+        // signal a group id that could widen to every process (`-1`) or the
+        // caller's own group, and pass `--` so no `kill` implementation can
+        // read the negative group id as an option or signal number.
+        let pid = child.id();
+        if pid <= 1 {
+            let _ = child.kill();
+            return;
+        }
+        let process_group = format!("-{pid}");
         let term = Command::new("kill")
-            .args(["-TERM", process_group.as_str()])
+            .args(["-s", "TERM", "--", process_group.as_str()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
         if term.is_ok_and(|status| status.success()) {
             thread::sleep(Duration::from_millis(200));
             let _ = Command::new("kill")
-                .args(["-KILL", process_group.as_str()])
+                .args(["-s", "KILL", "--", process_group.as_str()])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status();
+        } else {
+            let _ = child.kill();
         }
     }
     #[cfg(windows)]
