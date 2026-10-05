@@ -70,3 +70,25 @@ fn third_party_notices_cover_every_pinned_component_and_declared_license() {
         "expected the current pinned source set"
     );
 }
+
+#[test]
+fn third_party_notices_cover_every_pinned_font() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock = fs::read_to_string(root.join("third_party/fonts.lock")).expect("font lock");
+    let notices = fs::read_to_string(root.join("THIRD_PARTY_NOTICES.md")).expect("notices");
+    let mut fonts_checked = 0usize;
+    for entry in lock.split("[fonts.").skip(1) {
+        let (_, body) = entry.split_once(']').expect("font entry section header");
+        let body = body.split("\n[").next().unwrap_or(body);
+        for field in ["component", "revision", "file_name", "license"] {
+            let value = lock_string_field(body, field)
+                .unwrap_or_else(|| panic!("font entry is missing {field}"));
+            assert!(
+                notices.contains(&value),
+                "THIRD_PARTY_NOTICES.md omits font {field} `{value}`"
+            );
+        }
+        fonts_checked += 1;
+    }
+    assert!(fonts_checked >= 5, "expected the pinned Noto font set");
+}

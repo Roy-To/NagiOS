@@ -78,6 +78,12 @@ use nagi_albert::run_first_web_pixel;
 #[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
 use nagi_albert::run_m18_https_acceptance;
 
+/// Pinned system fonts embedded by build.rs (ADR 0045).
+#[cfg(all(target_os = "nagi", feature = "m17-servo"))]
+mod system_fonts {
+    include!(concat!(env!("OUT_DIR"), "/system_fonts.rs"));
+}
+
 #[cfg(all(target_os = "nagi", feature = "m20-llama-link-smoke"))]
 unsafe extern "C" {
     fn nagi_m20_llama_backend_init_smoke() -> i32;
@@ -1050,6 +1056,18 @@ pub extern "C" fn _start(
             libnagi::exit(1);
         }
         libnagi::console_write(b"Nagi M17 trace: temporary directory ready\r\n");
+        // Publish the pinned Noto fonts (ADR 0045) read-only for Servo.
+        for (path, data) in system_fonts::SYSTEM_FILES {
+            if nagi_posix::register_static_file(path, data).is_err() {
+                libnagi::console_write(b"Nagi M17 first web pixel FAIL system fonts\r\n");
+                libnagi::exit(1);
+            }
+        }
+        if system_fonts::SYSTEM_FILES.is_empty() {
+            libnagi::console_write(b"Nagi M17 first web pixel FAIL no system fonts\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M17 trace: system fonts published\r\n");
         #[cfg(feature = "m18-acceptance")]
         {
             libnagi::console_write(b"Nagi M18 browser trace: network initialization started\r\n");
@@ -1074,7 +1092,26 @@ pub extern "C" fn _start(
                 libnagi::console_write(b"Nagi M18 browser FAIL Servo profile directory\r\n");
                 libnagi::exit(1);
             }
-            return run_m18_https_acceptance(display_capability, input_capability);
+            // Init owns the user-space clipboard service and registers
+            // Albert as a READ/WRITE client. Gesture windows are in Nagi
+            // timer ticks (about 10 ms): a paste shortcut authorizes one
+            // read for 5 s; other input permits writes for 10 s.
+            let clipboard_service =
+                nagi_clipboard::ClipboardServiceOwner::new(nagi_clipboard::ClipboardPolicy {
+                    paste_grant_ticks: 500,
+                    activation_ticks: 1_000,
+                });
+            let Ok(albert_clipboard) =
+                clipboard_service.register_client(nagi_clipboard::ClipboardRights::READ_WRITE)
+            else {
+                libnagi::console_write(b"Nagi M18 browser FAIL clipboard service\r\n");
+                libnagi::exit(1);
+            };
+            return run_m18_https_acceptance(
+                display_capability,
+                input_capability,
+                albert_clipboard,
+            );
         }
         #[cfg(not(feature = "m18-acceptance"))]
         return run_first_web_pixel(display_capability);

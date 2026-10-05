@@ -3424,6 +3424,8 @@ dependencies = [
  "freetype-sys",
  "ipc-channel",
  "libnagi",
+ "nagi-clipboard",
+ "nagi-ime",
  "nagi-localization",
  "nagi-servo-adapter",
  "servo",
@@ -3452,6 +3454,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-clipboard"
+version = "0.1.0"
+
+[[package]]
 name = "nagi-history"
 version = "0.1.0"
 dependencies = [
@@ -3472,6 +3478,10 @@ name = "nagi-idl"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-ime"
+version = "0.1.0"
+
+[[package]]
 name = "nagi-init"
 version = "0.1.0"
 dependencies = [
@@ -3480,6 +3490,7 @@ dependencies = [
  "nagi-ai",
  "nagi-albert",
  "nagi-audio",
+ "nagi-clipboard",
  "nagi-history",
  "nagi-localization",
  "nagi-model",

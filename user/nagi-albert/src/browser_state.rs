@@ -155,12 +155,16 @@ impl BrowserState {
             .submit()
             .map_err(BrowserStateError::Address)?;
         let tab_id = self.active_tab_id.ok_or(BrowserStateError::NoActiveTab)?;
-        self.begin_navigation(
+        let request = self.begin_navigation(
             tab_id,
             url,
             NavigationReason::AddressBar,
             PendingKind::NewEntry,
-        )
+        )?;
+        // A submitted address hands keyboard focus to the page, as in other
+        // browsers; a rejected address keeps the bar focused for correction.
+        self.address_bar.blur();
+        Ok(request)
     }
 
     pub fn navigate(
@@ -678,6 +682,18 @@ mod tests {
         complete(&mut browser, active, "New", 2);
         assert_eq!(browser.history().len(), 1);
         assert_eq!(browser.history()[0].url, "https://new.example/");
+    }
+
+    #[test]
+    fn address_bar_submission_moves_focus_to_the_page() {
+        let mut browser = BrowserState::new();
+        browser.address_bar_mut().focus();
+        browser.address_bar_mut().set_text("javascript:x").unwrap();
+        assert!(browser.submit_address_bar().is_err());
+        assert!(browser.address_bar().is_focused());
+        browser.address_bar_mut().set_text("example.net").unwrap();
+        browser.submit_address_bar().unwrap();
+        assert!(!browser.address_bar().is_focused());
     }
 
     #[test]

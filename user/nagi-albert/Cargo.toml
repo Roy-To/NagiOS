@@ -8,6 +8,8 @@ publish = false
 m18-acceptance = []
 
 [dependencies]
+nagi-clipboard = { path = "../nagi-clipboard" }
+nagi-ime = { path = "../nagi-ime" }
 nagi-localization = { path = "../nagi-localization" }
 url = "2.5"
 

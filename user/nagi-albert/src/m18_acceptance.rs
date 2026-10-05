@@ -97,9 +97,14 @@ mod guest {
 
     use super::{tls_verified, Ordering, HTTPS_PAGES, SERVO_CONFIG_DIR, VERIFIED_HOST_MASK};
     use crate::browser_state::{BrowserState, NavigationEventResult};
+    use crate::clipboard::{
+        single_line_paste, tab_gesture_scope, BrowserClipboard, ClipboardContext,
+        NagiClipboardRuntime,
+    };
     use crate::input::{
-        chrome_action_at, evdev_character, is_backspace_key, is_enter_key, is_escape_key,
-        is_shift_key, CHROME_HEIGHT,
+        chrome_action_at, clipboard_shortcut, evdev_character, ime_key, is_backspace_key,
+        is_control_key, is_enter_key, is_escape_key, is_shift_key, ClipboardShortcut,
+        CHROME_HEIGHT,
     };
     use crate::nagi_storage::GuestBrowserStorage;
     use crate::permission_prompt::{
@@ -110,11 +115,20 @@ mod guest {
     };
     use crate::tabs::TabId;
     use crate::ui::{self, BrowserChromeAction, BrowserChromeOutcome};
+    use nagi_clipboard::{ClipboardEndpoint, ClipboardError, GestureScope, GestureSource};
+    use nagi_ime::{ImeKey, ImeResponse, InputMethod, InputMode, KanaCandidates};
     use nagi_localization::Locale;
+    use servo::{CompositionEvent, CompositionState, EmbedderControlId, ImeEvent};
 
     const WIDTH: u32 = 320;
     const HEIGHT: u32 = 200;
     const PAGE_TIMEOUT_TICKS: u64 = 3_000;
+    /// Up to ~3 s for the frame that shows a just-observed DOM change.
+    const SETTLE_FRAME_TICKS: u64 = 300;
+    /// A frame pipeline idle for ~0.5 s is treated as settled.
+    const SETTLE_QUIET_TICKS: u64 = 50;
+    /// Summed RGB distance from the page background that counts as ink.
+    const INK_THRESHOLD: u32 = 96;
     const PERMISSION_PROMPT_TIMEOUT_TICKS: u64 = 3_000;
     const MAX_PERMISSION_INPUT_DRAIN: usize = 64;
 
@@ -147,6 +161,8 @@ mod guest {
         permission_broker: RefCell<PermissionBrokerState>,
         pending_permission: RefCell<Option<PendingServoPermission>>,
         permission_locale: Locale,
+        /// Servo's input-method request for the focused text field, if any.
+        ime_target: Cell<Option<EmbedderControlId>>,
     }
 
     impl AcceptanceDelegate {
@@ -159,11 +175,16 @@ mod guest {
                 permission_broker: RefCell::new(PermissionBrokerState::new()),
                 pending_permission: RefCell::new(None),
                 permission_locale,
+                ime_target: Cell::new(None),
             }
         }
 
         fn reset(&self) {
             self.navigation_started.set(false);
+            self.frame_ready.set(false);
+        }
+
+        fn clear_frame(&self) {
             self.frame_ready.set(false);
         }
 
@@ -222,19 +243,112 @@ mod guest {
         let _ = libnagi::console_write(marker);
     }
 
-    struct UnavailableClipboardDelegate;
+    /// Albert's connection to the Nagi clipboard service. The endpoint is
+    /// shared with per-tab Servo delegates; the gesture source stays with
+    /// Albert's trusted input routing and is never reachable from content.
+    struct InputServices {
+        /// Trace routed device input on the serial console (acceptance only).
+        trace_input: Cell<bool>,
+        endpoint: ClipboardEndpoint,
+        gestures: GestureSource,
+        chrome: RefCell<BrowserClipboard>,
+        counters: Rc<ClipboardCounters>,
+        /// User-space input method; it sees keys only from Albert's
+        /// trusted device-input routing.
+        ime: RefCell<InputMethod<KanaCandidates>>,
+        /// A composition is open in the focused page field.
+        ime_composing: Cell<bool>,
+        /// Evdev codes whose press the IME consumed; their release is
+        /// swallowed too.
+        ime_consumed_keys: RefCell<[bool; 256]>,
+        ime_commits: Cell<u32>,
+    }
 
-    impl ClipboardDelegate for UnavailableClipboardDelegate {
+    #[derive(Default)]
+    struct ClipboardCounters {
+        reads: Cell<u32>,
+        writes: Cell<u32>,
+        denied_reads: Cell<u32>,
+        denied_writes: Cell<u32>,
+        last_read: RefCell<String>,
+    }
+
+    #[derive(Clone, Copy, Default)]
+    struct KeyModifiers {
+        shift: bool,
+        control: bool,
+    }
+
+    fn clipboard_error_reason(error: ClipboardError) -> &'static [u8] {
+        match error {
+            ClipboardError::MissingRight => b"missing-right",
+            ClipboardError::NoUserGesture => b"no-user-gesture",
+            ClipboardError::UnknownClient => b"unknown-client",
+            ClipboardError::TooLarge => b"too-large",
+            ClipboardError::ClientTableFull => b"client-table-full",
+            ClipboardError::GestureTableFull => b"gesture-table-full",
+        }
+    }
+
+    fn report_clipboard_denial(operation: &[u8], error: ClipboardError) {
+        let _ = libnagi::console_write(b"Nagi M18 clipboard ");
+        let _ = libnagi::console_write(operation);
+        let _ = libnagi::console_write(b" DENIED reason=");
+        let _ = libnagi::console_write(clipboard_error_reason(error));
+        let _ = libnagi::console_write(b"\r\n");
+    }
+
+    /// Servo clipboard delegate for one tab. Every operation goes through
+    /// the Nagi clipboard service, which requires a user gesture recorded by
+    /// Albert's input routing for this tab's scope.
+    struct NagiClipboardDelegate {
+        endpoint: ClipboardEndpoint,
+        scope: GestureScope,
+        counters: Rc<ClipboardCounters>,
+    }
+
+    impl NagiClipboardDelegate {
+        fn record_write(&self, result: Result<u64, ClipboardError>, operation: &[u8]) {
+            match result {
+                Ok(_) => self.counters.writes.set(self.counters.writes.get() + 1),
+                Err(error) => {
+                    self.counters
+                        .denied_writes
+                        .set(self.counters.denied_writes.get() + 1);
+                    report_clipboard_denial(operation, error);
+                }
+            }
+        }
+    }
+
+    impl ClipboardDelegate for NagiClipboardDelegate {
         fn clear(&self, _webview: WebView) {
-            let _ = libnagi::console_write(b"Nagi M18 clipboard service unavailable\r\n");
+            let result = self.endpoint.clear(self.scope, libnagi::time_ticks());
+            self.record_write(result, b"clear");
         }
 
         fn get_text(&self, _webview: WebView, request: StringRequest) {
-            request.failure("Nagi clipboard service unavailable".to_owned());
+            match self.endpoint.read_text(self.scope, libnagi::time_ticks()) {
+                Ok(text) => {
+                    self.counters.reads.set(self.counters.reads.get() + 1);
+                    self.counters.last_read.replace(text.clone());
+                    request.success(text);
+                }
+                Err(error) => {
+                    self.counters
+                        .denied_reads
+                        .set(self.counters.denied_reads.get() + 1);
+                    report_clipboard_denial(b"read", error);
+                    request.failure("Nagi clipboard access denied".to_owned());
+                }
+            }
         }
 
-        fn set_text(&self, _webview: WebView, _new_contents: String) {
-            let _ = libnagi::console_write(b"Nagi M18 clipboard service unavailable\r\n");
+        fn set_text(&self, _webview: WebView, new_contents: String) {
+            let result = self
+                .endpoint
+                .write_text(self.scope, &new_contents, libnagi::time_ticks());
+            self.record_write(result, b"write");
         }
     }
 
@@ -291,6 +405,7 @@ mod guest {
         runtimes: &mut Vec<TabRuntime>,
         defer_initial_navigation: bool,
         permission_locale: Locale,
+        services: &InputServices,
     ) {
         runtimes.retain(|runtime| browser_state.tab(runtime.id).is_some());
         for tab in browser_state.tabs() {
@@ -315,7 +430,11 @@ mod guest {
             let webview = WebViewBuilder::new(servo, context.clone())
                 .url(initial_url)
                 .delegate(delegate.clone())
-                .clipboard_delegate(Rc::new(UnavailableClipboardDelegate))
+                .clipboard_delegate(Rc::new(NagiClipboardDelegate {
+                    endpoint: services.endpoint.clone(),
+                    scope: tab_gesture_scope(tab.id()),
+                    counters: services.counters.clone(),
+                }))
                 .build();
             runtimes.push(TabRuntime {
                 id: tab.id(),
@@ -328,6 +447,12 @@ mod guest {
         for runtime in runtimes {
             if Some(runtime.id) == active_tab {
                 runtime.webview.show();
+                // Page content receives keyboard input only while its
+                // WebView holds Servo's keyboard focus. Albert chrome keys
+                // (address bar) are handled before they reach Servo.
+                if !runtime.webview.focused() {
+                    runtime.webview.focus();
+                }
             } else {
                 runtime.webview.hide();
             }
@@ -338,6 +463,28 @@ mod guest {
         fn notify_new_frame_ready(&self, _webview: WebView) {
             self.frame_ready.set(true);
             self.signal.wake();
+        }
+
+        fn notify_page_title_changed(&self, _webview: WebView, title: Option<String>) {
+            if let Some(title) = title.filter(|title| title.starts_with("nagi-")) {
+                // Truncate on a character boundary so the serial log stays
+                // valid UTF-8 for Japanese titles.
+                let mut end = title.len().min(96);
+                while !title.is_char_boundary(end) {
+                    end -= 1;
+                }
+                let _ = libnagi::console_write(b"Nagi M18 fixture page title=");
+                let _ = libnagi::console_write(&title.as_bytes()[..end]);
+                let _ = libnagi::console_write(b"\r\n");
+            }
+        }
+
+        fn notify_focus_changed(&self, _webview: WebView, focused: bool) {
+            let _ = libnagi::console_write(if focused {
+                b"Nagi M18 browser WebView focus=true\r\n".as_slice()
+            } else {
+                b"Nagi M18 browser WebView focus=false\r\n"
+            });
         }
 
         fn notify_url_changed(&self, _webview: WebView, url: Url) {
@@ -410,13 +557,59 @@ mod guest {
                     let _ = libnagi::console_write(b"Nagi M18 upload service unavailable\r\n");
                 }
                 EmbedderControl::InputMethod(input_method) => {
-                    let _ = input_method.id();
-                    let _ = input_method.text();
-                    let _ = input_method.insertion_point();
-                    let _ = libnagi::console_write(b"Nagi M18 IME service unavailable\r\n");
+                    self.ime_target.set(Some(input_method.id()));
+                    let _ = libnagi::console_write(b"Nagi M18 IME target ACTIVE\r\n");
                 }
                 _ => {}
             }
+        }
+
+        fn hide_embedder_control(&self, _webview: WebView, control_id: EmbedderControlId) {
+            if self.ime_target.get() == Some(control_id) {
+                self.ime_target.set(None);
+                let _ = libnagi::console_write(b"Nagi M18 IME target INACTIVE\r\n");
+            }
+        }
+    }
+
+    /// Paint a frame Servo reports ready, as an embedder must before Servo
+    /// produces the next one. Returns whether a frame was consumed.
+    fn pump_frame(runtime: &TabRuntime) -> bool {
+        if !runtime.delegate.has_frame() {
+            return false;
+        }
+        runtime.delegate.clear_frame();
+        runtime.webview.paint();
+        true
+    }
+
+    /// After a DOM change observed through script, keep consuming frames
+    /// until Servo stops producing new ones (bounded), then present. A quiet
+    /// pipeline does not fail acceptance; the current frame is presented.
+    fn present_settled_frame(
+        servo: &Servo,
+        context: &SoftwareRenderingContext,
+        signal: &Arc<EventLoopSignal>,
+        surface: &mut NagiSurface,
+        browser_state: &BrowserState,
+        runtime: &TabRuntime,
+    ) -> bool {
+        settle_frames(servo, signal, runtime);
+        present_browser_surface(context, &runtime.webview, surface, browser_state, None)
+    }
+
+    /// Consume frames until Servo stops producing new ones (bounded).
+    fn settle_frames(servo: &Servo, signal: &Arc<EventLoopSignal>, runtime: &TabRuntime) {
+        let deadline = libnagi::time_ticks().saturating_add(SETTLE_FRAME_TICKS);
+        let mut quiet_since = libnagi::time_ticks();
+        while libnagi::time_ticks() < deadline
+            && libnagi::time_ticks().saturating_sub(quiet_since) < SETTLE_QUIET_TICKS
+        {
+            servo.spin_event_loop();
+            if pump_frame(runtime) {
+                quiet_since = libnagi::time_ticks();
+            }
+            yield_guest_workers(signal);
         }
     }
 
@@ -451,11 +644,12 @@ mod guest {
         libnagi::console_write(&line[..length]) == length
     }
 
-    fn report_page(host: &str, frame_checksum: u32) -> bool {
+    fn report_page(host: &str, frame_checksum: u32, ink_pixels: u32) -> bool {
         let prefix = b"Nagi M18 HTTPS page RENDERED host=";
         let middle = b" frame_checksum=0x";
-        let suffix = b"\r\n";
-        let mut line = [0_u8; 128];
+        let ink = format!(" ink_pixels={ink_pixels}\r\n");
+        let suffix = ink.as_bytes();
+        let mut line = [0_u8; 160];
         let mut cursor = 0;
         for part in [prefix.as_slice(), host.as_bytes(), middle.as_slice()] {
             line[cursor..cursor + part.len()].copy_from_slice(part);
@@ -493,6 +687,7 @@ mod guest {
         browser_state: &mut BrowserState,
         runtimes: &mut Vec<TabRuntime>,
         permission_locale: Locale,
+        services: &InputServices,
         action: BrowserChromeAction,
     ) -> Option<crate::navigation::NavigationRequest> {
         let outcome = ui::dispatch(browser_state, action, libnagi::time_ticks());
@@ -504,6 +699,7 @@ mod guest {
             runtimes,
             false,
             permission_locale,
+            services,
         );
         match outcome {
             Ok(BrowserChromeOutcome::Navigate(request)) => {
@@ -512,6 +708,11 @@ mod guest {
                     return None;
                 };
                 runtime.delegate.reset();
+                // A pending paste gesture belongs to the document the user
+                // was looking at, not to the one being loaded.
+                services
+                    .gestures
+                    .forget_scope(tab_gesture_scope(request.tab_id));
                 report_url(b"Nagi M18 browser requesting URL=", &url);
                 runtime.webview.load(url);
                 let _ = libnagi::console_write(
@@ -523,8 +724,12 @@ mod guest {
         }
     }
 
-    fn page_keyboard_event(code: u16, pressed: bool, shifted: bool) -> Option<ServoInputEvent> {
-        let (key, physical_code) = if let Some(character) = evdev_character(code, shifted) {
+    fn page_keyboard_event(
+        code: u16,
+        pressed: bool,
+        modifiers: KeyModifiers,
+    ) -> Option<ServoInputEvent> {
+        let (key, physical_code) = if let Some(character) = evdev_character(code, modifiers.shift) {
             let physical_code = match code {
                 16..=25 => [
                     Code::KeyQ,
@@ -585,9 +790,12 @@ mod guest {
                 _ => return None,
             }
         };
-        let mut modifiers = Modifiers::default();
-        if shifted {
-            modifiers.insert(Modifiers::SHIFT);
+        let mut servo_modifiers = Modifiers::default();
+        if modifiers.shift {
+            servo_modifiers.insert(Modifiers::SHIFT);
+        }
+        if modifiers.control {
+            servo_modifiers.insert(Modifiers::CONTROL);
         }
         Some(ServoInputEvent::Keyboard(KeyboardEvent::new_without_event(
             if pressed {
@@ -598,7 +806,7 @@ mod guest {
             key,
             physical_code,
             Location::Standard,
-            modifiers,
+            servo_modifiers,
             false,
             false,
         )))
@@ -612,8 +820,9 @@ mod guest {
         context: &Rc<SoftwareRenderingContext>,
         signal: &Arc<EventLoopSignal>,
         runtimes: &mut Vec<TabRuntime>,
-        shifted: &mut bool,
+        modifiers: &mut KeyModifiers,
         permission_locale: Locale,
+        services: &InputServices,
     ) -> Option<crate::navigation::NavigationRequest> {
         let mut event = libnagi::InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
@@ -646,13 +855,26 @@ mod guest {
                                 browser_state,
                                 runtimes,
                                 permission_locale,
+                                services,
                                 action,
                             );
                         }
                     }
                     return None;
                 }
+                trace_routed_input(services, b"page-button", 0, pressed);
+                if pressed && browser_state.address_bar().is_focused() {
+                    // Clicking page content moves keyboard focus to the page.
+                    let _ = ui::dispatch(
+                        browser_state,
+                        BrowserChromeAction::BlurAddressBar,
+                        libnagi::time_ticks(),
+                    );
+                }
                 if let Some(runtime) = active_runtime(browser_state, runtimes) {
+                    if pressed {
+                        record_page_gesture(services, runtime.id, None);
+                    }
                     runtime
                         .webview
                         .notify_input_event(ServoInputEvent::MouseButton(MouseButtonEvent::new(
@@ -669,11 +891,24 @@ mod guest {
             }
             BrowserInput::MouseButton { .. } => None,
             BrowserInput::Key { code, pressed } if is_shift_key(code) => {
-                *shifted = pressed;
+                modifiers.shift = pressed;
+                None
+            }
+            BrowserInput::Key { code, pressed } if is_control_key(code) => {
+                trace_routed_input(services, b"control", code, pressed);
+                modifiers.control = pressed;
                 None
             }
             BrowserInput::Key { code, pressed } if browser_state.address_bar().is_focused() => {
+                trace_routed_input(services, b"address-key", code, pressed);
                 if !pressed {
+                    return None;
+                }
+                if let Some(shortcut) = clipboard_shortcut(code, modifiers.control) {
+                    address_bar_clipboard(browser_state, services, shortcut);
+                    return None;
+                }
+                if modifiers.control {
                     return None;
                 }
                 if is_enter_key(code) {
@@ -684,6 +919,7 @@ mod guest {
                         browser_state,
                         runtimes,
                         permission_locale,
+                        services,
                         BrowserChromeAction::SubmitAddress,
                     );
                 }
@@ -699,7 +935,7 @@ mod guest {
                         BrowserChromeAction::BlurAddressBar,
                         libnagi::time_ticks(),
                     );
-                } else if let Some(character) = evdev_character(code, *shifted) {
+                } else if let Some(character) = evdev_character(code, modifiers.shift) {
                     let _ = ui::dispatch(
                         browser_state,
                         BrowserChromeAction::InsertAddressText(character.to_string()),
@@ -709,13 +945,160 @@ mod guest {
                 None
             }
             BrowserInput::Key { code, pressed } => {
-                if let (Some(runtime), Some(event)) = (
-                    active_runtime(browser_state, runtimes),
-                    page_keyboard_event(code, pressed, *shifted),
-                ) {
+                trace_routed_input(services, b"page-key", code, pressed);
+                let Some(runtime) = active_runtime(browser_state, runtimes) else {
+                    return None;
+                };
+                if !route_ime_key(services, runtime, code, pressed, *modifiers) {
+                    return None;
+                }
+                if let Some(event) = page_keyboard_event(code, pressed, *modifiers) {
+                    if pressed {
+                        record_page_gesture(
+                            services,
+                            runtime.id,
+                            clipboard_shortcut(code, modifiers.control),
+                        );
+                    }
                     runtime.webview.notify_input_event(event);
                 }
                 None
+            }
+        }
+    }
+
+    fn send_composition(webview: &WebView, state: CompositionState, data: String) {
+        webview.notify_input_event(ServoInputEvent::Ime(ImeEvent::Composition(
+            CompositionEvent { state, data },
+        )));
+    }
+
+    fn report_ime_mode(mode: InputMode) {
+        let _ = libnagi::console_write(match mode {
+            InputMode::Direct => b"Nagi M18 IME mode=direct\r\n".as_slice(),
+            InputMode::Hiragana => b"Nagi M18 IME mode=hiragana\r\n",
+        });
+    }
+
+    /// Offer a page key to the input method. Returns `true` when the
+    /// original key must still be delivered to the page.
+    fn route_ime_key(
+        services: &InputServices,
+        runtime: &TabRuntime,
+        code: u16,
+        pressed: bool,
+        modifiers: KeyModifiers,
+    ) -> bool {
+        let slot = usize::from(code).min(255);
+        if !pressed {
+            // Swallow the release of a press the IME consumed.
+            return !std::mem::replace(&mut services.ime_consumed_keys.borrow_mut()[slot], false);
+        }
+        let Some(key) = ime_key(code, modifiers.control, modifiers.shift) else {
+            return true;
+        };
+        let mode_key = matches!(key, ImeKey::ToggleMode | ImeKey::ModeOn | ImeKey::ModeOff);
+        if runtime.delegate.ime_target.get().is_none() {
+            if services.ime_composing.replace(false) {
+                services.ime.borrow_mut().reset();
+            }
+            // Without a focused text field only mode keys reach the IME,
+            // so the input language can still be switched.
+            if !mode_key {
+                return true;
+            }
+        }
+        let response: ImeResponse = services.ime.borrow_mut().handle(key);
+        if let Some(mode) = response.mode_changed {
+            report_ime_mode(mode);
+        }
+        if let Some(text) = response.commit {
+            if services.ime_composing.replace(false) {
+                if !text.is_empty() {
+                    services.ime_commits.set(services.ime_commits.get() + 1);
+                }
+                send_composition(&runtime.webview, CompositionState::End, text);
+            }
+        }
+        if let Some(text) = response.preedit {
+            if response.preedit_started || !services.ime_composing.get() {
+                send_composition(&runtime.webview, CompositionState::Start, String::new());
+                services.ime_composing.set(true);
+            }
+            send_composition(&runtime.webview, CompositionState::Update, text);
+        }
+        if !response.pass_through {
+            services.ime_consumed_keys.borrow_mut()[slot] = true;
+        }
+        response.pass_through
+    }
+
+    fn trace_routed_input(services: &InputServices, kind: &[u8], code: u16, pressed: bool) {
+        if !services.trace_input.get() {
+            return;
+        }
+        let mut line = Vec::with_capacity(80);
+        line.extend_from_slice(b"Nagi M18 clipboard trace input=");
+        line.extend_from_slice(kind);
+        line.extend_from_slice(
+            format!(" code={code} pressed={}\r\n", u8::from(pressed)).as_bytes(),
+        );
+        let _ = libnagi::console_write(&line);
+    }
+
+    /// Record a trusted gesture for the tab receiving fresh device input.
+    /// Only an explicit paste shortcut authorizes a clipboard read.
+    fn record_page_gesture(
+        services: &InputServices,
+        tab_id: TabId,
+        shortcut: Option<ClipboardShortcut>,
+    ) {
+        let scope = tab_gesture_scope(tab_id);
+        let now = libnagi::time_ticks();
+        let result = if shortcut == Some(ClipboardShortcut::Paste) {
+            services.gestures.record_paste(scope, now)
+        } else {
+            services.gestures.record_activation(scope, now)
+        };
+        if let Err(error) = result {
+            report_clipboard_denial(b"gesture", error);
+        }
+    }
+
+    fn address_bar_clipboard(
+        browser_state: &mut BrowserState,
+        services: &InputServices,
+        shortcut: ClipboardShortcut,
+    ) {
+        let context = ClipboardContext::from_trusted_browser_chrome(None);
+        let mut runtime = NagiClipboardRuntime::new(&services.endpoint, &services.gestures, || {
+            libnagi::time_ticks()
+        });
+        let mut chrome = services.chrome.borrow_mut();
+        match shortcut {
+            ClipboardShortcut::Copy | ClipboardShortcut::Cut => {
+                let text = browser_state.address_bar().text();
+                if chrome.copy(&mut runtime, &context, &text).is_ok()
+                    && shortcut == ClipboardShortcut::Cut
+                {
+                    let _ = ui::dispatch(
+                        browser_state,
+                        BrowserChromeAction::SetAddressText(String::new()),
+                        libnagi::time_ticks(),
+                    );
+                }
+            }
+            ClipboardShortcut::Paste => {
+                if let Ok(text) = chrome.paste(&mut runtime, &context) {
+                    let line = single_line_paste(&text);
+                    if !line.is_empty() {
+                        let _ = ui::dispatch(
+                            browser_state,
+                            BrowserChromeAction::InsertAddressText(line),
+                            libnagi::time_ticks(),
+                        );
+                    }
+                }
             }
         }
     }
@@ -728,8 +1111,9 @@ mod guest {
         input_bridge: &mut InputBridge,
         browser_state: &mut BrowserState,
         runtimes: &mut Vec<TabRuntime>,
-        shifted: &mut bool,
+        modifiers: &mut KeyModifiers,
         permission_locale: Locale,
+        services: &InputServices,
     ) -> crate::navigation::NavigationRequest {
         let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
         loop {
@@ -742,8 +1126,9 @@ mod guest {
                 context,
                 signal,
                 runtimes,
-                shifted,
+                modifiers,
                 permission_locale,
+                services,
             ) {
                 let url = Url::parse(&request.url).expect("normalized address is a valid URL");
                 if !accepted_host(&url, HTTPS_PAGES[0].1) {
@@ -1072,7 +1457,11 @@ mod guest {
         if !report_chrome(host) {
             fail(b"serial chrome evidence write failed");
         }
-        if !report_page(host, frame_checksum) {
+        // Count non-background pixels in Servo's own frame (before chrome is
+        // composed) so a page that painted only its background is visible
+        // in the evidence and rejected by the host validator.
+        let ink = crate::frame_analysis::ink_pixels(frame, WIDTH, HEIGHT, INK_THRESHOLD);
+        if !report_page(host, frame_checksum, ink) {
             fail(b"serial page evidence write failed");
         }
     }
@@ -1093,7 +1482,282 @@ mod guest {
         }
     }
 
-    pub fn run(display_capability: u64, input_capability: u64, permission_locale: Locale) -> ! {
+    /// Bundled clipboard fixture. Its source field is focused and selected on
+    /// load; the page reports the destination field's value in its title so
+    /// the guest can observe the paste without evaluating page script.
+    const CLIPBOARD_TOKEN: &str = "nagi-clip-7f3a";
+    const CLIPBOARD_READY_TITLE: &str = "nagi-clip:ready";
+    const CLIPBOARD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20id%3Ds%20value%3Dnagi-clip-7f3a%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A60px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cinput%20id%3Dd%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A120px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cscript%3Evar%20s%3Ddocument.getElementById%28%27s%27%29%2Cd%3Ddocument.getElementById%28%27d%27%29%3Bd.addEventListener%28%27focus%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3Afocus%3Ad%27%3B%7D%29%3Bd.addEventListener%28%27input%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3A%27%2Bd.value%3B%7D%29%3Bd.addEventListener%28%27compositionend%27%2Cfunction%28e%29%7BsetTimeout%28function%28%29%7Bdocument.title%3D%27nagi-ime%3A%27%2Be.data%2B%27%7C%27%2Bd.value%3B%7D%2C0%29%3B%7D%29%3Bdocument.addEventListener%28%27keydown%27%2Cfunction%28e%29%7Bvar%20a%3Ddocument.activeElement%3Bdocument.title%3D%27nagi-clip%3Akey%3A%27%2Be.key%2B%27%3A%27%2B%28e.ctrlKey%3F1%3A0%29%2B%27%3A%27%2B%28a%26%26a.id%3Fa.id%3A%27none%27%29%2B%27%3A%27%2B%28a%26%26a.selectionStart%21%3Dnull%3Fa.selectionStart%2B%27-%27%2Ba.selectionEnd%3A%27na%27%29%3B%7D%29%3Bs.focus%28%29%3Bs.select%28%29%3Bdocument.title%3D%27nagi-clip%3Aready%27%3B%3C%2Fscript%3E";
+    /// Hiragana for the romaji `nihongo` that the M18 harness types.
+    const IME_EXPECTED_COMMIT: &str = "にほんご";
+
+    /// Copy from one page field and paste into another using only
+    /// QMP-delivered keyboard and pointer input routed through the Nagi
+    /// clipboard service.
+    fn run_clipboard_acceptance(
+        servo: &Servo,
+        context: &Rc<SoftwareRenderingContext>,
+        signal: &Arc<EventLoopSignal>,
+        surface: &mut NagiSurface,
+        browser_state: &mut BrowserState,
+        runtimes: &mut Vec<TabRuntime>,
+        input_capability: u64,
+        input_bridge: &mut InputBridge,
+        modifiers: &mut KeyModifiers,
+        permission_locale: Locale,
+        services: &InputServices,
+    ) {
+        let Some(tab_id) = browser_state.active_tab_id() else {
+            fail(b"clipboard acceptance has no active tab");
+        };
+        {
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"clipboard acceptance tab has no Servo WebView");
+            };
+            runtime.delegate.reset();
+            services.gestures.forget_scope(tab_gesture_scope(tab_id));
+            runtime
+                .webview
+                .load(Url::parse(CLIPBOARD_PAGE).expect("the bundled clipboard page is valid"));
+            let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+            loop {
+                servo.spin_event_loop();
+                if runtime.webview.load_status() == LoadStatus::Complete
+                    && runtime.delegate.has_frame()
+                    && runtime.webview.page_title().as_deref() == Some(CLIPBOARD_READY_TITLE)
+                {
+                    break;
+                }
+                if libnagi::time_ticks() >= deadline {
+                    fail(b"clipboard page load timed out");
+                }
+                yield_guest_workers(signal);
+            }
+            let counters = &services.counters;
+            if counters.reads.get() != 0 || counters.denied_reads.get() != 0 {
+                fail(b"clipboard was read before any user paste gesture");
+            }
+            if !present_browser_surface(context, &runtime.webview, surface, browser_state, None) {
+                fail(b"clipboard page presentation failed");
+            }
+        }
+        services.trace_input.set(true);
+        if libnagi::console_write(b"Nagi M18 clipboard page READY\r\n")
+            != b"Nagi M18 clipboard page READY\r\n".len()
+        {
+            fail(b"serial clipboard-ready marker write failed");
+        }
+
+        let expected_title = format!("nagi-clip:{CLIPBOARD_TOKEN}");
+        let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+        // QEMU keyboard and pointer devices are separate queues, so the host
+        // sends each step only after the guest reports the previous one.
+        let mut copy_reported = false;
+        let mut focus_reported = false;
+        loop {
+            servo.spin_event_loop();
+            if route_guest_input(
+                input_capability,
+                input_bridge,
+                browser_state,
+                servo,
+                context,
+                signal,
+                runtimes,
+                modifiers,
+                permission_locale,
+                services,
+            )
+            .is_some()
+            {
+                fail(b"clipboard input unexpectedly started a navigation");
+            }
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"clipboard acceptance tab closed");
+            };
+            pump_frame(runtime);
+            if !copy_reported && services.counters.writes.get() > 0 {
+                copy_reported = true;
+                let _ = libnagi::console_write(b"Nagi M18 clipboard copy observed\r\n");
+            }
+            if copy_reported
+                && !focus_reported
+                && runtime.webview.page_title().as_deref() == Some("nagi-clip:focus:d")
+            {
+                focus_reported = true;
+                let _ = libnagi::console_write(b"Nagi M18 clipboard destination focused\r\n");
+            }
+            if runtime.webview.page_title().as_deref() == Some(expected_title.as_str()) {
+                break;
+            }
+            if libnagi::time_ticks() >= deadline {
+                let counters = &services.counters;
+                let _ = libnagi::console_write(if counters.writes.get() == 0 {
+                    b"Nagi M18 clipboard timeout writes=0\r\n".as_slice()
+                } else {
+                    b"Nagi M18 clipboard timeout writes>0\r\n"
+                });
+                let _ = libnagi::console_write(if counters.reads.get() == 0 {
+                    b"Nagi M18 clipboard timeout reads=0\r\n".as_slice()
+                } else {
+                    b"Nagi M18 clipboard timeout reads>0\r\n"
+                });
+                let _ = libnagi::console_write(if runtime.webview.focused() {
+                    b"Nagi M18 clipboard timeout webview_focused=true\r\n".as_slice()
+                } else {
+                    b"Nagi M18 clipboard timeout webview_focused=false\r\n"
+                });
+                fail(b"clipboard copy/paste input timed out");
+            }
+            yield_guest_workers(signal);
+        }
+
+        let counters = &services.counters;
+        if counters.writes.get() == 0
+            || counters.reads.get() != 1
+            || counters.denied_reads.get() != 0
+            || counters.last_read.borrow().as_str() != CLIPBOARD_TOKEN
+        {
+            fail(b"clipboard service did not carry the copied text to the paste");
+        }
+        // The single paste gesture was consumed by that read. A further read
+        // with no new user gesture must be refused by the service.
+        match services
+            .endpoint
+            .read_text(tab_gesture_scope(tab_id), libnagi::time_ticks())
+        {
+            Err(ClipboardError::NoUserGesture) => {
+                let _ = libnagi::console_write(
+                    b"Nagi M18 clipboard ungestured read DENIED reason=no-user-gesture\r\n",
+                );
+            }
+            _ => fail(b"clipboard service allowed a read without a user gesture"),
+        }
+        let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+            fail(b"clipboard acceptance tab closed");
+        };
+        if !present_settled_frame(servo, context, signal, surface, browser_state, runtime) {
+            fail(b"clipboard result presentation failed");
+        }
+        if libnagi::console_write(b"Nagi M18 clipboard copy/paste PASS\r\n")
+            != b"Nagi M18 clipboard copy/paste PASS\r\n".len()
+        {
+            fail(b"serial clipboard evidence write failed");
+        }
+    }
+
+    /// Compose Japanese into the focused fixture field with QMP-typed romaji,
+    /// committed through Servo composition events.
+    fn run_ime_acceptance(
+        servo: &Servo,
+        context: &Rc<SoftwareRenderingContext>,
+        signal: &Arc<EventLoopSignal>,
+        surface: &mut NagiSurface,
+        browser_state: &mut BrowserState,
+        runtimes: &mut Vec<TabRuntime>,
+        input_capability: u64,
+        input_bridge: &mut InputBridge,
+        modifiers: &mut KeyModifiers,
+        permission_locale: Locale,
+        services: &InputServices,
+    ) {
+        let Some(tab_id) = browser_state.active_tab_id() else {
+            fail(b"IME acceptance has no active tab");
+        };
+        {
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"IME acceptance tab has no Servo WebView");
+            };
+            let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+            while runtime.delegate.ime_target.get().is_none() {
+                servo.spin_event_loop();
+                if libnagi::time_ticks() >= deadline {
+                    fail(b"focused text field never requested an input method");
+                }
+                yield_guest_workers(signal);
+            }
+        }
+        if services.ime.borrow().mode() != InputMode::Direct || services.ime_composing.get() {
+            fail(b"IME was not idle in direct mode before the scenario");
+        }
+        if libnagi::console_write(b"Nagi M18 IME page READY\r\n")
+            != b"Nagi M18 IME page READY\r\n".len()
+        {
+            fail(b"serial IME-ready marker write failed");
+        }
+
+        let expected_title =
+            format!("nagi-ime:{IME_EXPECTED_COMMIT}|{CLIPBOARD_TOKEN}{IME_EXPECTED_COMMIT}");
+        let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+        loop {
+            servo.spin_event_loop();
+            if route_guest_input(
+                input_capability,
+                input_bridge,
+                browser_state,
+                servo,
+                context,
+                signal,
+                runtimes,
+                modifiers,
+                permission_locale,
+                services,
+            )
+            .is_some()
+            {
+                fail(b"IME input unexpectedly started a navigation");
+            }
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"IME acceptance tab closed");
+            };
+            pump_frame(runtime);
+            if runtime.webview.page_title().as_deref() == Some(expected_title.as_str()) {
+                break;
+            }
+            if libnagi::time_ticks() >= deadline {
+                let _ = libnagi::console_write(if services.ime_commits.get() == 0 {
+                    b"Nagi M18 IME timeout commits=0\r\n".as_slice()
+                } else {
+                    b"Nagi M18 IME timeout commits>0\r\n"
+                });
+                fail(b"IME composition input timed out");
+            }
+            yield_guest_workers(signal);
+        }
+        if services.ime_commits.get() != 1 || services.ime_composing.get() {
+            fail(b"IME did not finish exactly one composition");
+        }
+        let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+            fail(b"IME acceptance tab closed");
+        };
+        if !present_settled_frame(servo, context, signal, surface, browser_state, runtime) {
+            fail(b"IME result presentation failed");
+        }
+        if libnagi::console_write(b"Nagi M18 IME commit PASS\r\n")
+            != b"Nagi M18 IME commit PASS\r\n".len()
+        {
+            fail(b"serial IME evidence write failed");
+        }
+    }
+
+    pub fn run(
+        display_capability: u64,
+        input_capability: u64,
+        permission_locale: Locale,
+        clipboard_endpoint: ClipboardEndpoint,
+        clipboard_gestures: GestureSource,
+    ) -> ! {
+        let services = InputServices {
+            trace_input: Cell::new(false),
+            endpoint: clipboard_endpoint,
+            gestures: clipboard_gestures,
+            chrome: RefCell::new(BrowserClipboard::new()),
+            counters: Rc::new(ClipboardCounters::default()),
+            ime: RefCell::new(InputMethod::new(KanaCandidates)),
+            ime_composing: Cell::new(false),
+            ime_consumed_keys: RefCell::new([false; 256]),
+            ime_commits: Cell::new(0),
+        };
         VERIFIED_HOST_MASK.store(0, std::sync::atomic::Ordering::Release);
         crate::M18_NAVIGATION_TRACE_ACTIVE.store(false, Ordering::Release);
 
@@ -1143,13 +1807,14 @@ mod guest {
             &mut runtimes,
             true,
             permission_locale,
+            &services,
         );
         let Some(initial_runtime) = active_runtime(&browser_state, &runtimes) else {
             fail(b"browser has no initial Servo WebView");
         };
         wait_for_initial_blank(&servo, initial_runtime);
         let mut input_bridge = InputBridge::new();
-        let mut shifted = false;
+        let mut modifiers = KeyModifiers::default();
         if libnagi::console_write(b"Nagi M18 browser READY\r\n")
             != b"Nagi M18 browser READY\r\n".len()
         {
@@ -1166,8 +1831,9 @@ mod guest {
                     &mut input_bridge,
                     &mut browser_state,
                     &mut runtimes,
-                    &mut shifted,
+                    &mut modifiers,
                     permission_locale,
+                    &services,
                 )
             } else {
                 let Some(tab_id) = browser_state.active_tab_id() else {
@@ -1229,6 +1895,9 @@ mod guest {
             ) {
                 fail(b"browser state rejected completed navigation");
             }
+            // The first ready frame can predate the page's content; let Servo
+            // finish painting before the evidence frame is read.
+            settle_frames(&servo, &signal, runtime);
             render_page(
                 &context,
                 &runtime.webview,
@@ -1238,6 +1907,33 @@ mod guest {
             );
             persist_browser_state(&browser_state, &mut browser_storage);
         }
+
+        run_clipboard_acceptance(
+            &servo,
+            &context,
+            &signal,
+            &mut surface,
+            &mut browser_state,
+            &mut runtimes,
+            input_capability,
+            &mut input_bridge,
+            &mut modifiers,
+            permission_locale,
+            &services,
+        );
+        run_ime_acceptance(
+            &servo,
+            &context,
+            &signal,
+            &mut surface,
+            &mut browser_state,
+            &mut runtimes,
+            input_capability,
+            &mut input_bridge,
+            &mut modifiers,
+            permission_locale,
+            &services,
+        );
 
         if libnagi::console_write(b"Nagi M18 browser scenario complete pages=3\r\n")
             != b"Nagi M18 browser scenario complete pages=3\r\n".len()
@@ -1249,11 +1945,20 @@ mod guest {
 }
 
 #[cfg(target_os = "nagi")]
-pub fn run_m18_https_acceptance(display_capability: u64, input_capability: u64) -> ! {
+pub fn run_m18_https_acceptance(
+    display_capability: u64,
+    input_capability: u64,
+    services: (
+        nagi_clipboard::ClipboardEndpoint,
+        nagi_clipboard::GestureSource,
+    ),
+) -> ! {
     guest::run(
         display_capability,
         input_capability,
         nagi_localization::Locale::EnUs,
+        services.0,
+        services.1,
     )
 }
 
@@ -1262,6 +1967,16 @@ pub fn run_m18_https_acceptance_with_locale(
     display_capability: u64,
     input_capability: u64,
     locale: nagi_localization::Locale,
+    services: (
+        nagi_clipboard::ClipboardEndpoint,
+        nagi_clipboard::GestureSource,
+    ),
 ) -> ! {
-    guest::run(display_capability, input_capability, locale)
+    guest::run(
+        display_capability,
+        input_capability,
+        locale,
+        services.0,
+        services.1,
+    )
 }

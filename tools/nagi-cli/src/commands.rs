@@ -23,17 +23,18 @@ use crate::image::{
     run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
     run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
     run_qemu_gui_with_events, run_qemu_gui_with_events_and_screenshot,
-    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot,
-    run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
-    run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
-    run_qemu_until_any_acceptance_marker, run_qemu_until_any_acceptance_marker_reusing_ovmf_vars,
+    run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input,
+    run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot,
+    run_qemu_interactive, run_qemu_reusing_ovmf_vars,
+    run_qemu_reusing_ovmf_vars_with_read_only_boot_disk, run_qemu_until_any_acceptance_marker,
+    run_qemu_until_any_acceptance_marker_reusing_ovmf_vars,
     run_qemu_until_any_acceptance_marker_with_read_only_boot_disk,
     run_qemu_with_read_only_boot_disk, validate_reference_disk_qcow2, write_fat12_image,
     write_isolated_apps_fat12_image, write_m17_fat12_image,
     write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
     write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
     write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
-    ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    ImageLayout, QemuConfig, QmpEventStage, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -85,6 +86,76 @@ struct DesktopAcceptanceConfig {
     restart_log_name: Option<&'static str>,
     unique_run_artifacts: bool,
 }
+
+/// Clipboard steps, each sent after the guest reports the previous one:
+/// Ctrl+C in the selected source field; a click on the destination field
+/// (pointer moves from the address-bar click at y=30 to y=132); Ctrl+V.
+const M18_CLIPBOARD_COPY_EVENTS: [&str; 1] = [r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ctrl"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"c"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"c"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ctrl"}}}
+        ]}
+    }"#];
+const M18_CLIPBOARD_FOCUS_EVENTS: [&str; 1] = [r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"rel","data":{"axis":"y","value":102}},
+            {"type":"btn","data":{"button":"left","down":true}},
+            {"type":"btn","data":{"button":"left","down":false}}
+        ]}
+    }"#];
+const M18_CLIPBOARD_PASTE_EVENTS: [&str; 1] = [r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ctrl"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"v"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"v"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ctrl"}}}
+        ]}
+    }"#];
+
+/// After the guest reports the focused IME field: Ctrl+Space switches to
+/// hiragana, `nihongo` composes にほんご, and Enter commits it.
+const M18_IME_EVENTS: [&str; 3] = [
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ctrl"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"spc"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"spc"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ctrl"}}}
+        ]}
+    }"#,
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"n"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"n"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"i"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"i"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"h"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"h"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"n"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"n"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"g"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"g"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"o"}}}
+        ]}
+    }"#,
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}
+        ]}
+    }"#,
+];
 
 const M18_INPUT_EVENTS: [&str; 2] = [
     r#"{
@@ -1250,6 +1321,9 @@ fn execute_fetch(root: &Path) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
+    if let Err(error) = crate::fonts::ensure_font_cache(root) {
+        return failure(EXIT_CONFIG_ERROR, format!("fetch: fonts: {error}"));
+    }
     let servo_relative = servo
         .strip_prefix(root)
         .unwrap_or(Path::new("third_party/servo"));
@@ -1427,6 +1501,36 @@ fn execute_image_with_init_build_env(
     )
 }
 
+/// Whether `init_args` build the Servo-enabled init (M17/M18 features).
+fn servo_enabled_init(init_args: &[&str]) -> bool {
+    init_args.windows(2).any(|pair| {
+        pair[0] == "--features"
+            && pair[1]
+                .split(',')
+                .any(|feature| matches!(feature.trim(), "m17-servo" | "m18-acceptance"))
+    })
+}
+
+/// Write `<init>.image`, the init ELF without symbol tables, using the
+/// `llvm-objcopy` the Servo/Mesa build already requires.
+fn strip_init_for_image(init_path: &Path) -> Result<PathBuf, String> {
+    let stripped = init_path.with_extension("image");
+    let output = ProcessCommand::new("llvm-objcopy")
+        .arg("--strip-all")
+        .arg(init_path)
+        .arg(&stripped)
+        .output()
+        .map_err(|error| format!("cannot start llvm-objcopy to strip the init ELF: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "llvm-objcopy could not strip {}: {}",
+            init_path.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(stripped)
+}
+
 fn execute_image_with_init_build_env_using_writer(
     root: &Path,
     init_args: &[&str],
@@ -1533,6 +1637,17 @@ fn execute_image_with_init_build_env_using_writer_and_recovery(
                 format!("image: cannot read {}: {error}", loader_path.display()),
             );
         }
+    };
+    // Servo-enabled init ELFs carry ~20 MiB of symbol tables the guest never
+    // reads. Boot images get a stripped copy so they stay inside the FAT12
+    // per-file limit; the symbol-bearing ELF stays in target/ for debugging.
+    let init_path = if servo_enabled_init(init_args) {
+        match strip_init_for_image(&init_path) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
+        }
+    } else {
+        init_path
     };
     let init = match fs::read(&init_path) {
         Ok(bytes) => bytes,
@@ -5877,6 +5992,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 
     let package_path = root.join("out").join("artifacts").join("hello-nagi.xapp");
     let mesa_build_path = root.join("out").join("m17-mesa").join("mesa-build");
+    let font_cache_path = root.join("out").join("cache").join("fonts");
     let target_compiler_wrapper = root.join("tools").join("nagi-target-cc.sh");
     let init_args = [
         "build",
@@ -5894,6 +6010,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let mut init_build_env = vec![
         ("NAGI_M16_PACKAGE", package_path.as_path()),
         ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
+        ("NAGI_FONT_DIR", font_cache_path.as_path()),
         ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
         // MozJS builds host-side configure helpers as well as Nagi
         // target objects; keep those host probes off the target wrapper.
@@ -7027,6 +7144,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 
     let package_path = root.join("out").join("artifacts").join("hello-nagi.xapp");
     let mesa_build_path = root.join("out").join("m17-mesa").join("mesa-build");
+    let font_cache_path = root.join("out").join("cache").join("fonts");
     let target_compiler_wrapper = root.join("tools").join("nagi-target-cc.sh");
     let init_args = [
         "build",
@@ -7044,6 +7162,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let mut init_build_env = vec![
         ("NAGI_M16_PACKAGE", package_path.as_path()),
         ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
+        ("NAGI_FONT_DIR", font_cache_path.as_path()),
         ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
         // MozJS builds host-side configure helpers as well as Nagi
         // target objects; keep those host probes off the target wrapper.
@@ -7168,10 +7287,28 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         timeout,
     };
     let outcome =
-        match run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot(
+        match run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot(
             &config,
             "Nagi M18 browser READY",
             &M18_INPUT_EVENTS,
+            &[
+                QmpEventStage {
+                    marker: "Nagi M18 clipboard page READY",
+                    events: &M18_CLIPBOARD_COPY_EVENTS,
+                },
+                QmpEventStage {
+                    marker: "Nagi M18 clipboard copy observed",
+                    events: &M18_CLIPBOARD_FOCUS_EVENTS,
+                },
+                QmpEventStage {
+                    marker: "Nagi M18 clipboard destination focused",
+                    events: &M18_CLIPBOARD_PASTE_EVENTS,
+                },
+                QmpEventStage {
+                    marker: "Nagi M18 IME page READY",
+                    events: &M18_IME_EVENTS,
+                },
+            ],
             "Nagi M18 browser FAIL",
             &screenshot_path,
         ) {
@@ -7219,7 +7356,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU (exit {}; log {}; screenshot {})",
+            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; gesture-bound clipboard copy/paste and Japanese IME composition passed (exit {}; log {}; screenshot {})",
             outcome.exit_status,
             log_path.display(),
             screenshot_path.display(),
@@ -10151,6 +10288,22 @@ mod tests {
     }
 
     #[test]
+    fn only_servo_enabled_init_builds_are_stripped_for_the_image() {
+        assert!(super::servo_enabled_init(&[
+            "build",
+            "--features",
+            "m17-servo"
+        ]));
+        assert!(super::servo_enabled_init(&["--features", "m18-acceptance"]));
+        assert!(super::servo_enabled_init(&[
+            "--features",
+            "m13-posix,m17-servo"
+        ]));
+        assert!(!super::servo_enabled_init(&["--features", "m19-search"]));
+        assert!(!super::servo_enabled_init(&["build", "-p", "nagi-init"]));
+    }
+
+    #[test]
     fn m18_browser_boot_keeps_the_esp_read_only_for_storage_selection() {
         let commands = include_str!("commands.rs");
         let m18_start = commands.find("fn execute_m18(").expect("M18 command");
@@ -10159,14 +10312,15 @@ mod tests {
             .map(|offset| m18_start + offset)
             .expect("next command helper");
         assert!(commands[m18_start..m18_end].contains(
-            "run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot("
+            "run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot("
         ));
         assert!(commands[m18_start..m18_end].contains("m29-browser-{evidence_run_id}"));
 
         let image = include_str!("image.rs");
         assert!(image.contains("Duration::from_millis(100)"));
         let compact_image: String = image.split_whitespace().collect();
-        assert!(compact_image.contains("mode.inter_event_delay.is_zero()"));
+        assert!(compact_image.contains("inter_event_delay.is_zero()"));
+        assert!(compact_image.contains("mode.inter_event_delay,"));
         assert!(
             compact_image.contains("vnc_port-5900,mode.boot_disk_read_only,mode.reuse_ovmf_vars,")
         );

@@ -118,9 +118,94 @@ pub const fn is_escape_key(code: u16) -> bool {
     code == 1
 }
 
+pub const fn is_control_key(code: u16) -> bool {
+    matches!(code, 29 | 97)
+}
+
+/// Translate an evdev key press for the input method (US layout). Returns
+/// `None` for modifier keys, which the IME never sees.
+pub fn ime_key(code: u16, control: bool, shifted: bool) -> Option<nagi_ime::ImeKey> {
+    use nagi_ime::ImeKey;
+    if is_shift_key(code) || is_control_key(code) {
+        return None;
+    }
+    Some(match code {
+        57 if control => ImeKey::ToggleMode,
+        // KEY_ZENKAKUHANKAKU, KEY_HENKAN, KEY_MUHENKAN, F6, F7.
+        85 => ImeKey::ToggleMode,
+        92 => ImeKey::ModeOn,
+        94 => ImeKey::ModeOff,
+        64 => ImeKey::ConvertHiragana,
+        65 => ImeKey::ConvertKatakana,
+        _ if control => ImeKey::Other,
+        57 => ImeKey::Space,
+        28 => ImeKey::Enter,
+        14 => ImeKey::Backspace,
+        1 => ImeKey::Escape,
+        _ => match evdev_character(code, shifted) {
+            Some(character) => ImeKey::Char(character),
+            None => ImeKey::Other,
+        },
+    })
+}
+
+/// Clipboard shortcut named by a key press while Control is held.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClipboardShortcut {
+    Copy,
+    Cut,
+    Paste,
+}
+
+/// Classify evdev `code` pressed with Control held (US layout).
+pub const fn clipboard_shortcut(code: u16, control: bool) -> Option<ClipboardShortcut> {
+    if !control {
+        return None;
+    }
+    match code {
+        46 => Some(ClipboardShortcut::Copy),
+        45 => Some(ClipboardShortcut::Cut),
+        47 => Some(ClipboardShortcut::Paste),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{chrome_action_at, evdev_character, BrowserChromeAction, CHROME_HEIGHT};
+    use super::{
+        chrome_action_at, clipboard_shortcut, evdev_character, is_control_key, BrowserChromeAction,
+        ClipboardShortcut, CHROME_HEIGHT,
+    };
+
+    #[test]
+    fn ime_keys_follow_us_layout_and_japanese_mode_keys() {
+        use nagi_ime::ImeKey;
+        assert_eq!(super::ime_key(57, true, false), Some(ImeKey::ToggleMode));
+        assert_eq!(super::ime_key(85, false, false), Some(ImeKey::ToggleMode));
+        assert_eq!(super::ime_key(92, false, false), Some(ImeKey::ModeOn));
+        assert_eq!(super::ime_key(94, false, false), Some(ImeKey::ModeOff));
+        assert_eq!(super::ime_key(57, false, false), Some(ImeKey::Space));
+        assert_eq!(super::ime_key(49, false, false), Some(ImeKey::Char('n')));
+        assert_eq!(super::ime_key(12, false, false), Some(ImeKey::Char('-')));
+        assert_eq!(super::ime_key(47, true, false), Some(ImeKey::Other));
+        assert_eq!(
+            super::ime_key(65, false, false),
+            Some(ImeKey::ConvertKatakana)
+        );
+        assert_eq!(super::ime_key(29, false, false), None);
+        assert_eq!(super::ime_key(42, false, true), None);
+    }
+
+    #[test]
+    fn clipboard_shortcuts_require_control() {
+        assert!(is_control_key(29) && is_control_key(97));
+        assert!(!is_control_key(42));
+        assert_eq!(clipboard_shortcut(46, true), Some(ClipboardShortcut::Copy));
+        assert_eq!(clipboard_shortcut(45, true), Some(ClipboardShortcut::Cut));
+        assert_eq!(clipboard_shortcut(47, true), Some(ClipboardShortcut::Paste));
+        assert_eq!(clipboard_shortcut(47, false), None);
+        assert_eq!(clipboard_shortcut(30, true), None);
+    }
     use crate::browser_state::BrowserState;
     use crate::tabs::TabId;
     use crate::ui::{self, BrowserChromeOutcome};

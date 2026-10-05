@@ -1560,18 +1560,41 @@ pub unsafe extern "C" fn nagi_posix_mmap_file(
     if fd < 0 {
         return crate::nagi_posix_mmap(length, protection);
     }
-    let address = crate::nagi_posix_mmap(length, protection);
+    // POSIX file mappings may have any length; the mapping covers whole
+    // pages and bytes past the end of the file read as zero.
+    let Some(mapped_length) = crate::page_rounded_length(length) else {
+        write_errno_and_fail(EINVAL);
+        return ptr::null_mut();
+    };
+    // Fill through a writable mapping, then apply the requested protection.
+    let address = crate::nagi_posix_mmap(mapped_length, protection | PROT_READ | PROT_WRITE);
     if address.is_null() {
         return ptr::null_mut();
     }
     let destination = core::slice::from_raw_parts_mut(address, length);
-    if crate::runtime::read_at(fd, offset, destination).is_err() {
-        let _ = crate::nagi_posix_munmap(address, length);
+    let mut filled = 0;
+    while filled < length {
+        match crate::runtime::read_at(fd, offset + filled, &mut destination[filled..]) {
+            Ok(0) => break,
+            Ok(count) => filled += count,
+            Err(_) => {
+                let _ = crate::nagi_posix_munmap(address, mapped_length);
+                write_errno_and_fail(EINVAL);
+                return ptr::null_mut();
+            }
+        }
+    }
+    if protection & PROT_WRITE == 0 && !libnagi::mprotect(address, mapped_length, protection as u64)
+    {
+        let _ = crate::nagi_posix_munmap(address, mapped_length);
         write_errno_and_fail(EINVAL);
         return ptr::null_mut();
     }
     address
 }
+
+const PROT_READ: i32 = 1;
+const PROT_WRITE: i32 = 2;
 
 #[repr(C)]
 pub struct NagiPollFd {
