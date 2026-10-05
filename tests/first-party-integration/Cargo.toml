@@ -1,0 +1,22 @@
+[package]
+name = "nagi-first-party-integration"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+nagi-files = { path = "../../apps/nagi-files" }
+nagi-history = { path = "../../user/nagi-history" }
+nagi-home-search = { path = "../../user/nagi-home-search" }
+nagi-model = { path = "../../crates/nagi-model" }
+nagi-notes = { path = "../../user/nagi-notes" }
+
+[[bin]]
+name = "integrated-host-preview"
+path = "src/bin/integrated-host-preview.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

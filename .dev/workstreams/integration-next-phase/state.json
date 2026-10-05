@@ -1,0 +1,1059 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "integration-next-phase",
+  "current_milestone": "INTEGRATION",
+  "current_checkpoint": "classifier-verified-m17-runtime-still-blocked",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1",
+    "verified_at": "2026-09-26T13:16:50Z",
+    "normal_state": "Integration code commit faeeb22 fixes dev status so every queued/in-progress CI run is shown before completed runs. The nagi-cli suite passes (108 unit and 26 integration tests), formatting and warning-denied Clippy pass. Run 36236310925 failed target acceptance after both host jobs passed: attempt 2 returned native-thread-create-rejected with a 16 KiB bridge stack and pthread_error=11, then QEMU timed out; no pixel evidence. Run 36240025711 at faeeb22 also passed both host jobs and failed target acceptance with the same native thread rejection and no checksum/PASS marker. Its CI report correctly classified QEMU did not exit within 120 seconds as stage=timeout, verifying the classifier fix. Serial log SHA-256 for run 36240025711 is 58a39abf231fa1fc6db060e847735bd994e07c12334e6be73cc23b050581da2e. M17 remains BLOCKED; M18 remains NOT STARTED; 0.2 runtime/product remains gated on M30 PASS and an explicit release checkpoint.",
+    "commands": [
+      "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check",
+      "cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path crates/nagi-capability/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test -p nagi-package --lib --locked --offline",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "git diff --cached --check; git diff --check",
+      "cargo fmt --manifest-path sdk/rust/Cargo.toml -- --check",
+      "cargo test --manifest-path sdk/rust/Cargo.toml --locked",
+      "cargo clippy --manifest-path sdk/rust/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check",
+      "cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked",
+      "cargo clippy --manifest-path tools/nagi-pkg/Cargo.toml --all-targets --locked -- -D warnings",
+      "/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+      "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate sdk/rust/fixtures/manifests/{files,notes,search,activity}.json",
+      "git diff --check; git diff --cached --check",
+      "./tests/wayback/verify.sh",
+      "cargo fmt --manifest-path crates/nagi-i18n/Cargo.toml -- --check",
+      "cargo test --locked -p nagi-i18n",
+      "cargo clippy --locked -p nagi-i18n --all-targets -- -D warnings",
+      "cargo run --locked -p nagi-i18n --bin localization-check",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "cargo fmt --manifest-path user/nagi-posix/Cargo.toml -- --check",
+      "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
+      "cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "git diff --check",
+      "cargo test -p nagi-cli --locked --offline",
+      "cargo fmt --all -- --check",
+      "cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+      "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "target/debug/nagi diagnostics --scope diagnostics --json",
+      "target/debug/nagi verify --scope workstreams --json",
+      "target/debug/nagi smoke --host-only --json",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline acceptance::tests",
+      "cargo test -p nagi-net --locked --offline --target x86_64-apple-darwin",
+      "cargo clippy -p nagi-net --all-targets --locked --offline --target x86_64-apple-darwin -- -D warnings",
+      "./nagi test --acceptance --list",
+      "./nagi test --acceptance --host-only --ci",
+      "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+      "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'",
+      "git merge --no-ff --no-commit codex/ws-ui-design-system",
+      "git merge --no-ff --no-commit codex/first-party-integration",
+      "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-notes/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path user/nagi-home-search/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo test --manifest-path tests/first-party-integration/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path user/nagi-notes/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path user/nagi-home-search/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo clippy --manifest-path tests/first-party-integration/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\" -- -D warnings",
+      "cargo fmt --package nagi-history --package nagi-cli --package nagi-ui --package nagi-init -- --check",
+      "cargo fmt --manifest-path apps/nagi-files/Cargo.toml -- --check",
+      "cargo fmt --manifest-path user/nagi-notes/Cargo.toml -- --check",
+      "cargo fmt --manifest-path user/nagi-home-search/Cargo.toml -- --check",
+      "cargo fmt --manifest-path tests/first-party-integration/Cargo.toml -- --check",
+      "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+      "./nagi test --acceptance --host-only --subsystem developer-cli --ci",
+      "sh -n tests/acceptance/m0_launcher.sh",
+      "./nagi dev verify",
+      "git diff --check",
+      "gh run view 36231902947 --log-failed",
+      "gh run view 36232534175 --json status,conclusion,jobs,url",
+      "gh run view 36232534175 --log-failed",
+      "gh run download 36232534175 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362325-windows",
+      "gh run view 36232966992 --json status,conclusion,jobs,url",
+      "gh run view 36232966992 --log-failed",
+      "gh run download 36232966992 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362329-windows",
+      "gh run view 36233551349 --json status,conclusion,jobs,url",
+      "cargo fmt --package nagi-cli -- --check",
+      "cargo test -p nagi-cli --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+      "cargo clippy -p nagi-cli --all-targets --locked --offline --config 'build.target=\"x86_64-apple-darwin\"' -- -D warnings",
+      "gh run view 36233551349 --json status,conclusion,jobs,url",
+      "gh run download 36233551349 --name acceptance-windows-host-1 --dir /tmp/nagi-acceptance-362335-windows",
+      "cargo test -p nagi-cli --locked --offline --config build.target=\"aarch64-apple-darwin\" terminal_controls",
+      "cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+      "cargo fmt --manifest-path user/nagi-posix/Cargo.toml",
+      "gh run view 36235206493 --log-failed",
+      "gh run view 36235660277 --json status,conclusion,jobs,url",
+      "gh run view 36236310925 --json status,conclusion,jobs,url",
+      "gh run view 36230579035 --log-failed",
+      "gh run view 36231127467 --log-failed",
+      "git show --stat --oneline codex/parallel-capability-core",
+      "git show --stat --oneline codex/parallel-wayback-ledger",
+      "git worktree list --porcelain",
+      "git branch -vv",
+      "git ls-remote --heads origin codex/integration-next-phase main",
+      "./nagi dev resume",
+      "sed -n 1737,1822p user/nagi-posix/src/abi.rs",
+      "sed -n 688,727p kernel/src/syscall.rs",
+      "gh run download 36235660277 --dir /tmp/nagi-m17-36235660277",
+      "sha256sum /tmp/nagi-m17-36235660277/m17-diagnostics-36235660277/m17-servo.log",
+      "python3 -m json.tool .dev/workstreams/integration-next-phase/state.json",
+      "cargo test -p nagi-cli --lib --locked --offline --config build.target=\"aarch64-apple-darwin\" failures_keep_stage_distinction_and_block_missing_environment",
+      "gh run view 36239110612 --json status,conclusion,headSha,updatedAt,jobs,url",
+      "gh run view 36236310925 --json status,conclusion,updatedAt,jobs",
+      "gh run view 36239110612 --json status,conclusion,updatedAt,jobs",
+      "gh run view 36232073962 --job 108376978758 --log-failed",
+      "gh run view 36237832887 --job 108392749692 --log-failed",
+      "gh run view 36237832887 --job 108392749592 --log-failed",
+      "gh run view 36237832887 --job 108392749643 --log-failed",
+      "git show --stat --oneline 71fd5c3",
+      "git show --format= --no-ext-diff 4d79bbe -- tools/nagi-cli/src/mesa.rs",
+      "git -C /Users/tozawa/.codex/worktrees/m17-allocator-diagnosis/NagiOS status --short --branch",
+      "cargo test -p nagi-cli --locked --offline --config 'build.target=\"aarch64-apple-darwin\"' status_keeps_active_ci_runs_visible_ahead_of_newer_completed_runs",
+      "gh run view 36239110612 --json status,conclusion,jobs,url",
+      "gh run view 36240025711 --json status,conclusion,jobs,url",
+      "gh run view 36236310925 --log-failed",
+      "gh run download 36236310925 --name m17-diagnostics-36236310925 --dir /tmp/nagi-m17-36236310925",
+      "shasum -a 256 /tmp/nagi-m17-36236310925/m17-servo.log",
+      "gh run view 36240025711 --log-failed",
+      "gh run download 36240025711 --name m17-diagnostics-36240025711 --dir /tmp/nagi-m17-36240025711",
+      "shasum -a 256 /tmp/nagi-m17-36240025711/m17-servo.log"
+    ],
+    "tests": [
+      {
+        "name": "Capability crate formatting, tests, and lint",
+        "command": "cargo fmt --manifest-path crates/nagi-capability/Cargo.toml -- --check; cargo test --manifest-path crates/nagi-capability/Cargo.toml --locked --offline; cargo clippy --manifest-path crates/nagi-capability/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting passed; 26 unit tests and 2 integration tests passed; Clippy passed with warnings denied."
+      },
+      {
+        "name": "Existing package manifest regression",
+        "command": "cargo test -p nagi-package --lib --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 5 nagi-package library tests passed."
+      },
+      {
+        "name": "Registered workstream state verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "11 registered workstreams and 3 state files validated on codex/integration-next-phase."
+      },
+      {
+        "name": "Integration diff whitespace",
+        "command": "git diff --cached --check; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No whitespace errors."
+      },
+      {
+        "name": "App SDK contract tests",
+        "command": "cargo test --manifest-path sdk/rust/Cargo.toml --locked",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "46 unit tests and doc-tests passed, including regression cases for single-segment, leading-digit, underscore, empty, leading-hyphen segment, and uppercase capability IDs."
+      },
+      {
+        "name": "App SDK format and Clippy",
+        "command": "cargo fmt --manifest-path sdk/rust/Cargo.toml -- --check; cargo clippy --manifest-path sdk/rust/Cargo.toml --all-targets --locked -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "SDK formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "Host manifest loader tests, format, and Clippy",
+        "command": "cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check; cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked; cargo clippy --manifest-path tools/nagi-pkg/Cargo.toml --all-targets --locked -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 7 loader/integration tests passed; focused formatting and Clippy passed."
+      },
+      {
+        "name": "Manifest schema and malformed fixtures",
+        "command": "/tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Draft 2020-12 schema accepted 4 valid fixtures and rejected 20 malformed documents, including six noncanonical capability IDs."
+      },
+      {
+        "name": "SDK manifest CLI fixtures",
+        "command": "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate {files,notes,search,activity}.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All four SDK-owned manifest fixtures validate through the host CLI."
+      },
+      {
+        "name": "M16 package/signing regression",
+        "command": "cargo test -p nagi-package --lib --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 5 existing package/signing tests passed; only the repository’s existing target_os=nagi dependency warnings were emitted."
+      },
+      {
+        "name": "Registered workstream state verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "12 registered workstreams and 4 state files validated on codex/integration-next-phase."
+      },
+      {
+        "name": "Capability namespace mismatch regression (pre-fix evidence)",
+        "command": "cargo test --manifest-path sdk/rust/Cargo.toml --locked capability_requests_require_canonical_dot_separated_namespaces; cargo test --manifest-path sdk/rust/Cargo.toml --locked manifest_contract_rejects_non_canonical_capability_ids; /tmp/nagi-app-sdk-schema/bin/python tools/nagi-pkg/schema_validation/validate_fixtures.py",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Before the fix, both new Rust regressions accepted `files` and the schema validator accepted malformed capability IDs. The same focused checks pass after the fix."
+      },
+      {
+        "name": "Wayback host acceptance harness",
+        "command": "./tests/wayback/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "20 unit tests, 4 integration scenarios, fmt, Clippy with warnings denied, six Draft 2020-12 contract fixtures plus negative cases, four existing nagi-history tests, and DF-01 schema/state verification passed."
+      },
+      {
+        "name": "Wayback runtime boundary review",
+        "command": "Review crates/nagi-wayback/src/lib.rs and docs/0.2/wayback/architecture.md",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The crate is a standalone host-side reference contract; restore plans remain non-executable and no filesystem, runtime, UI, kernel, or capability authority hook was added."
+      },
+      {
+        "name": "Localization library and format/lint checks",
+        "command": "cargo fmt --manifest-path crates/nagi-i18n/Cargo.toml -- --check; cargo test --locked -p nagi-i18n; cargo clippy --locked -p nagi-i18n --all-targets -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting and Clippy passed; all 26 localization unit tests passed."
+      },
+      {
+        "name": "Localization catalog checker",
+        "command": "cargo run --locked -p nagi-i18n --bin localization-check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The checker validated 2 first-class locales and 14 messages."
+      },
+      {
+        "name": "Localization target compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The library compiles for the Nagi x86_64 user target; no runtime or QEMU result is claimed."
+      },
+      {
+        "name": "Localization registry and state validation",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "14 registered workstreams and 6 state files validated after adding the durable localization record."
+      },
+      {
+        "name": "Model Runtime host tests",
+        "command": "cargo test --locked -p nagi-model-manager",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 25 unit tests and 2 manifest/schema contract tests passed; doc-tests contain 0 tests."
+      },
+      {
+        "name": "Model Runtime formatting and Clippy",
+        "command": "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check; cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Package formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "Model Runtime Nagi user-target compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The no_std model manager library compiles for Nagi x86_64 user target; no inference or M20 acceptance is claimed."
+      },
+      {
+        "name": "CRLF malformed-manifest regression before fix",
+        "command": "cargo test -p nagi-model-manager --locked rejects_unknown_fields_and_malformed_json",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "With explicit CRLF fixture bytes and the old newline-sensitive replacement, the required source field remained and malformed JSON parsed successfully; this reproduced Windows CI."
+      },
+      {
+        "name": "CRLF malformed-manifest regression after fix",
+        "command": "cargo test -p nagi-model-manager --locked rejects_unknown_fields_and_malformed_json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The field is removed by content from CRLF input and the parser rejects the missing field."
+      },
+      {
+        "name": "Model Runtime source-branch CI",
+        "command": "gh run view 36215549131 --repo RT-NISH/NagiOS",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Ubuntu host checks passed; Windows failed the CRLF-sensitive fixture, now fixed. The target job independently failed at M17 QEMU acceptance after builds through UEFI."
+      },
+      {
+        "name": "M17 aligned POSIX allocation tests",
+        "command": "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 7 nagi-posix tests passed, including 16/64/4096-byte alignment layout, metadata/payload bounds, and invalid/overflow arithmetic."
+      },
+      {
+        "name": "M17 POSIX format and Clippy",
+        "command": "cargo fmt --manifest-path user/nagi-posix/Cargo.toml -- --check; cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "M17 POSIX Nagi user-target compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Nagi target compile succeeded. It emitted five pre-existing interface/dead-code warnings outside the changed alignment path."
+      },
+      {
+        "name": "Diagnostics and CLI host suite, formatting, and lint",
+        "command": "cargo test -p nagi-cli --locked --offline; cargo fmt --all -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "95 nagi-cli unit tests and 24 CLI integration tests passed; formatting and Clippy with warnings denied passed. Three existing target_os=nagi warnings came from the libc dependency."
+      },
+      {
+        "name": "Standalone bootstrap checks for shared diagnostics library",
+        "command": "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline; cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The bootstrap package compiled and passed Clippy with warnings denied after adding its direct serde dependency and updating its lockfile."
+      },
+      {
+        "name": "Diagnostics CLI and workstream health checks",
+        "command": "target/debug/nagi diagnostics --scope diagnostics --json; target/debug/nagi verify --scope workstreams --json; target/debug/nagi smoke --host-only --json; ./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Diagnostics, scoped workstream verification, and host smoke returned PASS. DF-01 validation passed for 16 registered workstreams and 8 state files."
+      },
+      {
+        "name": "Acceptance runner CLI suite, format, and Clippy",
+        "command": "cargo test -p nagi-cli --locked --offline; cargo fmt --all -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "102 library unit tests and 26 CLI integration tests passed; format and Clippy passed with warnings denied. Three existing target_os=nagi warnings were emitted by libc dependency code."
+      },
+      {
+        "name": "Bootstrap acceptance test suite and checks",
+        "command": "cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline; cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline acceptance::tests; cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The separate bootstrap package compiles, all seven acceptance unit tests pass, and bootstrap Clippy passes with warnings denied."
+      },
+      {
+        "name": "M0 host acceptance through registry runner",
+        "command": "./nagi test --acceptance --host-only --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0-DOCTOR and M0-LAUNCHER passed; 19 target cases were marked NOT RUN in the JSON report rather than counted as passes."
+      },
+      {
+        "name": "nagi-net x86_64 Apple-target tests and Clippy",
+        "command": "cargo test -p nagi-net --locked --offline --target x86_64-apple-darwin; cargo clippy -p nagi-net --all-targets --locked --offline --target x86_64-apple-darwin -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Seven unit tests and one integration test passed, and Clippy passed with warnings denied; the integrated conversion uses subsec_micros()."
+      },
+      {
+        "name": "Native arm64 nagi-net test attempt",
+        "command": "cargo test -p nagi-net --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "On the aarch64 host, libnagi fails to compile Nagi x86-64 syscall registers. The same nagi-net test and lint suite pass for x86_64-apple-darwin; no production assembly or syscall behavior was weakened."
+      },
+      {
+        "name": "Acceptance diagnostic parser regression",
+        "command": "python3 -m unittest discover -s tests -p 'test_*.py' -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The target link diagnostic parser regression test passed."
+      },
+      {
+        "name": "Acceptance CI workflow YAML syntax",
+        "command": "ruby -e 'require \"yaml\"; YAML.load_file(\".github/workflows/ci.yml\")'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Ruby loaded the merged GitHub Actions workflow successfully."
+      },
+      {
+        "name": "Workstream registry and nine durable states validation",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "DF-01 validation passed for 16 registered workstreams and 9 state files on codex/integration-next-phase at commit 1d3d6749638e33e8406f2d705a2082a0e68e1637."
+      },
+      {
+        "name": "Merged root M0 host acceptance",
+        "command": "./nagi test --acceptance --host-only --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0-DOCTOR and M0-LAUNCHER passed; the report marked 19 target cases NOT RUN."
+      },
+      {
+        "name": "Merged nagi-cli suite after DF-01 test reconciliation",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "102 unit tests and 26 CLI integration tests passed, including status-agnostic state and registered-branch assertions."
+      },
+      {
+        "name": "Merged Activity/Wayback history suite",
+        "command": "cargo test -p nagi-history --all-targets --all-features --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 tests passed."
+      },
+      {
+        "name": "Merged Files host suite",
+        "command": "cargo test --manifest-path apps/nagi-files/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "48 tests passed."
+      },
+      {
+        "name": "Merged Notes host suite",
+        "command": "cargo test --manifest-path user/nagi-notes/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 acceptance tests passed."
+      },
+      {
+        "name": "Merged Home/Search host suite",
+        "command": "cargo test --manifest-path user/nagi-home-search/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "35 library tests and 1 preview test passed."
+      },
+      {
+        "name": "Merged cross-app integration suite",
+        "command": "cargo test --manifest-path tests/first-party-integration/Cargo.toml --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "11 integration tests passed."
+      },
+      {
+        "name": "Merged shared UI host suite",
+        "command": "cargo test -p nagi-ui --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 UI contract tests passed; the example target compiled."
+      },
+      {
+        "name": "Root and standalone Clippy with warnings denied",
+        "command": "cargo clippy --workspace --all-targets --exclude nagi-kernel --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings; standalone Files, Notes, Home/Search, and cross-app Clippy",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Root workspace and all four standalone packages passed with warnings denied."
+      },
+      {
+        "name": "Merged Rust formatting checks",
+        "command": "cargo fmt --package nagi-history --package nagi-cli --package nagi-ui --package nagi-init -- --check; standalone Files, Notes, Home/Search, and cross-app cargo fmt checks",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All modified packages passed the pinned formatter."
+      },
+      {
+        "name": "Integrated first-party host preview",
+        "command": "cargo run --manifest-path tests/first-party-integration/Cargo.toml --bin integrated-host-preview --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The en-US and ja-JP Home/Search, Activity, Wayback, and Files flows ran with in-memory providers; output explicitly says target NOT RUN."
+      },
+      {
+        "name": "Target application/runtime acceptance after host integration",
+        "command": "Nagi target app launch, durable storage, and target Action dispatch",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Not executed; host preview and host service adapters do not establish target runtime behavior."
+      },
+      {
+        "name": "M0 Linux launcher acceptance after PowerShell path repair",
+        "command": "./nagi test --acceptance --host-only --subsystem developer-cli --ci",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "M0-LAUNCHER passed through tests/acceptance/m0_launcher.sh on macOS; this does not exercise the Windows PowerShell wrapper."
+      },
+      {
+        "name": "Windows M0 PowerShell acceptance after path repair",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Run 36232534175 failed because Test-Path received an extended \\\\?\\ path containing tests\\acceptance\\..\\..; artifact inspected. Commit 9fc3f10 removes dot segments by walking parent directories. The next Windows CI result is pending."
+      },
+      {
+        "name": "Windows M0 PowerShell acceptance after parent-directory path repair",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Run 36232966992 confirmed path resolution reached the launcher; nested cargo then failed to remove the active target/debug/nagi.exe (Access denied). Commit 3d2001c isolates nested Cargo output; next Windows run is pending."
+      },
+      {
+        "name": "Windows M0 PowerShell acceptance with isolated Cargo target",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File tests/acceptance/m0_launcher.ps1",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Run 36233551349 Windows artifact reports M0-LAUNCHER PASS, exit 0, 14,642 ms; acceptance summary PASS=1, FAIL=0, 20 target cases NOT RUN. Nested Cargo used the temporary target and preserved the running acceptance binary."
+      },
+      {
+        "name": "Recent CI status ordering regression",
+        "command": "cargo test -p nagi-cli --lib status_displays_the_two_most_recent_ci_runs_first --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The status formatter sorts by numeric run ID and displays the two newest records first."
+      },
+      {
+        "name": "Developer CLI test suite after status summary fix",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "103 library unit tests and all 26 CLI integration tests passed."
+      },
+      {
+        "name": "Developer CLI formatting and Clippy after status summary fix",
+        "command": "cargo fmt --package nagi-cli -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline --config 'build.target=\"x86_64-apple-darwin\"' -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "Live developer status output",
+        "command": "./nagi dev status",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The integration status displayed in-progress run 36233551349 followed by failed run 36232966992, rather than older historical entries."
+      },
+      {
+        "name": "Root Ubuntu and Windows host gates at 3d2001c",
+        "command": "gh run view 36233551349 --json status,conclusion,jobs,url",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Ubuntu host and Windows launcher jobs both completed successfully. The target job is still running the M17 acceptance; overall workflow is IN_PROGRESS."
+      },
+      {
+        "name": "Terminal-control output regressions",
+        "command": "cargo test -p nagi-cli --locked --offline --config build.target=\"aarch64-apple-darwin\" terminal_controls",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Four focused tests pass: workstream status/resume, diagnostic console summary, diagnostics-bundle human header, and Unix-only hostile output-path escaping."
+      },
+      {
+        "name": "nagi-cli unit and integration suite",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "107 unit tests and 26 CLI integration tests pass after the Windows-safe fixture correction."
+      },
+      {
+        "name": "nagi-cli formatting",
+        "command": "cargo fmt --package nagi-cli -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Rust formatting check passes."
+      },
+      {
+        "name": "nagi-cli Clippy",
+        "command": "cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets pass Clippy with warnings denied."
+      },
+      {
+        "name": "DF-01 development state validator",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on code commit 7bd2afab."
+      },
+      {
+        "name": "Git whitespace validation",
+        "command": "git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No whitespace errors in the source change."
+      },
+      {
+        "name": "M17 pthread diagnostic formatter tests",
+        "command": "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 9 unit tests pass, including exact stage/bridge-stack/pthread-error formatting and bounded long-stage/maximum-integer formatting."
+      },
+      {
+        "name": "M17 pthread diagnostic formatting and whitespace",
+        "command": "cargo fmt --manifest-path user/nagi-posix/Cargo.toml -- --check; git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Rust formatting and Git whitespace checks pass."
+      },
+      {
+        "name": "M17 pthread diagnostic Clippy",
+        "command": "cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All host test and library targets pass Clippy with warnings denied."
+      },
+      {
+        "name": "M17 pthread diagnostic Nagi user-target compile",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The nagi-posix library compiles for x86_64-unknown-nagi-user; Cargo reports five existing visibility/dead-code warnings in abi.rs and runtime.rs."
+      },
+      {
+        "name": "Updated DF-01 integration state validator",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on code commit 582b5f6."
+      },
+      {
+        "name": "DF-01 verification after M17 pthread bridge capacity audit",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on integration head e3984d7; the source review is recorded in docs/implementation_status.md without changing runtime behavior."
+      },
+      {
+        "name": "Observed M17 timeout classifier regression reproduced before fix",
+        "command": "cargo test -p nagi-cli --lib --locked --offline --config build.target=\"aarch64-apple-darwin\" failures_keep_stage_distinction_and_block_missing_environment",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Against the original classifier the exact QEMU “did not exit within 120 seconds” output plus “undefined symbols: 0” produced Link instead of Timeout."
+      },
+      {
+        "name": "M17 timeout and linker summary classification after fix",
+        "command": "cargo test -p nagi-cli --lib --locked --offline --config build.target=\"aarch64-apple-darwin\" failures_keep_stage_distinction_and_block_missing_environment",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The exact timeout/report-summary combination classifies as Timeout; a plural zero-symbol summary alone does not classify as Link. Existing true undefined-symbol linker case remains Link."
+      },
+      {
+        "name": "nagi-cli suite after timeout classification fix",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config build.target=\"aarch64-apple-darwin\"",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "107 library unit tests and 26 CLI integration tests passed. The test build emits three existing target_os=\"nagi\" cfg warnings from third_party/libc-servo."
+      },
+      {
+        "name": "nagi-cli formatting after timeout classification fix",
+        "command": "cargo fmt --package nagi-cli -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Rust formatting check passed."
+      },
+      {
+        "name": "nagi-cli Clippy after timeout classification fix",
+        "command": "cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All CLI targets passed Clippy with warnings denied."
+      },
+      {
+        "name": "DF-01 verification after timeout-classifier checkpoint",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on integration code commit 4c45396."
+      },
+      {
+        "name": "DF-01 verification after CI host gate update",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on integration head efcaff5, which carries the already-tested classifier code commit 4c45396."
+      },
+      {
+        "name": "DF-01 verification after owner scheduler CI audit",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate on integration head c759fa4 before this status-only checkpoint."
+      },
+      {
+        "name": "Active CI run visibility regression and full CLI suite",
+        "command": "cargo test -p nagi-cli --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 108 library tests and 26 CLI integration tests passed, including the regression that keeps queued and in-progress runs visible ahead of newer completed runs."
+      },
+      {
+        "name": "CLI formatting and warning-denied Clippy",
+        "command": "cargo fmt --package nagi-cli -- --check; cargo clippy -p nagi-cli --all-targets --locked --offline --config build.target=\"x86_64-apple-darwin\" -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting passed and Clippy passed with warnings denied."
+      },
+      {
+        "name": "DF-01 state verification after active-CI summary fix",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validated with faeeb22 as the current integration code commit."
+      },
+      {
+        "name": "DF-01 verification after M17 trace entered QEMU acceptance",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate with faeeb22 as the verified integration code commit."
+      },
+      {
+        "name": "Developer status visibility during active guest acceptance",
+        "command": "./nagi dev status",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The status output shows queued run 36240025711 and active run 36236310925 ahead of completed records, and reports M17 trace acceptance as the next action."
+      },
+      {
+        "name": "DF-01 verification after M17 trace result update",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate after recording trace run 36236310925 and active run 36240025711."
+      },
+      {
+        "name": "DF-01 verification during classifier target user-init build",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate while run 36240025711 builds target user init."
+      },
+      {
+        "name": "DF-01 verification after classifier run entered M17 acceptance",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate while run 36240025711 is in QEMU acceptance."
+      },
+      {
+        "name": "Hosted QEMU timeout-stage classifier validation",
+        "command": "gh run view 36240025711 --log-failed",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The target acceptance annotation classified “QEMU did not exit within 120 seconds” as stage=timeout; both host jobs, including the diagnostic parser regression tests, passed."
+      },
+      {
+        "name": "DF-01 verification after classifier CI completion",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "18 registered workstreams and 11 state files validate after recording completed run 36240025711."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36228898043,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36228898043",
+        "head_sha": "e06ff39976704a0219cd3485703d6ca3ff4b8ebc",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed. Target Servo construction reached pthread_create EAGAIN; M17 acceptance exited 4 with no real pixel checksum or guest PASS marker."
+      },
+      {
+        "run_id": 35975771855,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/35975771855",
+        "head_sha": "c04e13539ae1bec4c2dd548ead375744a0c195e0",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Acceptance-CI source branch failed host Clippy on subsec_nanos() / 1_000. Integration uses subsec_micros(); focused x86_64-target nagi-net tests and Clippy pass."
+      },
+      {
+        "run_id": 36228221098,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36228221098",
+        "head_sha": "626c37dd75461c64a12044a0f7b7f781f01611ee",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Host jobs passed; the M17 target acceptance failed before producing a first-web-pixel checksum or marker."
+      },
+      {
+        "run_id": 36215571919,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215571919",
+        "head_sha": "84afe087a0b5c88db7f5fd05a7db11fa64741eb8",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Diagnostics source branch failed compiling nagi-bootstrap because the separate package omitted direct dependencies required by the shared CLI library. The integration branch adds serde and updates the standalone lockfile; local bootstrap check and Clippy pass."
+      },
+      {
+        "run_id": 36223836342,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36223836342",
+        "head_sha": "1993a4582952d3c1176ceff4434ac07a11a02881",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Mainline run #233: Ubuntu and Windows host jobs passed and target builds reached UEFI. QEMU reached Servo construction, then failed a 512-byte allocation and timed out at 120 seconds; no heap mapping/no-free-block diagnostic, pixel checksum, or M17 PASS marker."
+      },
+      {
+        "run_id": 36117826259,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36117826259",
+        "head_sha": "18b364dc01c6a95bbda492f36c8dd0586f12ca8d",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed DF-01 verification. The target build completed, then the unchanged M17 QEMU acceptance timed out before a web pixel."
+      },
+      {
+        "run_id": 36212755007,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36212755007",
+        "head_sha": "c7afa1cd6d1fa7e89f8249acbb463a89ed4bb59a",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Capability source-branch CI failed the old DF-01 test expecting IN_PROGRESS after development-foundation recorded PASS; isolated capability crate checks passed. The stale assertion is corrected in this integration branch."
+      },
+      {
+        "run_id": 36215084732,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215084732",
+        "head_sha": "07314091095eeaa439a240e845c4a6d9a762ad04",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "App SDK source-branch CI failed the same old DF-01 status assertion; SDK format, Clippy, and build passed, target job skipped. The stale assertion is corrected in this integration branch."
+      },
+      {
+        "run_id": 36214541886,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36214541886",
+        "head_sha": "89c7115d54ea065ebbcf3c4fd8f94df603cbf065",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Wayback source-branch CI passed formatting, lint, and build but both host test jobs failed an inherited DF-01 status assertion; the target job was skipped. The integration branch updates that stale assertion."
+      },
+      {
+        "run_id": 36225995143,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36225995143",
+        "head_sha": "a64f7b70db4fe3ce9b065942b28a4efd4ff6f317",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host jobs passed; the M17 first-web-pixel target acceptance failed without a pixel checksum or marker."
+      },
+      {
+        "run_id": 36215320154,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215320154",
+        "head_sha": "67de0be987ddb1308d2360444e036c7a88dfab7d",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Localization source branch: Ubuntu and Windows host jobs and target builds through UEFI passed; only the unrelated M17 first-web-pixel QEMU acceptance failed."
+      },
+      {
+        "run_id": 36215549131,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215549131",
+        "head_sha": "21dbe1e4a3277fa336e73616018994e80847caa7",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Model Runtime source branch: Ubuntu host passed; Windows failed the newline-sensitive malformed-manifest fixture; target M17 acceptance failed independently after builds through UEFI. The CRLF regression is fixed in the integration tree."
+      },
+      {
+        "run_id": 36229744643,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36229744643",
+        "head_sha": "b50580eb812d1f1957cf77d8b8e70e784c5a803d",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu host passed; Windows M0 acceptance incorrectly ran the target image build as a host success check, so target acceptance was skipped."
+      },
+      {
+        "run_id": 36230920602,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36230920602",
+        "head_sha": "bb9d7b43a4ec9ba058453d39e671641d75732e1c",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu host passed; Windows M0 PowerShell acceptance failed during repository-root resolution before invoking the launcher; target was skipped."
+      },
+      {
+        "run_id": 36231599750,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231599750",
+        "head_sha": "b0db7134164606fb6240260daf1390cd4f3f0ad4",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Superseded by the pushed first-party integration merge before its host jobs completed; not a verification result."
+      },
+      {
+        "run_id": 36230579035,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36230579035",
+        "head_sha": "6cc3255c5a14bcf8a1692c05eeaaa4d5dd2ddc1e",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed and the target build reached UEFI. The M17 QEMU acceptance timed out at GL context creation started; no real pixel checksum or PASS marker was produced."
+      },
+      {
+        "run_id": 36231127467,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231127467",
+        "head_sha": "efa1c372d0599370bc0b8833e6f4b0c1b8f6917e",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed and the target build reached UEFI. The M17 QEMU acceptance timed out at GL context creation started; no real pixel checksum or PASS marker was produced. Later root run 36233551349 advanced farther into Servo construction and observed pthread_create EAGAIN."
+      },
+      {
+        "run_id": 36231902947,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36231902947",
+        "head_sha": "94dbf8708af743469678cf5f662bc4a6dd892a45",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu host passed. Windows failed M0 PowerShell acceptance before the launcher assertions with a null Path during script-root resolution; retained diagnostics inspected. Target was skipped. The follow-up path repair is committed at 83faf55 and is under run 36232534175."
+      },
+      {
+        "run_id": 36232534175,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36232534175",
+        "head_sha": "83faf55f14815cc1f0ca6f5aee45a6827536c6ee",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu passed. Windows M0 acceptance still failed: artifact showed Test-Path could not resolve nagi.ps1 because the \\?\\ extended path retained .. segments. Target was skipped. Commit 9fc3f10 now derives the root by DirectoryInfo parent traversal."
+      },
+      {
+        "run_id": 36232966992,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36232966992",
+        "head_sha": "9fc3f10d36b70862a219de24b21a043974a3e1a9",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu passed. Windows script-root resolution succeeded, but M0 acceptance failed when nested cargo tried to replace the active target/debug/nagi.exe (Access denied); target was skipped. Commit 3d2001c isolates nested builds under a temporary CARGO_TARGET_DIR."
+      },
+      {
+        "run_id": 36233551349,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36233551349",
+        "head_sha": "3d2001c58f64cd5a3f63751224c2fb21ee325e40",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu and Windows host jobs passed and target builds reached UEFI. QEMU created the Softpipe context and entered Servo construction; pthread_create returned EAGAIN, abort was redirected, and the 120-second acceptance timed out. No real pixel checksum or M17 PASS marker was produced."
+      },
+      {
+        "run_id": 36235206493,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36235206493",
+        "head_sha": "7caf7400a29653be775981da7cf56eed1e7356c1",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Ubuntu passed. Windows host tests rejected the new regression fixture because its filename contained newline/ESC characters; the target job was skipped. Commit dd192ca now uses a Windows-valid filename for the cross-platform summary test and keeps the hostile-filename case Unix-only."
+      },
+      {
+        "run_id": 36235660277,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36235660277",
+        "head_sha": "dd192ca3d303c85f20d206c88976ed26b766612a",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed. Target acceptance reached Servo construction, then its profile thread panicked with pthread_create EAGAIN (11) and QEMU timed out at 120 seconds; no real pixel checksum or guest PASS marker. The report incorrectly labeled the stage LINK from “undefined symbols: 0”; commit 4c45396 fixes classification."
+      },
+      {
+        "run_id": 36236310925,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36236310925",
+        "head_sha": "582b5f64585054be354b7d3f9379cfa3054f8828",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed. Target acceptance failed: attempt 2 reported native-thread-create-rejected, 16 KiB bridge stack, pthread_error=11; QEMU timed out after 120 seconds with no pixel checksum or PASS marker. Serial log SHA-256: 6b1d0c7449561a180d7b676061d72fba0d5bacfe4b57ace13d5032ff2ea7b98b."
+      },
+      {
+        "run_id": 36239110612,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36239110612",
+        "head_sha": "4c453969ebd303b7a9ec40803f3b4f61b17d8d75",
+        "status": "COMPLETED",
+        "conclusion": "CANCELLED",
+        "summary": "Both host jobs passed; its target job was cancelled before execution while pending behind active target acceptance."
+      },
+      {
+        "run_id": 36232073962,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36232073962",
+        "head_sha": "18ee17af21a2dcf567497832a7e261e0d5f201c1",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Owner-branch target trace confirmed SYS_THREAD_CREATE rejected because the bootstrap child slot was occupied after the 16 KiB stack mapped; target timed out without pixel acceptance. Both host jobs passed."
+      },
+      {
+        "run_id": 36237832887,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36237832887",
+        "head_sha": "71fd5c33b53e97251ca4dc0f4569c8944887eb10",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Owner scheduler branch public CI failed: both host jobs hit a stale direct-TLS source assertion, and the target QEMU timed out at Servo construction without checksum/PASS marker. Local owner test adjustment 4d79bbe is unpushed and not CI-verified."
+      },
+      {
+        "run_id": 36240025711,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36240025711",
+        "head_sha": "faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1",
+        "status": "COMPLETED",
+        "conclusion": "FAILURE",
+        "summary": "Both host jobs passed. Target QEMU acceptance failed after Servo construction with native-thread-create-rejected (attempt 2, 16 KiB bridge stack, pthread_error=11), then timed out at 120 seconds without a pixel checksum or PASS marker. Classifier correctly reported stage=timeout. Serial log SHA-256: 58a39abf231fa1fc6db060e847735bd994e07c12334e6be73cc23b050581da2e."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md",
+    "last_checked_at": "2026-09-26T11:43:22Z",
+    "activation_requirement": "Preserve the Nagi 0.1 milestone sequence. Integrate host-side contracts and previews only until M30 PASS and an explicit release-boundary checkpoint authorize 0.2 production runtime work."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not modify active parallel worktrees or include their uncommitted changes.",
+      "Do not mark M17 complete without the real guest pixel checksum and acceptance marker.",
+      "Do not merge this integration branch to main without explicit user direction."
+    ]
+  },
+  "next_action": "Preserve the verified timeout classification and keep M17 BLOCKED: run 36240025711 confirms the root native bridge rejects attempt 2 with a mapped 16 KiB stack and pthread_error=11, then QEMU times out without pixel evidence. The owner-branch run 36232073962 separately identified the kernel child slot as occupied. The cooperative scheduler change and follow-up test remain owned by the M17 workstream; do not edit that worktree or integrate its unverified local commit. The integration-safe host foundations have no additional unblocked source changes identified. Resume integration when there is new owner CI/evidence or after M30 PASS and an explicit release checkpoint authorizes 0.2 runtime/product work.",
+  "acceptance_criteria": [
+    "Current mainline M17 status and runtime changes are retained independently of host-side workstream integration.",
+    "Every integrated branch has a reviewed diff, recorded ownership/dependencies, and passing focused checks or a precise PARTIAL/BLOCKED state.",
+    "The DF-01 registry and state validator plus developer CLI tests pass on this branch.",
+    "No 0.2 production runtime or guest authority path is activated before M30 PASS and an explicit release boundary."
+  ],
+  "deferred": [
+    "M17 first-web-pixel QEMU verification of a commit containing the bounded pthread-create trace; require a real guest pixel checksum and the existing acceptance marker.",
+    "Nagi 0.1 M18-M30 and any 0.2 production runtime or product activation until their documented gates pass.",
+    "codex/parallel-capability-core@59d7e10: defer the competing policy and pipe-delimited manifest API; its 31 reported local tests and static checks were in a temporary workspace, with no root-workspace/doctor or CI evidence. Revisit only with capability, SDK, and package owners against the registered contracts.",
+    "codex/parallel-wayback-ledger@4943fd8: defer the duplicate ledger and revert executor that lacks an authorization/policy input; the branch has no remote or public CI evidence."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "Use DF-01 schemas, registry ownership, evidence format, and read-only resume/verify/diagnose CLI contract.",
+      "version": "nagi-dev-v1",
+      "status": "PASS"
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "Host-side capability identifiers and permission policy contract; runtime activation remains release-gated.",
+      "version": "capability-contract-v1",
+      "status": "PARTIAL; isolated host foundation integrated and verified, runtime adapter deferred until M30 PASS and explicit release checkpoint."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Host-side app manifest, identity, lifecycle, state, intent, IPC, and capability handoff contract; capability IDs follow capability-contract-v1.",
+      "version": "app-sdk-contract-v1",
+      "status": "PASS for host contracts and fixtures; runtime adapters and first-party adoption remain deferred."
+    },
+    {
+      "workstream_id": "wayback-activity-ledger",
+      "contract": "Append-only activity/provenance, metadata-only snapshots, bounded restore planning, and explicit non-executable blockers.",
+      "version": "wayback-contracts-v1",
+      "status": "PASS for host-side contract and tests; filesystem hooks, durable backend, restore execution, and product adoption remain release-gated."
+    },
+    {
+      "workstream_id": "localization-i18n",
+      "contract": "First-class en-US/ja-JP catalogs, canonical locale IDs, deterministic fallback, independent system-language and region inputs, and host formatting.",
+      "version": "localization-contract-v1",
+      "status": "PASS for host foundation and Nagi-target library compilation; production consumer integration remains with its owning milestone."
+    },
+    {
+      "workstream_id": "diagnostics",
+      "contract": "Local structured events, scoped verification reports, bounded/redacted crash capture, and a workstreams health check that reuses nagi dev verify when DF-01 state is available.",
+      "version": "diagnostics-contract-v1",
+      "status": "PARTIAL for host foundation; optional VM smoke timed out in the existing M1/M7 acceptance, and target persistence remains deferred."
+    },
+    {
+      "workstream_id": "ci-acceptance",
+      "contract": "A registered runner preserves per-case acceptance scope, filtered NOT RUN evidence, bounded execution, and the unchanged real M17 first-web-pixel wrapper; CI retains reports and diagnostics.",
+      "version": "acceptance-runner-v1",
+      "status": "PARTIAL pending integrated public CI; local runner, host cases, tests, and lint pass."
+    }
+  ]
+}

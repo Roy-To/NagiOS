@@ -3,6 +3,14 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**0.1 / 0.2 line merge, 2026-10-05:** `main` (0.1 release line) and
+`codex/integration-next-phase` (0.2 workstreams) were merged on
+`claude/integrate-main-0.2`; conflict decisions are recorded in
+`docs/decisions/0052-merge-0.1-release-line-into-0.2-integration.md`. Host
+fmt, warning-denied Clippy, host tests, standalone crate checks, the
+localization catalog check, and M0 launcher acceptance pass locally (arm64
+macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
+
 **User consent for manifest grants (ADR 0051), 2026-10-03:** A signed
 manifest's `grant=` line is now only a request.
 
@@ -4757,6 +4765,104 @@ third-party, model-download, CI-runtime, QEMU, acceptance-test, or
 `third_party/servo/` directory remains untouched and is not treated as M17
 acceptance evidence.
 
+# 3F. UI Design System parallel workstream
+
+**State:** `PASS` for the independent host-side design foundation. Target UI
+attachment remains deferred and blocked before UI startup by the existing M5
+ELF loader; this workstream does not revise the historical M10 milestone.
+
+The existing `user/nagi-ui` `no_std` crate now defines semantic visual tokens,
+scalable typography, density/control/border/focus treatment, structured
+interaction and feedback state, button/toggle/text-field/select/navigation/
+dialog contracts, modal focus containment and restoration, localization-aware
+min/max sizing, a first-party application-shell contract, and accessibility
+roles with validated input/error relations. M10 continues to consume semantic
+palette roles through its narrow adapter. The crate remains renderer-neutral
+and does not execute app actions or add a system service. See
+`docs/architecture/ui-design-system.md` and
+`docs/workstreams/ui-design-system.md` for its full contract and evidence.
+
+At UI commit `91465588a13e0f9a66afe9c99b75c2fb1a1c394c`, the focused suite
+passed 41 tests; warning-denied Clippy, formatting, the public component
+gallery, UEFI compilation, and the Nagi x86-64 user-target compilation passed.
+The integration-owned workstream state records these checks. `./nagi desktop`
+built the target image, then QEMU serial output stopped at M5
+`Nagi M5 user address space FAIL` / `reason: invalid-elf`, before `nagi-init`
+or UI startup. The existing empty `PT_TLS` header is rejected by
+`kernel/src/user_elf.rs::validate_tls_segment`; kernel/loader ownership was
+left unchanged. This is target attachment evidence only, not desktop rendering
+or input acceptance. The unrelated M17 `BLOCKED` and M18 `NOT STARTED` states
+remain unchanged. CI run `36380321571` was cancelled when the follow-up evidence
+commit was pushed. Run `36380820648` is validating the source workstream branch
+HEAD `9f0e58df297d02459f89cb8b42a5c228e089afff`; the integration-owned state
+tracks its current host and target job status.
+
+# 3G. First-party and shared UI host integration checkpoint (2026-09-26)
+
+**State:** host-side integration is verified locally; target app/runtime
+integration remains **NOT RUN**. This checkpoint does not change any official
+milestone status or release gate.
+
+The `codex/integration-next-phase` branch now contains the registered
+`nagi-ui` shared design-system crate and first-party host adapters for Notes,
+Files, Activity/Wayback, and Home/Search. The cross-app preview uses in-memory
+providers and labels itself `target NOT RUN`; it does not establish target
+storage, capability-service, launch, Action-dispatch, or renderer behavior.
+
+Local verification at commit `94dbf8708af743469678cf5f662bc4a6dd892a45`
+passed: `nagi-cli` (102 unit + 26 CLI tests), Activity/Wayback (41), Files
+(48), Notes (27), Home/Search (35 + 1 preview), cross-app integration (11),
+and `nagi-ui` (27). Root workspace and standalone first-party Clippy checks
+passed with warnings denied. Formatting, DF-01 validation (18 registered
+workstreams and 11 state files), M0 host acceptance, and the bilingual
+memory-only integration preview passed.
+
+First-party source CI run `36230579035` passed both host jobs; its target job
+is still running the unchanged M17 first-web-pixel acceptance. Merged-root CI
+run `36231902947` passed Ubuntu but failed Windows M0 PowerShell acceptance
+during script-root resolution; its target job was skipped. The first repair,
+commit `83faf55`, used `$PSCommandPath`, but run `36232534175` showed that the
+Windows `\\?\` extended path retained `..` segments and `Test-Path` could not
+resolve the launcher. Commit `9fc3f10` now derives the repository root by
+walking the script directory's parent directories, removing those segments.
+Run `36232966992` confirmed this path resolution but then exposed a Windows
+file-lock failure: nested Cargo could not replace the running
+`target/debug/nagi.exe`. Commit `3d2001c` gives the nested launcher checks an
+isolated temporary `CARGO_TARGET_DIR` and restores the environment afterward.
+The local M0 host run passed through the Linux shell wrapper; this macOS host
+has no `pwsh`, so that does not verify the Windows script. Root run
+`36233551349` passed both Ubuntu and Windows host jobs. Its retained Windows
+report records M0-LAUNCHER `PASS` (exit 0); 20 filtered target cases remain
+`NOT RUN`. The run's target job is now executing the real M17 first-web-pixel
+acceptance. M17 remains `BLOCKED` until the
+real guest produces its pixel checksum and acceptance marker; M18 remains
+`NOT STARTED`. The UI-specific M10 guest preview remains blocked before UI
+startup by the existing M5 `invalid-elf` / empty `PT_TLS` failure. No kernel
+or loader changes were made. Nagi 0.2 runtime/product work remains gated on
+M30 PASS and an explicit release checkpoint.
+
+# 3H. Unregistered parallel branch review (2026-09-26)
+
+Two clean, local-only branches were reviewed against the registered contracts
+and current integration tree. Neither has a remote branch or GitHub Actions
+run, and neither was merged or modified:
+
+- `codex/parallel-capability-core` at `59d7e10` adds a second capability
+  policy API and line-based package declaration alongside the registered
+  `crates/nagi-capability` and JSON App SDK manifest contract. Its scope,
+  grant lifecycle, ID vocabulary, and manifest representation are not
+  compatible enough for a mechanical merge. Defer it until the canonical
+  capability API is explicitly reconciled.
+- `codex/parallel-wayback-ledger` at `4943fd8` adds a second activity/Wayback
+  schema that overlaps the registered `crates/nagi-wayback` and
+  `user/nagi-history`, changes paths forbidden by its workstream ownership,
+  and exposes a revert executor without a policy/permission input. Defer the
+  branch; any useful access-filtering or idempotency ideas require a later
+  authorized-contract review within the registered Wayback workstream.
+
+The active first-party and M17 diagnostic worktrees contain uncommitted
+changes and were left untouched.
+
 # 4. Current milestone detail
 
 ## M0 遯ｶ繝ｻRepository / Toolchain / CI
@@ -9034,3 +9140,264 @@ Evidence:
 
 The only remaining firmware-table window is the two instructions before
 `lidt`.
+
+## Nagi 0.2 integration-line checkpoints (merged 2026-10-05)
+
+The sections below were recorded on `codex/integration-next-phase` before it
+merged with the 0.1 release line on `main`. Their M17/M18 status lines are
+historical: M17 and M18 later passed on the 0.1 line (see the completion
+sweep above). The 0.2 workstream checkpoints remain current for their
+workstreams.
+
+## Diagnostics workstream checkpoint (2026-09-26)
+
+Workstream `diagnostics` is integrated on `codex/integration-next-phase` from
+`codex/ws-diagnostics` (source base `c1506888655123d819ec75be66891f0cd5477533`).
+It is `PARTIAL`: its host diagnostics contract is implemented and verified,
+while VM smoke remains bounded by an existing guest boot acceptance timeout.
+This checkpoint does not change M17's recorded status or take ownership of
+Activity, Wayback, Capability, App SDK, or other workstreams.
+
+Implemented a versioned structured event and verification-report contract,
+bounded crash/fatal capture with a sink interface, privacy-class redaction,
+health-check registration and scoped aggregation, and the `nagi diagnostics`,
+`nagi verify`, and `nagi smoke` commands. Added a JSON Schema, CLI and contract
+tests, and local-first diagnostics documentation. Reports are emitted to a
+file only when `--output` is explicitly supplied. Crash persistence remains a
+portable contract until the target diagnostics/VFS boundary is available.
+
+Evidence from the integration checkout:
+
+- `cargo test -p nagi-cli --locked --offline` — PASS, 95 unit tests and 24 CLI integration tests.
+- `cargo fmt --all -- --check` — PASS.
+- `cargo clippy -p nagi-cli --all-targets --locked --offline -- -D warnings` — PASS; the CLI target compiles cleanly, with three existing `target_os = "nagi"` configuration warnings emitted by the libc dependency.
+- `cargo check --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline` — PASS after adding its direct `serde` dependency for the shared CLI library.
+- `python3 -m json.tool docs/testing/diagnostic-report.schema.json >/dev/null` — PASS for JSON syntax. Full JSON Schema validation was not run because no schema validator is installed; the CLI contract test also checks schema versions and diagnostic event round-trip.
+- `nagi diagnostics --scope diagnostics --json`, `nagi verify --scope diagnostics --json`, and `nagi smoke --host-only --json` — PASS after wiring the workstream health check to the existing `nagi dev verify` state validator.
+- `./target/debug/nagi smoke --vm --json` — FAIL, classified as `VM` / `ACCEPTANCE`: QEMU did not exit within the existing 30-second M1/M7 acceptance window. Retrying with the pinned nightly toolchain on `PATH` passed the earlier Cargo channel mismatch and reached QEMU, but hit the same timeout. This is an existing guest boot acceptance boundary; no M17 or guest implementation was changed here.
+- `git diff --check` — PASS. The report command smoke results above were produced from the host executable and are not target-test evidence.
+
+The `workstreams` health check now invokes the owner-provided DF-01 validator
+and passes on this integration registry. A CI run on this integrated head is
+still required. The source-branch Actions run `36215571919` failed while
+compiling `nagi-bootstrap` because its package dependencies did not include
+the shared library's serialization dependencies; this integration adds the
+missing direct dependency and verifies the standalone package locally. VM
+smoke still times out before guest boot acceptance, so this workstream remains
+`PARTIAL`. Mainline M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Acceptance-CI workstream checkpoint (2026-09-26)
+
+The host-side acceptance registry and runner from branch
+`codex/parallel-acceptance-ci` are integrated on
+`codex/integration-next-phase`. The CI host jobs now use the central runner and
+publish its reports/logs; the target job routes M17 through the registered
+existing `m17_servo_first_web_pixel.sh` wrapper. Its required real guest pixel
+checksum and acceptance marker remain unchanged. The current M17 state remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+The source branch CI run `35975771855` failed the host Clippy gate on
+`duration.subsec_nanos() / 1_000` in `user/nagi-net/src/smoltcp_stack.rs`.
+The integration branch already has the equivalent `subsec_micros()` conversion;
+the focused x86_64 Apple-target `nagi-net` tests (8 total) and Clippy pass.
+The integrated `nagi-cli` suite passes 102 unit and 26 CLI tests, the bootstrap
+acceptance suite passes 7 tests, and the host acceptance run passes both M0
+cases. Public CI for this integrated runner is pending. The runner itself does
+not turn filtered or missing evidence into a pass; no milestone status is
+inferred from host acceptance.
+
+### First-party integration branch CI (2026-09-26)
+
+Source run `36230579035` at `6cc3255` and documentation/state run
+`36231127467` at `efa1c37` completed with both Ubuntu and Windows host jobs
+passing. Both target jobs built through UEFI, then the unchanged real M17
+QEMU acceptance timed out at `GL context creation started`; neither produced
+a real pixel checksum or M17 PASS marker. The later root run `36233551349`
+advanced through context creation into Servo construction before observing the
+pthread-create `EAGAIN`, so that later trace is the current failure evidence.
+The first-party workstream remains `PARTIAL`; its target runtime behavior was
+not accepted by these runs.
+
+## Human CLI terminal-control escaping checkpoint (2026-09-26)
+
+Commit 7bd2afab365ccc1c450ec2e370ba15d9cc915ddc hardens human-readable
+developer output against terminal-control injection from repository state and
+diagnostic metadata. Status/resume lines, the verify summary, diagnostic
+console summaries, and diagnostics-bundle host/commit headers now escape
+control characters before display. JSON report output remains serialized by
+the JSON encoder.
+
+Four regression tests cover hostile workstream state, diagnostics-bundle
+headers, and diagnostic stage/output-path summaries. The complete nagi-cli
+suite passes (107 unit tests and 26 CLI integration tests), as do formatting,
+Clippy with warnings denied, `./nagi dev verify` (18 registered workstreams;
+11 state files), and `git diff --check`. The test build still reports three
+existing `target_os = "nagi"` configuration warnings from the vendored libc
+dependency. No guest, kernel, loader, or third-party source changed.
+
+Actions run `36233551349` was built from parent commit
+`3d2001c58f64cd5a3f63751224c2fb21ee325e40`. Ubuntu and Windows host jobs
+passed. Its target acceptance completed with failure after QEMU timed out
+during Servo construction; it produced no M17 checksum or PASS marker.
+
+Run `36235206493` at `7caf740` exposed a Windows-only regression-test fixture
+failure: Windows does not allow the test's newline/ESC filename. The fixture
+now uses a valid cross-platform output filename while retaining a separate
+Unix-only hostile-filename case. On run `36235660277` at `dd192ca`, both host
+jobs passed, including Windows M0 launcher acceptance; the target job has
+advanced to the real M17 QEMU acceptance. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+## M17 pthread-create diagnostic checkpoint (2026-09-26)
+
+Target run `36233551349` passed Ubuntu/Windows host jobs and target builds
+through UEFI, then QEMU created the Softpipe context and entered Servo
+construction. A Servo thread spawn returned `EAGAIN` from `pthread_create`
+(`nagi errno`); abort was redirected and QEMU timed out at 120 seconds. There
+was no kernel `SYS_THREAD_CREATE rejected` reason and no real first-pixel
+checksum or PASS marker. The runner's stage label alone does not establish
+the root cause.
+
+Commit `582b5f64585054be354b7d3f9379cfa3054f8828` adds a fixed-buffer,
+allocation-free user-space trace for the three POSIX bridge outcomes: an
+occupied child slot, failed fixed-stack mmap, and native thread-bridge
+rejection. Each failure line reports the attempt, stage, actual 16 KiB bridge
+stack size, and returned pthread error. Guest logging is limited to the first
+eight failures; return and errno behavior and the single-child bridge remain
+unchanged. The formatter is a host-testable module because the guest ABI file
+is not part of host test builds.
+
+Verification on that source commit: all 9 `nagi-posix` tests pass, including
+two formatter bounds/content tests; package formatting and Clippy with
+warnings denied pass; the Nagi user-target library check passes with five
+existing visibility/dead-code warnings. Actions run `36236310925` for this
+commit has both host jobs passed, and its target job is pending behind the
+earlier target run. The real QEMU result is pending. M17 remains `BLOCKED`;
+M18 remains `NOT STARTED`.
+
+## M17 pthread bridge capacity audit (2026-09-26)
+
+Source review of integration commit `582b5f64585054be354b7d3f9379cfa3054f8828`
+confirms that the current native bridge has one child execution slot. The
+POSIX adapter can separately return `EAGAIN` before the syscall for a held,
+non-detached child. The kernel bridge also accepts creation only from the main
+thread, atomically reserves one child state, and writes the child context to
+slot 1.
+This made thread capacity a concrete candidate for the observed Servo
+`pthread_create` failure. Public owner-branch run `36232073962` at
+`18ee17a` confirms the specific rejection: its kernel trace said
+`SYS_THREAD_CREATE rejected: child slot occupied`, then recorded the already
+mapped 16 KiB child stack. The failing call therefore reached the native
+thread bridge with a mapped stack and was rejected because the bootstrap child
+slot was occupied.
+
+The confirmed kernel child-slot rejection means supporting additional
+simultaneous threads requires a scheduler/kernel thread-context change owned
+by the M17 runtime workstream and outside this integration branch's permitted
+paths. The root trace may still distinguish the POSIX early-return branch
+from a native syscall rejection. No concurrency is emulated in user space and
+no thread failure is converted into success.
+
+Root run `36235660277` completed with both host jobs passing and the target
+acceptance failing. QEMU's real serial log reached `Servo construction started`,
+then recorded the Servo profile thread panic with `pthread_create` error 11
+(`EAGAIN`), followed by abort redirection; QEMU did not exit within the
+acceptance's 120-second window. The serial log SHA-256 is
+`8be7a9676148b1915c146fed25d932bf2ae6158603f65bf468012c821d00830d`. The run
+produced no first-pixel checksum or guest PASS marker. Its acceptance report
+incorrectly labeled the failure stage `link`: the diagnostic summary's plural
+`undefined symbols: 0` matched a broad linker substring, while the QEMU
+`did not exit within 120 seconds` wording was not recognized as a timeout.
+The host classifier now recognizes that timeout wording and requires the
+singular linker diagnostic `undefined symbol:`; regression tests preserve
+timeout and linker distinctions. This changes reporting only; the acceptance
+verdict remains FAIL. Trace-enabled run `36236310925` has started its target
+job; its M17 QEMU result is pending. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+Integration commit `4c453969ebd303b7a9ec40803f3b4f61b17d8d75` fixes that
+acceptance-stage classifier and adds regression coverage for the observed
+timeout plus the plural `undefined symbols: 0` diagnostic summary. The CLI
+suite passes (107 unit and 26 integration tests), as do package formatting and
+warning-denied Clippy. CI run `36239110612` is validating this commit; its
+Ubuntu and Windows host jobs passed; its target job is queued behind the
+active target run. Run `36236310925` remains the trace-enabled M17 target run
+and is building Nagi user init. Neither run has produced a new guest pixel
+result yet.
+
+The M17 owner branch added commit `71fd5c33` for a bounded cooperative
+bootstrap scheduler with 16 thread slots. This kernel and syscall change is
+outside `codex/integration-next-phase`'s permitted paths and remains with its
+owner. Its public run `36237832887` completed with failure: QEMU timed out
+after 120 seconds at Servo construction and produced no pixel checksum or
+PASS marker. The captured excerpt contains no `SYS_THREAD_CREATE rejected`
+line, so this run does not show whether the scheduler dispatched the new
+thread before the hang.
+
+Both host jobs in `36237832887` failed the same
+`m17_mesa_link_does_not_force_duplicate_archive_members` source assertion,
+which still expected the old direct `USER_TLS_CHILD_CONTROL_BASE` assignment.
+The local owner branch is one commit ahead at `4d79bbe`, where the assertion
+was changed to the new `user_tls_control_base` helper; that commit is not on
+the remote branch used by this CI run, so it has no CI verification yet. The
+owner worktree also has a dirty status-document change and remains untouched.
+The owner-branch scheduler does not change M17's recorded `BLOCKED` state.
+
+## M17 trace acceptance status update (2026-09-26)
+
+Root trace run `36236310925` at `582b5f64585054be354b7d3f9379cfa3054f8828`
+passed both host jobs, built Nagi user init and the UEFI loader, and entered
+the real M17 first-web-pixel acceptance at 11:56 UTC. At 12:10 UTC the target
+job was still in that acceptance step; GitHub does not expose its logs until
+the step completes. No new guest checksum or PASS marker is available, so M17
+remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+The timeout-classifier run `36239110612` passed both host jobs but its pending
+target job was canceled before execution. Newer run `36240025711` at
+`faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1` passed both host jobs and is the
+newest target run pending behind `36236310925`. The developer status command
+now lists all queued and in-progress CI runs before completed runs.
+
+## M17 trace acceptance result (2026-09-26)
+
+Run `36236310925` completed with both host jobs passing and the target job
+failing in the real QEMU first-web-pixel acceptance. Its serial log reached
+`Servo construction started`, then recorded
+`pthread_create failed attempt=2 stage=native-thread-create-rejected
+bridge_stack_bytes=16384 pthread_error=11`. QEMU did not exit within 120
+seconds. There is no real pixel checksum or guest PASS marker. The serial log
+SHA-256 is
+`6b1d0c7449561a180d7b676061d72fba0d5bacfe4b57ace13d5032ff2ea7b98b`.
+
+The trace distinguishes native thread-bridge rejection from the POSIX early
+return and stack-allocation failure branches; it does not report the kernel's
+specific rejection reason. Owner-branch run `36232073962` separately recorded
+`SYS_THREAD_CREATE rejected: child slot occupied` after mapping the same
+16 KiB stack. The root run's older `582b5f6` acceptance summary still labeled
+the timeout `stage=link`; it predates the classifier correction in `4c45396`.
+The newer classifier/status run `36240025711` passed both host jobs and has
+started its target build; it is now bootstrapping pinned Servo source. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## M17 classifier validation run status (2026-09-26)
+
+Run `36240025711` at `faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1` passed both
+host jobs, built Nagi user init and the UEFI loader, and entered the real M17
+first-web-pixel QEMU acceptance at 12:50 UTC. The target result is pending.
+This run contains the timeout-classifier correction; its final diagnostic
+will verify that the QEMU timeout is no longer mislabeled as a linker failure.
+M17 remains `BLOCKED` until a real guest pixel checksum and acceptance marker
+are present; M18 remains `NOT STARTED`.
+
+## M17 classifier validation result (2026-09-26)
+
+Run `36240025711` at `faeeb22f9c8e6f6acf0ef8ba237cda59593c8ca1` completed
+with both host jobs passing and the target acceptance failing. Its failure
+report correctly labeled the QEMU result `stage=timeout`; QEMU did not exit
+within 120 seconds. The serial trace again reached Servo construction and
+recorded `pthread_create failed attempt=2
+stage=native-thread-create-rejected bridge_stack_bytes=16384 pthread_error=11`.
+The serial log SHA-256 is
+`58a39abf231fa1fc6db060e847735bd994e07c12334e6be73cc23b050581da2e`.
+There is no real pixel checksum or guest PASS marker. The classifier fix is
+verified; M17 remains `BLOCKED` and M18 remains `NOT STARTED`.

@@ -48,25 +48,30 @@ verify_rustup_shim_selection
 rm -rf "$temp_root"
 trap - EXIT HUP INT TERM
 
-if "$repository_root/nagi" doctor --unexpected >/dev/null 2>&1; then
+if invalid_output=$("$repository_root/nagi" doctor --unexpected 2>&1); then
     status=0
 else
     status=$?
 fi
 if [ "$status" -ne 2 ]; then
+    printf '%s\n' "$invalid_output" >&2
     printf 'FAIL M0 POSIX launcher usage exit: %s\n' "$status" >&2
     exit 1
 fi
 
-if image_output=$("$repository_root/nagi" image 2>&1); then
+if help_output=$("$repository_root/nagi" --help 2>&1); then
     status=0
 else
     status=$?
 fi
 if [ "$status" -ne 0 ]; then
-    printf '%s\n' "$image_output" | sed -n '1,160p' >&2
-    printf '%s\n' "$image_output" | tail -n 160 >&2
-    printf 'FAIL M0 POSIX launcher image success exit: %s\n' "$status" >&2
+    printf '%s\n' "$help_output" >&2
+    printf 'FAIL M0 POSIX launcher help success exit: %s\n' "$status" >&2
+    exit 1
+fi
+if ! printf '%s\n' "$help_output" | grep -Fq 'Nagi OS developer orchestrator'; then
+    printf '%s\n' "$help_output" >&2
+    printf '%s\n' 'FAIL M0 POSIX launcher help output was not recognized' >&2
     exit 1
 fi
 

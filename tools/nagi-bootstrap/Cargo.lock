@@ -79,6 +79,8 @@ name = "nagi-bootstrap"
 version = "0.1.0"
 dependencies = [
  "nagi-model-manager",
+ "serde",
+ "serde_json",
  "sha2",
 ]
 

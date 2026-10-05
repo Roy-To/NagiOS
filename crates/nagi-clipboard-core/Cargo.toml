@@ -1,0 +1,17 @@
+[package]
+name = "nagi-clipboard-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-model = { path = "../nagi-model" }
+
+[workspace]
+
+[[test]]
+name = "clipboard-acceptance"
+path = "../../tests/clipboard-core/acceptance.rs"
+
+[lints.rust]
+unsafe_code = "forbid"

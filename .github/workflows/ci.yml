@@ -2,17 +2,29 @@ name: Nagi CI
 
 on:
   push:
+    paths-ignore:
+      - '.dev/workstreams/**/state.json'
+      - 'docs/implementation_status.md'
   pull_request:
-
-concurrency:
-  group: nagi-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    paths-ignore:
+      - '.dev/workstreams/**/state.json'
+      - 'docs/implementation_status.md'
+  workflow_dispatch:
+    inputs:
+      run_target:
+        description: Run the target build and M17 acceptance after host CI passes
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   ubuntu-host:
+    concurrency:
+      group: nagi-ci-ubuntu-host-${{ github.ref }}
+      cancel-in-progress: true
     timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
@@ -32,16 +44,41 @@ jobs:
         run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
       - name: Format
         run: |
-          cargo fmt --package nagi-cli --package nagi-idl --package nagi-bootinfo --package nagi-abi --package nagi-model --package nagi-kernel --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-model-manager --package nagi-search --package nagi-ai --package nagi-servo-adapter --package nagi-init --package nagi-package --package nagi-sdk --package nagi-isolated-app --package nagi-search-ipc --package nagi-action-ipc -- --check
+          cargo fmt --package nagi-cli --package nagi-idl --package nagi-bootinfo --package nagi-abi --package nagi-model --package nagi-i18n --package nagi-ui --package nagi-localization --package nagi-kernel --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-model-manager --package nagi-search --package nagi-ai --package nagi-servo-adapter --package nagi-init --package nagi-package --package nagi-sdk --package nagi-isolated-app --package nagi-search-ipc --package nagi-action-ipc -- --check
           cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check
           cargo fmt --manifest-path loader/Cargo.toml -- --check
           rustfmt --check user/nagi-albert/src/lib.rs
+      - name: Regression tests for CI diagnostic parsers
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Lint host-compatible workspace
         run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
       - name: Build host-compatible workspace
         run: cargo build --workspace --exclude nagi-kernel --locked
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: Standalone clipboard core (CLIP-01)
+        run: |
+          cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check
+          cargo clippy --manifest-path crates/nagi-clipboard-core/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path crates/nagi-clipboard-core/Cargo.toml --locked
+      - name: Standalone search core (SEARCH-CORE-01)
+        run: |
+          cargo fmt --manifest-path crates/nagi-search-core/Cargo.toml -- --check
+          cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked
+      - name: Focused host acceptance (M0)
+        run: ./nagi test --acceptance --host-only --ci
+      - name: Upload Ubuntu acceptance reports and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-ubuntu-host-${{ github.run_attempt }}
+          path: |
+            out/test-results/
+            out/logs/acceptance/
+          if-no-files-found: ignore
+      - name: Verify development workstream state
+        run: ./nagi dev verify
       - name: Test kernel display scanout geometry
         run: cargo test --locked -p nagi-kernel --lib display::tests::scales_the_logical_surface_to_the_full_scanout_without_stretching
       - name: Test bootstrap scheduler fairness under sustained contention
@@ -55,6 +92,9 @@ jobs:
       - name: M0 launcher acceptance
         run: ./tests/acceptance/m0_launcher.sh
   windows-launcher:
+    concurrency:
+      group: nagi-ci-windows-launcher-${{ github.ref }}
+      cancel-in-progress: true
     timeout-minutes: 30
     runs-on: windows-2022
     steps:
@@ -95,14 +135,83 @@ jobs:
           $ErrorActionPreference = 'Stop'
           .\nagi.ps1 doctor --allow-missing
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify Windows launcher exit propagation
+      - name: Focused Windows host acceptance (M0 launcher)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          .\tests\acceptance\m0_launcher.ps1
+          .\nagi.ps1 test --acceptance --host-only --subsystem developer-cli --ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify development workstream state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\nagi.ps1 dev verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows acceptance reports and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-windows-host-${{ github.run_attempt }}
+          path: |
+            out/test-results/
+            out/logs/acceptance/
+          if-no-files-found: ignore
+  target_classification:
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-24.04
+    outputs:
+      target_sensitive: ${{ steps.filter.outputs.target }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Classify target-sensitive changes
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        id: filter
+        with:
+          base: ${{ github.ref_name }}
+          filters: |
+            target:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.cargo/**'
+              - 'targets/**'
+              - 'kernel/**'
+              - 'loader/**'
+              - 'user/**'
+              - 'sdk/rust/**'
+              - 'crates/nagi-abi/**'
+              - 'crates/nagi-bootinfo/**'
+              - 'crates/nagi-i18n/**'
+              - 'crates/nagi-action-ipc/**'
+              - 'crates/nagi-search-ipc/**'
+              - 'services/**'
+              - 'crates/nagi-model/**'
+              - 'idl/**'
+              - 'schemas/**'
+              - 'third_party/**'
+              - 'tools/mesa/**'
+              - 'tools/nagi-target-*'
+              - 'tools/nagi-bootstrap/**'
+              - 'tools/nagi-pkg/**'
+              - 'tools/nagi-cli/**'
+              - 'samples/hello-nagi/**'
+              - 'nagi'
+              - 'nagi.ps1'
+              - 'tests/acceptance/registry.tsv'
+              - 'tests/acceptance/**'
+              - 'docs/Nagi_OS_0.1_Codex_Implementation_Spec.md'
   nagi-target:
-    timeout-minutes: 90
+    needs: [ubuntu-host, windows-launcher, target_classification]
+    if: ${{ needs.target_classification.outputs.target_sensitive == 'true' || (github.event_name == 'workflow_dispatch' && inputs.run_target) }}
+    concurrency:
+      group: nagi-ci-target-${{ github.ref }}
+      cancel-in-progress: false
+    timeout-minutes: 120
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -266,7 +375,7 @@ jobs:
           NAGI_CXX_HEADERS: /usr/include/c++/v1
         run: |
           source out/mesa-venv/bin/activate
-          sh tests/acceptance/m17_servo_first_web_pixel.sh
+          ./nagi test --acceptance --target-only --milestone M17 --ci
       - name: M18-B Albert chrome acceptance
         env:
           NAGI_M18B_REUSE_M17_ACCEPTANCE: "1"
@@ -290,3 +399,36 @@ jobs:
         run: ./nagi m29
       - name: M30 reference release disk acceptance
         run: ./nagi m30
+      - name: Capture target runner resource state
+        if: always()
+        run: |
+          mkdir -p out/logs
+          {
+            date -u
+            uname -a
+            free -h
+            df -h .
+            cat /proc/meminfo
+          } > out/logs/m17-runner-resources.log 2>&1
+      - name: Upload M17 diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: m17-diagnostics-${{ github.run_id }}
+          path: out/logs/m17-*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload target acceptance reports and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: acceptance-nagi-target-${{ github.run_attempt }}
+          path: |
+            out/test-results/
+            out/logs/acceptance/
+            out/logs/m17-runner-resources.log
+            out/logs/m17-bootstrap.log
+            out/logs/m17-nagi-user-init.log
+            out/logs/m17-undefined-symbols.txt
+            out/logs/m17-servo.log
+          if-no-files-found: ignore

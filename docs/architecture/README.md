@@ -18,6 +18,10 @@ The common language rules are defined in
 internal language; `en-US` and `ja-JP` are equal first-class Nagi 0.1 user
 languages.
 
+The shared first-party UI tokens, components, interaction contracts, and
+renderer integration boundary are defined in
+[`ui-design-system.md`](ui-design-system.md).
+
 The common AI provider rules are defined in
 [`decision-and-generative-ai-architecture.md`](decision-and-generative-ai-architecture.md)
 and decided by

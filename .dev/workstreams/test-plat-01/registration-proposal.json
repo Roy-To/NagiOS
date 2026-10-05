@@ -1,0 +1,66 @@
+{
+  "proposal_version": 1,
+  "workstream_id": "test-plat-01",
+  "name": "System Integration Test Harness Foundation",
+  "proposal_status": "APPROVED_AND_REGISTERED",
+  "integration_owner_approval": {
+    "approved_at": "2026-09-29",
+    "approved_by": "Codex integration owner",
+    "scope": "Host-only deterministic harness implementation on the assigned branch and exact allowed paths before M30. Runtime/product/target/QEMU/shared CI/workspace integration remains gated."
+  },
+  "proposal_baseline": {
+    "commit_sha": "198b9f60b41eba14e74c2c04f51ccdcb4030adf9",
+    "branch_observed": "codex/integration-next-phase",
+    "base_approval": "APPROVED: branch created from this exact commit"
+  },
+  "registry_entry": {
+    "id": "test-plat-01",
+    "owner": "Codex TEST-PLAT-01 workstream owner",
+    "owner_branch": "codex/0.2-test-plat-01",
+    "recommended_worktree": "/Users/tozawa/Developer/NagiOS-0.2-test-plat-01",
+    "state_file": ".dev/workstreams/test-plat-01/state.json",
+    "dependencies": [
+      "development-foundation"
+    ],
+    "allowed_paths": [
+      "crates/nagi-test-harness/**",
+      "tests/system-integration-harness/**",
+      ".dev/workstreams/test-plat-01/**",
+      "docs/workstreams/NagiOS_0.2_System_Integration_Test_Harness_Foundation_Workstream.md"
+    ],
+    "forbidden_paths": [
+      "Cargo.toml",
+      "Cargo.lock",
+      ".github/workflows/**",
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      "docs/implementation_status.md",
+      "idl/**",
+      "schemas/**",
+      "kernel/**",
+      "loader/**",
+      "user/**",
+      "third_party/**",
+      "out/**",
+      "target/**",
+      "docs/workstreams/NagiOS_M18C_Browser_Acceptance_Reliability_Workstream.md"
+    ],
+    "activation_gate": "Host-only deterministic integration-test harness work is authorized before Nagi 0.1 M30 by the Integration Owner registration checkpoint. Production/runtime services, target/QEMU, product-acceptance claims, and shared CI/workspace integration require M30 PASS plus an explicit Integration Owner checkpoint naming TEST-PLAT-01.",
+    "merge_boundary": "Commit and push host-only foundation on the assigned codex/0.2-test-plat-01 branch. Integrate after owned host-only acceptance and Integration Owner review. Runtime, target, product, shared workspace, and CI integration remain gated on M30 PASS and an explicit checkpoint; never merge directly to main."
+  },
+  "proposed_host_test_command": {
+    "command": "cargo test --manifest-path crates/nagi-test-harness/Cargo.toml --offline",
+    "status": "AUTHORIZED_NOT_RUN",
+    "note": "The crate does not exist yet; this command is a candidate for the assigned branch and must be verified after implementation. It does not imply CI workflow ownership."
+  },
+  "integration_owner_actions": [
+    "Integration Owner registered test-plat-01 and assigned the owner, allowed paths, branch, base, and worktree on 2026-09-29.",
+    "The owner registration commit must be applied to the dedicated branch so that nagi dev verify includes the state file.",
+    "Keep M30 and shared CI/runtime integration gates closed until their stated conditions are met."
+  ],
+  "scope_notes": [
+    "Only the currently registered hard dependency development-foundation is proposed. Diagnostics, capability-permissions, IPC/event-bus, App Lifecycle, Identity, Job Scheduler, and Notification remain optional adapters until registered, versioned, and present on the approved base.",
+    "The Integration Owner makes the shared registry change and reserves the assigned paths. TEST-PLAT-01 itself does not edit shared registry/schema/CI files.",
+    "No product/runtime implementation, QEMU/target testing, M30 acceptance, shared CI/workspace integration, or other workstream source/state changes are authorized by this proposal."
+  ]
+}
