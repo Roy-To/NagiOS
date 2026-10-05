@@ -89,6 +89,8 @@ unsafe extern "C" {
     fn nagi_m20_llama_backend_init_smoke() -> i32;
 }
 
+#[cfg(all(target_os = "nagi", feature = "m21-action-ipc"))]
+mod action_ipc;
 #[cfg(all(
     target_os = "nagi",
     feature = "m10-desktop",
@@ -103,6 +105,8 @@ mod boot;
 mod desktop;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod font;
+#[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
+mod isolated_process;
 #[cfg(all(target_os = "nagi", feature = "m13-posix"))]
 mod m13;
 #[cfg(all(target_os = "nagi", feature = "m13-std"))]
@@ -146,6 +150,11 @@ mod security;
     not(feature = "m13-posix")
 ))]
 mod shell;
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "isolated-process-acceptance", feature = "m19-search-ipc")
+))]
+mod supervisor;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod ui;
 #[cfg(all(target_os = "nagi", feature = "m9-window"))]
@@ -986,6 +995,11 @@ pub extern "C" fn _start(
     ));
 
     unsafe { run_elf_initializers() };
+
+    #[cfg(feature = "isolated-process-acceptance")]
+    if !isolated_process::run() {
+        libnagi::exit(1);
+    }
 
     #[cfg(feature = "m20-llama-link-smoke")]
     {

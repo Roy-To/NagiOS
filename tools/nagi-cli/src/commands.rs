@@ -23,11 +23,11 @@ use crate::image::{
     run_qemu_until_any_acceptance_marker_reusing_ovmf_vars,
     run_qemu_until_any_acceptance_marker_with_read_only_boot_disk,
     run_qemu_with_read_only_boot_disk, validate_reference_disk_qcow2, write_fat12_image,
-    write_m17_fat12_image, write_m20_model_store_fixture_reference_disk_qcow2,
-    write_m27_broken_slot_image, write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image,
-    write_m27_recovery_image, write_reference_disk_qcow2,
-    write_reference_disk_qcow2_with_external_model_store_file, ImageLayout, QemuConfig,
-    QmpEventStage, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    write_isolated_apps_fat12_image, write_m17_fat12_image,
+    write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
+    write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
+    write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
+    ImageLayout, QemuConfig, QmpEventStage, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -236,6 +236,7 @@ pub enum Command {
     M25,
     M27,
     M30,
+    IsolatedProcess,
     M20Granite,
     M20GraniteInference,
     M20LlamaSmoke,
@@ -313,6 +314,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m25" => Command::M25,
         "m27" => Command::M27,
         "m30" => Command::M30,
+        "isolated-process" => Command::IsolatedProcess,
         "m20-granite" => Command::M20Granite,
         "m20-granite-inference" => Command::M20GraniteInference,
         "m20-llama-smoke" => Command::M20LlamaSmoke,
@@ -367,6 +369,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M25
         | Command::M27
         | Command::M30
+        | Command::IsolatedProcess
         | Command::Test
         | Command::Clean
         | Command::Fmt
@@ -528,6 +531,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M18 => execute_m18(root, probe),
         Command::M19 => execute_m19(root, probe),
         Command::M22 => execute_m22(root, probe),
+        Command::IsolatedProcess => execute_isolated_process(root, probe),
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
@@ -3009,12 +3013,19 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         };
+        let client_env = match isolated_client_env(root) {
+            Ok(env) => env,
+            Err(result) => return result,
+        };
+        let client_env_refs = client_env
+            .each_ref()
+            .map(|(key, path)| (*key, path.as_path()));
         let init_args = [
             "build",
             "-p",
             "nagi-init",
             "--features",
-            "m10-desktop,m19-search,m20-model-store-acceptance,m22-history",
+            "m10-desktop,m19-search,m20-model-store-acceptance,m22-history,m21-action-ipc",
             "--target",
             "targets/x86_64-unknown-nagi-user.json",
             "-Zbuild-std=core,alloc,compiler_builtins",
@@ -3027,7 +3038,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             None,
             ImageBuildRequest {
                 image_name,
-                cargo_env: &[],
+                cargo_env: &client_env_refs,
                 recovery_init: Some(&recovery_init),
                 image_writer: write_reference_disk_qcow2,
                 external_model_store_file: None,
@@ -3397,12 +3408,19 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
     };
     let fixture_image_name = format!("nagi-0.1-m20-reader-{run_id}.qcow2");
+    let fixture_client_env = match isolated_client_env(root) {
+        Ok(env) => env,
+        Err(result) => return result,
+    };
+    let fixture_client_env_refs = fixture_client_env
+        .each_ref()
+        .map(|(key, path)| (*key, path.as_path()));
     let fixture_init_args = [
         "build",
         "-p",
         "nagi-init",
         "--features",
-        "m10-desktop,m19-search,m20-fixture-acceptance,m22-history",
+        "m10-desktop,m19-search,m20-fixture-acceptance,m22-history,m21-action-ipc",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -3415,7 +3433,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         None,
         ImageBuildRequest {
             image_name: &fixture_image_name,
-            cargo_env: &[],
+            cargo_env: &fixture_client_env_refs,
             recovery_init: Some(&recovery_init),
             image_writer: write_m20_model_store_fixture_reference_disk_qcow2,
             external_model_store_file: None,
@@ -6650,6 +6668,289 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
+const ISOLATED_PROCESS_MARKERS: [&str; 16] = [
+    "Nagi Kernel started",
+    "Nagi ADR0043 isolated process spawned pid=2",
+    "Nagi isolated process kernel-stamped sender PASS",
+    "Nagi isolated process forged payload identity denied PASS",
+    "Nagi isolated process address space and syscall isolation PASS",
+    "Nagi ADR0043 isolated process exit pid=2 code=0",
+    "Nagi isolated process exit cleanup PASS",
+    "Nagi ADR0047 isolated process fault pid=3 vector=14",
+    "Nagi ADR0047 isolated process fault pid=4 vector=6",
+    "Nagi ADR0047 isolated process fault pid=5 vector=13",
+    "Nagi isolated process fault containment PASS",
+    "Nagi Supervisor process exit status PASS",
+    "Nagi Supervisor signed package verification PASS",
+    "Nagi isolated processes concurrent PASS",
+    "Nagi Supervisor grant consent required PASS",
+    "Nagi Supervisor grant decisions PASS",
+];
+const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PASS";
+
+/// ADR 0043 acceptance: the Supervisor (init) spawns a real second ELF into
+/// its own address space and authorizes it only by kernel-stamped identity.
+/// Build the isolated application ELFs (ADR 0043/0044) and return the
+/// release output directory that contains them.
+fn build_isolated_apps(root: &Path) -> Result<PathBuf, CommandResult> {
+    let app_build = run_cargo(
+        root,
+        "isolated app build",
+        &[
+            "build",
+            "-p",
+            "nagi-isolated-app",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std-features=compiler-builtins-mem",
+            "--release",
+            "--locked",
+        ],
+    );
+    if app_build.exit_code != EXIT_SUCCESS {
+        return Err(app_build);
+    }
+    let release = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release");
+    let packages = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("artifacts")
+            .join("acceptance-packages"),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return Err(failure(
+                EXIT_CONFIG_ERROR,
+                format!("acceptance packages: {error}"),
+            ))
+        }
+    };
+    for (name, application, executable) in ACCEPTANCE_PACKAGES {
+        let manifest = root
+            .join("user")
+            .join("nagi-init")
+            .join("manifests")
+            .join(format!("{application}.manifest"));
+        let elf = release.join(executable);
+        let output = packages.join(format!("{name}.xapp"));
+        let (manifest, elf, output) = (
+            manifest.display().to_string(),
+            elf.display().to_string(),
+            output.display().to_string(),
+        );
+        let packaged = run_cargo(
+            root,
+            "acceptance package signing",
+            &[
+                "run",
+                "--quiet",
+                "--locked",
+                "--manifest-path",
+                "tools/nagi-pkg/Cargo.toml",
+                "--",
+                "build-signed",
+                &manifest,
+                &elf,
+                &output,
+            ],
+        );
+        if packaged.exit_code != EXIT_SUCCESS {
+            return Err(packaged);
+        }
+    }
+    Ok(packages)
+}
+
+/// Signed `.xapp` packages the Supervisor launches in acceptances
+/// (ADR 0049): `(package name, manifest application ID, isolated ELF)`.
+const ACCEPTANCE_PACKAGES: [(&str, &str, &str); 7] = [
+    (
+        "isolated-app",
+        "org.nagi.acceptance.isolated-app",
+        "nagi-isolated-app",
+    ),
+    (
+        "faulting-app",
+        "org.nagi.acceptance.faulting-app",
+        "nagi-faulting-app",
+    ),
+    (
+        "m19-search-search-client",
+        "org.nagi.acceptance.m19-search",
+        "nagi-m19-search-client",
+    ),
+    (
+        "m19-search-action-client",
+        "org.nagi.acceptance.m19-search",
+        "nagi-action-client",
+    ),
+    (
+        "foreign-search-client",
+        "org.nagi.acceptance.foreign-client",
+        "nagi-m19-search-client",
+    ),
+    (
+        "foreign-action-client",
+        "org.nagi.acceptance.foreign-client",
+        "nagi-action-client",
+    ),
+    (
+        "m22-files-action-client",
+        "org.nagi.acceptance.m22-files",
+        "nagi-action-client",
+    ),
+];
+
+/// Build and sign the acceptance packages and return the environment an
+/// init build with isolated applications needs.
+fn isolated_client_env(root: &Path) -> Result<[(&'static str, PathBuf); 1], CommandResult> {
+    Ok([("NAGI_ACCEPTANCE_PACKAGES", build_isolated_apps(root)?)])
+}
+
+/// Build an init image whose M19/M21/M22 callers are isolated client
+/// processes (ADR 0044/0045). `features` must include `m21-action-ipc`.
+fn execute_image_with_isolated_clients(
+    root: &Path,
+    features: &str,
+    image_name: &str,
+) -> CommandResult {
+    let packages = match build_isolated_apps(root) {
+        Ok(directory) => directory,
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+    ];
+    // Signed acceptance packages exceed the legacy 1.44 MB FAT12 image.
+    execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
+        write_isolated_apps_fat12_image,
+        ImageBuildFeatures::default(),
+    )
+}
+
+fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let packages = match build_isolated_apps(root) {
+        Ok(directory) => directory,
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "isolated-process-acceptance",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let image_name = "nagi-0.1-isolated-process.img";
+    let image_result = execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
+        write_isolated_apps_fat12_image,
+        ImageBuildFeatures::default(),
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let host = match resolve_qemu_host(root, probe, "isolated-process") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let image_path = artifacts.join(image_name);
+    let persistent_disk = artifacts.join("nagi-0.1-isolated-process-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-isolated-process-vars.fd");
+    let serial_log = logs.join("isolated-process.log");
+    if let Err(error) = ensure_persistent_disk(&persistent_disk) {
+        return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}"));
+    }
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &serial_log,
+        acceptance_marker: ISOLATED_PROCESS_PASS_MARKER,
+        timeout: Duration::from_secs(90),
+    };
+    let status = match run_qemu(&config) {
+        Ok(status) => status,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let serial = match fs::read_to_string(&serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "isolated-process: cannot read {}: {error}",
+                    serial_log.display()
+                ),
+            );
+        }
+    };
+    if let Some(missing) = missing_isolated_process_marker(&serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "isolated-process: guest did not print `{missing}` (QEMU exit {status}; log {})",
+                serial_log.display()
+            ),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS isolated-process: Supervisor spawned an isolated ELF, authorized it by kernel-stamped PID, denied a forged payload identity, and observed exit cleanup (exit {status}; log {})",
+            serial_log.display()
+        )],
+    }
+}
+
+fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
+    if serial.contains("Nagi isolated process acceptance FAIL")
+        || serial.contains("Nagi faulting app survived its fault FAIL")
+    {
+        return Some(ISOLATED_PROCESS_PASS_MARKER);
+    }
+    ISOLATED_PROCESS_MARKERS
+        .into_iter()
+        .chain([ISOLATED_PROCESS_PASS_MARKER])
+        .find(|marker| !serial.contains(marker))
+}
+
 fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let mut fixture = match start_m13_http_fixture(root) {
         Ok(child) => child,
@@ -6662,8 +6963,11 @@ fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let image_result =
-        execute_image_with_features(root, Some("m19-search"), "nagi-0.1-m19-vfs-objectid.img");
+    let image_result = execute_image_with_isolated_clients(
+        root,
+        "m21-action-ipc",
+        "nagi-0.1-m19-vfs-objectid.img",
+    );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -6769,6 +7073,11 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi bootstrap Channel ABI PASS",
             "Nagi bootstrap Channel wait/wake PASS",
             "Nagi M24 semantic index ready PASS",
+            "Nagi M19 Search IPC authorized isolated client PASS",
+            "Nagi M19 Search IPC foreign isolated client hidden PASS",
+            "Nagi M19 Search IPC authenticated caller PASS",
+            "Nagi M21 foreign isolated caller denied PASS",
+            "Nagi M21 file.search isolated caller PASS",
             "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M19 acceptance PASS",
@@ -7121,7 +7430,8 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             }
         }
     }
-    let image_result = execute_image_with_features(root, Some("m22-history"), &image_name);
+    let image_result =
+        execute_image_with_isolated_clients(root, "m22-history,m21-action-ipc", &image_name);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -7243,6 +7553,26 @@ fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     log_path.display()
                 ),
             );
+        }
+        if boot_index == 0 && !had_persistent_disk {
+            if let Some(marker) = [
+                "Nagi M21 foreign isolated caller denied PASS",
+                "Nagi M21 file.search isolated caller PASS",
+                "Nagi M22 foreign isolated caller denied PASS",
+                "Nagi M22 file.move isolated caller PASS",
+                "Nagi M22 file.copy isolated caller PASS",
+            ]
+            .into_iter()
+            .find(|marker| !serial.contains(marker))
+            {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: fresh guest did not print isolated-caller marker `{marker}` (QEMU exit {final_status}; log {})",
+                        log_path.display()
+                    ),
+                );
+            }
         }
         if boot_index == 0
             && !had_persistent_disk
@@ -7589,8 +7919,11 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 
     let recovery_undo_image_name = format!("nagi-0.1-m27-recovery-undo-{run_id}.img");
-    let recovery_undo_image_result =
-        execute_image_with_features(root, Some("m22-history"), &recovery_undo_image_name);
+    let recovery_undo_image_result = execute_image_with_isolated_clients(
+        root,
+        "m22-history,m21-action-ipc",
+        &recovery_undo_image_name,
+    );
     if recovery_undo_image_result.exit_code != EXIT_SUCCESS {
         return recovery_undo_image_result;
     }
@@ -8580,7 +8913,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, test, clean, fmt, lint"
+            "Commands: doctor [--allow-missing], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, test, clean, fmt, lint"
                 .into(),
         ],
     }

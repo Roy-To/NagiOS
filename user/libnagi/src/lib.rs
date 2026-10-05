@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod boot;
+pub mod launch;
 pub mod security;
 pub mod service;
 pub mod storage;
@@ -12,14 +13,15 @@ use core::ptr;
 pub use nagi_abi::{
     is_valid_bootstrap_user_thread_stack_size, round_bootstrap_user_thread_stack_size,
     ChannelEndpoints, ChannelHandleTransfer, ChannelReceiveResult, ChannelSendRequest, DisplayInfo,
-    InputEvent, MemoryInfo, ProcessInfo, BLOCK_SECTOR_SIZE, BOOTSTRAP_USER_THREAD_COUNT,
-    BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE, BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE,
-    BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE, BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE,
-    INPUT_BUTTON_PRIMARY, INPUT_EVENT_ABS, INPUT_EVENT_KEY, INPUT_EVENT_REL, INPUT_KEY_DOWN,
-    INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_LEFT, INPUT_KEY_SPACE, INPUT_KEY_TAB,
-    INPUT_KEY_UP, INPUT_REL_X, INPUT_REL_Y, MAX_AUDIO_BUFFER, MAX_CHANNEL_INLINE_PAYLOAD,
-    MAX_CHANNEL_QUEUE_MESSAGES, MAX_CHANNEL_TRANSFER_HANDLES, MAX_CONSOLE_READ, MAX_CONSOLE_WRITE,
-    MAX_LOG_READ, MAX_NET_FRAME_SIZE, MAX_PROCESS_NAME, MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888,
+    InputEvent, MemoryInfo, ProcessExitStatus, ProcessInfo, BLOCK_SECTOR_SIZE,
+    BOOTSTRAP_USER_THREAD_COUNT, BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE,
+    BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE, BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE,
+    BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE, INPUT_BUTTON_PRIMARY, INPUT_EVENT_ABS, INPUT_EVENT_KEY,
+    INPUT_EVENT_REL, INPUT_KEY_DOWN, INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_LEFT,
+    INPUT_KEY_SPACE, INPUT_KEY_TAB, INPUT_KEY_UP, INPUT_REL_X, INPUT_REL_Y, MAX_AUDIO_BUFFER,
+    MAX_CHANNEL_INLINE_PAYLOAD, MAX_CHANNEL_QUEUE_MESSAGES, MAX_CHANNEL_TRANSFER_HANDLES,
+    MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_NET_FRAME_SIZE, MAX_PROCESS_NAME,
+    MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888, PROCESS_EXIT_KIND_EXITED, PROCESS_EXIT_KIND_FAULTED,
     PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, RIGHT_CONTROL, RIGHT_DUPLICATE, RIGHT_EXECUTE,
     RIGHT_MAP, RIGHT_READ, RIGHT_SIGNAL, RIGHT_TRANSFER, RIGHT_WAIT, RIGHT_WRITE, SURFACE_BYTES,
     SURFACE_HEIGHT, SURFACE_WIDTH, SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH,
@@ -380,6 +382,61 @@ pub fn channel_receive(endpoint: u64, result_buffer: &mut ChannelReceiveResult) 
             Some(true) => return Some(()),
             Some(false) if channel_wait_readable(endpoint) => {}
             Some(false) | None => return None,
+        }
+    }
+}
+
+/// Spawn the isolated child process from `image` (a static ELF) and move
+/// `endpoint` into it with `rights`. Only the Supervisor (init) may spawn;
+/// returns the child's kernel Process ID.
+#[inline]
+pub fn process_spawn(image: &[u8], endpoint: u64, rights: u32) -> Option<u32> {
+    let request = nagi_abi::ProcessSpawnRequest {
+        image_address: image.as_ptr() as u64,
+        image_len: image.len() as u64,
+        endpoint,
+        endpoint_rights: rights,
+        reserved: 0,
+    };
+    let mut result = nagi_abi::SYS_PROCESS_SPAWN;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") &request as *const nagi_abi::ProcessSpawnRequest,
+            in("rsi") core::mem::size_of::<nagi_abi::ProcessSpawnRequest>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    u32::try_from(result).ok()
+}
+
+/// Wait for the isolated process `process_id` (spawned by this Supervisor)
+/// to exit and consume its exit status. Returns `None` for an unknown or
+/// already-consumed Process ID, or when no thread can make progress.
+#[inline]
+pub fn process_wait(process_id: u32) -> Option<nagi_abi::ProcessExitStatus> {
+    let mut status = nagi_abi::ProcessExitStatus::default();
+    loop {
+        let mut result = nagi_abi::SYS_PROCESS_WAIT;
+        unsafe {
+            asm!(
+                "syscall",
+                inlateout("rax") result,
+                in("rdi") u64::from(process_id),
+                in("rsi") &mut status as *mut nagi_abi::ProcessExitStatus,
+                in("rdx") core::mem::size_of::<nagi_abi::ProcessExitStatus>(),
+                lateout("rcx") _,
+                lateout("r11") _,
+                options(nostack),
+            );
+        }
+        match result {
+            0 => return Some(status),
+            nagi_abi::PROCESS_WAIT_RETRY => continue,
+            _ => return None,
         }
     }
 }
@@ -927,6 +984,10 @@ mod tests {
         assert_eq!(SYS_CHANNEL_SEND, 32);
         assert_eq!(SYS_CHANNEL_TRY_RECEIVE, 33);
         assert_eq!(SYS_HANDLE_CLOSE, 34);
+        assert_eq!(nagi_abi::SYS_PROCESS_SPAWN, 36);
+        assert_eq!(nagi_abi::SYS_PROCESS_WAIT, 37);
+        assert_eq!(core::mem::size_of::<nagi_abi::ProcessExitStatus>(), 24);
+        assert_eq!(core::mem::size_of::<nagi_abi::ProcessSpawnRequest>(), 32);
         assert_eq!(THREAD_CREATE_DETACHED, 1);
         #[cfg(feature = "m18-browser-threads")]
         assert_eq!(BOOTSTRAP_USER_THREAD_COUNT, 64);

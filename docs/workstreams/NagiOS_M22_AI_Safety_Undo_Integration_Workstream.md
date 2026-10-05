@@ -330,3 +330,13 @@ repetitions after M22 boot 3 timed out pre-guest, and is not counted as a pass.
 M22 remains `PARTIAL` for fixture-only caller/policy, real inference,
 authenticated production authority, general production actions, and a
 production Activity Ledger service.
+
+
+## Isolated caller identity — 2026-10-03
+
+ADR 0045: in `./nagi m22`, the three-file `file.move` is requested by an
+isolated `nagi-action-client` process. Its NH16 transaction and Activity
+Ledger record carry the identity resolved from the kernel-stamped sender PID
+and launch record. A foreign-launched client is denied first. A local
+fresh-disk run passed all three boots, including grouped Undo and restart
+verification. `./nagi m27` and `./nagi m30` still use the in-process caller.

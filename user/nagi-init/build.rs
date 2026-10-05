@@ -6,6 +6,21 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_FONT_DIR");
+    println!("cargo:rerun-if-env-changed=NAGI_ACCEPTANCE_PACKAGES");
+    if env::var_os("CARGO_FEATURE_ISOLATED_PROCESS_ACCEPTANCE").is_some()
+        || env::var_os("CARGO_FEATURE_M19_SEARCH_IPC").is_some()
+    {
+        let packages = env::var_os("NAGI_ACCEPTANCE_PACKAGES")
+            .map(PathBuf::from)
+            .expect(
+                "isolated applications require NAGI_ACCEPTANCE_PACKAGES (signed .xapp directory)",
+            );
+        println!("cargo:rerun-if-changed={}", packages.display());
+        for entry in fs::read_dir(&packages).expect("read acceptance package directory") {
+            let path = entry.expect("package entry").path();
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
     println!("cargo:rerun-if-env-changed=NAGI_TARGET_CLANG");
     println!("cargo:rerun-if-env-changed=NAGI_MESA_BUILD");
     println!("cargo:rerun-if-env-changed=NAGI_LLAMA_BUILD");

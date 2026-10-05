@@ -370,6 +370,19 @@ impl<const N: usize> HandleTable<N> {
         Ok(())
     }
 
+    /// Close every live handle, releasing one object reference per handle.
+    /// Used when a whole process exits; slot generations still advance so a
+    /// stale handle value can never resolve again.
+    pub(crate) fn close_all<const R: usize>(&mut self, registry: &mut ObjectRegistry<R>) {
+        for slot in &mut self.slots {
+            let Some(capability) = slot.capability.take() else {
+                continue;
+            };
+            let _ = registry.release(capability.object);
+            slot.generation = slot.generation.saturating_add(1);
+        }
+    }
+
     pub(crate) fn begin_move<const R: usize>(
         &mut self,
         registry: &ObjectRegistry<R>,

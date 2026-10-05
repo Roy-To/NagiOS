@@ -2998,6 +2998,7 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "nagi-abi",
+ "nagi-model",
 ]
 
 [[package]]
@@ -3398,6 +3399,13 @@ name = "nagi-abi"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-action-ipc"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+]
+
+[[package]]
 name = "nagi-ai"
 version = "0.1.0"
 dependencies = [
@@ -3468,6 +3476,7 @@ name = "nagi-init"
 version = "0.1.0"
 dependencies = [
  "libnagi",
+ "nagi-action-ipc",
  "nagi-ai",
  "nagi-albert",
  "nagi-audio",
@@ -3482,7 +3491,17 @@ dependencies = [
  "nagi-posix",
  "nagi-sdk",
  "nagi-search",
+ "nagi-search-ipc",
  "relibc",
+]
+
+[[package]]
+name = "nagi-isolated-app"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+ "nagi-action-ipc",
+ "nagi-search-ipc",
 ]
 
 [[package]]
@@ -3557,6 +3576,13 @@ name = "nagi-search"
 version = "0.1.0"
 dependencies = [
  "nagi-model",
+]
+
+[[package]]
+name = "nagi-search-ipc"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
 ]
 
 [[package]]

@@ -1,0 +1,4 @@
+id=org.nagi.acceptance.faulting-app
+name=ADR 0047 fault probe
+version=0.1.0
+grant=acceptance.consent-probe

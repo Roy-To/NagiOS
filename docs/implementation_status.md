@@ -3,6 +3,252 @@
 **Current milestone:** `M30 — Nagi OS 0.1 Release`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**User consent for manifest grants (ADR 0051), 2026-10-03:** A signed
+manifest's `grant=` line is now only a request.
+
+- **Effective grants.** A capability is effective only for a live session
+  whose manifest requests it *and* for which an authenticated, unlocked user
+  recorded `Allow`, or `AllowOnce` for that session. The default is
+  `ConsentRequired`, which fails closed. `Deny` overrides the manifest.
+- **Who decides.** Developer Mode and the Owner role do not imply consent.
+  Launched processes have no route to the decision API.
+- **Result.** `./nagi isolated-process` verified fail-closed defaults,
+  locked-session refusal, `AllowOnce` scoping across two live sessions and
+  its expiry at exit, and `Deny`/`Allow`/`Ask`.
+
+Still open:
+
+- the trusted consent dialog (acceptance decisions come from a fixture
+  account);
+- persisting decisions;
+- foreground/background distinctions.
+
+**Concurrent isolated processes (ADR 0050), 2026-10-03:** The kernel now
+runs two isolated processes at once.
+
+- **Per-process resources.** Each process has its own address-space slot
+  and CR3. The IPC manager and the exit table track each process with its
+  own waiter.
+- **Result.** `./nagi isolated-process` ran PIDs 3 and 4 concurrently and
+  refused a third spawn. A fault in one left the other running, and a freed
+  slot was reused.
+
+**Signed launch packages (ADR 0049), 2026-10-03:** Isolated applications now
+launch only from Ed25519-signed M16 `.xapp` packages, built by
+`nagi-pkg build-signed`. Their identity and grants come solely from the
+signed manifest, which gained `grant=` lines. Package size was raised to
+64 KiB.
+
+The Supervisor refuses:
+- tampered packages (`UnsignedPackage`);
+- packages requested as another application (`WrongApplication`);
+- malformed packages (`InvalidPackage`);
+- conflicting declarations of the same application.
+
+`./nagi isolated-process` verified this on QEMU.
+
+**Boot image size:** embedding the signed packages made the M22 init too
+large for the legacy 1.44 MB FAT12 boot image. Isolated-client and
+isolated-process images now use a 4 MiB FAT12 image (`ISOLATED_APPS_IMAGE_SIZE`,
+2 KiB clusters). It stays smaller than the User Data disk, because the
+kernel selects the largest writable VirtIO Block device as User Data; a
+128 MB M17-style image made M7 select the boot disk. After the change,
+`./nagi m22` (all three boots), `./nagi m19`, and `./nagi isolated-process`
+pass locally.
+
+Still open:
+- trust-store provisioning beyond the pinned Developer Preview key;
+- user consent for grants (addressed by ADR 0051);
+- installing packages through the Package Service store instead of the
+  init image.
+
+**Supervisor exit wait/status (ADR 0048), 2026-10-03:**
+
+- **Unique IDs.** Isolated processes now receive unique, never-reused
+  Process IDs.
+- **Exit records.** The kernel keeps a bounded exit record for each process:
+  clean exit with its code, or fault with its vector.
+- **Wait syscall.** The init-only `SYS_PROCESS_WAIT` blocks until the
+  process exits and then consumes its status. `supervisor::reap` uses it in
+  place of yield-probing.
+- **Local QEMU result.** `./nagi isolated-process` verified PID 2's exit 0,
+  consume-once semantics, and blocked waits woken by the faults of PIDs 3–5
+  (vectors 14/6/13, codes 142/134/141).
+- **Earlier repeated-boot result.** The 25-boot `./nagi run` stress run on
+  the ADR 0047 kernel passed 25/25.
+
+**Ring-3 fault containment and M3 stall fix (ADR 0047), 2026-10-03:**
+
+- **M3 stall root cause.** The intermittent "M3 scheduler workload" stall
+  (QMP `shutdown`, RIP=`smp::thread_entry`, RSP=0, CR2=-8) came from an
+  18-word initial task frame. `iretq` pops 20 words, so a task could start
+  with RSP=0 and interrupts enabled; a timer interrupt arriving before its
+  first stack switch then triple-faulted.
+- **M3 fix.** The frame now carries an explicit RSP and SS, and a lib test in
+  CI pins its layout.
+- **TSS and exception IDT.** The BSP now has a TSS (RSP0 fault stack, IST1
+  for #DF) and its own exception IDT using the M5 kernel selector.
+- **Fault policy.** A CPU exception in an isolated process terminates only
+  that process (exit code 128 + vector), and the next thread resumes.
+  Kernel and init faults are reported, then halt.
+- **QEMU evidence.** `./nagi isolated-process` now launches
+  `nagi-faulting-app` three times. #PF, #UD, and #GP were each contained
+  (exit codes 142, 134 and 141), the launches were reaped, and init
+  continued.
+- **Repeated-boot evidence.** Before the fault-containment code was added,
+  13 consecutive `./nagi run` boots on the M3 fix passed. A 25-boot run on
+  the final kernel is recorded under the Last updated line.
+
+**Remaining in-process callers migrated, 2026-10-03:** These paths now run
+with the caller resolved from an isolated client's launch record and
+Supervisor manifest grants:
+
+- the M22 `file.copy` action, including its denied-policy and bad-name plans
+  (the `m22-files` manifest grants `files.copy`);
+- the M21 plan-rejection and partial-execution fixtures;
+- the `./nagi m27` Recovery-Undo image and both `./nagi m30` images, now
+  built with `m21-action-ipc`.
+
+`GrantSource::InProcessAcceptance` remains only for images built without
+`m21-action-ipc`. A local `./nagi m22` passed all three boots with the
+`file.copy` isolated-caller marker. See the Last updated line for the M27/M30
+local results.
+
+**Supervisor launch registry (ADR 0046), 2026-10-03:** `libnagi::launch`
+adds manifest-declared applications and a Supervisor launch registry.
+
+- **Manifests and identity.** Each application's `AppId` is derived from its
+  manifest identifier. Grants come from the manifest's `grant=` lines.
+- **Session-bound grants.** A grant counts only while a live launched session
+  holds it. Exit revokes it. An undeclared application, a duplicate live
+  session, or relabeling PID 1 is refused before spawn.
+- **Single launch path.** init's `supervisor.rs` loads the embedded manifests
+  from `user/nagi-init/manifests/`. It is the only launch and resolve path for
+  the isolated-process, Search IPC, and action IPC acceptances.
+- **Grant sources.** Search requires a live `search.query` grant. The M19/M22
+  action policies take `files.search` and `files.move` from manifests through
+  `GrantSource::Supervisor`.
+- **Local results.** `./nagi isolated-process`, a fresh-disk `./nagi m19`, and
+  `./nagi m22` passed locally. One earlier M22 attempt hit the pre-existing
+  intermittent kernel stall in the M3 SMP scheduler workload before user
+  space; its log is preserved in `out/evidence/m22-m3-smp-stall-20261003/`,
+  and the immediate rerun passed.
+
+Still open:
+
+- manifests are image-embedded acceptance declarations, not signed package
+  manifests, and grants have no user consent;
+- the in-process acceptance caller remains for `file.copy`, the
+  rejection/partial-execution fixtures, and the M27/M30 images.
+
+**M21/M22 action IPC (ADR 0045), 2026-10-03:** M21 `file.search` and M22
+`file.move` are now requested by isolated `nagi-action-client` processes over
+`action@1` (`crates/nagi-action-ipc`).
+
+- **Caller identity.** The caller passed to Context, Validate, Policy,
+  Execute, NH16, and the Activity Ledger is resolved only from the
+  kernel-stamped sender PID and the Supervisor launch record. Requests carry
+  no identity, capability, Object ID, or plan.
+- **Acceptance.** In `./nagi m19` and `./nagi m22`, a client launched as a
+  foreign application is denied by policy before any handler is registered.
+  The granted application's client then executes the real action.
+- **Result.** A local fresh-disk `./nagi m22` run passed all three boots,
+  including NH16 grouped Undo and restart verification, on the history
+  created by the isolated caller.
+
+Still open:
+
+- `file.copy`, plan-rejection, and partial-execution fixtures stay
+  in-process;
+- the M27/M30 images keep the in-process caller;
+- intents are Supervisor launch arguments, not Nagi Bar / Albert input;
+- grants are acceptance-scoped.
+
+M21 and M22 remain `PARTIAL`.
+
+**M19 Search IPC (ADR 0044), 2026-10-03:** M19 Search is now served over a
+Channel to isolated client processes.
+
+- **Protocol.** The allocation-free `search@1` codec lives in
+  `crates/nagi-search-ipc`. A request carries a query and no identity field.
+- **Authorization.** The init-hosted SearchService resolves each caller only
+  through the kernel-stamped sender PID and the Supervisor launch record,
+  then applies the normal `VisibilityFilter` with that `AccessContext`. A
+  sender with no record gets `UnknownCaller` before the index is read.
+- **Acceptance.** `./nagi m19` now builds the separate
+  `nagi-m19-search-client` ELF and runs it twice with the same query:
+  - launched as the M19 app session, it receives exactly the live VFS file's
+    stable ObjectId;
+  - launched as a foreign app, it receives zero visible matches.
+- **Result.** A fresh-disk local QEMU run passed the bootstrap, initial, and
+  restart boots, and both guest boots printed the three Search IPC PASS
+  markers. Logs are under `out/logs/m19-vfs-objectid-*.log`; the previous
+  User Data disk is kept in `out/evidence/pre-m19-search-ipc-20261003/`.
+
+M19 remains `PARTIAL` for three reasons:
+
+- the launch registry is still acceptance-scoped (one isolated slot);
+- the Files and Browser producers are not live sources;
+- the M21 `file.search` action identity was later moved to the isolated
+  caller (ADR 0045).
+
+**Shared service identity (ADR 0043), 2026-10-03:** The M18–M23 identity
+blocker now has a kernel primitive.
+
+What was added:
+
+- **`SYS_PROCESS_SPAWN`.** The Supervisor (init, PID 1) can load a real
+  second ELF into its own PML4. The child's user half holds only its own image
+  pages and a 64 KiB stack; the kernel half is supervisor-only. Only init may
+  call spawn.
+- **Per-process handle tables.** The user IPC manager keeps one handle table
+  per process, and the spawn moves one attenuated Channel endpoint into the
+  child. Sending to an endpoint whose peer no process can reach now fails with
+  `PeerClosed`.
+- **Cross-process scheduling.** Each scheduler thread slot has an owning
+  process. Cross-process join and detach are rejected. The kernel switches
+  CR3 when the cooperative scheduler crosses a process boundary.
+- **Per-process pointer checks.** Every user-pointer check uses the calling
+  process's own page tables.
+- **Restricted child syscalls.** The child can use console, time,
+  yield/sleep, random, Channel, handle close, and exit. A child exit closes
+  its handles and scrubs its pages without halting the system.
+
+Acceptance: the new `./nagi isolated-process` acceptance passed locally on
+real QEMU/OVMF (Ubuntu 24.04, QEMU 8.2.2). The serial log is
+`out/logs/isolated-process.log`. In that run:
+
+- init spawned `nagi-isolated-app` as PID 2;
+- the child's request arrived with kernel-stamped sender PID 2, although its
+  payload claimed `org.nagi.system`/PID 1;
+- the Supervisor resolved the caller through its launch record to
+  `org.nagi.acceptance.isolated-app` and denied the system-only operation;
+- the child confirmed that init's TLS and mmap windows were unmapped for it;
+- the child confirmed that block, mmap, thread-create, spawn, and
+  process-info syscalls were rejected;
+- the child exited with code 0, and init observed peer closure and continued
+  its normal boot.
+
+Verification:
+
+- Kernel host tests: 148 passed, including new scheduler, IPC, and child
+  address-space tests.
+- Workspace Clippy passed with warnings denied.
+- Host workspace tests passed.
+- Regressions passed on the same local QEMU: `./nagi run` (M7 boot) and
+  `./nagi m19` (Channel ABI, wait/wake, and Search persistence across
+  restart).
+- The QEMU environment had no Mesa source, because gitlab.freedesktop.org is
+  blocked by its network policy. M17/M18 were therefore not rerun locally;
+  public CI covers them.
+
+The step is wired into CI after M18. Still open:
+
+- production Files, Browser, and Search callers still run inside init;
+- only one isolated slot exists;
+- ring-3 scheduling remains cooperative (ADR 0029).
+
+M18–M23 remain `PARTIAL`.
 **M18 predecessor evidence:** Browser HTTPS/QEMU Acceptance passed locally and
 in authoritative Ubuntu CI on 2026-09-29. On 2026-10-05 a gesture-bound
 user-space clipboard service (ADR 0043) passed real QEMU copy/paste
@@ -657,9 +903,19 @@ preflight/assembly/verify passed, and the assembled package's byte-identical
 copy passed two QEMU boots without changing the package checksum. Evidence is
 under `out/evidence/m30-clean-release-144cc0d/` and
 `out/evidence/m30-release-1790751471624505000/`.
-**Next action:** Continue the highest-priority shared Service/IPC/Capability
-boundary audit and implementation for M18–M23, reusing the existing
-foundations and preserving fixture-only caller identity. Continue independent
+**Next action:** ADR 0044 and ADR 0045 moved M19 Search and M21/M22
+`file.search`/`file.move` callers onto the isolated-process boundary. Next:
+
+- ADR 0046 now provides the Supervisor launch registry with manifest-defined
+  grants;
+- move the remaining in-process M21/M22 fixtures and the M27/M30 images to
+  the registry path;
+- bind manifests to signed M16 packages;
+- ADR 0047 contains ring-3 faults to a child-only exit and fixes the M3
+  SMP stall;
+- add a Supervisor process-exit wait/status. Earlier note: Continue the highest-priority shared
+Service/IPC/Capability boundary audit and implementation for M18–M23, reusing
+the existing foundations and preserving fixture-only caller identity. Continue independent
 M20, M22–M29 work while authenticated update and provider dependencies remain.
 
 The macOS build failure was a host/target linker mismatch: Mesa's target
@@ -8662,6 +8918,127 @@ pass, along with `./nagi fmt`, `./nagi test`, `./nagi lint`, and `./nagi build`.
 Current-source `./nagi m25` QEMU run `1791003281517596000` passes the existing
 fixture acceptance. It uses no real audio input or TTS engine; M25 remains
 `PARTIAL` for its production providers and command acceptance.
+
+## Completion Sweep — M3 initial-frame fault reproduced and fix stress-tested (2026-10-03)
+
+Independent confirmation of the ADR 0047 M3 root cause, on an Ubuntu host
+with QEMU 8.2 and OVMF (q35, 4 vCPU, 8 GiB, `-no-reboot`). The test image
+was a kernel-only ESP containing the release kernel with no features. It
+reaches `Nagi M3 acceptance PASS` and then stops at M7 because the image has
+no data disk. To create vCPU contention, eight instances ran in parallel on a
+4-core host.
+
+- **Before the fix (`956cd88`).** 3 of 24 boots died after
+  `Nagi M3 scheduler workload START` or during SIPI. QEMU `-d int` captured
+  the full chain for one of them. A timer IRQ (`v=20`) was delivered at
+  `smp::thread_entry`'s first instruction with `SP=0000:0000000000000000`.
+  That caused `v=0e e=0002 CR2=fffffffffffffff8`, then `v=08`, then
+  `check_exception old: 0x8 new 0xd`, then `Triple fault`. The IRQ was
+  already pending at `iretq` because the vCPU had stalled for longer than one
+  10 ms APIC period inside the timer handler. That explains why the failure
+  depends on host load.
+- **After the fix (`b96cf54`).** 48 of 48 boots under the same 8-way
+  contention reached `Nagi M3 acceptance PASS`. The 152 kernel library tests
+  pass.
+- **Equivalent alternative.** An alternative patch built the same 20-word
+  frame and also removed `thread_entry`'s inline `mov rsp`. It passed 104 of
+  104 contended boots. With a valid initial RSP that `mov rsp` is redundant,
+  because it reloads the same value, but it is harmless.
+
+Full `./nagi m22`, `./nagi m27` and M28 gates were not rerun here because
+this host lacks the fetched Servo/Mesa inputs. M27 and M28 stay `PARTIAL`.
+
+## Completion Sweep — AP #DF handler on IST1 (ADR 0048, 2026-10-03)
+
+Each AP now loads its own kernel-only GDT and TSS with a dedicated IST1 #DF
+stack, plus a shared AP exception IDT that the BSP fills before any SIPI.
+`exception_entry` reports an AP fault and halts only that AP. The AP
+trampoline now enables SSE (CR4.OSFXSR/OSXMMEXCPT, CR0.MP/NE) like the BSP.
+Without that, the first compiler-emitted SSE store on an AP raised #UD.
+
+Evidence:
+
+- **Kernel host tests.** 153 pass, including the `ap_gdt` layout and the
+  updated ADR 0047 GDT-transition source-order test.
+- **Diagnostic probe.** The `m3-ap-double-fault-probe` kernel was run on
+  QEMU/OVMF (q35, 4 vCPU). The last AP forces RSP=0 and pushes. The serial
+  log shows `Nagi AP exception apic=3 vector=8 ... rsp=0x0
+  cr2=0xfffffffffffffff8`, and QEMU logged no triple fault. This is the
+  exact M3 failure signature, now caught and diagnosed.
+- **Default kernel stress run.** 48 of 48 boots reached
+  `Nagi M3 acceptance PASS` under 8-way parallel QEMU contention.
+
+`./nagi m22`/`m27`/M28 were not rerun in this session because the host
+lacks the Servo/Mesa inputs.
+
+## Completion Sweep — NMI and #MC IST stacks (ADR 0049, 2026-10-03)
+
+Every CPU with a TSS now gives NMI and #MC their own IST stacks, alongside
+#DF. Slot selection is shared through `cpu_tables::exception_ist`: #DF uses
+IST1, NMI IST2, and #MC IST3. The AP trampoline now also sets CR4.MCE.
+Without it, a machine check shut an AP down instead of raising #MC.
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **IST probe.** The `m3-ap-ist-probe` kernel parks two APs with RSP=0 and
+  interrupts disabled. A BSP NMI IPI to AP 3 is reported as `vector=2`. A
+  QEMU monitor `mce` injection into CPU 2 is reported as `vector=18`. Both
+  arrived with `rsp=0x0`, and QEMU logged no triple fault.
+- **#DF probe.** It still reports `vector=8`.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention
+  reach `Nagi M3 acceptance PASS`.
+
+Remaining gap: the BSP has no IST coverage before the M5 GDT switch.
+
+## Completion Sweep — BSP tables from kernel entry (ADR 0050, 2026-10-03)
+
+The BSP now installs its GDT, TSS (RSP0 and the #DF/NMI/#MC IST stacks) and
+full exception IDT right after `serial_init` in `_start`. Before, it waited
+for M5. M2's expected page fault is a temporary vector-14 overlay until M5
+rebuilds the table. All M3 task frames now use the kernel selectors, and the
+shared firmware-selector IDT is removed.
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **BSP probe.** With `m2-bsp-ist-probe`, the BSP spins with RSP=0 before
+  M2. A monitor NMI is reported as `vector=2`, and an injected #MC as
+  `vector=18`. QEMU logged no triple fault in either boot.
+- **M5 reinstall check.** A scratch reinstall boot passes M3.
+- **M2 self-test.** The page-fault markers are unchanged.
+- **AP probes.** The #DF, NMI and #MC probes still pass.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention pass
+  M3.
+
+Not run: an end-to-end M5 boot, which needs the real init image, and
+`./nagi m22`/`m27`/M28. Both need the Servo/Mesa/relibc inputs that are
+absent on this host.
+
+## Completion Sweep — link-time entry tables (ADR 0051, 2026-10-03)
+
+`_start` is now assembly. Its first three instructions load link-time GDT,
+TSS and IDT tables (`lgdt`, `ltr`, `lidt`). From then on, NMI, #DF and #MC
+use their own IST stacks, and any other exception escalates to a reported
+#DF. `_start` then jumps to `nagi_kernel_entry`, which installs the full
+BSP tables as before (ADR 0050).
+
+Evidence:
+
+- **Kernel host tests.** 154 pass.
+- **Linked ELF.** The descriptor and gate fields were checked in the linked
+  file.
+- **Entry probe.** With `entry-ist-probe`, the BSP spins with RSP=0 on the
+  link-time tables. An NMI is reported as `vector=2` and an injected #MC as
+  `vector=18`, with no triple fault.
+- **Escalation check.** A scratch `ud2` on the link-time tables is reported
+  as `vector=8`.
+- **Other probes.** The BSP and AP probes and the M2 markers are unchanged.
+- **Default kernel stress run.** 24 of 24 boots under 8-way contention pass
+  M3.
+
+The only remaining firmware-table window is the two instructions before
+`lidt`.
 
 ## M18 clipboard provider (2026-10-05)
 

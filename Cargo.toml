@@ -6,6 +6,8 @@ members = [
     "crates/nagi-bootinfo",
     "crates/nagi-abi",
     "crates/nagi-model",
+    "crates/nagi-action-ipc",
+    "crates/nagi-search-ipc",
     "kernel",
     "user/libnagi",
     "user/nagi-net",
@@ -22,6 +24,7 @@ members = [
     "services/nagi-ai",
     "user/nagi-servo",
     "user/nagi-init",
+    "user/nagi-isolated-app",
 ]
 default-members = [
     "tools/nagi-cli",

@@ -67,6 +67,19 @@ necessary before the M19 fixture policy can be replaced by production
 authority. The post-M27 storage-check regression also passed `./nagi m19` and
 the three-boot `./nagi m22` QEMU flow on 2026-09-30; logs are in `out/logs/`.
 
+Update, 2026-10-03: ADR 0043 adds the missing kernel primitive. init can
+spawn one ELF into its own address space, and Channel messages carry its
+kernel-stamped PID. The Supervisor resolves that PID through a launch record,
+and payload identity claims are ignored. `./nagi isolated-process` verifies
+this on QEMU. ADR 0044 then moves Search behind this boundary.
+`./nagi m19` launches the separate `nagi-m19-search-client` ELF twice:
+
+- as the M19 app session, it receives the live file's ObjectId over `search@1`;
+- as a foreign app, it receives nothing;
+- a sender with no launch record is refused.
+
+The M21 `file.search` caller identity is still the fixture policy.
+
 The host acceptance uses the explicitly host-only `HostFileBackend` and a
 fixture visibility policy. It proves the provider-neutral contract and
 reference snapshot restart behavior. The QEMU acceptance separately proves

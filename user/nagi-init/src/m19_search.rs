@@ -28,11 +28,16 @@ use nagi_search::{
     VectorIndex, VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession, GUEST_FILE_BYTES,
 };
 
+#[cfg(feature = "m19-search-ipc")]
+#[path = "m19_search_ipc.rs"]
+mod search_ipc;
+
 const STORE_ROOT: &[u8] = b"/var/lib/nagi-search";
 const SEMANTIC_STORE_ROOT: &[u8] = b"/var/lib/nagi-search-semantic";
 const OBJECT_ID: ObjectId = ObjectId(0x4e41_4749_4d19_0001);
 const WORKSPACE_ID: WorkspaceId = WorkspaceId(0x4e41_4749_4d19_0002);
-const APP_ID: AppId = AppId(0x4e41_4749_4d19_0003);
+/// Declared by `manifests/org.nagi.acceptance.m19-search.manifest`.
+const APP_ID: AppId = AppId::from_identifier(b"org.nagi.acceptance.m19-search");
 const SESSION_ID: AppSessionId = AppSessionId(0x4e41_4749_4d19_0004);
 const NODE_ID: NodeId = NodeId(0x4e41_4749_4d19_0005);
 const ACCESS: AccessContext = AccessContext::for_application(APP_ID, SESSION_ID);
@@ -262,8 +267,39 @@ type M19SearchService = SearchService<
 type M24SemanticIndex =
     PersistentVectorIndex<GuestSnapshotBackend<VfsSnapshotFiles<SyscallBlockDevice>>>;
 
+/// Where an action policy takes capability grants from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GrantSource {
+    /// The in-process acceptance caller and its fixed grant table, used only
+    /// by images built without `m21-action-ipc`.
+    #[cfg_attr(feature = "m21-action-ipc", allow(dead_code))]
+    InProcessAcceptance,
+    /// The live Supervisor launch registry: only a launched session's
+    /// manifest grants count (ADR 0046).
+    #[cfg(feature = "m21-action-ipc")]
+    Supervisor,
+}
+
+impl GrantSource {
+    /// Whether `caller` may exercise `capability`. `fixture_grants` is
+    /// consulted only for the in-process acceptance caller.
+    pub(crate) fn permits(
+        self,
+        caller: CallerIdentity,
+        capability: &str,
+        fixture_grants: impl FnOnce(CallerIdentity, &str) -> bool,
+    ) -> bool {
+        match self {
+            Self::InProcessAcceptance => fixture_grants(caller, capability),
+            #[cfg(feature = "m21-action-ipc")]
+            Self::Supervisor => crate::action_ipc::caller_has_grant(caller, capability),
+        }
+    }
+}
+
 struct M19ActionPolicy {
     live_file: ObjectId,
+    grants: GrantSource,
 }
 
 impl M19ActionPolicy {
@@ -298,7 +334,12 @@ impl ActionPolicy for M19ActionPolicy {
         caller: CallerIdentity,
         capability: &CapabilityId,
     ) -> Result<(), PolicyDenied> {
-        if Self::caller_is_fixture(caller) && capability.as_str() == "files.search" {
+        if self
+            .grants
+            .permits(caller, capability.as_str(), |caller, capability| {
+                Self::caller_is_fixture(caller) && capability == "files.search"
+            })
+        {
             Ok(())
         } else {
             Err(PolicyDenied::Capability)
@@ -338,18 +379,91 @@ impl ActionPolicy for M19ActionPolicy {
     }
 }
 
-fn run_file_search_action(
+/// The application session the M19 acceptance grants `files.search`.
+const FILE_SEARCH_APP_CALLER: CallerIdentity = CallerIdentity {
+    app_id: APP_ID,
+    app_session_id: SESSION_ID,
+    node_id: NODE_ID,
+    workspace_id: Some(WORKSPACE_ID),
+};
+
+/// ADR 0045: `file.search` requested by an isolated client. The caller is
+/// resolved from the kernel-stamped sender PID and launch record. A foreign
+/// application is denied before any action is registered.
+#[cfg(feature = "m21-action-ipc")]
+fn run_file_search_action_ipc(
     service: M19SearchService,
     live_file: ObjectId,
 ) -> Option<M19SearchActivity> {
-    libnagi::console_write(b"Nagi M21 trace file.search start\r\n");
-    let policy = M19ActionPolicy { live_file };
-    let caller = CallerIdentity {
-        app_id: APP_ID,
-        app_session_id: SESSION_ID,
-        node_id: NODE_ID,
-        workspace_id: Some(WORKSPACE_ID),
+    use nagi_action_ipc::{ActionResult, ActionStatus};
+
+    use crate::action_ipc::{placement_of, serve_isolated_request};
+
+    let foreign_placement = libnagi::launch::LaunchPlacement {
+        app_session_id: AppSessionId(0x4e41_4749_4d21_00ff),
+        ..placement_of(FILE_SEARCH_APP_CALLER)
     };
+    let policy = M19ActionPolicy {
+        live_file,
+        grants: GrantSource::Supervisor,
+    };
+    let reported = serve_isolated_request(
+        crate::supervisor::FOREIGN_APP,
+        foreign_placement,
+        FILE_SEARCH_INTENT,
+        |caller, intent| {
+            let Ok(capability) = CapabilityId::new("files.search") else {
+                return ActionResult::status_only(ActionStatus::Failed);
+            };
+            if intent != FILE_SEARCH_INTENT {
+                ActionResult::status_only(ActionStatus::InvalidRequest)
+            } else if policy.check_capability(caller, &capability).is_err() {
+                ActionResult::status_only(ActionStatus::Denied)
+            } else {
+                // The foreign launch record must never reach execution.
+                ActionResult::status_only(ActionStatus::Failed)
+            }
+        },
+    )?;
+    if reported.status != ActionStatus::Denied {
+        libnagi::console_write(b"Nagi M21 foreign isolated caller FAIL\r\n");
+        return None;
+    }
+    libnagi::console_write(b"Nagi M21 foreign isolated caller denied PASS\r\n");
+
+    let mut activity = None;
+    let reported = serve_isolated_request(
+        APP_ID,
+        placement_of(FILE_SEARCH_APP_CALLER),
+        FILE_SEARCH_INTENT,
+        |caller, intent| {
+            if intent != FILE_SEARCH_INTENT {
+                return ActionResult::status_only(ActionStatus::InvalidRequest);
+            }
+            activity = run_file_search_action(service, live_file, caller, GrantSource::Supervisor);
+            match activity {
+                Some(activity) => ActionResult::succeeded(&[activity.object_id.0])
+                    .unwrap_or(ActionResult::status_only(ActionStatus::Failed)),
+                None => ActionResult::status_only(ActionStatus::Failed),
+            }
+        },
+    )?;
+    if reported.status != ActionStatus::Succeeded || reported.object_ids() != [live_file.0] {
+        libnagi::console_write(b"Nagi M21 isolated caller file.search FAIL\r\n");
+        return None;
+    }
+    libnagi::console_write(b"Nagi M21 file.search isolated caller PASS\r\n");
+    activity
+}
+
+fn run_file_search_action(
+    service: M19SearchService,
+    live_file: ObjectId,
+    caller: CallerIdentity,
+    grants: GrantSource,
+) -> Option<M19SearchActivity> {
+    libnagi::console_write(b"Nagi M21 trace file.search start\r\n");
+    let policy = M19ActionPolicy { live_file, grants };
     let Ok(context) = ContextResolver.resolve(
         ContextRequest {
             caller,
@@ -365,9 +479,9 @@ fn run_file_search_action(
         return None;
     }
 
-    // This capability and caller policy are private to the M19 guest fixture.
-    // Production authority must come from an authenticated user-space service
-    // boundary, which is not exposed to applications yet.
+    // The grant table is private to the M19 guest acceptance. With
+    // `m21-action-ipc`, `caller` comes from an isolated client's launch
+    // record (ADR 0045); otherwise it is the in-process acceptance caller.
     let foreign_caller = CallerIdentity {
         app_id: AppId(APP_ID.0.wrapping_add(1)),
         ..caller
@@ -409,11 +523,11 @@ fn run_file_search_action(
         Some(M19SearchActivity {
             occurred_at: libnagi::time_ticks(),
             context: ActivityContext {
-                app_id: APP_ID,
-                app_session_id: SESSION_ID,
-                node_id: NODE_ID,
+                app_id: caller.app_id,
+                app_session_id: caller.app_session_id,
+                node_id: caller.node_id,
                 surface_id: None,
-                workspace_id: Some(WORKSPACE_ID),
+                workspace_id: caller.workspace_id,
             },
             user_intent: FILE_SEARCH_INTENT,
             plan_summary: FILE_SEARCH_PLAN_SUMMARY,
@@ -928,6 +1042,12 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
         return None;
     }
     libnagi::console_write(b"Nagi bootstrap Channel ABI PASS\r\n");
+    // ADR 0051: manifest grants take effect only with the user's consent.
+    #[cfg(feature = "m19-search-ipc")]
+    if !crate::supervisor::record_acceptance_consents() {
+        libnagi::console_write(b"Nagi Supervisor acceptance consent FAIL\r\n");
+        return None;
+    }
     let was_persisted = {
         let Ok(mut service) = open_search(block_capability) else {
             return None;
@@ -1068,10 +1188,23 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
                 .get(FILE_INODE_ATTRIBUTE)
                 == Some(&file_metadata.inode.to_string())
     });
+    #[cfg(feature = "m19-search-ipc")]
+    let ipc_passed = search_ipc::run(&service, object_id_after_rename);
+    #[cfg(not(feature = "m19-search-ipc"))]
+    let ipc_passed = true;
     let semantic_passed =
         run_m24_semantic_fixture(&service, block_capability, object_id_after_rename);
-    let search_activity = run_file_search_action(service, object_id_after_rename);
+    #[cfg(feature = "m21-action-ipc")]
+    let search_activity = run_file_search_action_ipc(service, object_id_after_rename);
+    #[cfg(not(feature = "m21-action-ipc"))]
+    let search_activity = run_file_search_action(
+        service,
+        object_id_after_rename,
+        FILE_SEARCH_APP_CALLER,
+        GrantSource::InProcessAcceptance,
+    );
     let passed = search_activity.is_some()
+        && ipc_passed
         && semantic_passed
         && file_passed
         && object_id_before_rename == object_id_after_restart

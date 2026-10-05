@@ -16,7 +16,7 @@ const TRAMPOLINE_LIMIT: u64 = 0x1_0000;
 const STACK_SIZE: usize = 16 * 1024;
 const WORKLOAD_STEPS: u32 = 32;
 const THREAD_COUNT: usize = 2;
-const CONTEXT_WORDS: usize = 18;
+use nagi_kernel::scheduler::{m3_initial_task_frame, M3_TASK_FRAME_WORDS as CONTEXT_WORDS};
 const NO_CURRENT_TASK: u32 = u32::MAX;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -211,7 +211,10 @@ nagi_ap_trampoline_protected:
     mov es, ax
     mov ss, ax
     mov eax, cr4
-    or eax, 0x20
+    // PAE and MCE, plus OSFXSR and OSXMMEXCPT, matching the BSP where
+    // firmware already set them: compiled kernel code may use SSE, and a
+    // machine check raises #MC instead of shutting the machine down.
+    or eax, 0x660
     mov cr4, eax
     mov eax, dword ptr [ebx + TRAMP_CR3]
     mov cr3, eax
@@ -220,7 +223,9 @@ nagi_ap_trampoline_protected:
     or eax, 0x100
     wrmsr
     mov eax, cr0
-    or eax, 0x80000000
+    // PG, plus MP and NE to match the BSP's x87/SSE configuration. INIT
+    // leaves EM clear.
+    or eax, 0x80000022
     mov cr0, eax
     mov eax, ebx
     .byte 0x05
@@ -343,7 +348,7 @@ pub fn initialize(
         }
     }
     unsafe { asm!("cli", options(nomem, nostack, preserves_flags)) };
-    unsafe { initialize_thread_contexts(interrupts::current_code_selector()) };
+    unsafe { initialize_thread_contexts() };
     for index in 0..MAX_CPUS {
         TASK_STATE[index * THREAD_COUNT].store(RUNNABLE, Ordering::Release);
     }
@@ -404,6 +409,11 @@ pub fn initialize(
             return Err(SmpError::ApTimeout);
         }
         super::serial_write(b"Nagi M3 AP online\r\n");
+        #[cfg(feature = "m3-ap-ist-probe")]
+        if index == MAX_CPUS - 1 {
+            // The second-to-last AP is left for a host-injected #MC.
+            unsafe { interrupts::send_nmi(apic_ids[index]) };
+        }
     }
 
     super::serial_write(b"Nagi M3 scheduler workload START\r\n");
@@ -617,7 +627,16 @@ extern "C" fn ap_entry(index: u32) -> ! {
     if index as usize >= MAX_CPUS {
         halt_ap();
     }
-    unsafe { interrupts::initialize_ap() };
+    unsafe { interrupts::initialize_ap(index as usize) };
+    #[cfg(feature = "m3-ap-double-fault-probe")]
+    if index as usize == MAX_CPUS - 1 {
+        ap_double_fault_probe();
+    }
+    #[cfg(feature = "m3-ap-ist-probe")]
+    if index as usize >= MAX_CPUS - 2 {
+        CPU_ONLINE[index as usize].store(1, Ordering::Release);
+        ap_ist_probe(index);
+    }
     CPU_ONLINE[index as usize].store(1, Ordering::Release);
     unsafe { interrupts::enable_interrupts() };
     run_scheduler_workload(index as usize);
@@ -740,20 +759,33 @@ fn wake_task(task_index: usize) -> bool {
     was_blocked
 }
 
-unsafe fn initialize_thread_contexts(code_selector: u16) {
+/// Build every M3 task's first frame. The BSP (from kernel entry, ADR 0050)
+/// and every AP (ADR 0048) run on kernel GDTs with the same kernel code and
+/// data selectors.
+unsafe fn initialize_thread_contexts() {
+    let (code_selector, stack_selector) = (
+        interrupts::KERNEL_CODE_SELECTOR,
+        interrupts::KERNEL_DATA_SELECTOR,
+    );
     for cpu in 0..MAX_CPUS {
         for task in 0..THREAD_COUNT {
             let stack = &THREAD_STACKS[cpu * THREAD_COUNT + task].0;
+            // SysV entry alignment: RSP is 8 mod 16 at function entry.
             let stack_top = stack.as_ptr() as usize + STACK_SIZE - 8;
+            let words = m3_initial_task_frame(
+                cpu,
+                task,
+                thread_entry as usize as u64,
+                code_selector,
+                stack_selector,
+                stack_top as u64,
+            );
+            // The frame lives entirely below `stack_top`; once `iretq`
+            // consumes it, the task's stack grows down over it.
             let frame = (stack_top - CONTEXT_WORDS * core::mem::size_of::<u64>()) as *mut u64;
-            for word in 0..CONTEXT_WORDS {
-                frame.add(word).write_volatile(0);
+            for (index, word) in words.iter().enumerate() {
+                frame.add(index).write_volatile(*word);
             }
-            frame.add(9).write_volatile(cpu as u64);
-            frame.add(10).write_volatile(task as u64);
-            frame.add(15).write_volatile(thread_entry as usize as u64);
-            frame.add(16).write_volatile(u64::from(code_selector));
-            frame.add(17).write_volatile(0x202);
             TASK_CONTEXTS[cpu * THREAD_COUNT + task].store(frame as u64, Ordering::Release);
         }
     }
@@ -774,6 +806,42 @@ extern "C" fn thread_entry(cpu: u32, task: u32) -> ! {
         TASK_PROGRESS[cpu * THREAD_COUNT + task].fetch_add(1, Ordering::AcqRel);
         CPU_WORKLOAD[cpu].fetch_add(1, Ordering::AcqRel);
         unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
+    }
+}
+
+/// Diagnostic only (ADR 0048): reproduce the original M3 failure class on an
+/// AP. With RSP=0 the push faults (#PF), the #PF cannot push its own frame
+/// either, and the CPU escalates to #DF. #DF must arrive on the AP's IST1
+/// stack and be reported instead of triple-faulting the guest.
+#[cfg(feature = "m3-ap-double-fault-probe")]
+fn ap_double_fault_probe() -> ! {
+    super::serial_write(b"Nagi M3 AP double-fault probe START\r\n");
+    unsafe {
+        asm!("xor esp, esp", "push rax", options(noreturn));
+    }
+}
+
+/// Diagnostic only (ADR 0049): park this AP with RSP=0 and interrupts
+/// disabled. An NMI (sent by the BSP to the last AP) or a host-injected #MC
+/// (on the second-to-last AP) must then be delivered on its IST stack and
+/// reported; without IST the CPU cannot push the frame and triple-faults.
+#[cfg(feature = "m3-ap-ist-probe")]
+fn ap_ist_probe(index: u32) -> ! {
+    let message: &[u8] = if index as usize == MAX_CPUS - 1 {
+        b"Nagi M3 AP IST probe READY nmi\r\n"
+    } else {
+        b"Nagi M3 AP IST probe READY mce\r\n"
+    };
+    super::serial_write(message);
+    unsafe {
+        asm!(
+            "cli",
+            "xor esp, esp",
+            "2:",
+            "pause",
+            "jmp 2b",
+            options(noreturn)
+        );
     }
 }
 

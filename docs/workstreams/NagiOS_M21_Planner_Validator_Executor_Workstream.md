@@ -264,3 +264,14 @@ processes or supervisor-authorized endpoint delivery. Production handlers
 require authenticated process/launch context and capability-backed service
 endpoints; a caller-supplied PID or App ID is insufficient. The current Search
 and VFS mutation fixtures remain valid, and M21 stays `PARTIAL`.
+
+
+## Isolated caller identity — 2026-10-03
+
+ADR 0045 moves the `file.search` request path (run by `./nagi m19` and
+`./nagi m22`) to an isolated `nagi-action-client` process over `action@1`.
+The `CallerIdentity` given to Context, Validate, Policy, and Execute is
+resolved from the kernel-stamped sender PID and the Supervisor launch record.
+A foreign-launched client is denied by policy before handler registration.
+The plan-rejection, partial-execution, and `file.copy` fixtures remain
+in-process.

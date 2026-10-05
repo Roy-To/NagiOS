@@ -30,6 +30,12 @@ m19-search = [
     "dep:nagi-model-manager",
     "dep:nagi-search",
 ]
+# ADR 0044: serve M19 Search to isolated clients named by
+# NAGI_M19_SEARCH_CLIENT_ELF, authorized by kernel-stamped caller identity.
+m19-search-ipc = ["m19-search", "dep:nagi-search-ipc"]
+# ADR 0045: M21/M22 actions requested by isolated clients named by
+# NAGI_ACTION_CLIENT_ELF, authorized by kernel-stamped caller identity.
+m21-action-ipc = ["m19-search-ipc", "dep:nagi-action-ipc"]
 m20-model-store-acceptance = ["m19-search"]
 m20-fixture-acceptance = ["m20-model-store-acceptance"]
 m20-granite-artifact-acceptance = ["m20-model-store-acceptance"]
@@ -39,6 +45,9 @@ m20-llama-inference-acceptance = [
     "nagi-posix/m20-llama-memory",
 ]
 m22-history = ["m19-search"]
+# ADR 0043: spawn the isolated app ELF named by NAGI_ISOLATED_APP_ELF and
+# verify kernel-stamped caller identity and address-space isolation.
+isolated-process-acceptance = []
 m27-ro-vfs-check = []
 m27-recovery = []
 m27-recovery-undo-acceptance = ["m27-recovery"]
@@ -73,6 +82,8 @@ nagi-net = { path = "../nagi-net" }
 nagi-pal = { path = "../nagi-pal" }
 nagi-posix = { path = "../nagi-posix" }
 nagi-search = { path = "../nagi-search", optional = true }
+nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
+nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 nagi-albert = { path = "../nagi-albert", optional = true }

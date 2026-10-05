@@ -17,6 +17,45 @@ pub fn scheduler_dispatch_counts_are_fair(task_zero: u32, task_one: u32) -> bool
 
 const NO_THREAD: u8 = u8::MAX;
 
+/// Saved M3 self-test task frame: 15 general-purpose registers pushed by the
+/// timer stub, then the five words `iretq` always pops in 64-bit mode
+/// (RIP, CS, RFLAGS, RSP, SS).
+pub const M3_TASK_FRAME_WORDS: usize = 20;
+const FRAME_ARG_CPU: usize = 9;
+const FRAME_ARG_TASK: usize = 10;
+const FRAME_RIP: usize = 15;
+const FRAME_CS: usize = 16;
+const FRAME_RFLAGS: usize = 17;
+const FRAME_RSP: usize = 18;
+const FRAME_SS: usize = 19;
+
+/// Build the first `iretq` frame of an M3 self-test task. The frame must
+/// carry an explicit RSP and SS: `iretq` always pops them, and the task
+/// starts with interrupts enabled. A timer interrupt delivered before the
+/// entry function sets up its own stack would otherwise push onto whatever
+/// RSP the missing word contained. This was observed as RSP=0,
+/// CR2=0xffff_ffff_ffff_fff8 and a triple fault at the task entry.
+pub fn m3_initial_task_frame(
+    cpu: usize,
+    task: usize,
+    entry: u64,
+    code_selector: u16,
+    stack_selector: u16,
+    stack_top: u64,
+) -> [u64; M3_TASK_FRAME_WORDS] {
+    let mut frame = [0_u64; M3_TASK_FRAME_WORDS];
+    frame[FRAME_ARG_CPU] = cpu as u64;
+    frame[FRAME_ARG_TASK] = task as u64;
+    frame[FRAME_RIP] = entry;
+    frame[FRAME_CS] = u64::from(code_selector);
+    frame[FRAME_RFLAGS] = 0x202;
+    frame[FRAME_RSP] = stack_top;
+    frame[FRAME_SS] = u64::from(stack_selector);
+    frame
+}
+/// Kernel Process ID of the bootstrap `nagi-init` process (ADR 0043).
+pub const INIT_PROCESS_ID: u32 = 1;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UserThreadState {
     Empty,
@@ -33,6 +72,7 @@ struct ThreadSlot {
     state: UserThreadState,
     joiner: u8,
     detached: bool,
+    owner: u32,
 }
 
 impl ThreadSlot {
@@ -40,6 +80,7 @@ impl ThreadSlot {
         state: UserThreadState::Empty,
         joiner: NO_THREAD,
         detached: false,
+        owner: INIT_PROCESS_ID,
     };
 }
 
@@ -86,14 +127,63 @@ impl BootstrapUserThreads {
         self.slots.get(thread as usize).map(|slot| slot.state)
     }
 
+    /// Kernel Process ID that owns `thread`, or `None` for an empty or
+    /// out-of-range slot.
+    pub fn owner(&self, thread: u8) -> Option<u32> {
+        let slot = self.slots.get(thread as usize)?;
+        (slot.state != UserThreadState::Empty).then_some(slot.owner)
+    }
+
+    /// Kernel Process ID of the running thread.
+    pub fn current_owner(&self) -> u32 {
+        self.slots[self.current as usize].owner
+    }
+
+    /// Allocate a runnable thread in the calling thread's process.
     pub fn allocate(&mut self) -> Option<u8> {
+        let owner = self.current_owner();
+        self.allocate_for_process(owner)
+    }
+
+    /// Allocate the first runnable thread of a newly spawned process. Thread
+    /// slot 0 always remains the bootstrap init thread.
+    pub fn allocate_for_process(&mut self, owner: u32) -> Option<u8> {
         let id = (1..BOOTSTRAP_USER_THREAD_COUNT)
             .find(|&id| self.slots[id].state == UserThreadState::Empty)?;
         self.slots[id] = ThreadSlot {
             state: UserThreadState::Runnable,
+            owner,
             ..ThreadSlot::EMPTY
         };
         Some(id as u8)
+    }
+
+    /// Remove every thread owned by an exiting non-init process. If the
+    /// current thread belonged to it, select another runnable thread.
+    ///
+    /// Returns `None` when `owner` is init or owns no thread. Otherwise
+    /// returns the selected next thread, which may itself be `None` when no
+    /// other thread is runnable yet.
+    pub fn exit_process(&mut self, owner: u32, now: u64) -> Option<Option<u8>> {
+        if owner == INIT_PROCESS_ID {
+            return None;
+        }
+        let mut removed = false;
+        for slot in &mut self.slots {
+            if slot.state != UserThreadState::Empty && slot.owner == owner {
+                *slot = ThreadSlot::EMPTY;
+                removed = true;
+            }
+        }
+        if !removed {
+            return None;
+        }
+        // Joiners can only belong to the same process, so no surviving
+        // thread waits on a removed slot.
+        if self.slots[self.current as usize].state == UserThreadState::Empty {
+            return Some(self.select_runnable(now));
+        }
+        Some(Some(self.current))
     }
 
     pub fn discard_unstarted(&mut self, thread: u8) -> bool {
@@ -167,6 +257,9 @@ impl BootstrapUserThreads {
         }
 
         let target_index = target as usize;
+        if self.slots[target_index].owner != self.slots[caller as usize].owner {
+            return JoinOutcome::Invalid;
+        }
         let target_state = self.slots[target_index].state;
         let target_detached = self.slots[target_index].detached;
         let target_joiner = self.slots[target_index].joiner;
@@ -213,8 +306,12 @@ impl BootstrapUserThreads {
         if target == 0 || target as usize >= BOOTSTRAP_USER_THREAD_COUNT {
             return false;
         }
+        let caller_owner = self.current_owner();
         let slot = &mut self.slots[target as usize];
-        if slot.state == UserThreadState::Empty || slot.joiner != NO_THREAD {
+        if slot.state == UserThreadState::Empty
+            || slot.joiner != NO_THREAD
+            || slot.owner != caller_owner
+        {
             return false;
         }
         if matches!(slot.state, UserThreadState::Zombie { .. }) {
@@ -486,5 +583,45 @@ mod tests {
         assert_eq!(threads.current(), 2);
         assert_eq!(threads.join_current(1, 0), JoinOutcome::Invalid);
         assert_eq!(threads.state(2), Some(UserThreadState::Running));
+    }
+
+    #[test]
+    fn spawned_process_threads_are_owned_and_isolated_from_init_join_and_detach() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.current_owner(), super::INIT_PROCESS_ID);
+        let child = threads.allocate_for_process(2).expect("child thread");
+        assert_eq!(threads.owner(child), Some(2));
+        assert_eq!(threads.join_current(child, 0), JoinOutcome::Invalid);
+        assert!(!threads.detach(child));
+        let init_thread = threads.allocate().expect("init thread");
+        assert_eq!(threads.owner(init_thread), Some(super::INIT_PROCESS_ID));
+        assert!(threads.detach(init_thread));
+    }
+
+    #[test]
+    fn exiting_spawned_process_removes_only_its_threads_and_selects_init() {
+        let mut threads = BootstrapUserThreads::new();
+        let child = threads.allocate_for_process(2).expect("child thread");
+        assert_eq!(threads.exit_process(super::INIT_PROCESS_ID, 0), None);
+        assert_eq!(threads.yield_current(0), Some(child));
+        assert_eq!(threads.current_owner(), 2);
+        assert_eq!(threads.exit_process(2, 0), Some(Some(0)));
+        assert_eq!(threads.state(child), Some(UserThreadState::Empty));
+        assert_eq!(threads.owner(child), None);
+        assert_eq!(threads.current_owner(), super::INIT_PROCESS_ID);
+        assert_eq!(threads.exit_process(2, 0), None);
+    }
+
+    #[test]
+    fn m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout() {
+        assert_eq!(super::M3_TASK_FRAME_WORDS, 15 + 5);
+        let frame = super::m3_initial_task_frame(2, 1, 0x4000_1000, 0x38, 0x30, 0x7000_fff8);
+        assert_eq!(frame[9], 2, "rdi carries the CPU index");
+        assert_eq!(frame[10], 1, "rsi carries the task index");
+        assert_eq!(frame[15], 0x4000_1000);
+        assert_eq!(frame[16], 0x38);
+        assert_eq!(frame[17], 0x202);
+        assert_eq!(frame[18], 0x7000_fff8, "iretq must load a real stack");
+        assert_eq!(frame[19], 0x30);
     }
 }
