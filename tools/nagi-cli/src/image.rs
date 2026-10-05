@@ -481,7 +481,7 @@ pub fn write_m20_model_store_fixture_reference_disk_qcow2(
 
 /// Build a GPT acceptance image whose System B carries the same valid
 /// kernel and init as System A, but a slot manifest signed by an untrusted
-/// key (ADR 0054). The loader must refuse it although its ELF would boot.
+/// key (ADR 0061). The loader must refuse it although its ELF would boot.
 pub fn write_m27_gpt_broken_system_b_qcow2(
     path: &Path,
     bootloader: &[u8],
@@ -590,7 +590,7 @@ impl<'a> SystemBSource<'a> {
     }
 }
 
-/// Rollback index of slot manifests written by this build (ADR 0054).
+/// Rollback index of slot manifests written by this build (ADR 0061).
 pub const SLOT_ROLLBACK_INDEX: u64 = 1;
 /// A fixed key the loader does not trust, for refusal acceptances.
 const UNTRUSTED_SLOT_SIGNING_SECRET: [u8; 32] = [0x42; 32];
@@ -610,7 +610,7 @@ fn signed_slot_manifest(kernel: &[u8], init: &[u8], signer: &[u8; 32]) -> Result
     Ok(file[..length].to_vec())
 }
 
-/// A signed system update bundle (ADR 0055): header, `SLOT.MAN` signed by
+/// A signed system update bundle (ADR 0062): header, `SLOT.MAN` signed by
 /// `signer` with `rollback_index`, then the kernel and init.
 pub fn signed_update_bundle(
     kernel: &[u8],
@@ -1003,7 +1003,7 @@ fn build_fat12_ab_image(
         .recovery
         .map(|recovery| recovery.init)
         .unwrap_or(system_a_init);
-    // Each slot's signed manifest describes its payload exactly (ADR 0054),
+    // Each slot's signed manifest describes its payload exactly (ADR 0061),
     // so a malformed payload is still refused by ELF validation.
     let trusted = &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET;
     let a_manifest = signed_slot_manifest(system_a_kernel, system_a_init, trusted)?;

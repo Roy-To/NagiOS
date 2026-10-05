@@ -1,4 +1,4 @@
-//! Authenticated system-slot manifests (ADR 0054).
+//! Authenticated system-slot manifests (ADR 0061).
 //!
 //! Every System A, System B and Recovery volume carries `SLOT.MAN`: a small
 //! text manifest followed by a 64-byte Ed25519 signature. The manifest pins
@@ -251,7 +251,7 @@ pub const fn permits_trial(confirmed: &SlotManifest, candidate: &SlotManifest) -
     candidate.rollback_index >= confirmed.rollback_index
 }
 
-/// Header of a system update bundle (ADR 0055): magic, then the lengths of
+/// Header of a system update bundle (ADR 0062): magic, then the lengths of
 /// the signed `SLOT.MAN`, `KERNEL.ELF` and `INIT.ELF` sections, which follow
 /// in that order with no padding.
 pub const BUNDLE_MAGIC: [u8; 8] = *b"NAGIUPD1";

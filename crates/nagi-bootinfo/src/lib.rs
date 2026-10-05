@@ -8,7 +8,7 @@ pub const REALTIME_UNAVAILABLE_NS: u64 = u64::MAX;
 pub const BOOT_READY_RECORD_SIZE: usize = 20;
 pub const BOOT_STAGE_RECORD_SIZE: usize = 20;
 /// `BootControlInfo::flags`: this is a confirmed-slot boot with no pending
-/// trial, so the inactive slot may be written and staged (ADR 0055).
+/// trial, so the inactive slot may be written and staged (ADR 0062).
 pub const BOOT_CONTROL_UPDATE_STAGEABLE: u8 = 1;
 
 const EFI_RUNTIME_SERVICES_CODE: u32 = 5;
@@ -179,7 +179,7 @@ impl BootControlInfo {
 
     /// A boot of the confirmed slot with no pending trial: `slot` is the
     /// confirmed slot and the inactive one may receive an update
-    /// (ADR 0055). The journal generation may still be zero.
+    /// (ADR 0062). The journal generation may still be zero.
     pub fn is_update_stageable(self) -> bool {
         self.set_variable_address != 0
             && self.slot <= 1
@@ -196,7 +196,7 @@ impl BootControlInfo {
 /// One-shot request written by the kernel for the System Update installer:
 /// stage `slot` (the inactive slot) for a trial on the next boot. The loader
 /// acts on it only if the journal generation still matches and the slot's
-/// signed manifest verifies (ADR 0055).
+/// signed manifest verifies (ADR 0062).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BootStageRecord {
     pub slot: u8,

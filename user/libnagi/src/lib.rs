@@ -288,7 +288,7 @@ pub fn report_boot_ready() -> bool {
 }
 
 /// Claim the inactive-system-slot update capability (init only, once per
-/// confirmed-slot boot; ADR 0055).
+/// confirmed-slot boot; ADR 0062).
 pub fn update_slot_claim() -> Option<nagi_abi::UpdateSlotInfo> {
     let mut info = nagi_abi::UpdateSlotInfo::default();
     let mut result = nagi_abi::SYS_UPDATE_SLOT_CLAIM;

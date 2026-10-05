@@ -1,8 +1,8 @@
-# ADR 0055: In-guest system update installer and staging request
+# ADR 0062: In-guest system update installer and staging request
 
 Status: accepted
 Date: 2026-10-06
-Builds on: ADR 0054 (authenticated slot manifests), ADR-0011, ADR-0013
+Builds on: ADR 0061 (authenticated slot manifests), ADR-0011, ADR-0013
 
 ## Context
 
@@ -10,7 +10,7 @@ Spec §21 describes the update flow: running A, write the update to B,
 verify, boot B, mark success after readiness, and return to A on repeated
 failure.
 
-ADR 0054 made the loader verify signed slot manifests. The remaining M30
+ADR 0061 made the loader verify signed slot manifests. The remaining M30
 item was to produce and install an authenticated update *from a running
 system*. Two things were missing:
 
@@ -113,7 +113,7 @@ images. Each one carries a host-signed bundle in Model Store:
 - **Update media.** Update media is a file in the Model Store volume.
   Fetching updates over the network (`nagi-net`), an update UI, and user
   consent for system updates are later work.
-- **Signer.** The signer is the published RFC 8032 test key (ADR 0054).
+- **Signer.** The signer is the published RFC 8032 test key (ADR 0061).
 - **Capability form.** The update capability follows the existing kernel
   block-capability form (an opaque u64 checked per syscall). It is
   additionally bound to PID 1 and to a one-shot claim.

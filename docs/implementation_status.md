@@ -11,7 +11,7 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
-**In-guest system update installer (ADR 0055), 2026-10-06:** A running
+**In-guest system update installer (ADR 0062), 2026-10-06:** A running
 System A now installs a signed update into System B, the loader re-verifies
 and trials it, and B is confirmed after readiness.
 
@@ -40,7 +40,7 @@ Still open:
 - an update UI and user consent;
 - production key provisioning.
 
-**Authenticated slot manifests (ADR 0054), 2026-10-06:** The loader now
+**Authenticated slot manifests (ADR 0061), 2026-10-06:** The loader now
 verifies a signed `SLOT.MAN` for System A, System B and Recovery before it
 trusts any payload.
 

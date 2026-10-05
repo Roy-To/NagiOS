@@ -1,6 +1,6 @@
 //! Minimal FAT32 formatter and root-file reader over 512-byte sectors.
 //!
-//! Used by the in-guest system update installer (ADR 0055) to write an
+//! Used by the in-guest system update installer (ADR 0062) to write an
 //! inactive system slot that UEFI firmware can read, and to read files back
 //! for verification. Only the root directory is supported, which is all a
 //! system slot needs (`KERNEL.ELF`, `INIT.ELF`, `SLOT.MAN`).

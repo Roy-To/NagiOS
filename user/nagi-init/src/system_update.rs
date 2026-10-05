@@ -1,4 +1,4 @@
-//! In-guest system update installer (ADR 0055).
+//! In-guest system update installer (ADR 0062).
 //!
 //! On a confirmed-slot boot with nothing pending, init may claim the kernel's
 //! one-shot capability for the inactive system slot. The installer then:
@@ -27,7 +27,7 @@ const INIT_NAME: [u8; 11] = *b"INIT    ELF";
 const MANIFEST_NAME: [u8; 11] = *b"SLOT    MAN";
 /// The M30 reference Model Store partition (ADR-0013).
 const MODEL_STORE_SECTORS: u64 = 67_108_864;
-/// 32 KiB clusters keep the slot's FATs small (ADR 0055).
+/// 32 KiB clusters keep the slot's FATs small (ADR 0062).
 const SLOT_SECTORS_PER_CLUSTER: u32 = 64;
 const MAX_BUNDLE_BYTES: usize = 4 * 1024 * 1024;
 

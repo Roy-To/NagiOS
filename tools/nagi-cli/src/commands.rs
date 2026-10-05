@@ -3666,7 +3666,7 @@ fn write_sha256_manifest(paths: &Path, files: &[(&Path, String)]) -> Result<(), 
     fs::write(paths, manifest).map_err(|error| format!("cannot write {}: {error}", paths.display()))
 }
 
-/// ADR 0055: install a signed system update from update media into System B
+/// ADR 0062: install a signed system update from update media into System B
 /// from a running System A, trial it through the loader's re-verification,
 /// and confirm it after guest readiness. A separate image proves a tampered
 /// bundle is refused before anything is written.

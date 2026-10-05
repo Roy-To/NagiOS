@@ -6,7 +6,7 @@ rustflags = ["-C", "link-arg=-Tuser/nagi-init/linker.ld", "--cfg", "getrandom_ba
 
 # The UEFI target is soft-float (no SSE/AVX), so curve25519-dalek's SIMD
 # backend cannot be lowered; the loader's slot-manifest signature check
-# (ADR 0054) uses the portable serial backend.
+# (ADR 0061) uses the portable serial backend.
 [target.x86_64-unknown-uefi]
 rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]
 

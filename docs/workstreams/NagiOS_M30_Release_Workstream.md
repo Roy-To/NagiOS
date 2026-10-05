@@ -82,9 +82,9 @@ complete and this evidence does not assert release readiness.
 - [x] Exercise GPT System B selection, Recovery, retry preservation, rollback,
   and readiness-based promotion using the persistent M27 boot-control policy.
 - [x] Produce and install an authenticated GPT update with authenticated slot
-  manifests. The loader verifies signed slot manifests (ADR 0054), and a
+  manifests. The loader verifies signed slot manifests (ADR 0061), and a
   running System A installs a signed bundle into System B, which the loader
-  re-verifies, trials and confirms after readiness (ADR 0055,
+  re-verifies, trials and confirms after readiness (ADR 0062,
   `./nagi m30-update`, 2026-10-06). Network delivery and production keys
   remain later work.
 - [x] Run release preflight, assembly, and verification from a clean committed

@@ -53,7 +53,7 @@ pub const SYS_PROCESS_SPAWN: u64 = 36;
 /// status written, `PROCESS_WAIT_RETRY` after a wake (call again), or
 /// failure for an unknown or already-consumed Process ID.
 pub const SYS_PROCESS_WAIT: u64 = 37;
-/// Claim the inactive-system-slot update capability (ADR 0055). Only init
+/// Claim the inactive-system-slot update capability (ADR 0062). Only init
 /// may call it, only once per boot, and only on a confirmed-slot boot with
 /// no pending trial; it writes an `UpdateSlotInfo` and returns 0.
 pub const SYS_UPDATE_SLOT_CLAIM: u64 = 38;
@@ -321,7 +321,7 @@ pub struct ProcessExitStatus {
     pub fault_vector: u64,
 }
 
-/// The inactive system slot an installer may write (ADR 0055). The
+/// The inactive system slot an installer may write (ADR 0062). The
 /// capability reads, writes and flushes only that partition, with
 /// partition-relative sectors.
 #[repr(C)]

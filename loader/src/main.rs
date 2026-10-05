@@ -361,7 +361,7 @@ fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), 
             .load()
             .map_err(|_| "Nagi Loader: M27 confirmed context read failed")?;
         // A confirmed boot with nothing pending may receive an update in the
-        // other slot (ADR 0055).
+        // other slot (ADR 0062).
         if state.pending_slot().is_none() {
             BootControlInfo {
                 set_variable_address: runtime_set_variable_address()?,
@@ -417,7 +417,7 @@ fn runtime_set_variable_address() -> Result<u64, &'static str> {
 /// Decide whether the kernel's update staging request may become a trial:
 /// it must name the unconfirmed slot for the current journal generation,
 /// nothing may be pending, and the slot's signed manifest must verify
-/// without lowering the confirmed slot's rollback index (ADR 0054/0055).
+/// without lowering the confirmed slot's rollback index (ADR 0061/0062).
 #[cfg(feature = "m27-ab-slot-boot-control")]
 fn accept_stage_request(
     record: Option<nagi_bootinfo::BootStageRecord>,
@@ -723,7 +723,7 @@ fn selection_label(selection: BootImageSelection) -> &'static str {
     }
 }
 
-/// ADR 0054: read and verify the selected slot's signed `SLOT.MAN` before
+/// ADR 0061: read and verify the selected slot's signed `SLOT.MAN` before
 /// any payload byte is used. A trial slot must also not lower the confirmed
 /// slot's rollback index.
 #[cfg(feature = "m27-ab-slot-boot-control")]

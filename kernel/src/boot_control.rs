@@ -1,4 +1,4 @@
-//! Kernel-owned M27 candidate-readiness persistence and the ADR 0055
+//! Kernel-owned M27 candidate-readiness persistence and the ADR 0062
 //! update staging request.
 
 use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
@@ -180,7 +180,7 @@ const STAGE_IN_PROGRESS: u8 = 2;
 const STAGE_DONE: u8 = 3;
 const STAGE_FAILED: u8 = 4;
 
-/// One-shot gate for the update staging request (ADR 0055). Like readiness,
+/// One-shot gate for the update staging request (ADR 0062). Like readiness,
 /// every coordinate comes from the loader's BootInfo, never from user space:
 /// the target is always the slot that is not confirmed.
 pub struct BootStageGate {

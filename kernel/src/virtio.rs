@@ -122,7 +122,7 @@ struct DeviceState {
     capability: u64,
     model_store: Option<crate::gpt::PartitionRange>,
     model_store_capability: u64,
-    /// The inactive system slot an installer may write (ADR 0055).
+    /// The inactive system slot an installer may write (ADR 0062).
     update_slot: Option<crate::gpt::PartitionRange>,
     update_slot_index: u8,
     update_capability: u64,

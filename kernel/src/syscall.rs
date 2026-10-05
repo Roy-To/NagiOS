@@ -1007,7 +1007,7 @@ fn handle_close(handle: u64) -> u64 {
     }
 }
 
-/// ADR 0055: hand the inactive-slot update capability to init, once.
+/// ADR 0062: hand the inactive-slot update capability to init, once.
 #[cfg(not(test))]
 fn update_slot_claim(address: u64, size: u64) -> u64 {
     if current_process() != INIT_PROCESS_ID
@@ -1038,7 +1038,7 @@ fn update_slot_claim(address: u64, size: u64) -> u64 {
     0
 }
 
-/// ADR 0055: ask the loader to trial the inactive slot on the next boot.
+/// ADR 0062: ask the loader to trial the inactive slot on the next boot.
 #[cfg(not(test))]
 fn update_slot_stage(capability: u64) -> u64 {
     use nagi_kernel::boot_control::BootStageOutcome;
