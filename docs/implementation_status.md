@@ -11,6 +11,35 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**In-guest system update installer (ADR 0055), 2026-10-06:** A running
+System A now installs a signed update into System B, the loader re-verifies
+and trials it, and B is confirmed after readiness.
+
+- **Boot context and capability.** BootInfo v5 marks confirmed boots as
+  update-stageable. On those boots the kernel exposes only the inactive
+  slot as a one-shot, init-only capability (`SYS_UPDATE_SLOT_CLAIM`).
+- **Staging request.** `SYS_UPDATE_SLOT_STAGE` writes a CRC-protected
+  `NagiBootStage` variable. The loader honors it only when the generation
+  matches, nothing is pending, the manifest verifies, and the rollback
+  index is not lowered.
+- **Installer.** The installer (`m30-update-install`) verifies the bundle
+  before writing, then formats the slot as FAT32 (`crates/nagi-fat32`),
+  flushes it, re-verifies a read-back, and stages.
+- **Result.** `./nagi m30-update` passed (evidence
+  `out/evidence/m30-update-1791242245330653000`):
+  - signed bundle: install, then trial `slot=B rollback-index=2` with
+    readiness persisted, then `confirmed slot=B`;
+  - tampered bundle: refused before any write, and A stayed confirmed.
+- **Regressions.** `./nagi m27` still passes. The workspace has 862 host
+  tests, plus 163 kernel, 16 bootinfo, 7 slot-manifest and 4 FAT32 tests.
+  Warning-denied Clippy is clean.
+
+Still open:
+
+- network delivery of updates;
+- an update UI and user consent;
+- production key provisioning.
+
 **Authenticated slot manifests (ADR 0054), 2026-10-06:** The loader now
 verifies a signed `SLOT.MAN` for System A, System B and Recovery before it
 trusts any payload.

@@ -7,6 +7,8 @@ use uefi::{cstr16, guid};
 pub const NAGI_BOOT_CONTROL_VENDOR: VariableVendor =
     VariableVendor(guid!("c00c1ca4-6d7c-4a36-b913-a22f691c4895"));
 pub const NAGI_BOOT_READY_VARIABLE: &uefi::CStr16 = cstr16!("NagiBootReady");
+/// Update staging request written by the kernel (ADR 0055).
+pub const NAGI_BOOT_STAGE_VARIABLE: &uefi::CStr16 = cstr16!("NagiBootStage");
 const REQUIRED_ATTRIBUTES: VariableAttributes = VariableAttributes::NON_VOLATILE
     .union(VariableAttributes::BOOTSERVICE_ACCESS)
     .union(VariableAttributes::RUNTIME_ACCESS);

@@ -199,6 +199,7 @@ fn main() -> Status {
 fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), &'static str> {
     use nagi_loader::ab::uefi_store::{
         UefiVariableBootControlStore, NAGI_BOOT_CONTROL_VENDOR, NAGI_BOOT_READY_VARIABLE,
+        NAGI_BOOT_STAGE_VARIABLE,
     };
     use nagi_loader::ab::{BootControlJournal, BootControlState};
     use uefi::runtime::{self, VariableAttributes};
@@ -252,6 +253,45 @@ fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), 
             }
         }
         let _ = runtime::delete_variable(NAGI_BOOT_READY_VARIABLE, &NAGI_BOOT_CONTROL_VENDOR);
+    }
+
+    if runtime::variable_exists(NAGI_BOOT_STAGE_VARIABLE, &NAGI_BOOT_CONTROL_VENDOR)
+        .unwrap_or(false)
+    {
+        let mut bytes = [0; nagi_bootinfo::BOOT_STAGE_RECORD_SIZE];
+        let record = runtime::get_variable(
+            NAGI_BOOT_STAGE_VARIABLE,
+            &NAGI_BOOT_CONTROL_VENDOR,
+            &mut bytes,
+        )
+        .ok()
+        .and_then(|(value, attributes)| {
+            let required = VariableAttributes::NON_VOLATILE
+                .union(VariableAttributes::BOOTSERVICE_ACCESS)
+                .union(VariableAttributes::RUNTIME_ACCESS);
+            (attributes == required)
+                .then(|| nagi_bootinfo::BootStageRecord::decode(value))
+                .flatten()
+        });
+        // The request is one-shot whether or not it is honored.
+        let _ = runtime::delete_variable(NAGI_BOOT_STAGE_VARIABLE, &NAGI_BOOT_CONTROL_VENDOR);
+        match accept_stage_request(record, state) {
+            Ok(slot) => {
+                journal
+                    .stage_update(slot)
+                    .map_err(|_| "Nagi Loader: M27 update staging failed")?;
+                uefi::println!(
+                    "Nagi M27 update stage request accepted slot={} PASS",
+                    if slot == SystemSlot::A { "A" } else { "B" }
+                );
+                state = journal
+                    .load()
+                    .map_err(|_| "Nagi Loader: M27 staged journal read failed")?;
+            }
+            Err(reason) => {
+                uefi::println!("Nagi M27 update stage request REFUSED reason={}", reason)
+            }
+        }
     }
 
     let selection = m27_boot_menu(state);
@@ -317,7 +357,23 @@ fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), 
     uefi::println!("Nagi M27 UEFI variable journal persistence PASS");
 
     let context = if decision.trial_attempt == 0 {
-        BootControlInfo::default()
+        let state = journal
+            .load()
+            .map_err(|_| "Nagi Loader: M27 confirmed context read failed")?;
+        // A confirmed boot with nothing pending may receive an update in the
+        // other slot (ADR 0055).
+        if state.pending_slot().is_none() {
+            BootControlInfo {
+                set_variable_address: runtime_set_variable_address()?,
+                journal_generation: state.generation(),
+                slot: state.confirmed_slot() as u8,
+                attempt: 0,
+                flags: nagi_bootinfo::BOOT_CONTROL_UPDATE_STAGEABLE,
+                reserved: [0; 5],
+            }
+        } else {
+            BootControlInfo::default()
+        }
     } else {
         let state: BootControlState = journal
             .load()
@@ -326,20 +382,13 @@ fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), 
         {
             return Err("Nagi Loader: M27 trial context mismatch");
         }
-        let system_table =
-            uefi::table::system_table_raw().ok_or("Nagi Loader: M27 runtime table unavailable")?;
-        // SAFETY: UEFI initialized the system table, which remains valid while
-        // the loader is running with boot services active.
-        let system_table = unsafe { system_table.as_ref() };
-        // SAFETY: the firmware supplies a valid runtime-services table.
-        let runtime_services = unsafe { system_table.runtime_services.as_ref() }
-            .ok_or("Nagi Loader: M27 runtime services unavailable")?;
         BootControlInfo {
-            set_variable_address: runtime_services.set_variable as *const () as u64,
+            set_variable_address: runtime_set_variable_address()?,
             journal_generation: state.generation(),
             slot: decision.slot as u8,
             attempt: decision.trial_attempt,
-            reserved: [0; 6],
+            flags: 0,
+            reserved: [0; 5],
         }
     };
     Ok((
@@ -349,6 +398,53 @@ fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), 
         },
         context,
     ))
+}
+
+/// The firmware's runtime `SetVariable` entry point for the kernel.
+#[cfg(feature = "m27-ab-slot-boot-control")]
+fn runtime_set_variable_address() -> Result<u64, &'static str> {
+    let system_table =
+        uefi::table::system_table_raw().ok_or("Nagi Loader: M27 runtime table unavailable")?;
+    // SAFETY: UEFI initialized the system table, which remains valid while
+    // the loader is running with boot services active.
+    let system_table = unsafe { system_table.as_ref() };
+    // SAFETY: the firmware supplies a valid runtime-services table.
+    let runtime_services = unsafe { system_table.runtime_services.as_ref() }
+        .ok_or("Nagi Loader: M27 runtime services unavailable")?;
+    Ok(runtime_services.set_variable as *const () as u64)
+}
+
+/// Decide whether the kernel's update staging request may become a trial:
+/// it must name the unconfirmed slot for the current journal generation,
+/// nothing may be pending, and the slot's signed manifest must verify
+/// without lowering the confirmed slot's rollback index (ADR 0054/0055).
+#[cfg(feature = "m27-ab-slot-boot-control")]
+fn accept_stage_request(
+    record: Option<nagi_bootinfo::BootStageRecord>,
+    state: nagi_loader::ab::BootControlState,
+) -> Result<SystemSlot, &'static str> {
+    let record = record.ok_or("record")?;
+    let slot = if record.slot == 0 {
+        SystemSlot::A
+    } else {
+        SystemSlot::B
+    };
+    if state.pending_slot().is_some()
+        || record.journal_generation != state.generation()
+        || slot == state.confirmed_slot()
+    {
+        return Err("stale");
+    }
+    let (candidate, confirmed) = match slot {
+        SystemSlot::A => (BootImageSelection::SystemA, BootImageSelection::SystemB),
+        SystemSlot::B => (BootImageSelection::SystemB, BootImageSelection::SystemA),
+    };
+    let candidate = read_slot_manifest(candidate)?;
+    let confirmed = read_slot_manifest(confirmed).map_err(|_| "confirmed-manifest")?;
+    if !nagi_slot_manifest::permits_trial(&confirmed, &candidate) {
+        return Err("rollback");
+    }
+    Ok(slot)
 }
 
 #[cfg(feature = "m27-ab-slot-boot-control")]

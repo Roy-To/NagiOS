@@ -53,6 +53,13 @@ pub const SYS_PROCESS_SPAWN: u64 = 36;
 /// status written, `PROCESS_WAIT_RETRY` after a wake (call again), or
 /// failure for an unknown or already-consumed Process ID.
 pub const SYS_PROCESS_WAIT: u64 = 37;
+/// Claim the inactive-system-slot update capability (ADR 0055). Only init
+/// may call it, only once per boot, and only on a confirmed-slot boot with
+/// no pending trial; it writes an `UpdateSlotInfo` and returns 0.
+pub const SYS_UPDATE_SLOT_CLAIM: u64 = 38;
+/// Ask the loader to trial the inactive slot on the next boot. Requires the
+/// claimed update capability; one-shot per boot.
+pub const SYS_UPDATE_SLOT_STAGE: u64 = 39;
 pub const PROCESS_WAIT_RETRY: u64 = 1;
 pub const PROCESS_EXIT_KIND_EXITED: u32 = 1;
 pub const PROCESS_EXIT_KIND_FAULTED: u32 = 2;
@@ -312,6 +319,19 @@ pub struct ProcessExitStatus {
     pub kind: u32,
     pub code: u64,
     pub fault_vector: u64,
+}
+
+/// The inactive system slot an installer may write (ADR 0055). The
+/// capability reads, writes and flushes only that partition, with
+/// partition-relative sectors.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct UpdateSlotInfo {
+    pub capability: u64,
+    pub sector_count: u64,
+    /// 0 = System A, 1 = System B.
+    pub slot: u8,
+    pub reserved: [u8; 7],
 }
 
 /// One handle moved with an attenuated rights set in a Channel message.

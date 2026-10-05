@@ -48,7 +48,8 @@ use nagi_abi::{
 #[cfg(not(test))]
 use nagi_abi::{
     ProcessExitStatus, ProcessSpawnRequest, PROCESS_EXIT_KIND_EXITED, PROCESS_EXIT_KIND_FAULTED,
-    PROCESS_WAIT_RETRY, SYS_PROCESS_SPAWN, SYS_PROCESS_WAIT,
+    PROCESS_WAIT_RETRY, SYS_PROCESS_SPAWN, SYS_PROCESS_WAIT, SYS_UPDATE_SLOT_CLAIM,
+    SYS_UPDATE_SLOT_STAGE,
 };
 #[cfg(not(test))]
 use nagi_kernel::process_exit::{ExitKind, ExitTable, WaitOutcome};
@@ -889,6 +890,8 @@ fn dispatch_init(frame: &SyscallFrame) -> u64 {
         SYS_CHANNEL_WAIT_READABLE => channel_wait_readable(frame.arg1, frame),
         SYS_PROCESS_SPAWN => process_spawn(frame.arg1, frame.arg2),
         SYS_PROCESS_WAIT => process_wait(frame.arg1, frame.arg2, frame.arg3, frame),
+        SYS_UPDATE_SLOT_CLAIM => update_slot_claim(frame.arg1, frame.arg2),
+        SYS_UPDATE_SLOT_STAGE => update_slot_stage(frame.arg1),
         _ => u64::MAX,
     }
 }
@@ -1001,6 +1004,63 @@ fn handle_close(handle: u64) -> u64 {
     match nagi_kernel::user_ipc::close(current_process(), handle) {
         Ok(()) => 0,
         Err(_) => u64::MAX,
+    }
+}
+
+/// ADR 0055: hand the inactive-slot update capability to init, once.
+#[cfg(not(test))]
+fn update_slot_claim(address: u64, size: u64) -> u64 {
+    if current_process() != INIT_PROCESS_ID
+        || size != core::mem::size_of::<nagi_abi::UpdateSlotInfo>() as u64
+        || !nagi_kernel::user_process::is_user_writable_range_mapped(
+            address,
+            core::mem::size_of::<nagi_abi::UpdateSlotInfo>(),
+        )
+    {
+        return u64::MAX;
+    }
+    let Some((capability, sector_count, slot)) = nagi_kernel::virtio::claim_update_slot() else {
+        serial_write(b"Nagi update slot claim REFUSED\r\n");
+        return u64::MAX;
+    };
+    let info = nagi_abi::UpdateSlotInfo {
+        capability,
+        sector_count,
+        slot,
+        reserved: [0; 7],
+    };
+    unsafe {
+        (address as *mut nagi_abi::UpdateSlotInfo).write_unaligned(info);
+    }
+    serial_write(b"Nagi update slot claimed slot=");
+    serial_write(if slot == 0 { b"A" } else { b"B" });
+    serial_write(b"\r\n");
+    0
+}
+
+/// ADR 0055: ask the loader to trial the inactive slot on the next boot.
+#[cfg(not(test))]
+fn update_slot_stage(capability: u64) -> u64 {
+    use nagi_kernel::boot_control::BootStageOutcome;
+
+    if current_process() != INIT_PROCESS_ID
+        || !nagi_kernel::virtio::update_capability_matches(capability)
+    {
+        return u64::MAX;
+    }
+    match nagi_kernel::boot_control::stage_update() {
+        BootStageOutcome::Staged(record) | BootStageOutcome::AlreadyStaged(record) => {
+            serial_write(b"Nagi update stage request persisted slot=");
+            serial_write(if record.slot == 0 { b"A" } else { b"B" });
+            serial_write(b" generation=");
+            serial_write_decimal(usize::try_from(record.journal_generation).unwrap_or(usize::MAX));
+            serial_write(b" PASS\r\n");
+            0
+        }
+        BootStageOutcome::Unavailable | BootStageOutcome::Failed => {
+            serial_write(b"Nagi update stage request FAIL\r\n");
+            u64::MAX
+        }
     }
 }
 
@@ -1729,8 +1789,8 @@ fn block_read(capability: u64, sector: u64, address: u64) -> u64 {
 
 #[cfg(not(test))]
 fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
-    if !nagi_kernel::virtio::capability_matches(capability)
-        || !nagi_kernel::virtio::capacity_sectors().is_some_and(|capacity| sector < capacity)
+    // The extent bound is enforced per capability by the block driver.
+    if !nagi_kernel::virtio::writable_capability_matches(capability)
         || !nagi_kernel::user_process::is_user_writable_range_mapped(address, BLOCK_SECTOR_SIZE)
     {
         return u64::MAX;
@@ -1739,7 +1799,7 @@ fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
     for (index, byte) in buffer.iter_mut().enumerate() {
         *byte = unsafe { (address as *const u8).add(index).read_volatile() };
     }
-    if nagi_kernel::virtio::write_sector(sector, &buffer).is_err() {
+    if nagi_kernel::virtio::write_sector_for_capability(capability, sector, &buffer).is_err() {
         return u64::MAX;
     }
     BLOCK_SECTOR_SIZE as u64
@@ -1747,7 +1807,7 @@ fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
 
 #[cfg(not(test))]
 fn block_flush(capability: u64) -> u64 {
-    if !nagi_kernel::virtio::capability_matches(capability) {
+    if !nagi_kernel::virtio::writable_capability_matches(capability) {
         return u64::MAX;
     }
     if nagi_kernel::virtio::flush().is_err() {

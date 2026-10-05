@@ -155,6 +155,8 @@ mod shell;
     any(feature = "isolated-process-acceptance", feature = "m19-search-ipc")
 ))]
 mod supervisor;
+#[cfg(all(target_os = "nagi", feature = "m30-update-install"))]
+mod system_update;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod ui;
 #[cfg(all(target_os = "nagi", feature = "m9-window"))]
@@ -998,6 +1000,11 @@ pub extern "C" fn _start(
 
     #[cfg(feature = "isolated-process-acceptance")]
     if !isolated_process::run() {
+        libnagi::exit(1);
+    }
+
+    #[cfg(feature = "m30-update-install")]
+    if !system_update::run(model_store_capability) {
         libnagi::exit(1);
     }
 

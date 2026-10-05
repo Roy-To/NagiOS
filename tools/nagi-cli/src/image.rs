@@ -610,6 +610,39 @@ fn signed_slot_manifest(kernel: &[u8], init: &[u8], signer: &[u8; 32]) -> Result
     Ok(file[..length].to_vec())
 }
 
+/// A signed system update bundle (ADR 0055): header, `SLOT.MAN` signed by
+/// `signer` with `rollback_index`, then the kernel and init.
+pub fn signed_update_bundle(
+    kernel: &[u8],
+    init: &[u8],
+    rollback_index: u64,
+    signer: &[u8; 32],
+) -> Result<Vec<u8>, String> {
+    use nagi_slot_manifest::{bundle_header, PayloadDigest, SlotManifest, MAX_SLOT_MANIFEST_BYTES};
+    let manifest = SlotManifest::new(
+        env!("CARGO_PKG_VERSION").as_bytes(),
+        rollback_index,
+        PayloadDigest::of(kernel),
+        PayloadDigest::of(init),
+    )
+    .map_err(|error| format!("cannot build update manifest: {error:?}"))?;
+    let mut file = [0; MAX_SLOT_MANIFEST_BYTES];
+    let manifest_length = manifest.encode_signed(signer, &mut file);
+    let length = |bytes: &[u8]| {
+        u32::try_from(bytes.len()).map_err(|_| "update bundle section exceeds 4 GiB".to_owned())
+    };
+    let mut bundle = bundle_header(
+        length(&file[..manifest_length])?,
+        length(kernel)?,
+        length(init)?,
+    )
+    .to_vec();
+    bundle.extend_from_slice(&file[..manifest_length]);
+    bundle.extend_from_slice(kernel);
+    bundle.extend_from_slice(init);
+    Ok(bundle)
+}
+
 struct ModelStoreFileSources<'files, 'content> {
     embedded: &'files [super::fat32::VolumeFile<'content>],
     external: &'files [super::fat32::ExternalVolumeFile<'content>],

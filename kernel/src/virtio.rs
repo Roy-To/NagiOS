@@ -122,8 +122,15 @@ struct DeviceState {
     capability: u64,
     model_store: Option<crate::gpt::PartitionRange>,
     model_store_capability: u64,
+    /// The inactive system slot an installer may write (ADR 0055).
+    update_slot: Option<crate::gpt::PartitionRange>,
+    update_slot_index: u8,
+    update_capability: u64,
     flush_supported: bool,
 }
+
+/// The update capability is handed out at most once per boot.
+static UPDATE_SLOT_CLAIMED: AtomicBool = AtomicBool::new(false);
 
 static REQUEST_LOCK: AtomicBool = AtomicBool::new(false);
 static mut QUEUE: LegacyQueue = LegacyQueue::empty();
@@ -193,6 +200,9 @@ pub fn initialize() -> Result<(), BlockError> {
         capability: 0,
         model_store: None,
         model_store_capability: 0,
+        update_slot: None,
+        update_slot_index: 0,
+        update_capability: 0,
         flush_supported,
     };
     let partitions = crate::gpt::find_partitions(
@@ -227,6 +237,26 @@ pub fn initialize() -> Result<(), BlockError> {
         }
         model_capability
     });
+    // Only a confirmed-slot boot exposes the other system slot, and only
+    // when the GPT names it unambiguously.
+    let update_target = crate::boot_control::update_target_slot();
+    let update_slot = update_target.and_then(|slot| match slot {
+        0 => partitions.system_a,
+        _ => partitions.system_b,
+    });
+    let update_capability = update_slot.map_or(0, |extent| {
+        let mut update = make_capability(
+            candidate.bus,
+            candidate.device,
+            candidate.function,
+            extent.start_lba,
+            extent.sector_count,
+        ) ^ 0x5550_4441_5445_534c;
+        while update == 0 || update == capability || update == model_store_capability {
+            update = update.wrapping_add(1);
+        }
+        update
+    });
     unsafe {
         ptr::write_volatile(
             ptr::addr_of_mut!(DEVICE),
@@ -238,6 +268,9 @@ pub fn initialize() -> Result<(), BlockError> {
                 capability,
                 model_store: partitions.model_store,
                 model_store_capability,
+                update_slot,
+                update_slot_index: update_target.unwrap_or(0),
+                update_capability,
                 flush_supported,
             }),
         );
@@ -282,9 +315,44 @@ pub fn readable_capability_matches(capability: u64) -> bool {
                 device.capability,
                 device.model_store_capability,
                 device.model_store.is_some(),
-            )
+            ) || is_update_capability(capability, device)
         })
     }
+}
+
+/// Whether `capability` is the claimed inactive-slot update capability.
+pub fn update_capability_matches(capability: u64) -> bool {
+    unsafe {
+        ptr::addr_of!(DEVICE)
+            .read_volatile()
+            .is_some_and(|device| is_update_capability(capability, device))
+    }
+}
+
+/// Writes go to User Data or, after the claim, to the inactive slot.
+pub fn writable_capability_matches(capability: u64) -> bool {
+    capability_matches(capability) || update_capability_matches(capability)
+}
+
+fn is_update_capability(capability: u64, device: DeviceState) -> bool {
+    capability != 0
+        && device.update_slot.is_some()
+        && capability == device.update_capability
+        && UPDATE_SLOT_CLAIMED.load(Ordering::Acquire)
+}
+
+/// Hand out the update capability once: `(capability, sectors, slot)`.
+pub fn claim_update_slot() -> Option<(u64, u64, u8)> {
+    let device = unsafe { ptr::addr_of!(DEVICE).read_volatile() }?;
+    let extent = device.update_slot?;
+    UPDATE_SLOT_CLAIMED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .ok()?;
+    Some((
+        device.update_capability,
+        extent.sector_count,
+        device.update_slot_index,
+    ))
 }
 
 pub fn capacity_sectors() -> Option<u64> {
@@ -315,6 +383,9 @@ pub fn read_sector_for_capability(
     } else if capability != 0 && capability == device.model_store_capability {
         let extent = device.model_store.ok_or(BlockError::InvalidCapability)?;
         (extent.start_lba, extent.sector_count)
+    } else if is_update_capability(capability, device) {
+        let extent = device.update_slot.ok_or(BlockError::InvalidCapability)?;
+        (extent.start_lba, extent.sector_count)
     } else {
         return Err(BlockError::InvalidCapability);
     };
@@ -325,6 +396,36 @@ pub fn read_sector_for_capability(
         sector,
         destination,
         false,
+    )
+}
+
+/// Write through a User Data or claimed update capability, bounded to its
+/// own extent.
+pub fn write_sector_for_capability(
+    capability: u64,
+    sector: u64,
+    source: &[u8; BLOCK_SECTOR_SIZE],
+) -> Result<(), BlockError> {
+    let Some(device) = (unsafe { ptr::addr_of!(DEVICE).read_volatile() }) else {
+        return Err(BlockError::NotInitialized);
+    };
+    let (start_lba, capacity_sectors) = if is_writable_capability(capability, device.capability) {
+        (device.data_start_lba, device.capacity_sectors)
+    } else if is_update_capability(capability, device) {
+        let extent = device.update_slot.ok_or(BlockError::InvalidCapability)?;
+        (extent.start_lba, extent.sector_count)
+    } else {
+        return Err(BlockError::InvalidCapability);
+    };
+    let mut buffer = [0; BLOCK_SECTOR_SIZE];
+    copy_bytes(&mut buffer, source);
+    transfer_extent(
+        device,
+        start_lba,
+        capacity_sectors,
+        sector,
+        &mut buffer,
+        true,
     )
 }
 

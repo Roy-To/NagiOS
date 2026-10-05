@@ -251,6 +251,89 @@ pub const fn permits_trial(confirmed: &SlotManifest, candidate: &SlotManifest) -
     candidate.rollback_index >= confirmed.rollback_index
 }
 
+/// Header of a system update bundle (ADR 0055): magic, then the lengths of
+/// the signed `SLOT.MAN`, `KERNEL.ELF` and `INIT.ELF` sections, which follow
+/// in that order with no padding.
+pub const BUNDLE_MAGIC: [u8; 8] = *b"NAGIUPD1";
+pub const BUNDLE_HEADER_BYTES: usize = 24;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BundleError {
+    /// Wrong magic, reserved field, or section lengths that do not add up.
+    Layout,
+    Manifest(ManifestError),
+    Payload(PayloadKind, PayloadError),
+}
+
+/// A verified update bundle: its manifest is signed by the trusted key and
+/// both payloads match it.
+#[derive(Clone, Copy, Debug)]
+pub struct UpdateBundle<'a> {
+    pub manifest: SlotManifest,
+    pub manifest_file: &'a [u8],
+    pub kernel: &'a [u8],
+    pub init: &'a [u8],
+}
+
+impl<'a> UpdateBundle<'a> {
+    pub fn verify(bytes: &'a [u8], public_key: &[u8; 32]) -> Result<Self, BundleError> {
+        let layout = BundleError::Layout;
+        let header = bytes.get(..BUNDLE_HEADER_BYTES).ok_or(layout)?;
+        if header[..8] != BUNDLE_MAGIC || header[20..24] != [0; 4] {
+            return Err(layout);
+        }
+        let length = |offset: usize| {
+            u32::from_le_bytes([
+                header[offset],
+                header[offset + 1],
+                header[offset + 2],
+                header[offset + 3],
+            ]) as usize
+        };
+        let (manifest_length, kernel_length, init_length) = (length(8), length(12), length(16));
+        let total = BUNDLE_HEADER_BYTES
+            .checked_add(manifest_length)
+            .and_then(|total| total.checked_add(kernel_length))
+            .and_then(|total| total.checked_add(init_length))
+            .ok_or(layout)?;
+        if total != bytes.len() {
+            return Err(layout);
+        }
+        let (manifest_file, rest) = bytes[BUNDLE_HEADER_BYTES..].split_at(manifest_length);
+        let (kernel, init) = rest.split_at(kernel_length);
+        let manifest =
+            SlotManifest::verify(manifest_file, public_key).map_err(BundleError::Manifest)?;
+        manifest
+            .kernel
+            .check(kernel)
+            .map_err(|error| BundleError::Payload(PayloadKind::Kernel, error))?;
+        manifest
+            .init
+            .check(init)
+            .map_err(|error| BundleError::Payload(PayloadKind::Init, error))?;
+        Ok(Self {
+            manifest,
+            manifest_file,
+            kernel,
+            init,
+        })
+    }
+}
+
+/// The bundle header for sections of the given lengths.
+pub fn bundle_header(
+    manifest_length: u32,
+    kernel_length: u32,
+    init_length: u32,
+) -> [u8; BUNDLE_HEADER_BYTES] {
+    let mut header = [0; BUNDLE_HEADER_BYTES];
+    header[..8].copy_from_slice(&BUNDLE_MAGIC);
+    header[8..12].copy_from_slice(&manifest_length.to_le_bytes());
+    header[12..16].copy_from_slice(&kernel_length.to_le_bytes());
+    header[16..20].copy_from_slice(&init_length.to_le_bytes());
+    header
+}
+
 fn valid_version(version: &[u8]) -> bool {
     !version.is_empty()
         && version.len() <= MAX_VERSION_BYTES
@@ -451,5 +534,72 @@ mod tests {
         assert!(permits_trial(&manifest(2), &manifest(2)));
         assert!(permits_trial(&manifest(2), &manifest(3)));
         assert!(!permits_trial(&manifest(2), &manifest(1)));
+    }
+
+    fn bundle(manifest_file: &[u8], kernel: &[u8], init: &[u8]) -> ([u8; 2048], usize) {
+        let mut bytes = [0; 2048];
+        let header = bundle_header(
+            manifest_file.len() as u32,
+            kernel.len() as u32,
+            init.len() as u32,
+        );
+        let mut length = 0;
+        for part in [&header[..], manifest_file, kernel, init] {
+            bytes[length..length + part.len()].copy_from_slice(part);
+            length += part.len();
+        }
+        (bytes, length)
+    }
+
+    #[test]
+    fn verified_bundles_expose_their_sections() {
+        let (file, file_length) = signed(&manifest(2), &DEVELOPER_PREVIEW_SIGNING_SECRET);
+        let (bytes, length) = bundle(&file[..file_length], b"kernel bytes", b"init bytes");
+        let verified = UpdateBundle::verify(&bytes[..length], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY)
+            .expect("bundle");
+        assert_eq!(verified.manifest.rollback_index, 2);
+        assert_eq!(verified.kernel, b"kernel bytes");
+        assert_eq!(verified.init, b"init bytes");
+        assert_eq!(verified.manifest_file, &file[..file_length]);
+    }
+
+    #[test]
+    fn tampered_or_malformed_bundles_are_refused() {
+        let (file, file_length) = signed(&manifest(2), &DEVELOPER_PREVIEW_SIGNING_SECRET);
+        let (bytes, length) = bundle(&file[..file_length], b"kernel bytez", b"init bytes");
+        assert_eq!(
+            UpdateBundle::verify(&bytes[..length], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY).err(),
+            Some(BundleError::Payload(
+                PayloadKind::Kernel,
+                PayloadError::Digest
+            ))
+        );
+        let (bytes, length) = bundle(&file[..file_length], b"kernel bytes", b"init");
+        assert_eq!(
+            UpdateBundle::verify(&bytes[..length], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY).err(),
+            Some(BundleError::Payload(PayloadKind::Init, PayloadError::Size))
+        );
+        let (untrusted, untrusted_length) = signed(&manifest(2), &OTHER_SECRET);
+        let (bytes, length) = bundle(
+            &untrusted[..untrusted_length],
+            b"kernel bytes",
+            b"init bytes",
+        );
+        assert_eq!(
+            UpdateBundle::verify(&bytes[..length], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY).err(),
+            Some(BundleError::Manifest(ManifestError::Signature))
+        );
+        let (mut bytes, length) = bundle(&file[..file_length], b"kernel bytes", b"init bytes");
+        for truncated in [0, BUNDLE_HEADER_BYTES - 1, length - 1] {
+            assert_eq!(
+                UpdateBundle::verify(&bytes[..truncated], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY).err(),
+                Some(BundleError::Layout)
+            );
+        }
+        bytes[0] = b'X';
+        assert_eq!(
+            UpdateBundle::verify(&bytes[..length], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY).err(),
+            Some(BundleError::Layout)
+        );
     }
 }
