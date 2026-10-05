@@ -11,6 +11,8 @@ const CLIPBOARD_LINES: [&str; 3] = [
     "Nagi M18 clipboard ungestured read DENIED reason=no-user-gesture",
     "Nagi M18 clipboard copy/paste PASS",
 ];
+/// IME evidence, required in this order after the clipboard evidence.
+const IME_LINES: [&str; 2] = ["Nagi M18 IME page READY", "Nagi M18 IME commit PASS"];
 
 /// Validate the evidence emitted by the real M18 guest browser acceptance run.
 pub(crate) fn validate_serial_log(serial: &str) -> Result<(), String> {
@@ -170,7 +172,7 @@ fn validate_clipboard_evidence(
     summary: usize,
 ) -> Result<(), String> {
     let mut previous = last_page;
-    for expected in CLIPBOARD_LINES {
+    for expected in CLIPBOARD_LINES.iter().chain(IME_LINES.iter()).copied() {
         let mut found = None;
         for (line_number, line) in serial.lines().enumerate() {
             if line == expected && found.replace(line_number).is_some() {
@@ -178,10 +180,10 @@ fn validate_clipboard_evidence(
             }
         }
         let line_number =
-            found.ok_or_else(|| format!("missing clipboard evidence `{expected}`"))?;
+            found.ok_or_else(|| format!("missing clipboard or IME evidence `{expected}`"))?;
         if line_number <= previous || line_number >= summary {
             return Err(format!(
-                "clipboard evidence `{expected}` appeared out of order on line {}",
+                "clipboard or IME evidence `{expected}` appeared out of order on line {}",
                 line_number + 1
             ));
         }
@@ -236,6 +238,7 @@ mod tests {
             ));
         }
         lines.extend(CLIPBOARD_LINES.iter().map(|line| (*line).to_owned()));
+        lines.extend(IME_LINES.iter().map(|line| (*line).to_owned()));
         lines.push(SUMMARY_LINE.to_owned());
         lines.join("\n")
     }
@@ -247,10 +250,29 @@ mod tests {
             assert!(
                 validate_serial_log(&missing)
                     .unwrap_err()
-                    .contains("missing clipboard evidence"),
+                    .contains("missing clipboard or IME evidence"),
                 "{line}"
             );
         }
+    }
+
+    #[test]
+    fn requires_ime_evidence_after_clipboard_evidence() {
+        for line in IME_LINES {
+            let missing = valid_serial().replace(&format!("{line}\n"), "");
+            assert!(validate_serial_log(&missing)
+                .unwrap_err()
+                .contains("missing clipboard or IME evidence"));
+        }
+        let early = valid_serial()
+            .replace(&format!("{}\n", IME_LINES[0]), "")
+            .replace(
+                CLIPBOARD_LINES[0],
+                &format!("{}\n{}", IME_LINES[0], CLIPBOARD_LINES[0]),
+            );
+        assert!(validate_serial_log(&early)
+            .unwrap_err()
+            .contains("out of order"));
     }
 
     #[test]

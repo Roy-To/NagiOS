@@ -111,6 +111,46 @@ const M18_CLIPBOARD_EVENTS: [&str; 3] = [
     }"#,
 ];
 
+/// After the guest reports the focused IME field: Ctrl+Space switches to
+/// hiragana, `nihongo` composes にほんご, and Enter commits it.
+const M18_IME_EVENTS: [&str; 3] = [
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ctrl"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"spc"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"spc"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ctrl"}}}
+        ]}
+    }"#,
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"n"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"n"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"i"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"i"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"h"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"h"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"n"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"n"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"g"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"g"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"o"}}}
+        ]}
+    }"#,
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}
+        ]}
+    }"#,
+];
+
 const M18_INPUT_EVENTS: [&str; 2] = [
     r#"{
         "execute":"input-send-event",
@@ -6492,10 +6532,16 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             &config,
             "Nagi M18 browser READY",
             &M18_INPUT_EVENTS,
-            &[QmpEventStage {
-                marker: "Nagi M18 clipboard page READY",
-                events: &M18_CLIPBOARD_EVENTS,
-            }],
+            &[
+                QmpEventStage {
+                    marker: "Nagi M18 clipboard page READY",
+                    events: &M18_CLIPBOARD_EVENTS,
+                },
+                QmpEventStage {
+                    marker: "Nagi M18 IME page READY",
+                    events: &M18_IME_EVENTS,
+                },
+            ],
             "Nagi M18 browser FAIL",
             &screenshot_path,
         ) {
@@ -6543,7 +6589,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; gesture-bound clipboard copy/paste passed (exit {}; log {}; screenshot {})",
+            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; gesture-bound clipboard copy/paste and Japanese IME composition passed (exit {}; log {}; screenshot {})",
             outcome.exit_status,
             log_path.display(),
             screenshot_path.display(),

@@ -148,3 +148,12 @@ submission or a page click moves focus from the address bar to the page.
 QMP-driven copy/paste and an ungestured-read denial. IME, picker,
 download/upload, and production permission/IPC providers remain; M18-B stays
 **PARTIAL**.
+
+## Japanese IME (2026-10-05)
+
+`user/nagi-ime` (ADR 0044) now supplies page text fields with kana
+composition through Servo composition events while Servo reports a focused
+field. Kanji conversion is deferred beyond 0.1 by user decision; the address
+bar does not use the IME. `./nagi m18` run `1791180856033701000` passed the
+QMP-typed `nihongo` → `にほんご` commit. Picker, download/upload, and
+production permission/IPC providers remain; M18-B stays **PARTIAL**.

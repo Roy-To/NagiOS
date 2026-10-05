@@ -3417,6 +3417,7 @@ dependencies = [
  "ipc-channel",
  "libnagi",
  "nagi-clipboard",
+ "nagi-ime",
  "nagi-localization",
  "nagi-servo-adapter",
  "servo",
@@ -3456,6 +3457,10 @@ dependencies = [
 
 [[package]]
 name = "nagi-idl"
+version = "0.1.0"
+
+[[package]]
+name = "nagi-ime"
 version = "0.1.0"
 
 [[package]]
