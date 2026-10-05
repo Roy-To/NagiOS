@@ -48,3 +48,23 @@ browser content must not reach Nagi system APIs directly.
   same production IPC work still open for M19 and M21.
 - `./nagi m18` now verifies a real QMP-driven copy/paste and an ungestured
   read denial in QEMU.
+
+## Relationship to CLIP-01 (`crates/nagi-clipboard-core`, Nagi 0.2)
+
+CLIP-01 is the 0.2 host-only clipboard / data-transfer contract: a typed
+multi-representation content model, generations, and an injected
+`ClipboardAuthorizer` seam keyed by `CallerContext`, with no target service
+and no gesture policy. `nagi-clipboard` is the 0.1 guest service: text only,
+and its substance is the user-gesture authority (one-shot paste grants and
+activation-gated writes per scope). The two are complementary, not
+alternatives:
+
+- When CLIP-01 is adopted on the target, its service replaces
+  `nagi-clipboard`'s text store and content model.
+- `nagi-clipboard`'s gesture rules become a `ClipboardAuthorizer`
+  implementation layered on the `clipboard.read` / `clipboard.write`
+  permission decision: the permission says whether a caller may ever use the
+  clipboard, the gesture says whether this particular read or write was
+  requested by the user.
+- Until then no second content model is added to 0.1, and CLIP-01 is not
+  modified by the 0.1 work.
