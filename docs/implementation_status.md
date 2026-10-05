@@ -9639,5 +9639,31 @@ Local run passed (`Nagi M18 download saved path=/Downloads/nagi-download.txt
 bytes=16`); evidence under `out/evidence/m29-browser-1791205629214489000/`. `nagi-albert` 87 tests and `nagi-cli`
 258 tests pass with warning-denied Clippy.
 
-M18's remaining gaps are the production authenticated permission
-policy/IPC provider and interactive QEMU permission-prompt acceptance.
+## M18 interactive site-permission acceptance (2026-10-05)
+
+No web page could reach Albert's permission prompt: Servo's Permissions,
+StorageManager, and Notification APIs are all preference-disabled by
+default. Albert now enables the Notification API
+(`dom_notification_enabled`), so `Notification.requestPermission()` on a
+secure page sends a real `PermissionRequest` through Albert's broker and
+localized modal. Nagi has no notification presenter yet, so granted
+notifications are not displayed. `navigator.storage` stays disabled:
+`persist()` reached the prompt and was allowed, but never resolved against
+Servo's client storage on Nagi (recorded, not fixed).
+
+After the three HTTPS pages, the M18 scenario calls
+`Notification.requestPermission()` on `example.net` through Servo's
+`evaluate_javascript`, waits for Albert's prompt
+(`Nagi M18 permission prompt READY`), and the harness clicks Allow at
+(253,145) — a coordinate pinned by a `nagi-albert` unit test — then returns
+the pointer. The validator requires the prompt, `ALLOWED_BY_USER`, and the
+page receiving `granted`. Local run passed; evidence under `out/evidence/m29-browser-1791206717974462000/`.
+
+With this, every M18 deliverable in the specification has a real-QEMU
+evidence path: chrome, tabs, address bar, navigation, history/bookmarks/
+session persistence (saves now succeed), downloads, uploads, clipboard, IME
+(kana; kanji deferred by ADR 0054), site permissions, and HTTPS. M18 stays
+`PARTIAL` until authoritative CI (`nagi-target`) passes this full scenario
+on `main`; then it can be recorded as `PASS`, with the known limits above
+(in-process browser services, no notification presenter, no kanji
+conversion, the StorageManager hang).

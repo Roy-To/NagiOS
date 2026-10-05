@@ -186,6 +186,29 @@ const M18_DOWNLOAD_CLICK_EVENTS: [&str; 1] = [r#"{
         ]}
     }"#];
 
+/// Permission step: click Allow on Albert's prompt at (253,145) — pinned by
+/// nagi-albert's `m18_harness_allow_click_lands_on_allow` — from the
+/// address-bar click at (100,30), then return the pointer there so later
+/// relative moves are unchanged.
+const M18_PERMISSION_ALLOW_EVENTS: [&str; 2] = [
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"rel","data":{"axis":"x","value":153}},
+            {"type":"rel","data":{"axis":"y","value":115}},
+            {"type":"btn","data":{"button":"left","down":true}},
+            {"type":"btn","data":{"button":"left","down":false}}
+        ]}
+    }"#,
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"rel","data":{"axis":"x","value":-153}},
+            {"type":"rel","data":{"axis":"y","value":-115}}
+        ]}
+    }"#,
+];
+
 const M18_INPUT_EVENTS: [&str; 2] = [
     r#"{
         "execute":"input-send-event",
@@ -7322,6 +7345,10 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             &M18_INPUT_EVENTS,
             &[
                 QmpEventStage {
+                    marker: "Nagi M18 permission prompt READY",
+                    events: &M18_PERMISSION_ALLOW_EVENTS,
+                },
+                QmpEventStage {
                     marker: "Nagi M18 clipboard page READY",
                     events: &M18_CLIPBOARD_COPY_EVENTS,
                 },
@@ -7397,7 +7424,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; gesture-bound clipboard copy/paste, Japanese IME composition, trusted-picker upload, and user-activated download passed (exit {}; log {}; screenshot {})",
+            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; a user-answered site-permission prompt, gesture-bound clipboard copy/paste, Japanese IME composition, trusted-picker upload, and user-activated download passed (exit {}; log {}; screenshot {})",
             outcome.exit_status,
             log_path.display(),
             screenshot_path.display(),
