@@ -117,7 +117,9 @@ impl BlockDevice for SyscallBlockDevice {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FileHandle {
     inode: u32,
-    generation: u16,
+    /// The inode's generation when the handle was issued; a handle to a
+    /// deleted and reused inode no longer validates.
+    generation: u32,
 }
 
 impl FileHandle {
@@ -130,6 +132,10 @@ impl FileHandle {
 
     pub const fn inode(self) -> u32 {
         self.inode
+    }
+
+    pub const fn generation(self) -> u32 {
+        self.generation
     }
 }
 
@@ -173,11 +179,15 @@ struct InodeInfo {
     extra_blocks: [u32; DIRECT_BLOCKS - 1],
     /// `i_block[12]`, the single-indirect block, or 0.
     indirect_block: u32,
+    /// ext2 `i_generation`; 0 on volumes written before generations.
+    generation: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FileMetadata {
     pub inode: u32,
+    /// Distinguishes successive files that reuse the same inode number.
+    pub generation: u32,
     pub mode: u16,
     pub uid: u16,
     pub gid: u16,
@@ -302,14 +312,7 @@ impl<D: BlockDevice> Vfs<D> {
         if inode.mode & 0xf000 != 0x8000 {
             return Err(StorageError::InvalidHandle);
         }
-        self.validate_handle(FileHandle {
-            inode: inode_number,
-            generation: 1,
-        })?;
-        Ok(FileHandle {
-            inode: inode_number,
-            generation: 1,
-        })
+        self.handle_for(inode_number)
     }
 
     pub fn metadata_path(&mut self, path: &[u8]) -> Result<FileMetadata, StorageError> {
@@ -356,6 +359,13 @@ impl<D: BlockDevice> Vfs<D> {
             return Err(StorageError::AlreadyExists);
         }
         let inode = self.allocate_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)?;
+        let generation = match self.next_generation(inode) {
+            Ok(generation) => generation,
+            Err(error) => {
+                self.clear_bit(INODE_BITMAP, inode - 1)?;
+                return Err(error);
+            }
+        };
         let data_block = match self.allocate_bit(BLOCK_BITMAP, FIRST_FILE_BLOCK, EXT2_BLOCK_COUNT) {
             Ok(block) => block,
             Err(error) => {
@@ -378,6 +388,7 @@ impl<D: BlockDevice> Vfs<D> {
                 direct_block: data_block,
                 extra_blocks: [0; DIRECT_BLOCKS - 1],
                 indirect_block: 0,
+                generation,
             },
         )?;
         if let Err(error) = self.add_directory_entry_in_directory(parent_inode, name, inode, 1) {
@@ -386,10 +397,7 @@ impl<D: BlockDevice> Vfs<D> {
             return Err(error);
         }
         self.adjust_free_counts(-1, -1)?;
-        Ok(FileHandle {
-            inode,
-            generation: 1,
-        })
+        Ok(FileHandle { inode, generation })
     }
 
     pub fn mkdir(&mut self, name: &[u8]) -> Result<(), StorageError> {
@@ -411,6 +419,14 @@ impl<D: BlockDevice> Vfs<D> {
                 return Err(error);
             }
         };
+        let generation = match self.next_generation(inode) {
+            Ok(generation) => generation,
+            Err(error) => {
+                self.clear_bit(INODE_BITMAP, inode - 1)?;
+                self.clear_bit(BLOCK_BITMAP, data_block)?;
+                return Err(error);
+            }
+        };
         let now = current_timestamp();
         self.write_inode(
             inode,
@@ -426,6 +442,7 @@ impl<D: BlockDevice> Vfs<D> {
                 direct_block: data_block,
                 extra_blocks: [0; DIRECT_BLOCKS - 1],
                 indirect_block: 0,
+                generation,
             },
         )?;
         let mut directory = [0; BLOCK_SIZE];
@@ -472,14 +489,7 @@ impl<D: BlockDevice> Vfs<D> {
     pub fn open(&mut self, name: &[u8]) -> Result<FileHandle, StorageError> {
         validate_name(name)?;
         let inode = self.find_inode(name)?.ok_or(StorageError::NotFound)?;
-        self.validate_handle(FileHandle {
-            inode,
-            generation: 1,
-        })?;
-        Ok(FileHandle {
-            inode,
-            generation: 1,
-        })
+        self.handle_for(inode)
     }
 
     pub fn rename(&mut self, old_name: &[u8], new_name: &[u8]) -> Result<FileHandle, StorageError> {
@@ -503,10 +513,7 @@ impl<D: BlockDevice> Vfs<D> {
         write_u8(&mut directory, offset + 6, new_name.len() as u8);
         copy_bytes_to_offset(&mut directory, offset + 8, new_name);
         self.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
-        Ok(FileHandle {
-            inode,
-            generation: 1,
-        })
+        self.handle_for(inode)
     }
 
     /// Replace a root entry in one directory-block update. The destination
@@ -544,10 +551,7 @@ impl<D: BlockDevice> Vfs<D> {
         let released = self.release_inode_blocks(&destination_inode)?;
         self.clear_inode(destination_inode_number)?;
         self.adjust_free_counts(released as i32, 1)?;
-        Ok(FileHandle {
-            inode: source_inode_number,
-            generation: 1,
-        })
+        self.handle_for(source_inode_number)
     }
 
     pub fn list_root(&mut self, entries: &mut [DirectoryEntry]) -> Result<usize, StorageError> {
@@ -799,6 +803,7 @@ impl<D: BlockDevice> Vfs<D> {
                 direct_block: ROOT_DIRECTORY_BLOCK,
                 extra_blocks: [0; DIRECT_BLOCKS - 1],
                 indirect_block: 0,
+                generation: 0,
             },
         )?;
 
@@ -1348,6 +1353,8 @@ impl<D: BlockDevice> Vfs<D> {
     }
 
     fn clear_inode(&mut self, inode: u32) -> Result<(), StorageError> {
+        // Keep the generation so the next file in this slot gets a new one.
+        let generation = self.read_inode(inode)?.generation;
         self.write_inode(
             inode,
             InodeInfo {
@@ -1362,19 +1369,42 @@ impl<D: BlockDevice> Vfs<D> {
                 direct_block: 0,
                 extra_blocks: [0; DIRECT_BLOCKS - 1],
                 indirect_block: 0,
+                generation,
             },
         )
     }
 
+    /// Generation for a file about to occupy inode slot `inode`: always
+    /// greater than any generation previously issued for that slot.
+    fn next_generation(&mut self, inode: u32) -> Result<u32, StorageError> {
+        let previous = self.read_inode(inode)?.generation;
+        Ok(effective_generation(previous).wrapping_add(1).max(2))
+    }
+
+    /// Issue a handle for an existing regular-file inode.
+    fn handle_for(&mut self, inode_number: u32) -> Result<FileHandle, StorageError> {
+        let inode = self.read_inode(inode_number)?;
+        if inode.mode & 0xf000 != 0x8000 || inode.direct_block == 0 {
+            return Err(StorageError::InvalidHandle);
+        }
+        Ok(FileHandle {
+            inode: inode_number,
+            generation: effective_generation(inode.generation),
+        })
+    }
+
     fn validate_handle(&mut self, handle: FileHandle) -> Result<InodeInfo, StorageError> {
-        if handle.generation != 1
+        if handle.generation == 0
             || handle.inode < FIRST_FILE_INODE
             || handle.inode > EXT2_INODE_COUNT
         {
             return Err(StorageError::InvalidHandle);
         }
         let inode = self.read_inode(handle.inode)?;
-        if inode.mode & 0xf000 != 0x8000 || inode.direct_block == 0 {
+        if inode.mode & 0xf000 != 0x8000
+            || inode.direct_block == 0
+            || effective_generation(inode.generation) != handle.generation
+        {
             return Err(StorageError::InvalidHandle);
         }
         Ok(inode)
@@ -1400,6 +1430,7 @@ impl<D: BlockDevice> Vfs<D> {
             direct_block: read_u32(&bytes, offset + 40),
             extra_blocks: read_extra_blocks(&bytes, offset),
             indirect_block: read_u32(&bytes, offset + 40 + DIRECT_BLOCKS * 4),
+            generation: read_u32(&bytes, offset + 100),
         })
     }
 
@@ -1428,6 +1459,7 @@ impl<D: BlockDevice> Vfs<D> {
             offset + 40 + DIRECT_BLOCKS * 4,
             info.indirect_block,
         );
+        write_u32(&mut bytes, offset + 100, info.generation);
         self.write_block(block, &bytes)
     }
 
@@ -1465,6 +1497,7 @@ impl<D: ReadOnlyBlockDevice> Vfs<D> {
 fn metadata_from_inode(inode: u32, info: InodeInfo) -> FileMetadata {
     FileMetadata {
         inode,
+        generation: effective_generation(info.generation),
         mode: info.mode,
         uid: info.uid,
         gid: info.gid,
@@ -1858,6 +1891,12 @@ fn check_vfs_integrity<D: ReadOnlyBlockDevice>(
     })
 }
 
+/// Volumes written before generations store 0; handles issued for them
+/// used generation 1, so 0 reads as 1.
+fn effective_generation(raw: u32) -> u32 {
+    raw.max(1)
+}
+
 fn check_data_block(block: u32) -> Result<(), StorageError> {
     if (RESERVED_BLOCKS..EXT2_BLOCK_COUNT).contains(&block) {
         Ok(())
@@ -1911,6 +1950,7 @@ fn read_inode_from_device<D: ReadOnlyBlockDevice>(
         direct_block: read_u32(&bytes, offset + 40),
         extra_blocks: read_extra_blocks(&bytes, offset),
         indirect_block: read_u32(&bytes, offset + 40 + DIRECT_BLOCKS * 4),
+        generation: read_u32(&bytes, offset + 100),
     })
 }
 
@@ -2236,6 +2276,49 @@ mod tests {
         assert_eq!(inode.blocks, 2);
         assert!(inode.extra_blocks.iter().all(|pointer| *pointer == 0));
         assert_eq!(inode.indirect_block, 0);
+    }
+
+    #[test]
+    fn reused_inodes_get_new_generations_and_stale_handles_fail() {
+        let (mut volume, _) = Vfs::mount_or_format(FullVolumeDevice::new()).expect("format");
+        let first = volume.create(b"doc.txt").expect("create");
+        volume.write(first, b"first").expect("write");
+        volume.remove(b"doc.txt").expect("remove");
+        let second = volume.create(b"doc.txt").expect("recreate");
+        assert_eq!(second.inode(), first.inode(), "the slot is reused");
+        assert!(second.generation() > first.generation());
+        assert_eq!(
+            volume.read(first, &mut [0; 8]),
+            Err(StorageError::InvalidHandle)
+        );
+        assert_eq!(volume.open(b"doc.txt"), Ok(second));
+        let metadata = volume.metadata(second).expect("metadata");
+        assert_eq!(metadata.generation, second.generation());
+
+        // Rename keeps the same file, so the handle stays valid.
+        assert_eq!(volume.rename(b"doc.txt", b"new.txt"), Ok(second));
+        volume
+            .write(second, b"still mine")
+            .expect("write after rename");
+    }
+
+    #[test]
+    fn inodes_written_before_generations_keep_their_handles() {
+        let (mut volume, _) = Vfs::mount_or_format(FullVolumeDevice::new()).expect("format");
+        let handle = volume.create(b"legacy.txt").expect("create");
+        volume.write(handle, b"old").expect("write");
+        let mut inode = volume.read_inode(handle.inode()).expect("inode");
+        inode.generation = 0;
+        volume
+            .write_inode(handle.inode(), inode)
+            .expect("legacy inode");
+        let legacy = volume.open(b"legacy.txt").expect("open legacy");
+        assert_eq!(legacy.generation(), 1);
+        let mut contents = [0; 8];
+        assert_eq!(volume.read(legacy, &mut contents), Ok(3));
+        volume.remove(b"legacy.txt").expect("remove");
+        let reused = volume.create(b"legacy.txt").expect("recreate");
+        assert!(reused.generation() > 1);
     }
 
     #[test]

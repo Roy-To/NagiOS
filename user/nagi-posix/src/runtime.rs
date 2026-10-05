@@ -460,6 +460,7 @@ pub fn register_static_file(
 fn static_file_metadata(length: usize) -> FileMetadata {
     FileMetadata {
         inode: 0,
+        generation: 1,
         mode: STATIC_FILE_MODE,
         uid: 0,
         gid: 0,

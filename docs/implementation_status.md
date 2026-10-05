@@ -9667,3 +9667,26 @@ session persistence (saves now succeed), downloads, uploads, clipboard, IME
 on `main`; then it can be recorded as `PASS`, with the known limits above
 (in-process browser services, no notification presenter, no kanji
 conversion, the StorageManager hang).
+
+## VFS inode generations and M19 file identity (2026-10-05)
+
+ADR 0057 closes M19's "identity across delete/recreate and inode reuse"
+blocker. The VFS now stores ext2 `i_generation`: each new file or directory
+in a slot gets a generation above any previously issued for it, cleared
+inodes keep theirs, and pre-existing inodes (0) read as generation 1 so
+their handles and Search records keep working without migration.
+`FileHandle` validates the generation, so a handle to a deleted file is
+rejected after its slot is reused; `FileMetadata` exposes the generation.
+M19 Files indexing keys identity on (inode, generation) via the new
+`nagi.files.vfs_generation` attribute and removes a record whose inode was
+reused by another file.
+
+`./nagi m19` now deletes and recreates `nagi-m19-reuse.txt`, requires the
+same inode with a higher generation, a new `ObjectId`, and the old record
+gone (`Nagi M19 trace inode reuse assigned a new ObjectId`), and passes.
+`./nagi m22`, `m27`, `m29`, and `m18` also pass on this VFS. `libnagi` 51
+tests (two new), `nagi-cli` 259, warning-denied Clippy.
+
+M19 remains `PARTIAL`: continuous synchronization with production
+Files/page producers is still open; Search indexes files when its producer
+runs.

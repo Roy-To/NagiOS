@@ -44,10 +44,15 @@ const ACCESS: AccessContext = AccessContext::for_application(APP_ID, SESSION_ID)
 const FILE_ID_BASE: u64 = 0x4e41_4749_4d19_1000;
 const FILE_INDEXER_ATTRIBUTE: &str = "nagi.files.indexer";
 const FILE_INODE_ATTRIBUTE: &str = "nagi.files.vfs_inode";
+/// VFS inode generation (ADR 0057). Records written before generations lack
+/// it and are read as generation 1, matching their original handles.
+const FILE_GENERATION_ATTRIBUTE: &str = "nagi.files.vfs_generation";
 const FILE_INDEXER_ID: &str = "m19-vfs-files-fixture";
 const LIVE_FILE_SOURCE: &[u8] = b"nagi-m19-live-source.txt";
 const LIVE_FILE_RENAMED: &[u8] = b"nagi-m19-live-file.txt";
 const LIVE_FILE_CONTENT: &[u8] = b"A real guest VFS file indexed by Nagi Search.\n";
+/// Scratch file deleted and recreated to prove inode-reuse identity.
+const REUSE_FILE: &[u8] = b"nagi-m19-reuse.txt";
 const MAX_M19_ROOT_ENTRIES: usize = 64;
 const M24_FIXTURE_HIDDEN_OBJECT: ObjectId = ObjectId(0x4e41_4749_4d24_ffff);
 const M24_FIXTURE_SPACE: EmbeddingSpaceId = EmbeddingSpaceId([0x24; 32]);
@@ -739,8 +744,19 @@ fn indexed_file_records(service: &M19SearchService) -> Option<Vec<MetadataRecord
 
 struct LiveFileProjection {
     inode: u32,
+    generation: u32,
     name: String,
     modified_at: i64,
+}
+
+/// The (inode, generation) identity a Files record was indexed for.
+fn record_file_identity(record: &MetadataRecord) -> Option<(u32, u32)> {
+    let inode = record.attributes.get(FILE_INODE_ATTRIBUTE)?.parse().ok()?;
+    let generation = match record.attributes.get(FILE_GENERATION_ATTRIBUTE) {
+        Some(value) => value.parse().ok()?,
+        None => 1,
+    };
+    Some((inode, generation))
 }
 
 fn project_live_file(
@@ -762,6 +778,7 @@ fn project_live_file(
         }
         return Some(LiveFileProjection {
             inode: metadata.inode,
+            generation: metadata.generation,
             name: String::from(name),
             modified_at: i64::from(metadata.mtime),
         });
@@ -769,19 +786,65 @@ fn project_live_file(
     None
 }
 
+/// Delete and recreate a file so its inode slot is reused: the new file must
+/// get a new ObjectId and the deleted file's record must leave the index.
+fn inode_reuse_gets_a_new_object_id(block_capability: u64, service: &mut M19SearchService) -> bool {
+    let index_reuse_file = |service: &mut M19SearchService, contents: &[u8]| {
+        let mut volume = open_volume(block_capability).ok()?;
+        let _ = volume.remove(REUSE_FILE);
+        let handle = volume.create(REUSE_FILE).ok()?;
+        volume.write(handle, contents).ok()?;
+        volume.flush().ok()?;
+        let projection = project_live_file(&mut volume, REUSE_FILE)?;
+        let identity = (projection.inode, projection.generation);
+        Some((index_live_file(service, projection)?, identity))
+    };
+    let Some((first_id, (first_inode, first_generation))) = index_reuse_file(service, b"first")
+    else {
+        return false;
+    };
+    let Some((second_id, (second_inode, second_generation))) = index_reuse_file(service, b"second")
+    else {
+        return false;
+    };
+    let reused_slot = first_inode == second_inode && second_generation > first_generation;
+    let stale_gone = service.get_object(ACCESS, first_id).is_none();
+    let cleaned = open_volume(block_capability)
+        .and_then(|mut volume| volume.remove(REUSE_FILE).and_then(|()| volume.flush()))
+        .is_ok()
+        && service.remove_record(second_id, 0).is_ok();
+    reused_slot && first_id != second_id && stale_gone && cleaned
+}
+
 fn index_live_file(service: &mut M19SearchService, file: LiveFileProjection) -> Option<ObjectId> {
     let existing_records = indexed_file_records(service)?;
     let inode_key = file.inode.to_string();
-    let existing = existing_records.iter().find(|record| {
+    let identity = (file.inode, file.generation);
+    let indexed_here = |record: &&MetadataRecord| {
         record
             .attributes
             .get(FILE_INDEXER_ATTRIBUTE)
             .is_some_and(|indexer| indexer == FILE_INDEXER_ID)
-            && record
-                .attributes
-                .get(FILE_INODE_ATTRIBUTE)
-                .is_some_and(|value| value == &inode_key)
-    });
+    };
+    // A record for this inode number with another generation describes a
+    // deleted file whose slot was reused; it must not lend its ObjectId.
+    for stale in existing_records
+        .iter()
+        .filter(indexed_here)
+        .filter(|record| {
+            record_file_identity(record).is_some_and(|(inode, generation)| {
+                inode == file.inode && generation != file.generation
+            })
+        })
+    {
+        service
+            .remove_record(stale.object_id, file.modified_at)
+            .ok()?;
+    }
+    let existing = existing_records
+        .iter()
+        .filter(indexed_here)
+        .find(|record| record_file_identity(record) == Some(identity));
     let object_id = if let Some(record) = existing {
         record.object_id
     } else {
@@ -824,6 +887,10 @@ fn index_live_file(service: &mut M19SearchService, file: LiveFileProjection) -> 
     record
         .attributes
         .insert(FILE_INODE_ATTRIBUTE.to_string(), inode_key);
+    record.attributes.insert(
+        FILE_GENERATION_ATTRIBUTE.to_string(),
+        file.generation.to_string(),
+    );
     service.upsert_record(record).ok()?;
     Some(object_id)
 }
@@ -1163,6 +1230,10 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
     };
     let object_id_after_restart = index_live_file(&mut service, remounted_projection)?;
     libnagi::console_write(b"Nagi M19 trace ObjectId stable after remount\r\n");
+    if !inode_reuse_gets_a_new_object_id(block_capability, &mut service) {
+        return None;
+    }
+    libnagi::console_write(b"Nagi M19 trace inode reuse assigned a new ObjectId\r\n");
     let query = SearchQuery {
         text: Some(String::from("persisted object")),
         workspace: Some(WORKSPACE_ID),
