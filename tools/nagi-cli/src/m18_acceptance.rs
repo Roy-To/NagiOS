@@ -4,11 +4,18 @@ const CHROME_PRESENTED_PREFIX: &str = "Nagi M18 browser chrome PRESENTED ";
 const PAGE_RENDERED_PREFIX: &str = "Nagi M18 HTTPS page RENDERED ";
 const INPUT_NAVIGATION_LINE: &str = "Nagi M18 browser input navigation PASS host=example.com";
 const SUMMARY_LINE: &str = "Nagi M18 browser scenario complete pages=3";
+/// Minimum non-background pixels in each Servo page frame. A page that
+/// painted only its background (for example with no usable font) has none.
+const MIN_INK_PIXELS: u32 = 200;
 /// Clipboard evidence, required in this order after the HTTPS pages and
 /// before the summary.
-const CLIPBOARD_LINES: [&str; 3] = [
+const CLIPBOARD_UNGESTURED_DENIAL: &str =
+    "Nagi M18 clipboard ungestured read DENIED reason=no-user-gesture";
+const CLIPBOARD_LINES: [&str; 5] = [
     "Nagi M18 clipboard page READY",
-    "Nagi M18 clipboard ungestured read DENIED reason=no-user-gesture",
+    "Nagi M18 clipboard copy observed",
+    "Nagi M18 clipboard destination focused",
+    CLIPBOARD_UNGESTURED_DENIAL,
     "Nagi M18 clipboard copy/paste PASS",
 ];
 /// IME evidence, required in this order after the clipboard evidence.
@@ -95,6 +102,14 @@ pub(crate) fn validate_serial_log(serial: &str) -> Result<(), String> {
                 .ok_or_else(|| format!("invalid frame checksum for {host}"))?;
             if checksum == 0 {
                 return Err(format!("zero frame checksum for {host}"));
+            }
+            let ink = token_value(&tokens, "ink_pixels=")
+                .and_then(|value| value.parse::<u32>().ok())
+                .ok_or_else(|| format!("missing ink_pixels for {host}"))?;
+            if ink < MIN_INK_PIXELS {
+                return Err(format!(
+                    "{host} rendered only {ink} non-background pixels; expected at least {MIN_INK_PIXELS} (blank page?)"
+                ));
             }
 
             rendered_hosts[host_index] = true;
@@ -194,7 +209,7 @@ fn validate_clipboard_evidence(
     if let Some((line_number, line)) = serial.lines().enumerate().find(|(_, line)| {
         line.starts_with("Nagi M18 clipboard ")
             && line.contains(" DENIED")
-            && *line != CLIPBOARD_LINES[1]
+            && *line != CLIPBOARD_UNGESTURED_DENIAL
     }) {
         return Err(format!(
             "clipboard service denied a user operation on line {}: {line}",
@@ -233,7 +248,7 @@ mod tests {
             }
             lines.push(format!("{CHROME_PRESENTED_PREFIX}host={host}"));
             lines.push(format!(
-                "{PAGE_RENDERED_PREFIX}host={host} frame_checksum=0x{:08x}",
+                "{PAGE_RENDERED_PREFIX}host={host} frame_checksum=0x{:08x} ink_pixels=4000",
                 index + 1
             ));
         }
@@ -286,10 +301,10 @@ mod tests {
             .contains("out of order"));
 
         let denied = valid_serial().replace(
-            CLIPBOARD_LINES[2],
+            CLIPBOARD_LINES[4],
             &format!(
                 "Nagi M18 clipboard read DENIED reason=no-user-gesture\n{}",
-                CLIPBOARD_LINES[2]
+                CLIPBOARD_LINES[4]
             ),
         );
         assert!(validate_serial_log(&denied)
@@ -303,9 +318,21 @@ mod tests {
     }
 
     #[test]
+    fn rejects_blank_pages_without_ink() {
+        let blank = valid_serial().replacen("ink_pixels=4000", "ink_pixels=0", 1);
+        assert!(validate_serial_log(&blank)
+            .unwrap_err()
+            .contains("non-background pixels"));
+        let missing = valid_serial().replacen(" ink_pixels=4000", "", 1);
+        assert!(validate_serial_log(&missing)
+            .unwrap_err()
+            .contains("missing ink_pixels"));
+    }
+
+    #[test]
     fn rejects_missing_page_evidence() {
         let serial = valid_serial().replace(
-            "Nagi M18 HTTPS page RENDERED host=example.org frame_checksum=0x00000002\n",
+            "Nagi M18 HTTPS page RENDERED host=example.org frame_checksum=0x00000002 ink_pixels=4000\n",
             "",
         );
         assert!(validate_serial_log(&serial)
@@ -373,7 +400,9 @@ mod tests {
     fn rejects_page_rendered_before_tls_validation() {
         let tls = format!("{TLS_PASS_PREFIX}host=example.org chain=verified hostname=verified");
         let chrome = format!("{CHROME_PRESENTED_PREFIX}host=example.org");
-        let page = format!("{PAGE_RENDERED_PREFIX}host=example.org frame_checksum=0x00000002");
+        let page = format!(
+            "{PAGE_RENDERED_PREFIX}host=example.org frame_checksum=0x00000002 ink_pixels=4000"
+        );
         let serial = valid_serial().replace(
             &format!("{tls}\n{chrome}\n{page}"),
             &format!("{page}\n{tls}\n{chrome}"),
@@ -396,7 +425,9 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_rendered_page_events() {
-        let page = format!("{PAGE_RENDERED_PREFIX}host=example.org frame_checksum=0x00000002");
+        let page = format!(
+            "{PAGE_RENDERED_PREFIX}host=example.org frame_checksum=0x00000002 ink_pixels=4000"
+        );
         let serial = valid_serial().replace(&format!("{page}\n"), &format!("{page}\n{page}\n"));
         assert!(validate_serial_log(&serial)
             .unwrap_err()

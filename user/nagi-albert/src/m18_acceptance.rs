@@ -123,6 +123,12 @@ mod guest {
     const WIDTH: u32 = 320;
     const HEIGHT: u32 = 200;
     const PAGE_TIMEOUT_TICKS: u64 = 3_000;
+    /// Up to ~3 s for the frame that shows a just-observed DOM change.
+    const SETTLE_FRAME_TICKS: u64 = 300;
+    /// A frame pipeline idle for ~0.5 s is treated as settled.
+    const SETTLE_QUIET_TICKS: u64 = 50;
+    /// Summed RGB distance from the page background that counts as ink.
+    const INK_THRESHOLD: u32 = 96;
     const PERMISSION_PROMPT_TIMEOUT_TICKS: u64 = 3_000;
     const MAX_PERMISSION_INPUT_DRAIN: usize = 64;
 
@@ -175,6 +181,10 @@ mod guest {
 
         fn reset(&self) {
             self.navigation_started.set(false);
+            self.frame_ready.set(false);
+        }
+
+        fn clear_frame(&self) {
             self.frame_ready.set(false);
         }
 
@@ -562,6 +572,42 @@ mod guest {
         }
     }
 
+    /// Paint a frame Servo reports ready, as an embedder must before Servo
+    /// produces the next one. Returns whether a frame was consumed.
+    fn pump_frame(runtime: &TabRuntime) -> bool {
+        if !runtime.delegate.has_frame() {
+            return false;
+        }
+        runtime.delegate.clear_frame();
+        runtime.webview.paint();
+        true
+    }
+
+    /// After a DOM change observed through script, keep consuming frames
+    /// until Servo stops producing new ones (bounded), then present. A quiet
+    /// pipeline does not fail acceptance; the current frame is presented.
+    fn present_settled_frame(
+        servo: &Servo,
+        context: &SoftwareRenderingContext,
+        signal: &Arc<EventLoopSignal>,
+        surface: &mut NagiSurface,
+        browser_state: &BrowserState,
+        runtime: &TabRuntime,
+    ) -> bool {
+        let deadline = libnagi::time_ticks().saturating_add(SETTLE_FRAME_TICKS);
+        let mut quiet_since = libnagi::time_ticks();
+        while libnagi::time_ticks() < deadline
+            && libnagi::time_ticks().saturating_sub(quiet_since) < SETTLE_QUIET_TICKS
+        {
+            servo.spin_event_loop();
+            if pump_frame(runtime) {
+                quiet_since = libnagi::time_ticks();
+            }
+            yield_guest_workers(signal);
+        }
+        present_browser_surface(context, &runtime.webview, surface, browser_state, None)
+    }
+
     fn frame_rectangle() -> DeviceIntRect {
         DeviceIntRect::from_origin_and_size(
             DeviceIntPoint::zero(),
@@ -593,11 +639,12 @@ mod guest {
         libnagi::console_write(&line[..length]) == length
     }
 
-    fn report_page(host: &str, frame_checksum: u32) -> bool {
+    fn report_page(host: &str, frame_checksum: u32, ink_pixels: u32) -> bool {
         let prefix = b"Nagi M18 HTTPS page RENDERED host=";
         let middle = b" frame_checksum=0x";
-        let suffix = b"\r\n";
-        let mut line = [0_u8; 128];
+        let ink = format!(" ink_pixels={ink_pixels}\r\n");
+        let suffix = ink.as_bytes();
+        let mut line = [0_u8; 160];
         let mut cursor = 0;
         for part in [prefix.as_slice(), host.as_bytes(), middle.as_slice()] {
             line[cursor..cursor + part.len()].copy_from_slice(part);
@@ -1405,7 +1452,11 @@ mod guest {
         if !report_chrome(host) {
             fail(b"serial chrome evidence write failed");
         }
-        if !report_page(host, frame_checksum) {
+        // Count non-background pixels in Servo's own frame (before chrome is
+        // composed) so a page that painted only its background is visible
+        // in the evidence and rejected by the host validator.
+        let ink = crate::frame_analysis::ink_pixels(frame, WIDTH, HEIGHT, INK_THRESHOLD);
+        if !report_page(host, frame_checksum, ink) {
             fail(b"serial page evidence write failed");
         }
     }
@@ -1431,7 +1482,7 @@ mod guest {
     /// the guest can observe the paste without evaluating page script.
     const CLIPBOARD_TOKEN: &str = "nagi-clip-7f3a";
     const CLIPBOARD_READY_TITLE: &str = "nagi-clip:ready";
-    const CLIPBOARD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20id%3Ds%20value%3Dnagi-clip-7f3a%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A60px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cinput%20id%3Dd%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A120px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cscript%3Evar%20s%3Ddocument.getElementById%28%27s%27%29%2Cd%3Ddocument.getElementById%28%27d%27%29%3Bd.addEventListener%28%27input%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3A%27%2Bd.value%3B%7D%29%3Bd.addEventListener%28%27compositionend%27%2Cfunction%28e%29%7BsetTimeout%28function%28%29%7Bdocument.title%3D%27nagi-ime%3A%27%2Be.data%2B%27%7C%27%2Bd.value%3B%7D%2C0%29%3B%7D%29%3Bdocument.addEventListener%28%27keydown%27%2Cfunction%28e%29%7Bvar%20a%3Ddocument.activeElement%3Bdocument.title%3D%27nagi-clip%3Akey%3A%27%2Be.key%2B%27%3A%27%2B%28e.ctrlKey%3F1%3A0%29%2B%27%3A%27%2B%28a%26%26a.id%3Fa.id%3A%27none%27%29%2B%27%3A%27%2B%28a%26%26a.selectionStart%21%3Dnull%3Fa.selectionStart%2B%27-%27%2Ba.selectionEnd%3A%27na%27%29%3B%7D%29%3Bs.focus%28%29%3Bs.select%28%29%3Bdocument.title%3D%27nagi-clip%3Aready%27%3B%3C%2Fscript%3E";
+    const CLIPBOARD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20id%3Ds%20value%3Dnagi-clip-7f3a%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A60px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cinput%20id%3Dd%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A120px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cscript%3Evar%20s%3Ddocument.getElementById%28%27s%27%29%2Cd%3Ddocument.getElementById%28%27d%27%29%3Bd.addEventListener%28%27focus%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3Afocus%3Ad%27%3B%7D%29%3Bd.addEventListener%28%27input%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3A%27%2Bd.value%3B%7D%29%3Bd.addEventListener%28%27compositionend%27%2Cfunction%28e%29%7BsetTimeout%28function%28%29%7Bdocument.title%3D%27nagi-ime%3A%27%2Be.data%2B%27%7C%27%2Bd.value%3B%7D%2C0%29%3B%7D%29%3Bdocument.addEventListener%28%27keydown%27%2Cfunction%28e%29%7Bvar%20a%3Ddocument.activeElement%3Bdocument.title%3D%27nagi-clip%3Akey%3A%27%2Be.key%2B%27%3A%27%2B%28e.ctrlKey%3F1%3A0%29%2B%27%3A%27%2B%28a%26%26a.id%3Fa.id%3A%27none%27%29%2B%27%3A%27%2B%28a%26%26a.selectionStart%21%3Dnull%3Fa.selectionStart%2B%27-%27%2Ba.selectionEnd%3A%27na%27%29%3B%7D%29%3Bs.focus%28%29%3Bs.select%28%29%3Bdocument.title%3D%27nagi-clip%3Aready%27%3B%3C%2Fscript%3E";
     /// Hiragana for the romaji `nihongo` that the M18 harness types.
     const IME_EXPECTED_COMMIT: &str = "にほんご";
 
@@ -1494,6 +1545,10 @@ mod guest {
 
         let expected_title = format!("nagi-clip:{CLIPBOARD_TOKEN}");
         let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+        // QEMU keyboard and pointer devices are separate queues, so the host
+        // sends each step only after the guest reports the previous one.
+        let mut copy_reported = false;
+        let mut focus_reported = false;
         loop {
             servo.spin_event_loop();
             if route_guest_input(
@@ -1515,6 +1570,18 @@ mod guest {
             let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
                 fail(b"clipboard acceptance tab closed");
             };
+            pump_frame(runtime);
+            if !copy_reported && services.counters.writes.get() > 0 {
+                copy_reported = true;
+                let _ = libnagi::console_write(b"Nagi M18 clipboard copy observed\r\n");
+            }
+            if copy_reported
+                && !focus_reported
+                && runtime.webview.page_title().as_deref() == Some("nagi-clip:focus:d")
+            {
+                focus_reported = true;
+                let _ = libnagi::console_write(b"Nagi M18 clipboard destination focused\r\n");
+            }
             if runtime.webview.page_title().as_deref() == Some(expected_title.as_str()) {
                 break;
             }
@@ -1564,7 +1631,7 @@ mod guest {
         let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
             fail(b"clipboard acceptance tab closed");
         };
-        if !present_browser_surface(context, &runtime.webview, surface, browser_state, None) {
+        if !present_settled_frame(servo, context, signal, surface, browser_state, runtime) {
             fail(b"clipboard result presentation failed");
         }
         if libnagi::console_write(b"Nagi M18 clipboard copy/paste PASS\r\n")
@@ -1638,6 +1705,7 @@ mod guest {
             let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
                 fail(b"IME acceptance tab closed");
             };
+            pump_frame(runtime);
             if runtime.webview.page_title().as_deref() == Some(expected_title.as_str()) {
                 break;
             }
@@ -1657,7 +1725,7 @@ mod guest {
         let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
             fail(b"IME acceptance tab closed");
         };
-        if !present_browser_surface(context, &runtime.webview, surface, browser_state, None) {
+        if !present_settled_frame(servo, context, signal, surface, browser_state, runtime) {
             fail(b"IME result presentation failed");
         }
         if libnagi::console_write(b"Nagi M18 IME commit PASS\r\n")

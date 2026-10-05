@@ -78,6 +78,12 @@ use nagi_albert::run_first_web_pixel;
 #[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
 use nagi_albert::run_m18_https_acceptance;
 
+/// Pinned system fonts embedded by build.rs (ADR 0045).
+#[cfg(all(target_os = "nagi", feature = "m17-servo"))]
+mod system_fonts {
+    include!(concat!(env!("OUT_DIR"), "/system_fonts.rs"));
+}
+
 #[cfg(all(target_os = "nagi", feature = "m20-llama-link-smoke"))]
 unsafe extern "C" {
     fn nagi_m20_llama_backend_init_smoke() -> i32;
@@ -1036,6 +1042,18 @@ pub extern "C" fn _start(
             libnagi::exit(1);
         }
         libnagi::console_write(b"Nagi M17 trace: temporary directory ready\r\n");
+        // Publish the pinned Noto fonts (ADR 0045) read-only for Servo.
+        for (path, data) in system_fonts::SYSTEM_FILES {
+            if nagi_posix::register_static_file(path, data).is_err() {
+                libnagi::console_write(b"Nagi M17 first web pixel FAIL system fonts\r\n");
+                libnagi::exit(1);
+            }
+        }
+        if system_fonts::SYSTEM_FILES.is_empty() {
+            libnagi::console_write(b"Nagi M17 first web pixel FAIL no system fonts\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M17 trace: system fonts published\r\n");
         #[cfg(feature = "m18-acceptance")]
         {
             libnagi::console_write(b"Nagi M18 browser trace: network initialization started\r\n");

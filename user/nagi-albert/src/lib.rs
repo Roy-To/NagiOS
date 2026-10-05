@@ -11,6 +11,7 @@ pub mod browser_state;
 pub mod chrome_surface;
 pub mod clipboard;
 pub mod downloads;
+pub mod frame_analysis;
 pub mod history;
 pub mod ime;
 pub mod input;

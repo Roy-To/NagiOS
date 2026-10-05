@@ -1,0 +1,67 @@
+format_version = 1
+
+# Exact system-font pins for Nagi 0.1 (ADR 0045). `./nagi fetch` downloads
+# each file into the ignored `out/cache/fonts/` cache and refuses any byte
+# that does not match `size_bytes` and `sha256`. Files with `guest_path` are
+# compiled into the Servo-enabled init image and published read-only at that
+# path; license texts accompany them in the cache and the image.
+
+[fonts.noto_sans_regular]
+component = "noto-sans"
+family = "Noto Sans"
+repository = "https://github.com/notofonts/notofonts.github.io"
+revision = "86eb2ddc3a2e97cb9747fd9069ee5d47880e3305"
+url = "https://raw.githubusercontent.com/notofonts/notofonts.github.io/86eb2ddc3a2e97cb9747fd9069ee5d47880e3305/fonts/NotoSans/hinted/ttf/NotoSans-Regular.ttf"
+file_name = "NotoSans-Regular.ttf"
+size_bytes = 621572
+sha256 = "478c558ea716033cd60c03438f628dfa75694dcf6b5f6d505a2f05fd2b4f3823"
+license = "OFL-1.1"
+guest_path = "/system/fonts/NotoSans-Regular.ttf"
+
+[fonts.noto_sans_bold]
+component = "noto-sans"
+family = "Noto Sans"
+repository = "https://github.com/notofonts/notofonts.github.io"
+revision = "86eb2ddc3a2e97cb9747fd9069ee5d47880e3305"
+url = "https://raw.githubusercontent.com/notofonts/notofonts.github.io/86eb2ddc3a2e97cb9747fd9069ee5d47880e3305/fonts/NotoSans/hinted/ttf/NotoSans-Bold.ttf"
+file_name = "NotoSans-Bold.ttf"
+size_bytes = 631484
+sha256 = "1df075a380fc7cb898acf64c1f7b3b4dd780de3caa860178bf929de35817a913"
+license = "OFL-1.1"
+guest_path = "/system/fonts/NotoSans-Bold.ttf"
+
+[fonts.noto_sans_license]
+component = "noto-sans"
+family = "Noto Sans"
+repository = "https://github.com/notofonts/notofonts.github.io"
+revision = "86eb2ddc3a2e97cb9747fd9069ee5d47880e3305"
+url = "https://raw.githubusercontent.com/notofonts/notofonts.github.io/86eb2ddc3a2e97cb9747fd9069ee5d47880e3305/fonts/LICENSE"
+file_name = "OFL-NotoSans.txt"
+size_bytes = 4374
+sha256 = "f2095b08bed08b23a6fe26112fcd679a2bee3f002eef077eb05d215ed1051bd8"
+license = "OFL-1.1"
+guest_path = "/system/fonts/OFL-NotoSans.txt"
+
+[fonts.noto_sans_jp_regular]
+component = "noto-sans-jp"
+family = "Noto Sans JP"
+repository = "https://github.com/notofonts/noto-cjk"
+revision = "f8d157532fbfaeda587e826d4cd5b21a49186f7c"
+url = "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/SubsetOTF/JP/NotoSansJP-Regular.otf"
+file_name = "NotoSansJP-Regular.otf"
+size_bytes = 4533028
+sha256 = "dff723ba59d57d136764a04b9b2d03205544f7cd785a711442d6d2d085ac5073"
+license = "OFL-1.1"
+guest_path = "/system/fonts/NotoSansJP-Regular.otf"
+
+[fonts.noto_sans_jp_license]
+component = "noto-sans-jp"
+family = "Noto Sans JP"
+repository = "https://github.com/notofonts/noto-cjk"
+revision = "f8d157532fbfaeda587e826d4cd5b21a49186f7c"
+url = "https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/LICENSE"
+file_name = "OFL-NotoSansCJK.txt"
+size_bytes = 4301
+sha256 = "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+license = "OFL-1.1"
+guest_path = "/system/fonts/OFL-NotoSansCJK.txt"

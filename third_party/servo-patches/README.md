@@ -81,3 +81,17 @@ The ordered patch `0017-nagi-m17-js-runtime-traces.patch` splits Servo's
 per-thread JavaScript runtime creation into engine-handle acquisition,
 SpiderMonkey Rust runtime construction, and JSContext retrieval checkpoints.
 It is diagnostic only, and other targets compile a no-op helper.
+
+The ordered patch `0026-nagi-m18-bundled-system-fonts.patch` replaces the
+empty Nagi system-font registry with the fonts Nagi 0.1 bundles: Noto Sans
+(Regular, Bold) and Noto Sans JP (Regular), published read-only under
+`/system/fonts/` by the Nagi POSIX layer (ADR 0045). A family is reported only
+when its file is present in the guest. Japanese text and CJK punctuation fall
+back to Noto Sans JP first; every generic family resolves to Noto Sans. No
+host font path is used.
+
+The ordered patch `0027-nagi-m18-font-path-traces.patch` adds bounded
+Nagi-only diagnostics (at most 64 lines) for the bundled-font path: system
+file presence, reported families and variations, local font mapping and
+FreeType face creation, and `create_font` failures. It changes no font
+selection or rendering behavior; other targets compile without it.

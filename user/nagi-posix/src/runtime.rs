@@ -1,5 +1,6 @@
 use crate::net::{socket_is_nonblocking, socket_status_flags, O_NONBLOCK};
 use crate::readonly_callback_file::{CallbackFileError, ReadAtCallback, ReadOnlyCallbackFile};
+use crate::static_files::{read_static, StaticFileError, StaticFileTable};
 #[cfg(all(feature = "browser-storage", target_os = "nagi"))]
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
@@ -79,6 +80,10 @@ impl Pipe {
 
 static FILESYSTEM: SpinMutex<Option<Vfs<SyscallBlockDevice>>> = SpinMutex::new(None);
 static FILE_DESCRIPTORS: SpinMutex<[Option<FdEntry>; 32]> = SpinMutex::new([None; 32]);
+static STATIC_FILES: SpinMutex<StaticFileTable> = SpinMutex::new(StaticFileTable::new());
+
+/// Regular file, read-only for everyone.
+const STATIC_FILE_MODE: u16 = 0o100444;
 static PIPES: SpinMutex<[Option<Pipe>; 8]> = SpinMutex::new([None; 8]);
 static NETWORK: SpinMutex<Option<SocketApi<SyscallDevice>>> = SpinMutex::new(None);
 #[cfg(all(feature = "browser-storage", target_os = "nagi"))]
@@ -440,9 +445,45 @@ pub fn http_get(
         .map_err(RuntimeError::Network)
 }
 
+pub fn register_static_file(
+    path: &'static [u8],
+    data: &'static [u8],
+) -> Result<(), StaticFileError> {
+    STATIC_FILES.lock().register(path, data)
+}
+
+fn static_file_metadata(length: usize) -> FileMetadata {
+    FileMetadata {
+        inode: 0,
+        mode: STATIC_FILE_MODE,
+        uid: 0,
+        gid: 0,
+        size: length as u32,
+        atime: 0,
+        ctime: 0,
+        mtime: 0,
+        blocks: length.div_ceil(512) as u32,
+    }
+}
+
 pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeError> {
     if name == b"/dev/urandom" {
         return allocate_descriptor(FdEntry::Random);
+    }
+    let static_file = STATIC_FILES.lock().lookup(name);
+    if let Some(file) = static_file {
+        if truncate {
+            return Err(RuntimeError::ReadOnly);
+        }
+        // SAFETY: the bytes are 'static and the callback only reads ranges
+        // the callback-file wrapper has bounded by their length.
+        return unsafe {
+            open_readonly_callback(
+                file.data.as_ptr() as *mut core::ffi::c_void,
+                file.data.len() as u64,
+                read_static,
+            )
+        };
     }
 
     let mut filesystem = FILESYSTEM.lock();
@@ -513,6 +554,9 @@ pub fn rmdir(name: &[u8]) -> Result<(), RuntimeError> {
 }
 
 pub fn metadata_path(name: &[u8]) -> Result<FileMetadata, RuntimeError> {
+    if let Some(file) = STATIC_FILES.lock().lookup(name) {
+        return Ok(static_file_metadata(file.data.len()));
+    }
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
     volume.metadata_path(name).map_err(RuntimeError::Storage)
@@ -1315,7 +1359,11 @@ pub fn size(fd: i32) -> Result<usize, RuntimeError> {
 }
 
 pub fn metadata(fd: i32) -> Result<FileMetadata, RuntimeError> {
-    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+    let entry = descriptor(fd)?;
+    if let FdEntry::CallbackFile(file) = entry {
+        return Ok(static_file_metadata(file.len()));
+    }
+    let FdEntry::File { handle, .. } = entry else {
         return Err(RuntimeError::InvalidFd);
     };
     let mut filesystem = FILESYSTEM.lock();

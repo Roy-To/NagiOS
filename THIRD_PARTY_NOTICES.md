@@ -91,6 +91,22 @@ This checks publisher-supplied package metadata only. It does not inspect
 license text, validate the declarations, enumerate all bundled native source,
 or establish binary redistribution permission.
 
+## Bundled system fonts
+
+`third_party/fonts.lock` pins the fonts compiled into the Servo-enabled Nagi
+init image and published read-only under `/system/fonts/` (ADR 0045).
+`./nagi fetch` downloads them into the ignored `out/cache/fonts/` cache and
+rejects any file whose size or SHA-256 differs from the lock. The OFL license
+texts are pinned the same way and shipped beside the fonts in the image.
+
+| Component | Files | Source revision | License |
+| --- | --- | --- | --- |
+| noto-sans (Noto Sans) | `NotoSans-Regular.ttf`, `NotoSans-Bold.ttf`, `OFL-NotoSans.txt` | `notofonts/notofonts.github.io` `86eb2ddc3a2e97cb9747fd9069ee5d47880e3305` | OFL-1.1 |
+| noto-sans-jp (Noto Sans JP) | `NotoSansJP-Regular.otf` (JP region subset), `OFL-NotoSansCJK.txt` | `notofonts/noto-cjk` `f8d157532fbfaeda587e826d4cd5b21a49186f7c` | OFL-1.1 |
+
+The fonts are redistributed unmodified with their license texts, as the SIL
+Open Font License 1.1 permits; they are not sold by themselves.
+
 ## Project asset provenance
 
 | Asset | Classification | Repository evidence | Follow-up |

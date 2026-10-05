@@ -1,0 +1,139 @@
+diff --git a/components/fonts/platform/nagi/font_list.rs b/components/fonts/platform/nagi/font_list.rs
+--- a/components/fonts/platform/nagi/font_list.rs
++++ b/components/fonts/platform/nagi/font_list.rs
+@@ -5,33 +5,125 @@
+ //! Nagi's system-font registry boundary.
+ //!
+ //! Nagi does not expose a host fontconfig, CoreText, or DirectWrite registry.
+-//! Until the Nagi font package service is present, this adapter reports the
+-//! registry as empty. Web fonts still use the real FreeType backend; no host
+-//! font path or guessed system font is inserted into the guest.
++//! Nagi 0.1 bundles Noto Sans and Noto Sans JP in the init image and publishes
++//! them read-only under `/system/fonts/` through the Nagi POSIX layer. Only
++//! files that are actually present in the guest are reported; no host font
++//! path or guessed system font is inserted. Web fonts still use the real
++//! FreeType backend.
+ 
+-use fonts_traits::FontTemplate;
++use fonts_traits::{FontTemplate, FontTemplateDescriptor, LocalFontIdentifier};
++use icu_locale_core::subtags::language;
++use servo_base::text::{UnicodeBlock, UnicodeBlockMethod};
++use style::Atom;
+ use style::values::computed::font::GenericFontFamily;
++use style::values::computed::{FontStyle, FontWeight, FontWidth};
++use unicode_script::Script;
+ 
+-use crate::{FallbackFontSelectionOptions, LowercaseFontFamilyName};
++use crate::{FallbackFontSelectionOptions, FontIdentifier, LowercaseFontFamilyName};
+ 
+-pub(crate) fn for_each_available_family<F>(_callback: F)
++const NOTO_SANS: &str = "Noto Sans";
++const NOTO_SANS_JP: &str = "Noto Sans JP";
++
++struct SystemFont {
++    family: &'static str,
++    path: &'static str,
++    weight: f32,
++}
++
++const SYSTEM_FONTS: [SystemFont; 3] = [
++    SystemFont {
++        family: NOTO_SANS,
++        path: "/system/fonts/NotoSans-Regular.ttf",
++        weight: 400.,
++    },
++    SystemFont {
++        family: NOTO_SANS,
++        path: "/system/fonts/NotoSans-Bold.ttf",
++        weight: 700.,
++    },
++    SystemFont {
++        family: NOTO_SANS_JP,
++        path: "/system/fonts/NotoSansJP-Regular.otf",
++        weight: 400.,
++    },
++];
++
++fn installed(font: &SystemFont) -> bool {
++    std::fs::metadata(font.path).is_ok_and(|metadata| metadata.len() > 0)
++}
++
++pub(crate) fn for_each_available_family<F>(mut callback: F)
+ where
+     F: FnMut(String),
+ {
++    for family in [NOTO_SANS, NOTO_SANS_JP] {
++        if SYSTEM_FONTS
++            .iter()
++            .any(|font| font.family == family && installed(font))
++        {
++            callback(family.to_owned());
++        }
++    }
+ }
+ 
+-pub(crate) fn for_each_variation<F>(_family_name: &str, _callback: F)
++pub(crate) fn for_each_variation<F>(family_name: &str, mut callback: F)
+ where
+     F: FnMut(FontTemplate),
+ {
++    for font in SYSTEM_FONTS
++        .iter()
++        .filter(|font| font.family.eq_ignore_ascii_case(family_name) && installed(font))
++    {
++        let identifier = LocalFontIdentifier {
++            path: Atom::from(font.path),
++            face_index: 0,
++            named_instance_index: 0,
++        };
++        let descriptor = FontTemplateDescriptor::new(
++            FontWeight::from_float(font.weight),
++            FontWidth::NORMAL,
++            FontStyle::NORMAL,
++        );
++        callback(FontTemplate::new(
++            FontIdentifier::Local(identifier),
++            descriptor,
++            None,
++        ));
++    }
+ }
+ 
+-pub fn fallback_font_families(_options: FallbackFontSelectionOptions) -> Vec<&'static str> {
+-    Vec::new()
++fn prefers_japanese(options: &FallbackFontSelectionOptions) -> bool {
++    if options.language == language!("ja") {
++        return true;
++    }
++    if matches!(
++        Script::from(options.character),
++        Script::Han | Script::Hiragana | Script::Katakana
++    ) {
++        return true;
++    }
++    matches!(
++        options.character.block(),
++        Some(
++            UnicodeBlock::CJKSymbolsandPunctuation |
++                UnicodeBlock::HalfwidthandFullwidthForms |
++                UnicodeBlock::KatakanaPhoneticExtensions
++        )
++    )
+ }
+ 
++pub fn fallback_font_families(options: FallbackFontSelectionOptions) -> Vec<&'static str> {
++    if prefers_japanese(&options) {
++        vec![NOTO_SANS_JP, NOTO_SANS]
++    } else {
++        vec![NOTO_SANS, NOTO_SANS_JP]
++    }
++}
++
+ pub(crate) fn default_system_generic_font_family(
+     _generic: GenericFontFamily,
+ ) -> LowercaseFontFamilyName {
+-    "sans-serif".into()
++    // Nagi 0.1 bundles one sans-serif design; serif, monospace and the other
++    // generic families resolve to it rather than to an absent font.
++    NOTO_SANS.into()
+ }

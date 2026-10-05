@@ -1,0 +1,116 @@
+diff --git a/components/fonts/platform/nagi/font_list.rs b/components/fonts/platform/nagi/font_list.rs
+--- a/components/fonts/platform/nagi/font_list.rs
++++ b/components/fonts/platform/nagi/font_list.rs
+@@ -48,8 +48,37 @@
+     },
+ ];
+ 
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++/// Bounded font-path diagnostics on the Nagi guest console.
++pub(crate) fn nagi_font_trace(stage: &str) {
++    use std::sync::atomic::{AtomicUsize, Ordering};
++    static EMITTED: AtomicUsize = AtomicUsize::new(0);
++    if EMITTED.fetch_add(1, Ordering::Relaxed) >= 64 {
++        return;
++    }
++    let line = format!("M18 font {stage}");
++    #[expect(unsafe_code)]
++    unsafe {
++        nagi_m17_console_trace(line.as_ptr(), line.len())
++    }
++}
++
+ fn installed(font: &SystemFont) -> bool {
+-    std::fs::metadata(font.path).is_ok_and(|metadata| metadata.len() > 0)
++    match std::fs::metadata(font.path) {
++        Ok(metadata) if metadata.len() > 0 => true,
++        Ok(_) => {
++            nagi_font_trace(&format!("system file empty path={}", font.path));
++            false
++        },
++        Err(error) => {
++            nagi_font_trace(&format!("system file missing path={} error={error}", font.path));
++            false
++        },
++    }
+ }
+ 
+ pub(crate) fn for_each_available_family<F>(mut callback: F)
+@@ -61,6 +90,7 @@
+             .iter()
+             .any(|font| font.family == family && installed(font))
+         {
++            nagi_font_trace(&format!("family available family={family}"));
+             callback(family.to_owned());
+         }
+     }
+@@ -84,6 +114,7 @@
+             FontWidth::NORMAL,
+             FontStyle::NORMAL,
+         );
++        nagi_font_trace(&format!("variation path={} weight={}", font.path, font.weight));
+         callback(FontTemplate::new(
+             FontIdentifier::Local(identifier),
+             descriptor,
+diff --git a/components/fonts/platform/freetype/font.rs b/components/fonts/platform/freetype/font.rs
+--- a/components/fonts/platform/freetype/font.rs
++++ b/components/fonts/platform/freetype/font.rs
+@@ -104,6 +104,11 @@
+             .and_then(|file| unsafe { Mmap::map(&file) })
+             .map(Arc::new)
+         else {
++            #[cfg(target_os = "nagi")]
++            crate::platform::font_list::nagi_font_trace(&format!(
++                "local mmap FAILED path={}",
++                &*font_identifier.path
++            ));
+             return Err("Could not memory map font");
+         };
+ 
+@@ -112,7 +117,18 @@
+             &library,
+             FontBackingStore::Local(memory_mapped_font_data.clone()),
+             face_index,
+-        )?;
++        );
++        #[cfg(target_os = "nagi")]
++        crate::platform::font_list::nagi_font_trace(&format!(
++            "local face path={} bytes={} result={}",
++            &*font_identifier.path,
++            memory_mapped_font_data.len(),
++            match &face {
++                Ok(_) => "ok",
++                Err(error) => *error,
++            }
++        ));
++        let face = face?;
+ 
+         let (requested_face_size, actual_face_size) = match requested_size {
+             Some(requested_size) => (requested_size, face.set_size(requested_size)?),
+diff --git a/components/fonts/font_context.rs b/components/fonts/font_context.rs
+--- a/components/fonts/font_context.rs
++++ b/components/fonts/font_context.rs
+@@ -363,12 +363,17 @@
+         font_descriptor: FontDescriptor,
+         synthesized_small_caps: Option<FontRef>,
+     ) -> Result<FontRef, &'static str> {
+-        Ok(FontRef(Arc::new(Font::new(
++        let font = Font::new(
+             font_template.clone(),
+             font_descriptor,
+             self.get_font_data(&font_template.identifier()),
+             synthesized_small_caps,
+-        )?)))
++        );
++        #[cfg(target_os = "nagi")]
++        if let Err(error) = &font {
++            crate::platform::font_list::nagi_font_trace(&format!("create_font FAILED {error}"));
++        }
++        Ok(FontRef(Arc::new(font?)))
+     }
+ 
+     pub(crate) fn create_font_instance_key(

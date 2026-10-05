@@ -8,6 +8,8 @@ pub mod process;
 #[cfg(any(target_os = "nagi", test))]
 pub mod readonly_callback_file;
 #[cfg(any(target_os = "nagi", test))]
+pub mod static_files;
+#[cfg(any(target_os = "nagi", test))]
 mod threads;
 
 #[cfg(target_os = "nagi")]
@@ -34,6 +36,16 @@ pub unsafe fn open_readonly_callback(
     read_at: readonly_callback_file::ReadAtCallback,
 ) -> Result<i32, i32> {
     runtime::open_readonly_callback(context, length, read_at).map_err(runtime::map_error)
+}
+
+/// Publish read-only bytes from the loaded image at a `/system/...` path.
+/// The file can then be opened, read, stat'ed and file-mapped, never written.
+#[cfg(target_os = "nagi")]
+pub fn register_static_file(
+    path: &'static [u8],
+    data: &'static [u8],
+) -> Result<(), static_files::StaticFileError> {
+    runtime::register_static_file(path, data)
 }
 
 /// Copy the current guest process name into a C buffer through the kernel's
@@ -647,6 +659,15 @@ pub unsafe extern "C" fn nagi_posix_write(fd: i32, bytes: *const u8, length: usi
     }
 }
 
+/// Round a nonzero mapping length up to whole 4 KiB pages.
+#[cfg(any(target_os = "nagi", test))]
+pub(crate) fn page_rounded_length(length: usize) -> Option<usize> {
+    if length == 0 {
+        return None;
+    }
+    length.checked_next_multiple_of(4096)
+}
+
 #[no_mangle]
 pub extern "C" fn nagi_posix_mmap(_length: usize, _protection: i32) -> *mut u8 {
     #[cfg(target_os = "nagi")]
@@ -705,7 +726,13 @@ pub extern "C" fn nagi_posix_mmap_at(
 pub extern "C" fn nagi_posix_munmap(address: *mut u8, length: usize) -> i32 {
     #[cfg(target_os = "nagi")]
     {
-        if address.is_null() || length == 0 || !length.is_multiple_of(4096) {
+        // POSIX munmap takes a page-aligned address and rounds the length
+        // up to whole pages.
+        let Some(length) = page_rounded_length(length) else {
+            set_errno(EINVAL);
+            return -1;
+        };
+        if address.is_null() || !(address as usize).is_multiple_of(4096) {
             set_errno(EINVAL);
             return -1;
         }
@@ -799,6 +826,15 @@ pub extern "C" fn nagi_posix_sleep_ns(duration: u64) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mapping_lengths_round_up_to_whole_pages() {
+        assert_eq!(super::page_rounded_length(0), None);
+        assert_eq!(super::page_rounded_length(1), Some(4096));
+        assert_eq!(super::page_rounded_length(4096), Some(4096));
+        assert_eq!(super::page_rounded_length(621_572), Some(622_592));
+        assert_eq!(super::page_rounded_length(usize::MAX), None);
+    }
+
     use super::{
         aligned_allocation_info, aligned_allocation_payload_size, aligned_allocation_user_address,
         allocate_from_heap_in, nagi_posix_malloc, nagi_posix_malloc_aligned, nagi_posix_mmap,
