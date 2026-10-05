@@ -4,6 +4,10 @@ use crate::ui::BrowserChromeView;
 use crate::{permission_prompt::PermissionPromptView, permission_prompt::PromptLayout};
 
 const TOOLBAR_HEIGHT: u32 = 48;
+/// Status strip (load status dot and page title) below the toolbar.
+const STATUS_HEIGHT: u32 = 14;
+/// First surface row of page content; the chrome owns every row above it.
+pub const PAGE_TOP: u32 = TOOLBAR_HEIGHT + STATUS_HEIGHT;
 const TAB_BG: [u8; 3] = [22, 32, 44];
 const ACTIVE_TAB: [u8; 3] = [43, 60, 75];
 const TOOLBAR_BG: [u8; 3] = [31, 44, 58];
@@ -44,7 +48,7 @@ pub fn render_chrome(
     stride: usize,
     view: &BrowserChromeView,
 ) -> Result<(), ChromeRenderError> {
-    if width == 0 || height < TOOLBAR_HEIGHT {
+    if width == 0 || height < PAGE_TOP {
         return Err(ChromeRenderError::InvalidDimensions);
     }
     let row_bytes = (width as usize)
@@ -243,6 +247,19 @@ pub fn render_chrome(
             ACCENT,
         );
     }
+    fill(
+        frame,
+        width,
+        height,
+        stride,
+        Rect {
+            x: 0,
+            y: TOOLBAR_HEIGHT,
+            width,
+            height: STATUS_HEIGHT,
+        },
+        TAB_BG,
+    );
     let status_color = match view.page_status.as_str() {
         "browser.status.loading" => ACCENT,
         "browser.status.complete" => [60, 158, 117],
@@ -398,6 +415,35 @@ pub fn render_permission_prompt(
             [255, 255, 255],
             layout.button_width.saturating_sub(4),
         );
+    }
+    Ok(())
+}
+
+/// Copy a page frame of `width` x `page_height` RGBA pixels into `frame`
+/// starting at [`PAGE_TOP`], so page content never sits under the chrome.
+pub fn place_page(
+    frame: &mut [u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    page: &[u8],
+    page_height: u32,
+) -> Result<(), ChromeRenderError> {
+    validate_frame(frame, width, height, stride)?;
+    if page_height == 0 || PAGE_TOP.checked_add(page_height) != Some(height) {
+        return Err(ChromeRenderError::InvalidDimensions);
+    }
+    let row_bytes = width as usize * 4;
+    if page.len() < row_bytes * page_height as usize {
+        return Err(ChromeRenderError::TruncatedFrame);
+    }
+    for (row, source) in page
+        .chunks_exact(row_bytes)
+        .take(page_height as usize)
+        .enumerate()
+    {
+        let start = (PAGE_TOP as usize + row) * stride;
+        frame[start..start + row_bytes].copy_from_slice(source);
     }
     Ok(())
 }
@@ -841,7 +887,9 @@ mod tests {
             &frame[(30 * width + 300) * 4..(30 * width + 300) * 4 + 4],
             &[ADDRESS_BG[0], ADDRESS_BG[1], ADDRESS_BG[2], 255]
         );
-        assert_eq!(&frame[(60 * width) * 4..(60 * width) * 4 + 4], &[0; 4]);
+        // The chrome owns rows above PAGE_TOP and never draws page rows.
+        let page_row = PAGE_TOP as usize * width * 4;
+        assert_eq!(&frame[page_row..page_row + 4], &[0; 4]);
     }
 
     #[test]
@@ -884,6 +932,45 @@ mod tests {
         assert_eq!(&frame[status_pixel..status_pixel + 3], &INVALID);
         let title_glyph_pixel = (52 * width + 21) * 4;
         assert_eq!(&frame[title_glyph_pixel..title_glyph_pixel + 3], &ICON);
+    }
+
+    #[test]
+    fn page_is_placed_below_the_chrome_and_status_strip() {
+        let width = 4_u32;
+        let height = PAGE_TOP + 2;
+        let mut frame = vec![0_u8; (width * height * 4) as usize];
+        let page: Vec<u8> = (0..(width * 2 * 4)).map(|byte| byte as u8 + 1).collect();
+        place_page(&mut frame, width, height, width as usize * 4, &page, 2).unwrap();
+        let first_page_row = (PAGE_TOP * width * 4) as usize;
+        assert!(frame[..first_page_row].iter().all(|byte| *byte == 0));
+        assert_eq!(&frame[first_page_row..], &page[..]);
+        assert_eq!(
+            place_page(&mut frame, width, height, width as usize * 4, &page, 3),
+            Err(ChromeRenderError::InvalidDimensions)
+        );
+        assert_eq!(
+            place_page(&mut frame, width, height, width as usize * 4, &page[..8], 2),
+            Err(ChromeRenderError::TruncatedFrame)
+        );
+    }
+
+    #[test]
+    fn status_strip_has_an_opaque_background() {
+        let width = 320_usize;
+        let height = 200_usize;
+        let mut frame = vec![255; width * height * 4];
+        render_chrome(
+            &mut frame,
+            width as u32,
+            height as u32,
+            width * 4,
+            &view(&BrowserState::new()),
+        )
+        .unwrap();
+        let strip_pixel = ((TOOLBAR_HEIGHT as usize + 1) * width + 300) * 4;
+        assert_eq!(&frame[strip_pixel..strip_pixel + 3], &TAB_BG);
+        let page_pixel = (PAGE_TOP as usize * width + 300) * 4;
+        assert_eq!(&frame[page_pixel..page_pixel + 3], &[255, 255, 255]);
     }
 
     #[test]

@@ -97,6 +97,7 @@ mod guest {
 
     use super::{tls_verified, Ordering, HTTPS_PAGES, SERVO_CONFIG_DIR, VERIFIED_HOST_MASK};
     use crate::browser_state::{BrowserState, NavigationEventResult};
+    use crate::chrome_surface::PAGE_TOP;
     use crate::clipboard::{
         single_line_paste, tab_gesture_scope, BrowserClipboard, ClipboardContext,
         NagiClipboardRuntime,
@@ -104,7 +105,6 @@ mod guest {
     use crate::input::{
         chrome_action_at, clipboard_shortcut, evdev_character, ime_key, is_backspace_key,
         is_control_key, is_enter_key, is_escape_key, is_shift_key, ClipboardShortcut,
-        CHROME_HEIGHT,
     };
     use crate::nagi_storage::GuestBrowserStorage;
     use crate::permission_prompt::{
@@ -122,6 +122,8 @@ mod guest {
 
     const WIDTH: u32 = 320;
     const HEIGHT: u32 = 200;
+    /// Servo's viewport sits below Albert's chrome and status strip.
+    const PAGE_HEIGHT: u32 = HEIGHT - PAGE_TOP;
     const PAGE_TIMEOUT_TICKS: u64 = 3_000;
     /// Up to ~3 s for the frame that shows a just-observed DOM change.
     const SETTLE_FRAME_TICKS: u64 = 300;
@@ -616,7 +618,7 @@ mod guest {
     fn frame_rectangle() -> DeviceIntRect {
         DeviceIntRect::from_origin_and_size(
             DeviceIntPoint::zero(),
-            DeviceIntSize::new(WIDTH as i32, HEIGHT as i32),
+            DeviceIntSize::new(WIDTH as i32, PAGE_HEIGHT as i32),
         )
     }
 
@@ -830,12 +832,12 @@ mod guest {
         }
         match bridge.translate(event)? {
             BrowserInput::MouseMove { x, y } => {
-                if y >= CHROME_HEIGHT {
+                if y >= PAGE_TOP {
                     if let Some(runtime) = active_runtime(browser_state, runtimes) {
                         runtime
                             .webview
                             .notify_input_event(ServoInputEvent::MouseMove(MouseMoveEvent::new(
-                                servo_point(x, y),
+                                servo_point(x, y - PAGE_TOP),
                             )));
                     }
                 }
@@ -843,7 +845,9 @@ mod guest {
             }
             BrowserInput::MouseButton { button: 0, pressed } => {
                 let (x, y) = bridge.position();
-                if y < CHROME_HEIGHT {
+                // Toolbar clicks dispatch chrome actions; the status strip
+                // between the toolbar and the page is inert.
+                if y < PAGE_TOP {
                     if pressed {
                         if let Some(action) =
                             chrome_action_at(&ui::view(browser_state), WIDTH, x, y)
@@ -884,7 +888,7 @@ mod guest {
                                 MouseButtonAction::Up
                             },
                             MouseButton::Primary,
-                            servo_point(x, y),
+                            servo_point(x, y - PAGE_TOP),
                         )));
                 }
                 None
@@ -1179,7 +1183,19 @@ mod guest {
         let Some(image) = context.read_to_image(frame_rectangle()) else {
             return false;
         };
-        let mut frame = image.as_raw().to_vec();
+        let mut frame = vec![0_u8; WIDTH as usize * HEIGHT as usize * 4];
+        if crate::chrome_surface::place_page(
+            &mut frame,
+            WIDTH,
+            HEIGHT,
+            WIDTH as usize * 4,
+            image.as_raw(),
+            PAGE_HEIGHT,
+        )
+        .is_err()
+        {
+            return false;
+        }
         let chrome = ui::view(browser_state);
         if crate::chrome_surface::render_chrome(
             &mut frame,
@@ -1432,7 +1448,19 @@ mod guest {
         if frame_checksum == 0 {
             fail(b"Servo frame checksum was zero");
         }
-        let mut composed_frame = frame.to_vec();
+        let mut composed_frame = vec![0_u8; WIDTH as usize * HEIGHT as usize * 4];
+        if crate::chrome_surface::place_page(
+            &mut composed_frame,
+            WIDTH,
+            HEIGHT,
+            WIDTH as usize * 4,
+            frame,
+            PAGE_HEIGHT,
+        )
+        .is_err()
+        {
+            fail(b"Albert page composition failed");
+        }
         let chrome = crate::ui::view(browser_state);
         if crate::chrome_surface::render_chrome(
             &mut composed_frame,
@@ -1460,7 +1488,7 @@ mod guest {
         // Count non-background pixels in Servo's own frame (before chrome is
         // composed) so a page that painted only its background is visible
         // in the evidence and rejected by the host validator.
-        let ink = crate::frame_analysis::ink_pixels(frame, WIDTH, HEIGHT, INK_THRESHOLD);
+        let ink = crate::frame_analysis::ink_pixels(frame, WIDTH, PAGE_HEIGHT, INK_THRESHOLD);
         if !report_page(host, frame_checksum, ink) {
             fail(b"serial page evidence write failed");
         }
@@ -1487,7 +1515,7 @@ mod guest {
     /// the guest can observe the paste without evaluating page script.
     const CLIPBOARD_TOKEN: &str = "nagi-clip-7f3a";
     const CLIPBOARD_READY_TITLE: &str = "nagi-clip:ready";
-    const CLIPBOARD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20id%3Ds%20value%3Dnagi-clip-7f3a%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A60px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cinput%20id%3Dd%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A120px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cscript%3Evar%20s%3Ddocument.getElementById%28%27s%27%29%2Cd%3Ddocument.getElementById%28%27d%27%29%3Bd.addEventListener%28%27focus%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3Afocus%3Ad%27%3B%7D%29%3Bd.addEventListener%28%27input%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3A%27%2Bd.value%3B%7D%29%3Bd.addEventListener%28%27compositionend%27%2Cfunction%28e%29%7BsetTimeout%28function%28%29%7Bdocument.title%3D%27nagi-ime%3A%27%2Be.data%2B%27%7C%27%2Bd.value%3B%7D%2C0%29%3B%7D%29%3Bdocument.addEventListener%28%27keydown%27%2Cfunction%28e%29%7Bvar%20a%3Ddocument.activeElement%3Bdocument.title%3D%27nagi-clip%3Akey%3A%27%2Be.key%2B%27%3A%27%2B%28e.ctrlKey%3F1%3A0%29%2B%27%3A%27%2B%28a%26%26a.id%3Fa.id%3A%27none%27%29%2B%27%3A%27%2B%28a%26%26a.selectionStart%21%3Dnull%3Fa.selectionStart%2B%27-%27%2Ba.selectionEnd%3A%27na%27%29%3B%7D%29%3Bs.focus%28%29%3Bs.select%28%29%3Bdocument.title%3D%27nagi-clip%3Aready%27%3B%3C%2Fscript%3E";
+    const CLIPBOARD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20id%3Ds%20value%3Dnagi-clip-7f3a%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A8px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cinput%20id%3Dd%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A58px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cscript%3Evar%20s%3Ddocument.getElementById%28%27s%27%29%2Cd%3Ddocument.getElementById%28%27d%27%29%3Bd.addEventListener%28%27focus%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3Afocus%3Ad%27%3B%7D%29%3Bd.addEventListener%28%27input%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3A%27%2Bd.value%3B%7D%29%3Bd.addEventListener%28%27compositionend%27%2Cfunction%28e%29%7BsetTimeout%28function%28%29%7Bdocument.title%3D%27nagi-ime%3A%27%2Be.data%2B%27%7C%27%2Bd.value%3B%7D%2C0%29%3B%7D%29%3Bdocument.addEventListener%28%27keydown%27%2Cfunction%28e%29%7Bvar%20a%3Ddocument.activeElement%3Bdocument.title%3D%27nagi-clip%3Akey%3A%27%2Be.key%2B%27%3A%27%2B%28e.ctrlKey%3F1%3A0%29%2B%27%3A%27%2B%28a%26%26a.id%3Fa.id%3A%27none%27%29%2B%27%3A%27%2B%28a%26%26a.selectionStart%21%3Dnull%3Fa.selectionStart%2B%27-%27%2Ba.selectionEnd%3A%27na%27%29%3B%7D%29%3Bs.focus%28%29%3Bs.select%28%29%3Bdocument.title%3D%27nagi-clip%3Aready%27%3B%3C%2Fscript%3E";
     /// Hiragana for the romaji `nihongo` that the M18 harness types.
     const IME_EXPECTED_COMMIT: &str = "にほんご";
 
@@ -1770,7 +1798,7 @@ mod guest {
         let Some(mut surface) = NagiSurface::acquire(display_capability) else {
             fail(b"display Surface unavailable");
         };
-        let context = match SoftwareRenderingContext::new(PhysicalSize::new(WIDTH, HEIGHT)) {
+        let context = match SoftwareRenderingContext::new(PhysicalSize::new(WIDTH, PAGE_HEIGHT)) {
             Ok(context) => Rc::new(context),
             Err(_) => fail(b"Servo rendering context creation failed"),
         };
