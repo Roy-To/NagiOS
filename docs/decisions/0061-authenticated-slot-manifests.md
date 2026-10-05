@@ -1,4 +1,4 @@
-# ADR 0054: Authenticated system-slot manifests
+# ADR 0061: Authenticated system-slot manifests
 
 Status: accepted
 Date: 2026-10-06

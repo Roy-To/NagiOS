@@ -627,7 +627,7 @@ fn selection_label(selection: BootImageSelection) -> &'static str {
     }
 }
 
-/// ADR 0054: read and verify the selected slot's signed `SLOT.MAN` before
+/// ADR 0061: read and verify the selected slot's signed `SLOT.MAN` before
 /// any payload byte is used. A trial slot must also not lower the confirmed
 /// slot's rollback index.
 #[cfg(feature = "m27-ab-slot-boot-control")]

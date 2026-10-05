@@ -1,4 +1,4 @@
-//! Authenticated system-slot manifests (ADR 0054).
+//! Authenticated system-slot manifests (ADR 0061).
 //!
 //! Every System A, System B and Recovery volume carries `SLOT.MAN`: a small
 //! text manifest followed by a 64-byte Ed25519 signature. The manifest pins
