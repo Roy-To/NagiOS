@@ -6,6 +6,7 @@
 //! capability-checked Nagi Surface.
 
 pub mod address_bar;
+pub mod assistant_context;
 pub mod bookmarks;
 pub mod browser_state;
 pub mod chrome_surface;

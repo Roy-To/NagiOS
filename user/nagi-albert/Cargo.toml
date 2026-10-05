@@ -8,9 +8,11 @@ publish = false
 m18-acceptance = []
 
 [dependencies]
+nagi-ai = { path = "../../services/nagi-ai" }
 nagi-clipboard = { path = "../nagi-clipboard" }
 nagi-ime = { path = "../nagi-ime" }
 nagi-localization = { path = "../nagi-localization" }
+nagi-model = { path = "../../crates/nagi-model" }
 url = "2.5"
 
 [target.'cfg(target_os = "nagi")'.dependencies]
