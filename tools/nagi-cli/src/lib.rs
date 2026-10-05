@@ -1,6 +1,9 @@
+pub mod acceptance;
 pub(crate) mod cc_nagi;
 pub mod commands;
 pub mod config;
+pub mod development;
+pub mod diagnostics;
 pub mod doctor;
 pub mod fat32;
 pub(crate) mod fonts;

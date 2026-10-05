@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "locale": "en-US",
+  "script": "Latn",
+  "direction": "ltr",
+  "font_fallback_scripts": ["Latn"],
+  "messages": {
+    "common.cancel": "Cancel",
+    "common.close": "Close",
+    "common.continue": "Continue",
+    "common.save": "Save",
+    "settings.language.title": "System language",
+    "settings.region.title": "Region and formats",
+    "system.message_unavailable": "This message is unavailable."
+  }
+}

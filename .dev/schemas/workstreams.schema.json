@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.invalid/schemas/workstreams.schema.json",
+  "title": "Nagi development workstream registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_ref", "schema_version", "workstreams"],
+  "properties": {
+    "schema_ref": {"type": "string", "minLength": 1},
+    "schema_version": {"const": 1},
+    "workstreams": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "owner", "owner_branch", "recommended_worktree", "state_file", "dependencies", "allowed_paths", "forbidden_paths", "activation_gate", "merge_boundary"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"},
+          "owner": {"type": "string", "minLength": 1},
+          "owner_branch": {"type": "string", "pattern": "^codex/[a-z0-9][a-z0-9./-]*$"},
+          "recommended_worktree": {"type": "string", "minLength": 1},
+          "state_file": {"type": "string", "pattern": "^\\.dev/workstreams/[a-z0-9-]+/state\\.json$"},
+          "dependencies": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+          "allowed_paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "forbidden_paths": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "activation_gate": {"type": "string", "minLength": 1},
+          "merge_boundary": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

@@ -118,9 +118,30 @@ of the selected presentation language.
 
 ## Current implementation boundary
 
+`crates/nagi-i18n` (package `nagi-i18n`) provides the shared host-side user-space foundation: canonical
+locale IDs, separate system-language and region inputs, versioned UTF-8 JSON
+catalogs, stable message IDs, named interpolation, exact/language/English
+fallback, structured diagnostics, first-class `en-US` and `ja-JP` resources,
+deterministic initial formatting, and an `en-XA` pseudo-locale. The catalog
+checker validates metadata, duplicate IDs, English/Japanese parity, and
+placeholder parity. The resource and caller contract is documented in
+`docs/guides/localization.md`.
+
+This foundation does not implement the Settings service, input-language or IME
+selection, Albert conversation-language preferences, UI components, font
+resolution, or dictionary-based collation. Those remain owned by their
+respective system workstreams and should consume this crate through its public
+API. It was developed as `nagi-localization` on the 0.2 integration line and
+renamed when that line merged with the 0.1 release line, which already ships a
+guest `no_std` crate under that name (see
+`docs/decisions/0052-merge-0.1-release-line-into-0.2-integration.md`). Nagi 0.1 formatting currently covers Gregorian dates, clock times,
+numbers, percentages, USD/JPY display, and a small symbol-based unit set; it
+does not provide timezone conversion, currency conversion, CLDR-wide data, or
+linguistic sorting. No process-global host locale or timezone is consulted.
+
 The existing M10 Japanese UTF-8 rendering/input path is compatible with this
 architecture, but it is not by itself the shared localization framework.
-The `nagi-localization` no-std library now embeds an initial shared `en-US` and
+The guest `user/nagi-localization` no-std library now embeds an initial shared `en-US` and
 `ja-JP` catalog, parses the two canonical locale codes, resolves stable keys,
 and falls back to English without exposing unknown keys. The M10 desktop uses
 that catalog for its Settings overlay and four panel titles. The selected

@@ -1,0 +1,28 @@
+{
+  "id": "capability-permissions",
+  "owner": "Codex capability/permission workstream",
+  "owner_branch": "codex/0.2-capability-permissions",
+  "recommended_worktree": "../NagiOS-0.2-capability",
+  "state_file": ".dev/workstreams/capability-permissions/state.json",
+  "dependencies": [],
+  "allowed_paths": [
+    "crates/nagi-capability/**",
+    ".dev/workstreams/capability-permissions/**"
+  ],
+  "forbidden_paths": [
+    "kernel/**",
+    "loader/**",
+    "user/**",
+    "third_party/**",
+    "out/**",
+    "target/**",
+    ".dev/workstreams.json",
+    ".dev/schemas/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    "docs/implementation_status.md"
+  ],
+  "activation_gate": "Host-side reference foundation only. Root workspace/product/runtime integration requires Nagi 0.1 M30 PASS and an explicit 0.2 integration checkpoint.",
+  "merge_boundary": "Dedicated 0.2 integration branch only; never merge to main without explicit user direction."
+}

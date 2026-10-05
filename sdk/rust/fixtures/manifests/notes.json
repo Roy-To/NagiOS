@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "sdkContractVersion": { "major": 1, "minor": 0 },
+  "id": "com.nagi.sdk-fixture.notes",
+  "version": "0.1.0",
+  "origin": "first-party",
+  "publisherId": "com.nagi",
+  "displayName": { "en-US": "Notes Fixture", "ja-JP": "メモ例" },
+  "supportedLocales": ["en-US", "ja-JP"],
+  "entrypoint": { "kind": "native", "target": "bin/notes.napp" },
+  "resources": [],
+  "intents": [
+    { "id": "notes.open-note", "version": 1, "payloadType": "nagi.note-reference@1", "routeId": "open-note" }
+  ],
+  "requestedCapabilities": [
+    { "id": "storage.read", "purposeKey": "notes.read_purpose" },
+    { "id": "storage.write", "purposeKey": "notes.write_purpose" }
+  ],
+  "backgroundServices": [
+    { "id": "notes.indexer", "entrypoint": "bin/indexer.napp", "activation": "deferred" }
+  ],
+  "stateCompatibility": { "currentVersion": 2, "minimumReadableVersion": 1 },
+  "extensions": { "com.nagi.example": { "fixture": true } }
+}

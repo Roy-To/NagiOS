@@ -2,6 +2,8 @@
 
 mod generated;
 
+pub mod app_contract;
+
 pub use generated::*;
 
 pub use nagi_model::{

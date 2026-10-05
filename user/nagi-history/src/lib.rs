@@ -5,6 +5,11 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod activity;
+pub mod transaction;
+pub mod view;
+pub mod wayback;
+
 pub const MAX_RECORDS: usize = 16;
 pub const MAX_SNAPSHOT_BYTES: usize = 1024;
 pub const MAX_NAME_BYTES: usize = 32;
@@ -19,7 +24,9 @@ pub mod guest;
 const ARCHIVE_HEADER_BYTES: usize = 36;
 const ARCHIVE_VERSION: u16 = 1;
 
-pub use nagi_model::{AppId, AppSessionId, NodeId, ObjectId, SurfaceId, WorkspaceId};
+pub use nagi_model::{
+    AppId, AppSessionId, NodeId, ObjectId, SurfaceId, TransactionId, WorkspaceId,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ActivityContext {
@@ -29,9 +36,6 @@ pub struct ActivityContext {
     pub surface_id: Option<SurfaceId>,
     pub workspace_id: Option<WorkspaceId>,
 }
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct TransactionId(pub u64);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]

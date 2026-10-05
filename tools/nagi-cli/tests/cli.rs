@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use nagi_cli::commands::{parse_command, Command, EXIT_SUCCESS, EXIT_USAGE};
+use nagi_cli::commands::{execute, parse_command, Command, EXIT_SUCCESS, EXIT_USAGE};
 use nagi_cli::config::load_toolchain_requirements;
 use nagi_cli::doctor::{
     run_doctor, run_doctor_with_requirements, CommandEvidence, DoctorPolicy, HostProbe,
@@ -96,6 +96,9 @@ fn canned_version(candidate: &str) -> &'static str {
 fn parses_the_complete_m0_command_surface() {
     let commands = [
         ("doctor", Command::Doctor),
+        ("diagnostics", Command::Diagnostics),
+        ("verify", Command::Verify),
+        ("smoke", Command::Smoke),
         ("fetch", Command::Fetch),
         ("build", Command::Build),
         ("image", Command::Image),
@@ -127,6 +130,38 @@ fn parses_the_complete_m0_command_surface() {
     for (name, expected) in commands {
         assert_eq!(parse_command(&[name.to_owned()]).unwrap(), expected);
     }
+    assert_eq!(
+        parse_command(&["dev".into(), "status".into()]).unwrap(),
+        Command::Dev
+    );
+}
+
+#[test]
+fn acceptance_runner_is_nested_under_the_existing_test_command() {
+    assert_eq!(
+        parse_command(&["test".into(), "--acceptance".into()]).unwrap(),
+        Command::Acceptance
+    );
+    assert_eq!(parse_command(&["test".into()]).unwrap(), Command::Test);
+    assert!(parse_command(&["test".into(), "--unknown".into()]).is_err());
+}
+
+#[test]
+fn acceptance_list_uses_the_registry_and_rejects_unregistered_milestones() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let args = ["test", "--acceptance", "--list", "--milestone", "M17"].map(str::to_owned);
+    let result = nagi_cli::commands::execute(&args, root, &SystemProbe::default());
+    assert_eq!(result.exit_code, EXIT_SUCCESS);
+    assert_eq!(result.lines.len(), 1);
+    assert!(result.lines[0].starts_with("M17-FIRST-WEB-PIXEL\tM17\tservo\ttarget\t"));
+
+    let args = ["test", "--acceptance", "--list", "--milestone", "M18"].map(str::to_owned);
+    let result = nagi_cli::commands::execute(&args, root, &SystemProbe::default());
+    assert_eq!(result.exit_code, EXIT_USAGE);
+    assert!(result.lines[0].contains("no registered cases match"));
 }
 
 #[test]
@@ -134,6 +169,69 @@ fn rejects_unknown_commands_with_usage_exit_code() {
     let error = parse_command(&["unknown".to_owned()]).unwrap_err();
 
     assert_eq!(error.exit_code(), EXIT_USAGE);
+}
+
+#[test]
+fn dev_requires_a_subcommand_and_rejects_unknown_dev_actions() {
+    assert_eq!(
+        parse_command(&["dev".to_owned()]).unwrap_err().exit_code(),
+        EXIT_USAGE
+    );
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let error = nagi_cli::development::execute(&["unknown".into()], root).unwrap_err();
+    assert_eq!(error.exit_code(), EXIT_USAGE);
+}
+
+#[test]
+fn dev_status_resume_and_verify_read_the_registered_workstream() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let branch = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(root)
+        .output()
+        .expect("read current branch");
+    assert!(branch.status.success(), "git rev-parse must succeed");
+    let branch = String::from_utf8(branch.stdout).expect("branch name is UTF-8");
+    let branch = branch.trim();
+    let registry: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join(".dev/workstreams.json")).expect("read workstream registry"),
+    )
+    .expect("parse workstream registry");
+    let active_workstream = registry["workstreams"]
+        .as_array()
+        .expect("workstreams array")
+        .iter()
+        .find(|entry| entry["owner_branch"].as_str() == Some(branch));
+    if let Some(workstream) = active_workstream {
+        let status = nagi_cli::development::execute(&["status".into()], root)
+            .expect("registered workstream status");
+        assert!(status
+            .iter()
+            .any(|line| line.starts_with("Workstream: ") && line.contains(" (")));
+        assert!(status.iter().any(|line| line.starts_with("Branch: ")));
+        assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
+        assert!(status
+            .iter()
+            .any(|line| { line.contains(workstream["id"].as_str().expect("workstream ID")) }));
+
+        let resume =
+            nagi_cli::development::execute(&["resume".into()], root).expect("resume summary");
+        assert!(resume.iter().any(|line| line.starts_with("Next action: ")));
+    } else {
+        let error = nagi_cli::development::execute(&["status".into()], root)
+            .expect_err("unregistered branches cannot guess their workstream");
+        assert!(error.to_string().contains("is not registered"));
+    }
+
+    let verify = nagi_cli::development::execute(&["verify".into()], root)
+        .expect("state and registry validation");
+    assert!(verify[0].starts_with("PASS development state:"));
 }
 
 #[test]
@@ -267,13 +365,178 @@ fn arm64_host_commands_select_only_host_compatible_packages() {
 #[test]
 fn rejects_unexpected_arguments_for_every_command() {
     for name in [
-        "doctor", "fetch", "build", "image", "run", "shell", "gui", "desktop", "test", "clean",
-        "fmt", "lint", "security", "network", "posix", "std", "m13", "m14", "m15", "m16", "m17",
-        "m18", "m19", "m22", "m25", "m27", "m30",
+        "doctor",
+        "diagnostics",
+        "verify",
+        "smoke",
+        "fetch",
+        "build",
+        "image",
+        "run",
+        "shell",
+        "gui",
+        "desktop",
+        "test",
+        "clean",
+        "fmt",
+        "lint",
+        "security",
+        "network",
+        "posix",
+        "std",
+        "m13",
+        "m14",
+        "m15",
+        "m16",
+        "m17",
+        "m18",
+        "m19",
+        "m22",
+        "m25",
+        "m27",
+        "m30",
     ] {
         let error = parse_command(&[name.to_owned(), "unexpected".to_owned()]).unwrap_err();
         assert_eq!(error.exit_code(), EXIT_USAGE, "{name}");
     }
+}
+
+#[test]
+fn diagnostics_commands_validate_modes_and_options() {
+    assert_eq!(
+        parse_command(&[
+            "verify".into(),
+            "--scope".into(),
+            "diagnostics".into(),
+            "--format".into(),
+            "json".into(),
+        ])
+        .unwrap(),
+        Command::Verify
+    );
+    assert_eq!(
+        parse_command(&["diagnostics".into(), "--json".into()]).unwrap(),
+        Command::Diagnostics
+    );
+    assert_eq!(
+        parse_command(&[
+            "smoke".into(),
+            "--vm".into(),
+            "--format".into(),
+            "json".into()
+        ])
+        .unwrap(),
+        Command::Smoke
+    );
+    for args in [
+        vec!["verify".into(), "--format".into(), "xml".into()],
+        vec!["verify".into(), "--scope".into(), "".into()],
+        vec!["smoke".into(), "--vm".into(), "--host-only".into()],
+        vec!["diagnostics".into(), "--unknown".into()],
+        vec![
+            "verify".into(),
+            "--json".into(),
+            "--format".into(),
+            "json".into(),
+        ],
+    ] {
+        assert_eq!(parse_command(&args).unwrap_err().exit_code(), EXIT_USAGE);
+    }
+}
+
+#[test]
+fn focused_diagnostics_verification_emits_a_machine_report() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let result = execute(
+        &[
+            "verify".into(),
+            "--scope".into(),
+            "diagnostics".into(),
+            "--format".into(),
+            "json".into(),
+        ],
+        root,
+        &StaticProbe::default(),
+    );
+    assert_eq!(
+        result.exit_code,
+        EXIT_SUCCESS,
+        "{}",
+        result.lines.join("\n")
+    );
+    let report: serde_json::Value = serde_json::from_str(&result.lines.join("\n")).unwrap();
+    assert_eq!(report["outcome"], "PASS");
+    assert_eq!(report["requested_scope"], "diagnostics");
+    assert_eq!(report["checks"][0]["evidence_kind"], "HOST");
+}
+
+#[test]
+fn registered_workstream_validator_reports_verified_state() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let result = execute(
+        &[
+            "verify".into(),
+            "--scope".into(),
+            "workstreams".into(),
+            "--format".into(),
+            "json".into(),
+        ],
+        root,
+        &StaticProbe::default(),
+    );
+    assert_eq!(
+        result.exit_code,
+        EXIT_SUCCESS,
+        "{}",
+        result.lines.join("\n")
+    );
+    let report: serde_json::Value = serde_json::from_str(&result.lines.join("\n")).unwrap();
+    assert_eq!(report["outcome"], "PASS");
+    assert_eq!(report["checks"][0]["status"], "PASS");
+    assert_eq!(report["checks"][0]["evidence_kind"], "HOST");
+    assert_eq!(report["checks"][0]["id"], "workstream-state-registry");
+    assert!(report["checks"][0]["summary"]
+        .as_str()
+        .unwrap()
+        .contains("state files validated"));
+}
+
+#[test]
+fn diagnostics_bundle_is_local_and_versioned() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
+    let result = execute(
+        &[
+            "diagnostics".into(),
+            "--scope".into(),
+            "diagnostics".into(),
+            "--format".into(),
+            "json".into(),
+        ],
+        root,
+        &StaticProbe::default(),
+    );
+    assert_eq!(
+        result.exit_code,
+        EXIT_SUCCESS,
+        "{}",
+        result.lines.join("\n")
+    );
+    let report: serde_json::Value = serde_json::from_str(&result.lines.join("\n")).unwrap();
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["verification"]["outcome"], "PASS");
+    assert_eq!(
+        report["events"][0]["event_code"],
+        "DIAGNOSTICS.REPORT_CREATED"
+    );
 }
 
 #[test]

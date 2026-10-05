@@ -1,0 +1,25 @@
+[package]
+name = "nagi-search-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# SEARCH-CORE-01 is a standalone host-side foundation. It stays outside the
+# root workspace until an Integration Owner checkpoint registers it.
+[workspace]
+
+# The canonical Search/Index contract and canonical IDs are owned by the
+# active Nagi 0.1 M19 Search line (`user/nagi-search`, `crates/nagi-model`).
+# They are not yet on the 0.2 integration base, so this adapter pins the exact
+# 0.1 source revision instead of copying or redefining those types. Both
+# crates must come from the same revision so the ID types unify.
+[dependencies]
+nagi-model = { git = "https://github.com/RT-NISH/NagiOS", rev = "de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa" }
+nagi-search = { git = "https://github.com/RT-NISH/NagiOS", rev = "de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
+
+[[test]]
+name = "search-core-acceptance"
+path = "../../tests/search-core/acceptance.rs"

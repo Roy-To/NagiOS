@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "sdkContractVersion": { "major": 1, "minor": 0 },
+  "id": "com.nagi.sdk-fixture.files",
+  "version": "0.1.0",
+  "origin": "first-party",
+  "publisherId": "com.nagi",
+  "displayName": { "en-US": "Files Fixture", "ja-JP": "ファイル例" },
+  "supportedLocales": ["en-US", "ja-JP"],
+  "icon": "appres://icons/files.svg",
+  "entrypoint": { "kind": "native", "target": "bin/files.napp" },
+  "resources": [
+    { "id": "files.icon", "uri": "appres://icons/files.svg", "mediaType": "image/svg+xml" }
+  ],
+  "intents": [
+    { "id": "files.open-resource", "version": 1, "payloadType": "nagi.resource-reference@1", "routeId": "open-resource" }
+  ],
+  "requestedCapabilities": [
+    { "id": "storage.read", "purposeKey": "files.read_purpose" }
+  ],
+  "backgroundServices": [],
+  "stateCompatibility": { "currentVersion": 1, "minimumReadableVersion": 1 }
+}

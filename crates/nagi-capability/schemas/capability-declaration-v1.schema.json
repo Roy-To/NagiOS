@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nagi.invalid/schemas/capability-declaration-v1.schema.json",
+  "title": "Nagi capability request declaration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "requested_capabilities"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "requested_capabilities": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/request"}
+    }
+  },
+  "$defs": {
+    "capabilityId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$"
+    },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "unscoped"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": {"const": "filesystem"},
+            "path": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^/"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "origin"],
+          "properties": {
+            "kind": {"const": "network_origin"},
+            "origin": {"type": "string", "minLength": 9, "maxLength": 512, "pattern": "^https?://"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "class"],
+          "properties": {
+            "kind": {"const": "device_class"},
+            "class": {"type": "string", "minLength": 1, "maxLength": 256}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "provider"],
+          "properties": {
+            "kind": {"const": "model_provider"},
+            "provider": {"type": "string", "minLength": 1, "maxLength": 256}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "target"],
+          "properties": {
+            "kind": {"const": "automation_target"},
+            "target": {"type": "string", "minLength": 1, "maxLength": 256}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "namespace", "resource"],
+          "properties": {
+            "kind": {"const": "opaque"},
+            "namespace": {"$ref": "#/$defs/capabilityId"},
+            "resource": {"type": "string", "minLength": 1, "maxLength": 256}
+          }
+        }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability"],
+      "properties": {
+        "capability": {"$ref": "#/$defs/capabilityId"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "purpose": {"type": "string", "minLength": 1, "maxLength": 512}
+      }
+    }
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "ui-design-system",
+  "current_milestone": "UI-DESIGN-SYSTEM",
+  "current_checkpoint": "host-foundation-pass-target-ui-attachment-deferred",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "91465588a13e0f9a66afe9c99b75c2fb1a1c394c",
+    "verified_at": "2026-09-28T05:15:04Z",
+    "normal_state": "The independent UI design foundation passes on codex/ws-ui-design-system at 91465588a13e0f9a66afe9c99b75c2fb1a1c394c; follow-up evidence is at branch HEAD 9f0e58df297d02459f89cb8b42a5c228e089afff and is being integrated on codex/integration-next-phase. The no_std crate has 41 passing host tests, warning-free Clippy and formatting, a passing public gallery, UEFI compile, and Nagi user-target compile. The M10 target image builds, but QEMU stops before UI startup at the M5 invalid-elf empty-PT_TLS rejection; this is deferred runtime attachment, not a foundation failure. Source branch CI run 36380820648 is validating HEAD 9f0e58df297d02459f89cb8b42a5c228e089afff; run 36380321571 was cancelled by that evidence-only push. M10 history remains unchanged; M17 remains BLOCKED and M18 NOT STARTED.",
+    "commands": [
+      "cargo test -p nagi-ui --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"' (nightly-2025-08-01)",
+      "cargo clippy -p nagi-ui --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"' -- -D warnings (nightly-2025-08-01)",
+      "cargo fmt --package nagi-ui -- --check (nightly-2025-08-01)",
+      "cargo run -p nagi-ui --example component_gallery --locked --offline --config 'build.target=\"aarch64-apple-darwin\"' (nightly-2025-08-01)",
+      "cargo check -p nagi-ui --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core --locked --offline (nightly-2025-08-01)",
+      "cargo check -p nagi-ui --lib --no-default-features --target x86_64-unknown-uefi --locked --offline (nightly-2025-08-01)",
+      "./nagi desktop (pinned nightly; repository .cargo target flags preserved)",
+      "git diff --check"
+    ],
+    "tests": [
+      {
+        "name": "nagi-ui host suite",
+        "command": "cargo test -p nagi-ui --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"'",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "41 unit tests passed; example target compiled."
+      },
+      {
+        "name": "nagi-ui warning-free Clippy",
+        "command": "cargo clippy -p nagi-ui --all-targets --locked --offline --config 'build.target=\"aarch64-apple-darwin\"' -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All crate targets passed with warnings denied."
+      },
+      {
+        "name": "nagi-ui formatting",
+        "command": "cargo fmt --package nagi-ui -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Pinned formatter check passed."
+      },
+      {
+        "name": "public component gallery",
+        "command": "cargo run -p nagi-ui --example component_gallery --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Button, Command Palette, Select, shell regions, text scale, and Japanese query checks passed."
+      },
+      {
+        "name": "Nagi user-target library compile",
+        "command": "cargo check -p nagi-ui --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Backend-neutral no_std contract compiles for the x86-64 Nagi user target."
+      },
+      {
+        "name": "UEFI library compile",
+        "command": "cargo check -p nagi-ui --lib --no-default-features --target x86_64-unknown-uefi --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Backend-neutral library compiles for x86_64-unknown-uefi."
+      },
+      {
+        "name": "M10 desktop QEMU attachment",
+        "command": "./nagi desktop",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "Target image built. QEMU serial log reports M5 invalid-elf for the empty PT_TLS header before nagi-init or UI startup; no rendering/input evidence."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36216784905,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36216784905",
+        "head_sha": "53b2dbe562c9dcab926bbcaec9300afdef7d30cc",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host jobs passed; target builds passed and the unchanged M17 first-web-pixel acceptance failed without a checksum."
+      },
+      {
+        "run_id": 36380321571,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36380321571",
+        "head_sha": "91465588a13e0f9a66afe9c99b75c2fb1a1c394c",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Cancelled when the follow-up documentation/evidence commit was pushed."
+      },
+      {
+        "run_id": 36380820648,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36380820648",
+        "head_sha": "9f0e58df297d02459f89cb8b42a5c228e089afff",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Validating the published source branch HEAD, including host and target jobs."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md; docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
+    "last_checked_at": "2026-09-28T05:15:04Z",
+    "activation_requirement": "The renderer-neutral host foundation may pass independently. Target rendering/input attachment and 0.2 product/runtime adoption remain deferred until the M5 loader reaches the UI, Nagi 0.1 M30 passes, and an explicit integration checkpoint is approved."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not change kernel/** or loader/** to clear the M5 empty-PT_TLS failure from this UI workstream.",
+      "Do not claim target rendering/input acceptance until the guest reaches and exercises the UI.",
+      "Do not change historical M10, M17 BLOCKED, or M18 NOT STARTED status based on host contract checks."
+    ]
+  },
+  "next_action": "The renderer-neutral foundation is complete. Keep target UI attachment deferred until the owning M5 loader work resolves the empty PT_TLS rejection; then verify actual guest rendering and input through the documented adapter boundary.",
+  "acceptance_criteria": [
+    "Typed visual tokens cover colors, spacing, control dimensions, typography, border/radius, elevation, icons, motion, focus, state, and density.",
+    "Component state and reusable primitives define deterministic interaction, keyboard, focus, dialog, and select behavior.",
+    "English and Japanese resolved text are measured with bounded min/max sizing; Reject overflow fails on truncation.",
+    "Accessibility metadata includes semantic names/states/keyboard operations and a validated input/error message relation.",
+    "ApplicationShellSpec defines required title/content and optional first-party shell regions.",
+    "nagi-ui host tests, Clippy, formatting, public gallery, UEFI compile, and Nagi user-target compile pass.",
+    "The workstream is committed and pushed; the integration-owned state and architecture documentation record the evidence.",
+    "Target UI behavior is claimed only after a guest reaches and exercises the UI."
+  ],
+  "deferred": [
+    "M10 guest UI rendering/input attachment is blocked before UI startup by the M5 empty-PT_TLS invalid-elf failure; no target UI result is claimed.",
+    "Runtime theme and text-scale settings, shared localization-service wiring, renderer drawing, and actual assistive-technology delivery.",
+    "0.2 application/runtime adoption until Nagi 0.1 M30 PASS and an explicit integration checkpoint."
+  ],
+  "cross_workstream_dependencies": []
+}

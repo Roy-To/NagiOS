@@ -3,7 +3,8 @@ use core::arch::asm;
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_FILE_SIZE};
 use libnagi::{DisplayInfo, InputEvent};
 
-use crate::ui::{rgba, Painter, Rect};
+use crate::ui::{Painter, Rect};
+use nagi_ui::{color, ColorRole, ThemeMode};
 
 type UserDataVolume = Vfs<SyscallBlockDevice>;
 
@@ -15,12 +16,14 @@ const WINDOW_HEIGHT: i32 = 70;
 const TITLE_HEIGHT: i32 = 14;
 const POINTER_START_X: i32 = 80;
 const POINTER_START_Y: i32 = 58;
-const BACKGROUND: u32 = rgba(16, 24, 40);
-const PANEL: u32 = rgba(228, 235, 240);
-const TITLE: u32 = rgba(38, 166, 154);
-const FOCUS: u32 = rgba(245, 158, 11);
-const BORDER: u32 = rgba(8, 12, 20);
-const TEXT: u32 = rgba(15, 23, 42);
+const PREVIEW_THEME: ThemeMode = ThemeMode::Light;
+const BACKGROUND: u32 = color(PREVIEW_THEME, ColorRole::Canvas).to_pixel();
+const PANEL: u32 = color(PREVIEW_THEME, ColorRole::Surface).to_pixel();
+const TITLE: u32 = color(PREVIEW_THEME, ColorRole::Accent).to_pixel();
+const BORDER: u32 = color(PREVIEW_THEME, ColorRole::BorderStrong).to_pixel();
+const TEXT: u32 = color(PREVIEW_THEME, ColorRole::TextPrimary).to_pixel();
+const TITLE_TEXT: u32 = color(PREVIEW_THEME, ColorRole::TextOnAccent).to_pixel();
+const FOCUS: u32 = color(PREVIEW_THEME, ColorRole::Focus).to_pixel();
 const SETTINGS_BUTTON: Rect = Rect::new(252, 1, 66, 18);
 const SETTINGS_PANEL: Rect = Rect::new(34, 34, 252, 132);
 const ENGLISH_OPTION: Rect = Rect::new(48, 83, 224, 25);
@@ -169,7 +172,10 @@ impl Desktop {
     pub fn render(&self, surface: &mut [u32]) {
         let mut painter = Painter::new(surface);
         painter.fill(Rect::new(0, 0, 320, 200), BACKGROUND);
-        painter.fill(Rect::new(0, 0, 320, 20), rgba(24, 36, 56));
+        painter.fill(
+            Rect::new(0, 0, 320, 20),
+            color(PREVIEW_THEME, ColorRole::SurfaceSunken).to_pixel(),
+        );
         painter.fill(
             SETTINGS_BUTTON,
             if self.settings_open { TITLE } else { PANEL },
@@ -222,7 +228,7 @@ impl Desktop {
         }
         painter.fill(
             Rect::new(self.pointer_x - 1, self.pointer_y - 1, 3, 3),
-            rgba(245, 158, 11),
+            color(PREVIEW_THEME, ColorRole::Focus).to_pixel(),
         );
     }
 
@@ -373,7 +379,10 @@ impl Desktop {
         key: &str,
         focus: SettingsFocus,
     ) {
-        painter.fill(rect, rgba(245, 248, 250));
+        painter.fill(
+            rect,
+            color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+        );
         painter.frame(
             rect,
             if self.settings_focus == Some(focus) {
@@ -560,7 +569,7 @@ impl Desktop {
             Rect::new(window.x + 1, window.y + 1, window.width - 2, TITLE_HEIGHT),
             TITLE,
         );
-        painter.text(window.x + 6, window.y + 4, title, PANEL);
+        painter.text(window.x + 6, window.y + 4, title, TITLE_TEXT);
         painter.text(window.x + 8, window.y + TITLE_HEIGHT + 12, content, TEXT);
     }
 }
