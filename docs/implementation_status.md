@@ -9158,6 +9158,15 @@ fields. Evidence and SHA256SUMS are under
 unit + 21 integration tests, `nagi-posix` 24, `nagi-albert` 72, warning-denied
 Clippy and rustfmt. Public CI has not run this change.
 
+After merging `origin/main` (isolated processes, Supervisor, and kernel
+exception-table work), the first M18 run read example.com's frame before its
+content was painted (`ink_pixels=0`, a different uniform frame): the HTTPS
+wait loop also left Servo's first ready frame unconsumed. The HTTPS pages now
+use the same bounded frame settling as the clipboard and IME phases before
+the evidence frame is read. Post-merge run `1791185927312101000` passed with
+`ink_pixels=6283` per site; evidence under
+`out/evidence/m29-browser-1791185927312101000/`.
+
 Still open: Albert's 48 px chrome is drawn over the top of the page instead
 of offsetting the viewport, and the chrome keeps the last HTTPS title/URL
 while the fixture page is shown.

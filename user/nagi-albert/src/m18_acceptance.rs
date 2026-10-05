@@ -594,6 +594,12 @@ mod guest {
         browser_state: &BrowserState,
         runtime: &TabRuntime,
     ) -> bool {
+        settle_frames(servo, signal, runtime);
+        present_browser_surface(context, &runtime.webview, surface, browser_state, None)
+    }
+
+    /// Consume frames until Servo stops producing new ones (bounded).
+    fn settle_frames(servo: &Servo, signal: &Arc<EventLoopSignal>, runtime: &TabRuntime) {
         let deadline = libnagi::time_ticks().saturating_add(SETTLE_FRAME_TICKS);
         let mut quiet_since = libnagi::time_ticks();
         while libnagi::time_ticks() < deadline
@@ -605,7 +611,6 @@ mod guest {
             }
             yield_guest_workers(signal);
         }
-        present_browser_surface(context, &runtime.webview, surface, browser_state, None)
     }
 
     fn frame_rectangle() -> DeviceIntRect {
@@ -1890,6 +1895,9 @@ mod guest {
             ) {
                 fail(b"browser state rejected completed navigation");
             }
+            // The first ready frame can predate the page's content; let Servo
+            // finish painting before the evidence frame is read.
+            settle_frames(&servo, &signal, runtime);
             render_page(
                 &context,
                 &runtime.webview,
