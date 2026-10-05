@@ -290,8 +290,28 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=nagi-init={}", output.display());
     }
 
+    // ADR 0058: guest llama inference links the target-built libc++ archive.
+    // The Nagi runtime then provides only the Itanium ABI boundary that
+    // libc++ is configured without, so their definitions never overlap.
+    println!("cargo:rerun-if-env-changed=NAGI_LIBCXX_ARCHIVE");
+    let libcxx_archive = if env::var_os("CARGO_FEATURE_M20_LLAMA_INFERENCE_ACCEPTANCE").is_some() {
+        let archive = env::var_os("NAGI_LIBCXX_ARCHIVE")
+            .map(PathBuf::from)
+            .expect("NAGI_LIBCXX_ARCHIVE must point to the Nagi-target libc++.a (tools/libcxx)");
+        if !archive.is_file() {
+            panic!("NAGI_LIBCXX_ARCHIVE is missing: {}", archive.display());
+        }
+        println!("cargo:rerun-if-changed={}", archive.display());
+        Some(archive)
+    } else {
+        None
+    };
     let cxx_output = out_dir.join("nagi-cxx-runtime.o");
-    let status = Command::new(&compiler)
+    let mut cxx_runtime_command = Command::new(&compiler);
+    if libcxx_archive.is_some() {
+        cxx_runtime_command.arg("-DNAGI_CXX_RUNTIME_WITH_LIBCXX");
+    }
+    let status = cxx_runtime_command
         .args([
             "--target=x86_64-unknown-none",
             "-x",
@@ -476,34 +496,38 @@ fn main() {
             println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
         }
 
-        // The pinned CPU feature provider references libc++'s string ABI,
-        // which Nagi supplies from its configured target headers rather than a
-        // host or bundled libc++ archive.
-        let cxx_abi_source = llama_source.join("nagi-libcpp-llama.cpp");
-        println!("cargo:rerun-if-changed={}", cxx_abi_source.display());
-        let cxx_abi_object = out_dir.join("nagi-libcpp-llama.o");
-        let status = Command::new("bash")
-            .arg(&target_cc_wrapper)
-            .args([
-                "-x",
-                "c++",
-                "-fno-asynchronous-unwind-tables",
-                "-fno-exceptions",
-                "-fno-rtti",
-                "-c",
-            ])
-            .arg(&cxx_abi_source)
-            .arg("-o")
-            .arg(&cxx_abi_object)
-            .status()
-            .unwrap_or_else(|error| panic!("failed to compile llama libc++ ABI adapter: {error}"));
-        if !status.success() {
-            panic!("Nagi llama libc++ ABI adapter compilation failed with {status}");
+        // Without the target libc++ archive (the link smoke), the pinned CPU
+        // feature provider's libc++ string ABI comes from a Nagi adapter
+        // compiled against the configured target headers.
+        if libcxx_archive.is_none() {
+            let cxx_abi_source = llama_source.join("nagi-libcpp-llama.cpp");
+            println!("cargo:rerun-if-changed={}", cxx_abi_source.display());
+            let cxx_abi_object = out_dir.join("nagi-libcpp-llama.o");
+            let status = Command::new("bash")
+                .arg(&target_cc_wrapper)
+                .args([
+                    "-x",
+                    "c++",
+                    "-fno-asynchronous-unwind-tables",
+                    "-fno-exceptions",
+                    "-fno-rtti",
+                    "-c",
+                ])
+                .arg(&cxx_abi_source)
+                .arg("-o")
+                .arg(&cxx_abi_object)
+                .status()
+                .unwrap_or_else(|error| {
+                    panic!("failed to compile llama libc++ ABI adapter: {error}")
+                });
+            if !status.success() {
+                panic!("Nagi llama libc++ ABI adapter compilation failed with {status}");
+            }
+            println!(
+                "cargo:rustc-link-arg-bin=nagi-init={}",
+                cxx_abi_object.display()
+            );
         }
-        println!(
-            "cargo:rustc-link-arg-bin=nagi-init={}",
-            cxx_abi_object.display()
-        );
 
         if let Some(provider_object) = provider_object {
             println!(
@@ -522,7 +546,7 @@ fn main() {
         }
         println!("cargo:rustc-link-arg-bin=nagi-init=-Bstatic");
         println!("cargo:rustc-link-arg-bin=nagi-init=--start-group");
-        for archive in &archives {
+        for archive in archives.iter().chain(libcxx_archive.as_ref()) {
             println!("cargo:rustc-link-arg-bin=nagi-init={}", archive.display());
         }
         println!("cargo:rustc-link-arg-bin=nagi-init=--end-group");

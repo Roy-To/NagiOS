@@ -1199,7 +1199,14 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi M20 relibc link FAIL\r\n");
             libnagi::exit(1);
         }
-        if exit_code != 0 || !m20_granite::run(model_store_capability) {
+        // M20 boots once on a fresh data disk: storage acceptance then
+        // formats, writes, and maps its file and returns 2 (reboot to verify
+        // persistence). Inference needs a working volume, not a second boot.
+        let storage_ready = exit_code == 0 || exit_code == 2;
+        if !storage_ready {
+            libnagi::console_write(b"Nagi M20 Granite stage FAIL: storage acceptance\r\n");
+        }
+        if !storage_ready || !m20_granite::run(model_store_capability) {
             libnagi::console_write(b"Nagi M20 Granite structured inference FAIL\r\n");
             libnagi::exit(1);
         }

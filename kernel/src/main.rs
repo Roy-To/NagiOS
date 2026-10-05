@@ -482,6 +482,11 @@ fn report_user_process_stage(stage: nagi_kernel::user_process::PrepareStage) {
         PrepareStage::UserContextReady => {
             serial_write(b"Nagi M5 trace: user context ready\r\n");
         }
+        PrepareStage::MmapFramePoolReady { frames } => {
+            serial_write(b"Nagi M5 trace: mmap frame pool pages=");
+            serial_write_decimal(frames);
+            serial_write(b"\r\n");
+        }
     }
 }
 

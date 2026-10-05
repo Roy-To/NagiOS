@@ -306,6 +306,18 @@ unsafe extern "C" fn check_cancelled(context: *mut c_void) -> bool {
     context.cancellation.is_cancelled()
 }
 
+/// Report which acceptance stage failed so a FAIL is diagnosable from the
+/// serial log alone.
+fn stage_failed(stage: &str, detail: Option<RuntimeError>) -> bool {
+    libnagi::console_write(b"Nagi M20 Granite stage FAIL: ");
+    libnagi::console_write(stage.as_bytes());
+    if let Some(error) = detail {
+        libnagi::console_write(alloc::format!(" ({error:?})").as_bytes());
+    }
+    libnagi::console_write(b"\r\n");
+    false
+}
+
 pub fn run(model_store_capability: u64) -> bool {
     if model_store_capability == 0 {
         return false;
@@ -320,13 +332,13 @@ pub fn run(model_store_capability: u64) -> bool {
         artifact_id,
     ) {
         Ok(artifact) if artifact.len() == GRANITE_MODEL_BYTES => artifact,
-        _ => return false,
+        _ => return stage_failed("model store artifact", None),
     };
     let manifest = match ModelManifest::parse_json(include_bytes!(
         "../../nagi-model-manager/tests/fixtures/granite-4.2-3b.json"
     )) {
         Ok(manifest) => manifest,
-        Err(_) => return false,
+        Err(_) => return stage_failed("manifest", None),
     };
     let schema = match StructuredOutputSchema::parse_json(STRING_ANSWER_SCHEMA) {
         Ok(schema) => schema,
@@ -337,11 +349,16 @@ pub fn run(model_store_capability: u64) -> bool {
         Err(_) => return false,
     };
     let backend = LlamaCppBackend::new();
+    if !backend.initialized {
+        return stage_failed("backend initialization", None);
+    }
+    libnagi::console_write(b"Nagi M20 trace: llama backend initialized\r\n");
     let mut runtime = ModelRuntime::new(backend);
     let mut session = match runtime.load(&manifest, &mut artifact, "x86_64") {
         Ok(session) => session,
-        Err(_) => return false,
+        Err(error) => return stage_failed("model load", Some(error)),
     };
+    libnagi::console_write(b"Nagi M20 trace: Granite model loaded\r\n");
     let request = ModelRequest {
         request_id: 0x4e41_4749_0020_0001,
         caller: None,
@@ -362,10 +379,13 @@ pub fn run(model_store_capability: u64) -> bool {
     };
     let response = match session.generate(&request, &NeverCancel) {
         Ok(response) => response,
-        Err(_) => return false,
+        Err(error) => return stage_failed("generation", Some(error)),
     };
-    if response.text.is_empty() || session.unload().is_err() {
-        return false;
+    if response.text.is_empty() {
+        return stage_failed("empty response", None);
+    }
+    if let Err(error) = session.unload() {
+        return stage_failed("unload", Some(error));
     }
     libnagi::console_write(b"Nagi M20 Granite structured response: ");
     libnagi::console_write(response.text.as_bytes());
