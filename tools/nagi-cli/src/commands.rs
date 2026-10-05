@@ -157,6 +157,25 @@ const M18_IME_EVENTS: [&str; 3] = [
     }"#,
 ];
 
+/// Upload steps: click the page's file input (pointer moves from the
+/// clipboard click at y=132 to y=90, page y=28), then Enter in Albert's
+/// trusted picker.
+const M18_UPLOAD_CLICK_EVENTS: [&str; 1] = [r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"rel","data":{"axis":"y","value":-42}},
+            {"type":"btn","data":{"button":"left","down":true}},
+            {"type":"btn","data":{"button":"left","down":false}}
+        ]}
+    }"#];
+const M18_UPLOAD_CHOOSE_EVENTS: [&str; 1] = [r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}
+        ]}
+    }"#];
+
 const M18_INPUT_EVENTS: [&str; 2] = [
     r#"{
         "execute":"input-send-event",
@@ -7308,6 +7327,14 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     marker: "Nagi M18 IME page READY",
                     events: &M18_IME_EVENTS,
                 },
+                QmpEventStage {
+                    marker: "Nagi M18 upload page READY",
+                    events: &M18_UPLOAD_CLICK_EVENTS,
+                },
+                QmpEventStage {
+                    marker: "Nagi M18 upload picker READY",
+                    events: &M18_UPLOAD_CHOOSE_EVENTS,
+                },
             ],
             "Nagi M18 browser FAIL",
             &screenshot_path,
@@ -7356,7 +7383,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; gesture-bound clipboard copy/paste and Japanese IME composition passed (exit {}; log {}; screenshot {})",
+            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; gesture-bound clipboard copy/paste, Japanese IME composition, and trusted-picker upload passed (exit {}; log {}; screenshot {})",
             outcome.exit_status,
             log_path.display(),
             screenshot_path.display(),

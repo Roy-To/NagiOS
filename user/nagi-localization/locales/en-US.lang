@@ -32,3 +32,4 @@ albert.permission.feature.bluetooth=Bluetooth
 albert.permission.feature.persistent_storage=Persistent storage
 albert.permission.feature.screen_wake_lock=Keep screen awake
 albert.permission.feature.gamepad=Gamepad
+albert.picker.title=Choose a file

@@ -9300,9 +9300,30 @@ fixture URL and title in the chrome and the page below it. Evidence under
 `out/evidence/m29-browser-1791195781053517000/`. `nagi-albert` 79 tests,
 `nagi-cli` 255 tests, warning-denied Clippy.
 
-Still open for M18: download/upload destinations, the production
-authenticated permission policy/IPC provider, and interactive QEMU
-permission-prompt acceptance. Later title-only changes (for example a page
+## M18 file upload through a trusted picker (2026-10-05)
+
+Page file inputs had been dismissed because Nagi had no picker. Albert now
+keeps Servo's `FilePicker` request and shows a first-party picker modal
+(opaque scrim, localized title `Choose a file` / `ファイル選択`) listing
+regular files in the user's `/Documents` folder, filtered by the input's
+`accept` extensions, sorted and bounded to 12 entries. While it is open,
+device input goes to the picker (Up/Down/Enter/Escape and row clicks); only
+the file the user chooses is passed to Servo with `select` + `submit`, which
+is the selection-as-consent rule in the specification. Requests Servo hides
+are dismissed. `nagi-posix` `opendir` now lists any VFS directory, not only
+the root, so `std::fs::read_dir` works for the picker.
+
+The M18 scenario writes `/Documents/nagi-upload.txt`, loads a page with a
+`.txt` file input, clicks it through QMP, chooses the file with Enter, and
+requires the page's `FileReader` to report the name, 14-byte size, and
+contents. Local run `1791196426142952000` passed with all earlier phases;
+evidence under `out/evidence/m29-browser-1791196426142952000/`.
+`nagi-albert` 86 tests and `nagi-cli` 256 tests pass with warning-denied
+Clippy.
+
+Still open for M18: download destinations (the pinned Servo has no download
+callback), the production authenticated permission policy/IPC provider, and
+interactive QEMU permission-prompt acceptance. Later title-only changes (for example a page
 updating `document.title`) are not yet reflected in the tab title.
 
 ## Nagi 0.2 integration-line checkpoints (merged 2026-10-05)

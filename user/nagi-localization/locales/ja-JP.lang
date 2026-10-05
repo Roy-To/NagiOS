@@ -32,3 +32,4 @@ albert.permission.feature.bluetooth=Bluetooth
 albert.permission.feature.persistent_storage=永続保存
 albert.permission.feature.screen_wake_lock=画面維持
 albert.permission.feature.gamepad=ゲームパッド
+albert.picker.title=ファイル選択

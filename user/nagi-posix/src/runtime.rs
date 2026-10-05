@@ -570,6 +570,17 @@ pub fn list_root(
     volume.list_root(entries).map_err(RuntimeError::Storage)
 }
 
+pub fn list_directory(
+    name: &[u8],
+    entries: &mut [DirectoryEntry; MAX_DIRECTORY_ENTRIES],
+) -> Result<usize, RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume
+        .list_directory_path(name, entries)
+        .map_err(RuntimeError::Storage)
+}
+
 pub fn socket() -> Result<i32, RuntimeError> {
     if network_lock().is_none() {
         return Err(RuntimeError::NotInitialized);

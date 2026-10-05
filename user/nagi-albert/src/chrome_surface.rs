@@ -419,6 +419,107 @@ pub fn render_permission_prompt(
     Ok(())
 }
 
+/// Content of Albert's trusted file picker.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FilePickerView<'a> {
+    pub title: &'a str,
+    pub entries: &'a [crate::file_picker::PickerEntry],
+    pub selected: Option<usize>,
+}
+
+/// Draw the file picker as an opaque first-party modal; page content cannot
+/// draw over it or imitate it inside the chrome-owned surface.
+pub fn render_file_picker(
+    frame: &mut [u8],
+    width: u32,
+    height: u32,
+    stride: usize,
+    picker: &FilePickerView<'_>,
+) -> Result<(), ChromeRenderError> {
+    use crate::file_picker::{PickerLayout, PICKER_ROW_HEIGHT};
+    let Some(layout) = PickerLayout::new(width, height) else {
+        return Err(ChromeRenderError::InvalidDimensions);
+    };
+    validate_frame(frame, width, height, stride)?;
+    fill(
+        frame,
+        width,
+        height,
+        stride,
+        Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        PROMPT_SCRIM,
+    );
+    fill(
+        frame,
+        width,
+        height,
+        stride,
+        Rect {
+            x: layout.card_x,
+            y: layout.card_y,
+            width: layout.card_width,
+            height: layout.card_height,
+        },
+        PROMPT_BG,
+    );
+    draw_text(
+        frame,
+        width,
+        height,
+        stride,
+        layout.card_x + 8,
+        layout.card_y + 7,
+        picker.title,
+        PROMPT_TEXT,
+        layout.card_width.saturating_sub(16),
+    );
+    let visible_rows =
+        (layout.card_y + layout.card_height).saturating_sub(layout.rows_y) / PICKER_ROW_HEIGHT;
+    for (index, entry) in picker
+        .entries
+        .iter()
+        .enumerate()
+        .take(visible_rows as usize)
+    {
+        let row_y = layout.rows_y + index as u32 * PICKER_ROW_HEIGHT;
+        let selected = picker.selected == Some(index);
+        if selected {
+            fill(
+                frame,
+                width,
+                height,
+                stride,
+                Rect {
+                    x: layout.card_x + 4,
+                    y: row_y,
+                    width: layout.card_width.saturating_sub(8),
+                    height: PICKER_ROW_HEIGHT - 1,
+                },
+                ACCENT,
+            );
+        }
+        let color = if selected { ADDRESS_BG } else { PROMPT_TEXT };
+        let label = format!("{}  {} B", entry.name, entry.size);
+        draw_text(
+            frame,
+            width,
+            height,
+            stride,
+            layout.card_x + 8,
+            row_y + 2,
+            &label,
+            color,
+            layout.card_width.saturating_sub(16),
+        );
+    }
+    Ok(())
+}
+
 /// Copy a page frame of `width` x `page_height` RGBA pixels into `frame`
 /// starting at [`PAGE_TOP`], so page content never sits under the chrome.
 pub fn place_page(
@@ -957,6 +1058,40 @@ mod tests {
         for character in url_characters {
             assert_ne!(ascii_glyph(character), MISSING_GLYPH, "{character}");
         }
+    }
+
+    #[test]
+    fn file_picker_covers_the_page_and_highlights_the_selection() {
+        use crate::file_picker::{PickerEntry, PickerLayout, PICKER_ROW_HEIGHT};
+        let width = 320_usize;
+        let height = 200_usize;
+        let mut frame = vec![255; width * height * 4];
+        let entries = [
+            PickerEntry {
+                name: "a.txt".to_owned(),
+                size: 3,
+            },
+            PickerEntry {
+                name: "b.txt".to_owned(),
+                size: 5,
+            },
+        ];
+        let view = FilePickerView {
+            title: "Choose a file",
+            entries: &entries,
+            selected: Some(1),
+        };
+        render_file_picker(&mut frame, width as u32, height as u32, width * 4, &view).unwrap();
+        let layout = PickerLayout::new(width as u32, height as u32).unwrap();
+        assert_eq!(&frame[0..3], &PROMPT_SCRIM);
+        let selected_row = ((layout.rows_y + PICKER_ROW_HEIGHT + 1) as usize * width
+            + (layout.card_x + layout.card_width - 6) as usize)
+            * 4;
+        assert_eq!(&frame[selected_row..selected_row + 3], &ACCENT);
+        let unselected_row = ((layout.rows_y + 1) as usize * width
+            + (layout.card_x + layout.card_width - 6) as usize)
+            * 4;
+        assert_eq!(&frame[unselected_row..unselected_row + 3], &PROMPT_BG);
     }
 
     #[test]
