@@ -7841,6 +7841,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "Nagi M19 Search IPC authenticated caller PASS",
             "Nagi M21 foreign isolated caller denied PASS",
             "Nagi M21 file.search isolated caller PASS",
+            "Nagi M19 trace inode reuse assigned a new ObjectId",
             "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M19 acceptance PASS",
