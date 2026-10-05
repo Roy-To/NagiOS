@@ -27,11 +27,18 @@ desktop first shows an OS-owned login screen.
   `REJECTED` and the right one signed in. `./nagi m29` and
   `./nagi consent` still pass.
 
+- **Follow-up.**
+  - **Consent.** The consent dialog now records for the signed-in owner,
+    after sign-in, and `./nagi consent` signs in first.
+  - **M27.** The M27 GPT healthy-B trial creates the owner through QMP and
+    must persist readiness only after `Nagi login unlocked PASS`. This is
+    account-authenticated readiness; `./nagi m27` passed (evidence
+    `out/evidence/m27-ab-rollback-1791243852197747000`).
+
 Still open:
 
-- enabling `desktop-login` in release/M27/M30 images (headless trials need
-  typed credentials);
-- having consent use the signed-in session;
+- the legacy FAT12 M27 fixtures, the M10/M29 desktops and the
+  `m30-update` payload do not enable `desktop-login` yet;
 - more accounts, password change, and rate limiting.
 
 **Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`

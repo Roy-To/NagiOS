@@ -68,6 +68,10 @@ impl ConsentDialog {
         self.prompt.arm();
     }
 
+    pub const fn is_armed(&self) -> bool {
+        self.prompt.is_armed()
+    }
+
     pub fn render(&self, painter: &mut Painter<'_>, locale: Locale) {
         let surface = color(THEME, ColorRole::Surface).to_pixel();
         let text = color(THEME, ColorRole::TextPrimary).to_pixel();

@@ -36,7 +36,9 @@ use crate::image::{
     write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
     ImageLayout, QemuConfig, QmpEventStage, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
-use crate::image::{qmp_screendump_command, validate_screenshot};
+use crate::image::{
+    qmp_screendump_command, run_qemu_gui_with_staged_events_and_screenshot, validate_screenshot,
+};
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
 use crate::model_artifact::{validate_m26_model_lock, validate_m26_model_manifest, M26Model};
@@ -92,6 +94,13 @@ struct DesktopAcceptanceConfig {
     acceptance_packages: bool,
     /// Also capture the first desktop frame, before any input is sent.
     ready_screenshot_name: Option<&'static str>,
+    /// QMP input for the restart boot (for example, signing in).
+    restart_events: Vec<String>,
+    /// Input sent only after a guest marker: `(marker, events)`.
+    later_stages: Vec<(&'static str, Vec<String>)>,
+    /// Capture `ready_screenshot_name` at the start of the stage with this
+    /// marker instead of before the first input.
+    ready_screenshot_stage: Option<&'static str>,
 }
 
 /// Clipboard steps, each sent after the guest reports the previous one:
@@ -4548,9 +4557,15 @@ const CONSENT_DIALOG_EVENTS: [&str; 7] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
 ];
 
+const CONSENT_OWNER_NAME: &str = "owner";
+const CONSENT_OWNER_PASSWORD: &str = "nagi1";
+
 const CONSENT_DIALOG_REQUIRED_MARKERS: &[&str] = &[
     "Nagi boot lock READY",
     "Nagi M10 desktop READY",
+    "Nagi login READY mode=create",
+    "Nagi login owner created PASS name=owner",
+    "Nagi login unlocked PASS",
     "Nagi consent dialog SHOWN app=org.nagi.acceptance.faulting-app capability=acceptance.consent-probe",
     "Nagi consent dialog decision PASS decision=allow",
     "Nagi consent decision persisted PASS",
@@ -4734,6 +4749,9 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             unique_run_artifacts: false,
             acceptance_packages: false,
             ready_screenshot_name: None,
+            restart_events: Vec::new(),
+            later_stages: Vec::new(),
+            ready_screenshot_stage: None,
         },
         &M10_DESKTOP_EVENTS,
     )
@@ -4764,6 +4782,9 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             unique_run_artifacts: true,
             acceptance_packages: false,
             ready_screenshot_name: None,
+            restart_events: Vec::new(),
+            later_stages: Vec::new(),
+            ready_screenshot_stage: None,
         },
         &events,
     )
@@ -4773,12 +4794,18 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 /// application's grant request through real QMP input, and the persisted
 /// `Allow` holds after a restart without a new prompt.
 fn execute_consent(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    // ADR 0063: decisions belong to the signed-in owner. Create the owner
+    // first; the dialog appears after sign-in.
+    let mut events = qmp_typed_keys(CONSENT_OWNER_NAME, "ret");
+    // `events` signs in; the dialog input is a later stage.
+    events.extend(qmp_typed_keys(CONSENT_OWNER_PASSWORD, "ret"));
+    events.extend(qmp_typed_keys(CONSENT_OWNER_PASSWORD, "ret"));
     execute_desktop_acceptance(
         root,
         probe,
         DesktopAcceptanceConfig {
             label: "consent",
-            features: "consent-dialog-acceptance",
+            features: "consent-dialog-acceptance,desktop-login",
             image_name: "nagi-0.1-consent-dialog.img",
             persistent_disk_name: "nagi-0.1-consent-dialog-user-data.img",
             vars_name: "nagi-0.1-consent-dialog-vars.fd",
@@ -4794,8 +4821,18 @@ fn execute_consent(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             unique_run_artifacts: true,
             acceptance_packages: true,
             ready_screenshot_name: Some("nagi-consent-dialog-shown.png"),
+            restart_events: qmp_typed_keys(CONSENT_OWNER_PASSWORD, "ret"),
+            // Answer the dialog, and capture it, only once it is shown.
+            later_stages: vec![(
+                "Nagi consent dialog SHOWN",
+                CONSENT_DIALOG_EVENTS
+                    .iter()
+                    .map(|event| (*event).to_owned())
+                    .collect(),
+            )],
+            ready_screenshot_stage: Some("Nagi consent dialog SHOWN"),
         },
-        &CONSENT_DIALOG_EVENTS,
+        &events.iter().map(String::as_str).collect::<Vec<_>>(),
     )
 }
 
@@ -5076,17 +5113,34 @@ fn execute_desktop_acceptance(
     let ready_screenshot_path = acceptance
         .ready_screenshot_name
         .map(|name| screenshot_directory.join(name));
-    let mut event_commands: Vec<String> = Vec::with_capacity(events.len() + 1);
+    let mut event_commands: Vec<String> = events.iter().map(|event| (*event).to_owned()).collect();
+    let mut stage_commands: Vec<(&'static str, Vec<String>)> = acceptance.later_stages.clone();
     if let Some(path) = &ready_screenshot_path {
-        match qmp_screendump_command(path) {
-            Ok(command) => event_commands.push(command),
+        let command = match qmp_screendump_command(path) {
+            Ok(command) => command,
             Err(error) => {
                 return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label))
             }
+        };
+        match acceptance.ready_screenshot_stage.and_then(|marker| {
+            stage_commands
+                .iter_mut()
+                .find(|(stage, _)| *stage == marker)
+        }) {
+            Some((_, events)) => events.insert(0, command),
+            None => event_commands.insert(0, command),
         }
     }
-    event_commands.extend(events.iter().map(|event| (*event).to_owned()));
     let event_commands: Vec<&str> = event_commands.iter().map(String::as_str).collect();
+    let stage_events: Vec<Vec<&str>> = stage_commands
+        .iter()
+        .map(|(_, events)| events.iter().map(String::as_str).collect())
+        .collect();
+    let stages: Vec<QmpEventStage<'_>> = stage_commands
+        .iter()
+        .zip(&stage_events)
+        .map(|((marker, _), events)| QmpEventStage { marker, events })
+        .collect();
     let image_path = artifacts.join(image_name);
     let persistent_disk = artifacts.join(persistent_disk_name);
     let vars_copy = artifacts.join(vars_name);
@@ -5149,10 +5203,11 @@ fn execute_desktop_acceptance(
         acceptance_marker: acceptance.acceptance_marker,
         timeout,
     };
-    let outcome = match run_qemu_gui_with_events_and_screenshot(
+    let outcome = match run_qemu_gui_with_staged_events_and_screenshot(
         &config,
         "Nagi M10 desktop READY",
         &event_commands,
+        &stages,
         &screenshot_path,
     ) {
         Ok(status) => status,
@@ -5229,7 +5284,22 @@ fn execute_desktop_acceptance(
                 acceptance_marker: restart_marker,
                 timeout,
             };
-            if let Err(error) = run_qemu(&restart_config) {
+            let restart_commands: Vec<&str> = acceptance
+                .restart_events
+                .iter()
+                .map(String::as_str)
+                .collect();
+            let restarted = if restart_commands.is_empty() {
+                run_qemu(&restart_config).map(|_| ())
+            } else {
+                run_qemu_gui_with_events(
+                    &restart_config,
+                    "Nagi M10 desktop READY",
+                    &restart_commands,
+                )
+                .map(|_| ())
+            };
+            if let Err(error) = restarted {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("{}: persistence restart: {error}", acceptance.label),
@@ -5285,7 +5355,7 @@ fn execute_desktop_acceptance(
     )];
     if let Some(path) = &ready_screenshot_path {
         lines.push(format!(
-            "PASS {}: first desktop frame captured before input (screenshot {})",
+            "PASS {}: screen captured before the acceptance input (screenshot {})",
             acceptance.label,
             path.display()
         ));
@@ -9584,7 +9654,8 @@ fn execute_m27_gpt_acceptance(
         "-p",
         "nagi-init",
         "--features",
-        "m10-desktop",
+        // ADR 0063: a trial is confirmed only by a signed-in desktop.
+        "desktop-login",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -9834,11 +9905,21 @@ fn execute_m27_gpt_acceptance(
         persistent_disk: &healthy_image_path,
         vars_copy: &healthy_vars,
         serial_log: &trial_log,
-        acceptance_marker: "Nagi M10 desktop READY",
+        acceptance_marker: "Nagi M27 readiness persisted slot=B attempt=1",
         timeout: Duration::from_secs(120),
     };
-    let status = run_m27_headless_with_pre_guest_retry(&trial_config, false)
-        .map_err(|error| format!("GPT healthy System B trial: {error}"))?;
+    // The trial reports readiness only after the owner signs in; create the
+    // owner through the OS-owned login screen (ADR 0063).
+    let mut sign_in = qmp_typed_keys("owner", "ret");
+    sign_in.extend(qmp_typed_keys("nagi1", "ret"));
+    sign_in.extend(qmp_typed_keys("nagi1", "ret"));
+    let sign_in: Vec<&str> = sign_in.iter().map(String::as_str).collect();
+    let status = run_qemu_gui_reusing_ovmf_vars_with_events(
+        &trial_config,
+        "Nagi login READY mode=create",
+        &sign_in,
+    )
+    .map_err(|error| format!("GPT healthy System B trial: {error}"))?;
     let serial = fs::read_to_string(&trial_log)
         .map_err(|error| format!("read {}: {error}", trial_log.display()))?;
     require_m27_gpt_markers(
@@ -9851,13 +9932,14 @@ fn execute_m27_gpt_acceptance(
             "Nagi M27 UEFI variable journal persistence PASS",
             "Nagi M30 GPT partition boot: System B PASS",
             "Nagi M7 persistent read PASS",
-            "Nagi M27 readiness persisted slot=B attempt=1 generation=",
             "Nagi M10 desktop READY",
+            "Nagi login owner created PASS name=owner",
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=",
         ],
     )?;
-    if !m27_readiness_persisted_before_desktop(&serial) {
+    if !m27_readiness_persisted_after_sign_in(&serial) {
         return Err(format!(
-            "GPT System B did not persist readiness before the desktop marker (log {})",
+            "GPT System B persisted readiness before the owner signed in (log {})",
             trial_log.display()
         ));
     }
@@ -9958,6 +10040,18 @@ fn m27_bootstrap_markers_present(serial: &str) -> bool {
     serial.contains(NAGI_WRITE_MARKER) && serial.contains(M27_BOOTSTRAP_COMPLETION_MARKER)
 }
 
+/// ADR 0063: with `desktop-login`, readiness follows the owner's sign-in.
+fn m27_readiness_persisted_after_sign_in(serial: &str) -> bool {
+    let signed_in = serial
+        .lines()
+        .position(|line| line == "Nagi login unlocked PASS");
+    let readiness = serial.lines().position(|line| {
+        line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 generation=")
+            && line.ends_with(" PASS")
+    });
+    matches!((signed_in, readiness), (Some(signed_in), Some(record)) if signed_in < record)
+}
+
 fn m27_readiness_persisted_before_desktop(serial: &str) -> bool {
     let readiness_line = serial.lines().position(|line| {
         line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 generation=")
@@ -10002,10 +10096,11 @@ mod tests {
     use super::{
         append_nagi_target_archive_tools, has_pre_guest_firmware_timeout_signature,
         last_serial_lines, m17_trace_excerpt, m27_bootstrap_markers_present,
-        m27_readiness_consumed_before_promotion, m27_readiness_persisted_before_desktop,
-        m27_trial_failure_observed, m30_image_build_info_matches, parse_command, path_with_suffix,
-        pinned_granite_manifest, run_headless_with_pre_guest_retry_using, scoped_artifact_name,
-        verify_external_artifact, Command, QemuConfig, NAGI_WRITE_MARKER,
+        m27_readiness_consumed_before_promotion, m27_readiness_persisted_after_sign_in,
+        m27_readiness_persisted_before_desktop, m27_trial_failure_observed,
+        m30_image_build_info_matches, parse_command, path_with_suffix, pinned_granite_manifest,
+        run_headless_with_pre_guest_retry_using, scoped_artifact_name, verify_external_artifact,
+        Command, QemuConfig, NAGI_WRITE_MARKER,
     };
     use sha2::{Digest, Sha256};
     use std::path::Path;
@@ -10540,6 +10635,19 @@ mod tests {
         )));
         assert!(!m27_bootstrap_markers_present(
             "Nagi M7 reboot required PASS\n"
+        ));
+    }
+
+    #[test]
+    fn m27_readiness_must_follow_sign_in() {
+        assert!(m27_readiness_persisted_after_sign_in(
+            "Nagi M10 desktop READY\nNagi login unlocked PASS\nNagi M27 readiness persisted slot=B attempt=1 generation=4 PASS\n"
+        ));
+        assert!(!m27_readiness_persisted_after_sign_in(
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=4 PASS\nNagi login unlocked PASS\n"
+        ));
+        assert!(!m27_readiness_persisted_after_sign_in(
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=4 PASS\n"
         ));
     }
 

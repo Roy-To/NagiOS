@@ -70,14 +70,31 @@ prints `unlock REJECTED`, and the correct one signs in.
 A temporary ja-JP render of the same screens was checked visually.
 `./nagi m29` and `./nagi consent` still pass.
 
+## Rollout (2026-10-06, follow-up)
+
+- **Consent.** The consent acceptance now enables `desktop-login`.
+  - Persisted decisions are restored, and the dialog opens only after
+    sign-in.
+  - Decisions are recorded for the signed-in owner's `Session` instead of
+    the fixture account.
+  - The dialog is announced (`SHOWN`) only once its frame is presented and
+    armed.
+  - `./nagi consent` creates the owner, answers the dialog, then unlocks
+    after a restart and sees the restored decision.
+- **M27.** The M27 GPT images enable `desktop-login`. The healthy System B
+  trial creates the owner through QMP input, and the acceptance requires
+  `Nagi M27 readiness persisted slot=B` *after* `Nagi login unlocked PASS`.
+  This is account-authenticated readiness. `./nagi m27` passed (evidence
+  `out/evidence/m27-ab-rollback-1791243852197747000`).
+- **Not yet enabled.**
+  - The legacy FAT12 M27 fixtures, M10/M29 and the `m30-update` payload
+    are unchanged.
+  - The M30 release image runs the M19/M22 service flows, not the desktop.
+
 ## Bounds and non-goals
 
-- **Rollout.** The login screen is behind `desktop-login`, and the
-  release, M10, M29 and M27/M30 images do not enable it yet.
-  - The headless M27/M30 trial boots would need QMP-typed credentials to
-    report readiness.
-  - Enabling it there, and having the consent dialog use the signed-in
-    session instead of the fixture user, is the next step.
+- **Rollout.** See above. Moving the `m30-update` payload to
+  `desktop-login` follows once its branch has merged.
 - **Single account.** There is one owner account. Standard/guest accounts,
   password change, and recovery reset are later work.
 - **Rate limiting.** There is no rate limit beyond the cost of the KDF,
