@@ -166,6 +166,11 @@ fn trace_m18_dns(message: &[u8]) {
 const BROWSER_STORAGE_FILE: &[u8] = b".nagi-browser-state";
 #[cfg(feature = "browser-storage")]
 const BROWSER_STORAGE_PENDING_FILE: &[u8] = b".nagi-browser-pending";
+/// Largest Albert snapshot (session, history, bookmarks). Multi-block VFS
+/// files (ADR 0056) allow more than the former single 1 KiB block; Albert's
+/// `MAX_STORAGE_BUNDLE_BYTES` must match.
+#[cfg(feature = "browser-storage")]
+pub const BROWSER_STORAGE_MAX_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeError {
@@ -206,7 +211,7 @@ pub fn browser_storage_read(output: &mut [u8]) -> Result<Option<usize>, RuntimeE
     let metadata = volume.metadata(handle).map_err(RuntimeError::Storage)?;
     let length =
         usize::try_from(metadata.size).map_err(|_| RuntimeError::Storage(StorageError::Corrupt))?;
-    if length > output.len() || length > BLOCK_SIZE {
+    if length > output.len() || length > BROWSER_STORAGE_MAX_BYTES {
         return Err(RuntimeError::Storage(StorageError::FileTooLarge));
     }
     if length == 0 {
@@ -226,7 +231,7 @@ pub fn browser_storage_read(output: &mut [u8]) -> Result<Option<usize>, RuntimeE
 /// reachable if preparing the new file fails.
 #[cfg(feature = "browser-storage")]
 pub fn browser_storage_write(bytes: &[u8]) -> Result<(), RuntimeError> {
-    if bytes.len() > BLOCK_SIZE {
+    if bytes.len() > BROWSER_STORAGE_MAX_BYTES {
         return Err(RuntimeError::Storage(StorageError::FileTooLarge));
     }
 
@@ -1127,16 +1132,9 @@ pub fn read_at(fd: i32, offset: usize, destination: &mut [u8]) -> Result<usize, 
     };
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-    let mut file = [0; BLOCK_SIZE];
-    let length = volume
-        .read(handle, &mut file)
-        .map_err(RuntimeError::Storage)?;
-    if offset >= length {
-        return Ok(0);
-    }
-    let count = core::cmp::min(destination.len(), length - offset);
-    destination[..count].copy_from_slice(&file[offset..offset + count]);
-    Ok(count)
+    volume
+        .read_at(handle, offset, destination)
+        .map_err(RuntimeError::Storage)
 }
 
 pub fn readiness(fd: i32, requested: i16) -> Result<i16, RuntimeError> {
@@ -1242,14 +1240,13 @@ pub fn write(fd: i32, bytes: &[u8]) -> Result<usize, RuntimeError> {
     match descriptor(fd)? {
         FdEntry::Random => Err(RuntimeError::InvalidFd),
         FdEntry::File { handle, offset } => {
-            if offset != 0 || bytes.len() > BLOCK_SIZE {
-                return Err(RuntimeError::Storage(StorageError::FileTooLarge));
-            }
             let mut filesystem = FILESYSTEM.lock();
             let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-            volume.write(handle, bytes).map_err(RuntimeError::Storage)?;
+            volume
+                .write_at(handle, offset, bytes)
+                .map_err(RuntimeError::Storage)?;
             drop(filesystem);
-            update_offset(fd, handle, bytes.len())?;
+            update_offset(fd, handle, offset + bytes.len())?;
             Ok(bytes.len())
         }
         FdEntry::CallbackFile(_) => Err(RuntimeError::ReadOnly),
@@ -1497,9 +1494,9 @@ fn map_callback_file_error(error: CallbackFileError) -> RuntimeError {
 fn file_size(handle: FileHandle) -> Result<usize, RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-    let mut file = [0; BLOCK_SIZE];
     volume
-        .read(handle, &mut file)
+        .metadata(handle)
+        .map(|metadata| metadata.size as usize)
         .map_err(RuntimeError::Storage)
 }
 

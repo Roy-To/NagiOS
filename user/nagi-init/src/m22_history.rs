@@ -1,7 +1,7 @@
 use crate::m19_search::{GrantSource, M19SearchActivity};
 use alloc::{rc::Rc, string::String, vec, vec::Vec};
 use core::cell::Cell;
-use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_FILE_SIZE};
+use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
 use nagi_ai::{
     execute_plan, validate_plan, ActionDescriptor, ActionHandler, ActionInvocation, ActionOutput,
     ActionPolicy, ActionRegistry, CallerIdentity, ContextAuthority, ContextRequest,
@@ -275,7 +275,7 @@ impl HistoryArchiveFileStore for M22Files {
     }
 
     fn write_file(&mut self, slot: ArchiveSlot, bytes: &[u8]) -> Result<(), HistoryError> {
-        if bytes.len() > MAX_FILE_SIZE {
+        if bytes.len() > MAX_SMALL_FILE_SIZE {
             return Err(HistoryError::Capacity);
         }
         let path = Self::path(slot);
@@ -319,7 +319,7 @@ impl ActivityLedgerFileStore for M22Files {
         slot: ArchiveSlot,
         bytes: &[u8],
     ) -> Result<(), ActivityLedgerError> {
-        if bytes.len() > MAX_FILE_SIZE {
+        if bytes.len() > MAX_SMALL_FILE_SIZE {
             return Err(ActivityLedgerError::Capacity);
         }
         let path = Self::activity_path(slot);
@@ -536,7 +536,7 @@ impl ActionHandler<M22FixturePolicy> for M22CopyAction {
             return Err(HandlerError::Failed);
         }
 
-        let mut content = [0; MAX_FILE_SIZE];
+        let mut content = [0; MAX_SMALL_FILE_SIZE];
         let content_length = {
             let volume = &mut self.backend.file_store_mut().volume;
             if !named_file_matches(volume, handle.destination_name, handle.contents)
@@ -1944,12 +1944,12 @@ fn apply_idempotent_move(
 fn apply_idempotent_create(volume: &mut GuestVolume, create: nagi_history::PreparedCreate) -> bool {
     let (name, name_length) = create.name().bytes();
     let name = &name[..name_length];
-    if name.is_empty() || create.content().len() > MAX_FILE_SIZE {
+    if name.is_empty() || create.content().len() > MAX_SMALL_FILE_SIZE {
         return false;
     }
     match volume.open(name) {
         Ok(handle) => {
-            let mut content = [0; MAX_FILE_SIZE];
+            let mut content = [0; MAX_SMALL_FILE_SIZE];
             let Ok(length) = volume.read(handle, &mut content) else {
                 return false;
             };
@@ -1992,7 +1992,7 @@ fn apply_idempotent_delete(volume: &mut GuestVolume, name: &[u8], expected: &[u8
     match volume.open(name) {
         Err(StorageError::NotFound) => true,
         Ok(handle) => {
-            let mut content = [0; MAX_FILE_SIZE];
+            let mut content = [0; MAX_SMALL_FILE_SIZE];
             let Ok(length) = volume.read(handle, &mut content) else {
                 return false;
             };
@@ -2106,7 +2106,7 @@ fn verify_transaction_files(
 }
 
 fn write_named_file(volume: &mut GuestVolume, name: &[u8], contents: &[u8]) -> bool {
-    if contents.len() > MAX_FILE_SIZE {
+    if contents.len() > MAX_SMALL_FILE_SIZE {
         return false;
     }
     let mut path = [0; nagi_history::MAX_NAME_BYTES + 1];
@@ -2126,7 +2126,7 @@ fn named_file_matches(volume: &mut GuestVolume, name: &[u8], expected: &[u8]) ->
     let Ok(handle) = volume.open_path(&path[..name.len() + 1]) else {
         return false;
     };
-    let mut contents = [0; MAX_FILE_SIZE];
+    let mut contents = [0; MAX_SMALL_FILE_SIZE];
     let Ok(length) = volume.read(handle, &mut contents) else {
         return false;
     };

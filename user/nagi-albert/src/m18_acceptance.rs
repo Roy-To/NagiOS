@@ -1578,7 +1578,7 @@ mod guest {
             }
             Err(crate::persistence::StorageError::Capacity) => {
                 let _ = libnagi::console_write(
-                    b"Nagi M18 browser storage SAVE CAPACITY limit=1024\r\n",
+                    b"Nagi M18 browser storage SAVE CAPACITY limit=16384\r\n",
                 );
             }
             Err(_) => {

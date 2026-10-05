@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_FILE_SIZE};
+use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
 use libnagi::{DisplayInfo, InputEvent};
 
 use crate::ui::{Painter, Rect};
@@ -688,7 +688,7 @@ fn load_locale(volume: &mut UserDataVolume) -> LocalePreference {
         Err(StorageError::NotFound) => return LocalePreference::Missing,
         Err(_) => return LocalePreference::Unavailable,
     };
-    let mut contents = [0; MAX_FILE_SIZE];
+    let mut contents = [0; MAX_SMALL_FILE_SIZE];
     let length = match volume.read(handle, &mut contents) {
         Ok(length) => length,
         Err(_) => return LocalePreference::Unavailable,

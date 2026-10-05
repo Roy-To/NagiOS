@@ -457,7 +457,7 @@ pub unsafe extern "C" fn nagi_posix_browser_storage_read(
     output: *mut u8,
     capacity: usize,
 ) -> isize {
-    if output.is_null() || capacity == 0 || capacity > libnagi::storage::BLOCK_SIZE {
+    if output.is_null() || capacity == 0 || capacity > crate::runtime::BROWSER_STORAGE_MAX_BYTES {
         return write_errno_and_fail(EINVAL) as isize;
     }
     let output = core::slice::from_raw_parts_mut(output, capacity);
@@ -478,7 +478,7 @@ pub unsafe extern "C" fn nagi_posix_browser_storage_write(
     bytes: *const u8,
     length: usize,
 ) -> c_int {
-    if bytes.is_null() || length == 0 || length > libnagi::storage::BLOCK_SIZE {
+    if bytes.is_null() || length == 0 || length > crate::runtime::BROWSER_STORAGE_MAX_BYTES {
         return write_errno_and_fail(EINVAL);
     }
     let bytes = core::slice::from_raw_parts(bytes, length);

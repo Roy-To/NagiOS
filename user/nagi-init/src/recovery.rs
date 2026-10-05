@@ -1,5 +1,5 @@
 use libnagi::storage::{
-    DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE, MAX_FILE_SIZE,
+    DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE, MAX_SMALL_FILE_SIZE,
 };
 use nagi_history::guest::{
     ArchiveSlot, HistoryArchiveBackend, HistoryArchiveFileStore, HistoryArchiveStore,
@@ -42,7 +42,7 @@ impl HistoryArchiveFileStore for RecoveryFiles<'_> {
     }
 
     fn write_file(&mut self, slot: ArchiveSlot, bytes: &[u8]) -> Result<(), HistoryError> {
-        if bytes.len() > MAX_FILE_SIZE {
+        if bytes.len() > MAX_SMALL_FILE_SIZE {
             return Err(HistoryError::Capacity);
         }
         let path = match slot {
@@ -517,7 +517,7 @@ fn undo_conflict_fixture(volume: &mut GuestVolume) -> UndoFixtureResult {
     let (content_conflict_name, content_conflict_name_length) =
         content_conflict_action.from_name.bytes();
     let content_conflict_name = &content_conflict_name[..content_conflict_name_length];
-    let mut original_contents = [0; MAX_FILE_SIZE];
+    let mut original_contents = [0; MAX_SMALL_FILE_SIZE];
     let original_length = {
         let volume = &mut backend.file_store_mut().volume;
         let Ok(handle) = volume.open(content_conflict_name) else {
@@ -830,7 +830,7 @@ fn named_file_digest_matches(
 ) -> Option<bool> {
     match volume.open(name) {
         Ok(handle) => {
-            let mut contents = [0; MAX_FILE_SIZE];
+            let mut contents = [0; MAX_SMALL_FILE_SIZE];
             match volume.read(handle, &mut contents) {
                 Ok(length) => Some(nagi_history::move_content_matches_digest(
                     &contents[..length],
@@ -849,7 +849,7 @@ fn apply_undo_action(volume: &mut GuestVolume, action: UndoAction) -> bool {
     let (to_name, to_length) = action.to_name.bytes();
     let from_name = &from_name[..from_length];
     let to_name = &to_name[..to_length];
-    let content = &action.content[..action.content_length.min(MAX_FILE_SIZE)];
+    let content = &action.content[..action.content_length.min(MAX_SMALL_FILE_SIZE)];
 
     match action.operation {
         UndoOperation::Delete => match volume.remove(from_name) {

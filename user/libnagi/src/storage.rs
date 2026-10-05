@@ -2,7 +2,15 @@ use core::ptr;
 
 pub const SECTOR_SIZE: usize = 512;
 pub const BLOCK_SIZE: usize = 1024;
-pub const MAX_FILE_SIZE: usize = BLOCK_SIZE;
+/// Direct block pointers in an ext2 inode (`i_block[0..12]`).
+const DIRECT_BLOCKS: usize = 12;
+/// Block pointers held by the single indirect block (`i_block[12]`).
+const INDIRECT_POINTERS: usize = BLOCK_SIZE / 4;
+/// Largest regular file: twelve direct blocks plus one single-indirect block.
+pub const MAX_FILE_SIZE: usize = (DIRECT_BLOCKS + INDIRECT_POINTERS) * BLOCK_SIZE;
+/// Bound for callers that keep whole small records (settings, ledgers,
+/// fixtures) in one stack buffer, and for whole-file `mmap` mappings.
+pub const MAX_SMALL_FILE_SIZE: usize = BLOCK_SIZE;
 pub const MAX_NAME_LENGTH: usize = 32;
 pub const MAX_PATH_LENGTH: usize = 256;
 pub const MAX_DIRECTORY_ENTRIES: usize = 8;
@@ -22,6 +30,8 @@ const INODE_TABLE: u32 = 5;
 const ROOT_DIRECTORY_BLOCK: u32 = 13;
 const FIRST_FILE_BLOCK: u32 = 14;
 const SUPERBLOCK_BLOCK: u32 = 1;
+/// Blocks 0..15 are reserved metadata and are never file data.
+const RESERVED_BLOCKS: u32 = 15;
 const GROUP_DESCRIPTOR_BLOCK: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -157,7 +167,12 @@ struct InodeInfo {
     ctime: u32,
     mtime: u32,
     blocks: u32,
+    /// `i_block[0]`; directories use only this block.
     direct_block: u32,
+    /// `i_block[1..12]` for regular files.
+    extra_blocks: [u32; DIRECT_BLOCKS - 1],
+    /// `i_block[12]`, the single-indirect block, or 0.
+    indirect_block: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -188,7 +203,7 @@ pub struct VfsIntegrityReport {
 #[derive(Clone, Copy)]
 pub struct FileMapping {
     handle: FileHandle,
-    bytes: [u8; MAX_FILE_SIZE],
+    bytes: [u8; MAX_SMALL_FILE_SIZE],
     length: usize,
 }
 
@@ -202,7 +217,7 @@ impl FileMapping {
     }
 
     pub fn set_length(&mut self, length: usize) -> Result<(), StorageError> {
-        if length > MAX_FILE_SIZE {
+        if length > MAX_SMALL_FILE_SIZE {
             return Err(StorageError::FileTooLarge);
         }
         self.length = length;
@@ -361,6 +376,8 @@ impl<D: BlockDevice> Vfs<D> {
                 mtime: now,
                 blocks: 0,
                 direct_block: data_block,
+                extra_blocks: [0; DIRECT_BLOCKS - 1],
+                indirect_block: 0,
             },
         )?;
         if let Err(error) = self.add_directory_entry_in_directory(parent_inode, name, inode, 1) {
@@ -407,6 +424,8 @@ impl<D: BlockDevice> Vfs<D> {
                 mtime: now,
                 blocks: 2,
                 direct_block: data_block,
+                extra_blocks: [0; DIRECT_BLOCKS - 1],
+                indirect_block: 0,
             },
         )?;
         let mut directory = [0; BLOCK_SIZE];
@@ -445,9 +464,9 @@ impl<D: BlockDevice> Vfs<D> {
         write_u32(&mut directory, directory_offset, 0);
         self.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
         self.clear_bit(INODE_BITMAP, inode_number - 1)?;
-        self.clear_bit(BLOCK_BITMAP, inode.direct_block)?;
+        let released = self.release_inode_blocks(&inode)?;
         self.clear_inode(inode_number)?;
-        self.adjust_free_counts(1, 1)
+        self.adjust_free_counts(released as i32, 1)
     }
 
     pub fn open(&mut self, name: &[u8]) -> Result<FileHandle, StorageError> {
@@ -522,9 +541,9 @@ impl<D: BlockDevice> Vfs<D> {
         write_u32(&mut directory, source_offset, 0);
         self.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
         self.clear_bit(INODE_BITMAP, destination_inode_number - 1)?;
-        self.clear_bit(BLOCK_BITMAP, destination_inode.direct_block)?;
+        let released = self.release_inode_blocks(&destination_inode)?;
         self.clear_inode(destination_inode_number)?;
-        self.adjust_free_counts(1, 1)?;
+        self.adjust_free_counts(released as i32, 1)?;
         Ok(FileHandle {
             inode: source_inode_number,
             generation: 1,
@@ -571,16 +590,46 @@ impl<D: BlockDevice> Vfs<D> {
         Ok(count)
     }
 
+    /// Replace the whole file contents with `data`.
     pub fn write(&mut self, handle: FileHandle, data: &[u8]) -> Result<(), StorageError> {
         if data.len() > MAX_FILE_SIZE {
             return Err(StorageError::FileTooLarge);
         }
         let mut inode = self.validate_handle(handle)?;
-        let mut block = [0; BLOCK_SIZE];
-        copy_bytes(&mut block, data);
-        self.write_block(inode.direct_block, &block)?;
+        let current = data_blocks_for_size(inode.size as usize);
+        let needed = data_blocks_for_size(data.len());
+        self.resize_file_blocks(&mut inode, current, needed)?;
+        self.store_file_range(&inode, 0, data)?;
+        self.clear_past_end(&inode, data.len())?;
         inode.size = data.len() as u32;
-        inode.blocks = 2;
+        let now = current_timestamp();
+        inode.ctime = now;
+        inode.mtime = now;
+        self.write_inode(handle.inode, inode)
+    }
+
+    /// Write `data` at `offset`, growing the file as needed. A gap between
+    /// the old end and `offset` reads as zeros.
+    pub fn write_at(
+        &mut self,
+        handle: FileHandle,
+        offset: usize,
+        data: &[u8],
+    ) -> Result<(), StorageError> {
+        let end = offset
+            .checked_add(data.len())
+            .filter(|end| *end <= MAX_FILE_SIZE)
+            .ok_or(StorageError::FileTooLarge)?;
+        let mut inode = self.validate_handle(handle)?;
+        let size = inode.size as usize;
+        let new_size = size.max(end);
+        let current = data_blocks_for_size(size);
+        let needed = data_blocks_for_size(new_size);
+        if needed > current {
+            self.resize_file_blocks(&mut inode, current, needed)?;
+        }
+        self.store_file_range(&inode, offset, data)?;
+        inode.size = new_size as u32;
         let now = current_timestamp();
         inode.ctime = now;
         inode.mtime = now;
@@ -591,12 +640,19 @@ impl<D: BlockDevice> Vfs<D> {
         if length > MAX_FILE_SIZE {
             return Err(StorageError::FileTooLarge);
         }
-        let mut contents = [0; MAX_FILE_SIZE];
-        let old_length = self.read(handle, &mut contents)?;
-        if length > old_length {
-            contents[old_length..length].fill(0);
+        let mut inode = self.validate_handle(handle)?;
+        let size = inode.size as usize;
+        if length < size {
+            self.clear_past_end(&inode, length)?;
         }
-        self.write(handle, &contents[..length])
+        let current = data_blocks_for_size(size);
+        let needed = data_blocks_for_size(length);
+        self.resize_file_blocks(&mut inode, current, needed)?;
+        inode.size = length as u32;
+        let now = current_timestamp();
+        inode.ctime = now;
+        inode.mtime = now;
+        self.write_inode(handle.inode, inode)
     }
 
     pub fn metadata(&mut self, handle: FileHandle) -> Result<FileMetadata, StorageError> {
@@ -658,18 +714,28 @@ impl<D: BlockDevice> Vfs<D> {
         if destination.len() < length {
             return Err(StorageError::BufferTooSmall);
         }
-        let mut block = [0; BLOCK_SIZE];
-        self.read_block(inode.direct_block, &mut block)?;
-        copy_bytes(destination, block_as_slice(&block, length));
+        self.copy_file_range(&inode, 0, &mut destination[..length])?;
         inode.atime = current_timestamp();
         self.write_inode(handle.inode, inode)?;
         Ok(length)
     }
 
+    /// Read up to `destination.len()` bytes starting at `offset`. Returns
+    /// the count read, 0 at or past the end of the file.
+    pub fn read_at(
+        &mut self,
+        handle: FileHandle,
+        offset: usize,
+        destination: &mut [u8],
+    ) -> Result<usize, StorageError> {
+        let inode = self.validate_handle(handle)?;
+        self.copy_file_range(&inode, offset, destination)
+    }
+
     pub fn mmap(&mut self, handle: FileHandle) -> Result<FileMapping, StorageError> {
         let mut mapping = FileMapping {
             handle,
-            bytes: [0; MAX_FILE_SIZE],
+            bytes: [0; MAX_SMALL_FILE_SIZE],
             length: 0,
         };
         let length = self.read(handle, &mut mapping.bytes)?;
@@ -731,6 +797,8 @@ impl<D: BlockDevice> Vfs<D> {
                 mtime: 0,
                 blocks: 2,
                 direct_block: ROOT_DIRECTORY_BLOCK,
+                extra_blocks: [0; DIRECT_BLOCKS - 1],
+                indirect_block: 0,
             },
         )?;
 
@@ -967,9 +1035,9 @@ impl<D: BlockDevice> Vfs<D> {
         write_u32(&mut directory, directory_offset, 0);
         self.write_block(parent_inode.direct_block, &directory)?;
         self.clear_bit(INODE_BITMAP, inode_number - 1)?;
-        self.clear_bit(BLOCK_BITMAP, inode.direct_block)?;
+        let released = self.release_inode_blocks(&inode)?;
         self.clear_inode(inode_number)?;
-        self.adjust_free_counts(1, 1)
+        self.adjust_free_counts(released as i32, 1)
     }
 
     fn directory_inode(&mut self, inode_number: u32) -> Result<InodeInfo, StorageError> {
@@ -1061,6 +1129,224 @@ impl<D: BlockDevice> Vfs<D> {
         self.write_block(GROUP_DESCRIPTOR_BLOCK, &group)
     }
 
+    /// Block holding data block `index` of a regular file, or 0 when that
+    /// block is not allocated. Pointers outside the data area are corrupt.
+    fn file_block(&mut self, inode: &InodeInfo, index: usize) -> Result<u32, StorageError> {
+        let pointer = match index {
+            0 => inode.direct_block,
+            1..DIRECT_BLOCKS => inode.extra_blocks[index - 1],
+            _ => {
+                let slot = index - DIRECT_BLOCKS;
+                if slot >= INDIRECT_POINTERS {
+                    return Err(StorageError::FileTooLarge);
+                }
+                if inode.indirect_block == 0 {
+                    return Ok(0);
+                }
+                check_data_block(inode.indirect_block)?;
+                let mut table = [0; BLOCK_SIZE];
+                self.read_block(inode.indirect_block, &mut table)?;
+                read_u32(&table, slot * 4)
+            }
+        };
+        if pointer != 0 {
+            check_data_block(pointer)?;
+        }
+        Ok(pointer)
+    }
+
+    /// Grow or shrink a regular file from `current` to `needed` data blocks
+    /// (both at least 1). New blocks are zeroed; released blocks are freed.
+    /// On an allocation failure every block taken by this call is released
+    /// and `inode` is left unchanged.
+    fn resize_file_blocks(
+        &mut self,
+        inode: &mut InodeInfo,
+        current: usize,
+        needed: usize,
+    ) -> Result<(), StorageError> {
+        if needed == 0 || current == 0 || needed > DIRECT_BLOCKS + INDIRECT_POINTERS {
+            return Err(StorageError::FileTooLarge);
+        }
+        let original = *inode;
+        let mut table = [0; BLOCK_SIZE];
+        if inode.indirect_block != 0 {
+            check_data_block(inode.indirect_block)?;
+            self.read_block(inode.indirect_block, &mut table)?;
+        }
+        let zero = [0; BLOCK_SIZE];
+        let mut allocated_indirect = false;
+        if needed > current {
+            let mut taken = [0u32; DIRECT_BLOCKS + INDIRECT_POINTERS];
+            let mut taken_count = 0;
+            let result = (|| -> Result<(), StorageError> {
+                if needed > DIRECT_BLOCKS && inode.indirect_block == 0 {
+                    let block =
+                        self.allocate_bit(BLOCK_BITMAP, FIRST_FILE_BLOCK, EXT2_BLOCK_COUNT)?;
+                    inode.indirect_block = block;
+                    allocated_indirect = true;
+                    table = [0; BLOCK_SIZE];
+                }
+                for index in current..needed {
+                    let block =
+                        self.allocate_bit(BLOCK_BITMAP, FIRST_FILE_BLOCK, EXT2_BLOCK_COUNT)?;
+                    taken[taken_count] = block;
+                    taken_count += 1;
+                    self.write_block(block, &zero)?;
+                    set_file_pointer(inode, &mut table, index, block);
+                }
+                if needed > DIRECT_BLOCKS {
+                    self.write_block(inode.indirect_block, &table)?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                for block in &taken[..taken_count] {
+                    self.clear_bit(BLOCK_BITMAP, *block)?;
+                }
+                if allocated_indirect {
+                    self.clear_bit(BLOCK_BITMAP, inode.indirect_block)?;
+                }
+                *inode = original;
+                return Err(error);
+            }
+            let added = (needed - current) + usize::from(allocated_indirect);
+            self.adjust_free_counts(-(added as i32), 0)?;
+        } else if needed < current {
+            let mut released = 0usize;
+            for index in needed..current {
+                let block = self.file_block(inode, index)?;
+                if block != 0 {
+                    self.clear_bit(BLOCK_BITMAP, block)?;
+                    released += 1;
+                }
+                set_file_pointer(inode, &mut table, index, 0);
+            }
+            if needed <= DIRECT_BLOCKS && inode.indirect_block != 0 {
+                self.clear_bit(BLOCK_BITMAP, inode.indirect_block)?;
+                inode.indirect_block = 0;
+                released += 1;
+            } else if inode.indirect_block != 0 {
+                self.write_block(inode.indirect_block, &table)?;
+            }
+            self.adjust_free_counts(released as i32, 0)?;
+        }
+        inode.blocks = 2 * (needed + usize::from(inode.indirect_block != 0)) as u32;
+        Ok(())
+    }
+
+    /// Release the blocks of an inode being deleted: every data block of a
+    /// regular file, or a directory's single block.
+    fn release_inode_blocks(&mut self, inode: &InodeInfo) -> Result<u32, StorageError> {
+        if inode.mode & 0xf000 == 0x8000 {
+            self.free_file_blocks(inode)
+        } else {
+            self.clear_bit(BLOCK_BITMAP, inode.direct_block)?;
+            Ok(1)
+        }
+    }
+
+    /// Release every data block (and the indirect block) of a regular file.
+    /// Returns the number of blocks freed.
+    fn free_file_blocks(&mut self, inode: &InodeInfo) -> Result<u32, StorageError> {
+        let size = usize::try_from(inode.size).map_err(|_| StorageError::Corrupt)?;
+        let count = data_blocks_for_size(size).min(DIRECT_BLOCKS + INDIRECT_POINTERS);
+        let mut released = 0u32;
+        for index in 0..count {
+            let block = self.file_block(inode, index)?;
+            if block != 0 {
+                self.clear_bit(BLOCK_BITMAP, block)?;
+                released += 1;
+            }
+        }
+        if inode.indirect_block != 0 {
+            self.clear_bit(BLOCK_BITMAP, inode.indirect_block)?;
+            released += 1;
+        }
+        Ok(released)
+    }
+
+    /// Copy file bytes starting at `offset`; returns the count copied.
+    fn copy_file_range(
+        &mut self,
+        inode: &InodeInfo,
+        offset: usize,
+        destination: &mut [u8],
+    ) -> Result<usize, StorageError> {
+        let size = usize::try_from(inode.size).map_err(|_| StorageError::Corrupt)?;
+        if size > MAX_FILE_SIZE {
+            return Err(StorageError::Corrupt);
+        }
+        if offset >= size {
+            return Ok(0);
+        }
+        let count = destination.len().min(size - offset);
+        let mut copied = 0;
+        let mut block = [0; BLOCK_SIZE];
+        while copied < count {
+            let position = offset + copied;
+            let index = position / BLOCK_SIZE;
+            let within = position % BLOCK_SIZE;
+            let chunk = (BLOCK_SIZE - within).min(count - copied);
+            let pointer = self.file_block(inode, index)?;
+            if pointer == 0 {
+                return Err(StorageError::Corrupt);
+            }
+            self.read_block(pointer, &mut block)?;
+            destination[copied..copied + chunk].copy_from_slice(&block[within..within + chunk]);
+            copied += chunk;
+        }
+        Ok(count)
+    }
+
+    /// Write `data` at `offset` into already-allocated blocks.
+    fn store_file_range(
+        &mut self,
+        inode: &InodeInfo,
+        offset: usize,
+        data: &[u8],
+    ) -> Result<(), StorageError> {
+        let mut written = 0;
+        let mut block = [0; BLOCK_SIZE];
+        while written < data.len() {
+            let position = offset + written;
+            let index = position / BLOCK_SIZE;
+            let within = position % BLOCK_SIZE;
+            let chunk = (BLOCK_SIZE - within).min(data.len() - written);
+            let pointer = self.file_block(inode, index)?;
+            if pointer == 0 {
+                return Err(StorageError::Corrupt);
+            }
+            if chunk == BLOCK_SIZE {
+                block.copy_from_slice(&data[written..written + chunk]);
+            } else {
+                self.read_block(pointer, &mut block)?;
+                block[within..within + chunk].copy_from_slice(&data[written..written + chunk]);
+            }
+            self.write_block(pointer, &block)?;
+            written += chunk;
+        }
+        Ok(())
+    }
+
+    /// Zero the bytes at and after `end` in the block that contains the new
+    /// end of the file, keeping the invariant that bytes past the end of a
+    /// file read as zero. Blocks wholly past `end` are released by resizing.
+    fn clear_past_end(&mut self, inode: &InodeInfo, end: usize) -> Result<(), StorageError> {
+        let within = end % BLOCK_SIZE;
+        if end != 0 && within == 0 {
+            return Ok(());
+        }
+        let pointer = self.file_block(inode, end / BLOCK_SIZE)?;
+        if pointer == 0 {
+            return Ok(());
+        }
+        let mut block = [0; BLOCK_SIZE];
+        self.read_block(pointer, &mut block)?;
+        block[within..].fill(0);
+        self.write_block(pointer, &block)
+    }
+
     fn clear_inode(&mut self, inode: u32) -> Result<(), StorageError> {
         self.write_inode(
             inode,
@@ -1074,6 +1360,8 @@ impl<D: BlockDevice> Vfs<D> {
                 mtime: 0,
                 blocks: 0,
                 direct_block: 0,
+                extra_blocks: [0; DIRECT_BLOCKS - 1],
+                indirect_block: 0,
             },
         )
     }
@@ -1110,6 +1398,8 @@ impl<D: BlockDevice> Vfs<D> {
             gid: read_u16(&bytes, offset + 24),
             blocks: read_u32(&bytes, offset + 28),
             direct_block: read_u32(&bytes, offset + 40),
+            extra_blocks: read_extra_blocks(&bytes, offset),
+            indirect_block: read_u32(&bytes, offset + 40 + DIRECT_BLOCKS * 4),
         })
     }
 
@@ -1130,6 +1420,14 @@ impl<D: BlockDevice> Vfs<D> {
         write_u16(&mut bytes, offset + 24, info.gid);
         write_u32(&mut bytes, offset + 28, info.blocks);
         write_u32(&mut bytes, offset + 40, info.direct_block);
+        for (index, pointer) in info.extra_blocks.iter().enumerate() {
+            write_u32(&mut bytes, offset + 44 + index * 4, *pointer);
+        }
+        write_u32(
+            &mut bytes,
+            offset + 40 + DIRECT_BLOCKS * 4,
+            info.indirect_block,
+        );
         self.write_block(block, &bytes)
     }
 
@@ -1309,20 +1607,59 @@ fn check_vfs_integrity<D: ReadOnlyBlockDevice>(
                     return Err(StorageError::Corrupt);
                 }
             } else {
-                if info.direct_block < 15 || info.size > MAX_FILE_SIZE as u32 {
+                if info.size > MAX_FILE_SIZE as u32 {
                     return Err(StorageError::Corrupt);
                 }
-                if (kind == 0x4000 && (info.size != BLOCK_SIZE as u32 || info.blocks != 2))
-                    || (kind == 0x8000 && info.blocks != 2 && !(info.blocks == 0 && info.size == 0))
-                {
-                    return Err(StorageError::Corrupt);
+                // Each data block must be allocated and owned by one inode.
+                let mut claim = |block: u32| -> Result<(), StorageError> {
+                    if !(RESERVED_BLOCKS..EXT2_BLOCK_COUNT).contains(&block)
+                        || !is_bit_set(&block_bitmap, block)
+                        || is_bit_set(&referenced_blocks, block)
+                    {
+                        return Err(StorageError::Corrupt);
+                    }
+                    set_bit(&mut referenced_blocks, block);
+                    Ok(())
+                };
+                claim(info.direct_block)?;
+                if kind == 0x4000 {
+                    if info.size != BLOCK_SIZE as u32
+                        || info.blocks != 2
+                        || info.indirect_block != 0
+                        || info.extra_blocks.iter().any(|pointer| *pointer != 0)
+                    {
+                        return Err(StorageError::Corrupt);
+                    }
+                } else {
+                    let count = data_blocks_for_size(info.size as usize);
+                    let uses_indirect = count > DIRECT_BLOCKS;
+                    let expected_sectors = 2 * (count + usize::from(uses_indirect)) as u32;
+                    if info.blocks != expected_sectors && !(info.blocks == 0 && info.size == 0) {
+                        return Err(StorageError::Corrupt);
+                    }
+                    for (index, pointer) in info.extra_blocks.iter().enumerate() {
+                        if index + 1 < count {
+                            claim(*pointer)?;
+                        } else if *pointer != 0 {
+                            return Err(StorageError::Corrupt);
+                        }
+                    }
+                    if uses_indirect {
+                        claim(info.indirect_block)?;
+                        let mut table = [0; BLOCK_SIZE];
+                        read_device_block(device, info.indirect_block, &mut table)?;
+                        for slot in 0..INDIRECT_POINTERS {
+                            let pointer = read_u32(&table, slot * 4);
+                            if slot < count - DIRECT_BLOCKS {
+                                claim(pointer)?;
+                            } else if pointer != 0 {
+                                return Err(StorageError::Corrupt);
+                            }
+                        }
+                    } else if info.indirect_block != 0 {
+                        return Err(StorageError::Corrupt);
+                    }
                 }
-                if !is_bit_set(&block_bitmap, info.direct_block)
-                    || is_bit_set(&referenced_blocks, info.direct_block)
-                {
-                    return Err(StorageError::Corrupt);
-                }
-                set_bit(&mut referenced_blocks, info.direct_block);
                 if kind == 0x4000 {
                     directories += 1;
                 } else {
@@ -1521,6 +1858,36 @@ fn check_vfs_integrity<D: ReadOnlyBlockDevice>(
     })
 }
 
+fn check_data_block(block: u32) -> Result<(), StorageError> {
+    if (RESERVED_BLOCKS..EXT2_BLOCK_COUNT).contains(&block) {
+        Ok(())
+    } else {
+        Err(StorageError::Corrupt)
+    }
+}
+
+fn set_file_pointer(inode: &mut InodeInfo, table: &mut [u8; BLOCK_SIZE], index: usize, block: u32) {
+    match index {
+        0 => inode.direct_block = block,
+        1..DIRECT_BLOCKS => inode.extra_blocks[index - 1] = block,
+        _ => write_u32(table, (index - DIRECT_BLOCKS) * 4, block),
+    }
+}
+
+fn read_extra_blocks(bytes: &[u8; BLOCK_SIZE], offset: usize) -> [u32; DIRECT_BLOCKS - 1] {
+    let mut pointers = [0; DIRECT_BLOCKS - 1];
+    for (index, pointer) in pointers.iter_mut().enumerate() {
+        *pointer = read_u32(bytes, offset + 44 + index * 4);
+    }
+    pointers
+}
+
+/// Data blocks a regular file of `size` bytes occupies. The first block is
+/// allocated at creation, so an empty file still owns one block.
+fn data_blocks_for_size(size: usize) -> usize {
+    size.div_ceil(BLOCK_SIZE).max(1)
+}
+
 fn read_inode_from_device<D: ReadOnlyBlockDevice>(
     device: &mut D,
     inode: u32,
@@ -1542,6 +1909,8 @@ fn read_inode_from_device<D: ReadOnlyBlockDevice>(
         gid: read_u16(&bytes, offset + 24),
         blocks: read_u32(&bytes, offset + 28),
         direct_block: read_u32(&bytes, offset + 40),
+        extra_blocks: read_extra_blocks(&bytes, offset),
+        indirect_block: read_u32(&bytes, offset + 40 + DIRECT_BLOCKS * 4),
     })
 }
 
@@ -1610,23 +1979,6 @@ fn write_directory_record(
     write_u8(directory, offset + 6, name_length);
     write_u8(directory, offset + 7, file_type);
     copy_bytes_to_offset(directory, offset + 8, name);
-}
-
-fn block_as_slice(block: &[u8; BLOCK_SIZE], length: usize) -> &[u8] {
-    unsafe { core::slice::from_raw_parts(block.as_ptr(), length) }
-}
-
-fn copy_bytes(destination: &mut [u8], source: &[u8]) {
-    let mut index = 0;
-    while index < source.len() {
-        unsafe {
-            ptr::write_volatile(
-                destination.as_mut_ptr().add(index),
-                ptr::read_volatile(source.as_ptr().add(index)),
-            );
-        }
-        index += 1;
-    }
 }
 
 fn copy_bytes_to_offset(destination: &mut [u8; BLOCK_SIZE], offset: usize, source: &[u8]) {
@@ -1703,10 +2055,207 @@ fn clear_bit_value(bitmap: &mut [u8; BLOCK_SIZE], bit: u32) {
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
+
+    use std::vec;
+    use std::vec::Vec;
+
     use super::{
         BlockDevice, DirectoryEntry, FileHandle, FileMapping, StorageError, Vfs, BLOCK_SIZE,
-        ROOT_DIRECTORY_BLOCK, SECTOR_SIZE,
+        DIRECT_BLOCKS, EXT2_BLOCK_COUNT, MAX_FILE_SIZE, ROOT_DIRECTORY_BLOCK, SECTOR_SIZE,
     };
+
+    /// A device backing the whole 8 MiB volume, for multi-block files.
+    struct FullVolumeDevice {
+        sectors: Vec<[u8; SECTOR_SIZE]>,
+    }
+
+    impl FullVolumeDevice {
+        fn new() -> Self {
+            Self {
+                sectors: vec![[0; SECTOR_SIZE]; EXT2_BLOCK_COUNT as usize * 2],
+            }
+        }
+    }
+
+    impl super::ReadOnlyBlockDevice for FullVolumeDevice {
+        fn read_sector(
+            &mut self,
+            sector: u64,
+            destination: &mut [u8; SECTOR_SIZE],
+        ) -> Result<(), StorageError> {
+            let source = self
+                .sectors
+                .get(sector as usize)
+                .ok_or(StorageError::Block)?;
+            destination.copy_from_slice(source);
+            Ok(())
+        }
+    }
+
+    impl BlockDevice for FullVolumeDevice {
+        fn write_sector(
+            &mut self,
+            sector: u64,
+            source: &[u8; SECTOR_SIZE],
+        ) -> Result<(), StorageError> {
+            self.sectors
+                .get_mut(sector as usize)
+                .ok_or(StorageError::Block)?
+                .copy_from_slice(source);
+            Ok(())
+        }
+
+        fn flush(&mut self) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
+    fn pattern(length: usize, seed: u8) -> Vec<u8> {
+        (0..length)
+            .map(|index| (index as u8).wrapping_mul(31).wrapping_add(seed))
+            .collect()
+    }
+
+    fn check(volume: Vfs<FullVolumeDevice>) -> (super::VfsIntegrityReport, Vfs<FullVolumeDevice>) {
+        let mut device = volume.into_device();
+        let report = Vfs::<FullVolumeDevice>::check_existing(&mut device).expect("integrity");
+        (report, Vfs::mount_existing(device).expect("remount"))
+    }
+
+    #[test]
+    fn multi_block_files_round_trip_through_direct_and_indirect_blocks() {
+        let (mut volume, _) = Vfs::mount_or_format(FullVolumeDevice::new()).expect("format");
+        let direct = volume.create(b"direct.bin").expect("create");
+        let direct_bytes = pattern(DIRECT_BLOCKS * BLOCK_SIZE - 7, 1);
+        volume.write(direct, &direct_bytes).expect("write direct");
+        let large = volume.create(b"large.bin").expect("create");
+        let large_bytes = pattern(MAX_FILE_SIZE, 2);
+        volume.write(large, &large_bytes).expect("write indirect");
+
+        let mut read_back = vec![0; MAX_FILE_SIZE];
+        assert_eq!(volume.read(direct, &mut read_back), Ok(direct_bytes.len()));
+        assert_eq!(&read_back[..direct_bytes.len()], &direct_bytes[..]);
+        assert_eq!(volume.read(large, &mut read_back), Ok(MAX_FILE_SIZE));
+        assert_eq!(read_back, large_bytes);
+
+        // Ranged reads cross block boundaries.
+        let mut window = [0; 3000];
+        let offset = DIRECT_BLOCKS * BLOCK_SIZE - 1000;
+        assert_eq!(volume.read_at(large, offset, &mut window), Ok(3000));
+        assert_eq!(&window[..], &large_bytes[offset..offset + 3000]);
+        assert_eq!(volume.read_at(large, MAX_FILE_SIZE, &mut window), Ok(0));
+
+        let metadata = volume.metadata(large).expect("metadata");
+        let data_blocks = MAX_FILE_SIZE / BLOCK_SIZE;
+        assert_eq!(metadata.blocks as usize, 2 * (data_blocks + 1));
+
+        let (report, _) = check(volume);
+        assert_eq!(report.regular_files, 2);
+        // 12 direct + 268 data + 1 indirect.
+        assert_eq!(
+            report.allocated_data_blocks as usize,
+            DIRECT_BLOCKS + data_blocks + 1
+        );
+    }
+
+    #[test]
+    fn shrinking_and_removing_files_release_every_block() {
+        let (mut volume, _) = Vfs::mount_or_format(FullVolumeDevice::new()).expect("format");
+        let (baseline, mut volume) = check({
+            let small = volume.create(b"small.txt").expect("create");
+            volume.write(small, b"x").expect("write");
+            volume
+        });
+        let handle = volume.create(b"big.bin").expect("create");
+        volume
+            .write(handle, &pattern(100 * BLOCK_SIZE, 3))
+            .expect("write big");
+        volume
+            .write(handle, &pattern(2 * BLOCK_SIZE + 5, 4))
+            .expect("shrink by rewrite");
+        let (report, mut volume) = check(volume);
+        assert_eq!(
+            report.allocated_data_blocks,
+            baseline.allocated_data_blocks + 3
+        );
+        volume.truncate(handle, 10).expect("truncate");
+        let (report, mut volume) = check(volume);
+        assert_eq!(
+            report.allocated_data_blocks,
+            baseline.allocated_data_blocks + 1
+        );
+        volume
+            .write(handle, &pattern(50 * BLOCK_SIZE, 5))
+            .expect("grow past direct blocks");
+        volume.remove(b"big.bin").expect("remove");
+        let (report, _) = check(volume);
+        assert_eq!(report.allocated_data_blocks, baseline.allocated_data_blocks);
+        assert_eq!(report.regular_files, baseline.regular_files);
+    }
+
+    #[test]
+    fn ranged_writes_grow_files_and_gaps_read_as_zero() {
+        let (mut volume, _) = Vfs::mount_or_format(FullVolumeDevice::new()).expect("format");
+        let handle = volume.create(b"sparse.bin").expect("create");
+        volume.write(handle, b"head").expect("write");
+        volume
+            .write_at(handle, 3 * BLOCK_SIZE + 10, b"tail")
+            .expect("write past end");
+        let size = 3 * BLOCK_SIZE + 14;
+        let mut contents = vec![0xaa; size];
+        assert_eq!(volume.read(handle, &mut contents), Ok(size));
+        assert_eq!(&contents[..4], b"head");
+        assert!(contents[4..3 * BLOCK_SIZE + 10]
+            .iter()
+            .all(|byte| *byte == 0));
+        assert_eq!(&contents[size - 4..], b"tail");
+
+        // Shrink then grow: bytes past the old end must not reappear.
+        volume.truncate(handle, 2).expect("shrink");
+        volume.truncate(handle, BLOCK_SIZE + 1).expect("grow");
+        let mut contents = vec![0xaa; BLOCK_SIZE + 1];
+        assert_eq!(volume.read(handle, &mut contents), Ok(BLOCK_SIZE + 1));
+        assert_eq!(&contents[..2], b"he");
+        assert!(contents[2..].iter().all(|byte| *byte == 0));
+
+        assert_eq!(
+            volume.write_at(handle, MAX_FILE_SIZE, b"x"),
+            Err(StorageError::FileTooLarge)
+        );
+        let (report, _) = check(volume);
+        assert_eq!(report.regular_files, 1);
+    }
+
+    #[test]
+    fn single_block_files_keep_the_original_on_disk_layout() {
+        let (mut volume, _) = Vfs::mount_or_format(FullVolumeDevice::new()).expect("format");
+        let handle = volume.create(b"note.txt").expect("create");
+        volume.write(handle, b"small").expect("write");
+        let inode = volume.read_inode(handle.inode).expect("inode");
+        assert_eq!(inode.blocks, 2);
+        assert!(inode.extra_blocks.iter().all(|pointer| *pointer == 0));
+        assert_eq!(inode.indirect_block, 0);
+    }
+
+    #[test]
+    fn failed_growth_rolls_back_allocations() {
+        // The small test device ends at block 32, so growth past it fails
+        // part-way through and must release what it took.
+        let (mut volume, _) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        let handle = volume.create(b"grow.bin").expect("create");
+        volume.write(handle, b"keep").expect("write");
+        assert_eq!(
+            volume.write(handle, &[7; 40 * BLOCK_SIZE]),
+            Err(StorageError::Block)
+        );
+        let mut contents = [0; 8];
+        assert_eq!(volume.read(handle, &mut contents), Ok(4));
+        assert_eq!(&contents[..4], b"keep");
+        let mut device = volume.into_device();
+        let report = Vfs::<MemoryBlockDevice>::check_existing(&mut device).expect("integrity");
+        assert_eq!(report.allocated_data_blocks, 1);
+    }
 
     struct MemoryBlockDevice {
         sectors: [[u8; SECTOR_SIZE]; 64],
@@ -2021,7 +2570,7 @@ mod tests {
             Err(StorageError::InvalidHandle)
         );
         assert_eq!(
-            volume.write(handle, &[0; BLOCK_SIZE + 1]),
+            volume.write(handle, &[0; MAX_FILE_SIZE + 1]),
             Err(StorageError::FileTooLarge)
         );
         assert_eq!(volume.create(&[b'x'; 33]), Err(StorageError::NameTooLong));
