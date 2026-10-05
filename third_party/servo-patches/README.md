@@ -85,7 +85,7 @@ It is diagnostic only, and other targets compile a no-op helper.
 The ordered patch `0026-nagi-m18-bundled-system-fonts.patch` replaces the
 empty Nagi system-font registry with the fonts Nagi 0.1 bundles: Noto Sans
 (Regular, Bold) and Noto Sans JP (Regular), published read-only under
-`/system/fonts/` by the Nagi POSIX layer (ADR 0045). A family is reported only
+`/system/fonts/` by the Nagi POSIX layer (ADR 0055). A family is reported only
 when its file is present in the guest. Japanese text and CJK punctuation fall
 back to Noto Sans JP first; every generic family resolves to Noto Sans. No
 host font path is used.

@@ -1,4 +1,4 @@
-# ADR 0045: Bundled Noto system fonts for Servo
+# ADR 0055: Bundled Noto system fonts for Servo
 
 Status: accepted for M18 (font choice confirmed by the user, 2026-10-05)
 Date: 2026-10-05

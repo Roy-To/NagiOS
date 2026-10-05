@@ -1,4 +1,4 @@
-# ADR 0043: M18 user-space clipboard service
+# ADR 0053: M18 user-space clipboard service
 
 Status: accepted for M18
 Date: 2026-10-05
