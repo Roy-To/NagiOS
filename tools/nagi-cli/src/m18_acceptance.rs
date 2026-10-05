@@ -10,6 +10,13 @@ const STORAGE_SAVE_LINE: &str = "Nagi M18 browser storage SAVE PASS";
 const MIN_INK_PIXELS: u32 = 200;
 /// Clipboard evidence, required in this order after the HTTPS pages and
 /// before the summary.
+/// A real site-permission request answered by a user click on Allow,
+/// after the HTTPS pages and before the fixtures.
+const PERMISSION_LINES: [&str; 3] = [
+    "Nagi M18 permission prompt READY",
+    "Nagi M18 site permission ALLOWED_BY_USER",
+    "Nagi M18 permission PASS",
+];
 /// The embedder-loaded fixture must reach the chrome as content navigation
 /// before the clipboard steps.
 const CONTENT_NAVIGATION_LINE: &str = "Nagi M18 browser content navigation PASS";
@@ -219,7 +226,10 @@ fn validate_clipboard_evidence(
     summary: usize,
 ) -> Result<(), String> {
     let mut previous = last_page;
-    for expected in std::iter::once(CONTENT_NAVIGATION_LINE)
+    for expected in PERMISSION_LINES
+        .iter()
+        .copied()
+        .chain(std::iter::once(CONTENT_NAVIGATION_LINE))
         .chain(CLIPBOARD_LINES.iter().copied())
         .chain(IME_LINES.iter().copied())
         .chain(UPLOAD_LINES.iter().copied())
@@ -290,6 +300,7 @@ mod tests {
             ));
         }
         lines.push(STORAGE_SAVE_LINE.to_owned());
+        lines.extend(PERMISSION_LINES.iter().map(|line| (*line).to_owned()));
         lines.push(CONTENT_NAVIGATION_LINE.to_owned());
         lines.extend(CLIPBOARD_LINES.iter().map(|line| (*line).to_owned()));
         lines.extend(IME_LINES.iter().map(|line| (*line).to_owned()));
@@ -333,6 +344,16 @@ mod tests {
         assert!(validate_serial_log(&missing)
             .unwrap_err()
             .contains("missing clipboard or IME evidence"));
+    }
+
+    #[test]
+    fn requires_a_user_answered_permission_prompt() {
+        for line in PERMISSION_LINES {
+            let missing = valid_serial().replace(&format!("{line}\n"), "");
+            assert!(validate_serial_log(&missing)
+                .unwrap_err()
+                .contains("missing clipboard or IME evidence"));
+        }
     }
 
     #[test]

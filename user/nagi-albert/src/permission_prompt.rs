@@ -275,4 +275,14 @@ mod tests {
             UserDecision::Allow
         );
     }
+
+    #[test]
+    fn m18_harness_allow_click_lands_on_allow() {
+        // tools/nagi-cli M18_PERMISSION_ALLOW_EVENTS clicks here on the
+        // 320x200 surface; keep both in step.
+        assert_eq!(
+            super::action_at(320, 200, 253, 145),
+            Some(PermissionPromptAction::Allow)
+        );
+    }
 }

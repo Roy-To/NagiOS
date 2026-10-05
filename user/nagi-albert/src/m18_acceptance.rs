@@ -2313,6 +2313,73 @@ mod guest {
         }
     }
 
+    /// Request the notifications permission from the HTTPS page so the real
+    /// Servo permission request reaches Albert's prompt, then require the
+    /// user's QMP click on Allow to reach the page as "granted".
+    fn run_permission_acceptance(
+        servo: &Servo,
+        context: &Rc<SoftwareRenderingContext>,
+        signal: &Arc<EventLoopSignal>,
+        surface: &mut NagiSurface,
+        browser_state: &BrowserState,
+        runtimes: &[TabRuntime],
+        input_capability: u64,
+        input_bridge: &mut InputBridge,
+    ) {
+        let Some(runtime) = active_runtime(browser_state, runtimes) else {
+            fail(b"permission acceptance has no active tab");
+        };
+        runtime.webview.evaluate_javascript(
+            "Notification.requestPermission().then(\
+                function (state) { document.title = 'nagi-permission:' + state; },\
+                function () { document.title = 'nagi-permission:error'; })",
+            |_| {},
+        );
+        let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+        let mut prompt_shown = false;
+        loop {
+            servo.spin_event_loop();
+            pump_frame(runtime);
+            if let Some((_, origin, kind, _)) = runtime.delegate.pending_permission_info() {
+                if !prompt_shown {
+                    if !present_browser_surface(
+                        context,
+                        &runtime.webview,
+                        surface,
+                        browser_state,
+                        Some((&origin, kind, runtime.delegate.permission_locale)),
+                        None,
+                    ) {
+                        fail(b"permission prompt presentation failed");
+                    }
+                    prompt_shown = true;
+                    let _ = libnagi::console_write(b"Nagi M18 permission prompt READY\r\n");
+                }
+                route_permission_prompt_input(input_capability, input_bridge, &runtime.delegate);
+            }
+            match runtime.webview.page_title().as_deref() {
+                Some("nagi-permission:granted") if prompt_shown => break,
+                Some(title) if title.starts_with("nagi-permission:") => {
+                    fail(b"page did not receive the granted notifications permission");
+                }
+                _ => {}
+            }
+            if libnagi::time_ticks() >= deadline {
+                runtime.delegate.resolve_permission(UserDecision::Deny);
+                fail(b"permission prompt acceptance timed out");
+            }
+            yield_guest_workers(signal);
+        }
+        if !present_settled_frame(servo, context, signal, surface, browser_state, runtime) {
+            fail(b"permission result presentation failed");
+        }
+        if libnagi::console_write(b"Nagi M18 permission PASS\r\n")
+            != b"Nagi M18 permission PASS\r\n".len()
+        {
+            fail(b"serial permission evidence write failed");
+        }
+    }
+
     pub fn run(
         display_capability: u64,
         input_capability: u64,
@@ -2351,8 +2418,16 @@ mod guest {
         let mut servo_options = servo::Opts::default();
         servo_options.config_dir = Some(std::path::PathBuf::from(SERVO_CONFIG_DIR));
         servo_options.ignore_certificate_errors = false;
+        // Expose the Notification API so pages can request the notifications
+        // permission through Albert's site-permission prompt. Nagi has no
+        // notification presenter yet, so granted notifications are not
+        // shown. (navigator.storage stays disabled: persist() never resolves
+        // against Servo's client storage on Nagi.)
+        let mut preferences = servo::Preferences::default();
+        preferences.dom_notification_enabled = true;
         let servo = ServoBuilder::default()
             .opts(servo_options)
+            .preferences(preferences)
             .event_loop_waker(Box::new(NagiWaker(signal.clone())))
             .build();
         servo.setup_logging();
@@ -2481,6 +2556,16 @@ mod guest {
             persist_browser_state(&browser_state, &mut browser_storage);
         }
 
+        run_permission_acceptance(
+            &servo,
+            &context,
+            &signal,
+            &mut surface,
+            &browser_state,
+            &runtimes,
+            input_capability,
+            &mut input_bridge,
+        );
         run_clipboard_acceptance(
             &servo,
             &context,
