@@ -102,6 +102,7 @@ mod guest {
         single_line_paste, tab_gesture_scope, BrowserClipboard, ClipboardContext,
         NagiClipboardRuntime,
     };
+    use crate::downloads::{download_file_name, DOWNLOAD_DIRECTORY};
     use crate::file_picker::{
         picker_title, FilePickerState, PickerEntry, PickerKey, PickerOutcome, PICKER_DIRECTORY,
     };
@@ -128,6 +129,11 @@ mod guest {
     /// Servo's viewport sits below Albert's chrome and status strip.
     const PAGE_HEIGHT: u32 = HEIGHT - PAGE_TOP;
     const PAGE_TIMEOUT_TICKS: u64 = 3_000;
+    /// A download must follow a trusted page input within ~5 s.
+    const DOWNLOAD_GESTURE_TICKS: u64 = 500;
+    const MAX_PENDING_DOWNLOADS: usize = 4;
+    /// Nagi VFS directory-entry name limit.
+    const VFS_NAME_BYTES: usize = 32;
     /// Up to ~3 s for the frame that shows a just-observed DOM change.
     const SETTLE_FRAME_TICKS: u64 = 300;
     /// A frame pipeline idle for ~0.5 s is treated as settled.
@@ -173,6 +179,10 @@ mod guest {
         reported_url: RefCell<Option<Url>>,
         /// A page file input waiting for Albert's trusted picker.
         pending_file_picker: RefCell<Option<servo::FilePicker>>,
+        /// Downloads Servo produced for this tab, not yet saved.
+        pending_downloads: RefCell<Vec<servo::DownloadRequest>>,
+        /// Tick of the last trusted page click or key press in this tab.
+        last_page_input: Cell<Option<u64>>,
     }
 
     impl AcceptanceDelegate {
@@ -188,6 +198,8 @@ mod guest {
                 ime_target: Cell::new(None),
                 reported_url: RefCell::new(None),
                 pending_file_picker: RefCell::new(None),
+                pending_downloads: RefCell::new(Vec::new()),
+                last_page_input: Cell::new(None),
             }
         }
 
@@ -489,6 +501,17 @@ mod guest {
                 let _ = libnagi::console_write(&title.as_bytes()[..end]);
                 let _ = libnagi::console_write(b"\r\n");
             }
+        }
+
+        fn notify_download_requested(&self, _webview: WebView, request: servo::DownloadRequest) {
+            let mut pending = self.pending_downloads.borrow_mut();
+            if pending.len() < MAX_PENDING_DOWNLOADS {
+                pending.push(request);
+                let _ = libnagi::console_write(b"Nagi M18 download requested\r\n");
+            } else {
+                let _ = libnagi::console_write(b"Nagi M18 download DROPPED reason=queue-full\r\n");
+            }
+            self.signal.wake();
         }
 
         fn notify_focus_changed(&self, _webview: WebView, focused: bool) {
@@ -848,6 +871,58 @@ mod guest {
         )))
     }
 
+    /// Save downloads that follow a trusted page input in the same tab to
+    /// `/Downloads`; anything else is rejected.
+    fn save_pending_downloads(runtimes: &[TabRuntime]) {
+        for runtime in runtimes {
+            let requests: Vec<_> = runtime
+                .delegate
+                .pending_downloads
+                .borrow_mut()
+                .drain(..)
+                .collect();
+            for request in requests {
+                let now = libnagi::time_ticks();
+                let gestured = runtime
+                    .delegate
+                    .last_page_input
+                    .get()
+                    .is_some_and(|tick| now.saturating_sub(tick) <= DOWNLOAD_GESTURE_TICKS);
+                if !gestured {
+                    let _ = libnagi::console_write(
+                        b"Nagi M18 download REJECTED reason=no-user-gesture\r\n",
+                    );
+                    continue;
+                }
+                match save_download(&request) {
+                    Ok(path) => {
+                        let line = format!(
+                            "Nagi M18 download saved path={path} bytes={}\r\n",
+                            request.bytes.len()
+                        );
+                        let _ = libnagi::console_write(line.as_bytes());
+                    }
+                    Err(reason) => {
+                        let _ = libnagi::console_write(b"Nagi M18 download FAILED-SAVE reason=");
+                        let _ = libnagi::console_write(reason);
+                        let _ = libnagi::console_write(b"\r\n");
+                    }
+                }
+            }
+        }
+    }
+
+    fn save_download(request: &servo::DownloadRequest) -> Result<String, &'static [u8]> {
+        std::fs::create_dir_all(DOWNLOAD_DIRECTORY).map_err(|_| b"directory".as_slice())?;
+        let name = download_file_name(&request.suggested_filename, VFS_NAME_BYTES, |name| {
+            std::fs::metadata(format!("{DOWNLOAD_DIRECTORY}/{name}")).is_ok()
+        })
+        .ok_or(b"no-free-name".as_slice())?;
+        let path = format!("{DOWNLOAD_DIRECTORY}/{name}");
+        std::fs::write(&path, &request.bytes).map_err(|_| b"write".as_slice())?;
+        Ok(path)
+    }
+
     /// Apply URL changes Servo reported for navigations Albert did not
     /// request (links, scripts, embedder-loaded content) to the chrome and
     /// history. Albert-requested navigations are owned by their own events.
@@ -881,6 +956,7 @@ mod guest {
         services: &InputServices,
     ) -> Option<crate::navigation::NavigationRequest> {
         apply_content_navigation(browser_state, runtimes);
+        save_pending_downloads(runtimes);
         let mut event = libnagi::InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
             return None;
@@ -933,6 +1009,10 @@ mod guest {
                 if let Some(runtime) = active_runtime(browser_state, runtimes) {
                     if pressed {
                         record_page_gesture(services, runtime.id, None);
+                        runtime
+                            .delegate
+                            .last_page_input
+                            .set(Some(libnagi::time_ticks()));
                     }
                     runtime
                         .webview
@@ -1018,6 +1098,10 @@ mod guest {
                             runtime.id,
                             clipboard_shortcut(code, modifiers.control),
                         );
+                        runtime
+                            .delegate
+                            .last_page_input
+                            .set(Some(libnagi::time_ticks()));
                     }
                     runtime.webview.notify_input_event(event);
                 }
@@ -1596,6 +1680,11 @@ mod guest {
     /// Page with one `.txt` file input; it reports the chosen file's name,
     /// size, and contents through its title.
     const UPLOAD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20type%3Dfile%20id%3Df%20accept%3D.txt%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A8px%3Bwidth%3A280px%3Bheight%3A40px%22%3E%3Cscript%3Evar%20f%3Ddocument.getElementById%28%27f%27%29%3Bf.addEventListener%28%27change%27%2Cfunction%28%29%7Bvar%20file%3Df.files%5B0%5D%3Bif%28%21file%29%7Breturn%3B%7Dvar%20reader%3Dnew%20FileReader%28%29%3Breader.onload%3Dfunction%28%29%7Bdocument.title%3D%27nagi-upload%3A%27%2Bfile.name%2B%27%3A%27%2Bfile.size%2B%27%3A%27%2Breader.result%3B%7D%3Breader.readAsText%28file%29%3B%7D%29%3Bdocument.title%3D%27nagi-upload%3Aready%27%3B%3C%2Fscript%3E";
+    /// Page with one `download` link. Its script calls `a.click()` on load,
+    /// which has no user activation and must not produce a file.
+    const DOWNLOAD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Ca%20id%3Da%20download%3Dnagi-download.txt%20href%3D%22data%3Atext%2Fplain%2Cnagi-download-ok%22%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A8px%3Bwidth%3A280px%3Bheight%3A40px%3Bdisplay%3Ablock%3Bbackground%3A%23dde%22%3EDownload%3C%2Fa%3E%3Cscript%3Evar%20a%3Ddocument.getElementById%28%27a%27%29%3Ba.click%28%29%3Bdocument.title%3D%27nagi-download%3Aready%27%3B%3C%2Fscript%3E";
+    const DOWNLOAD_FILE_NAME: &str = "nagi-download.txt";
+    const DOWNLOAD_FILE_CONTENT: &str = "nagi-download-ok";
     /// Hiragana for the romaji `nihongo` that the M18 harness types.
     const IME_EXPECTED_COMMIT: &str = "にほんご";
 
@@ -2118,6 +2207,112 @@ mod guest {
         }
     }
 
+    /// Download a `data:` link through a real click and confirm that a
+    /// script-dispatched click without user activation produced nothing.
+    fn run_download_acceptance(
+        servo: &Servo,
+        context: &Rc<SoftwareRenderingContext>,
+        signal: &Arc<EventLoopSignal>,
+        surface: &mut NagiSurface,
+        browser_state: &mut BrowserState,
+        runtimes: &mut Vec<TabRuntime>,
+        input_capability: u64,
+        input_bridge: &mut InputBridge,
+        modifiers: &mut KeyModifiers,
+        permission_locale: Locale,
+        services: &InputServices,
+    ) {
+        let saved_path = format!("{DOWNLOAD_DIRECTORY}/{DOWNLOAD_FILE_NAME}");
+        // The User Data disk persists across runs; start from a clean name.
+        let _ = std::fs::remove_file(&saved_path);
+        let Some(tab_id) = browser_state.active_tab_id() else {
+            fail(b"download acceptance has no active tab");
+        };
+        {
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"download acceptance tab has no Servo WebView");
+            };
+            runtime.delegate.reset();
+            runtime
+                .webview
+                .load(Url::parse(DOWNLOAD_PAGE).expect("the bundled download page is valid"));
+            let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+            loop {
+                servo.spin_event_loop();
+                if runtime.webview.load_status() == LoadStatus::Complete
+                    && runtime.delegate.has_frame()
+                    && runtime.webview.page_title().as_deref() == Some("nagi-download:ready")
+                {
+                    break;
+                }
+                if libnagi::time_ticks() >= deadline {
+                    fail(b"download page load timed out");
+                }
+                yield_guest_workers(signal);
+            }
+            if !runtime.delegate.pending_downloads.borrow().is_empty()
+                || std::fs::metadata(&saved_path).is_ok()
+            {
+                fail(b"script click without user activation produced a download");
+            }
+        }
+        let _ = libnagi::console_write(b"Nagi M18 download unactivated click IGNORED\r\n");
+        apply_content_navigation(browser_state, runtimes);
+        {
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"download acceptance tab closed");
+            };
+            if !present_settled_frame(servo, context, signal, surface, browser_state, runtime) {
+                fail(b"download page presentation failed");
+            }
+        }
+        if libnagi::console_write(b"Nagi M18 download page READY\r\n")
+            != b"Nagi M18 download page READY\r\n".len()
+        {
+            fail(b"serial download-ready marker write failed");
+        }
+
+        let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+        loop {
+            servo.spin_event_loop();
+            if route_guest_input(
+                input_capability,
+                input_bridge,
+                browser_state,
+                servo,
+                context,
+                signal,
+                runtimes,
+                modifiers,
+                permission_locale,
+                services,
+            )
+            .is_some()
+            {
+                fail(b"download click unexpectedly started a navigation");
+            }
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"download acceptance tab closed");
+            };
+            pump_frame(runtime);
+            if let Ok(contents) = std::fs::read(&saved_path) {
+                if contents != DOWNLOAD_FILE_CONTENT.as_bytes() {
+                    fail(b"saved download contents differ from the link");
+                }
+                break;
+            }
+            if libnagi::time_ticks() >= deadline {
+                fail(b"download click timed out");
+            }
+            yield_guest_workers(signal);
+        }
+        if libnagi::console_write(b"Nagi M18 download PASS\r\n")
+            != b"Nagi M18 download PASS\r\n".len()
+        {
+            fail(b"serial download evidence write failed");
+        }
+    }
+
     pub fn run(
         display_capability: u64,
         input_capability: u64,
@@ -2313,6 +2508,19 @@ mod guest {
             &services,
         );
         run_upload_acceptance(
+            &servo,
+            &context,
+            &signal,
+            &mut surface,
+            &mut browser_state,
+            &mut runtimes,
+            input_capability,
+            &mut input_bridge,
+            &mut modifiers,
+            permission_locale,
+            &services,
+        );
+        run_download_acceptance(
             &servo,
             &context,
             &signal,

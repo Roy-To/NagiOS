@@ -1,0 +1,201 @@
+diff --git a/components/shared/embedder/lib.rs b/components/shared/embedder/lib.rs
+--- a/components/shared/embedder/lib.rs
++++ b/components/shared/embedder/lib.rs
+@@ -462,6 +462,17 @@
+     pub address: String,
+     /// A human-readable name for this device.
+     pub name: String,
++}
++
++/// A file produced by a user-activated `<a download>` hyperlink.
++#[derive(Clone, Debug, Deserialize, Serialize)]
++pub struct DownloadRequest {
++    /// The downloaded resource (`data:`, `blob:`, or same-origin URL).
++    pub url: Url,
++    /// The `download` attribute value, or the last URL path segment. This is
++    /// a hint from page content; embedders must sanitize it.
++    pub suggested_filename: String,
++    pub bytes: Vec<u8>,
+ }
+ 
+ /// Messages towards the embedder.
+@@ -493,6 +504,9 @@
+     GetClipboardText(WebViewId, GenericCallback<Result<String, String>>),
+     /// Sets system clipboard contents
+     SetClipboardText(WebViewId, String),
++    /// A user-activated `<a download>` produced a file for the embedder to
++    /// save. Script fetched the bytes in the document's context.
++    DownloadRequested(WebViewId, DownloadRequest),
+     /// Changes the cursor.
+     SetCursor(WebViewId, Cursor),
+     /// A favicon was detected
+diff --git a/components/servo/servo.rs b/components/servo/servo.rs
+--- a/components/servo/servo.rs
++++ b/components/servo/servo.rs
+@@ -610,6 +610,13 @@
+                     webview.clipboard_delegate().set_text(webview, string);
+                 }
+             },
++            EmbedderMsg::DownloadRequested(webview_id, request) => {
++                if let Some(webview) = self.get_webview_handle(webview_id) {
++                    webview
++                        .delegate()
++                        .notify_download_requested(webview, request);
++                }
++            },
+             EmbedderMsg::SetCursor(webview_id, cursor) => {
+                 if let Some(webview) = self.get_webview_handle(webview_id) {
+                     webview.set_cursor(cursor);
+diff --git a/components/servo/webview_delegate.rs b/components/servo/webview_delegate.rs
+--- a/components/servo/webview_delegate.rs
++++ b/components/servo/webview_delegate.rs
+@@ -8,7 +8,7 @@
+ use embedder_traits::{
+     AlertResponse, AllowOrDeny, AuthenticationResponse, BluetoothDeviceDescription,
+     ConfirmResponse, ConsoleLogLevel, ContextMenuAction, ContextMenuElementInformation,
+-    ContextMenuItem, Cursor, EmbedderControlId, EmbedderControlResponse, FilePickerRequest,
++    ContextMenuItem, Cursor, DownloadRequest, EmbedderControlId, EmbedderControlResponse, FilePickerRequest,
+     FilterPattern, InputEventId, InputEventResult, InputMethodType, LoadStatus, MediaSessionEvent,
+     NewWebViewDetails, Notification, PermissionFeature, PromptResponse, RgbColor, ScreenGeometry,
+     SelectElementOptionOrOptgroup, SelectElementRequest, SimpleDialogRequest, TraversalId,
+@@ -934,6 +934,9 @@
+     /// The page title of the currently loaded page in this [`WebView`] has changed. The new
+     /// title can accessed via [`WebView::page_title`].
+     fn notify_page_title_changed(&self, _webview: WebView, _title: Option<String>) {}
++    /// A user-activated `<a download>` hyperlink produced a file. The embedder
++    /// decides whether and where to save it; the default discards it.
++    fn notify_download_requested(&self, _webview: WebView, _request: DownloadRequest) {}
+     /// The status text of the currently loaded page in this [`WebView`] has changed. The new
+     /// status text can accessed via [`WebView::status_text`].
+     fn notify_status_text_changed(&self, _webview: WebView, _status: Option<String>) {}
+diff --git a/components/script/dom/html/textual/htmlanchorelement.rs b/components/script/dom/html/textual/htmlanchorelement.rs
+--- a/components/script/dom/html/textual/htmlanchorelement.rs
++++ b/components/script/dom/html/textual/htmlanchorelement.rs
+@@ -17,7 +17,14 @@
+ use stylo_atoms::Atom;
+ use stylo_dom::ElementState;
+ 
++use embedder_traits::{DownloadRequest, EmbedderMsg};
++use net_traits::request::{CredentialsMode, RequestBuilder};
++use servo_base::generic_channel::GenericSend;
++
+ use crate::dom::activation::Activatable;
++use crate::dom::csp::{GlobalCspReporting, Violation};
++use crate::dom::globalscope::GlobalScope;
++use crate::fetch::fetch::{CspViolationsProcessor, RequestWithGlobalScope, load_whole_resource};
+ use crate::dom::bindings::codegen::Bindings::HTMLAnchorElementBinding::HTMLAnchorElementMethods;
+ use crate::dom::bindings::codegen::Bindings::MouseEventBinding::MouseEventMethods;
+ use crate::dom::bindings::codegen::Bindings::NodeBinding::NodeMethods;
+@@ -339,6 +346,98 @@
+ 
+     // https://html.spec.whatwg.org/multipage/#dom-script-referrerpolicy
+     make_setter!(SetReferrerPolicy, "referrerpolicy");
++}
++
++/// Largest download handed to the embedder in one message.
++const MAX_DOWNLOAD_BYTES: usize = 16 * 1024 * 1024;
++
++struct DownloadCspProcessor {
++    global: DomRoot<GlobalScope>,
++}
++
++impl CspViolationsProcessor for DownloadCspProcessor {
++    fn process_csp_violations(&self, cx: &mut JSContext, violations: Vec<Violation>) {
++        self.global.report_csp_violations(cx, violations, None, None);
++    }
++}
++
++impl HTMLAnchorElement {
++    /// <https://html.spec.whatwg.org/multipage/#downloading-hyperlinks>
++    ///
++    /// Downloads `data:`, `blob:`, and same-origin URLs that the user
++    /// activated, fetching them in the document's context and handing the
++    /// bytes to the embedder. Returns `false` when the link should be
++    /// followed instead (for example a cross-origin URL).
++    fn download_hyperlink(&self, cx: &mut JSContext) -> bool {
++        let element = self.as_element();
++        if element.cannot_navigate() {
++            return true;
++        }
++        let document = element.owner_document();
++        let window = document.window();
++        // Downloads require user activation so pages cannot drop files
++        // through script-dispatched clicks.
++        if !window.has_transient_activation() {
++            return true;
++        }
++        let href = element
++            .get_attribute_string_value(&local_name!("href"))
++            .unwrap_or_default();
++        let Ok(url) = document.encoding_parse_a_url(&href) else {
++            return true;
++        };
++        let allowed = matches!(url.scheme(), "data" | "blob") ||
++            *document.origin().immutable() == url.origin();
++        if !allowed {
++            return false;
++        }
++        let global = window.upcast::<GlobalScope>();
++        let request = RequestBuilder::new(
++            global.webview_id(),
++            UrlWithBlobClaim::from_url_without_having_claimed_blob(url.clone()),
++            global.get_referrer(),
++        )
++        .credentials_mode(CredentialsMode::Include)
++        .use_url_credentials(true)
++        .with_global_scope(global);
++        let processor = DownloadCspProcessor {
++            global: DomRoot::from_ref(global),
++        };
++        let Ok((metadata, bytes, _)) = load_whole_resource(
++            request,
++            &global.resource_threads().sender(),
++            global,
++            &processor,
++            cx,
++        ) else {
++            return true;
++        };
++        if !metadata.status.is_success() || bytes.len() > MAX_DOWNLOAD_BYTES {
++            return true;
++        }
++        let attribute = element
++            .get_attribute_string_value(&local_name!("download"))
++            .unwrap_or_default();
++        let suggested_filename = if attribute.trim().is_empty() {
++            url.as_url()
++                .path_segments()
++                .and_then(|mut segments| segments.next_back())
++                .filter(|segment| !segment.is_empty())
++                .unwrap_or("download")
++                .to_owned()
++        } else {
++            attribute.trim().to_owned()
++        };
++        window.send_to_embedder(EmbedderMsg::DownloadRequested(
++            window.webview_id(),
++            DownloadRequest {
++                url: url.into_url(),
++                suggested_filename,
++                bytes,
++            },
++        ));
++        true
++    }
+ }
+ 
+ impl Activatable for HTMLAnchorElement {
+@@ -381,8 +480,11 @@
+             ))
+         }
+ 
+-        // Step 2.
+-        // TODO: Download the link is `download` attribute is set.
++        // Step 2: If the element has a download attribute and the user agent
++        // allows downloading it, download the hyperlink; otherwise follow it.
++        if element.has_attribute(&local_name!("download")) && self.download_hyperlink(cx) {
++            return;
++        }
+         follow_hyperlink(cx, element, self.relations.get(), ismap_suffix);
+     }
+ }

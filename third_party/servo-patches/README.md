@@ -95,3 +95,12 @@ Nagi-only diagnostics (at most 64 lines) for the bundled-font path: system
 file presence, reported families and variations, local font mapping and
 FreeType face creation, and `create_font` failures. It changes no font
 selection or rendering behavior; other targets compile without it.
+
+The ordered patch `0028-nagi-m18-anchor-downloads.patch` implements the
+HTML "download the hyperlink" step that pinned Servo leaves as a TODO. A
+user-activated `<a download>` whose URL is `data:`, `blob:`, or same-origin is
+fetched in the document's context (credentials included, CSP enforced, at
+most 16 MiB) and handed to the embedder as `EmbedderMsg::DownloadRequested`;
+`WebViewDelegate::notify_download_requested` defaults to discarding it.
+Script-dispatched clicks without transient user activation download nothing,
+and cross-origin links are followed as ordinary hyperlinks.

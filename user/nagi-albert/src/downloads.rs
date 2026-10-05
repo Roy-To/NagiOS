@@ -200,6 +200,42 @@ impl Default for DownloadsState {
 }
 
 /// Strip path syntax and control characters; the file service selects a destination.
+/// Folder downloads are saved to.
+pub const DOWNLOAD_DIRECTORY: &str = "/Downloads";
+
+/// Choose a file name for a download in a folder whose entries are limited
+/// to `max_name_bytes`: sanitize the page's suggestion, keep its extension
+/// when shortening, and add ` (n)` while `exists` reports a collision.
+/// Returns `None` when no free name is found.
+pub fn download_file_name(
+    suggested: &str,
+    max_name_bytes: usize,
+    exists: impl Fn(&str) -> bool,
+) -> Option<String> {
+    let safe = safe_filename(suggested);
+    let (stem, extension) = match safe.rfind('.') {
+        Some(dot) if dot > 0 && safe.len() - dot <= 8 => (&safe[..dot], &safe[dot..]),
+        _ => (safe.as_str(), ""),
+    };
+    let fit = |stem: &str, suffix: &str| -> Option<String> {
+        let budget = max_name_bytes.checked_sub(suffix.len() + extension.len())?;
+        let mut end = stem.len().min(budget);
+        while !stem.is_char_boundary(end) {
+            end -= 1;
+        }
+        let stem = stem[..end].trim_end();
+        (!stem.is_empty()).then(|| format!("{stem}{suffix}{extension}"))
+    };
+    (0..10).find_map(|attempt| {
+        let suffix = if attempt == 0 {
+            String::new()
+        } else {
+            format!(" ({attempt})")
+        };
+        fit(stem, &suffix).filter(|name| !exists(name))
+    })
+}
+
 pub fn safe_filename(suggested: &str) -> String {
     let leaf = suggested.rsplit(['/', '\\']).next().unwrap_or_default();
     let safe: String = leaf
@@ -272,5 +308,26 @@ mod tests {
         assert_eq!(runtime.canceled, vec![DownloadTicket(101)]);
         assert_eq!(downloads.items()[0].phase, DownloadPhase::Canceled);
         assert_eq!(downloads.items()[0].display_filename, "file.bin");
+    }
+
+    #[test]
+    fn download_names_fit_the_folder_and_avoid_collisions() {
+        use super::download_file_name;
+        assert_eq!(
+            download_file_name("../../etc/report.txt", 32, |_| false).as_deref(),
+            Some("report.txt")
+        );
+        let long = "a-very-long-download-name-from-the-page.pdf";
+        let name = download_file_name(long, 32, |_| false).unwrap();
+        assert!(name.len() <= 32 && name.ends_with(".pdf"), "{name}");
+        assert_eq!(
+            download_file_name("x.txt", 32, |name| name == "x.txt").as_deref(),
+            Some("x (1).txt")
+        );
+        assert_eq!(download_file_name("x.txt", 32, |_| true), None);
+        assert_eq!(
+            download_file_name("", 32, |_| false).as_deref(),
+            Some("download")
+        );
     }
 }

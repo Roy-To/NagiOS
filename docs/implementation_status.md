@@ -9618,6 +9618,26 @@ m18` (three saves, restore, upload), `./nagi m19`, `./nagi m22`,
 before any kernel marker during its second boot; the identical rerun passed.
 M18 evidence: `out/evidence/m29-browser-1791204206460013000/`.
 
-Downloads still need Servo support (the pinned Servo leaves the anchor
-`download` attribute as a TODO and has no download callback); the VFS no
-longer blocks them.
+## M18 downloads (2026-10-05)
+
+Servo patch 0028 implements the HTML "download the hyperlink" step that the
+pinned Servo left as a TODO. A user-activated `<a download>` whose URL is
+`data:`, `blob:`, or same-origin is fetched in the document's context
+(credentials included, CSP enforced, at most 16 MiB) and handed to the
+embedder as `EmbedderMsg::DownloadRequested`; clicks without transient user
+activation download nothing, and cross-origin links are followed instead.
+Albert saves a download only when the same tab received a trusted page click
+or key press within about 5 s, into `/Downloads`, with the page's suggested
+name sanitized, kept within the 32-byte VFS name limit (extension
+preserved), and de-duplicated with ` (n)`. Multi-block VFS files (ADR 0056)
+make room for real downloads.
+
+The M18 scenario loads a page whose script calls `a.click()` on load; the
+guest requires that this produced no request and no file, then a QMP click
+must save `/Downloads/nagi-download.txt` with the link's exact contents.
+Local run passed (`Nagi M18 download saved path=/Downloads/nagi-download.txt
+bytes=16`); evidence under `out/evidence/m29-browser-1791205629214489000/`. `nagi-albert` 87 tests and `nagi-cli`
+258 tests pass with warning-denied Clippy.
+
+M18's remaining gaps are the production authenticated permission
+policy/IPC provider and interactive QEMU permission-prompt acceptance.
