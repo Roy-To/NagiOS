@@ -2,7 +2,9 @@
 
 use crate::persistence::{StorageError, StorageRecord, StorageWrite};
 
-pub(crate) const MAX_STORAGE_BUNDLE_BYTES: usize = 1024;
+/// Must match `nagi-posix` `BROWSER_STORAGE_MAX_BYTES` (ADR 0056 lifted the
+/// former single-block 1 KiB limit).
+pub(crate) const MAX_STORAGE_BUNDLE_BYTES: usize = 16 * 1024;
 const HEADER_BYTES: usize = 16;
 const MAGIC: &[u8; 4] = b"NGBS";
 const VERSION: u16 = 1;

@@ -9586,3 +9586,38 @@ The serial log SHA-256 is
 `58a39abf231fa1fc6db060e847735bd994e07c12334e6be73cc23b050581da2e`.
 There is no real pixel checksum or guest PASS marker. The classifier fix is
 verified; M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## VFS multi-block regular files (2026-10-05)
+
+The User Data VFS stored each regular file in one 1 KiB block, and the POSIX
+layer could only replace a whole file at offset 0. ADR 0056 extends regular
+files to the standard ext2 pointer layout (12 direct blocks plus one
+single-indirect block, 268 KiB), keeping the on-disk format compatible:
+existing single-block files are read unchanged and new single-block files are
+written identically. `Vfs::read_at` / `Vfs::write_at` add ranged I/O;
+`write`, `truncate`, removal, and replacement grow or release every block and
+keep free counts exact; bytes past the end of a file stay zero; a failed
+growth releases its blocks and leaves the inode unchanged. The read-only
+integrity check validates every direct and indirect pointer. `nagi-posix`
+reads and writes at the descriptor offset and takes sizes from metadata.
+`MAX_SMALL_FILE_SIZE` (1 KiB) keeps the old bound for whole-file `mmap` and
+the Recovery, Desktop, M19, and M22 record buffers.
+
+This also fixed M18 persistence: Albert's session/history/bookmark snapshot
+had been capped at 1 KiB and every save reported `SAVE CAPACITY`, so browser
+state never persisted in the M18 scenario. The snapshot bound is now 16 KiB
+on both sides of the ABI, and the M18 validator requires
+`Nagi M18 browser storage SAVE PASS` with no failed save.
+
+Verification: `libnagi` 49 tests (five new multi-block tests, including
+rollback on a failed growth and integrity checks after shrink/remove),
+`nagi-posix` 24, `nagi-albert` 86, `nagi-cli` 257; warning-denied Clippy on
+the x86_64 host target. QEMU regressions on the new VFS all passed: `./nagi
+m18` (three saves, restore, upload), `./nagi m19`, `./nagi m22`,
+`./nagi m27`, and `./nagi m29`. The first M18 attempt stalled in firmware
+before any kernel marker during its second boot; the identical rerun passed.
+M18 evidence: `out/evidence/m29-browser-1791204206460013000/`.
+
+Downloads still need Servo support (the pinned Servo leaves the anchor
+`download` attribute as a TODO and has no download callback); the VFS no
+longer blocks them.

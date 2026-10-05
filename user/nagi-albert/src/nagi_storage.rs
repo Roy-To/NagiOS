@@ -75,7 +75,7 @@ pub(crate) struct GuestBrowserStorage;
 
 impl BrowserStorage for GuestBrowserStorage {
     fn read_record(&mut self, record: StorageRecord) -> Result<Option<Vec<u8>>, StorageError> {
-        let mut bundle = [0_u8; MAX_STORAGE_BUNDLE_BYTES];
+        let mut bundle = vec![0_u8; MAX_STORAGE_BUNDLE_BYTES];
         let length = read_snapshot(&mut bundle);
         if length == -2 {
             return Err(StorageError::Capacity);

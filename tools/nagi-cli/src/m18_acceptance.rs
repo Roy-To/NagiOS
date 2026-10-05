@@ -4,6 +4,7 @@ const CHROME_PRESENTED_PREFIX: &str = "Nagi M18 browser chrome PRESENTED ";
 const PAGE_RENDERED_PREFIX: &str = "Nagi M18 HTTPS page RENDERED ";
 const INPUT_NAVIGATION_LINE: &str = "Nagi M18 browser input navigation PASS host=example.com";
 const SUMMARY_LINE: &str = "Nagi M18 browser scenario complete pages=3";
+const STORAGE_SAVE_LINE: &str = "Nagi M18 browser storage SAVE PASS";
 /// Minimum non-background pixels in each Servo page frame. A page that
 /// painted only its background (for example with no usable font) has none.
 const MIN_INK_PIXELS: u32 = 200;
@@ -187,7 +188,22 @@ pub(crate) fn validate_serial_log(serial: &str) -> Result<(), String> {
             return Err("M18 acceptance summary appeared before the page evidence".to_owned());
         }
     };
+    validate_storage_evidence(serial)?;
     validate_clipboard_evidence(serial, last_page, summary)
+}
+
+/// Browser session, history, and bookmarks must actually persist.
+fn validate_storage_evidence(serial: &str) -> Result<(), String> {
+    if serial
+        .lines()
+        .any(|line| line.starts_with("Nagi M18 browser storage SAVE ") && line != STORAGE_SAVE_LINE)
+    {
+        return Err("browser storage snapshot was not saved".to_owned());
+    }
+    if !serial.lines().any(|line| line == STORAGE_SAVE_LINE) {
+        return Err(format!("missing {STORAGE_SAVE_LINE}"));
+    }
+    Ok(())
 }
 
 fn validate_clipboard_evidence(
@@ -265,6 +281,7 @@ mod tests {
                 index + 1
             ));
         }
+        lines.push(STORAGE_SAVE_LINE.to_owned());
         lines.push(CONTENT_NAVIGATION_LINE.to_owned());
         lines.extend(CLIPBOARD_LINES.iter().map(|line| (*line).to_owned()));
         lines.extend(IME_LINES.iter().map(|line| (*line).to_owned()));
@@ -284,6 +301,21 @@ mod tests {
                 "{line}"
             );
         }
+    }
+
+    #[test]
+    fn requires_browser_state_to_be_saved() {
+        let missing = valid_serial().replace(&format!("{STORAGE_SAVE_LINE}\n"), "");
+        assert!(validate_serial_log(&missing)
+            .unwrap_err()
+            .contains("missing Nagi M18 browser storage SAVE PASS"));
+        let capacity = valid_serial().replace(
+            STORAGE_SAVE_LINE,
+            &format!("Nagi M18 browser storage SAVE CAPACITY limit=16384\n{STORAGE_SAVE_LINE}"),
+        );
+        assert!(validate_serial_log(&capacity)
+            .unwrap_err()
+            .contains("was not saved"));
     }
 
     #[test]

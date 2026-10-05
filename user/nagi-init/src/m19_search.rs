@@ -6,7 +6,7 @@ use alloc::{
 use core::sync::atomic::{AtomicU64, Ordering};
 use libnagi::storage::{
     BlockDevice, DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
-    MAX_FILE_SIZE,
+    MAX_SMALL_FILE_SIZE,
 };
 use libnagi::{
     ChannelHandleTransfer, ChannelReceiveResult, ChannelSendRequest, ProcessInfo,
@@ -720,7 +720,7 @@ fn fixture_file(volume: &mut Vfs<SyscallBlockDevice>) -> Option<(FileHandle, &'s
             (handle, LIVE_FILE_SOURCE)
         }
     };
-    let mut content = [0; MAX_FILE_SIZE];
+    let mut content = [0; MAX_SMALL_FILE_SIZE];
     let length = volume.read(handle, &mut content).ok()?;
     (&content[..length] == LIVE_FILE_CONTENT).then_some((handle, name))
 }
