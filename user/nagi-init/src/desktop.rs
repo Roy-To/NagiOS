@@ -149,6 +149,11 @@ pub struct Desktop {
     consent: Option<crate::consent_dialog::ConsentDialog>,
     #[cfg(feature = "consent-dialog-acceptance")]
     consent_answered: bool,
+    /// The OS-owned login screen, shown until the owner signs in.
+    #[cfg(feature = "desktop-login")]
+    login: Option<crate::login_screen::LoginScreen>,
+    #[cfg(feature = "desktop-login")]
+    session: Option<libnagi::security::Session>,
 }
 
 impl Desktop {
@@ -174,11 +179,20 @@ impl Desktop {
             consent: None,
             #[cfg(feature = "consent-dialog-acceptance")]
             consent_answered: false,
+            #[cfg(feature = "desktop-login")]
+            login: None,
+            #[cfg(feature = "desktop-login")]
+            session: None,
         }
     }
 
     pub fn render(&self, surface: &mut [u32]) {
         let mut painter = Painter::new(surface);
+        #[cfg(feature = "desktop-login")]
+        if let Some(login) = &self.login {
+            login.render(&mut painter, self.locale);
+            return;
+        }
         painter.fill(Rect::new(0, 0, 320, 200), BACKGROUND);
         painter.fill(
             Rect::new(0, 0, 320, 20),
@@ -245,6 +259,23 @@ impl Desktop {
     }
 
     pub fn handle_event(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> bool {
+        #[cfg(feature = "desktop-login")]
+        if let Some(login) = &mut self.login {
+            use crate::login_screen::LoginOutcome;
+            return match login.handle_event(event, volume) {
+                LoginOutcome::Ignored => false,
+                LoginOutcome::Changed => true,
+                LoginOutcome::SignedIn(session) => {
+                    self.login = None;
+                    self.session = Some(session);
+                    // Readiness means a signed-in desktop (ADR 0063).
+                    if !libnagi::report_boot_ready() {
+                        print(b"Nagi login readiness report FAIL\r\n");
+                    }
+                    true
+                }
+            };
+        }
         if event.event_type == libnagi::INPUT_EVENT_REL {
             if event.code == libnagi::INPUT_REL_X {
                 self.pointer_x = clamp(self.pointer_x.saturating_add(event.value), 0, 319);
@@ -336,6 +367,10 @@ impl Desktop {
     }
 
     pub fn acceptance_ready(&self) -> bool {
+        #[cfg(feature = "desktop-login")]
+        if cfg!(feature = "desktop-login-acceptance") {
+            return self.session.is_some();
+        }
         #[cfg(feature = "consent-dialog-acceptance")]
         if self.consent_answered {
             return true;
@@ -685,6 +720,13 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
     };
     let preference = load_locale(&mut volume);
     let mut desktop = Desktop::new(preference.locale());
+    #[cfg(feature = "desktop-login")]
+    let login_mode = {
+        let screen = crate::login_screen::LoginScreen::new(crate::login_screen::load(&mut volume));
+        let mode = screen.mode();
+        desktop.login = Some(screen);
+        mode
+    };
     #[cfg(feature = "consent-dialog-acceptance")]
     let consent_start = start_consent_acceptance(&mut desktop, &mut volume);
     desktop.render(surface);
@@ -692,7 +734,8 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
         print(message!(NAGI_M10_FAIL, 26));
         libnagi::exit(1);
     }
-    if !libnagi::report_boot_ready() {
+    // With sign-in, readiness is reported only after the owner signs in.
+    if !cfg!(feature = "desktop-login") && !libnagi::report_boot_ready() {
         print(message!(NAGI_M10_FAIL, 26));
         libnagi::exit(1);
     }
@@ -703,6 +746,11 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
     let initial_frame = frame_hash(surface);
     print(message!(NAGI_M10_READY, 24));
     print_checksum(initial_checksum);
+    #[cfg(feature = "desktop-login")]
+    print(match login_mode {
+        libnagi::login::LoginMode::Create => b"Nagi login READY mode=create\r\n",
+        libnagi::login::LoginMode::Unlock => b"Nagi login READY mode=unlock\r\n",
+    });
     #[cfg(feature = "consent-dialog-acceptance")]
     report_consent_start(&mut desktop, consent_start);
     match preference {
@@ -754,7 +802,9 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
             }
         }
         if desktop.acceptance_ready() {
-            if cfg!(feature = "consent-dialog-acceptance") {
+            if cfg!(feature = "desktop-login-acceptance") {
+                print(b"Nagi login acceptance PASS\r\n");
+            } else if cfg!(feature = "consent-dialog-acceptance") {
                 print(b"Nagi consent dialog acceptance PASS\r\n");
             } else {
                 print(message!(NAGI_M10_ACCEPTANCE, 26));

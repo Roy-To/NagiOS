@@ -308,6 +308,7 @@ pub enum Command {
     M30,
     IsolatedProcess,
     Consent,
+    Login,
     M20Granite,
     M20GraniteInference,
     M20LlamaSmoke,
@@ -523,6 +524,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m30" => Command::M30,
         "isolated-process" => Command::IsolatedProcess,
         "consent" => Command::Consent,
+        "login" => Command::Login,
         "m20-granite" => Command::M20Granite,
         "m20-granite-inference" => Command::M20GraniteInference,
         "m20-llama-smoke" => Command::M20LlamaSmoke,
@@ -596,6 +598,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M30
         | Command::IsolatedProcess
         | Command::Consent
+        | Command::Login
         | Command::Clean
         | Command::Fmt
         | Command::Lint => args.len() == 1,
@@ -769,6 +772,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M22 => execute_m22(root, probe),
         Command::IsolatedProcess => execute_isolated_process(root, probe),
         Command::Consent => execute_consent(root, probe),
+        Command::Login => execute_login(root, probe),
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
@@ -4826,6 +4830,173 @@ fn execute_image_with_acceptance_packages(
         write_isolated_apps_fat12_image,
         ImageBuildFeatures::default(),
     )
+}
+
+/// QMP commands that type `text` (lowercase letters, digits, `-`), then
+/// press `finish` (`ret` or `tab`), one key press/release per command.
+fn qmp_typed_keys(text: &str, finish: &str) -> Vec<String> {
+    text.chars()
+        .map(|character| match character {
+            '-' => "minus".to_owned(),
+            other => other.to_string(),
+        })
+        .chain(std::iter::once(finish.to_owned()))
+        .map(|key| {
+            format!(
+                r#"{{"execute":"input-send-event","arguments":{{"events":[{{"type":"key","data":{{"down":true,"key":{{"type":"qcode","data":"{key}"}}}}}},{{"type":"key","data":{{"down":false,"key":{{"type":"qcode","data":"{key}"}}}}}}]}}}}"#
+            )
+        })
+        .collect()
+}
+
+/// ADR 0063: first run creates the owner account through the OS-owned
+/// login screen; after a restart a wrong password is refused and the right
+/// one signs in. Readiness and the desktop follow only a sign-in.
+fn execute_login(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    match run_login_acceptance(root, probe) {
+        Ok(lines) => CommandResult {
+            exit_code: EXIT_SUCCESS,
+            lines,
+        },
+        Err(error) => failure(EXIT_CONFIG_ERROR, format!("login: {error}")),
+    }
+}
+
+fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, String> {
+    let run_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock: {error}"))?
+        .as_nanos()
+        .to_string();
+    let image_name = format!("nagi-0.1-login-{run_id}.img");
+    let image = execute_image_with_features(root, Some("desktop-login-acceptance"), &image_name);
+    if image.exit_code != EXIT_SUCCESS {
+        return Err(image.lines.join("; "));
+    }
+    let host = resolve_qemu_host(root, probe, "login")?;
+    let evidence = ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("login-{run_id}")),
+    )?;
+    let image_path = root.join("out").join("artifacts").join(&image_name);
+    let disk = evidence.join("user-data.img");
+    let vars = evidence.join("OVMF_VARS.fd");
+    ensure_persistent_disk(&disk)?;
+    fn login_config<'a>(
+        host: &'a QemuHost,
+        paths: [&'a Path; 4],
+        marker: &'static str,
+    ) -> QemuConfig<'a> {
+        let [image, disk, vars, log] = paths;
+        QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: image,
+            persistent_disk: disk,
+            vars_copy: vars,
+            serial_log: log,
+            acceptance_marker: marker,
+            timeout: Duration::from_secs(60),
+        }
+    }
+    let format_log = evidence.join("format.log");
+    run_qemu(&login_config(
+        &host,
+        [&image_path, &disk, &vars, &format_log],
+        NAGI_WRITE_MARKER,
+    ))?;
+    let read = |log: &Path| {
+        fs::read_to_string(log).map_err(|error| format!("read {}: {error}", log.display()))
+    };
+    if !read(&format_log)?.contains(NAGI_WRITE_MARKER) {
+        return Err(format!(
+            "User Data format boot did not print `{NAGI_WRITE_MARKER}`"
+        ));
+    }
+
+    let mut create_events = qmp_typed_keys("owner", "ret");
+    create_events.extend(qmp_typed_keys("nagi1", "ret"));
+    create_events.extend(qmp_typed_keys("nagi1", "ret"));
+    let mut unlock_events = qmp_typed_keys("wrong1", "ret");
+    unlock_events.extend(qmp_typed_keys("nagi1", "ret"));
+    let mut lines = Vec::new();
+    for (phase, events, markers, absent) in [
+        (
+            "create",
+            create_events,
+            &[
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=create",
+                "Nagi login owner created PASS name=owner",
+                "Nagi login unlocked PASS",
+                "Nagi login acceptance PASS",
+            ][..],
+            &[
+                "Nagi login unlock REJECTED",
+                "Nagi M27 readiness persistence FAIL",
+            ][..],
+        ),
+        (
+            "unlock",
+            unlock_events,
+            &[
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=unlock",
+                "Nagi login unlock REJECTED",
+                "Nagi login unlocked PASS",
+                "Nagi login acceptance PASS",
+            ][..],
+            &["Nagi login owner created"][..],
+        ),
+    ] {
+        let log = evidence.join(format!("{phase}.log"));
+        let screenshot = evidence.join(format!("{phase}-signed-in.png"));
+        let shown = evidence.join(format!("{phase}-login-screen.png"));
+        let mut commands = vec![qmp_screendump_command(&shown)?];
+        commands.extend(events);
+        let commands: Vec<&str> = commands.iter().map(String::as_str).collect();
+        let outcome = run_qemu_gui_with_events_and_screenshot(
+            &login_config(
+                &host,
+                [&image_path, &disk, &vars, &log],
+                "Nagi login acceptance PASS",
+            ),
+            "Nagi M10 desktop READY",
+            &commands,
+            &screenshot,
+        )?;
+        let serial = read(&log)?;
+        let mut position = 0;
+        for marker in markers {
+            let Some(found) = serial[position..].find(marker) else {
+                return Err(format!(
+                    "{phase} did not print ordered marker `{marker}` (QEMU exit {}; log {})",
+                    outcome.exit_status,
+                    log.display()
+                ));
+            };
+            position += found + marker.len();
+        }
+        for marker in absent {
+            if serial.contains(marker) {
+                return Err(format!(
+                    "{phase} unexpectedly printed `{marker}` (log {})",
+                    log.display()
+                ));
+            }
+        }
+        validate_screenshot(&shown)?;
+        lines.push(format!(
+            "PASS login: {phase} (log {}; screenshots {}, {})",
+            log.display(),
+            shown.display(),
+            screenshot.display()
+        ));
+    }
+    Ok(lines)
 }
 
 fn execute_desktop_acceptance(
@@ -9813,7 +9984,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, consent, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, consent, login, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }

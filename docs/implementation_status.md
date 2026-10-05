@@ -11,6 +11,29 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**Desktop owner login (ADR 0063), 2026-10-06:** With `desktop-login`, the
+desktop first shows an OS-owned login screen.
+
+- **First run** creates the owner account. Only a salted PBKDF2-HMAC-SHA256
+  credential in a checksummed `owner-account` record reaches User Data.
+- **Later boots** unlock it.
+- **Readiness** is reported only after sign-in.
+- **Host tests.** `libnagi::credential` (checked against the PBKDF2 vectors)
+  and `libnagi::login` are host-tested. The workspace has 872 host tests,
+  and warning-denied Clippy is clean.
+- **Result.** `./nagi login` passed (evidence
+  `out/evidence/login-1791243371662416000`): QMP typed the owner name and
+  password to create the account; after a restart a wrong password was
+  `REJECTED` and the right one signed in. `./nagi m29` and
+  `./nagi consent` still pass.
+
+Still open:
+
+- enabling `desktop-login` in release/M27/M30 images (headless trials need
+  typed credentials);
+- having consent use the signed-in session;
+- more accounts, password change, and rate limiting.
+
 **Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
 grant is now asked through an OS-owned dialog, and the answer survives a
 restart.

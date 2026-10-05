@@ -55,6 +55,10 @@ m29-settings-acceptance = ["m10-desktop"]
 # ADR 0060: the desktop's OS-owned consent dialog answers a signed
 # acceptance application's grant request; needs NAGI_ACCEPTANCE_PACKAGES.
 consent-dialog-acceptance = ["m10-desktop"]
+# ADR 0063: first-run owner account and lock-screen sign-in before the
+# desktop and its readiness report.
+desktop-login = ["m10-desktop"]
+desktop-login-acceptance = ["desktop-login"]
 m25-voice-acceptance = []
 m25-whisper-artifact-acceptance = ["m20-model-store-acceptance"]
 m25-whisper-inference-acceptance = [
