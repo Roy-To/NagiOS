@@ -1,0 +1,4 @@
+id=org.nagi.acceptance.foreign-client
+name=Foreign acceptance client
+version=0.1.0
+grant=search.query

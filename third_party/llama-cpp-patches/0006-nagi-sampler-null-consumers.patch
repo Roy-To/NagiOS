@@ -1,0 +1,140 @@
+diff --git a/examples/batched.swift/Sources/main.swift b/examples/batched.swift/Sources/main.swift
+index fd90bbe..718ecc6 100644
+--- a/examples/batched.swift/Sources/main.swift
++++ b/examples/batched.swift/Sources/main.swift
+@@ -145,6 +145,11 @@ while n_cur <= n_len {
+ 
+         let new_token_id = llama_sampler_sample(smpl, context, i_batch[i])
+ 
++        if new_token_id == LLAMA_TOKEN_NULL {
++            print("sampler failed to produce a token for stream \(i)")
++            exit(1)
++        }
++
+         // is it an end of stream? -> mark the stream as finished
+         if llama_vocab_is_eog(vocab, new_token_id) || n_cur == n_len {
+             i_batch[i] = -1
+diff --git a/examples/batched/batched.cpp b/examples/batched/batched.cpp
+index 830e45f..133e64e 100644
+--- a/examples/batched/batched.cpp
++++ b/examples/batched/batched.cpp
+@@ -190,6 +190,11 @@ int main(int argc, char ** argv) {
+ 
+             const llama_token new_token_id = llama_sampler_sample(sampler_configs[i].sampler, ctx, i_batch[i]);
+ 
++            if (new_token_id == LLAMA_TOKEN_NULL) {
++                LOG_ERR("%s: sampler failed to produce a token for stream %d\n", __func__, i);
++                return 1;
++            }
++
+             // is it an end of generation? -> mark the stream as finished
+             if (llama_vocab_is_eog(vocab, new_token_id) || n_cur == n_predict) {
+                 i_batch[i] = -1;
+diff --git a/examples/llama.swiftui/llama.cpp.swift/LibLlama.swift b/examples/llama.swiftui/llama.cpp.swift/LibLlama.swift
+index dc2bafc..02b7e4a 100644
+--- a/examples/llama.swiftui/llama.cpp.swift/LibLlama.swift
++++ b/examples/llama.swiftui/llama.cpp.swift/LibLlama.swift
+@@ -153,6 +153,13 @@ actor LlamaContext {
+ 
+         new_token_id = llama_sampler_sample(sampling, context, batch.n_tokens - 1)
+ 
++        if new_token_id == LLAMA_TOKEN_NULL {
++            print("sampler failed to produce a token")
++            is_done = true
++            temporary_invalid_cchars.removeAll()
++            return ""
++        }
++
+         if llama_vocab_is_eog(vocab, new_token_id) || n_cur == n_len {
+             print("\n")
+             is_done = true
+diff --git a/examples/passkey/passkey.cpp b/examples/passkey/passkey.cpp
+index 8440a2b..c880969 100644
+--- a/examples/passkey/passkey.cpp
++++ b/examples/passkey/passkey.cpp
+@@ -225,6 +225,11 @@ int main(int argc, char ** argv) {
+         {
+             const llama_token new_token_id = llama_sampler_sample(smpl, ctx, batch.n_tokens - 1);
+ 
++            if (new_token_id == LLAMA_TOKEN_NULL) {
++                LOG_ERR("%s: sampler failed to produce a token\n", __func__);
++                return 1;
++            }
++
+             // is it an end of generation?
+             if (llama_vocab_is_eog(vocab, new_token_id) || n_cur == n_len) {
+                 LOG("\n");
+diff --git a/examples/simple-chat/simple-chat.cpp b/examples/simple-chat/simple-chat.cpp
+index 30a0966..622f42e 100644
+--- a/examples/simple-chat/simple-chat.cpp
++++ b/examples/simple-chat/simple-chat.cpp
+@@ -96,6 +96,8 @@ int main(int argc, char ** argv) {
+     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.8f));
+     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+ 
++    bool sampling_failed = false;
++
+     // helper function to evaluate a prompt and generate a response
+     auto generate = [&](const std::string & prompt) {
+         std::string response;
+@@ -130,6 +132,12 @@ int main(int argc, char ** argv) {
+             // sample the next token
+             new_token_id = llama_sampler_sample(smpl, ctx, -1);
+ 
++            if (new_token_id == LLAMA_TOKEN_NULL) {
++                fprintf(stderr, "sampler failed to produce a token\n");
++                sampling_failed = true;
++                break;
++            }
++
+             // is it an end of generation?
+             if (llama_vocab_is_eog(vocab, new_token_id)) {
+                 break;
+@@ -188,6 +196,10 @@ int main(int argc, char ** argv) {
+         std::string response = generate(prompt);
+         printf("\n\033[0m");
+ 
++        if (sampling_failed) {
++            break;
++        }
++
+         // add the response to the messages
+         messages.push_back({"assistant", strdup(response.c_str())});
+         prev_len = llama_chat_apply_template(tmpl, messages.data(), messages.size(), false, nullptr, 0);
+@@ -205,5 +217,5 @@ int main(int argc, char ** argv) {
+     llama_free(ctx);
+     llama_model_free(model);
+ 
+-    return 0;
++    return sampling_failed ? 1 : 0;
+ }
+diff --git a/examples/simple/simple.cpp b/examples/simple/simple.cpp
+index 982a4d8..4901ae3 100644
+--- a/examples/simple/simple.cpp
++++ b/examples/simple/simple.cpp
+@@ -179,6 +179,11 @@ int main(int argc, char ** argv) {
+         {
+             new_token_id = llama_sampler_sample(smpl, ctx, -1);
+ 
++            if (new_token_id == LLAMA_TOKEN_NULL) {
++                fprintf(stderr, "%s: error: sampler failed to produce a token\n", __func__);
++                return 1;
++            }
++
+             // is it an end of generation?
+             if (llama_vocab_is_eog(vocab, new_token_id)) {
+                 break;
+diff --git a/include/llama.h b/include/llama.h
+index dea4d46..cfc6fe9 100644
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -1637,7 +1637,8 @@ extern "C" {
+     //    auto token = cur_p.data[cur_p.selected].id;
+     //    llama_sampler_accept(smpl, token);
+     //    return token;
+-    // Returns the sampled token
++    // Returns the sampled token, or LLAMA_TOKEN_NULL if sampling failed.
++    // Callers must check for LLAMA_TOKEN_NULL before using the returned token.
+     LLAMA_API llama_token llama_sampler_sample(struct llama_sampler * smpl, struct llama_context * ctx, int32_t idx);
+ 
+     // TODO: extend in the future

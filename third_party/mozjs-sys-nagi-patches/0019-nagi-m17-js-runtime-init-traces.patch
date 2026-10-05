@@ -1,0 +1,181 @@
+diff --git a/mozjs/js/src/vm/Runtime.cpp b/mozjs/js/src/vm/Runtime.cpp
+--- a/mozjs/js/src/vm/Runtime.cpp
++++ b/mozjs/js/src/vm/Runtime.cpp
+@@ -5,0 +6,12 @@
++
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -170,0 +183 @@
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime init entered");
+@@ -176 +189,21 @@
+-  if (CanUseExtraThreads() && !EnsureHelperThreadsInitialized()) {
++  const bool useExtraThreads = CanUseExtraThreads();
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime extra-thread policy checked");
++  if (useExtraThreads) {
++    NAGI_M17_TRACE(
++        "SpiderMonkey JSRuntime helper-thread initialization started");
++    if (!EnsureHelperThreadsInitialized()) {
++      NAGI_M17_TRACE(
++          "SpiderMonkey JSRuntime helper-thread initialization failed");
++      return false;
++    }
++    NAGI_M17_TRACE(
++        "SpiderMonkey JSRuntime helper-thread initialization completed");
++  } else {
++    NAGI_M17_TRACE("SpiderMonkey JSRuntime extra threads disabled");
++  }
++
++  mainContext_ = cx;
++
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime GC initialization started");
++  if (!gc.init(maxbytes)) {
++    NAGI_M17_TRACE("SpiderMonkey JSRuntime GC initialization failed");
+@@ -179,4 +212,5 @@
+-
+-  mainContext_ = cx;
+-
+-  if (!gc.init(maxbytes)) {
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime GC initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime number-state initialization started");
++  if (!InitRuntimeNumberState(this)) {
++    NAGI_M17_TRACE("SpiderMonkey JSRuntime number-state initialization failed");
+@@ -185,4 +219,2 @@
+-
+-  if (!InitRuntimeNumberState(this)) {
+-    return false;
+-  }
++  NAGI_M17_TRACE(
++      "SpiderMonkey JSRuntime number-state initialization completed");
+@@ -191,0 +224 @@
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime time-zone reset started");
+@@ -193 +226,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime time-zone reset completed");
++
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime set-prop cache allocation started");
+@@ -195,0 +231 @@
++    NAGI_M17_TRACE("SpiderMonkey JSRuntime set-prop cache allocation failed");
+@@ -198 +234,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime set-prop cache allocation completed");
++
++  NAGI_M17_TRACE("SpiderMonkey JSRuntime init completed");
+diff --git a/mozjs/js/src/vm/HelperThreads.cpp b/mozjs/js/src/vm/HelperThreads.cpp
+--- a/mozjs/js/src/vm/HelperThreads.cpp
++++ b/mozjs/js/src/vm/HelperThreads.cpp
+@@ -5,0 +6,12 @@
++
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -84 +96,4 @@
+-  return gHelperThreadState->ensureInitialized();
++  NAGI_M17_TRACE("SpiderMonkey helper-thread initialization entered");
++  const bool initialized = gHelperThreadState->ensureInitialized();
++  NAGI_M17_TRACE("SpiderMonkey helper-thread initialization returned");
++  return initialized;
+@@ -161,0 +177,2 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread state initialization entered");
++  NAGI_M17_TRACE("SpiderMonkey helper-thread lock acquisition started");
+@@ -162,0 +180 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread lock acquisition completed");
+@@ -164,0 +183 @@
++    NAGI_M17_TRACE("SpiderMonkey helper-thread state already initialized");
+@@ -173,0 +193,2 @@
++    NAGI_M17_TRACE(
++        "SpiderMonkey internal helper-pool initialization started");
+@@ -174,0 +196,2 @@
++      NAGI_M17_TRACE(
++          "SpiderMonkey internal helper-pool initialization failed");
+@@ -176,0 +200,2 @@
++    NAGI_M17_TRACE(
++        "SpiderMonkey internal helper-pool initialization completed");
+@@ -180,0 +206,2 @@
++  NAGI_M17_TRACE(
++      "SpiderMonkey helper-thread count initialization started");
+@@ -181,0 +209,2 @@
++    NAGI_M17_TRACE(
++        "SpiderMonkey helper-thread count initialization failed");
+@@ -184,0 +214,2 @@
++  NAGI_M17_TRACE(
++      "SpiderMonkey helper-thread count initialization completed");
+@@ -187,0 +219 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread state initialization completed");
+diff --git a/mozjs/js/src/vm/InternalThreadPool.cpp b/mozjs/js/src/vm/InternalThreadPool.cpp
+--- a/mozjs/js/src/vm/InternalThreadPool.cpp
++++ b/mozjs/js/src/vm/InternalThreadPool.cpp
+@@ -5,0 +6,12 @@
++
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -111,0 +124 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread pool initialization entered");
+@@ -112,0 +126 @@
++    NAGI_M17_TRACE("SpiderMonkey helper-thread pool already initialized");
+@@ -115,0 +130 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread pool allocation started");
+@@ -116,0 +132 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread pool allocation completed");
+@@ -117,0 +134 @@
++    NAGI_M17_TRACE("SpiderMonkey helper-thread pool allocation failed");
+@@ -120,0 +138 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread pool provisioning started");
+@@ -121,0 +140 @@
++    NAGI_M17_TRACE("SpiderMonkey helper-thread pool provisioning failed");
+@@ -124,0 +144 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread pool provisioning completed");
+@@ -126,0 +147,2 @@
++  NAGI_M17_TRACE(
++      "SpiderMonkey helper-thread pool callback registration started");
+@@ -128,0 +151,2 @@
++  NAGI_M17_TRACE(
++      "SpiderMonkey helper-thread pool callback registration completed");
+@@ -147 +171,2 @@
+-    if (!thread || !thread->init(this)) {
++    if (!thread) {
++      NAGI_M17_TRACE("SpiderMonkey helper-thread object allocation failed");
+@@ -149,0 +175,6 @@
++    NAGI_M17_TRACE("SpiderMonkey helper-thread creation started");
++    if (!thread->init(this)) {
++      NAGI_M17_TRACE("SpiderMonkey helper-thread creation failed");
++      return false;
++    }
++    NAGI_M17_TRACE("SpiderMonkey helper-thread creation completed");
+@@ -247,0 +279 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread main entered");
+@@ -250,0 +283 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread profiler registration completed");
+@@ -251,0 +285 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread loop returned");
+@@ -310,0 +345,2 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread loop entered");
++  NAGI_M17_TRACE("SpiderMonkey helper-thread main lock acquisition started");
+@@ -311,0 +348 @@
++  NAGI_M17_TRACE("SpiderMonkey helper-thread main lock acquisition completed");

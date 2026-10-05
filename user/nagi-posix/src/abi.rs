@@ -9,15 +9,30 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use core::time::Duration;
 
 use crate::errno::{
-    set_errno, EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP, ENOTTY,
-    ERANGE, ETIMEDOUT,
+    errno, set_errno, EAGAIN, EBADF, EBUSY, EINVAL, ENOMEM, ENOPROTOOPT, ENOSYS, ENOTDIR, ENOTSUP,
+    ENOTTY, ERANGE, ETIMEDOUT,
 };
-use libnagi::storage::{DirectoryEntry, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH};
+#[cfg(feature = "browser-storage")]
+use libnagi::storage::StorageError;
+use libnagi::storage::{
+    DirectoryEntry, FileMetadata, MAX_DIRECTORY_ENTRIES, MAX_NAME_LENGTH, MAX_PATH_LENGTH,
+};
 use nagi_pal::time::{Clock, GuestClock};
 
 const TLS_SLOTS: usize = 64;
-const THREAD_SLOTS: usize = 2;
+const THREAD_SLOTS: usize = crate::threads::THREAD_SLOTS;
+const RETIRED_STACK_SLOTS: usize = 64;
+const PATH_BUFFER_CAPACITY: usize = MAX_PATH_LENGTH + 1;
+const PTHREAD_CREATE_DETACHED: c_int = 0;
+const PTHREAD_CREATE_JOINABLE: c_int = 1;
+const PTHREAD_INHERIT_SCHED: c_int = 1;
+const PTHREAD_SCOPE_SYSTEM: c_int = 1;
+const SCHED_RR: c_int = 1;
 static NEXT_TLS_KEY: AtomicUsize = AtomicUsize::new(1);
+#[cfg(target_os = "nagi")]
+static PTHREAD_TRAMPOLINE_ENTERED_TRACES: AtomicUsize = AtomicUsize::new(0);
+#[cfg(target_os = "nagi")]
+static PTHREAD_ROUTINE_RETURNED_TRACES: AtomicUsize = AtomicUsize::new(0);
 static mut TLS_VALUES: [[usize; TLS_SLOTS]; THREAD_SLOTS] = [[0; TLS_SLOTS]; THREAD_SLOTS];
 const THREAD_NAME_LENGTH: usize = 16;
 static mut THREAD_NAMES: [[u8; THREAD_NAME_LENGTH]; THREAD_SLOTS] =
@@ -25,73 +40,200 @@ static mut THREAD_NAMES: [[u8; THREAD_NAME_LENGTH]; THREAD_SLOTS] =
 
 type PthreadStart = extern "C" fn(*mut c_void) -> *mut c_void;
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 struct PthreadStartRecord {
+    reserved: bool,
     start: Option<PthreadStart>,
     argument: *mut c_void,
 }
 
 unsafe impl Sync for PthreadStartRecord {}
 
-static mut PTHREAD_START_RECORD: PthreadStartRecord = PthreadStartRecord {
-    start: None,
-    argument: ptr::null_mut(),
-};
-static mut PTHREAD_STACK: *mut u8 = ptr::null_mut();
-static mut PTHREAD_DETACHED: bool = false;
-static PTHREAD_CREATE_ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
-#[cfg(target_os = "nagi")]
-static PTHREAD_CREATE_FAILURE_TRACES: AtomicUsize = AtomicUsize::new(0);
-
-// The kernel gives the initial Nagi process a fixed, mapped user stack. The
-// POSIX attribute bridge reports that guest range to Rust std instead of
-// querying a host thread implementation. Child pthreads use the real stack
-// allocation recorded by pthread_create below.
-const NAGI_MAIN_STACK_BASE: usize = 0x0000_4000_0020_0000;
-const NAGI_MAIN_STACK_SIZE: usize = 8 * 4096;
-const NAGI_PTHREAD_STACK_SIZE: usize = 4 * 4096;
-
-#[inline]
-fn trace_pthread_create_failure(attempt: usize, stage: &[u8], error: c_int) {
-    #[cfg(target_os = "nagi")]
-    {
-        const MAX_FAILURE_TRACES: usize = 8;
-        if PTHREAD_CREATE_FAILURE_TRACES.fetch_add(1, Ordering::Relaxed) < MAX_FAILURE_TRACES {
-            let (line, length) = crate::thread_diagnostics::format_pthread_create_failure(
-                attempt,
-                stage,
-                NAGI_PTHREAD_STACK_SIZE,
-                error.max(0) as usize,
-            );
-            let _ = libnagi::console_write(&line[..length]);
-        }
-    }
-    #[cfg(not(target_os = "nagi"))]
-    {
-        let _ = (attempt, stage, error);
-    }
+impl PthreadStartRecord {
+    const EMPTY: Self = Self {
+        reserved: false,
+        start: None,
+        argument: ptr::null_mut(),
+    };
 }
 
+#[derive(Clone, Copy)]
+struct PthreadThreadInfo {
+    stack: *mut u8,
+    stack_size: usize,
+    owns_stack: bool,
+    detached: bool,
+}
+
+unsafe impl Sync for PthreadThreadInfo {}
+
+impl PthreadThreadInfo {
+    const EMPTY: Self = Self {
+        stack: ptr::null_mut(),
+        stack_size: 0,
+        owns_stack: false,
+        detached: false,
+    };
+}
+
+#[derive(Clone, Copy)]
+struct RetiredPthreadStack {
+    stack: *mut u8,
+    stack_size: usize,
+}
+
+unsafe impl Sync for RetiredPthreadStack {}
+
+impl RetiredPthreadStack {
+    const EMPTY: Self = Self {
+        stack: ptr::null_mut(),
+        stack_size: 0,
+    };
+}
+
+static mut PTHREAD_START_RECORDS: [PthreadStartRecord; THREAD_SLOTS] =
+    [PthreadStartRecord::EMPTY; THREAD_SLOTS];
+static mut PTHREAD_THREADS: [PthreadThreadInfo; THREAD_SLOTS] =
+    [PthreadThreadInfo::EMPTY; THREAD_SLOTS];
+static mut RETIRED_PTHREAD_STACKS: [RetiredPthreadStack; RETIRED_STACK_SLOTS] =
+    [RetiredPthreadStack::EMPTY; RETIRED_STACK_SLOTS];
+
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct NagiPthreadAttr {
     stack: *mut c_void,
     stack_size: usize,
-    reserved: [usize; 2],
+    detach_state: c_int,
+    reserved: [usize; 1],
 }
 
+impl NagiPthreadAttr {
+    const DEFAULT: Self = Self {
+        stack: ptr::null_mut(),
+        stack_size: crate::threads::DEFAULT_STACK_SIZE,
+        detach_state: PTHREAD_CREATE_JOINABLE,
+        reserved: [0; 1],
+    };
+}
+
+const _: () = assert!(core::mem::size_of::<NagiPthreadAttr>() == 32);
+
 #[inline]
-fn current_thread_slot() -> usize {
-    (libnagi::thread_self() as usize).min(THREAD_SLOTS - 1)
+fn current_thread_slot() -> Option<usize> {
+    crate::threads::thread_id_index(libnagi::thread_self())
+}
+
+unsafe fn reserve_pthread_start_record(
+    start: PthreadStart,
+    argument: *mut c_void,
+) -> Option<*mut PthreadStartRecord> {
+    let records = core::ptr::addr_of_mut!(PTHREAD_START_RECORDS).cast::<PthreadStartRecord>();
+    for index in 0..THREAD_SLOTS {
+        let record = unsafe { &mut *records.add(index) };
+        if !record.reserved {
+            *record = PthreadStartRecord {
+                reserved: true,
+                start: Some(start),
+                argument,
+            };
+            return Some(record);
+        }
+    }
+    None
+}
+
+unsafe fn release_pthread_start_record(record: *mut PthreadStartRecord) {
+    let records = core::ptr::addr_of_mut!(PTHREAD_START_RECORDS).cast::<PthreadStartRecord>();
+    let start = records as usize;
+    let address = record as usize;
+    let bytes = core::mem::size_of::<PthreadStartRecord>() * THREAD_SLOTS;
+    let Some(offset) = address.checked_sub(start) else {
+        return;
+    };
+    if offset >= bytes || !offset.is_multiple_of(core::mem::size_of::<PthreadStartRecord>()) {
+        return;
+    }
+    unsafe { *record = PthreadStartRecord::EMPTY };
+}
+
+unsafe fn queue_retired_pthread_stack(stack: *mut u8, stack_size: usize) -> bool {
+    let mappings = core::ptr::addr_of_mut!(RETIRED_PTHREAD_STACKS).cast::<RetiredPthreadStack>();
+    for index in 0..RETIRED_STACK_SLOTS {
+        let mapping = unsafe { &mut *mappings.add(index) };
+        if mapping.stack == stack && mapping.stack_size == stack_size {
+            return true;
+        }
+    }
+    for index in 0..RETIRED_STACK_SLOTS {
+        let mapping = unsafe { &mut *mappings.add(index) };
+        if mapping.stack.is_null() {
+            *mapping = RetiredPthreadStack { stack, stack_size };
+            return true;
+        }
+    }
+    false
+}
+
+unsafe fn retry_retired_pthread_stacks() {
+    let mappings = core::ptr::addr_of_mut!(RETIRED_PTHREAD_STACKS).cast::<RetiredPthreadStack>();
+    for index in 0..RETIRED_STACK_SLOTS {
+        let mapping = unsafe { &mut *mappings.add(index) };
+        if !mapping.stack.is_null()
+            && crate::nagi_posix_munmap(mapping.stack, mapping.stack_size) == 0
+        {
+            *mapping = RetiredPthreadStack::EMPTY;
+        }
+    }
+}
+
+unsafe fn reclaim_or_retire_pthread_stack(stack: *mut u8, stack_size: usize) -> bool {
+    if crate::nagi_posix_munmap(stack, stack_size) == 0 {
+        return true;
+    }
+    if !unsafe { queue_retired_pthread_stack(stack, stack_size) } {
+        return false;
+    }
+    trace_stack_reclaim_deferred();
+    true
+}
+
+unsafe fn release_pthread_stack(thread: usize) -> bool {
+    if thread == 0 || thread >= THREAD_SLOTS {
+        return false;
+    }
+    let info = unsafe { (*core::ptr::addr_of!(PTHREAD_THREADS))[thread] };
+    if info.owns_stack && !info.stack.is_null() && info.stack_size != 0 {
+        if !unsafe { reclaim_or_retire_pthread_stack(info.stack, info.stack_size) } {
+            return false;
+        }
+    }
+    let threads = core::ptr::addr_of_mut!(PTHREAD_THREADS);
+    unsafe { (*threads)[thread] = PthreadThreadInfo::EMPTY };
+    let tls_values = core::ptr::addr_of_mut!(TLS_VALUES);
+    unsafe { (*tls_values)[thread].fill(0) };
+    let names = core::ptr::addr_of_mut!(THREAD_NAMES);
+    unsafe { (*names)[thread].fill(0) };
+    true
 }
 
 extern "C" fn pthread_trampoline(record: *mut c_void) -> ! {
-    let (start, argument) = unsafe {
-        let record = &*(record.cast::<PthreadStartRecord>());
-        (record.start, record.argument)
-    };
+    let record = record.cast::<PthreadStartRecord>();
+    let (start, argument) = unsafe { ((*record).start, (*record).argument) };
+    unsafe { release_pthread_start_record(record) };
+    #[cfg(target_os = "nagi")]
+    trace_pthread_stage(
+        &PTHREAD_TRAMPOLINE_ENTERED_TRACES,
+        b"pthread trampoline entered",
+    );
     let result = start
         .map(|routine| routine(argument))
         .unwrap_or(ptr::null_mut());
+    #[cfg(target_os = "nagi")]
+    trace_pthread_stage(
+        &PTHREAD_ROUTINE_RETURNED_TRACES,
+        b"pthread routine returned",
+    );
     libnagi::thread_exit(result as u64)
 }
 
@@ -164,11 +306,13 @@ pub unsafe extern "C" fn posix_memalign(
 ) -> c_int {
     if result.is_null() || alignment < core::mem::size_of::<usize>() || !alignment.is_power_of_two()
     {
-        return write_errno_and_fail(EINVAL);
+        return EINVAL;
     }
-    let pointer = crate::nagi_posix_malloc_aligned(size, alignment);
+    let previous_errno = errno();
+    let pointer = crate::nagi_posix_malloc_aligned(size.max(1), alignment);
     if pointer.is_null() {
-        return write_errno_and_fail(ENOMEM);
+        set_errno(previous_errno);
+        return ENOMEM;
     }
     result.write(pointer.cast());
     0
@@ -283,11 +427,76 @@ pub unsafe extern "C" fn nagi_posix_initialize_filesystem(capability: u64) -> c_
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_ensure_directory(path: *const c_char) -> c_int {
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
+    let path = match c_path(path, &mut bytes) {
+        Ok(path) => path,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::ensure_directory(path) {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_initialize_network(capability: u64) -> c_int {
     if crate::runtime::initialize_network(capability) {
         0
     } else {
         write_errno_and_fail(16)
+    }
+}
+
+/// Read the pathless Albert snapshot service. Returns the stored byte count,
+/// zero when no snapshot exists, and negative service status codes on failure:
+/// -1 for I/O, -2 for capacity, and -3 when the filesystem is unavailable.
+#[cfg(feature = "browser-storage")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_browser_storage_read(
+    output: *mut u8,
+    capacity: usize,
+) -> isize {
+    if output.is_null() || capacity == 0 || capacity > libnagi::storage::BLOCK_SIZE {
+        return write_errno_and_fail(EINVAL) as isize;
+    }
+    let output = core::slice::from_raw_parts_mut(output, capacity);
+    match crate::runtime::browser_storage_read(output) {
+        Ok(None) => 0,
+        Ok(Some(length)) => length as isize,
+        Err(error) => browser_storage_failure(error),
+    }
+}
+
+/// Atomically replace the pathless Albert snapshot through the initialized
+/// guest VFS. Returns 0 on success, -1 for I/O, -2 for capacity, and -3 when
+/// the filesystem is unavailable. No page-controlled path or kernel
+/// capability crosses this ABI.
+#[cfg(feature = "browser-storage")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nagi_posix_browser_storage_write(
+    bytes: *const u8,
+    length: usize,
+) -> c_int {
+    if bytes.is_null() || length == 0 || length > libnagi::storage::BLOCK_SIZE {
+        return write_errno_and_fail(EINVAL);
+    }
+    let bytes = core::slice::from_raw_parts(bytes, length);
+    match crate::runtime::browser_storage_write(bytes) {
+        Ok(()) => 0,
+        Err(error) => browser_storage_failure(error) as c_int,
+    }
+}
+
+#[cfg(feature = "browser-storage")]
+fn browser_storage_failure(error: crate::runtime::RuntimeError) -> isize {
+    set_errno(crate::runtime::map_error(error));
+    match error {
+        crate::runtime::RuntimeError::Storage(
+            StorageError::Capacity | StorageError::FileTooLarge,
+        ) => -2,
+        crate::runtime::RuntimeError::NotInitialized => -3,
+        _ => -1,
     }
 }
 
@@ -348,8 +557,8 @@ pub unsafe extern "C" fn nagi_posix_default_gateway(output: *mut NagiIpv4Address
 }
 
 const AF_INET: c_int = 2;
-const SOCK_STREAM: c_int = 1;
 const SOL_SOCKET: c_int = 1;
+const SO_ERROR: c_int = 4;
 const SO_RCVTIMEO: c_int = 20;
 const SO_SNDTIMEO: c_int = 21;
 const IPPROTO_TCP: c_int = 6;
@@ -358,19 +567,21 @@ const SHUT_RD: c_int = 0;
 const SHUT_WR: c_int = 1;
 const SHUT_RDWR: c_int = 2;
 
-#[repr(C)]
+#[repr(C, align(4))]
 pub struct NagiSockaddrIpv4 {
     pub family: u16,
     pub port_be: u16,
     pub address: [u8; 4],
+    pub zero: [u8; 8],
 }
 
 #[linkage = "weak"]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn socket(domain: c_int, socket_type: c_int, protocol: c_int) -> c_int {
-    if domain != AF_INET || socket_type != SOCK_STREAM || protocol != 0 {
+    if !crate::net::supports_stream_socket(domain, socket_type, protocol) {
         return write_errno_and_fail(97);
     }
+    crate::runtime::trace_m18_network(b"Nagi M18 network TCP socket accepted\r\n");
     match crate::runtime::socket() {
         Ok(fd) => fd,
         Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
@@ -423,6 +634,7 @@ pub unsafe extern "C" fn getpeername(
         family: AF_INET as u16,
         port_be: port.to_be(),
         address: peer.0,
+        zero: [0; 8],
     });
     address_length.write(required);
     0
@@ -449,6 +661,7 @@ pub unsafe extern "C" fn nagi_posix_getsockname(
         family: AF_INET as u16,
         port_be: port.to_be(),
         address: local.0,
+        zero: [0; 8],
     });
     address_length.write(required);
     0
@@ -623,6 +836,20 @@ pub unsafe extern "C" fn nagi_posix_getsockopt(
     }
 
     match (level, option_name) {
+        (SOL_SOCKET, SO_ERROR) => {
+            let required = core::mem::size_of::<c_int>() as c_uint;
+            if option_len.read() < required {
+                return write_errno_and_fail(EINVAL);
+            }
+            let error = match crate::runtime::take_socket_error(socket) {
+                Ok(error) => error,
+                Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
+            };
+            crate::runtime::trace_m18_network(b"Nagi M18 network SO_ERROR returned\r\n");
+            option_value.cast::<c_int>().write_unaligned(error);
+            option_len.write(required);
+            0
+        }
         (IPPROTO_TCP, TCP_NODELAY) => {
             let required = core::mem::size_of::<c_int>() as c_uint;
             if option_len.read() < required {
@@ -698,19 +925,15 @@ unsafe fn c_path(path: *const c_char, output: &mut [u8]) -> Result<&[u8], c_int>
     while length < output.len() {
         let byte = path.add(length).read() as u8;
         if byte == 0 {
-            let mut start = 0;
-            while start < length && output[start] == b'/' {
-                start += 1;
-            }
-            if start == length || output[start..length].contains(&b'/') {
+            if length == 0 {
                 return Err(EINVAL);
             }
-            return Ok(&output[start..length]);
+            return Ok(&output[..length]);
         }
         output[length] = byte;
         length += 1;
     }
-    Err(EINVAL)
+    Err(36)
 }
 
 unsafe fn is_root_path(path: *const c_char) -> Result<bool, c_int> {
@@ -759,7 +982,7 @@ pub unsafe extern "C" fn nagi_posix_chroot(path: *const c_char) -> c_int {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_open(path: *const c_char, flags: c_int, _mode: c_int) -> c_int {
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => return write_errno_and_fail(error),
@@ -795,12 +1018,17 @@ pub unsafe extern "C" fn nagi_posix_unlinkat(
     if flags & !AT_REMOVEDIR != 0 {
         return write_errno_and_fail(EINVAL);
     }
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => return write_errno_and_fail(error),
     };
-    match crate::runtime::remove(name) {
+    let result = if flags & AT_REMOVEDIR != 0 {
+        crate::runtime::rmdir(name)
+    } else {
+        crate::runtime::remove(name)
+    };
+    match result {
         Ok(()) => 0,
         Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
     }
@@ -813,7 +1041,7 @@ pub unsafe extern "C" fn nagi_posix_unlink(path: *const c_char) -> c_int {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_mkdir(path: *const c_char, _mode: c_uint) -> c_int {
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => return write_errno_and_fail(error),
@@ -876,7 +1104,7 @@ pub unsafe extern "C" fn nagi_posix_fchown(fd: c_int, uid: c_uint, gid: c_uint) 
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_utimes(path: *const c_char, times: *const c_void) -> c_int {
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => return write_errno_and_fail(error),
@@ -950,7 +1178,6 @@ pub unsafe extern "C" fn nagi_posix_opendir(path: *const c_char) -> *mut c_void 
             return ptr::null_mut();
         }
     }
-
     let mut entries = [DirectoryEntry::empty(); MAX_DIRECTORY_ENTRIES];
     let count = match crate::runtime::list_root(&mut entries) {
         Ok(count) => count,
@@ -1103,6 +1330,13 @@ unsafe fn fill_stat(fd: c_int, output: *mut NagiStat) -> c_int {
         Ok(metadata) => metadata,
         Err(error) => return write_errno_and_fail(crate::runtime::map_error(error)),
     };
+    fill_stat_metadata(metadata, output)
+}
+
+unsafe fn fill_stat_metadata(metadata: FileMetadata, output: *mut NagiStat) -> c_int {
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
+    }
     output.write(NagiStat {
         st_dev: 0,
         st_ino: u64::from(metadata.inode),
@@ -1134,24 +1368,34 @@ pub unsafe extern "C" fn fstat(fd: c_int, output: *mut c_void) -> c_int {
 #[linkage = "weak"]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn stat(path: *const c_char, output: *mut c_void) -> c_int {
-    let fd = nagi_posix_open(path, 0, 0);
-    if fd < 0 {
-        return -1;
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
     }
-    let result = fill_stat(fd, output.cast());
-    let _ = nagi_posix_close(fd);
-    result
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
+    let path = match c_path(path, &mut bytes) {
+        Ok(path) => path,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::metadata_path(path) {
+        Ok(metadata) => fill_stat_metadata(metadata, output.cast()),
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_lstat(path: *const c_char, output: *mut c_void) -> c_int {
-    let fd = nagi_posix_open(path, 0, 0);
-    if fd < 0 {
-        return -1;
+    if output.is_null() {
+        return write_errno_and_fail(EINVAL);
     }
-    let result = fill_stat(fd, output.cast());
-    let _ = nagi_posix_close(fd);
-    result
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
+    let path = match c_path(path, &mut bytes) {
+        Ok(path) => path,
+        Err(error) => return write_errno_and_fail(error),
+    };
+    match crate::runtime::metadata_path(path) {
+        Ok(metadata) => fill_stat_metadata(metadata, output.cast()),
+        Err(error) => write_errno_and_fail(crate::runtime::map_error(error)),
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1204,7 +1448,7 @@ pub unsafe extern "C" fn realpath(path: *const c_char, resolved: *mut c_char) ->
         set_errno(EINVAL);
         return ptr::null_mut();
     }
-    let mut bytes = [0_u8; 64];
+    let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
     let name = match c_path(path, &mut bytes) {
         Ok(name) => name,
         Err(error) => {
@@ -1212,6 +1456,11 @@ pub unsafe extern "C" fn realpath(path: *const c_char, resolved: *mut c_char) ->
             return ptr::null_mut();
         }
     };
+    let mut start = 0;
+    while start < name.len() && name[start] == b'/' {
+        start += 1;
+    }
+    let name = &name[start..];
     let mut index = 0;
     resolved.add(index).write(b'/' as c_char);
     index += 1;
@@ -1613,10 +1862,10 @@ pub unsafe extern "C" fn nagi_posix_waitpid(
     status: *mut c_int,
     options: c_int,
 ) -> c_int {
-    // M17's native process slice is deliberately spawn-oriented and exposes
-    // one joinable child slot. Do not fabricate a PID or silently implement
-    // unsupported wait options; map the real native child handle only.
-    if pid != 1 {
+    // M17's native process slice is deliberately spawn-oriented. Validate the
+    // bounded thread-ID range here; `native_wait` also verifies that this ID
+    // owns the one active spawn record before joining it.
+    if pid <= 0 || pid as usize >= THREAD_SLOTS {
         return write_errno_and_fail(EINVAL);
     }
     if options != 0 {
@@ -1638,10 +1887,11 @@ pub unsafe extern "C" fn pthread_attr_init(attributes: *mut c_void) -> c_int {
     if attributes.is_null() {
         return EINVAL;
     }
-    // relibc's pthread_attr_t is a bounded 32-byte opaque object. The native
-    // Nagi bridge deliberately chooses its own mapped 16 KiB child stack, so
-    // the requested host-sized stack is metadata only at this layer.
-    ptr::write_bytes(attributes.cast::<u8>(), 0, 32);
+    unsafe {
+        attributes
+            .cast::<NagiPthreadAttr>()
+            .write(NagiPthreadAttr::DEFAULT)
+    };
     0
 }
 
@@ -1653,13 +1903,200 @@ pub unsafe extern "C" fn pthread_attr_setstacksize(
     if attributes.is_null() {
         return EINVAL;
     }
-    // Preserve the requested value in the target-owned opaque object for
-    // pthread_attr_getstacksize callers. pthread_create remains bounded to
-    // the native 16 KiB child-stack bridge by design.
+    if stack_size < libnagi::BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE
+        || crate::threads::rounded_stack_size(stack_size).is_none()
+    {
+        return EINVAL;
+    }
     unsafe {
-        (*attributes.cast::<NagiPthreadAttr>()).stack_size = stack_size;
+        let attributes = &mut *attributes.cast::<NagiPthreadAttr>();
+        if !attributes.stack.is_null() && !stack_size.is_multiple_of(4096) {
+            return EINVAL;
+        }
+        attributes.stack_size = stack_size;
     }
     0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_getstacksize(
+    attributes: *const c_void,
+    stack_size: *mut usize,
+) -> c_int {
+    if attributes.is_null() || stack_size.is_null() {
+        return EINVAL;
+    }
+    unsafe {
+        stack_size.write((*attributes.cast::<NagiPthreadAttr>()).stack_size);
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_getdetachstate(
+    attributes: *const c_void,
+    detach_state: *mut c_int,
+) -> c_int {
+    if attributes.is_null() || detach_state.is_null() {
+        return EINVAL;
+    }
+    unsafe {
+        detach_state.write((*attributes.cast::<NagiPthreadAttr>()).detach_state);
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_setdetachstate(
+    attributes: *mut c_void,
+    detach_state: c_int,
+) -> c_int {
+    if attributes.is_null() {
+        return EINVAL;
+    }
+    if !matches!(
+        detach_state,
+        PTHREAD_CREATE_DETACHED | PTHREAD_CREATE_JOINABLE
+    ) {
+        return EINVAL;
+    }
+    unsafe {
+        (*attributes.cast::<NagiPthreadAttr>()).detach_state = detach_state;
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_getguardsize(
+    attributes: *const c_void,
+    guard_size: *mut usize,
+) -> c_int {
+    if attributes.is_null() || guard_size.is_null() {
+        return EINVAL;
+    }
+    // The bootstrap mapper does not add a guard page around thread stacks.
+    unsafe { guard_size.write(0) };
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_setguardsize(
+    attributes: *mut c_void,
+    guard_size: usize,
+) -> c_int {
+    if attributes.is_null() {
+        return EINVAL;
+    }
+    if guard_size == 0 {
+        0
+    } else {
+        ENOTSUP
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_getinheritsched(
+    attributes: *const c_void,
+    inherit: *mut c_int,
+) -> c_int {
+    if attributes.is_null() || inherit.is_null() {
+        return EINVAL;
+    }
+    unsafe { inherit.write(PTHREAD_INHERIT_SCHED) };
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_setinheritsched(
+    attributes: *mut c_void,
+    inherit: c_int,
+) -> c_int {
+    if attributes.is_null() {
+        return EINVAL;
+    }
+    if inherit == PTHREAD_INHERIT_SCHED {
+        0
+    } else {
+        ENOTSUP
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_getschedparam(
+    attributes: *const c_void,
+    parameter: *mut c_void,
+) -> c_int {
+    if attributes.is_null() || parameter.is_null() {
+        return EINVAL;
+    }
+    unsafe { parameter.cast::<c_int>().write(0) };
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_setschedparam(
+    attributes: *mut c_void,
+    parameter: *const c_void,
+) -> c_int {
+    if attributes.is_null() || parameter.is_null() {
+        return EINVAL;
+    }
+    if unsafe { parameter.cast::<c_int>().read() } == 0 {
+        0
+    } else {
+        ENOTSUP
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_getschedpolicy(
+    attributes: *const c_void,
+    policy: *mut c_int,
+) -> c_int {
+    if attributes.is_null() || policy.is_null() {
+        return EINVAL;
+    }
+    unsafe { policy.write(SCHED_RR) };
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_setschedpolicy(
+    attributes: *mut c_void,
+    policy: c_int,
+) -> c_int {
+    if attributes.is_null() {
+        return EINVAL;
+    }
+    if policy == SCHED_RR {
+        0
+    } else {
+        ENOTSUP
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_getscope(
+    attributes: *const c_void,
+    scope: *mut c_int,
+) -> c_int {
+    if attributes.is_null() || scope.is_null() {
+        return EINVAL;
+    }
+    unsafe { scope.write(PTHREAD_SCOPE_SYSTEM) };
+    0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_setscope(attributes: *mut c_void, scope: c_int) -> c_int {
+    if attributes.is_null() {
+        return EINVAL;
+    }
+    if scope == PTHREAD_SCOPE_SYSTEM {
+        0
+    } else {
+        ENOTSUP
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1667,6 +2104,14 @@ pub unsafe extern "C" fn pthread_attr_destroy(attributes: *mut c_void) -> c_int 
     if attributes.is_null() {
         return EINVAL;
     }
+    unsafe {
+        attributes.cast::<NagiPthreadAttr>().write(NagiPthreadAttr {
+            stack: ptr::null_mut(),
+            stack_size: 0,
+            detach_state: PTHREAD_CREATE_DETACHED,
+            reserved: [0; 1],
+        })
+    };
     0
 }
 
@@ -1679,21 +2124,80 @@ pub unsafe extern "C" fn pthread_getattr_np(thread: usize, attributes: *mut c_vo
         return EINVAL;
     }
 
-    let (stack, stack_size) = if thread == 0 {
-        (NAGI_MAIN_STACK_BASE as *mut c_void, NAGI_MAIN_STACK_SIZE)
-    } else if thread == 1 && !PTHREAD_STACK.is_null() {
-        (PTHREAD_STACK.cast(), NAGI_PTHREAD_STACK_SIZE)
+    let (stack, stack_size, detached) = if thread == 0 {
+        let mut memory = libnagi::MemoryInfo {
+            image_pages: 0,
+            stack_pages: 0,
+            tls_pages: 0,
+            image_base: 0,
+            image_limit: 0,
+            stack_base: 0,
+            stack_limit: 0,
+        };
+        if !libnagi::memory_info(&mut memory) {
+            return EINVAL;
+        }
+        let Some(stack_size) = memory
+            .stack_limit
+            .checked_sub(memory.stack_base)
+            .and_then(|size| usize::try_from(size).ok())
+        else {
+            return EINVAL;
+        };
+        let Ok(stack_base) = usize::try_from(memory.stack_base) else {
+            return EINVAL;
+        };
+        if stack_size == 0 {
+            return EINVAL;
+        }
+        (stack_base as *mut c_void, stack_size, false)
     } else {
-        return EINVAL;
+        let Some(index) = crate::threads::thread_id_index(thread as u64) else {
+            return EINVAL;
+        };
+        let info = unsafe { (*core::ptr::addr_of!(PTHREAD_THREADS))[index] };
+        if info.stack.is_null() || info.stack_size == 0 {
+            return EINVAL;
+        }
+        (info.stack.cast(), info.stack_size, info.detached)
     };
 
     unsafe {
-        ptr::write_bytes(attributes.cast::<u8>(), 0, 32);
-        let attributes = &mut *attributes.cast::<NagiPthreadAttr>();
-        attributes.stack = stack;
-        attributes.stack_size = stack_size;
+        attributes.cast::<NagiPthreadAttr>().write(NagiPthreadAttr {
+            stack,
+            stack_size,
+            detach_state: if detached {
+                PTHREAD_CREATE_DETACHED
+            } else {
+                PTHREAD_CREATE_JOINABLE
+            },
+            reserved: [0; 1],
+        });
     }
     0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pthread_attr_setstack(
+    attributes: *mut c_void,
+    stack: *mut c_void,
+    stack_size: usize,
+) -> c_int {
+    if attributes.is_null() || stack.is_null() {
+        return EINVAL;
+    }
+    if (stack as usize).is_multiple_of(4096)
+        && crate::threads::rounded_stack_size(stack_size) == Some(stack_size)
+    {
+        unsafe {
+            let attributes = &mut *attributes.cast::<NagiPthreadAttr>();
+            attributes.stack = stack;
+            attributes.stack_size = stack_size;
+        }
+        0
+    } else {
+        EINVAL
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1713,9 +2217,103 @@ pub unsafe extern "C" fn pthread_attr_getstack(
     0
 }
 
+#[cfg(test)]
+mod socket_address_abi_tests {
+    use super::NagiSockaddrIpv4;
+
+    #[test]
+    fn ipv4_sockaddr_matches_the_relibc_target_layout() {
+        assert_eq!(core::mem::size_of::<NagiSockaddrIpv4>(), 16);
+        assert_eq!(core::mem::align_of::<NagiSockaddrIpv4>(), 4);
+        assert_eq!(core::mem::offset_of!(NagiSockaddrIpv4, address), 4);
+        assert_eq!(core::mem::offset_of!(NagiSockaddrIpv4, zero), 8);
+    }
+}
+
+#[cfg(test)]
+mod pthread_attr_tests {
+    use super::{
+        pthread_attr_getdetachstate, pthread_attr_getschedpolicy, pthread_attr_getstack,
+        pthread_attr_getstacksize, pthread_attr_init, pthread_attr_setdetachstate,
+        pthread_attr_setschedpolicy, pthread_attr_setstack, pthread_attr_setstacksize,
+        NagiPthreadAttr, PTHREAD_CREATE_DETACHED, PTHREAD_CREATE_JOINABLE, SCHED_RR,
+    };
+    use core::ffi::c_void;
+
+    #[repr(align(8))]
+    struct AlignedAttr([u8; 32]);
+
+    #[test]
+    fn opaque_attr_uses_one_consistent_nagi_layout() {
+        assert_eq!(core::mem::size_of::<NagiPthreadAttr>(), 32);
+        assert_eq!(core::mem::align_of::<NagiPthreadAttr>(), 8);
+        let mut storage = AlignedAttr([0; 32]);
+        let attributes = storage.0.as_mut_ptr().cast::<c_void>();
+        unsafe {
+            assert_eq!(pthread_attr_init(attributes), 0);
+            let mut stack_size = 0;
+            let mut detach_state = -1;
+            assert_eq!(pthread_attr_getstacksize(attributes, &mut stack_size), 0);
+            assert_eq!(stack_size, crate::threads::DEFAULT_STACK_SIZE);
+            assert_eq!(
+                pthread_attr_getdetachstate(attributes, &mut detach_state),
+                0
+            );
+            assert_eq!(detach_state, PTHREAD_CREATE_JOINABLE);
+
+            assert_eq!(pthread_attr_setstacksize(attributes, 65_537), 0);
+            assert_eq!(
+                pthread_attr_setdetachstate(attributes, PTHREAD_CREATE_DETACHED),
+                0
+            );
+            assert_eq!(pthread_attr_getstacksize(attributes, &mut stack_size), 0);
+            assert_eq!(stack_size, 65_537);
+            assert_eq!(
+                pthread_attr_getdetachstate(attributes, &mut detach_state),
+                0
+            );
+            assert_eq!(detach_state, PTHREAD_CREATE_DETACHED);
+
+            assert_eq!(pthread_attr_setschedpolicy(attributes, SCHED_RR), 0);
+            let mut policy = -1;
+            assert_eq!(pthread_attr_getschedpolicy(attributes, &mut policy), 0);
+            assert_eq!(policy, SCHED_RR);
+            assert_eq!(pthread_attr_getstacksize(attributes, &mut stack_size), 0);
+            assert_eq!(stack_size, 65_537);
+        }
+    }
+
+    #[test]
+    fn user_supplied_stack_attributes_are_page_aligned_and_preserved() {
+        let mut storage = AlignedAttr([0; 32]);
+        let attributes = storage.0.as_mut_ptr().cast::<c_void>();
+        let stack = 0x4000_usize as *mut c_void;
+        unsafe {
+            assert_eq!(pthread_attr_init(attributes), 0);
+            assert_eq!(pthread_attr_setstack(attributes, stack, 8192), 0);
+            let mut output_stack = core::ptr::null_mut();
+            let mut output_size = 0;
+            assert_eq!(
+                pthread_attr_getstack(attributes, &mut output_stack, &mut output_size),
+                0
+            );
+            assert_eq!(output_stack, stack);
+            assert_eq!(output_size, 8192);
+            assert_eq!(
+                pthread_attr_setstack(attributes, (stack as usize + 1) as *mut c_void, 8192),
+                22
+            );
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn sched_yield() -> c_int {
-    0
+    if libnagi::thread_yield() {
+        0
+    } else {
+        write_errno_and_fail(EAGAIN)
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1723,102 +2321,198 @@ pub unsafe extern "C" fn sysconf(name: c_int) -> isize {
     match name {
         // POSIX _SC_PAGE_SIZE. Nagi's memory syscalls use 4096-byte pages.
         30 => 4096,
-        // POSIX _SC_THREAD_STACK_MIN. Nagi's bootstrap bridge has a fixed,
-        // page-aligned 16 KiB child stack and does not expose host tunables.
+        // POSIX _SC_THREAD_STACK_MIN. Nagi maps thread stacks in 4 KiB pages.
         75 => 4096,
         _ => -1,
     }
 }
 
 /// POSIX thread creation is a bounded adapter over Nagi's native
-/// entry/argument/stack bridge. The bootstrap process admits one child at a
-/// time; the child returns through `thread_exit`, never through a host ABI.
+/// entry/argument/stack bridge. Child execution and stack mappings remain in
+/// the Nagi process; no host thread or host callback is used.
+#[cfg(target_os = "nagi")]
+fn trace_pthread_create_failure(message: &'static [u8]) {
+    let _ = unsafe { crate::nagi_posix_write(2, message.as_ptr(), message.len()) };
+}
+
+#[cfg(target_os = "nagi")]
+fn trace_pthread_stage(counter: &AtomicUsize, stage: &'static [u8]) {
+    const MAX_STAGE_TRACES: usize = 32;
+    if counter.fetch_add(1, Ordering::Relaxed) >= MAX_STAGE_TRACES {
+        return;
+    }
+    let mut line = [0_u8; 96];
+    let prefix = b"Nagi M17 trace: ";
+    let mut length = prefix.len();
+    line[..length].copy_from_slice(prefix);
+    line[length..length + stage.len()].copy_from_slice(stage);
+    length += stage.len();
+    line[length..length + 2].copy_from_slice(b"\r\n");
+    length += 2;
+    let _ = unsafe { crate::nagi_posix_write(2, line.as_ptr(), length) };
+}
+
+#[cfg(not(target_os = "nagi"))]
+fn trace_pthread_create_failure(_message: &'static [u8]) {}
+
+#[cfg(target_os = "nagi")]
+fn trace_stack_reclaim_deferred() {
+    let message = b"Nagi M17 trace: pthread stack cleanup retained for retry\r\n";
+    let _ = unsafe { crate::nagi_posix_write(2, message.as_ptr(), message.len()) };
+}
+
+#[cfg(not(target_os = "nagi"))]
+fn trace_stack_reclaim_deferred() {}
+
+fn fatal_pthread_stack_bookkeeping_failure() -> ! {
+    #[cfg(target_os = "nagi")]
+    libnagi::exit(127);
+    #[cfg(not(target_os = "nagi"))]
+    panic!("Nagi pthread stack bookkeeping capacity exhausted");
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_create(
     thread: *mut usize,
-    _attributes: *const c_void,
+    attributes: *const c_void,
     start: Option<PthreadStart>,
     argument: *mut c_void,
 ) -> c_int {
-    if thread.is_null() || start.is_none() {
+    let Some(start) = start else {
+        trace_pthread_create_failure(
+            b"Nagi M17 trace: pthread_create rejected invalid arguments\r\n",
+        );
+        return EINVAL;
+    };
+    if thread.is_null() {
+        trace_pthread_create_failure(
+            b"Nagi M17 trace: pthread_create rejected invalid arguments\r\n",
+        );
         return EINVAL;
     }
-    let attempt = PTHREAD_CREATE_ATTEMPTS
-        .fetch_add(1, Ordering::Relaxed)
-        .saturating_add(1);
-    if !PTHREAD_STACK.is_null() && !PTHREAD_DETACHED {
-        trace_pthread_create_failure(attempt, b"child-slot-occupied", EAGAIN);
-        return EAGAIN;
-    }
-    let stack = crate::nagi_posix_mmap(NAGI_PTHREAD_STACK_SIZE, 3);
-    if stack.is_null() {
-        trace_pthread_create_failure(attempt, b"stack-mmap-failed", EAGAIN);
-        return EAGAIN;
-    }
-    PTHREAD_START_RECORD = PthreadStartRecord { start, argument };
-    let Some(thread_id) = libnagi::thread_create(
-        pthread_trampoline as usize,
-        core::ptr::addr_of_mut!(PTHREAD_START_RECORD) as usize,
-        stack,
-        4 * 4096,
-    ) else {
-        let _ = crate::nagi_posix_munmap(stack, NAGI_PTHREAD_STACK_SIZE);
-        PTHREAD_START_RECORD = PthreadStartRecord {
-            start: None,
-            argument: ptr::null_mut(),
-        };
-        set_errno(EAGAIN);
-        trace_pthread_create_failure(attempt, b"native-thread-create-rejected", EAGAIN);
-        return EAGAIN;
-    };
-    let previous_detached_stack = if PTHREAD_DETACHED {
-        PTHREAD_STACK
+    let attributes = if attributes.is_null() {
+        NagiPthreadAttr::DEFAULT
     } else {
-        ptr::null_mut()
+        unsafe { attributes.cast::<NagiPthreadAttr>().read() }
     };
-    PTHREAD_STACK = stack;
-    PTHREAD_DETACHED = false;
-    if !previous_detached_stack.is_null() {
-        let _ = crate::nagi_posix_munmap(previous_detached_stack, NAGI_PTHREAD_STACK_SIZE);
+    if !matches!(
+        attributes.detach_state,
+        PTHREAD_CREATE_DETACHED | PTHREAD_CREATE_JOINABLE
+    ) {
+        return EINVAL;
+    }
+    let requested_stack_size = attributes.stack_size;
+    let Some(stack_size) = crate::threads::rounded_stack_size(requested_stack_size) else {
+        return EINVAL;
+    };
+    let owns_stack = attributes.stack.is_null();
+    if !owns_stack
+        && ((attributes.stack as usize) % 4096 != 0 || stack_size != requested_stack_size)
+    {
+        return EINVAL;
+    }
+    let Some(start_record) = (unsafe { reserve_pthread_start_record(start, argument) }) else {
+        return EAGAIN;
+    };
+    unsafe { retry_retired_pthread_stacks() };
+    let stack_protection = (libnagi::PROT_READ | libnagi::PROT_WRITE) as i32;
+    let stack = if owns_stack {
+        crate::nagi_posix_mmap(stack_size, stack_protection)
+    } else {
+        attributes.stack.cast::<u8>()
+    };
+    if stack.is_null() {
+        unsafe { release_pthread_start_record(start_record) };
+        trace_pthread_create_failure(b"Nagi M17 trace: pthread_create child-stack mmap failed\r\n");
+        return EAGAIN;
+    }
+    let thread_id = if attributes.detach_state == PTHREAD_CREATE_DETACHED {
+        libnagi::thread_create_detached(
+            pthread_trampoline as usize,
+            start_record as usize,
+            stack,
+            stack_size,
+        )
+    } else {
+        libnagi::thread_create(
+            pthread_trampoline as usize,
+            start_record as usize,
+            stack,
+            stack_size,
+        )
+    };
+    let Some(thread_id) = thread_id else {
+        if owns_stack && !unsafe { reclaim_or_retire_pthread_stack(stack, stack_size) } {
+            fatal_pthread_stack_bookkeeping_failure();
+        }
+        unsafe { release_pthread_start_record(start_record) };
+        trace_pthread_create_failure(b"Nagi M17 trace: SYS_THREAD_CREATE rejected child stack\r\n");
+        set_errno(EAGAIN);
+        return EAGAIN;
+    };
+    let thread_index = crate::threads::thread_id_index(thread_id)
+        .expect("kernel returned a thread ID outside the bootstrap pool");
+    // The kernel only reuses an ID after the previous context has exited or
+    // been joined. It has accepted the new context but does not schedule it
+    // until an explicit yield, so the previous mapping is now safe to release.
+    if !unsafe { release_pthread_stack(thread_index) } {
+        fatal_pthread_stack_bookkeeping_failure();
+    }
+    let threads = core::ptr::addr_of_mut!(PTHREAD_THREADS);
+    unsafe {
+        (*threads)[thread_index] = PthreadThreadInfo {
+            stack,
+            stack_size,
+            owns_stack,
+            detached: attributes.detach_state == PTHREAD_CREATE_DETACHED,
+        };
     }
     thread.write(thread_id as usize);
+    let _ = libnagi::thread_yield();
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_join(thread: usize, result: *mut *mut c_void) -> c_int {
-    if thread != 1 {
+    let Some(thread_index) = crate::threads::thread_id_index(thread as u64) else {
+        return EINVAL;
+    };
+    if thread_index == 0 || thread == pthread_self() {
         return EINVAL;
     }
-    if PTHREAD_DETACHED {
+    let info = unsafe { (*core::ptr::addr_of!(PTHREAD_THREADS))[thread_index] };
+    if info.stack.is_null() || info.detached {
         return EINVAL;
     }
     let Some(code) = libnagi::thread_join(thread as u64) else {
-        return EAGAIN;
+        return EINVAL;
     };
+    if !unsafe { release_pthread_stack(thread_index) } {
+        return EAGAIN;
+    }
     if !result.is_null() {
         result.write(code as *mut c_void);
-    }
-    if !PTHREAD_STACK.is_null() {
-        let stack = PTHREAD_STACK;
-        PTHREAD_STACK = ptr::null_mut();
-        PTHREAD_DETACHED = false;
-        let _ = crate::nagi_posix_munmap(stack, NAGI_PTHREAD_STACK_SIZE);
     }
     0
 }
 
-/// Mark the single native child as detached. Nagi's kernel already releases
-/// the child execution context at `thread_exit`; the user-space stack is
-/// reclaimed when the next detached child is successfully created, after the
-/// kernel has accepted the replacement stack. This avoids unmapping a stack
-/// that may still be executing while preserving the bounded native model.
+/// Mark a child detached in both the POSIX adapter and the kernel scheduler.
+/// Its mapping stays reserved until a later creation reuses the exited slot,
+/// which guarantees the mapping is no longer the child's active stack.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_detach(thread: usize) -> c_int {
-    if thread != 1 || PTHREAD_STACK.is_null() || PTHREAD_DETACHED {
+    let Some(thread_index) = crate::threads::thread_id_index(thread as u64) else {
+        return EINVAL;
+    };
+    if thread_index == 0 {
         return EINVAL;
     }
-    PTHREAD_DETACHED = true;
+    let info = unsafe { (*core::ptr::addr_of!(PTHREAD_THREADS))[thread_index] };
+    if info.stack.is_null() || info.detached || !libnagi::thread_detach(thread as u64) {
+        return EINVAL;
+    }
+    let threads = core::ptr::addr_of_mut!(PTHREAD_THREADS);
+    unsafe { (*threads)[thread_index].detached = true };
     0
 }
 
@@ -1842,7 +2536,9 @@ pub unsafe extern "C" fn pthread_setname_np(_thread: *mut c_void, name: *const c
     if name.is_null() {
         return EINVAL;
     }
-    let slot = current_thread_slot();
+    let Some(slot) = current_thread_slot() else {
+        return EINVAL;
+    };
     let names = core::ptr::addr_of_mut!(THREAD_NAMES);
     let destination = &mut (*names)[slot];
     destination.fill(0);
@@ -2030,7 +2726,9 @@ pub unsafe extern "C" fn pthread_mutex_lock(mutex: *mut c_void) -> c_int {
         .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
         .is_err()
     {
-        core::hint::spin_loop();
+        if !libnagi::thread_yield() {
+            core::hint::spin_loop();
+        }
     }
     0
 }
@@ -2251,18 +2949,24 @@ pub unsafe extern "C" fn pthread_key_delete(key: usize) -> c_int {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_getspecific(key: usize) -> *mut c_void {
+    let Some(thread) = current_thread_slot() else {
+        return ptr::null_mut();
+    };
     if key >= TLS_SLOTS {
         return ptr::null_mut();
     }
-    TLS_VALUES[current_thread_slot()][key] as *mut c_void
+    unsafe { (*core::ptr::addr_of!(TLS_VALUES))[thread][key] as *mut c_void }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pthread_setspecific(key: usize, value: *const c_void) -> c_int {
+    let Some(thread) = current_thread_slot() else {
+        return EINVAL;
+    };
     if key >= TLS_SLOTS {
         return EINVAL;
     }
-    TLS_VALUES[current_thread_slot()][key] = value as usize;
+    unsafe { (*core::ptr::addr_of_mut!(TLS_VALUES))[thread][key] = value as usize };
     0
 }
 

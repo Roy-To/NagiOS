@@ -49,6 +49,8 @@ string_id!(RoleId);
 string_id!(BackendId);
 string_id!(ArtifactId);
 string_id!(FormatId);
+string_id!(RuntimeClassId);
+string_id!(ResourceClassId);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,12 +62,18 @@ pub struct ModelManifest {
     pub version: String,
     pub variant: String,
     pub runtime_api_version: String,
+    /// Optional and additive in manifest v1 so existing descriptors remain valid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_class: Option<RuntimeClassId>,
     pub execution: ExecutionScope,
     pub artifact: ArtifactDescriptor,
     pub capabilities: Vec<CapabilityId>,
     pub modalities: Vec<ModalityId>,
     pub context: ContextLimits,
     pub resources: ResourceRequirements,
+    /// Optional named tier; numeric requirements remain authoritative for fit checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_class: Option<ResourceClassId>,
     pub supported_backends: Vec<BackendId>,
     pub roles: Vec<RoleId>,
     pub compatibility: Compatibility,
@@ -230,6 +238,14 @@ impl ModelManifest {
         }
         if !valid_identifier(self.model_id.as_str())
             || !valid_identifier(self.provider.provider_id.as_str())
+            || self
+                .runtime_class
+                .as_ref()
+                .is_some_and(|class| !valid_identifier(class.as_str()))
+            || self
+                .resource_class
+                .as_ref()
+                .is_some_and(|class| !valid_identifier(class.as_str()))
         {
             return Err(ManifestError::InvalidIdentifier);
         }
@@ -404,12 +420,32 @@ mod tests {
     fn accepts_versioned_manifest_and_retains_license_metadata() {
         let manifest = ModelManifest::parse_json(VALID.as_bytes()).expect("valid manifest");
         assert_eq!(manifest.model_id.as_str(), "ibm.granite-4.2-3b");
-        assert_eq!(manifest.license.identifier, "provider-terms:ibm-granite");
+        assert_eq!(
+            manifest.runtime_class.as_ref().unwrap().as_str(),
+            "generative_llm"
+        );
+        assert_eq!(
+            manifest.resource_class.as_ref().unwrap().as_str(),
+            "standard"
+        );
+        assert_eq!(manifest.license.identifier, "Apache-2.0");
         assert_eq!(
             manifest.license.terms_reference.as_deref(),
-            Some("provider-terms:ibm.granite")
+            Some("https://huggingface.co/ibm-granite/granite-4.2-3b")
         );
-        assert_eq!(manifest.license.notices[0].notice_id, "model-notice");
+        assert!(manifest.license.acknowledgement_required);
+        assert_eq!(manifest.license.notices[0].notice_id, "apache-2.0");
+    }
+
+    #[test]
+    fn manifest_v1_accepts_profiles_without_additive_runtime_and_resource_classes() {
+        let crlf_input = VALID.replace("\r\n", "\n").replace('\n', "\r\n");
+        let legacy = crlf_input
+            .replace("\"runtime_class\": \"generative_llm\",", "")
+            .replace("\"resource_class\": \"standard\",", "");
+        let manifest = ModelManifest::parse_json(legacy.as_bytes()).unwrap();
+        assert_eq!(manifest.runtime_class, None);
+        assert_eq!(manifest.resource_class, None);
     }
 
     #[test]
@@ -426,10 +462,11 @@ mod tests {
             ModelManifest::parse_json(b"{"),
             Err(ManifestError::MalformedJson)
         );
-        let windows_line_endings = VALID.replace("\r\n", "\n").replace('\n', "\r\n");
-        let missing_nullable_field = windows_line_endings.replace("\"source\": null", "");
+        let mut missing_source: serde_json::Value = serde_json::from_str(VALID).unwrap();
+        missing_source.as_object_mut().unwrap().remove("source");
+        let missing_nullable_field = serde_json::to_vec(&missing_source).unwrap();
         assert_eq!(
-            ModelManifest::parse_json(missing_nullable_field.as_bytes()),
+            ModelManifest::parse_json(&missing_nullable_field),
             Err(ManifestError::MalformedJson)
         );
     }

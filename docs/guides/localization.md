@@ -1,7 +1,7 @@
 # Localization integration guide
 
 Nagi's internal language is English. User-visible text is addressed with
-stable English message IDs and resolved through `nagi-localization`; English
+stable English message IDs and resolved through `nagi-i18n`; English
 (`en-US`) and Japanese (`ja-JP`) catalogs are equal first-class resources.
 
 ## Calling the runtime
@@ -12,7 +12,7 @@ Keyboard/input language and Albert's conversation language remain independent
 settings and are not fields in `LocaleContext`.
 
 ```rust
-use nagi_localization::{
+use nagi_i18n::{
     LocaleContext, LocaleId, Localizer, MessageArgs, MessageId, NoopDiagnosticSink,
 };
 
@@ -53,7 +53,7 @@ message structure.
 Validate the bundled reference and Japanese catalogs with:
 
 ```sh
-cargo run --locked -p nagi-localization --bin localization-check
+cargo run --locked -p nagi-i18n --bin localization-check
 ```
 
 The checker rejects malformed JSON and metadata, duplicate locale/message

@@ -7,8 +7,13 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+m18-browser-threads = ["nagi-abi/m18-browser-threads"]
+
 [dependencies]
 nagi-abi = { path = "../../crates/nagi-abi" }
+nagi-model = { path = "../../crates/nagi-model" }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 getrandom = "0.4.3"

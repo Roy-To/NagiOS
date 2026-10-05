@@ -159,3 +159,31 @@ source_hash = "sha256:a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e07
 license = "MIT OR Apache-2.0"
 vendored_path = "third_party/cc-nagi"
 nagi_patch = "third_party/cc-nagi-patches"
+
+[sources.inventory_nagi]
+component = "inventory-nagi"
+version = "0.3.24"
+repository = "https://crates.io/crates/inventory/0.3.24"
+registry_archive = "https://static.crates.io/crates/inventory/inventory-0.3.24.crate"
+source_hash = "sha256:a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b"
+license = "MIT OR Apache-2.0"
+vendored_path = "third_party/inventory-nagi"
+nagi_patch = "third_party/inventory-nagi-patches"
+
+[sources.llama_cpp]
+component = "llama.cpp-ggml-cpu"
+repository = "https://github.com/ggml-org/llama.cpp.git"
+revision = "c85b92c69c955961621193cd51da194f3cbcedf3"
+source_hash = "git:c85b92c69c955961621193cd51da194f3cbcedf3"
+license = "MIT"
+vendored_path = "third_party/llama.cpp"
+nagi_patch = "third_party/llama-cpp-patches"
+
+[sources.whisper_cpp]
+component = "whisper.cpp-stt"
+repository = "https://github.com/ggml-org/whisper.cpp.git"
+revision = "927cfce34f31707e17f2bff35c349632fb9e2c3a"
+source_hash = "git:927cfce34f31707e17f2bff35c349632fb9e2c3a"
+license = "MIT"
+vendored_path = "third_party/whisper.cpp"
+nagi_patch = "third_party/whisper-cpp-patches"

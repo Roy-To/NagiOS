@@ -736,6 +736,30 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_uses_locked_webpki_roots_on_nagi() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0014-nagi-m17-webpki-root-verifier.patch"),
+        )
+        .expect("Nagi WebPKI root verifier patch");
+        assert!(patch.contains("cfg!(target_os = \"nagi\")"));
+        assert!(patch.contains("locked WebPKI roots are the"));
+
+        let lock = fs::read_to_string(root.join("Cargo.lock")).expect("workspace lockfile");
+        let roots = lock
+            .split("[[package]]")
+            .find(|package| package.contains("name = \"webpki-roots\""))
+            .expect("locked WebPKI root package");
+        assert!(roots.contains("version = \"1.0.9\""));
+        assert!(roots.contains(
+            "checksum = \"7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a\""
+        ));
+    }
+
+    #[test]
     fn servo_patch_boundary_defines_nagi_navigator_platform() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -797,6 +821,237 @@ mod tests {
     }
 
     #[test]
+    fn servo_patch_boundary_traces_m17_construction_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0011-nagi-m17-servo-construction-traces.patch"),
+        )
+        .expect("M17 Servo construction trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "Servo::new entered",
+            "Servo::new options initialized",
+            "Servo::new media init started",
+            "Servo::new time profiler started",
+            "Servo::new memory profiler started",
+            "Servo::new JS engine setup started",
+            "Servo::new paint creation started",
+            "Servo::new resource threads started",
+            "Servo::new storage threads started",
+            "Servo::new constellation started",
+            "Servo::new TLS prewarm started",
+            "Servo::new completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
+    fn servo_patch_boundary_traces_m17_navigation_pipeline_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0015-nagi-m17-navigation-traces.patch"),
+        )
+        .expect("M17 navigation and pipeline trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "Constellation received NewWebView",
+            "Constellation NewWebView handler started",
+            "Constellation NewWebView pipeline creation started",
+            "Constellation NewWebView pipeline creation returned",
+            "Constellation pipeline event loop setup started",
+            "Constellation pipeline event loop setup completed",
+            "Constellation Pipeline::spawn started",
+            "Constellation Pipeline::spawn returned",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
+    fn servo_patch_boundary_traces_m17_script_pipeline_dispatch_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0016-nagi-m17-script-pipeline-traces.patch"),
+        )
+        .expect("M17 script pipeline trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "ScriptThread worker entered",
+            "ScriptThread::new started",
+            "ScriptThread runtime creation started",
+            "ScriptThread runtime creation completed",
+            "ScriptThread::new completed",
+            "ScriptThread::start entered",
+            "ScriptThread received SpawnPipeline",
+            "ScriptThread spawn_pipeline started",
+            "ScriptThread pre_page_load started",
+            "ScriptThread about:blank response started",
+            "ScriptThread about:blank response completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
+    fn servo_patch_boundary_traces_m17_rust_runtime_creation_stages() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0017-nagi-m17-js-runtime-traces.patch"),
+        )
+        .expect("M17 Rust runtime trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "Servo JS engine handle acquisition started",
+            "Servo JS engine handle acquisition completed",
+            "Servo RustRuntime::new started",
+            "Servo RustRuntime::new completed",
+            "Servo RustRuntime::cx started",
+            "Servo RustRuntime::cx completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
+    fn inventory_nagi_patch_enables_servo_bundled_resource_registration() {
+        use crate::registry_source::{validate_source_lock, RegistrySourceSpec};
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let source_spec = RegistrySourceSpec {
+            section: "sources.inventory_nagi",
+            component: "inventory-nagi",
+            package: "inventory",
+            version: "0.3.24",
+            repository: "https://crates.io/crates/inventory/0.3.24",
+            registry_archive: "https://static.crates.io/crates/inventory/inventory-0.3.24.crate",
+            source_hash: "sha256:a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b",
+            license: "MIT OR Apache-2.0",
+            vendored_path: "third_party/inventory-nagi",
+            patch_path: "third_party/inventory-nagi-patches",
+        };
+        validate_source_lock(root, &source_spec).expect("pinned inventory source lock");
+
+        let workspace_manifest =
+            fs::read_to_string(root.join("Cargo.toml")).expect("workspace Cargo.toml");
+        assert!(
+            workspace_manifest.contains("inventory = { path = \"third_party/inventory-nagi\" }")
+        );
+
+        let patch = fs::read_to_string(
+            root.join("third_party/inventory-nagi-patches/0001-nagi-target-init-array.patch"),
+        )
+        .expect("inventory Nagi patch");
+        assert!(patch.contains("+                        target_os = \"nagi\","));
+        assert!(patch.contains("link_section = \".init_array\","));
+
+        let embedder = fs::read_to_string(root.join("user/nagi-albert/src/lib.rs"))
+            .expect("Albert embedder source");
+        let resource_read = embedder
+            .find("servo::resources::read_bytes")
+            .expect("guest preflight reads a Servo resource");
+        let registered_marker = embedder
+            .find("Servo resource reader registered")
+            .expect("guest reports a successful resource read");
+        let servo_construction = embedder
+            .find("ServoBuilder::default()")
+            .expect("guest constructs the real Servo embedder");
+        assert!(embedder.contains("if domain_list.is_empty()"));
+        assert!(resource_read < registered_marker && registered_marker < servo_construction);
+        let acceptance =
+            fs::read_to_string(root.join("tests/acceptance/m17_servo_first_web_pixel.sh"))
+                .expect("M17 first web pixel acceptance");
+        assert!(acceptance.contains("Nagi M17 trace: Servo resource reader registered"));
+    }
+
+    #[test]
+    fn servo_patch_boundary_traces_m17_javascript_engine_initialization() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0013-nagi-m17-js-engine-init-traces.patch"),
+        )
+        .expect("M17 JavaScript engine initialization trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "script::init entered",
+            "script::init JIT decision started",
+            "script::init JIT decision completed",
+            "script::init proxyhandler started",
+            "script::init proxyhandler completed",
+            "script::init proxy handlers registration started",
+            "script::init proxy handlers registration completed",
+            "script::init static bindings initialization started",
+            "script::init static bindings initialization completed",
+            "script::init memory reporter initialization started",
+            "script::init memory reporter initialization completed",
+            "script::init platform initialization started",
+            "script::init platform initialization completed",
+            "script::init engine setup construction started",
+            "script::init engine setup construction completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
+    fn servo_patch_boundary_traces_m17_media_and_memory_workers() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0012-nagi-m17-servo-worker-traces.patch"),
+        )
+        .expect("M17 Servo worker trace patch");
+        assert!(patch.contains("nagi_m17_console_trace(stage.as_ptr(), stage.len())"));
+        for stage in [
+            "ServoMedia init spawn started",
+            "ServoMedia worker entered",
+            "ServoMedia worker completed",
+            "ServoMedia init spawn returned",
+            "MemoryProfiler create entered",
+            "MemoryProfiler spawn started",
+            "MemoryProfiler worker entered",
+            "MemoryProfiler initialized",
+            "MemoryProfiler worker returned",
+            "MemoryProfiler spawn returned",
+            "MemoryProfiler create completed",
+        ] {
+            assert!(patch.contains(stage), "missing M17 trace stage: {stage}");
+        }
+        assert!(patch.contains("#[cfg(target_os = \"nagi\")]"));
+        assert!(patch.contains("#[cfg(not(target_os = \"nagi\"))]"));
+    }
+
+    #[test]
     fn patch_application_uses_numeric_order() {
         let root = temp_root("patch-apply");
         let checkout = root.join("third_party/servo");
@@ -821,6 +1076,63 @@ mod tests {
             "value = 2\n"
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn m18_constellation_trace_patches_add_atomic_import_before_later_use() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let loop_patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0021-nagi-m18-constellation-loop-traces.patch"),
+        )
+        .expect("M18 constellation-loop patch");
+        let progress_patch =
+            fs::read_to_string(root.join(
+                "third_party/servo-patches/0023-nagi-m18-constellation-progress-traces.patch",
+            ))
+            .expect("M18 constellation-progress patch");
+
+        assert!(loop_patch.contains(
+            " use std::sync::Arc;\n+#[cfg(target_os = \"nagi\")]\n+use std::sync::atomic::{AtomicUsize, Ordering};\n use std::thread::JoinHandle;"
+        ));
+        assert!(loop_patch.contains("M18_NAVIGATION_TRACE_COUNT: AtomicUsize"));
+        assert!(progress_patch.contains("M18_CONSTELLATION_PROGRESS_TRACE_COUNT: AtomicUsize"));
+    }
+
+    #[test]
+    fn m18_permission_requests_keep_the_requesting_document_origin() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let patch = fs::read_to_string(
+            root.join("third_party/servo-patches/0025-nagi-m18-permission-origin.patch"),
+        )
+        .expect("M18 permission-origin patch");
+        let acceptance = fs::read_to_string(root.join("user/nagi-albert/src/m18_acceptance.rs"))
+            .expect("M18 Albert acceptance integration");
+        let permission_callback = acceptance
+            .split("fn request_permission")
+            .nth(1)
+            .and_then(|callback| callback.split("\n        fn ").next())
+            .expect("M18 permission callback");
+
+        for contract in [
+            "requested_origin = global_scope",
+            ".ascii_serialization()",
+            "requested_origin: String",
+            "pub fn origin(&self) -> &str",
+            "EmbedderMsg::RequestWakeLockPermission(",
+        ] {
+            assert!(
+                patch.contains(contract),
+                "missing origin contract: {contract}"
+            );
+        }
+        assert!(permission_callback.contains("let origin = request.origin().to_owned();"));
+        assert!(!permission_callback.contains("webview.url()"));
     }
 
     #[test]

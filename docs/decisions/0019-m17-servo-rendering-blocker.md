@@ -1887,6 +1887,71 @@ header, causing C prototype-scope tags. The next repair adds that standard
 Mesa header before `sw_helper.h`; no rendering or ABI stub is introduced.
 M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
+## Servo storage-thread filesystem boundary after Actions run 36284231289 (2026-09-27)
+
+Actions run `36284231289` (run #285, head
+`13fde2f8683b00492f589fd4db7f090f48e16e81`) passed the host jobs, pinned
+Servo bootstrap, target dependency boundary, Mesa Softpipe, M16 package,
+kernel, target user-init link, and UEFI loader. In real QEMU, the M7
+persistent-storage test, SpiderMonkey initialization, EGL context creation,
+and both ResourceManager thread groups completed. The guest then aborted
+immediately after `Servo::new storage threads started`; it produced no
+first-web-pixel checksum or PASS marker.
+
+The source audit found two concrete gaps at that boundary. M17's custom
+`_start` ran M7 acceptance with a local VFS, dropped that mount, and entered
+Servo without calling `nagi_posix_initialize_filesystem`. Servo's storage
+factory creates a temporary directory and nested client-storage directories
+using Rust `std::fs` before spawning the storage thread. The POSIX adapter
+rejected any pathname containing an interior slash, and the M7 VFS looked up
+only root entries. Therefore the current guest runtime could not provide the
+filesystem operations Servo requests.
+
+The pending repair mounts the same capability-backed guest volume into the
+Nagi POSIX runtime after M7 acceptance, verifies or creates `/tmp` on that
+volume, and adds bounded path resolution through real VFS directory inodes
+and `.` / `..` records. POSIX file create/open, metadata, `mkdir`, `unlink`,
+and `rmdir` use the hierarchical path APIs. Directory enumeration remains
+root-only because the POSIX directory stream does not yet own a real
+directory descriptor. This preserves the existing fail-closed descriptor
+boundary and uses no host storage.
+
+Local verification passes for all 28 `libnagi` tests and all 80 `nagi-cli`
+library tests, including the new M17 initialization-order contract. Targeted
+Rust formatting, whitespace checks, and a custom-target
+`cargo check -p nagi-posix --lib --target
+targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --locked
+--offline` pass; that target check reports five warnings on existing POSIX
+declarations. The `nagi-posix` host test binary cannot be linked on this
+ARM64 macOS host because its existing `.data` errno section is not valid in
+Mach-O; this is a host-link limitation, not a target test result. Public
+`nagi-target` CI must build the full M17 image and UEFI loader and verify that
+the storage threads advance to the real first-web-pixel path. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+## HashTable add path after CI run #262 (2026-09-27)
+
+Public CI run #262 (`36264391751`, head
+`0f65867429f49ea999455668d19e03be72ec4f96`) passed the host jobs, target
+dependency boundary, Mesa Softpipe, M16 package, kernel, real `nagi-init`
+link, and UEFI loader. QEMU exceeded its M17 acceptance timeout (exit code 4),
+and no checksum or first-web-pixel PASS marker was produced.
+
+Both acceptance boots completed recursion-group hashing and lookup, entered
+`HashSet::add`, and logged both `TypeIdSet table pod_malloc started` and
+`TypeIdSet table pod_malloc completed`. This rules out a stall inside the base
+allocator call. The trace still lacks `HashSet add completed`, so the
+non-returning operation is later in table creation or entry insertion.
+
+Patch `0017` now adds conditional trace hooks to the pinned `HashTable.h`.
+Only allocation policies that define the private TypeIdSet trace callbacks
+emit markers; other HashTable instantiations compile the `requires` branches
+away. For TypeIdSet, checkpoints bracket table-slot initialization,
+`createTable`, `changeTableSize`, `findNonLiveSlot`, and `setLive`. They are
+diagnostics only and preserve the actual operations and order. Non-Nagi
+TypeIdSet builds use the original `SystemAllocPolicy` directly. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
 ## Remediation continuation (2026-09-23, Servo bootstrap diagnostics)
 
 Public CI run `35857472389` (#122, head `63bb9b8`) failed during the pinned
@@ -2467,3 +2532,384 @@ The M17-specific writer and its 2 MiB ELF FAT12 regression test are now in
 place; all 50 `nagi-cli` unit tests and 18 CLI integration tests pass locally.
 The next target CI run must verify the image is readable by OVMF and reach the
 existing QEMU checksum/present acceptance before M17 can pass.
+
+## JavaScript initialization trace after CI run #255 (2026-09-26)
+
+Public CI run #255 (`36241271287`, head
+`d0a7c3c4de713606b673f45b7de044f48f7eed81`) passed target linking and UEFI
+loader construction, then QEMU timed out after 120 seconds. The final serial
+marker was `Servo::new JS engine setup started`. The complete diagnostic
+contained 435 M17 trace lines; the 256-line excerpt omitted only 179 interior
+lines, and the independent serial tail ended at the same marker. ServoMedia
+and MemoryProfiler workers both completed their observed entry/initialization
+paths. No later thread event or kernel rejection appeared.
+
+That Servo marker brackets all of synchronous `script::init()`, not one
+SpiderMonkey API call. Source inspection found that the function then
+initializes proxy handlers, generated DOM-binding statics, the memory
+reporter, and `JSEngineSetup::default()`, which enters SpiderMonkey `JS_Init`.
+Two target-sensitive candidates inside `JS_Init` are GC address-limit probing
+through map/unmap calls and JIT setup's random-address selection and
+executable-memory mapping. The run does not prove either is the cause.
+
+The tracked Servo patch `0013-nagi-m17-js-engine-init-traces.patch` adds
+Nagi-only checkpoints around each synchronous `script::init()` phase. The
+tracked MozJS patch `0014-nagi-m17-js-init-traces.patch` adds Nagi-only
+checkpoints around `JS_Init`, GC address discovery, and JIT entropy/mapping
+boundaries. They call the existing bounded guest console callback and do not
+change initialization order, mapping, JIT policy, or random sources. The next
+public CI acceptance should identify the last completed phase before any
+runtime repair is chosen. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## SpiderMonkey GC address-limit entropy after CI run #256 (2026-09-26)
+
+Public CI run `36245650368` (#256, head
+`e8522ecf95de389e387d178dc0331de39cc159d4`) passed the real `nagi-init` link
+and UEFI build. QEMU still timed out after 120 seconds, but the new nested
+initialization traces narrowed the stall from all of `script::init()` to
+SpiderMonkey's `FindAddressLimitInner` during GC memory initialization. The
+serial stream reached `SpiderMonkey address-limit search entered` and emitted
+no later initialization stage, checksum, or first-web-pixel marker.
+
+`FindAddressLimitInner` calls `GetNumberInRange`, which loops until
+`mozilla::RandomUint64()` returns a value. The pinned
+`mfbt/RandomNum.cpp` provider has no `__NAGI__` path: its Unix fallback uses
+Linux `getrandom` only for `__linux__`, otherwise it opens `/dev/urandom`.
+Nagi's custom target does not provide those host APIs; its POSIX `open` goes
+through the guest VFS and no `/dev/urandom` provider is implemented. This
+leaves SpiderMonkey repeatedly receiving `Nothing()` and explains the observed
+stall. This diagnosis is based on the exact last guest marker and the pinned
+provider call path; the next CI run must confirm that the target VirtIO RNG
+call succeeds and initialization advances.
+
+The Nagi fix uses the existing kernel VirtIO RNG syscall through a shared
+`libnagi` C ABI named `__nagi_random_fill`. Rust std's existing
+`__nagi_std_random_fill` remains as a delegating compatibility symbol. Tracked
+MozJS patch `0015-nagi-virtio-rng.patch` selects this ABI only for `__NAGI__`,
+while preserving the upstream providers for every other OS. It propagates RNG
+failure and introduces no host entropy or deterministic substitute. The local
+`nagi-cli` suite passes 76/76 tests, the package format check passes, and the
+patch applies to the pinned generated source. The public target run remains
+the authoritative runtime verification; M17 remains `BLOCKED` pending the
+real Servo guest checksum and PASS marker.
+
+## SpiderMonkey Wasm initialization after CI run #257 (2026-09-26)
+
+Public CI run #257 (`36249263091`, head
+`3648b760d7bd4b1623dd9232461bbfe6b07c69dd`) passed the Ubuntu and Windows host
+jobs, target dependency checks, Mesa Softpipe build, M16 package, kernel, real
+`nagi-init` link, and UEFI loader. Its real QEMU first-web-pixel acceptance
+timed out after 120 seconds with exit code 4. The serial trace completed the
+GC address-limit search and GC memory initialization, then stopped after the
+`SpiderMonkey Wasm initialization started` marker. The log contains no
+`SYS_RANDOM_GET` rejection or VirtIO RNG failure, so the #256 entropy stall is
+no longer the observed stopping point. No guest checksum or first-web-pixel
+PASS marker was produced.
+
+In the pinned source, `JS_Init` calls `js::wasm::Init()` immediately after GC
+memory initialization. That function checks the system page size and configures
+huge memory, allocates the process-wide code-block map, initializes static Wasm
+type definitions and built-in module functions, publishes the map, and creates
+static tag types. The public trace does not establish which operation stopped.
+
+Tracked MozJS patch `0016-nagi-m17-wasm-init-traces.patch` adds Nagi-only
+checkpoints around these operations, including the internal tag-type setup.
+They call the existing guest console callback and do not alter initialization
+behavior, ordering, or Wasm support. The local source-contract test passes, the
+patch reverse-check succeeds against the materialized pinned checkout, and the
+focused `nagi-cli` formatting check passes. A fresh public target run must
+compile the patch and identify the last completed Wasm initialization phase
+before any runtime fix is chosen. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+## SpiderMonkey static Wasm type initialization after CI run #258 (2026-09-26)
+
+Public CI run #258 (`36252263959`, head
+`aba6b3847c2c4b66842628552af3e8cdf2d3d8ac`) passed both host jobs, target
+dependency checks, Mesa Softpipe, M16 package, kernel, real `nagi-init` link,
+and UEFI loader. Its M17 first-web-pixel acceptance failed after QEMU did not
+exit within 120 seconds (exit code 4). The trace completed the Wasm page-size
+lookup, huge-memory configuration, and code-block-map allocation, then stopped
+after `SpiderMonkey Wasm static type definitions initialization started`. No
+`SYS_RANDOM_GET` rejection or VirtIO RNG failure was logged. The prior RNG and
+GC address-search stages remain completed, but no checksum or pixel PASS marker
+was produced.
+
+Pinned `StaticTypeDefs::init()` first allocates a `TypeContext`, creates the
+mutable i16 array type, appends the exception parameter, and creates the
+exception tag type. Type creation reaches the canonical recursion-group set,
+whose operation acquires `typeIdSet`'s exclusive lock and inserts into its
+hash set. The public marker does not distinguish which of these operations
+stopped.
+
+Tracked MozJS patch `0017-nagi-m17-wasm-static-type-traces.patch` adds Nagi-only
+checkpoints for the TypeContext allocation, initial type/parameter operations,
+and canonical type-set lock/insertion. It preserves source behavior and lock
+ordering. The local source-contract test was observed failing before this patch
+was added and then passes; the focused `nagi-cli` format check and patch
+reverse-check also pass. The next target run must compile these diagnostics and
+identify the last completed operation before a runtime change is selected.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+
+## Canonical type-set insertion trace after CI run #259 (2026-09-26)
+
+Public CI run #259 (`36255926378`, head
+`28954b4d0546a77f3b21df5d8066aee51c26288e`) passed both host jobs, target
+dependency checks, Mesa Softpipe, M16 package, kernel, real `nagi-init` link,
+and UEFI loader. QEMU did not exit within its 120-second acceptance bound
+(exit code 4). The new trace completed TypeContext allocation and acquired
+the Wasm type-set lock, but stopped after
+`SpiderMonkey Wasm canonical type-set insertion started`. No checksum or
+first-web-pixel PASS marker was produced.
+
+Pinned-source inspection narrows the call to `TypeIdSet::insert`, which runs
+`HashSet::lookupForAdd(recGroup)` followed by `HashSet::add(p, recGroup)` on a
+miss. The first static group is the mutable-I16 array type. Hashing this group
+is a finite walk over that type; an empty table's first `add` instead allocates
+the initial hash table through `SystemAllocPolicy` and the Nagi allocation
+path. A heap allocator stall is plausible because that path uses Nagi's
+POSIX heap lock, but this run does not prove it.
+
+Patch `0017-nagi-m17-wasm-static-type-traces.patch` now emits Nagi-only markers
+around `RecGroupHashPolicy::hash`, `lookupForAdd`, and `HashSet::add`. These
+checkpoints preserve the upstream operation order. CI #260 completed hashing
+and lookup but stopped inside `HashSet::add`, which has not yet distinguished
+insertion logic from first-table allocation. For an empty set, pinned
+`HashTable::add` creates the initial table through the allocation policy's
+`pod_malloc`. Patch `0017` now brackets that call with Nagi-only markers in a
+TypeIdSet-local wrapper around `SystemAllocPolicy`. The wrapper delegates to
+the unchanged base allocator. The next target run must show whether the
+allocation is entered and returns before a runtime repair is chosen. M17
+remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## TypeIdSet allocation trace after CI run #260 (2026-09-27)
+
+Public CI run #260 (`36259126957`, head
+`cc1d9956c5abe76d2b10f9206585978c57a1131b`) passed both host jobs, the target
+dependency boundary, Mesa Softpipe, M16 package, kernel, real `nagi-init`
+link, and UEFI loader. QEMU exceeded the 120-second M17 acceptance limit and
+returned exit code 4; no checksum or first-web-pixel PASS marker was produced.
+
+The guest trace completed the recursion-group hash and `TypeIdSet`'s
+`lookupForAdd`, then entered `HashSet::add` without returning. Pinned
+`HashTable::add` creates an initial table on the empty-set path through
+`createTable`, which invokes the allocation policy's `pod_malloc`. That makes
+the allocation path the next boundary to inspect, but CI #260 does not show
+whether it is the cause.
+
+Patch `0017-nagi-m17-wasm-static-type-traces.patch` now wraps
+`SystemAllocPolicy::pod_malloc` only for this TypeIdSet. Nagi-only markers
+bracket the unchanged base allocator call, so the next real target run can
+show whether allocation is entered and returns. No allocator or hash-table
+behavior has changed. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Patch hunk placement correction after CI run #261 (2026-09-27)
+
+Public CI run #261 (`36262571944`, head
+`e14ed151a91cda8597083465c45d94ebbbc1f0a6`) passed the host jobs, target
+dependency boundary, Mesa Softpipe, M16 package, and kernel, then failed while
+compiling MozJS in `Build Nagi user init`. Clang reported
+`expected member name or ';' after declaration specifiers` on the canonical
+type-set lock-start trace in `WasmTypeDef.cpp`. The user-init link, UEFI loader,
+and QEMU acceptance were not reached.
+
+The added allocator wrapper inserted ten lines before a zero-context hunk.
+That hunk used a fixed output line and placed the lock trace at class scope
+after `clearRecGroup`. Patch `0017` now anchors the trace to the lock
+declaration itself and places it immediately before the call inside
+`TypeContext::canonicalizeGroup`. The source-contract test asserts this block
+so future patch edits cannot silently move the trace out of the function.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## TypeIdSet primary-slot trace after CI run #263 (2026-09-27)
+
+Public CI run #263 (`36267970162`, head
+`9f00e9dedfa47514f9645d57426b7a3b42257e80`) passed target dependency
+checks, Mesa Softpipe, the M16 package, kernel, the real `nagi-init` link,
+and UEFI loader build. Both M17 QEMU acceptance boots timed out with exit code
+4. Neither produced a checksum or first-web-pixel PASS marker.
+
+The guest trace completed TypeIdSet table allocation, slot initialization,
+`createTable`, and `changeTableSize`, then stopped immediately after
+`findNonLiveSlot started`. In the pinned HashTable implementation, the
+initial table is created with every slot marked free, so the first primary
+slot check should return without entering the collision path. CI #263 does not
+show whether the primary index, slot pointer, or liveness read is responsible.
+
+Patch `0017` now traces those operations separately and records whether the
+primary slot is live or free. If it is unexpectedly live, it also records
+`hash2`, the first collision mark, and the first probe slot and liveness
+result. These Nagi-only callbacks exist only on the TypeIdSet allocation
+policy; each liveness value is read once and feeds the original branch. No
+allocator, table layout, hash, or retry behavior is changed. M17 remains
+`BLOCKED`; M18 remains `NOT STARTED`.
+
+## TypeIdSet liveness-read trace after CI run #264 (2026-09-27)
+
+Public CI run #264 (`36272680212`, head
+`6b128ac29da04badfe60ed0bf0d6452f09f75a45`) passed the host jobs, target
+dependency boundary, Mesa Softpipe, M16 package, kernel, real `nagi-init`
+link, and UEFI loader. The M17 QEMU acceptance timed out with exit code 4.
+Both boots stopped after
+`findNonLiveSlot primary liveness read started`; neither produced a checksum
+or first-web-pixel PASS marker.
+
+The new checkpoints show that `hash1` and `slotForIndex` returned. The
+next read is `*slot.mKeyHash` inside the liveness check. CI #264 does not
+show its address or loaded value, so it cannot yet distinguish an invalid
+pointer from a hash value/table-state problem.
+
+The next diagnostic records `h1`, capacity, table base, and the slot's
+key-hash pointer before loading. It then reads the hash once, records the raw
+value, and passes that value to the same `Slot::isLiveHash` predicate. The
+markers compile only for the Nagi TypeIdSet policy. This keeps the existing
+predicate and branch while identifying whether the load itself returns.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+The source-contract test now guards the diagnostic buffers' declared
+capacities. All 77 `nagi-cli` library tests and ordered application of the
+patch series to the SHA-256-verified registry archive pass. Local C++ build
+verification remains pending because the host linker invokes `xcrun` as
+x86_64, which cannot load the installed arm64/arm64e-only `libxcrun`; public
+target CI remains authoritative for this patch's compile and guest trace.
+
+## ELF constructor startup repair after CI run #265 (2026-09-27)
+
+Public CI run #265 (`36276918474`, head
+`aba9ec447ceb9a6674d3c234b3d8ab620167138c`) passed target dependencies, Mesa
+Softpipe, M16 package, kernel, the real `nagi-init` link, and UEFI loader. The
+M17 guest acceptance timed out at the TypeIdSet primary liveness read. It
+reported capacity `1`, index `0x6fb3b68c`, table base
+`0x0000400020d53db0`, and key-hash address `0x00004001dfa417e0`; the address
+is `index * 4` beyond the table base and outside the reported capacity. No
+first-web-pixel checksum or PASS marker was produced.
+
+The startup audit found that the kernel transfers directly to the ELF entry,
+the user linker script had no retained preinit/init arrays or boundary
+symbols, the Nagi-specific `_start` did not dispatch constructors, and
+relibc's generic init-array path is excluded for `target_os = "nagi"`. Thus
+global C/C++ objects linked into the target were not guaranteed to be
+initialized. This is a confirmed runtime startup gap and a plausible cause of
+the invalid statically initialized HashTable state; the QEMU result must
+verify that this repair resolves the observed state.
+
+The user linker now retains sorted `.preinit_array` and `.init_array`
+sections, defines hidden bounds, and places them in the writable data load.
+Before entering the capability-aware user body, `_start` walks each array in
+order and invokes its function pointers. The implementation reads entries by
+their linker-defined integer addresses, avoiding Rust pointer arithmetic
+outside the single-object extern boundary declarations. M17 serial output
+marks constructor completion before `user entry reached`, and the acceptance
+script checks that ordering.
+
+The source-contract test was observed failing before the implementation and
+passes after. All 78 `nagi-cli` library tests pass. An LLD `--gc-sections`
+smoke link retained both arrays and hidden bounds, sorted priority entries
+`00050`, `00100`, and `00200`, and placed the default-priority entry last.
+Focused formatting, acceptance shell syntax, and `git diff --check` pass. The
+complete Nagi target link and guest acceptance remain pending public Ubuntu
+CI. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Constructor repair verification after CI run #266 (2026-09-27)
+
+Public CI run `36281382815` (`fdc1b24610fa36ee9651283eaf77f7477820fc9f`)
+confirmed that the user ELF constructor arrays execute before `user entry
+reached`. The guest passed its M7 persistent-storage acceptance, SpiderMonkey
+TypeIdSet insertion, and `JS_Init`. Servo then started `ResourceManager`, whose
+thread panicked because the Nagi guest has no platform CA certificates. This
+confirms the constructor change advanced startup and identifies TLS verifier
+initialization as the next blocker; no first-web-pixel checksum or PASS marker
+was emitted.
+
+ADR 0030 documents the Nagi bootstrap trust-root source. Tracked Servo patch
+0014 chooses the pinned WebPKI root verifier for Nagi, retaining normal TLS
+chain and hostname validation and excluding host certificate stores. Public
+target CI must verify the resource thread advances past verifier creation.
+M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## Nagi GC mapping strategy after CI run #298 (2026-09-28)
+
+Public CI run #298 (`36332858469`, head
+`2e41bb937eda62b1d82ffa079bad4c92990a4231`) passed host checks, the Nagi target
+build and link, and the UEFI loader. QEMU exceeded the 120-second acceptance
+bound with exit code 4. The guest reached the first GC nursery chunk mapping
+and emitted `SpiderMonkey GC scattershot mapping started`, but no later mapping
+checkpoint, web-pixel checksum, or PASS marker was recorded. The trace does not
+show whether execution stopped in random-number acquisition, mmap, or the
+alignment retry loop.
+
+Source inspection found that SpiderMonkey enables its scattershot allocator at
+43 or more discovered address bits. Nagi's bootstrap image starts at 64 TiB,
+while its process mmap allocator owns only a bounded 128 MiB region. The
+non-fixed mmap ABI treats requested addresses as hints and chooses the first
+free range, so the discovered address width is not a measure of available
+random-address space and the scattershot algorithm cannot use hints to choose
+distinct regions in Nagi's allocation arena.
+
+The target-specific decision is to disable scattershot selection only under
+`__NAGI__` and route GC chunks through SpiderMonkey's existing aligned-page
+allocator and Nagi's real mmap interface. This uses the mapping contract Nagi
+actually provides; it does not add a host mapping, enlarge the arena, change
+kernel authority, or weaken the M17 acceptance gate. Other targets retain the
+upstream address-width threshold and allocator. Patch
+`0022-nagi-m17-bounded-gc-mapping.patch` implements this selection, and a
+source-contract test guards the Nagi-only branch. The next public QEMU run must
+verify that the standard aligned-page path returns and nursery initialization
+continues. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
+
+## GC chunk alignment diagnosis after CI run #299 (2026-09-28)
+
+Public CI run #299 (`36337350178`, head
+`ee07235c390320a6aa687204dc72319d54284ee9`) passed host checks, the target
+dependency boundary, Mesa Softpipe, the M16 package, kernel, the real
+`nagi-init` link, and UEFI loader. The real QEMU acceptance timed out after its
+120-second guest bound and produced no first-web-pixel checksum or M17 PASS
+marker.
+
+The guest selected the Nagi aligned-page fallback and completed its first GC
+base mapping, then stopped after
+`SpiderMonkey GC initial chunk-alignment attempt started`. It did not emit the
+matching completion marker for `TryToAlignChunk`. Existing traces cannot tell
+whether the non-returning operation is the exact-address hint mmap, cleanup of
+a mismatched mapping, a directional partial unmap, or the replacement mapping.
+
+Nagi's non-fixed mmap chooses the first available range even when a caller
+provides a hint. Exact-address mapping remains restricted to an existing
+Nagi-owned reservation, and the bootstrap `munmap` path validates a complete
+registered mapping. These contracts differ from the assumptions made by
+SpiderMonkey's generic chunk-alignment helper, but the available trace does not
+yet establish which call causes the timeout. Do not change those VM contracts
+or relax the acceptance gate based on this evidence alone.
+
+Patch `0023-nagi-m17-alignment-traces.patch` adds Nagi-only start/completion
+markers around the internal hint mmap, mismatched-hint unmap, both directional
+unmaps, and the fallback replacement mmap. The trace is enabled only for GC
+chunk-sized alignment and leaves the original mapping calls, order, and
+decisions intact. A source-contract test guards the patch. The next
+authoritative QEMU run must identify the exact non-returning operation before a
+behavioral VM or allocator fix is selected. M17 remains `BLOCKED`; M18 remains
+`NOT STARTED`.
+
+## Bootstrap partial mmap continuation after CI run #300 (2026-09-28)
+
+Public CI run #300 (`36341631295`, head
+`06392ccf5acc742cb3b2ba70b09e9cea8e5b2e7a`) passed both host jobs, target
+dependency validation, Mesa Softpipe, the M16 package, kernel, real
+`nagi-init` link, and UEFI loader. QEMU timed out after 120 seconds before
+producing a first-web-pixel checksum or M17 PASS marker. The GC trace completed
+both hint mappings and stopped in the upward prefix `munmap`.
+
+Code inspection confirmed the bootstrap VM only accepted an exact whole-map
+`munmap` and translated a rejected subrange to POSIX `EINVAL`, while
+SpiderMonkey's aligned GC allocator expects partial range operations. ADR 0035
+records the bounded fix: a fixed per-page owner ledger supports atomic
+page-aligned `munmap` and `mprotect` over fragments and adjacent reservations;
+exact-address remaps remain restricted to one live fragment. The implementation
+also invalidates changed translations in the active address space.
+
+Local verification passes all 110 kernel unit tests on the x86_64 macOS target
+under Rosetta 2, x86_64 Linux kernel-test compilation, and the release Nagi
+kernel build. Public target CI and real QEMU remain pending; M17 stays
+`BLOCKED` and M18 remains `NOT STARTED` until the genuine first-web-pixel
+checksum and M17 PASS marker are observed.

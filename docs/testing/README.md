@@ -80,7 +80,7 @@ input to the M17 target build or acceptance:
 Cargo.toml, Cargo.lock, rust-toolchain.toml, .cargo/**, targets/**
 kernel/**, loader/**, user/**, sdk/rust/**
 crates/nagi-abi/**, crates/nagi-bootinfo/**,
-crates/nagi-localization/**, crates/nagi-model/**
+crates/nagi-i18n/**, crates/nagi-model/**
 idl/**, schemas/**, third_party/**
 tools/mesa/**, tools/nagi-target-*, tools/nagi-bootstrap/**
 tools/nagi-pkg/**, tools/nagi-cli/**, samples/hello-nagi/**

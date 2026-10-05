@@ -1,0 +1,296 @@
+diff --git a/src/llama-kv-cache-dsv4.cpp b/src/llama-kv-cache-dsv4.cpp
+index c467366..cff634d 100644
+--- a/src/llama-kv-cache-dsv4.cpp
++++ b/src/llama-kv-cache-dsv4.cpp
+@@ -998,7 +998,13 @@ llama_dsv4_comp_state::llama_dsv4_comp_state(
+ 
+         ggml_context * ctx = ctx_for_buft(buft);
+         if (!ctx) {
++#if !defined(__NAGI__)
+             throw std::runtime_error("failed to create ggml context for DSV4 compressor state");
++#else
++            initialized_ = false;
++            LLAMA_LOG_ERROR("%s: failed to create ggml context for DSV4 compressor state\n", __func__);
++            return;
++#endif
+         }
+ 
+         const uint32_t n_planes = n_stream*(1 + n_rs_seq);
+@@ -1024,7 +1030,13 @@ llama_dsv4_comp_state::llama_dsv4_comp_state(
+     for (auto & [buft, ctx] : ctx_map) {
+         ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx.get(), buft);
+         if (!buf) {
++#if !defined(__NAGI__)
+             throw std::runtime_error("failed to allocate buffer for DSV4 compressor state");
++#else
++            initialized_ = false;
++            LLAMA_LOG_ERROR("%s: failed to allocate buffer for DSV4 compressor state\n", __func__);
++            return;
++#endif
+         }
+ 
+         ggml_backend_buffer_clear(buf, 0);
+@@ -1321,6 +1333,11 @@ llama_kv_cache_dsv4::llama_kv_cache_dsv4(
+             model, hparams_raw, type_k, type_v,
+             v_trans, offload, swa_full, unified_raw, kv_size, n_seq_max, n_ubatch, n_pad,
+             nullptr, filter_raw, reuse, nullptr);
++    if (!kv_raw->is_initialized()) {
++        set_initialization_failed();
++        LLAMA_LOG_ERROR("%s: failed to initialize DSV4 raw KV cache\n", __func__);
++        return;
++    }
+ 
+     dsv4_make_k_only(hparams_csa);
+     dsv4_make_k_only(hparams_hca);
+@@ -1358,6 +1375,11 @@ llama_kv_cache_dsv4::llama_kv_cache_dsv4(
+             model, hparams_csa, type_k, type_v,
+             v_trans, offload, unified_compressed, GGML_PAD(dsv4_comp_size(kv_size, DSV4_CSA_RATIO), 256u), n_seq_max, n_pad,
+             0, LLAMA_SWA_TYPE_NONE, nullptr, filter_csa, nullptr, nullptr);
++    if (!kv_csa->is_initialized()) {
++        set_initialization_failed();
++        LLAMA_LOG_ERROR("%s: failed to initialize DSV4 CSA KV cache\n", __func__);
++        return;
++    }
+ 
+     LLAMA_LOG_INFO("%s: creating DSV4 HCA compressed KV cache, size = %u cells\n",
+             __func__, dsv4_comp_size(kv_size, DSV4_HCA_RATIO));
+@@ -1366,6 +1388,11 @@ llama_kv_cache_dsv4::llama_kv_cache_dsv4(
+             model, hparams_hca, type_k, type_v,
+             v_trans, offload, unified_compressed, GGML_PAD(dsv4_comp_size(kv_size, DSV4_HCA_RATIO), 256u), n_seq_max, n_pad,
+             0, LLAMA_SWA_TYPE_NONE, nullptr, filter_hca, nullptr, nullptr);
++    if (!kv_hca->is_initialized()) {
++        set_initialization_failed();
++        LLAMA_LOG_ERROR("%s: failed to initialize DSV4 HCA KV cache\n", __func__);
++        return;
++    }
+ 
+     LLAMA_LOG_INFO("%s: creating DSV4 lightning-indexer KV cache, size = %u cells\n",
+             __func__, dsv4_comp_size(kv_size, DSV4_CSA_RATIO));
+@@ -1374,24 +1401,44 @@ llama_kv_cache_dsv4::llama_kv_cache_dsv4(
+             model, hparams_lid, type_k, type_v,
+             v_trans, offload, unified_compressed, GGML_PAD(dsv4_comp_size(kv_size, DSV4_CSA_RATIO), 256u), n_seq_max, n_pad,
+             0, LLAMA_SWA_TYPE_NONE, nullptr, filter_csa, nullptr, nullptr);
++    if (!kv_lid->is_initialized()) {
++        set_initialization_failed();
++        LLAMA_LOG_ERROR("%s: failed to initialize DSV4 indexer KV cache\n", __func__);
++        return;
++    }
+ 
+     LLAMA_LOG_INFO("%s: creating DSV4 CSA compressor state\n", __func__);
+ 
+     csa_state = std::make_unique<llama_dsv4_comp_state>(
+             model, offload, unified_compressed, n_seq_max, DSV4_CSA_RATIO, 2*DSV4_CSA_RATIO,
+             2*model.hparams.n_embd_head_k(), n_rs_seq, "csa", filter_csa);
++    if (!csa_state->is_initialized()) {
++        set_initialization_failed();
++        LLAMA_LOG_ERROR("%s: failed to initialize DSV4 CSA compressor state\n", __func__);
++        return;
++    }
+ 
+     LLAMA_LOG_INFO("%s: creating DSV4 HCA compressor state\n", __func__);
+ 
+     hca_state = std::make_unique<llama_dsv4_comp_state>(
+             model, offload, unified_compressed, n_seq_max, DSV4_HCA_RATIO, DSV4_HCA_RATIO,
+             model.hparams.n_embd_head_k(), n_rs_seq, "hca", filter_hca);
++    if (!hca_state->is_initialized()) {
++        set_initialization_failed();
++        LLAMA_LOG_ERROR("%s: failed to initialize DSV4 HCA compressor state\n", __func__);
++        return;
++    }
+ 
+     LLAMA_LOG_INFO("%s: creating DSV4 lightning-indexer compressor state\n", __func__);
+ 
+     lid_state = std::make_unique<llama_dsv4_comp_state>(
+             model, offload, unified_compressed, n_seq_max, DSV4_CSA_RATIO, 2*DSV4_CSA_RATIO,
+             2*model.hparams.indexer_head_size, n_rs_seq, "lid", filter_csa);
++    if (!lid_state->is_initialized()) {
++        set_initialization_failed();
++        LLAMA_LOG_ERROR("%s: failed to initialize DSV4 indexer compressor state\n", __func__);
++        return;
++    }
+ 
+     // DSV4 attention reads compressed-K / compressor-state rows that the current
+     // graph does not necessarily overwrite; uninitialized buffer contents would
+diff --git a/src/llama-kv-cache-dsv4.h b/src/llama-kv-cache-dsv4.h
+index ce39867..305fe2f 100644
+--- a/src/llama-kv-cache-dsv4.h
++++ b/src/llama-kv-cache-dsv4.h
+@@ -26,6 +26,8 @@ public:
+             const char    * name,
+         const llama_memory_i::layer_filter_cb & filter);
+ 
++    bool is_initialized() const { return initialized_; }
++
+     void clear(llama_seq_id seq_id, bool data);
+     void seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst);
+     void apply_copies(const stream_copy_info & sc_info) const;
+@@ -72,6 +74,8 @@ private:
+ 
+     std::unordered_map<int32_t, int32_t> map_layer_ids;
+ 
++    bool initialized_ = true;
++
+     size_t total_size() const;
+ };
+ 
+@@ -105,6 +109,13 @@ public:
+ 
+     ~llama_kv_cache_dsv4() = default;
+ 
++    bool is_initialized() const override {
++        return llama_memory_i::is_initialized() && kv_raw && kv_raw->is_initialized() &&
++                kv_csa && kv_csa->is_initialized() && kv_hca && kv_hca->is_initialized() &&
++                kv_lid && kv_lid->is_initialized() && csa_state && csa_state->is_initialized() &&
++                hca_state && hca_state->is_initialized() && lid_state && lid_state->is_initialized();
++    }
++
+     //
+     // llama_memory_i
+     //
+diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
+index d49dec6..52c2673 100644
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -224,7 +224,13 @@ llama_kv_cache::llama_kv_cache(
+ 
+         ggml_context * ctx = ctx_for_buft(buft);
+         if (!ctx) {
++#if !defined(__NAGI__)
+             throw std::runtime_error("failed to create ggml context for kv cache");
++#else
++            set_initialization_failed();
++            LLAMA_LOG_ERROR("%s: failed to create ggml context for kv cache\n", __func__);
++            return;
++#endif
+         }
+ 
+         const bool has_k = true;
+@@ -285,7 +291,13 @@ llama_kv_cache::llama_kv_cache(
+             buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx.get(), buft); // real buffer
+         }
+         if (!buf) {
++#if !defined(__NAGI__)
+             throw std::runtime_error("failed to allocate buffer for kv cache");
++#else
++            set_initialization_failed();
++            LLAMA_LOG_ERROR("%s: failed to allocate buffer for kv cache\n", __func__);
++            return;
++#endif
+         }
+ 
+         LLAMA_LOG_INFO("%s: %10s KV buffer size = %8.2f MiB\n", __func__, ggml_backend_buffer_name(buf), ggml_backend_buffer_get_size(buf)/1024.0/1024.0);
+diff --git a/src/llama-memory-hybrid-idx.h b/src/llama-memory-hybrid-idx.h
+index 3c3a788..2718018 100644
+--- a/src/llama-memory-hybrid-idx.h
++++ b/src/llama-memory-hybrid-idx.h
+@@ -43,6 +43,10 @@ public:
+ 
+     ~llama_memory_hybrid_idx() = default;
+ 
++    bool is_initialized() const override {
++        return llama_memory_hybrid::is_initialized() && (!mem_idx || mem_idx->is_initialized());
++    }
++
+     //
+     // llama_memory_i
+     //
+diff --git a/src/llama-memory-hybrid-iswa.h b/src/llama-memory-hybrid-iswa.h
+index c9d3f9f..d836185 100644
+--- a/src/llama-memory-hybrid-iswa.h
++++ b/src/llama-memory-hybrid-iswa.h
+@@ -43,6 +43,11 @@ public:
+ 
+     ~llama_memory_hybrid_iswa() = default;
+ 
++    bool is_initialized() const override {
++        return llama_memory_i::is_initialized() && mem_attn && mem_attn->is_initialized() &&
++                mem_recr && mem_recr->is_initialized();
++    }
++
+     //
+     // llama_memory_i
+     //
+diff --git a/src/llama-memory-hybrid.h b/src/llama-memory-hybrid.h
+index 484eafb..9492b18 100644
+--- a/src/llama-memory-hybrid.h
++++ b/src/llama-memory-hybrid.h
+@@ -43,6 +43,11 @@ public:
+ 
+     ~llama_memory_hybrid() = default;
+ 
++    bool is_initialized() const override {
++        return llama_memory_i::is_initialized() && mem_attn && mem_attn->is_initialized() &&
++                mem_recr && mem_recr->is_initialized();
++    }
++
+     //
+     // llama_memory_i
+     //
+diff --git a/src/llama-memory-recurrent.cpp b/src/llama-memory-recurrent.cpp
+index 5c1274f..b40f5e9 100644
+--- a/src/llama-memory-recurrent.cpp
++++ b/src/llama-memory-recurrent.cpp
+@@ -95,7 +95,13 @@ llama_memory_recurrent::llama_memory_recurrent(
+ 
+         ggml_context * ctx = ctx_for_buft(buft);
+         if (!ctx) {
++#if !defined(__NAGI__)
+             throw std::runtime_error("failed to create ggml context for rs cache");
++#else
++            set_initialization_failed();
++            LLAMA_LOG_ERROR("%s: failed to create ggml context for rs cache\n", __func__);
++            return;
++#endif
+         }
+ 
+         const uint32_t n_rows = mem_size * (1 + n_rs_seq);
+@@ -118,7 +124,13 @@ llama_memory_recurrent::llama_memory_recurrent(
+     for (auto & [buft, ctx] : ctx_map) {
+         ggml_backend_buffer_t buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx.get(), buft);
+         if (!buf) {
++#if !defined(__NAGI__)
+             throw std::runtime_error("failed to allocate buffer for rs cache");
++#else
++            set_initialization_failed();
++            LLAMA_LOG_ERROR("%s: failed to allocate buffer for rs cache\n", __func__);
++            return;
++#endif
+         }
+         ggml_backend_buffer_clear(buf, 0);
+         LLAMA_LOG_INFO("%s: %10s RS buffer size = %8.2f MiB\n", __func__, ggml_backend_buffer_name(buf), ggml_backend_buffer_get_size(buf)/1024.0/1024.0);
+diff --git a/src/llama-memory.h b/src/llama-memory.h
+index db82539..ad154d0 100644
+--- a/src/llama-memory.h
++++ b/src/llama-memory.h
+@@ -82,6 +82,14 @@ struct llama_memory_i {
+ 
+     virtual ~llama_memory_i() = default;
+ 
++    virtual bool is_initialized() const { return initialized_; }
++
++protected:
++    void set_initialization_failed() { initialized_ = false; }
++    bool initialized_ = true;
++
++public:
++
+     // split the input batch into a set of ubatches and verify that they can fit into the cache
+     // return a context object containing the ubatches and memory state required to process them
+     // check the llama_memory_context_i::get_status() for the result
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index d4ca7a0..864bd89 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -2934,6 +2934,12 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params,
+             }
+     }
+ 
++    if (res != nullptr && !res->is_initialized()) {
++        LLAMA_LOG_ERROR("%s: memory module initialization failed\n", __func__);
++        delete res;
++        return nullptr;
++    }
++
+     return res;
+ }
+ 

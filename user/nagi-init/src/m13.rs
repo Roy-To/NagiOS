@@ -113,9 +113,16 @@ pub fn run(
     if unsafe { nagi_posix::nagi_posix_initialize_filesystem(block_capability) } != 0 {
         fail();
     }
-    if nagi_posix::errno::nagi_posix_errno_location().is_null()
-        || unsafe { nagi_m13_c_posix_test() } != 0
-    {
+    if nagi_posix::errno::nagi_posix_errno_location().is_null() {
+        fail();
+    }
+    let c_posix_result = unsafe { nagi_m13_c_posix_test() };
+    if c_posix_result != 0 {
+        print(b"Nagi M13 C POSIX failure code=");
+        let mut diagnostic = [0_u8; 20];
+        let length = format_u64(c_posix_result as u64, &mut diagnostic);
+        print(&diagnostic[..length]);
+        print(b"\r\n");
         fail();
     }
     print(static_bytes!(NAGI_M13_C_PASS, C_PASS_LEN));
@@ -146,6 +153,15 @@ pub fn run(
     }
     #[cfg(feature = "m16-package")]
     if !crate::m16_package::run(block_capability) {
+        fail();
+    }
+    #[cfg(feature = "m19-search")]
+    let m19_search_activity = match crate::m19_search::run(block_capability) {
+        Some(activity) => activity,
+        None => fail(),
+    };
+    #[cfg(feature = "m22-history")]
+    if !crate::m22_history::run(block_capability, m19_search_activity) {
         fail();
     }
     print(static_bytes!(NAGI_M13_ACCEPTANCE, ACCEPTANCE_LEN));

@@ -1,0 +1,91 @@
+diff --git a/components/servo/proxies.rs b/components/servo/proxies.rs
+index bb0a3d1b0..5d1e759dd 100644
+--- a/components/servo/proxies.rs
++++ b/components/servo/proxies.rs
+@@ -10,6 +10,23 @@ use log::warn;
+ use servo_config::prefs::{PrefValue, PreferencesObserver};
+ use servo_constellation_traits::EmbedderToConstellationMessage;
+ 
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m17_trace(stage: &str) {
++    #[expect(unsafe_code)]
++    unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+ #[derive(Clone)]
+ pub(crate) struct ConstellationProxy {
+     sender: Sender<EmbedderToConstellationMessage>,
+@@ -33,8 +50,17 @@ impl ConstellationProxy {
+     }
+ 
+     pub fn send(&self, msg: EmbedderToConstellationMessage) {
++        let is_load_url = matches!(&msg, EmbedderToConstellationMessage::LoadUrl(..));
++        if is_load_url {
++            nagi_m17_trace("M18 ConstellationProxy LoadUrl send started");
++        }
+         if self.try_send(msg).is_err() {
++            if is_load_url {
++                nagi_m17_trace("M18 ConstellationProxy LoadUrl send failed");
++            }
+             warn!("Lost connection to Constellation. Will report to embedder.")
++        } else if is_load_url {
++            nagi_m17_trace("M18 ConstellationProxy LoadUrl send completed");
+         }
+     }
+ 
+diff --git a/components/servo/webview.rs b/components/servo/webview.rs
+index a0a22bdbf..fd0584a6a 100644
+--- a/components/servo/webview.rs
++++ b/components/servo/webview.rs
+@@ -47,6 +47,23 @@ use crate::{
+     UserContentManager, WebRenderDebugOption,
+ };
+ 
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m17_trace(stage: &str) {
++    #[expect(unsafe_code)]
++    unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+ pub(crate) const MINIMUM_WEBVIEW_SIZE: Size2D<i32, DevicePixel> = Size2D::new(1, 1);
+ 
+ /// A handle to a Servo webview. If you clone this handle, it does not create a new webview,
+@@ -530,13 +547,15 @@ impl WebView {
+     /// This pushes a new entry onto the navigation history, so the user can navigate
+     /// back to the previous page.
+     pub fn load(&self, url: Url) {
++        nagi_m17_trace("M18 WebView::load entered");
+         self.inner()
+             .servo
+             .constellation_proxy()
+             .send(EmbedderToConstellationMessage::LoadUrl(
+                 self.id(),
+                 UrlRequest::new(url),
+-            ))
++            ));
++        nagi_m17_trace("M18 WebView::load returned");
+     }
+ 
+     /// Load a [`UrlRequest`] with custom headers into this [`WebView`].

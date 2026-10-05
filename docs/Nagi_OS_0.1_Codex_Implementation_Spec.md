@@ -542,6 +542,27 @@ must support waiting on:
 - Process exit;
 - service/socket readiness abstractions.
 
+## 9.6 Bootstrap user Channel ABI
+
+The bootstrap ABI exposes Channel creation, send, nonblocking receive, and
+handle close through the fixed syscall numbers in `nagi-abi`. Inline payloads
+are capped at 128 bytes, each message transfers at most four handles, and each
+direction has an eight-message queue. The bootstrap manager holds at most 16
+live Channel pairs and 64 endpoint handles. Transfer rights may only be
+attenuated. The sender process ID returned with a received message is kernel
+metadata and must never be accepted from a caller-supplied payload field.
+
+The current bootstrap manager supports only the single shared-address-space
+`nagi-init` process (PID 1). Its Channel ABI verifies user plumbing and handle
+semantics, but does not authenticate or isolate applications or services. The
+ABI exposes `SYS_CHANNEL_WAIT_READABLE`; `libnagi::channel_receive` combines
+nonblocking receive with that wait and retries after wake, since another thread
+may consume the message first. Waiting requires the endpoint's `WAIT` right.
+User-level waits for Event, Timer, Process exit, and service/socket readiness
+remain unexposed. Production service authority still requires isolated
+processes, supervisor-authorized endpoint delivery, and launch-record-bound
+policy.
+
 ---
 
 # 10. Service registry

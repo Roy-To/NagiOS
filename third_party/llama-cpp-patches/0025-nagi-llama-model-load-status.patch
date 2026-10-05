@@ -1,0 +1,181 @@
+diff --git a/include/llama.h b/include/llama.h
+index 2383310..1eb30d6 100644
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -204,6 +204,7 @@ extern "C" {
+     };
+ 
+     enum llama_load_mode {
++        LLAMA_LOAD_MODE_INVALID     = -2, // invalid or unrecognized load mode
+         LLAMA_LOAD_MODE_AUTO       = -1, // auto-detect based on device capabilities
+         LLAMA_LOAD_MODE_NONE       =  0, // no special loading mode
+         LLAMA_LOAD_MODE_MMAP       =  1, // memory map the model
+diff --git a/src/llama.cpp b/src/llama.cpp
+index 09b3d60..2d85013 100644
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -49,6 +49,8 @@ const char * llama_flash_attn_type_name(enum llama_flash_attn_type flash_attn_ty
+ 
+ const char * llama_load_mode_name(enum llama_load_mode load_mode) {
+     switch (load_mode) {
++        case LLAMA_LOAD_MODE_INVALID:
++            return "invalid";
+         case LLAMA_LOAD_MODE_AUTO:
+             return "auto";
+         case LLAMA_LOAD_MODE_NONE:
+@@ -66,13 +68,24 @@ const char * llama_load_mode_name(enum llama_load_mode load_mode) {
+ }
+ 
+ enum llama_load_mode llama_load_mode_from_str(const char * str) {
++#if defined(__NAGI__)
++    if (str == nullptr) {
++        LLAMA_LOG_ERROR("%s: load mode cannot be null\n", __func__);
++        return LLAMA_LOAD_MODE_INVALID;
++    }
++#endif
+     if (std::strcmp(str, "auto")       == 0) { return LLAMA_LOAD_MODE_AUTO;       }
+     if (std::strcmp(str, "none")       == 0) { return LLAMA_LOAD_MODE_NONE;       }
+     if (std::strcmp(str, "mmap")       == 0) { return LLAMA_LOAD_MODE_MMAP;       }
+     if (std::strcmp(str, "mlock")      == 0) { return LLAMA_LOAD_MODE_MLOCK;      }
+     if (std::strcmp(str, "mmap+mlock") == 0) { return LLAMA_LOAD_MODE_MMAP_MLOCK; }
+     if (std::strcmp(str, "dio")        == 0) { return LLAMA_LOAD_MODE_DIRECT_IO;  }
++#if defined(__NAGI__)
++    LLAMA_LOG_ERROR("%s: unknown load mode: %s\n", __func__, str);
++    return LLAMA_LOAD_MODE_INVALID;
++#else
+     throw std::invalid_argument(std::string("unknown load mode: ") + str);
++#endif
+ }
+ 
+ struct llama_sampler_chain_params llama_sampler_chain_default_params() {
+@@ -315,7 +328,15 @@ static bool llama_prepare_model_devices(const llama_model_params & params, llama
+ // Returns 0 on success, -1 on error, and -2 on cancellation via llama_progress_callback
+ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * metadata, llama_model_set_tensor_data_t set_tensor_data, void * set_tensor_data_ud,
+         const std::string & fname, std::vector<std::string> & splits, FILE * file, llama_model_params & params) {
++#if !defined(__NAGI__)
+     try {
++#endif
++#if defined(__NAGI__)
++        if (params.load_mode < LLAMA_LOAD_MODE_AUTO || params.load_mode > LLAMA_LOAD_MODE_DIRECT_IO) {
++            LLAMA_LOG_ERROR("%s: invalid model load mode: %d\n", __func__, (int) params.load_mode);
++            return {-1, nullptr};
++        }
++#endif
+         llama_model_loader ml(metadata, set_tensor_data, set_tensor_data_ud, fname, splits, file, params.load_mode,
+             params.check_tensors, params.no_alloc, params.load_mtp, params.kv_overrides, params.tensor_buft_overrides);
+ 
+@@ -355,27 +376,52 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
+         model->hparams.vocab_only = params.vocab_only;
+         model->hparams.no_alloc   = params.no_alloc;
+ 
++#if !defined(__NAGI__)
+         try {
+             model->load_hparams(ml);
+         } catch(const std::exception & e) {
+             throw std::runtime_error("error loading model hyperparameters: " + std::string(e.what()));
+         }
++#else
++        model->load_hparams(ml);
++#endif
+         if (!ml.metadata_valid) {
+             LLAMA_LOG_ERROR("%s: model metadata has an invalid value type\n", __func__);
+             return {-1, nullptr};
+         }
++#if defined(__NAGI__)
++        if (!ml.loader_valid) {
++            LLAMA_LOG_ERROR("%s: model hyperparameters are invalid\n", __func__);
++            return {-1, nullptr};
++        }
++#endif
+         if (model->arch == LLM_ARCH_CLIP) {
++#if defined(__NAGI__)
++            LLAMA_LOG_ERROR("%s: CLIP cannot be used as main model, use it with --mmproj instead\n", __func__);
++            return {-1, nullptr};
++#else
+             throw std::runtime_error("CLIP cannot be used as main model, use it with --mmproj instead");
++#endif
+         }
++#if !defined(__NAGI__)
+         try {
+             model->load_vocab(ml);
+         } catch(const std::exception & e) {
+             throw std::runtime_error("error loading model vocabulary: " + std::string(e.what()));
+         }
++#else
++        model->load_vocab(ml);
++#endif
+         if (!ml.metadata_valid) {
+             LLAMA_LOG_ERROR("%s: model metadata has an invalid value type\n", __func__);
+             return {-1, nullptr};
+         }
++#if defined(__NAGI__)
++        if (!ml.loader_valid) {
++            LLAMA_LOG_ERROR("%s: model vocabulary is invalid\n", __func__);
++            return {-1, nullptr};
++        }
++#endif
+ 
+         model->load_stats(ml);
+         model->print_info();
+@@ -399,10 +445,12 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
+         }
+ 
+         return {0, model_ptr.release()};
++#if !defined(__NAGI__)
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: error loading model: %s\n", __func__, err.what());
+         return {-1, nullptr};
+     }
++#endif
+ }
+ 
+ static struct llama_model * llama_model_load_from_file_impl(
+diff --git a/tests/test-model-loader-bounds.cpp b/tests/test-model-loader-bounds.cpp
+index 84cab58..e04f9ae 100644
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -9,6 +9,33 @@
+ 
+ using tensor_weight = llama_model_loader::llama_tensor_weight;
+ 
++static bool llama_load_mode_status() {
++    if (std::string(llama_load_mode_name(LLAMA_LOAD_MODE_INVALID)) != "invalid" ||
++            llama_load_mode_from_str("mmap") != LLAMA_LOAD_MODE_MMAP) {
++        std::fprintf(stderr, "load-mode name or valid parser mapping is incorrect\n");
++        return false;
++    }
++#ifdef __NAGI__
++    if (llama_load_mode_from_str("not-a-load-mode") != LLAMA_LOAD_MODE_INVALID ||
++            llama_load_mode_from_str(nullptr) != LLAMA_LOAD_MODE_INVALID) {
++        std::fprintf(stderr, "invalid load mode did not return the explicit Nagi sentinel\n");
++        return false;
++    }
++#else
++    bool threw = false;
++    try {
++        (void) llama_load_mode_from_str("not-a-load-mode");
++    } catch (const std::invalid_argument &) {
++        threw = true;
++    }
++    if (!threw) {
++        std::fprintf(stderr, "invalid host load mode changed its exception contract\n");
++        return false;
++    }
++#endif
++    return true;
++}
++
+ static bool malformed_lora_adapter_returns_null() {
+     FILE * file = std::tmpfile();
+     if (file == nullptr) {
+@@ -517,6 +544,10 @@ static bool invalid_tensor_data_status() {
+ }
+ 
+ int main() {
++    if (!llama_load_mode_status()) {
++        return 1;
++    }
++
+     if (!model_architecture_failures_return_status() ||
+             !missing_tensor_info_lookup_returns_null() ||
+             !metadata_key_read_status(false, false, true, "missing optional") ||

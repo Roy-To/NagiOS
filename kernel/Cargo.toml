@@ -5,6 +5,28 @@ edition = "2021"
 publish = false
 autobins = false
 
+[features]
+default = []
+m18-browser-threads = ["nagi-abi/m18-browser-threads"]
+m18-browser-memory = ["m18-browser-threads"]
+m20-llama-memory = []
+m25-whisper-memory = []
+# Diagnostic: force a kernel stack fault on the last AP to prove its #DF
+# handler runs on IST1 (ADR 0048). Never enabled in product images.
+m3-ap-double-fault-probe = []
+# Diagnostic: park the last two APs with RSP=0, NMI the last one, and leave
+# the other for a host-injected #MC, to prove both run on IST stacks
+# (ADR 0049). Never enabled in product images.
+m3-ap-ist-probe = []
+# Diagnostic: park the BSP with RSP=0 right after kernel entry so a
+# host-injected NMI or #MC proves the early BSP IST stacks (ADR 0050).
+# Never enabled in product images.
+m2-bsp-ist-probe = []
+# Diagnostic: park the BSP with RSP=0 on the link-time entry tables, before
+# the full BSP tables are installed (ADR 0051). Never enabled in product
+# images.
+entry-ist-probe = []
+
 [lib]
 name = "nagi_kernel"
 path = "src/lib.rs"

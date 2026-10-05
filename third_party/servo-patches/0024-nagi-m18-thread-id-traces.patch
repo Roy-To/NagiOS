@@ -1,0 +1,26 @@
+--- a/components/constellation/constellation.rs
++++ b/components/constellation/constellation.rs
+@@ -816,6 +816,10 @@
+ 
+     /// The main event loop for the constellation.
+     fn run(&mut self) {
++        nagi_m17_trace(&format!(
++            "M18 Constellation thread id={:?}",
++            thread::current().id()
++        ));
+         nagi_m18_progress_trace("M18 Constellation run entered");
+         while !self.shutting_down || !self.pipelines.is_empty() {
+             // Randomly close a pipeline if --random-pipeline-closure-probability is set
+--- a/components/servo/proxies.rs
++++ b/components/servo/proxies.rs
+@@ -53,6 +53,10 @@
+         let is_load_url = matches!(&msg, EmbedderToConstellationMessage::LoadUrl(..));
+         if is_load_url {
+             nagi_m17_trace("M18 ConstellationProxy LoadUrl send started");
++            nagi_m17_trace(&format!(
++                "M18 LoadUrl sender thread id={:?}",
++                std::thread::current().id()
++            ));
+         }
+         if self.try_send(msg).is_err() {
+             if is_load_url {

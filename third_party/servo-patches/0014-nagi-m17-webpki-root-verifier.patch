@@ -1,0 +1,18 @@
+diff --git a/components/net/connector.rs b/components/net/connector.rs
+index c6ec74e96..c68d44d09 100644
+--- a/components/net/connector.rs
++++ b/components/net/connector.rs
+@@ -458,8 +458,11 @@ impl CertificateVerificationOverrideVerifier {
+         // > build to support rustls-platform-verifier.
+         //
+         // Since we cannot count on embedders to do this setup, just stick with webpki roots
+-        // on Android.
+-        let use_webpki_roots = cfg!(target_os = "android") || pref!(network_use_webpki_roots);
++        // on Android. Nagi has no host certificate store, so its locked WebPKI roots are the
++        // bootstrap system-root baseline.
++        let use_webpki_roots = cfg!(target_os = "android")
++            || cfg!(target_os = "nagi")
++            || pref!(network_use_webpki_roots);
+         let main_verifier = if !use_webpki_roots {
+             let verifier = match ca_certficates {
+                 CACertificates::Default => RUSTLS_PLATFORM_VERIFIER_CACHE.clone(),

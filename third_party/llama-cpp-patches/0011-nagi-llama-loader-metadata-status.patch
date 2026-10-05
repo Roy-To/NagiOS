@@ -1,0 +1,334 @@
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -231,9 +231,15 @@
+                     } break;
+                     default:
+                         // Shouldn't be possible to end up here, but just in case...
++#ifdef __NAGI__
++                        LLAMA_LOG_ERROR("%s: unsupported metadata override type %s for key %s\n",
++                            __func__, override_type_to_str(ovrd->tag), ovrd->key);
++                        return false;
++#else
+                         throw std::runtime_error(
+                             format("Unsupported attempt to override %s type for metadata key %s\n",
+                                 override_type_to_str(ovrd->tag), ovrd->key));
++#endif
+                 }
+                 return true;
+             }
+@@ -300,14 +306,33 @@
+     };
+ }
+ 
++bool llama_model_loader::fail_metadata(const std::string & message) {
++#ifdef __NAGI__
++    LLAMA_LOG_ERROR("%s: %s\n", __func__, message.c_str());
++    metadata_valid = false;
++    return false;
++#else
++    throw std::runtime_error(message);
++#endif
++}
++
++#ifdef __NAGI__
++#define LLAMA_MODEL_LOADER_FAIL_METADATA(message) return fail_metadata(message)
++#else
++#define LLAMA_MODEL_LOADER_FAIL_METADATA(message) fail_metadata(message)
++#endif
++
+     template<typename T>
+     typename std::enable_if<std::is_integral<T>::value, bool>::type
+     llama_model_loader::get_arr_n(const std::string & key, T & result, bool required) {
++#ifdef __NAGI__
++        if (!metadata_valid) { return false; }
++#endif
+         const int kid = gguf_find_key(metadata, key.c_str());
+ 
+         if (kid < 0) {
+             if (required) {
+-                throw std::runtime_error(format("key not found in model: %s", key.c_str()));
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("key not found in model: %s", key.c_str()));
+             }
+             return false;
+         }
+@@ -335,13 +360,21 @@
+ 
+     template<typename T>
+     bool llama_model_loader::get_arr(const std::string & key, std::vector<T> & result, bool required) {
++#ifdef __NAGI__
++        if (!metadata_valid) { return false; }
++#endif
+         const gguf_context * ctx = metadata;
+         const int kid = gguf_find_key(ctx, key.c_str());
+ 
+         if (kid < 0 || gguf_get_kv_type(ctx, kid) != GGUF_TYPE_ARRAY) {
+             if (required) {
+-                throw std::runtime_error(format("array key not found in model: %s", key.c_str()));
+-            }
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("array key not found in model: %s", key.c_str()));
++            }
++#ifdef __NAGI__
++            if (kid >= 0) {
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("array key has a scalar type: %s", key.c_str()));
++            }
++#endif
+             return false;
+         }
+ 
+@@ -360,10 +393,10 @@
+             case GGUF_TYPE_FLOAT32: type_ok = (std::is_same<T,       float>::value); break;
+             case GGUF_TYPE_STRING:  type_ok = (std::is_same<T, std::string>::value); break;
+             default:
+-                throw std::runtime_error(format("%s is not a string/float32/uint32/int32/uint64 array", key.c_str()));
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("%s is not a string/float32/uint32/int32/uint64 array", key.c_str()));
+         }
+         if (!type_ok) {
+-            throw std::runtime_error(format("%s has wrong array element type %s", key.c_str(), gguf_type_name(arr_info.gt)));
++            LLAMA_MODEL_LOADER_FAIL_METADATA(format("%s has wrong array element type %s", key.c_str(), gguf_type_name(arr_info.gt)));
+         }
+ 
+         if constexpr (std::is_same<T, std::string>::value) {
+@@ -384,13 +417,21 @@
+ 
+     template<typename T, size_t N_MAX>
+     bool llama_model_loader::get_arr(const std::string & key, std::array<T, N_MAX> & result, bool required) {
++#ifdef __NAGI__
++        if (!metadata_valid) { return false; }
++#endif
+         const gguf_context * ctx = metadata;
+         const int kid = gguf_find_key(ctx, key.c_str());
+ 
+         if (kid < 0 || gguf_get_kv_type(ctx, kid) != GGUF_TYPE_ARRAY) {
+             if (required) {
+-                throw std::runtime_error(format("array key not found in model: %s", key.c_str()));
+-            }
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("array key not found in model: %s", key.c_str()));
++            }
++#ifdef __NAGI__
++            if (kid >= 0) {
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("array key has a scalar type: %s", key.c_str()));
++            }
++#endif
+             return false;
+         }
+ 
+@@ -410,14 +451,14 @@
+             case GGUF_TYPE_FLOAT32: type_ok = (std::is_same<T,       float>::value); break;
+             case GGUF_TYPE_STRING:  type_ok = (std::is_same<T, std::string>::value); break;
+             default:
+-                throw std::runtime_error(format("%s is not a string/float32/uint32/int32/uint64 array", key.c_str()));
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("%s is not a string/float32/uint32/int32/uint64 array", key.c_str()));
+         }
+         if (!type_ok) {
+-            throw std::runtime_error(format("%s has wrong array element type %s", key.c_str(), gguf_type_name(arr_info.gt)));
++            LLAMA_MODEL_LOADER_FAIL_METADATA(format("%s has wrong array element type %s", key.c_str(), gguf_type_name(arr_info.gt)));
+         }
+ 
+         if (arr_info.length > N_MAX) {
+-            throw std::runtime_error(format("array length %u for key %s exceeds max %u", (uint32_t) arr_info.length, key.c_str(), (uint32_t) N_MAX));
++            LLAMA_MODEL_LOADER_FAIL_METADATA(format("array length %u for key %s exceeds max %u", (uint32_t) arr_info.length, key.c_str(), (uint32_t) N_MAX));
+         }
+ 
+         if constexpr (std::is_same<T, std::string>::value) {
+@@ -456,6 +497,9 @@
+ 
+     template<typename T>
+     bool llama_model_loader::get_key(const std::string & key, T & result, bool required) {
++#ifdef __NAGI__
++        if (!metadata_valid) { return false; }
++#endif
+         auto it = kv_overrides.find(key);
+ 
+         const struct llama_model_kv_override * override =
+@@ -470,7 +514,7 @@
+         const bool found = status == GGUFMeta::ReadStatus::Found;
+ 
+         if (required && !found) {
+-            throw std::runtime_error(format("key not found in model: %s", key.c_str()));
++            LLAMA_MODEL_LOADER_FAIL_METADATA(format("key not found in model: %s", key.c_str()));
+         }
+ 
+         return found;
+@@ -488,6 +532,9 @@
+ 
+     template<>
+     bool llama_model_loader::get_key(enum llm_kv kid, enum llama_pooling_type & result, bool required) {
++#ifdef __NAGI__
++        if (!metadata_valid) { return false; }
++#endif
+         uint32_t tmp;
+         const bool found = get_key(kid, tmp, required);
+         if (found) {
+@@ -501,17 +548,20 @@
+     // get array of n <= N_MAX elements, or a single element repeated n times
+     template<typename T, size_t N_MAX>
+     bool llama_model_loader::get_key_or_arr(const std::string & key, std::array<T, N_MAX> & result, uint32_t n, bool required) {
++#ifdef __NAGI__
++        if (!metadata_valid) { return false; }
++#endif
+         const int kid = gguf_find_key(metadata, key.c_str());
+ 
+         if (kid < 0) {
+             if (required) {
+-                throw std::runtime_error(format("key not found in model: %s", key.c_str()));
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("key not found in model: %s", key.c_str()));
+             }
+             return false;
+         }
+ 
+         if (n > N_MAX) {
+-            throw std::runtime_error(format("n > N_MAX: %u > %u for key %s", n, (uint32_t) N_MAX, key.c_str()));
++            LLAMA_MODEL_LOADER_FAIL_METADATA(format("n > N_MAX: %u > %u for key %s", n, (uint32_t) N_MAX, key.c_str()));
+         }
+ 
+         if (gguf_get_kv_type(metadata, kid) == GGUF_TYPE_ARRAY) {
+@@ -522,7 +572,7 @@
+             }
+ 
+             if (n != arr_info.length) {
+-                throw std::runtime_error(format("key %s has wrong array length; expected %u, got %u", key.c_str(), n, (uint32_t) arr_info.length));
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("key %s has wrong array length; expected %u, got %u", key.c_str(), n, (uint32_t) arr_info.length));
+             }
+ 
+             return get_arr(key, result, required);
+@@ -548,13 +598,16 @@
+     }
+ 
+     bool llama_model_loader::get_key_or_arr(enum llm_kv kid, uint32_t & result, bool required) {
++#ifdef __NAGI__
++        if (!metadata_valid) { return false; }
++#endif
+         const std::string key = llm_kv(kid);
+ 
+         const int id = gguf_find_key(metadata, key.c_str());
+ 
+         if (id < 0) {
+             if (required) {
+-                throw std::runtime_error(format("key not found in model: %s", key.c_str()));
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("key not found in model: %s", key.c_str()));
+             }
+             return false;
+         }
+@@ -562,13 +615,19 @@
+         // throw and error if type is an array
+         if (gguf_get_kv_type(metadata, id) == GGUF_TYPE_ARRAY) {
+             if (required) {
+-                throw std::runtime_error(format("expected scalar, found array for key: %s", key.c_str()));
+-            }
++                LLAMA_MODEL_LOADER_FAIL_METADATA(format("expected scalar, found array for key: %s", key.c_str()));
++            }
++#ifdef __NAGI__
++            LLAMA_MODEL_LOADER_FAIL_METADATA(format("expected scalar, found array for key: %s", key.c_str()));
++#else
+             return false;
++#endif
+         }
+ 
+         return get_key(key, result, required);
+     }
++
++#undef LLAMA_MODEL_LOADER_FAIL_METADATA
+ 
+     // TODO: this is not very clever - figure out something better
+     template bool llama_model_loader::get_key_or_arr<std::array<int,      4>>  (enum llm_kv kid, std::array<int,      4>   & result, uint32_t n, bool required);
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -110,6 +110,11 @@
+     bool tensor_weights_valid = true;
+     bool split_paths_valid = true;
+     bool metadata_valid = true;
++
++#ifndef __NAGI__
++    [[noreturn]]
++#endif
++    bool fail_metadata(const std::string & message);
+ 
+     bool use_mmap = false;
+     bool use_direct_io = false;
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -61,12 +61,84 @@
+     return valid;
+ }
+ 
++#ifdef __NAGI__
++static bool metadata_required_key_fails_closed() {
++    struct gguf_context * metadata = gguf_init_empty();
++    if (metadata == nullptr) {
++        std::fprintf(stderr, "cannot allocate required-key fixture\n");
++        return false;
++    }
++    gguf_set_val_str(metadata, "general.architecture", "llama");
++
++    std::vector<std::string> splits;
++    bool valid = true;
++    {
++        llama_model_loader loader(metadata, nullptr, nullptr, "", splits, nullptr,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        uint32_t value = 0x5a5a;
++        bool found = true;
++        try {
++            found = loader.get_key(LLM_KV_CONTEXT_LENGTH, value, true);
++        } catch (const std::exception & error) {
++            std::fprintf(stderr, "missing required key threw instead of returning status: %s\n", error.what());
++            valid = false;
++        }
++        if (found || value != 0x5a5a || loader.metadata_valid) {
++            std::fprintf(stderr, "missing required key did not fail closed\n");
++            valid = false;
++        }
++    }
++
++    gguf_free(metadata);
++    return valid;
++}
++
++static bool metadata_wrong_scalar_for_array_fails_closed() {
++    struct gguf_context * metadata = gguf_init_empty();
++    if (metadata == nullptr) {
++        std::fprintf(stderr, "cannot allocate wrong-array-type fixture\n");
++        return false;
++    }
++    gguf_set_val_str(metadata, "general.architecture", "llama");
++    gguf_set_val_str(metadata, "llama.context_length", "not an array");
++
++    std::vector<std::string> splits;
++    bool valid = true;
++    {
++        llama_model_loader loader(metadata, nullptr, nullptr, "", splits, nullptr,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        std::vector<uint32_t> values{0x5a5a};
++        try {
++            if (loader.get_arr(LLM_KV_CONTEXT_LENGTH, values, false)) {
++                std::fprintf(stderr, "wrong-typed optional array key was accepted\n");
++                valid = false;
++            }
++        } catch (const std::exception & error) {
++            std::fprintf(stderr, "wrong-typed optional array key threw: %s\n", error.what());
++            valid = false;
++        }
++        if (loader.metadata_valid || values != std::vector<uint32_t>{0x5a5a}) {
++            std::fprintf(stderr, "wrong-typed optional array key did not fail closed\n");
++            valid = false;
++        }
++    }
++
++    gguf_free(metadata);
++    return valid;
++}
++#endif
++
+ int main() {
+     if (!metadata_key_read_status(false, false, true, "missing optional") ||
+             !metadata_key_read_status(true, false, false, "wrong-typed optional") ||
+             !metadata_key_read_status(true, true, false, "wrong-typed required")) {
+         return 1;
+     }
++#ifdef __NAGI__
++    if (!metadata_required_key_fails_closed() || !metadata_wrong_scalar_for_array_fails_closed()) {
++        return 1;
++    }
++#endif
+ 
+     size_t result = 0;
+     if (!tensor_weight::checked_data_range(0, 64, 8, 16, 40, result) || result != 24) {

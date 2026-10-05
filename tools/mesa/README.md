@@ -5,6 +5,15 @@ the Nagi user-space Mesa/Softpipe archive build. It deliberately builds static
 archives for `system = 'nagi'`; it does not link a host executable or select
 X11, Wayland, WGL, or a host OpenGL implementation.
 
+On macOS build hosts, `build.sh` adds a generated cross-file override that
+selects `nagi-ld-adapter.sh` for Mesa target links. The Nagi target compiler
+wrapper uses the same adapter for target link probes and C/C++ links. Apple
+Clang delegates ELF links to the host macOS linker driver, which otherwise
+injects Mach-O options and host SDK/library paths. The adapter strips only
+those host-linker arguments and invokes ELF LLD with x86-64 emulation; target
+compilation still uses Clang and Nagi's generated headers. Linux keeps the
+tracked `lld` selection and does not use the adapter.
+
 Clang receives `x86_64-unknown-elf` because
 `x86_64-unknown-nagi-user` is a Rust target JSON identity, not a portable LLVM
 target triple. This is the freestanding ELF code-generation ABI; the Nagi
@@ -54,7 +63,16 @@ The pre-Mesa `nagi-pthread-header-check.c` syntax check locks the generated
 four-byte rwlock ABI to the relibc implementation.
 The companion `nagi-c11-header-check.c` syntax/size check locks the generated
 atomic and `struct termios` interfaces used by real target C dependencies such
-as aws-lc.
+as aws-lc. `nagi-headers/nagi-compat.h` is force-included for Mesa's
+Nagi-target compile commands, but is empty when Clang preprocesses assembly.
+For C/C++ it maps Mesa's `secure_getenv` calls to the real target `getenv`
+because Nagi has no setuid-style secure-execution identity and environment
+values do not grant capabilities. It also disables Mesa's `memfd_create`,
+`dl_iterate_phdr`, `mincore`, and process-affinity paths because Nagi does not
+provide those APIs. Mesa's EGL pointer check and anonymous-file helper retain
+their upstream fallback paths. The Meson freestanding link probes permit unresolved symbols, so
+they cannot establish that a target declaration or implementation exists;
+this header keeps these target-only code paths aligned with Nagi's actual ABI.
 The tracked `nagi-headers/type_traits` header is intentionally limited to the
 `std::underlying_type_t` trait used by Mesa's selected enum-operator helpers;
 it does not claim to provide a general C++ standard library. The

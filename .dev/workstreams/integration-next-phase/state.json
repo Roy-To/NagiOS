@@ -27,11 +27,11 @@
       "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate sdk/rust/fixtures/manifests/{files,notes,search,activity}.json",
       "git diff --check; git diff --cached --check",
       "./tests/wayback/verify.sh",
-      "cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check",
-      "cargo test --locked -p nagi-localization",
-      "cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
-      "cargo run --locked -p nagi-localization --bin localization-check",
-      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "cargo fmt --manifest-path crates/nagi-i18n/Cargo.toml -- --check",
+      "cargo test --locked -p nagi-i18n",
+      "cargo clippy --locked -p nagi-i18n --all-targets -- -D warnings",
+      "cargo run --locked -p nagi-i18n --bin localization-check",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
       "cargo fmt --manifest-path user/nagi-posix/Cargo.toml -- --check",
       "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
       "cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
@@ -230,21 +230,21 @@
       },
       {
         "name": "Localization library and format/lint checks",
-        "command": "cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check; cargo test --locked -p nagi-localization; cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
+        "command": "cargo fmt --manifest-path crates/nagi-i18n/Cargo.toml -- --check; cargo test --locked -p nagi-i18n; cargo clippy --locked -p nagi-i18n --all-targets -- -D warnings",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Formatting and Clippy passed; all 26 localization unit tests passed."
       },
       {
         "name": "Localization catalog checker",
-        "command": "cargo run --locked -p nagi-localization --bin localization-check",
+        "command": "cargo run --locked -p nagi-i18n --bin localization-check",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The checker validated 2 first-class locales and 14 messages."
       },
       {
         "name": "Localization target compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The library compiles for the Nagi x86_64 user target; no runtime or QEMU result is claimed."

@@ -1,3 +1,5 @@
+use nagi_abi::BOOTSTRAP_USER_THREAD_COUNT;
+
 pub const BLOCKED: u32 = 0;
 pub const RUNNABLE: u32 = 1;
 pub const RUNNING: u32 = 2;
@@ -7,15 +9,619 @@ pub fn wake_transition(state: u32) -> Option<u32> {
     (state == BLOCKED).then_some(RUNNABLE)
 }
 
+/// Require both continuously runnable tasks to receive service with at most
+/// one dispatch of skew across the measured interval.
+pub fn scheduler_dispatch_counts_are_fair(task_zero: u32, task_one: u32) -> bool {
+    task_zero > 0 && task_one > 0 && task_zero.abs_diff(task_one) <= 1
+}
+
+const NO_THREAD: u8 = u8::MAX;
+
+/// Saved M3 self-test task frame: 15 general-purpose registers pushed by the
+/// timer stub, then the five words `iretq` always pops in 64-bit mode
+/// (RIP, CS, RFLAGS, RSP, SS).
+pub const M3_TASK_FRAME_WORDS: usize = 20;
+const FRAME_ARG_CPU: usize = 9;
+const FRAME_ARG_TASK: usize = 10;
+const FRAME_RIP: usize = 15;
+const FRAME_CS: usize = 16;
+const FRAME_RFLAGS: usize = 17;
+const FRAME_RSP: usize = 18;
+const FRAME_SS: usize = 19;
+
+/// Build the first `iretq` frame of an M3 self-test task. The frame must
+/// carry an explicit RSP and SS: `iretq` always pops them, and the task
+/// starts with interrupts enabled. A timer interrupt delivered before the
+/// entry function sets up its own stack would otherwise push onto whatever
+/// RSP the missing word contained. This was observed as RSP=0,
+/// CR2=0xffff_ffff_ffff_fff8 and a triple fault at the task entry.
+pub fn m3_initial_task_frame(
+    cpu: usize,
+    task: usize,
+    entry: u64,
+    code_selector: u16,
+    stack_selector: u16,
+    stack_top: u64,
+) -> [u64; M3_TASK_FRAME_WORDS] {
+    let mut frame = [0_u64; M3_TASK_FRAME_WORDS];
+    frame[FRAME_ARG_CPU] = cpu as u64;
+    frame[FRAME_ARG_TASK] = task as u64;
+    frame[FRAME_RIP] = entry;
+    frame[FRAME_CS] = u64::from(code_selector);
+    frame[FRAME_RFLAGS] = 0x202;
+    frame[FRAME_RSP] = stack_top;
+    frame[FRAME_SS] = u64::from(stack_selector);
+    frame
+}
+/// Kernel Process ID of the bootstrap `nagi-init` process (ADR 0043).
+pub const INIT_PROCESS_ID: u32 = 1;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UserThreadState {
+    Empty,
+    Runnable,
+    Running,
+    Sleeping { wake_at: u64 },
+    ChannelBlocked,
+    JoinBlocked { target: u8 },
+    Zombie { exit_code: u64 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ThreadSlot {
+    state: UserThreadState,
+    joiner: u8,
+    detached: bool,
+    owner: u32,
+}
+
+impl ThreadSlot {
+    const EMPTY: Self = Self {
+        state: UserThreadState::Empty,
+        joiner: NO_THREAD,
+        detached: false,
+        owner: INIT_PROCESS_ID,
+    };
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum JoinOutcome {
+    Completed(u64),
+    Blocked,
+    Invalid,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExitOutcome {
+    pub next_thread: Option<u8>,
+    pub woken_joiner: Option<(u8, u64)>,
+}
+
+/// Fixed-capacity cooperative scheduler for the one-process M17 bootstrap.
+///
+/// This state machine is deliberately independent of x86 syscall assembly so
+/// its transitions can be tested on the host. It does not provide preemption:
+/// callers change state only at an explicit Nagi syscall boundary.
+pub struct BootstrapUserThreads {
+    slots: [ThreadSlot; BOOTSTRAP_USER_THREAD_COUNT],
+    current: u8,
+    cursor: u8,
+}
+
+impl BootstrapUserThreads {
+    pub const fn new() -> Self {
+        let mut slots = [ThreadSlot::EMPTY; BOOTSTRAP_USER_THREAD_COUNT];
+        slots[0].state = UserThreadState::Running;
+        Self {
+            slots,
+            current: 0,
+            cursor: 0,
+        }
+    }
+
+    pub const fn current(&self) -> u8 {
+        self.current
+    }
+
+    pub fn state(&self, thread: u8) -> Option<UserThreadState> {
+        self.slots.get(thread as usize).map(|slot| slot.state)
+    }
+
+    /// Kernel Process ID that owns `thread`, or `None` for an empty or
+    /// out-of-range slot.
+    pub fn owner(&self, thread: u8) -> Option<u32> {
+        let slot = self.slots.get(thread as usize)?;
+        (slot.state != UserThreadState::Empty).then_some(slot.owner)
+    }
+
+    /// Kernel Process ID of the running thread.
+    pub fn current_owner(&self) -> u32 {
+        self.slots[self.current as usize].owner
+    }
+
+    /// Allocate a runnable thread in the calling thread's process.
+    pub fn allocate(&mut self) -> Option<u8> {
+        let owner = self.current_owner();
+        self.allocate_for_process(owner)
+    }
+
+    /// Allocate the first runnable thread of a newly spawned process. Thread
+    /// slot 0 always remains the bootstrap init thread.
+    pub fn allocate_for_process(&mut self, owner: u32) -> Option<u8> {
+        let id = (1..BOOTSTRAP_USER_THREAD_COUNT)
+            .find(|&id| self.slots[id].state == UserThreadState::Empty)?;
+        self.slots[id] = ThreadSlot {
+            state: UserThreadState::Runnable,
+            owner,
+            ..ThreadSlot::EMPTY
+        };
+        Some(id as u8)
+    }
+
+    /// Remove every thread owned by an exiting non-init process. If the
+    /// current thread belonged to it, select another runnable thread.
+    ///
+    /// Returns `None` when `owner` is init or owns no thread. Otherwise
+    /// returns the selected next thread, which may itself be `None` when no
+    /// other thread is runnable yet.
+    pub fn exit_process(&mut self, owner: u32, now: u64) -> Option<Option<u8>> {
+        if owner == INIT_PROCESS_ID {
+            return None;
+        }
+        let mut removed = false;
+        for slot in &mut self.slots {
+            if slot.state != UserThreadState::Empty && slot.owner == owner {
+                *slot = ThreadSlot::EMPTY;
+                removed = true;
+            }
+        }
+        if !removed {
+            return None;
+        }
+        // Joiners can only belong to the same process, so no surviving
+        // thread waits on a removed slot.
+        if self.slots[self.current as usize].state == UserThreadState::Empty {
+            return Some(self.select_runnable(now));
+        }
+        Some(Some(self.current))
+    }
+
+    pub fn discard_unstarted(&mut self, thread: u8) -> bool {
+        let Some(slot) = self.slots.get_mut(thread as usize) else {
+            return false;
+        };
+        if slot.state != UserThreadState::Runnable || slot.joiner != NO_THREAD {
+            return false;
+        }
+        *slot = ThreadSlot::EMPTY;
+        true
+    }
+
+    pub fn yield_current(&mut self, now: u64) -> Option<u8> {
+        let current = self.current as usize;
+        if self.slots[current].state != UserThreadState::Running {
+            return None;
+        }
+        self.slots[current].state = UserThreadState::Runnable;
+        self.select_runnable(now)
+    }
+
+    pub fn sleep_current(&mut self, wake_at: u64, now: u64) -> Option<u8> {
+        let current = self.current as usize;
+        if self.slots[current].state != UserThreadState::Running {
+            return None;
+        }
+        self.slots[current].state = UserThreadState::Sleeping { wake_at };
+        self.select_runnable(now)
+    }
+
+    /// Mark the current thread blocked on a kernel wait registration without
+    /// selecting another thread. The caller must finish publishing the wait
+    /// registration before it performs the context switch.
+    pub fn block_current_on_channel(&mut self) -> bool {
+        let current = self.current as usize;
+        if self.slots[current].state != UserThreadState::Running {
+            return false;
+        }
+        self.slots[current].state = UserThreadState::ChannelBlocked;
+        true
+    }
+
+    /// Wake a thread blocked on a Channel wait registration exactly once.
+    pub fn wake_channel_waiter(&mut self, thread: u8) -> bool {
+        let Some(slot) = self.slots.get_mut(thread as usize) else {
+            return false;
+        };
+        if slot.state != UserThreadState::ChannelBlocked {
+            return false;
+        }
+        slot.state = UserThreadState::Runnable;
+        true
+    }
+
+    /// Restore a wait-blocked current thread after the syscall discovers that
+    /// no other runnable or timed-sleeping thread can produce the event.
+    pub fn abort_current_channel_wait(&mut self) -> bool {
+        let current = self.current as usize;
+        if self.slots[current].state != UserThreadState::ChannelBlocked {
+            return false;
+        }
+        self.slots[current].state = UserThreadState::Running;
+        true
+    }
+
+    pub fn join_current(&mut self, target: u8, now: u64) -> JoinOutcome {
+        let caller = self.current;
+        if target == 0 || target == caller || target as usize >= BOOTSTRAP_USER_THREAD_COUNT {
+            return JoinOutcome::Invalid;
+        }
+
+        let target_index = target as usize;
+        if self.slots[target_index].owner != self.slots[caller as usize].owner {
+            return JoinOutcome::Invalid;
+        }
+        let target_state = self.slots[target_index].state;
+        let target_detached = self.slots[target_index].detached;
+        let target_joiner = self.slots[target_index].joiner;
+        match target_state {
+            UserThreadState::Empty => return JoinOutcome::Invalid,
+            UserThreadState::Zombie { exit_code } => {
+                if target_detached || target_joiner != NO_THREAD {
+                    return JoinOutcome::Invalid;
+                }
+                self.slots[target_index] = ThreadSlot::EMPTY;
+                return JoinOutcome::Completed(exit_code);
+            }
+            _ if target_detached || target_joiner != NO_THREAD => {
+                return JoinOutcome::Invalid;
+            }
+            _ => {}
+        }
+
+        if self.slots[caller as usize].state != UserThreadState::Running {
+            return JoinOutcome::Invalid;
+        }
+        self.slots[target_index].joiner = caller;
+        self.slots[caller as usize].state = UserThreadState::JoinBlocked { target };
+        let _ = self.select_runnable(now);
+        JoinOutcome::Blocked
+    }
+
+    /// Abort a join that cannot make progress because no thread is runnable
+    /// and no sleeping thread has a deadline. The syscall reports EAGAIN.
+    pub fn abort_blocked_join(&mut self) -> Option<u8> {
+        let current = self.current;
+        let UserThreadState::JoinBlocked { target } = self.slots[current as usize].state else {
+            return None;
+        };
+        let target_slot = &mut self.slots[target as usize];
+        if target_slot.joiner == current {
+            target_slot.joiner = NO_THREAD;
+        }
+        self.slots[current as usize].state = UserThreadState::Running;
+        Some(current)
+    }
+
+    pub fn detach(&mut self, target: u8) -> bool {
+        if target == 0 || target as usize >= BOOTSTRAP_USER_THREAD_COUNT {
+            return false;
+        }
+        let caller_owner = self.current_owner();
+        let slot = &mut self.slots[target as usize];
+        if slot.state == UserThreadState::Empty
+            || slot.joiner != NO_THREAD
+            || slot.owner != caller_owner
+        {
+            return false;
+        }
+        if matches!(slot.state, UserThreadState::Zombie { .. }) {
+            *slot = ThreadSlot::EMPTY;
+        } else {
+            slot.detached = true;
+        }
+        true
+    }
+
+    pub fn exit_current(&mut self, exit_code: u64, now: u64) -> Option<ExitOutcome> {
+        let current = self.current;
+        if current == 0 || self.slots[current as usize].state != UserThreadState::Running {
+            return None;
+        }
+
+        let current_slot = &mut self.slots[current as usize];
+        let joiner = current_slot.joiner;
+        let detached = current_slot.detached;
+        if joiner != NO_THREAD {
+            *current_slot = ThreadSlot::EMPTY;
+            let joiner_slot = &mut self.slots[joiner as usize];
+            if matches!(joiner_slot.state, UserThreadState::JoinBlocked { target } if target == current)
+            {
+                joiner_slot.state = UserThreadState::Runnable;
+            }
+        } else if detached {
+            *current_slot = ThreadSlot::EMPTY;
+        } else {
+            current_slot.state = UserThreadState::Zombie { exit_code };
+        }
+
+        // Give a blocked joiner the first opportunity to reap the exited
+        // child's user-space stack before making that thread ID reusable by
+        // another runnable thread.
+        let preferred = (joiner != NO_THREAD).then_some(joiner);
+        let next_thread = self.select_runnable_prefer(now, preferred);
+        Some(ExitOutcome {
+            next_thread,
+            woken_joiner: (joiner != NO_THREAD).then_some((joiner, exit_code)),
+        })
+    }
+
+    pub fn wake_expired(&mut self, now: u64) {
+        for slot in &mut self.slots {
+            if matches!(slot.state, UserThreadState::Sleeping { wake_at } if wake_at <= now) {
+                slot.state = UserThreadState::Runnable;
+            }
+        }
+    }
+
+    pub fn select_runnable(&mut self, now: u64) -> Option<u8> {
+        self.select_runnable_prefer(now, None)
+    }
+
+    fn select_runnable_prefer(&mut self, now: u64, preferred: Option<u8>) -> Option<u8> {
+        self.wake_expired(now);
+        if let Some(thread) = preferred {
+            let index = thread as usize;
+            if self.slots.get(index)?.state == UserThreadState::Runnable {
+                self.slots[index].state = UserThreadState::Running;
+                self.current = thread;
+                self.cursor = thread;
+                return Some(thread);
+            }
+        }
+        for offset in 1..=BOOTSTRAP_USER_THREAD_COUNT {
+            let id = (self.cursor as usize + offset) % BOOTSTRAP_USER_THREAD_COUNT;
+            if self.slots[id].state == UserThreadState::Runnable {
+                self.slots[id].state = UserThreadState::Running;
+                self.current = id as u8;
+                self.cursor = id as u8;
+                return Some(id as u8);
+            }
+        }
+        None
+    }
+
+    pub fn ticks_until_wake(&self, now: u64) -> Option<u64> {
+        self.slots
+            .iter()
+            .filter_map(|slot| match slot.state {
+                UserThreadState::Sleeping { wake_at } => Some(wake_at.saturating_sub(now)),
+                _ => None,
+            })
+            .min()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{wake_transition, BLOCKED, DONE, RUNNABLE, RUNNING};
+    use super::{
+        wake_transition, BootstrapUserThreads, JoinOutcome, UserThreadState, BLOCKED,
+        BOOTSTRAP_USER_THREAD_COUNT, DONE, RUNNABLE, RUNNING,
+    };
 
     #[test]
-    fn only_blocked_threads_can_be_woken() {
+    fn kernel_task_wake_transition_only_wakes_blocked_tasks() {
         assert_eq!(wake_transition(BLOCKED), Some(RUNNABLE));
         assert_eq!(wake_transition(RUNNABLE), None);
         assert_eq!(wake_transition(RUNNING), None);
         assert_eq!(wake_transition(DONE), None);
+    }
+
+    #[test]
+    fn scheduler_dispatch_fairness_rejects_starvation_and_excess_skew() {
+        assert!(super::scheduler_dispatch_counts_are_fair(8, 8));
+        assert!(super::scheduler_dispatch_counts_are_fair(8, 9));
+        assert!(super::scheduler_dispatch_counts_are_fair(9, 8));
+        assert!(!super::scheduler_dispatch_counts_are_fair(8, 10));
+        assert!(!super::scheduler_dispatch_counts_are_fair(0, 8));
+        assert!(!super::scheduler_dispatch_counts_are_fair(8, 0));
+    }
+
+    #[test]
+    fn allocation_is_bounded_and_reuses_released_slots() {
+        let mut threads = BootstrapUserThreads::new();
+        let mut ids = [0_u8; BOOTSTRAP_USER_THREAD_COUNT - 1];
+        for id in &mut ids {
+            *id = threads.allocate().unwrap();
+        }
+        assert_eq!(ids, core::array::from_fn(|index| index as u8 + 1));
+        assert_eq!(threads.allocate(), None);
+        assert!(threads.discard_unstarted(5));
+        assert_eq!(threads.allocate(), Some(5));
+    }
+
+    #[test]
+    fn yield_switches_round_robin_and_returns_to_the_initial_thread() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert_eq!(threads.allocate(), Some(2));
+        assert_eq!(threads.yield_current(0), Some(1));
+        assert_eq!(threads.yield_current(0), Some(2));
+        assert_eq!(threads.yield_current(0), Some(0));
+    }
+
+    #[test]
+    fn yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable() {
+        const SCHEDULER_TURNS: usize = 131_072;
+
+        let mut threads = BootstrapUserThreads::new();
+        for expected in 1..BOOTSTRAP_USER_THREAD_COUNT {
+            assert_eq!(threads.allocate(), Some(expected as u8));
+        }
+
+        let mut dispatches = [0_usize; BOOTSTRAP_USER_THREAD_COUNT];
+        for _ in 0..SCHEDULER_TURNS {
+            let current = threads.current();
+            assert_eq!(
+                threads.state(current),
+                Some(UserThreadState::Running),
+                "the selected thread must own the running state"
+            );
+            dispatches[current as usize] += 1;
+            assert!(
+                threads.yield_current(0).is_some(),
+                "every runnable thread must yield to another runnable thread"
+            );
+        }
+
+        let least_service = *dispatches.iter().min().unwrap();
+        let most_service = *dispatches.iter().max().unwrap();
+        assert!(
+            least_service > 0,
+            "every continuously runnable thread must receive service: {dispatches:?}"
+        );
+        assert!(
+            most_service - least_service <= 1,
+            "round-robin service skew exceeded one dispatch: {dispatches:?}"
+        );
+    }
+
+    #[test]
+    fn sleeping_thread_wakes_at_its_guest_deadline() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert_eq!(threads.yield_current(0), Some(1));
+        assert_eq!(threads.sleep_current(10, 1), Some(0));
+        assert_eq!(threads.ticks_until_wake(3), Some(7));
+        assert_eq!(threads.yield_current(9), Some(0));
+        assert_eq!(threads.yield_current(10), Some(1));
+        assert_eq!(threads.state(1), Some(UserThreadState::Running));
+    }
+
+    #[test]
+    fn channel_wait_blocks_and_wakes_only_the_registered_thread() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert!(threads.block_current_on_channel());
+        assert_eq!(threads.state(0), Some(UserThreadState::ChannelBlocked));
+        assert!(threads.wake_channel_waiter(0));
+        assert!(!threads.wake_channel_waiter(0));
+        assert_eq!(threads.state(0), Some(UserThreadState::Runnable));
+        assert!(!threads.wake_channel_waiter(1));
+        assert_eq!(threads.select_runnable(0), Some(1));
+        assert_eq!(threads.select_runnable(0), Some(0));
+        assert_eq!(threads.state(0), Some(UserThreadState::Running));
+    }
+
+    #[test]
+    fn an_unproductive_channel_wait_can_be_aborted_without_stranding_current() {
+        let mut threads = BootstrapUserThreads::new();
+        assert!(threads.block_current_on_channel());
+        assert_eq!(threads.select_runnable(0), None);
+        assert!(threads.abort_current_channel_wait());
+        assert_eq!(threads.state(0), Some(UserThreadState::Running));
+        assert!(!threads.abort_current_channel_wait());
+    }
+
+    #[test]
+    fn join_blocks_then_receives_exit_value_and_releases_target() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert_eq!(threads.join_current(1, 0), JoinOutcome::Blocked);
+        assert_eq!(threads.current(), 1);
+        let outcome = threads.exit_current(0xfeed, 0).unwrap();
+        assert_eq!(outcome.next_thread, Some(0));
+        assert_eq!(outcome.woken_joiner, Some((0, 0xfeed)));
+        assert_eq!(threads.state(1), Some(UserThreadState::Empty));
+    }
+
+    #[test]
+    fn joiner_runs_before_other_runnable_threads_can_reuse_the_child_id() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert_eq!(threads.allocate(), Some(2));
+        assert_eq!(threads.join_current(1, 0), JoinOutcome::Blocked);
+        assert_eq!(threads.current(), 1);
+
+        let outcome = threads.exit_current(0xfeed, 0).unwrap();
+
+        assert_eq!(outcome.next_thread, Some(0));
+        assert_eq!(threads.current(), 0);
+        assert_eq!(threads.state(2), Some(UserThreadState::Runnable));
+        assert_eq!(threads.state(1), Some(UserThreadState::Empty));
+    }
+
+    #[test]
+    fn join_can_reap_a_completed_thread_exactly_once() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert_eq!(threads.yield_current(0), Some(1));
+        let outcome = threads.exit_current(u64::MAX, 0).unwrap();
+        assert_eq!(outcome.next_thread, Some(0));
+        assert_eq!(threads.join_current(1, 0), JoinOutcome::Completed(u64::MAX));
+        assert_eq!(threads.join_current(1, 0), JoinOutcome::Invalid);
+    }
+
+    #[test]
+    fn detached_threads_release_on_exit_and_cannot_be_joined() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert!(threads.detach(1));
+        assert_eq!(threads.join_current(1, 0), JoinOutcome::Invalid);
+        assert_eq!(threads.yield_current(0), Some(1));
+        assert_eq!(threads.exit_current(0, 0).unwrap().next_thread, Some(0));
+        assert_eq!(threads.state(1), Some(UserThreadState::Empty));
+    }
+
+    #[test]
+    fn a_target_cannot_be_claimed_by_a_second_joiner() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.allocate(), Some(1));
+        assert_eq!(threads.allocate(), Some(2));
+        assert_eq!(threads.join_current(1, 0), JoinOutcome::Blocked);
+        assert_eq!(threads.current(), 1);
+        assert_eq!(threads.join_current(2, 0), JoinOutcome::Blocked);
+        assert_eq!(threads.current(), 2);
+        assert_eq!(threads.join_current(1, 0), JoinOutcome::Invalid);
+        assert_eq!(threads.state(2), Some(UserThreadState::Running));
+    }
+
+    #[test]
+    fn spawned_process_threads_are_owned_and_isolated_from_init_join_and_detach() {
+        let mut threads = BootstrapUserThreads::new();
+        assert_eq!(threads.current_owner(), super::INIT_PROCESS_ID);
+        let child = threads.allocate_for_process(2).expect("child thread");
+        assert_eq!(threads.owner(child), Some(2));
+        assert_eq!(threads.join_current(child, 0), JoinOutcome::Invalid);
+        assert!(!threads.detach(child));
+        let init_thread = threads.allocate().expect("init thread");
+        assert_eq!(threads.owner(init_thread), Some(super::INIT_PROCESS_ID));
+        assert!(threads.detach(init_thread));
+    }
+
+    #[test]
+    fn exiting_spawned_process_removes_only_its_threads_and_selects_init() {
+        let mut threads = BootstrapUserThreads::new();
+        let child = threads.allocate_for_process(2).expect("child thread");
+        assert_eq!(threads.exit_process(super::INIT_PROCESS_ID, 0), None);
+        assert_eq!(threads.yield_current(0), Some(child));
+        assert_eq!(threads.current_owner(), 2);
+        assert_eq!(threads.exit_process(2, 0), Some(Some(0)));
+        assert_eq!(threads.state(child), Some(UserThreadState::Empty));
+        assert_eq!(threads.owner(child), None);
+        assert_eq!(threads.current_owner(), super::INIT_PROCESS_ID);
+        assert_eq!(threads.exit_process(2, 0), None);
+    }
+
+    #[test]
+    fn m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout() {
+        assert_eq!(super::M3_TASK_FRAME_WORDS, 15 + 5);
+        let frame = super::m3_initial_task_frame(2, 1, 0x4000_1000, 0x38, 0x30, 0x7000_fff8);
+        assert_eq!(frame[9], 2, "rdi carries the CPU index");
+        assert_eq!(frame[10], 1, "rsi carries the task index");
+        assert_eq!(frame[15], 0x4000_1000);
+        assert_eq!(frame[16], 0x38);
+        assert_eq!(frame[17], 0x202);
+        assert_eq!(frame[18], 0x7000_fff8, "iretq must load a real stack");
+        assert_eq!(frame[19], 0x30);
     }
 }

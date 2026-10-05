@@ -1,0 +1,73 @@
+diff --git a/components/servo/servo.rs b/components/servo/servo.rs
+index 74af912..5e157bc 100644
+--- a/components/servo/servo.rs
++++ b/components/servo/servo.rs
+@@ -10,0 +11,17 @@ use std::time::Duration;
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m17_trace(stage: &str) {
++    #[expect(unsafe_code)]
++    unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+@@ -919,0 +937 @@ impl Servo {
++        nagi_m17_trace("Servo::new entered");
+@@ -922,0 +941 @@ impl Servo {
++        nagi_m17_trace("Servo::new options initialized");
+@@ -942,0 +962 @@ impl Servo {
++            nagi_m17_trace("Servo::new media init started");
+@@ -943,0 +964 @@ impl Servo {
++            nagi_m17_trace("Servo::new media init completed");
+@@ -952,0 +974 @@ impl Servo {
++        nagi_m17_trace("Servo::new channel setup started");
+@@ -960,0 +983,2 @@ impl Servo {
++        nagi_m17_trace("Servo::new channel setup completed");
++        nagi_m17_trace("Servo::new time profiler started");
+@@ -964,0 +989,2 @@ impl Servo {
++        nagi_m17_trace("Servo::new time profiler completed");
++        nagi_m17_trace("Servo::new memory profiler started");
+@@ -965,0 +992 @@ impl Servo {
++        nagi_m17_trace("Servo::new memory profiler completed");
+@@ -977,0 +1005 @@ impl Servo {
++        nagi_m17_trace("Servo::new JS engine setup started");
+@@ -982,0 +1011 @@ impl Servo {
++        nagi_m17_trace("Servo::new JS engine setup completed");
+@@ -991,0 +1021 @@ impl Servo {
++        nagi_m17_trace("Servo::new paint creation started");
+@@ -1000,0 +1031 @@ impl Servo {
++        nagi_m17_trace("Servo::new paint creation completed");
+@@ -1002,0 +1034 @@ impl Servo {
++        nagi_m17_trace("Servo::new resource threads started");
+@@ -1013,0 +1046 @@ impl Servo {
++        nagi_m17_trace("Servo::new resource threads completed");
+@@ -1014,0 +1048 @@ impl Servo {
++        nagi_m17_trace("Servo::new storage threads started");
+@@ -1019,0 +1054 @@ impl Servo {
++        nagi_m17_trace("Servo::new storage threads completed");
+@@ -1020,0 +1056 @@ impl Servo {
++        nagi_m17_trace("Servo::new constellation started");
+@@ -1036,0 +1073 @@ impl Servo {
++        nagi_m17_trace("Servo::new constellation completed");
+@@ -1037,0 +1075 @@ impl Servo {
++        nagi_m17_trace("Servo::new TLS prewarm started");
+@@ -1038,0 +1077 @@ impl Servo {
++        nagi_m17_trace("Servo::new TLS prewarm completed");
+@@ -1045 +1084,2 @@ impl Servo {
+-        Servo(Rc::new(ServoInner {
++        nagi_m17_trace("Servo::new inner allocation started");
++        let servo = Servo(Rc::new(ServoInner {
+@@ -1071 +1111,3 @@ impl Servo {
+-        }))
++        }));
++        nagi_m17_trace("Servo::new completed");
++        servo

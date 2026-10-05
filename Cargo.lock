@@ -2740,8 +2740,6 @@ dependencies = [
 [[package]]
 name = "inventory"
 version = "0.3.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b"
 dependencies = [
  "rustversion",
 ]
@@ -3000,6 +2998,7 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "nagi-abi",
+ "nagi-model",
 ]
 
 [[package]]
@@ -3400,6 +3399,24 @@ name = "nagi-abi"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-action-ipc"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+]
+
+[[package]]
+name = "nagi-ai"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "nagi-model-manager",
+ "nagi-search",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-albert"
 version = "0.1.0"
 dependencies = [
@@ -3407,6 +3424,7 @@ dependencies = [
  "freetype-sys",
  "ipc-channel",
  "libnagi",
+ "nagi-localization",
  "nagi-servo-adapter",
  "servo",
  "url",
@@ -3427,6 +3445,7 @@ version = "0.1.0"
 name = "nagi-cli"
 version = "0.1.0"
 dependencies = [
+ "nagi-model-manager",
  "serde",
  "serde_json",
  "sha2",
@@ -3437,6 +3456,15 @@ name = "nagi-history"
 version = "0.1.0"
 dependencies = [
  "nagi-model",
+ "sha2",
+]
+
+[[package]]
+name = "nagi-i18n"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3448,16 +3476,32 @@ name = "nagi-init"
 version = "0.1.0"
 dependencies = [
  "libnagi",
+ "nagi-action-ipc",
+ "nagi-ai",
  "nagi-albert",
  "nagi-audio",
  "nagi-history",
+ "nagi-localization",
+ "nagi-model",
+ "nagi-model-manager",
  "nagi-net",
  "nagi-package",
  "nagi-pal",
  "nagi-posix",
  "nagi-sdk",
+ "nagi-search",
+ "nagi-search-ipc",
  "nagi-ui",
  "relibc",
+]
+
+[[package]]
+name = "nagi-isolated-app"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+ "nagi-action-ipc",
+ "nagi-search-ipc",
 ]
 
 [[package]]
@@ -3471,10 +3515,6 @@ dependencies = [
 [[package]]
 name = "nagi-localization"
 version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "nagi-model"
@@ -3487,6 +3527,7 @@ dependencies = [
  "nagi-model",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -3528,6 +3569,20 @@ name = "nagi-sdk"
 version = "0.1.0"
 dependencies = [
  "nagi-model",
+]
+
+[[package]]
+name = "nagi-search"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+]
+
+[[package]]
+name = "nagi-search-ipc"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
 ]
 
 [[package]]

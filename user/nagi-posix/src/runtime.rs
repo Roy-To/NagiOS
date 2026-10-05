@@ -1,14 +1,17 @@
+use crate::net::{socket_is_nonblocking, socket_status_flags, O_NONBLOCK};
+use crate::readonly_callback_file::{CallbackFileError, ReadAtCallback, ReadOnlyCallbackFile};
+#[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 use libnagi::storage::{
     DirectoryEntry, FileHandle, FileMetadata, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
-    MAX_DIRECTORY_ENTRIES,
+    MAX_DIRECTORY_ENTRIES, MAX_PATH_LENGTH,
 };
-use nagi_net::{Ipv4Address, NetError, SocketApi, SyscallDevice};
-use nagi_pal::sync::SpinMutex;
+use nagi_net::{Ipv4Address, NetError, SocketApi, SyscallDevice, TcpConnectionId};
+use nagi_pal::sync::{SpinGuard, SpinMutex};
 use nagi_pal::time::{Clock, GuestClock};
 
 const PIPE_CAPACITY: usize = 4096;
-const O_NONBLOCK: i32 = 0x0004_0000;
 const O_CLOEXEC: i32 = 0x0100_0000;
 const F_GETFD: i32 = 1;
 const F_SETFD: i32 = 2;
@@ -19,16 +22,24 @@ const POLLIN: i16 = 0x0001;
 const POLLOUT: i16 = 0x0004;
 const POLLERR: i16 = 0x0008;
 const POLLHUP: i16 = 0x0010;
+#[cfg(feature = "browser-storage")]
+const SERVO_TEMP_DIRECTORY_ENTRIES: usize = 32;
+#[cfg(feature = "browser-storage")]
+const SERVO_TEMP_DIRECTORY_MAX_DEPTH: usize = 8;
 
 #[derive(Clone, Copy)]
 enum FdEntry {
+    Random,
     File {
         handle: FileHandle,
         offset: usize,
     },
     Socket {
         connected: bool,
+        tcp_connection: Option<TcpConnectionId>,
         peer: Option<(Ipv4Address, u16)>,
+        last_error: i32,
+        nonblocking: bool,
         read_shutdown: bool,
         write_shutdown: bool,
         nagle_enabled: bool,
@@ -42,6 +53,7 @@ enum FdEntry {
         pipe: usize,
         nonblocking: bool,
     },
+    CallbackFile(ReadOnlyCallbackFile),
 }
 
 #[derive(Clone, Copy)]
@@ -69,18 +81,102 @@ static FILESYSTEM: SpinMutex<Option<Vfs<SyscallBlockDevice>>> = SpinMutex::new(N
 static FILE_DESCRIPTORS: SpinMutex<[Option<FdEntry>; 32]> = SpinMutex::new([None; 32]);
 static PIPES: SpinMutex<[Option<Pipe>; 8]> = SpinMutex::new([None; 8]);
 static NETWORK: SpinMutex<Option<SocketApi<SyscallDevice>>> = SpinMutex::new(None);
+#[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+static M18_NETWORK_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+static M18_TCP_CONNECT_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+static M18_DNS_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+static M18_NETWORK_LOCK_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[inline]
+fn trace_m18_network_lock(message: &[u8]) {
+    #[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+    if M18_NETWORK_LOCK_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) < 8 {
+        let _ = libnagi::console_write(message);
+    }
+    #[cfg(not(all(feature = "browser-storage", target_os = "nagi")))]
+    let _ = message;
+}
+
+fn network_lock() -> SpinGuard<'static, Option<SocketApi<SyscallDevice>>> {
+    #[cfg(feature = "browser-storage")]
+    let mut yielded_for_lock = false;
+    #[cfg(feature = "browser-storage")]
+    loop {
+        if let Some(guard) = NETWORK.try_lock() {
+            if yielded_for_lock {
+                trace_m18_network_lock(b"Nagi M18 network lock acquired after yield\r\n");
+            }
+            return guard;
+        }
+        if !yielded_for_lock {
+            trace_m18_network_lock(b"Nagi M18 network lock contention; yielding\r\n");
+            yielded_for_lock = true;
+        }
+        #[cfg(target_os = "nagi")]
+        {
+            let _ = libnagi::thread_yield();
+        }
+        #[cfg(not(target_os = "nagi"))]
+        core::hint::spin_loop();
+    }
+
+    #[cfg(not(feature = "browser-storage"))]
+    NETWORK.lock()
+}
+
+#[inline]
+pub(crate) fn trace_m18_network(message: &[u8]) {
+    #[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+    if M18_NETWORK_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) < 64 {
+        let _ = libnagi::console_write(message);
+    }
+    #[cfg(not(all(feature = "browser-storage", target_os = "nagi")))]
+    let _ = message;
+}
+
+#[inline]
+fn trace_m18_tcp_connect(message: &[u8]) {
+    #[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+    if M18_TCP_CONNECT_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) < 16 {
+        let _ = libnagi::console_write(message);
+    }
+    #[cfg(not(all(feature = "browser-storage", target_os = "nagi")))]
+    let _ = message;
+}
+
+#[inline]
+fn trace_m18_dns(message: &[u8]) {
+    #[cfg(all(feature = "browser-storage", target_os = "nagi"))]
+    if M18_DNS_TRACE_COUNT.fetch_add(1, Ordering::Relaxed) < 16 {
+        let _ = libnagi::console_write(message);
+    }
+    #[cfg(not(all(feature = "browser-storage", target_os = "nagi")))]
+    let _ = message;
+}
+
+#[cfg(feature = "browser-storage")]
+const BROWSER_STORAGE_FILE: &[u8] = b".nagi-browser-state";
+#[cfg(feature = "browser-storage")]
+const BROWSER_STORAGE_PENDING_FILE: &[u8] = b".nagi-browser-pending";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeError {
     NotInitialized,
     InvalidFd,
+    InvalidArgument,
     Storage(StorageError),
     Network(NetError),
+    EntropyUnavailable,
     NotConnected,
     Shutdown,
     WouldBlock,
     BrokenPipe,
     Unsupported,
+    ReadOnly,
+    CallbackReadFailed,
 }
 
 pub fn initialize(capability: u64) -> bool {
@@ -91,8 +187,73 @@ pub fn initialize(capability: u64) -> bool {
     true
 }
 
+/// Read the browser's single versioned snapshot through the initialized guest
+/// VFS. The service owns both storage names, so callers never supply paths.
+#[cfg(feature = "browser-storage")]
+pub fn browser_storage_read(output: &mut [u8]) -> Result<Option<usize>, RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    let handle = match volume.open(BROWSER_STORAGE_FILE) {
+        Ok(handle) => handle,
+        Err(StorageError::NotFound) => return Ok(None),
+        Err(error) => return Err(RuntimeError::Storage(error)),
+    };
+    let metadata = volume.metadata(handle).map_err(RuntimeError::Storage)?;
+    let length =
+        usize::try_from(metadata.size).map_err(|_| RuntimeError::Storage(StorageError::Corrupt))?;
+    if length > output.len() || length > BLOCK_SIZE {
+        return Err(RuntimeError::Storage(StorageError::FileTooLarge));
+    }
+    if length == 0 {
+        return Err(RuntimeError::Storage(StorageError::Corrupt));
+    }
+    let read = volume
+        .read(handle, &mut output[..length])
+        .map_err(RuntimeError::Storage)?;
+    if read != length {
+        return Err(RuntimeError::Storage(StorageError::Corrupt));
+    }
+    Ok(Some(length))
+}
+
+/// Commit one bounded browser snapshot. The pending inode is flushed before a
+/// single root-directory update makes it active; the old snapshot remains
+/// reachable if preparing the new file fails.
+#[cfg(feature = "browser-storage")]
+pub fn browser_storage_write(bytes: &[u8]) -> Result<(), RuntimeError> {
+    if bytes.len() > BLOCK_SIZE {
+        return Err(RuntimeError::Storage(StorageError::FileTooLarge));
+    }
+
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    match volume.remove(BROWSER_STORAGE_PENDING_FILE) {
+        Ok(()) | Err(StorageError::NotFound) => {}
+        Err(error) => return Err(RuntimeError::Storage(error)),
+    }
+    let pending = volume
+        .create(BROWSER_STORAGE_PENDING_FILE)
+        .map_err(RuntimeError::Storage)?;
+    if let Err(error) = volume.write(pending, bytes) {
+        let _ = volume.remove(BROWSER_STORAGE_PENDING_FILE);
+        return Err(RuntimeError::Storage(error));
+    }
+    volume.flush().map_err(RuntimeError::Storage)?;
+
+    match volume.open(BROWSER_STORAGE_FILE) {
+        Ok(_) => volume
+            .replace(BROWSER_STORAGE_PENDING_FILE, BROWSER_STORAGE_FILE)
+            .map_err(RuntimeError::Storage)?,
+        Err(StorageError::NotFound) => volume
+            .rename(BROWSER_STORAGE_PENDING_FILE, BROWSER_STORAGE_FILE)
+            .map_err(RuntimeError::Storage)?,
+        Err(error) => return Err(RuntimeError::Storage(error)),
+    };
+    volume.flush().map_err(RuntimeError::Storage)
+}
+
 pub fn initialize_network(capability: u64) -> bool {
-    let mut network = NETWORK.lock();
+    let mut network = network_lock();
     if network.is_some() {
         return false;
     }
@@ -100,18 +261,165 @@ pub fn initialize_network(capability: u64) -> bool {
     true
 }
 
+/// Remove only stale `tempfile::tempdir()` trees left under `/tmp` by an
+/// earlier Servo process exit. The pinned target tempfile backend uses the
+/// exact `.tmp` plus six alphanumeric characters naming scheme. Servo's
+/// storage threads use these trees as temporary storage, so they must not
+/// accumulate on the small persistent VFS after a process exits without
+/// running Rust destructors.
+#[cfg(feature = "browser-storage")]
+pub fn cleanup_m18_servo_temp_directories() -> Result<usize, RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    let mut entries = [DirectoryEntry::empty(); SERVO_TEMP_DIRECTORY_ENTRIES];
+    let count = volume
+        .list_directory_path(b"/tmp", &mut entries)
+        .map_err(RuntimeError::Storage)?;
+    let mut candidates = [([0; MAX_PATH_LENGTH], 0); SERVO_TEMP_DIRECTORY_ENTRIES];
+    let mut candidate_count = 0;
+    for entry in entries.iter().take(count) {
+        if !crate::fs::is_servo_tempdir_name(entry.name()) {
+            continue;
+        }
+        if entry.file_type != 2 {
+            return Err(RuntimeError::Storage(StorageError::NotDirectory));
+        }
+        let (path, length) =
+            append_child_path(b"/tmp", entry.name()).map_err(RuntimeError::Storage)?;
+        if !is_servo_temp_layout(volume, &path[..length]).map_err(RuntimeError::Storage)? {
+            continue;
+        }
+        candidates[candidate_count] = (path, length);
+        candidate_count += 1;
+    }
+
+    // Validate every candidate before removing anything, so an unexpected
+    // VFS shape cannot leave only part of the old temporary storage pruned.
+    for (path, length) in candidates.iter().take(candidate_count) {
+        remove_temporary_tree(volume, &path[..*length], 0).map_err(RuntimeError::Storage)?;
+        volume
+            .rmdir_path(&path[..*length])
+            .map_err(RuntimeError::Storage)?;
+    }
+    Ok(candidate_count)
+}
+
+#[cfg(feature = "browser-storage")]
+fn is_servo_temp_layout<D: libnagi::storage::BlockDevice>(
+    volume: &mut Vfs<D>,
+    path: &[u8],
+) -> Result<bool, StorageError> {
+    let mut root_entries = [DirectoryEntry::empty(); 2];
+    let root_count = volume.list_directory_path(path, &mut root_entries)?;
+    if root_count != 1
+        || root_entries[0].file_type != 2
+        || !matches!(root_entries[0].name(), b"clientstorage" | b"cachestorage")
+    {
+        return Ok(false);
+    }
+
+    let (storage_path, storage_path_length) = append_child_path(path, root_entries[0].name())?;
+    let mut storage_entries = [DirectoryEntry::empty(); 2];
+    let storage_count =
+        volume.list_directory_path(&storage_path[..storage_path_length], &mut storage_entries)?;
+    if storage_count != 1
+        || storage_entries[0].file_type != 2
+        || storage_entries[0].name() != b"default_v1"
+    {
+        return Ok(false);
+    }
+    let (profile_path, profile_path_length) = append_child_path(
+        &storage_path[..storage_path_length],
+        storage_entries[0].name(),
+    )?;
+    validate_temporary_tree(volume, &profile_path[..profile_path_length], 0)?;
+    Ok(true)
+}
+
+#[cfg(feature = "browser-storage")]
+fn validate_temporary_tree<D: libnagi::storage::BlockDevice>(
+    volume: &mut Vfs<D>,
+    path: &[u8],
+    depth: usize,
+) -> Result<(), StorageError> {
+    if depth >= SERVO_TEMP_DIRECTORY_MAX_DEPTH {
+        return Err(StorageError::Corrupt);
+    }
+    let mut entries = [DirectoryEntry::empty(); SERVO_TEMP_DIRECTORY_ENTRIES];
+    let count = volume.list_directory_path(path, &mut entries)?;
+    for entry in entries.iter().take(count) {
+        match entry.file_type {
+            1 => {}
+            2 => {
+                let (child_path, length) = append_child_path(path, entry.name())?;
+                validate_temporary_tree(volume, &child_path[..length], depth + 1)?;
+            }
+            _ => return Err(StorageError::InvalidHandle),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "browser-storage")]
+fn remove_temporary_tree<D: libnagi::storage::BlockDevice>(
+    volume: &mut Vfs<D>,
+    path: &[u8],
+    depth: usize,
+) -> Result<(), StorageError> {
+    if depth >= SERVO_TEMP_DIRECTORY_MAX_DEPTH {
+        return Err(StorageError::Corrupt);
+    }
+    let mut entries = [DirectoryEntry::empty(); SERVO_TEMP_DIRECTORY_ENTRIES];
+    let count = volume.list_directory_path(path, &mut entries)?;
+    for entry in entries.iter().take(count) {
+        let (child_path, length) = append_child_path(path, entry.name())?;
+        match entry.file_type {
+            1 => volume.remove_path(&child_path[..length])?,
+            2 => {
+                remove_temporary_tree(volume, &child_path[..length], depth + 1)?;
+                volume.rmdir_path(&child_path[..length])?;
+            }
+            _ => return Err(StorageError::InvalidHandle),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "browser-storage")]
+fn append_child_path(
+    parent: &[u8],
+    name: &[u8],
+) -> Result<([u8; MAX_PATH_LENGTH], usize), StorageError> {
+    let length = parent
+        .len()
+        .checked_add(1)
+        .and_then(|length| length.checked_add(name.len()))
+        .filter(|length| *length < MAX_PATH_LENGTH)
+        .ok_or(StorageError::NameTooLong)?;
+    let mut path = [0; MAX_PATH_LENGTH];
+    path[..parent.len()].copy_from_slice(parent);
+    path[parent.len()] = b'/';
+    path[parent.len() + 1..length].copy_from_slice(name);
+    Ok((path, length))
+}
+
 pub fn resolve_ipv4(name: &str) -> Result<Ipv4Address, RuntimeError> {
-    NETWORK
-        .lock()
-        .as_mut()
-        .ok_or(RuntimeError::NotInitialized)?
-        .resolve_ipv4(name)
-        .map_err(RuntimeError::Network)
+    trace_m18_dns(b"Nagi M18 network DNS waiting for lock\r\n");
+    let mut network = network_lock();
+    trace_m18_dns(b"Nagi M18 network DNS lock acquired\r\n");
+    let network = network.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    trace_m18_dns(b"Nagi M18 network DNS lookup started\r\n");
+    let result = network.resolve_ipv4(name);
+    trace_m18_dns(if result.is_ok() {
+        b"Nagi M18 network DNS lookup completed\r\n"
+    } else {
+        b"Nagi M18 network DNS lookup failed\r\n"
+    });
+    result.map_err(RuntimeError::Network)
 }
 
 pub fn default_gateway() -> Result<Ipv4Address, RuntimeError> {
-    NETWORK
-        .lock()
+    network_lock()
         .as_mut()
         .ok_or(RuntimeError::NotInitialized)?
         .dhcp_gateway()
@@ -125,8 +433,7 @@ pub fn http_get(
     expected_body: &[u8],
     response: &mut [u8],
 ) -> Result<usize, RuntimeError> {
-    NETWORK
-        .lock()
+    network_lock()
         .as_mut()
         .ok_or(RuntimeError::NotInitialized)?
         .http_get(target, target_port, path, expected_body, response)
@@ -134,12 +441,16 @@ pub fn http_get(
 }
 
 pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeError> {
+    if name == b"/dev/urandom" {
+        return allocate_descriptor(FdEntry::Random);
+    }
+
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-    let handle = match volume.open(name) {
+    let handle = match volume.open_path(name) {
         Ok(handle) => handle,
         Err(StorageError::NotFound) if create => {
-            volume.create(name).map_err(RuntimeError::Storage)?
+            volume.create_path(name).map_err(RuntimeError::Storage)?
         }
         Err(error) => return Err(RuntimeError::Storage(error)),
     };
@@ -148,6 +459,20 @@ pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeErr
     }
     drop(filesystem);
 
+    allocate_descriptor(FdEntry::File { handle, offset: 0 })
+}
+
+pub unsafe fn open_readonly_callback(
+    context: *mut core::ffi::c_void,
+    length: u64,
+    read_at: ReadAtCallback,
+) -> Result<i32, RuntimeError> {
+    let file = unsafe { ReadOnlyCallbackFile::new(context, length, read_at) }
+        .map_err(map_callback_file_error)?;
+    allocate_descriptor(FdEntry::CallbackFile(file))
+}
+
+fn allocate_descriptor(entry: FdEntry) -> Result<i32, RuntimeError> {
     let mut descriptors = FILE_DESCRIPTORS.lock();
     let Some((index, slot)) = descriptors
         .iter_mut()
@@ -157,20 +482,40 @@ pub fn open(name: &[u8], create: bool, truncate: bool) -> Result<i32, RuntimeErr
     else {
         return Err(RuntimeError::Storage(StorageError::Capacity));
     };
-    *slot = Some(FdEntry::File { handle, offset: 0 });
+    *slot = Some(entry);
     Ok(index as i32)
 }
 
 pub fn remove(name: &[u8]) -> Result<(), RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-    volume.remove(name).map_err(RuntimeError::Storage)
+    volume.remove_path(name).map_err(RuntimeError::Storage)
 }
 
 pub fn mkdir(name: &[u8]) -> Result<(), RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
-    volume.mkdir(name).map_err(RuntimeError::Storage)
+    volume.mkdir_path(name).map_err(RuntimeError::Storage)
+}
+
+pub fn ensure_directory(name: &[u8]) -> Result<(), RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume
+        .ensure_directory_path(name)
+        .map_err(RuntimeError::Storage)
+}
+
+pub fn rmdir(name: &[u8]) -> Result<(), RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume.rmdir_path(name).map_err(RuntimeError::Storage)
+}
+
+pub fn metadata_path(name: &[u8]) -> Result<FileMetadata, RuntimeError> {
+    let mut filesystem = FILESYSTEM.lock();
+    let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
+    volume.metadata_path(name).map_err(RuntimeError::Storage)
 }
 
 pub fn list_root(
@@ -182,7 +527,7 @@ pub fn list_root(
 }
 
 pub fn socket() -> Result<i32, RuntimeError> {
-    if NETWORK.lock().is_none() {
+    if network_lock().is_none() {
         return Err(RuntimeError::NotInitialized);
     }
     let mut descriptors = FILE_DESCRIPTORS.lock();
@@ -196,7 +541,10 @@ pub fn socket() -> Result<i32, RuntimeError> {
     };
     *slot = Some(FdEntry::Socket {
         connected: false,
+        tcp_connection: None,
         peer: None,
+        last_error: 0,
+        nonblocking: false,
         read_shutdown: false,
         write_shutdown: false,
         nagle_enabled: true,
@@ -265,7 +613,7 @@ pub fn dup2(old_fd: i32, new_fd: i32) -> Result<i32, RuntimeError> {
     if old_fd == new_fd {
         return Ok(new_fd);
     }
-    if !matches!(source, FdEntry::File { .. }) {
+    if !matches!(source, FdEntry::File { .. } | FdEntry::Random) {
         return Err(RuntimeError::Unsupported);
     }
     if descriptor(new_fd).is_ok() {
@@ -288,16 +636,21 @@ pub fn fcntl(fd: i32, command: i32, argument: i32) -> Result<i32, RuntimeError> 
             FdEntry::PipeRead { nonblocking, .. } | FdEntry::PipeWrite { nonblocking, .. } => {
                 Ok(if *nonblocking { O_NONBLOCK } else { 0 })
             }
+            FdEntry::Socket { nonblocking, .. } => Ok(socket_status_flags(*nonblocking)),
             _ => Ok(0),
         },
         F_SETFL => {
-            let nonblocking = argument & O_NONBLOCK != 0;
+            let nonblocking = socket_is_nonblocking(argument);
             match entry {
                 FdEntry::PipeRead {
                     nonblocking: current,
                     ..
                 }
                 | FdEntry::PipeWrite {
+                    nonblocking: current,
+                    ..
+                }
+                | FdEntry::Socket {
                     nonblocking: current,
                     ..
                 } => *current = nonblocking,
@@ -329,28 +682,82 @@ pub fn connect(fd: i32, address: Ipv4Address, port: u16) -> Result<(), RuntimeEr
             _ => return Err(RuntimeError::InvalidFd),
         }
     };
-    {
-        let mut network = NETWORK.lock();
-        let network = network.as_mut().ok_or(RuntimeError::NotInitialized)?;
-        network
-            .tcp_connect(address, port)
-            .map_err(RuntimeError::Network)?;
-        if let Err(error) = network
-            .tcp_set_nagle(nagle_enabled)
-            .and_then(|()| network.tcp_set_timeout(timeout))
-        {
-            let _ = network.tcp_close();
-            return Err(RuntimeError::Network(error));
+    trace_m18_network(b"Nagi M18 network TCP connect waiting for lock\r\n");
+    trace_m18_tcp_connect(b"Nagi M18 network TCP connect attempt started\r\n");
+    let connect_result = {
+        let mut network_guard = network_lock();
+        trace_m18_network(b"Nagi M18 network TCP connect lock acquired\r\n");
+        let network = network_guard.as_mut().ok_or(RuntimeError::NotInitialized)?;
+        trace_m18_network(b"Nagi M18 network TCP handshake started\r\n");
+        match network.tcp_connect(address, port) {
+            Err(error) => {
+                trace_m18_network(b"Nagi M18 network TCP handshake failed\r\n");
+                trace_m18_tcp_connect(match error {
+                    NetError::Unsupported => {
+                        b"Nagi M18 network TCP connect attempt failed: unsupported\r\n"
+                    }
+                    NetError::ConnectionReset => {
+                        b"Nagi M18 network TCP connect attempt failed: reset\r\n"
+                    }
+                    _ => b"Nagi M18 network TCP connect attempt failed: other\r\n",
+                });
+                Err(RuntimeError::Network(error))
+            }
+            Ok(connection) => {
+                trace_m18_network(b"Nagi M18 network TCP handshake completed\r\n");
+                trace_m18_tcp_connect(b"Nagi M18 network TCP connect attempt succeeded\r\n");
+                if let Err(error) = network
+                    .tcp_set_nagle(connection, nagle_enabled)
+                    .and_then(|()| network.tcp_set_timeout(connection, timeout))
+                {
+                    let _ = network.tcp_close(connection);
+                    Err(RuntimeError::Network(error))
+                } else {
+                    trace_m18_network(b"Nagi M18 network TCP socket options completed\r\n");
+                    Ok(connection)
+                }
+            }
         }
-    }
+    };
+    let connection = match connect_result {
+        Ok(connection) => connection,
+        Err(error) => {
+            record_socket_error(fd, map_error(error));
+            return Err(error);
+        }
+    };
     let mut descriptors = FILE_DESCRIPTORS.lock();
     match descriptors.get_mut(fd as usize).and_then(Option::as_mut) {
         Some(FdEntry::Socket {
-            connected, peer, ..
+            connected,
+            tcp_connection,
+            peer,
+            ..
         }) => {
             *connected = true;
+            *tcp_connection = Some(connection);
             *peer = Some((address, port));
+            trace_m18_network(b"Nagi M18 network TCP connect API returned\r\n");
             Ok(())
+        }
+        _ => Err(RuntimeError::InvalidFd),
+    }
+}
+
+fn record_socket_error(fd: i32, error: i32) {
+    let mut descriptors = FILE_DESCRIPTORS.lock();
+    if let Some(FdEntry::Socket { last_error, .. }) =
+        descriptors.get_mut(fd as usize).and_then(Option::as_mut)
+    {
+        *last_error = error;
+    }
+}
+
+pub fn take_socket_error(fd: i32) -> Result<i32, RuntimeError> {
+    let mut descriptors = FILE_DESCRIPTORS.lock();
+    match descriptors.get_mut(fd as usize).and_then(Option::as_mut) {
+        Some(FdEntry::Socket { last_error, .. }) => {
+            Ok(crate::net::take_pending_socket_error(last_error))
         }
         _ => Err(RuntimeError::InvalidFd),
     }
@@ -371,12 +778,13 @@ pub fn peer_name(fd: i32) -> Result<(Ipv4Address, u16), RuntimeError> {
 pub fn local_name(fd: i32) -> Result<(Ipv4Address, u16), RuntimeError> {
     match descriptor(fd)? {
         FdEntry::Socket {
-            connected: true, ..
-        } => NETWORK
-            .lock()
+            connected: true,
+            tcp_connection: Some(connection),
+            ..
+        } => network_lock()
             .as_ref()
             .ok_or(RuntimeError::NotInitialized)?
-            .tcp_local_name()
+            .tcp_local_name(connection)
             .map_err(RuntimeError::Network),
         FdEntry::Socket { .. } => Err(RuntimeError::NotConnected),
         _ => Err(RuntimeError::InvalidFd),
@@ -396,14 +804,21 @@ pub fn close(fd: i32) -> Result<(), RuntimeError> {
         entry,
         FdEntry::Socket {
             connected: true,
+            tcp_connection: Some(_),
             ..
         }
     ) {
-        NETWORK
-            .lock()
+        let FdEntry::Socket {
+            tcp_connection: Some(connection),
+            ..
+        } = entry
+        else {
+            unreachable!();
+        };
+        network_lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
-            .tcp_close()
+            .tcp_close(connection)
             .map_err(RuntimeError::Network)?;
     }
     match entry {
@@ -423,19 +838,23 @@ pub fn close(fd: i32) -> Result<(), RuntimeError> {
 
 pub fn shutdown(fd: i32, how: i32) -> Result<(), RuntimeError> {
     let entry = descriptor(fd)?;
-    let FdEntry::Socket { connected, .. } = entry else {
+    let FdEntry::Socket {
+        connected,
+        tcp_connection,
+        ..
+    } = entry
+    else {
         return Err(RuntimeError::InvalidFd);
     };
-    if !connected {
+    let Some(connection) = tcp_connection.filter(|_| connected) else {
         return Err(RuntimeError::NotConnected);
-    }
+    };
 
     if how == 1 || how == 2 {
-        NETWORK
-            .lock()
+        network_lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
-            .tcp_shutdown_write()
+            .tcp_shutdown_write(connection)
             .map_err(RuntimeError::Network)?;
     }
 
@@ -459,15 +878,20 @@ pub fn shutdown(fd: i32, how: i32) -> Result<(), RuntimeError> {
 
 pub fn set_tcp_nodelay(fd: i32, enabled: bool) -> Result<(), RuntimeError> {
     let entry = descriptor(fd)?;
-    let FdEntry::Socket { connected, .. } = entry else {
+    let FdEntry::Socket {
+        connected,
+        tcp_connection,
+        ..
+    } = entry
+    else {
         return Err(RuntimeError::InvalidFd);
     };
     if connected {
-        NETWORK
-            .lock()
+        let connection = tcp_connection.ok_or(RuntimeError::NotConnected)?;
+        network_lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
-            .tcp_set_nagle(!enabled)
+            .tcp_set_nagle(connection, !enabled)
             .map_err(RuntimeError::Network)?;
     }
     let mut descriptors = FILE_DESCRIPTORS.lock();
@@ -482,15 +906,20 @@ pub fn set_tcp_nodelay(fd: i32, enabled: bool) -> Result<(), RuntimeError> {
 
 pub fn set_socket_timeout(fd: i32, timeout: Option<Duration>) -> Result<(), RuntimeError> {
     let entry = descriptor(fd)?;
-    let FdEntry::Socket { connected, .. } = entry else {
+    let FdEntry::Socket {
+        connected,
+        tcp_connection,
+        ..
+    } = entry
+    else {
         return Err(RuntimeError::InvalidFd);
     };
     if connected {
-        NETWORK
-            .lock()
+        let connection = tcp_connection.ok_or(RuntimeError::NotConnected)?;
+        network_lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
-            .tcp_set_timeout(timeout)
+            .tcp_set_timeout(connection, timeout)
             .map_err(RuntimeError::Network)?;
     }
     let mut descriptors = FILE_DESCRIPTORS.lock();
@@ -540,9 +969,21 @@ fn close_pipe_endpoint(pipe_index: usize, reader: bool) {
 
 pub fn read(fd: i32, destination: &mut [u8]) -> Result<usize, RuntimeError> {
     match descriptor(fd)? {
+        FdEntry::Random => {
+            if fill_random(destination) {
+                Ok(destination.len())
+            } else {
+                Err(RuntimeError::EntropyUnavailable)
+            }
+        }
         FdEntry::File { handle, offset } => {
             let count = read_at(fd, offset, destination)?;
             update_offset(fd, handle, offset + count)?;
+            Ok(count)
+        }
+        FdEntry::CallbackFile(mut file) => {
+            let count = file.read(destination).map_err(map_callback_file_error)?;
+            update_callback_file(fd, file)?;
             Ok(count)
         }
         FdEntry::Socket {
@@ -553,13 +994,32 @@ pub fn read(fd: i32, destination: &mut [u8]) -> Result<usize, RuntimeError> {
         FdEntry::Socket {
             connected: true,
             read_shutdown: false,
+            tcp_connection: Some(connection),
+            nonblocking,
             ..
-        } => NETWORK
-            .lock()
-            .as_mut()
-            .ok_or(RuntimeError::NotInitialized)?
-            .tcp_receive(destination)
-            .map_err(RuntimeError::Network),
+        } => {
+            trace_m18_network(b"Nagi M18 network TCP receive waiting for lock\r\n");
+            let mut network = network_lock();
+            trace_m18_network(b"Nagi M18 network TCP receive lock acquired\r\n");
+            let network = network.as_mut().ok_or(RuntimeError::NotInitialized)?;
+            trace_m18_network(b"Nagi M18 network TCP receive started\r\n");
+            let result = if nonblocking {
+                network.tcp_try_receive(connection, destination)
+            } else {
+                network.tcp_receive(connection, destination)
+            };
+            trace_m18_network(if result.is_ok() {
+                b"Nagi M18 network TCP receive completed\r\n"
+            } else {
+                b"Nagi M18 network TCP receive failed\r\n"
+            });
+            result.map_err(RuntimeError::Network)
+        }
+        FdEntry::Socket {
+            connected: true,
+            tcp_connection: None,
+            ..
+        } => Err(RuntimeError::NotConnected),
         FdEntry::Socket {
             connected: false, ..
         } => Err(RuntimeError::InvalidFd),
@@ -601,7 +1061,13 @@ fn read_pipe(
 }
 
 pub fn read_at(fd: i32, offset: usize, destination: &mut [u8]) -> Result<usize, RuntimeError> {
-    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+    let entry = descriptor(fd)?;
+    if let FdEntry::CallbackFile(file) = entry {
+        return file
+            .read_at(offset, destination)
+            .map_err(map_callback_file_error);
+    }
+    let FdEntry::File { handle, .. } = entry else {
         return Err(RuntimeError::InvalidFd);
     };
     let mut filesystem = FILESYSTEM.lock();
@@ -623,10 +1089,18 @@ pub fn readiness(fd: i32, requested: i16) -> Result<i16, RuntimeError> {
         return Ok(requested & 0x0004);
     }
     match descriptor(fd)? {
+        FdEntry::Random => Ok(requested & POLLIN),
         FdEntry::File { handle, offset } => {
             let mut ready = requested & 0x0004;
             if requested & 0x0001 != 0 && offset < file_size(handle)? {
                 ready |= 0x0001;
+            }
+            Ok(ready)
+        }
+        FdEntry::CallbackFile(file) => {
+            let mut ready = 0;
+            if requested & POLLIN != 0 && file.offset() < file.len() {
+                ready |= POLLIN;
             }
             Ok(ready)
         }
@@ -649,22 +1123,28 @@ pub fn readiness(fd: i32, requested: i16) -> Result<i16, RuntimeError> {
         FdEntry::Socket {
             connected: true,
             write_shutdown: true,
+            tcp_connection: Some(connection),
             ..
-        } => NETWORK
-            .lock()
+        } => network_lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
-            .tcp_ready(requested & !POLLOUT)
+            .tcp_ready(connection, requested & !POLLOUT)
             .map(|ready| ready | (requested & POLLOUT))
             .map_err(RuntimeError::Network),
         FdEntry::Socket {
-            connected: true, ..
-        } => NETWORK
-            .lock()
+            connected: true,
+            tcp_connection: Some(connection),
+            ..
+        } => network_lock()
             .as_mut()
             .ok_or(RuntimeError::NotInitialized)?
-            .tcp_ready(requested)
+            .tcp_ready(connection, requested)
             .map_err(RuntimeError::Network),
+        FdEntry::Socket {
+            connected: true,
+            tcp_connection: None,
+            ..
+        } => Err(RuntimeError::NotConnected),
         FdEntry::Socket {
             connected: false, ..
         } => Ok(requested & POLLOUT),
@@ -705,6 +1185,7 @@ fn pipe_write_readiness(pipe_index: usize, requested: i16) -> Result<i16, Runtim
 
 pub fn write(fd: i32, bytes: &[u8]) -> Result<usize, RuntimeError> {
     match descriptor(fd)? {
+        FdEntry::Random => Err(RuntimeError::InvalidFd),
         FdEntry::File { handle, offset } => {
             if offset != 0 || bytes.len() > BLOCK_SIZE {
                 return Err(RuntimeError::Storage(StorageError::FileTooLarge));
@@ -716,6 +1197,7 @@ pub fn write(fd: i32, bytes: &[u8]) -> Result<usize, RuntimeError> {
             update_offset(fd, handle, bytes.len())?;
             Ok(bytes.len())
         }
+        FdEntry::CallbackFile(_) => Err(RuntimeError::ReadOnly),
         FdEntry::Socket {
             connected: true,
             write_shutdown: true,
@@ -724,13 +1206,32 @@ pub fn write(fd: i32, bytes: &[u8]) -> Result<usize, RuntimeError> {
         FdEntry::Socket {
             connected: true,
             write_shutdown: false,
+            tcp_connection: Some(connection),
+            nonblocking,
             ..
-        } => NETWORK
-            .lock()
-            .as_mut()
-            .ok_or(RuntimeError::NotInitialized)?
-            .tcp_send(bytes)
-            .map_err(RuntimeError::Network),
+        } => {
+            trace_m18_network(b"Nagi M18 network TCP send waiting for lock\r\n");
+            let mut network = network_lock();
+            trace_m18_network(b"Nagi M18 network TCP send lock acquired\r\n");
+            let network = network.as_mut().ok_or(RuntimeError::NotInitialized)?;
+            trace_m18_network(b"Nagi M18 network TCP send started\r\n");
+            let result = if nonblocking {
+                network.tcp_try_send(connection, bytes)
+            } else {
+                network.tcp_send(connection, bytes)
+            };
+            trace_m18_network(if result.is_ok() {
+                b"Nagi M18 network TCP send completed\r\n"
+            } else {
+                b"Nagi M18 network TCP send failed\r\n"
+            });
+            result.map_err(RuntimeError::Network)
+        }
+        FdEntry::Socket {
+            connected: true,
+            tcp_connection: None,
+            ..
+        } => Err(RuntimeError::NotConnected),
         FdEntry::Socket {
             connected: false, ..
         } => Err(RuntimeError::InvalidFd),
@@ -773,10 +1274,18 @@ fn write_pipe(pipe_index: usize, nonblocking: bool, bytes: &[u8]) -> Result<usiz
 }
 
 pub fn seek(fd: i32, offset: isize, whence: i32) -> Result<usize, RuntimeError> {
+    let entry = descriptor(fd)?;
+    if let FdEntry::CallbackFile(mut file) = entry {
+        let position = file
+            .seek(offset as i64, whence)
+            .map_err(map_callback_file_error)?;
+        update_callback_file(fd, file)?;
+        return Ok(position);
+    }
     let FdEntry::File {
         handle,
         offset: current,
-    } = descriptor(fd)?
+    } = entry
     else {
         return Err(RuntimeError::InvalidFd);
     };
@@ -795,7 +1304,11 @@ pub fn seek(fd: i32, offset: isize, whence: i32) -> Result<usize, RuntimeError> 
 }
 
 pub fn size(fd: i32) -> Result<usize, RuntimeError> {
-    let FdEntry::File { handle, .. } = descriptor(fd)? else {
+    let entry = descriptor(fd)?;
+    if let FdEntry::CallbackFile(file) = entry {
+        return Ok(file.len());
+    }
+    let FdEntry::File { handle, .. } = entry else {
         return Err(RuntimeError::InvalidFd);
     };
     file_size(handle)
@@ -900,6 +1413,28 @@ fn update_offset(fd: i32, handle: FileHandle, offset: usize) -> Result<(), Runti
     }
 }
 
+fn update_callback_file(fd: i32, file: ReadOnlyCallbackFile) -> Result<(), RuntimeError> {
+    let mut descriptors = FILE_DESCRIPTORS.lock();
+    let entry = descriptors
+        .get_mut(fd as usize)
+        .and_then(Option::as_mut)
+        .ok_or(RuntimeError::InvalidFd)?;
+    match entry {
+        FdEntry::CallbackFile(current) => {
+            *current = file;
+            Ok(())
+        }
+        _ => Err(RuntimeError::InvalidFd),
+    }
+}
+
+fn map_callback_file_error(error: CallbackFileError) -> RuntimeError {
+    match error {
+        CallbackFileError::InvalidRange => RuntimeError::InvalidArgument,
+        CallbackFileError::ReadFailed => RuntimeError::CallbackReadFailed,
+    }
+}
+
 fn file_size(handle: FileHandle) -> Result<usize, RuntimeError> {
     let mut filesystem = FILESYSTEM.lock();
     let volume = filesystem.as_mut().ok_or(RuntimeError::NotInitialized)?;
@@ -913,23 +1448,38 @@ pub fn map_error(error: RuntimeError) -> i32 {
     match error {
         RuntimeError::NotInitialized => 38,
         RuntimeError::InvalidFd => 9,
+        RuntimeError::InvalidArgument => 22,
+        RuntimeError::EntropyUnavailable => 5,
         RuntimeError::Storage(StorageError::NotFound) => 2,
         RuntimeError::Storage(StorageError::AlreadyExists) => 17,
         RuntimeError::Storage(StorageError::NameTooLong) => 36,
         RuntimeError::Storage(StorageError::InvalidName) => 22,
-        RuntimeError::Storage(StorageError::DirectoryFull) => 39,
+        RuntimeError::Storage(StorageError::NotDirectory) => 20,
+        RuntimeError::Storage(StorageError::IsDirectory) => 21,
+        RuntimeError::Storage(StorageError::DirectoryNotEmpty) => 39,
+        RuntimeError::Storage(StorageError::DirectoryFull) => 28,
         RuntimeError::Storage(StorageError::FileTooLarge) => 27,
         RuntimeError::Storage(StorageError::Capacity) => 12,
-        RuntimeError::Network(NetError::TcpTimeout) => 11,
-        RuntimeError::Network(NetError::DnsTimeout) => 11,
-        RuntimeError::Network(NetError::ConnectionReset) => 104,
-        RuntimeError::Network(NetError::Unsupported) => 95,
+        RuntimeError::Network(error) => crate::net::network_errno(error),
         RuntimeError::NotConnected => 107,
         RuntimeError::Shutdown => 108,
         RuntimeError::WouldBlock => 11,
         RuntimeError::BrokenPipe => 32,
         RuntimeError::Unsupported => 95,
-        RuntimeError::Network(_) => 5,
+        RuntimeError::ReadOnly => 30,
+        RuntimeError::CallbackReadFailed => 5,
         RuntimeError::Storage(_) => 5,
     }
+}
+
+#[cfg(target_os = "nagi")]
+fn fill_random(bytes: &mut [u8]) -> bool {
+    libnagi::random_fill(bytes)
+}
+
+// Host builds type-check the POSIX adapter but never supply guest entropy.
+// Returning failure keeps this compatibility path fail-closed off-target.
+#[cfg(not(target_os = "nagi"))]
+fn fill_random(_bytes: &mut [u8]) -> bool {
+    false
 }

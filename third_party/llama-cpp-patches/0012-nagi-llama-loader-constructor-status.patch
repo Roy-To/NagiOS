@@ -1,0 +1,207 @@
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -316,10 +316,22 @@
+ #endif
+ }
+ 
++bool llama_model_loader::fail_load(const std::string & message) {
++#ifdef __NAGI__
++    LLAMA_LOG_ERROR("%s: %s\n", __func__, message.c_str());
++    loader_valid = false;
++    return false;
++#else
++    throw std::runtime_error(message);
++#endif
++}
++
+ #ifdef __NAGI__
+ #define LLAMA_MODEL_LOADER_FAIL_METADATA(message) return fail_metadata(message)
++#define LLAMA_MODEL_LOADER_FAIL_AND_RETURN(message) do { (void) fail_load(message); return; } while (0)
+ #else
+ #define LLAMA_MODEL_LOADER_FAIL_METADATA(message) fail_metadata(message)
++#define LLAMA_MODEL_LOADER_FAIL_AND_RETURN(message) fail_load(message)
+ #endif
+ 
+     template<typename T>
+@@ -698,10 +710,13 @@
+         metadata_ptr.reset(gguf_init_from_file(fname.c_str(), params));
+         metadata = metadata_ptr.get();
+         if (metadata == nullptr) {
+-            throw std::runtime_error(format("%s: failed to load model from %s", __func__, fname.c_str()));
++            LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: failed to load model from %s", __func__, fname.c_str()));
+         }
+ 
+         get_key(llm_kv(LLM_KV_GENERAL_ARCHITECTURE), arch_name, false);
++#ifdef __NAGI__
++        if (!metadata_valid) { return; }
++#endif
+         llm_kv = LLM_KV(llm_arch_from_string(arch_name));
+ 
+         files.emplace_back(new llama_file(fname.c_str(), "rb", use_direct_io));
+@@ -720,13 +735,16 @@
+         }
+         uint16_t n_split = 0;
+         get_key(llm_kv(LLM_KV_SPLIT_COUNT), n_split, false);
++#ifdef __NAGI__
++        if (!metadata_valid) { return; }
++#endif
+ 
+         // Load additional GGML contexts
+         if (n_split > 1) {
+             // make sure the main file is loaded first
+             uint16_t idx = 0;
+             const std::string kv_split_no = llm_kv(LLM_KV_SPLIT_NO);
+-            get_key(kv_split_no, idx);
++            if (!get_key(kv_split_no, idx)) { return; }
+             if (idx != 0) {
+                 LLAMA_LOG_ERROR("%s: illegal split file index %d in %s; load the first split\n",
+                         __func__, idx, fname.c_str());
+@@ -764,18 +782,18 @@
+                 };
+                 gguf_context_ptr ctx_gguf { gguf_init_from_file(fname_split, split_params) };
+                 if (!ctx_gguf) {
+-                    throw std::runtime_error(format("%s: failed to load GGUF split from %s", __func__, fname_split));
++                    LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: failed to load GGUF split from %s", __func__, fname_split));
+                 }
+ 
+                 // check idx
+                 {
+                     const int kid = gguf_find_key(ctx_gguf.get(), kv_split_no.c_str());
+-                    if (kid < 0) {
+-                        throw std::runtime_error(format("missing key %s in GGUF split %s", kv_split_no.c_str(), fname_split));
++                    if (kid < 0 || gguf_get_kv_type(ctx_gguf.get(), kid) != GGUF_TYPE_UINT16) {
++                        LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("missing or invalid key %s in GGUF split %s", kv_split_no.c_str(), fname_split));
+                     }
+                     int idx_gguf = gguf_get_val_u16(ctx_gguf.get(), kid);
+                     if (idx_gguf != idx) {
+-                        throw std::runtime_error(format("invalid split file idx: %d (file: %s), expected %d", idx_gguf, fname_split, idx));
++                        LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("invalid split file idx: %d (file: %s), expected %d", idx_gguf, fname_split, idx));
+                     }
+                 }
+ 
+@@ -793,13 +811,13 @@
+                 }
+             }
+ 
+-            get_key(llm_kv(LLM_KV_SPLIT_TENSORS_COUNT), n_tensors);
++            if (!get_key(llm_kv(LLM_KV_SPLIT_TENSORS_COUNT), n_tensors)) { return; }
+ 
+             // sanity check
+             {
+                 const int n_tensors_loaded = (int) weights_map.size();
+                 if (n_tensors != n_tensors_loaded) {
+-                    throw std::runtime_error(format("corrupted model: %d tensors expected but %d found", n_tensors, n_tensors_loaded));
++                    LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("corrupted model: %d tensors expected but %d found", n_tensors, n_tensors_loaded));
+                 }
+             }
+ 
+@@ -815,17 +833,20 @@
+         metadata_ptr.reset(gguf_init_from_file_ptr(file, params));
+         metadata = metadata_ptr.get();
+         if (metadata == nullptr) {
+-            throw std::runtime_error(format("%s: failed to load model from file pointer", __func__));
++            LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: failed to load model from file pointer", __func__));
+         }
+ 
+         // mmap places tensors at their file offsets, so an embedded GGUF must be aligned in the file too
+         const size_t tensor_align = ggml_backend_buft_get_alignment(ggml_backend_cpu_buffer_type());
+         if (use_mmap && gguf_get_data_offset(metadata) % tensor_align != 0) {
+-            throw std::runtime_error(format("%s: GGUF data section at file offset %zu is not %zu byte aligned, cannot mmap",
++            LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: GGUF data section at file offset %zu is not %zu byte aligned, cannot mmap",
+                 __func__, gguf_get_data_offset(metadata), tensor_align));
+         }
+ 
+         get_key(llm_kv(LLM_KV_GENERAL_ARCHITECTURE), arch_name, false);
++#ifdef __NAGI__
++        if (!metadata_valid) { return; }
++#endif
+         llm_kv = LLM_KV(llm_arch_from_string(arch_name));
+ 
+         files.emplace_back(new llama_file(file));
+@@ -842,6 +863,9 @@
+         }
+     } else {
+         get_key(llm_kv(LLM_KV_GENERAL_ARCHITECTURE), arch_name, false);
++#ifdef __NAGI__
++        if (!metadata_valid) { return; }
++#endif
+         llm_kv = LLM_KV(llm_arch_from_string(arch_name));
+     }
+ 
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -110,6 +110,12 @@
+     bool tensor_weights_valid = true;
+     bool split_paths_valid = true;
+     bool metadata_valid = true;
++    bool loader_valid = true;
++
++#ifndef __NAGI__
++    [[noreturn]]
++#endif
++    bool fail_load(const std::string & message);
+ 
+ #ifndef __NAGI__
+     [[noreturn]]
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -319,7 +319,7 @@
+         llama_model_loader ml(metadata, set_tensor_data, set_tensor_data_ud, fname, splits, file, params.load_mode,
+             params.check_tensors, params.no_alloc, params.load_mtp, params.kv_overrides, params.tensor_buft_overrides);
+ 
+-        if (!ml.tensor_weights_valid || !ml.split_paths_valid || !ml.metadata_valid) {
++        if (!ml.tensor_weights_valid || !ml.split_paths_valid || !ml.metadata_valid || !ml.loader_valid) {
+             if (!ml.metadata_valid) {
+                 LLAMA_LOG_ERROR("%s: model metadata has an invalid value type\n", __func__);
+             }
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -128,10 +128,47 @@
+ }
+ #endif
+ 
++static bool invalid_gguf_constructor_status() {
++    FILE * file = std::tmpfile();
++    if (file == nullptr) {
++        std::fprintf(stderr, "cannot create invalid GGUF fixture\n");
++        return false;
++    }
++    const char invalid_header[] = "not a GGUF";
++    if (std::fwrite(invalid_header, 1, sizeof(invalid_header), file) != sizeof(invalid_header) ||
++            std::fseek(file, 0, SEEK_SET) != 0) {
++        std::fprintf(stderr, "cannot write invalid GGUF fixture\n");
++        std::fclose(file);
++        return false;
++    }
++
++    std::vector<std::string> splits;
++    bool failed_closed = false;
++    try {
++        llama_model_loader loader(nullptr, nullptr, nullptr, "", splits, file,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++#ifdef __NAGI__
++        failed_closed = !loader.loader_valid;
++#endif
++    } catch (const std::exception & error) {
++#ifdef __NAGI__
++        std::fprintf(stderr, "invalid GGUF constructor threw under __NAGI__: %s\n", error.what());
++#else
++        failed_closed = true;
++#endif
++    }
++    std::fclose(file);
++    if (!failed_closed) {
++        std::fprintf(stderr, "invalid GGUF constructor did not report failure\n");
++    }
++    return failed_closed;
++}
++
+ int main() {
+     if (!metadata_key_read_status(false, false, true, "missing optional") ||
+             !metadata_key_read_status(true, false, false, "wrong-typed optional") ||
+-            !metadata_key_read_status(true, true, false, "wrong-typed required")) {
++            !metadata_key_read_status(true, true, false, "wrong-typed required") ||
++            !invalid_gguf_constructor_status()) {
+         return 1;
+     }
+ #ifdef __NAGI__

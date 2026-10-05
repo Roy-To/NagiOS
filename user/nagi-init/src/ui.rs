@@ -65,8 +65,8 @@ impl<'a> Painter<'a> {
         );
     }
 
-    pub fn text(&mut self, x: i32, y: i32, text: &[u8], color: u32) {
-        let _ = font::draw_utf8(self.surface, x, y, text, color);
+    pub fn text(&mut self, x: i32, y: i32, text: &[u8], color: u32) -> i32 {
+        font::draw_utf8(self.surface, x, y, text, color)
     }
 }
 

@@ -1,0 +1,105 @@
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -1544,13 +1544,13 @@
+     return tensor;
+ }
+ 
+-void llama_model_loader::done_getting_tensors(bool partial) const {
++void llama_model_loader::done_getting_tensors(bool partial) {
+     if (n_created > n_tensors) {
+-        throw std::runtime_error(format("%s: too many tensors created; expected %d, got %d", __func__, n_tensors, n_created));
++        LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: too many tensors created; expected %d, got %d", __func__, n_tensors, n_created));
+     }
+     if (n_created < n_tensors) {
+         if (!partial) {
+-            throw std::runtime_error(format("%s: wrong number of tensors; expected %d, got %d", __func__, n_tensors, n_created));
++            LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: wrong number of tensors; expected %d, got %d", __func__, n_tensors, n_created));
+         }
+         LLAMA_LOG_INFO("%s: partial load — used %d of %d tensors in the file (rest belong to a sibling model on the same .gguf)\n",
+                 __func__, n_created, n_tensors);
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -288,7 +288,7 @@
+         const llama_hparams & hparams, const buft_list_t * buft_list_cpu, const buft_list_t * buft_list_input, const buft_list_t * buft_list_output,
+         const buft_list_t * buft_list_layer, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
+ 
+-    void done_getting_tensors(bool partial = false) const;
++    void done_getting_tensors(bool partial = false);
+ 
+     void init_mappings(bool prefetch = true, llama_mlocks * mlock_mmaps = nullptr);
+ 
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1820,6 +1820,9 @@
+         }
+     }
+     ml.done_getting_tensors();
++    if (!ml.loader_valid) {
++        return false;
++    }
+ 
+     // Tied NVFP4 output is valid when no separate LM-head scale tensors are present.
+     // If sidecar scales exist, the output weight must be an actual output tensor.
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -390,6 +390,10 @@
+             LLAMA_LOG_ERROR("%s: model metadata has an invalid value type\n", __func__);
+             return {-1, nullptr};
+         }
++        if (!ml.loader_valid) {
++            LLAMA_LOG_ERROR("%s: model tensor layout is invalid\n", __func__);
++            return {-1, nullptr};
++        }
+         if (!tensors_loaded) {
+             return {-2, nullptr};
+         }
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -164,11 +164,46 @@
+     return failed_closed;
+ }
+ 
++static bool tensor_count_mismatch_status(bool too_many) {
++    struct gguf_context * metadata = gguf_init_empty();
++    if (metadata == nullptr) {
++        std::fprintf(stderr, "cannot allocate tensor-count fixture\n");
++        return false;
++    }
++    gguf_set_val_str(metadata, "general.architecture", "llama");
++
++    std::vector<std::string> splits;
++    bool failed_closed = false;
++    try {
++        llama_model_loader loader(metadata, nullptr, nullptr, "", splits, nullptr,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        loader.n_tensors = 1;
++        loader.n_created = too_many ? 2 : 0;
++        loader.done_getting_tensors();
++#ifdef __NAGI__
++        failed_closed = !loader.loader_valid;
++#endif
++    } catch (const std::exception & error) {
++#ifdef __NAGI__
++        std::fprintf(stderr, "tensor-count mismatch threw under __NAGI__: %s\n", error.what());
++#else
++        failed_closed = true;
++#endif
++    }
++    gguf_free(metadata);
++    if (!failed_closed) {
++        std::fprintf(stderr, "tensor-count mismatch did not report failure\n");
++    }
++    return failed_closed;
++}
++
+ int main() {
+     if (!metadata_key_read_status(false, false, true, "missing optional") ||
+             !metadata_key_read_status(true, false, false, "wrong-typed optional") ||
+             !metadata_key_read_status(true, true, false, "wrong-typed required") ||
+-            !invalid_gguf_constructor_status()) {
++            !invalid_gguf_constructor_status() ||
++            !tensor_count_mismatch_status(true) ||
++            !tensor_count_mismatch_status(false)) {
+         return 1;
+     }
+ #ifdef __NAGI__

@@ -1,0 +1,179 @@
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -1012,12 +1012,12 @@
+     return nullptr;
+ }
+ 
+-const llama_model_loader::llama_tensor_weight & llama_model_loader::require_weight(const char * name) const {
++const llama_model_loader::llama_tensor_weight * llama_model_loader::require_weight(const char * name) {
+     const llama_tensor_weight * weight = get_weight(name);
+     if (!weight) {
+-        throw std::runtime_error(format("%s: tensor '%s' not found", __func__, name));
+-    }
+-    return *weight;
++        LLAMA_MODEL_LOADER_FAIL_POINTER(format("%s: tensor '%s' not found", __func__, name));
++    }
++    return weight;
+ }
+ 
+ struct ggml_tensor * llama_model_loader::get_tensor_meta(const char * name) const {
+@@ -1028,10 +1028,10 @@
+     return weight->tensor;
+ }
+ 
+-struct ggml_tensor * llama_model_loader::require_tensor_meta(const std::string & name) const {
++struct ggml_tensor * llama_model_loader::require_tensor_meta(const std::string & name) {
+     struct ggml_tensor * tensor = get_tensor_meta(name.c_str());
+     if (!tensor) {
+-        throw std::runtime_error(format("%s: tensor '%s' not found", __func__, name.c_str()));
++        LLAMA_MODEL_LOADER_FAIL_POINTER(format("%s: tensor '%s' not found", __func__, name.c_str()));
+     }
+     return tensor;
+ }
+@@ -1040,14 +1040,14 @@
+         const std::string & name,
+         const std::vector<int64_t> & ne,
+         bool required,
+-        bool allow_reshape) const {
++        bool allow_reshape) {
+     const struct ggml_tensor * cur = get_tensor_meta(name.c_str());
+ 
+     if (cur == NULL) {
+         if (!required) {
+             return NULL;
+         }
+-        throw std::runtime_error(format("%s: tensor '%s' not found", __func__, name.c_str()));
++        LLAMA_MODEL_LOADER_FAIL_POINTER(format("%s: tensor '%s' not found", __func__, name.c_str()));
+     }
+ 
+     bool is_ok = true;
+@@ -1072,7 +1072,7 @@
+     }
+ 
+     if (!is_ok) {
+-        throw std::runtime_error(
++        LLAMA_MODEL_LOADER_FAIL_POINTER(
+                 format("%s: tensor '%s' has wrong shape; expected %s, got %s",
+                     __func__, name.c_str(),
+                     llama_format_tensor_shape(ne).c_str(),
+@@ -1500,7 +1500,11 @@
+ 
+     if (flags & TENSOR_READ_LAZY) {
+         // the decision must not depend on the load mode, or the memory-fit pass (no_alloc, no mmap)
+-        is_lazy = lazy.add(tn.str(), cur, no_alloc ? nullptr : &require_weight(tn.str().c_str()));
++        const auto * weight = no_alloc ? nullptr : require_weight(tn.str().c_str());
++        if (!no_alloc && weight == nullptr) {
++            return nullptr;
++        }
++        is_lazy = lazy.add(tn.str(), cur, weight);
+     }
+ 
+     ggml_tensor t_meta = *cur;
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -272,17 +272,17 @@
+ 
+     const llama_tensor_weight * get_weight(const char * name) const;
+ 
+-    const llama_tensor_weight & require_weight(const char * name) const;
++    const llama_tensor_weight * require_weight(const char * name);
+ 
+     struct ggml_tensor * get_tensor_meta(const char * name) const;
+ 
+-    struct ggml_tensor * require_tensor_meta(const std::string & name) const;
++    struct ggml_tensor * require_tensor_meta(const std::string & name);
+ 
+     const struct ggml_tensor * check_tensor_dims(
+             const std::string & name,
+             const std::vector<int64_t> & ne,
+             bool required,
+-            bool allow_reshape) const;
++            bool allow_reshape);
+ 
+     struct ggml_tensor * create_tensor(
+         const llama_hparams & hparams, const buft_list_t * buft_list_cpu, const buft_list_t * buft_list_input, const buft_list_t * buft_list_output,
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -160,6 +160,66 @@
+     std::fclose(file);
+     if (!failed_closed) {
+         std::fprintf(stderr, "invalid GGUF constructor did not report failure\n");
++    }
++    return failed_closed;
++}
++
++enum class tensor_requirement_case {
++    missing_weight,
++    missing_meta,
++    missing_required_tensor,
++    wrong_tensor_shape,
++    missing_optional_tensor,
++};
++
++static bool tensor_requirement_status(FILE * file, tensor_requirement_case test_case) {
++    if (std::fseek(file, 0, SEEK_SET) != 0) {
++        std::fprintf(stderr, "cannot rewind tensor-requirement fixture\n");
++        return false;
++    }
++
++    std::vector<std::string> splits;
++    bool failed_closed = false;
++    try {
++        llama_model_loader loader(nullptr, nullptr, nullptr, "", splits, file,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        const void * result = nullptr;
++        bool threw = false;
++        try {
++            switch (test_case) {
++                case tensor_requirement_case::missing_weight:
++                    result = loader.require_weight("missing_tensor");
++                    break;
++                case tensor_requirement_case::missing_meta:
++                    result = loader.require_tensor_meta("missing_tensor");
++                    break;
++                case tensor_requirement_case::missing_required_tensor:
++                    result = loader.check_tensor_dims("missing_tensor", {1}, true, false);
++                    break;
++                case tensor_requirement_case::wrong_tensor_shape:
++                    result = loader.check_tensor_dims("invalid_tensor", {2}, true, false);
++                    break;
++                case tensor_requirement_case::missing_optional_tensor:
++                    result = loader.check_tensor_dims("missing_tensor", {1}, false, false);
++                    break;
++            }
++        } catch (const std::exception &) {
++            threw = true;
++        }
++
++        const bool expected_failure = test_case != tensor_requirement_case::missing_optional_tensor;
++#ifdef __NAGI__
++        failed_closed = !threw && result == nullptr && loader.loader_valid == !expected_failure;
++#else
++        failed_closed = threw == expected_failure && result == nullptr && loader.loader_valid;
++#endif
++    } catch (const std::exception & error) {
++        std::fprintf(stderr, "tensor-requirement fixture setup failed: %s\n", error.what());
++    }
++
++    if (!failed_closed) {
++        std::fprintf(stderr, "tensor-requirement case %d did not preserve its status contract\n",
++                static_cast<int>(test_case));
+     }
+     return failed_closed;
+ }
+@@ -234,6 +294,15 @@
+         return false;
+     }
+ 
++    if (!tensor_requirement_status(file, tensor_requirement_case::missing_weight) ||
++            !tensor_requirement_status(file, tensor_requirement_case::missing_meta) ||
++            !tensor_requirement_status(file, tensor_requirement_case::missing_required_tensor) ||
++            !tensor_requirement_status(file, tensor_requirement_case::wrong_tensor_shape) ||
++            !tensor_requirement_status(file, tensor_requirement_case::missing_optional_tensor)) {
++        std::fclose(file);
++        return false;
++    }
++
+     std::vector<std::string> splits;
+     bool range_failed_closed = false;
+     try {

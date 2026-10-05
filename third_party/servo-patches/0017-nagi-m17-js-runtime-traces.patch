@@ -1,0 +1,39 @@
+diff --git a/components/script/runtime/script_runtime.rs b/components/script/runtime/script_runtime.rs
+index 82c8a685e..bb1ffc99d 100644
+--- a/components/script/runtime/script_runtime.rs
++++ b/components/script/runtime/script_runtime.rs
+@@ -544,0 +545,19 @@ pub(crate) struct Runtime {
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m17_trace(stage: &str) {
++    #[expect(unsafe_code)]
++    unsafe {
++        nagi_m17_console_trace(stage.as_ptr(), stage.len())
++    }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+@@ -584,0 +604 @@ impl Runtime {
++        nagi_m17_trace("Servo JS runtime creation entered");
+@@ -588 +608,7 @@ impl Runtime {
+-            RustRuntime::new(current_js_engine_handle())
++            nagi_m17_trace("Servo JS engine handle acquisition started");
++            let engine = current_js_engine_handle();
++            nagi_m17_trace("Servo JS engine handle acquisition completed");
++            nagi_m17_trace("Servo RustRuntime::new started");
++            let runtime = RustRuntime::new(engine);
++            nagi_m17_trace("Servo RustRuntime::new completed");
++            runtime
+@@ -589,0 +616 @@ impl Runtime {
++        nagi_m17_trace("Servo RustRuntime::cx started");
+@@ -590,0 +618 @@ impl Runtime {
++        nagi_m17_trace("Servo RustRuntime::cx completed");

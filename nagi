@@ -4,6 +4,7 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cargo_path=$(command -v cargo || true)
 rustup_path=$(command -v rustup || true)
+toolchain_pinned=
 if [ -n "$rustup_path" ]; then
     toolchain=$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$script_dir/rust-toolchain.toml")
     if [ -n "$toolchain" ]; then
@@ -14,7 +15,19 @@ if [ -n "$rustup_path" ]; then
             cargo_path=$pinned_cargo
             export RUSTC=$pinned_rustc
             export RUSTDOC=$pinned_rustdoc
+            toolchain_pinned=1
         fi
+    fi
+    if [ -z "$toolchain_pinned" ]; then
+        rustup_bin_dir=$(dirname "$rustup_path")
+        for rustup_cargo in "$rustup_bin_dir/cargo" "$rustup_bin_dir/cargo.exe"; do
+            if [ -x "$rustup_cargo" ]; then
+                cargo_path=$rustup_cargo
+                PATH="$rustup_bin_dir:$PATH"
+                export PATH
+                break
+            fi
+        done
     fi
 fi
 if [ -z "$cargo_path" ]; then

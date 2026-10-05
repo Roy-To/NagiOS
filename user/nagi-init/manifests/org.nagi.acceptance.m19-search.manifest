@@ -1,0 +1,5 @@
+id=org.nagi.acceptance.m19-search
+name=M19 Search client
+version=0.1.0
+grant=search.query
+grant=files.search

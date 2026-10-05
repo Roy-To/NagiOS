@@ -1,0 +1,141 @@
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -345,7 +345,12 @@
+         case LLM_ARCH_SPARK2_5:
+             return new llama_model_spark2_5(params);
+         default:
++#ifdef __NAGI__
++            LLAMA_LOG_ERROR("%s: unsupported model architecture '%s'\n", __func__, llm_arch_name(arch));
++            return nullptr;
++#else
+             throw std::runtime_error(std::string("unsupported model architecture: '") + llm_arch_name(arch) + "'");
++#endif
+     }
+ 
+ }
+@@ -356,7 +361,13 @@
+     if (model != nullptr) {
+         model->arch = arch;
+         if (params.split_mode == LLAMA_SPLIT_MODE_TENSOR && !llm_arch_supports_sm_tensor(arch)) {
++#ifdef __NAGI__
++            LLAMA_LOG_ERROR("%s: tensor split mode is not supported for architecture '%s'\n", __func__, llm_arch_name(arch));
++            delete model;
++            return nullptr;
++#else
+             throw std::runtime_error(std::string("LLAMA_SPLIT_MODE_TENSOR not implemented for architecture '") + llm_arch_name(arch) + "'");
++#endif
+         }
+     }
+ 
+@@ -366,7 +377,8 @@
+ llama_model * llama_model_create(llama_model_loader & ml, const llama_model_params & params) {
+     llm_arch arch = ml.get_arch();
+     if (arch == LLM_ARCH_UNKNOWN) {
+-        throw std::runtime_error("unknown model architecture: '" + ml.get_arch_name() + "'");
++        (void) ml.fail_load("unknown model architecture: '" + ml.get_arch_name() + "'");
++        return nullptr;
+     }
+ 
+     return llama_model_create(arch, params);
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -1,4 +1,5 @@
+ #include "llama-model-loader.h"
++#include "llama-model.h"
+ 
+ #include <cstdio>
+ #include <limits>
+@@ -7,6 +8,83 @@
+ #include <vector>
+ 
+ using tensor_weight = llama_model_loader::llama_tensor_weight;
++
++static bool model_architecture_failures_return_status() {
++    llama_model_params params = llama_model_default_params();
++    llama_model * model = nullptr;
++    bool threw = false;
++    try {
++        model = llama_model_create(LLM_ARCH_UNKNOWN, params);
++    } catch (const std::exception &) {
++        threw = true;
++    }
++#ifdef __NAGI__
++    if (threw || model != nullptr) {
++        std::fprintf(stderr, "unknown model architecture did not fail closed under __NAGI__\n");
++        return false;
++    }
++
++    params.split_mode = LLAMA_SPLIT_MODE_TENSOR;
++    model = llama_model_create(LLM_ARCH_GROK, params);
++    if (llm_arch_supports_sm_tensor(LLM_ARCH_GROK) || model != nullptr) {
++        std::fprintf(stderr, "unsupported tensor split mode did not return failure\n");
++        delete model;
++        return false;
++    }
++#else
++    if (!threw || model != nullptr) {
++        std::fprintf(stderr, "unknown model architecture changed its host exception contract\n");
++        delete model;
++        return false;
++    }
++
++    params.split_mode = LLAMA_SPLIT_MODE_TENSOR;
++    threw = false;
++    model = nullptr;
++    try {
++        model = llama_model_create(LLM_ARCH_GROK, params);
++    } catch (const std::exception &) {
++        threw = true;
++    }
++    if (!threw || model != nullptr) {
++        std::fprintf(stderr, "unsupported tensor split mode changed its host exception contract\n");
++        delete model;
++        return false;
++    }
++#endif
++
++    struct gguf_context * metadata = gguf_init_empty();
++    if (metadata == nullptr) {
++        std::fprintf(stderr, "cannot allocate unknown-architecture fixture\n");
++        return false;
++    }
++    gguf_set_val_str(metadata, "general.architecture", "not-a-nagi-model");
++    std::vector<std::string> splits;
++    bool failed_closed = false;
++    try {
++        llama_model_loader loader(metadata, nullptr, nullptr, "", splits, nullptr,
++                LLAMA_LOAD_MODE_NONE, false, false, false, nullptr, nullptr);
++        threw = false;
++        model = nullptr;
++        try {
++            model = llama_model_create(loader, params);
++        } catch (const std::exception &) {
++            threw = true;
++        }
++#ifdef __NAGI__
++        failed_closed = !threw && model == nullptr && !loader.loader_valid;
++#else
++        failed_closed = threw && model == nullptr && loader.loader_valid;
++#endif
++    } catch (const std::exception & error) {
++        std::fprintf(stderr, "unknown-architecture fixture setup failed: %s\n", error.what());
++    }
++    gguf_free(metadata);
++    if (!failed_closed) {
++        std::fprintf(stderr, "loader architecture failure did not reach its status contract\n");
++    }
++    return failed_closed;
++}
+ 
+ static bool missing_tensor_info_lookup_returns_null() {
+     const llm_tensor unknown_tensor = static_cast<llm_tensor>(-1);
+@@ -404,7 +482,8 @@
+ }
+ 
+ int main() {
+-    if (!missing_tensor_info_lookup_returns_null() ||
++    if (!model_architecture_failures_return_status() ||
++            !missing_tensor_info_lookup_returns_null() ||
+             !metadata_key_read_status(false, false, true, "missing optional") ||
+             !metadata_key_read_status(true, false, false, "wrong-typed optional") ||
+             !metadata_key_read_status(true, true, false, "wrong-typed required") ||

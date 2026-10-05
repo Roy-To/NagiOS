@@ -1,6 +1,6 @@
 # Model Runtime / Model Store Foundation Workstream
 
-Status: `IN_PROGRESS`
+Status: `PARTIAL` (host contract foundation; M20 inference acceptance pending)
 
 ## Goal and boundaries
 
@@ -8,9 +8,9 @@ Implement a typed, user-space foundation for model manifests, discovery,
 compatibility, selection, provider invocation contracts, and local Model Store
 metadata. The workstream does not fetch model weights or implement the
 production inference engine. M17, Servo, Capability policy, App SDK, Activity,
-Wayback, and other concurrent workstreams remain separately owned. M20 stays
-`NOT STARTED` until its milestone acceptance, including a real local Granite
-response inside Nagi, is met.
+Wayback, and other concurrent workstreams remain separately owned. On the M18
+continuation branch, M20 is `PARTIAL`: the contract is reused and target-compiled,
+but acceptance still requires a real local Granite response inside Nagi.
 
 The accepted generative/decision architecture remains authoritative:
 
@@ -37,7 +37,8 @@ The accepted generative/decision architecture remains authoritative:
    descriptive profile without a digest cannot be selected or installed.
 3. The registry accepts one manifest at a time and records artifact,
    backend, and resource incompatibility as structured availability. A bad
-   manifest cannot mutate already registered entries.
+   manifest cannot mutate already registered entries. Unregister removes only
+   inactive entries and fails closed during loading or active transitions.
 4. Selection filters on requested capability, optional role, context and
    available resources. A compatible user preference wins, then a separately
    supplied role default, then a stable model-ID order. The registry does not
@@ -50,11 +51,11 @@ The accepted generative/decision architecture remains authoritative:
    license acknowledgement, and removal eligibility. It does not implement a
    network store or filesystem service.
 7. Host tests use a deterministic fake provider solely to verify orchestration
-   and lifecycle contracts. Three small catalog fixtures demonstrate that
-   Qwen3 4B, Granite 4.2 3B, and Gemma 3 1B fit the same schema; these
-   non-installable examples use illustrative context/resource bounds and
-   provider-term references, contain no weights, and make no distribution-ready
-   source/hash or licensing claim.
+   and lifecycle contracts. Qwen3 4B and Gemma 3 1B remain non-installable
+   examples with illustrative context/resource bounds. The Granite 4.2 3B
+   profile separately pins IBM's Q4_K_M GGUF repository revision, upstream
+   byte length and SHA-256 metadata, and Apache-2.0 notice; the model bytes are
+   not present in this source tree.
 
 ## Verification plan
 
@@ -73,9 +74,9 @@ The accepted generative/decision architecture remains authoritative:
 
 ### 2026-09-26 implementation checkpoint
 
-Status: `IN_PROGRESS`. The foundation slice is implemented and focused checks
-pass. M20 remains `NOT STARTED`; this workstream has no production inference
-backend or real target/VM inference acceptance.
+Status: `PARTIAL`. The foundation slice is implemented and focused checks pass.
+This workstream has no production inference backend or real target/VM inference
+acceptance, so it does not satisfy M20 by itself.
 
 - Added `user/nagi-model-manager`, a `no_std` crate with strict manifest v1
   parsing/validation, capability-oriented registry/selection, lifecycle and
@@ -86,9 +87,11 @@ backend or real target/VM inference acceptance.
 - The fixtures use no real artifact hash/source pin or license claim. Unit
   tests use synthetic integrity metadata only for in-memory orchestration.
 - No M17, Servo, Capability, App SDK, Activity, Wayback, kernel, or third-party
-  source files were changed. `.dev` and DF-01 workstream state tooling were not
-  present in the inspected checkout. `implementation_status.md` keeps M20
-  `NOT STARTED`.
+  source files were changed. The inspected owner branch predates `.dev` and
+  DF-01 state tooling; the current integration registry assigns this stream
+  only `.dev/workstreams/model-runtime/**`, not the shared registry/schema.
+  `implementation_status.md` keeps M20 `PARTIAL` until local Granite inference
+  is accepted in Nagi.
 
 Verification:
 
@@ -108,3 +111,58 @@ Verification:
 Git: branch `codex/ws-model-runtime`; worktree
 `/Users/tozawa/.codex/worktrees/nagi-model-runtime/NagiOS`. The commit SHA
 and push result are reported in the workstream handoff.
+
+### 2026-09-26 host-contract hardening
+
+The source-branch Windows failure was reproduced with explicit CRLF input.
+The malformed-manifest test now removes the required `source` field without
+assuming LF line endings. Registry discovery now requires one backend
+descriptor to satisfy both the runtime API and artifact/architecture
+constraints; separate descriptors with the same backend ID cannot be combined
+to report a false `Available`. `ModelStoreRecord` keeps its invariant-bearing
+fields private, derives integrity and license data from its immutable manifest,
+and exposes read-only accessors for consumers.
+
+Verification on the dedicated worktree:
+
+- `cargo test --locked -p nagi-model-manager --all-targets` — PASS: 28 unit
+  tests, 2 manifest/schema tests, and 1 external Store API test (31 total).
+- `cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check` —
+  PASS.
+- `cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings` —
+  PASS.
+- Focused Windows-line-ending and split-backend regressions each failed before
+  their fix and pass afterward.
+- Unregister tests pass for unloaded/failed/disabled entries and verify that
+  loading/ready/busy/unloading entries remain registered.
+- The local Nagi-target `cargo check` was attempted but could not start because
+  this worktree lacks the prepared `out/rust-src/library/Cargo.toml`; this is a
+  generated host setup input, not a package compile error. The source-branch CI
+  target job will provide the reproducible prepared-source check.
+
+The manifest contract test verifies the schema file parses as JSON, spot-checks
+its version/required/closed-object declarations, and checks the fixtures with
+the strict typed parser. A Draft 2020-12 evaluator is not currently run. Adding
+a locked validator dependency would also require the shared root `Cargo.lock`,
+which the authoritative workstream registry lists as forbidden; this exact
+schema-validation gap remains deferred until the lockfile boundary is
+authorized. Existing typed parsing and semantic negative tests remain active.
+
+### 2026-09-30 artifact verification boundary
+
+The Granite 4.2 3B profile now identifies the official Q4_K_M GGUF artifact at
+Hugging Face snapshot `c40945d71cd90f249a56985e8155551a9188dc30`. Resolved file
+metadata reports `2,244,011,552` bytes and SHA-256
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`; the
+profile records Apache-2.0. The pinned upstream file was streamed through a
+SHA-256 process, and its observed digest matched. The large artifact was not
+retained locally or installed.
+
+`ModelRuntime::load` independently hashes the bytes supplied by its
+`ModelArtifactReader`, using a fixed 8 KiB buffer and rejecting mismatches
+before backend load. The pinned llama.cpp commit
+`c85b92c69c955961621193cd51da194f3cbcedf3` is registered in
+`third_party/sources.lock` and fetched into an ignored clean checkout by
+`nagi fetch`. Target C++ integration, a guest store capable of supplying a
+2.24 GB artifact, and real Granite inference remain unimplemented; M20 remains
+`PARTIAL`.

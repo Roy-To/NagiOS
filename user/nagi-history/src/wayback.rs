@@ -939,14 +939,14 @@ impl RevisionQuery {
     }
 
     pub fn matches(self, record: &RevisionRecord) -> bool {
-        !self.object.is_some_and(|object| record.object_id != object)
-            && !self.actor.is_some_and(|actor| record.actor != actor)
-            && !self
+        self.object.is_none_or(|object| record.object_id == object)
+            && self.actor.is_none_or(|actor| record.actor == actor)
+            && self
                 .workspace
-                .is_some_and(|workspace| record.context.workspace_id != Some(workspace))
-            && !self
+                .is_none_or(|workspace| record.context.workspace_id == Some(workspace))
+            && self
                 .transaction
-                .is_some_and(|transaction| record.transaction_id != Some(transaction))
+                .is_none_or(|transaction| record.transaction_id == Some(transaction))
             && !self.time_range.is_some_and(|range| {
                 record.created_at < range.start_inclusive()
                     || record.created_at >= range.end_exclusive()

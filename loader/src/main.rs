@@ -3,14 +3,24 @@
 
 use core::mem;
 use core::ptr;
+#[cfg(feature = "m27-ab-slot-boot-control")]
+use core::time::Duration;
 
-use nagi_bootinfo::{BootInfo, FramebufferInfo, InitImageInfo, MemoryMapInfo};
+use nagi_bootinfo::{
+    firmware_time_to_unix_ns, BootControlInfo, BootInfo, FirmwareDateTime, FramebufferInfo,
+    InitImageInfo, MemoryMapInfo, REALTIME_UNAVAILABLE_NS,
+};
+#[cfg(feature = "m27-ab-slot-boot-control")]
+use nagi_bootinfo::{BootReadyRecord, BOOT_READY_RECORD_SIZE};
+use nagi_loader::ab::SystemSlot;
 use nagi_loader::elf::{parse, LoadPlan};
-use uefi::boot::{AllocateType, MemoryType};
+use uefi::boot::{AllocateType, MemoryType, SearchType};
 use uefi::mem::memory_map::MemoryMap;
 use uefi::prelude::*;
 use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
-use uefi::proto::media::file::{File, FileAttribute, FileMode, FileType, RegularFile};
+use uefi::proto::media::file::{Directory, File, FileAttribute, FileMode, FileType, RegularFile};
+use uefi::proto::media::fs::SimpleFileSystem;
+use uefi::proto::media::partition::PartitionInfo;
 use uefi::system::with_config_table;
 use uefi::table::cfg::ConfigTableEntry;
 
@@ -19,9 +29,32 @@ const MAX_KERNEL_IMAGE_SIZE: usize = 4 * 1024 * 1024;
 const MAX_INIT_IMAGE_SIZE: usize = 128 * 1024 * 1024;
 const INIT_READ_CHUNK_SIZE: usize = 1024 * 1024;
 const INIT_IMAGE_MAX_ADDRESS: u64 = 0xFFFF_FFFF;
+const ESP_UNIQUE_GUID: uefi::Guid = uefi::guid!("4e414702-0001-4e41-4749-000000000000");
+const SYSTEM_A_UNIQUE_GUID: uefi::Guid = uefi::guid!("4e414702-0001-4e41-4749-000000000001");
+const SYSTEM_B_UNIQUE_GUID: uefi::Guid = uefi::guid!("4e414702-0001-4e41-4749-000000000002");
+const RECOVERY_UNIQUE_GUID: uefi::Guid = uefi::guid!("4e414702-0001-4e41-4749-000000000004");
 
 static mut KERNEL_IMAGE: [u8; MAX_KERNEL_IMAGE_SIZE] = [0; MAX_KERNEL_IMAGE_SIZE];
 static mut BOOT_INFO: BootInfo = BootInfo::new();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BootImageSelection {
+    Default,
+    #[allow(dead_code)]
+    SystemA,
+    SystemB,
+    Recovery,
+}
+
+impl BootImageSelection {
+    const fn system_slot(self) -> Option<SystemSlot> {
+        match self {
+            Self::SystemA => Some(SystemSlot::A),
+            Self::SystemB => Some(SystemSlot::B),
+            Self::Default | Self::Recovery => None,
+        }
+    }
+}
 
 #[entry]
 fn main() -> Status {
@@ -30,23 +63,42 @@ fn main() -> Status {
         return fail(error_message("Nagi Loader: helper init failed"));
     }
 
-    let kernel_size = match read_kernel(boot::image_handle()) {
+    #[cfg(feature = "m27-ab-slot-boot-control")]
+    let (image_selection, boot_control) = match m27_boot_control_decision() {
+        Ok((selection, context)) => (selection, context),
+        Err(message) => return fail(error_message(message)),
+    };
+    #[cfg(not(feature = "m27-ab-slot-boot-control"))]
+    let (image_selection, boot_control) = (BootImageSelection::Default, BootControlInfo::default());
+    let selected_slot = image_selection.system_slot();
+
+    let kernel_size = match read_kernel(boot::image_handle(), image_selection) {
         Ok(size) => size,
-        Err(message) => return fail(message),
+        Err(message) => {
+            report_m27_trial_payload_rejection(selected_slot);
+            return fail(message);
+        }
     };
     let plan = {
         let bytes = unsafe { &KERNEL_IMAGE[..kernel_size] };
         match parse(bytes) {
             Ok(plan) => plan,
-            Err(_) => return fail(error_message("Nagi Loader: invalid ELF")),
+            Err(_) => {
+                report_m27_trial_payload_rejection(selected_slot);
+                return fail(error_message("Nagi Loader: invalid ELF"));
+            }
         }
     };
     if let Err(message) = load_segments(plan, kernel_size) {
+        report_m27_trial_payload_rejection(selected_slot);
         return fail(message);
     }
-    let init_image = match read_init(boot::image_handle()) {
+    let init_image = match read_init(boot::image_handle(), image_selection) {
         Ok(info) => info,
-        Err(message) => return fail(message),
+        Err(message) => {
+            report_m27_trial_payload_rejection(selected_slot);
+            return fail(message);
+        }
     };
 
     let framebuffer = match gather_framebuffer() {
@@ -57,6 +109,22 @@ fn main() -> Status {
     if acpi_rsdp == 0 {
         return fail(error_message("Nagi Loader: ACPI RSDP unavailable"));
     }
+
+    let realtime_epoch_ns = uefi::runtime::get_time()
+        .map(|time| {
+            firmware_time_to_unix_ns(FirmwareDateTime {
+                year: time.year(),
+                month: time.month(),
+                day: time.day(),
+                hour: time.hour(),
+                minute: time.minute(),
+                second: time.second(),
+                nanosecond: time.nanosecond(),
+                time_zone: time.time_zone(),
+                daylight_flags: time.daylight().bits(),
+            })
+        })
+        .unwrap_or(REALTIME_UNAVAILABLE_NS);
 
     let memory_map = unsafe { boot::exit_boot_services(None) };
     let metadata = memory_map.meta();
@@ -77,6 +145,8 @@ fn main() -> Status {
         framebuffer,
         acpi_rsdp,
         init_image,
+        realtime_epoch_ns,
+        boot_control,
     };
     unsafe {
         ptr::write_volatile(&raw mut BOOT_INFO, boot_info);
@@ -87,18 +157,233 @@ fn main() -> Status {
     }
 }
 
-fn read_kernel(image_handle: Handle) -> Result<usize, &'static str> {
-    let mut filesystem = boot::get_image_file_system(image_handle)
-        .map_err(|_| error_message("Nagi Loader: filesystem unavailable"))?;
-    let mut root = filesystem
-        .open_volume()
-        .map_err(|_| error_message("Nagi Loader: volume unavailable"))?;
-    let handle = root
-        .open(
-            cstr16!("\\EFI\\NAGI\\KERNEL.ELF"),
-            FileMode::Read,
-            FileAttribute::empty(),
+#[cfg(feature = "m27-ab-slot-boot-control")]
+fn m27_boot_control_decision() -> Result<(BootImageSelection, BootControlInfo), &'static str> {
+    use nagi_loader::ab::uefi_store::{
+        UefiVariableBootControlStore, NAGI_BOOT_CONTROL_VENDOR, NAGI_BOOT_READY_VARIABLE,
+    };
+    use nagi_loader::ab::{BootControlJournal, BootControlState};
+    use uefi::runtime::{self, VariableAttributes};
+
+    let mut journal = BootControlJournal::new(UefiVariableBootControlStore::new());
+    let mut state = journal
+        .load()
+        .map_err(|_| "Nagi Loader: M27 boot-control journal read failed")?;
+
+    if runtime::variable_exists(NAGI_BOOT_READY_VARIABLE, &NAGI_BOOT_CONTROL_VENDOR)
+        .unwrap_or(false)
+    {
+        let mut bytes = [0; BOOT_READY_RECORD_SIZE];
+        let record = runtime::get_variable(
+            NAGI_BOOT_READY_VARIABLE,
+            &NAGI_BOOT_CONTROL_VENDOR,
+            &mut bytes,
         )
+        .ok()
+        .and_then(|(value, attributes)| {
+            let required = VariableAttributes::NON_VOLATILE
+                .union(VariableAttributes::BOOTSERVICE_ACCESS)
+                .union(VariableAttributes::RUNTIME_ACCESS);
+            (attributes == required)
+                .then(|| BootReadyRecord::decode(value))
+                .flatten()
+        });
+        if let Some(record) = record {
+            let matching_pending = match state.pending_slot() {
+                Some(SystemSlot::A) => record.slot == SystemSlot::A as u8,
+                Some(SystemSlot::B) => record.slot == SystemSlot::B as u8,
+                None => false,
+            } && record.attempt == state.attempts()
+                && record.journal_generation == state.generation();
+            if matching_pending {
+                let slot = if record.slot == SystemSlot::A as u8 {
+                    SystemSlot::A
+                } else {
+                    SystemSlot::B
+                };
+                journal
+                    .mark_boot_success(slot)
+                    .map_err(|_| "Nagi Loader: M27 readiness promotion failed")?;
+                uefi::println!(
+                    "Nagi M27 readiness record consumed slot={} PASS",
+                    if slot == SystemSlot::A { "A" } else { "B" }
+                );
+                state = journal
+                    .load()
+                    .map_err(|_| "Nagi Loader: M27 promoted journal read failed")?;
+            }
+        }
+        let _ = runtime::delete_variable(NAGI_BOOT_READY_VARIABLE, &NAGI_BOOT_CONTROL_VENDOR);
+    }
+
+    let selection = m27_boot_menu(state);
+    if selection == BootImageSelection::Recovery {
+        uefi::println!("Nagi M27 manual selection: Recovery; boot journal unchanged PASS");
+        return Ok((BootImageSelection::Recovery, BootControlInfo::default()));
+    }
+    if selection.system_slot() == Some(state.confirmed_slot()) {
+        uefi::println!(
+            "Nagi M27 manual selection: confirmed slot={} (pending trial preserved) PASS",
+            if state.confirmed_slot() == SystemSlot::A {
+                "A"
+            } else {
+                "B"
+            }
+        );
+        uefi::println!("Nagi M27 UEFI variable journal persistence PASS");
+        return Ok((selection, BootControlInfo::default()));
+    }
+
+    let selected_pending_candidate = selection
+        .system_slot()
+        .filter(|slot| state.pending_slot() == Some(*slot));
+    #[cfg(feature = "m27-ab-slot-acceptance")]
+    if selected_pending_candidate.is_none() && state.generation() == 0 {
+        // Only the M27 acceptance fixture seeds System B on its first
+        // automatic boot. The release loader never invents an update.
+        journal
+            .stage_update(SystemSlot::B)
+            .map_err(|_| "Nagi Loader: M27 boot-control trial staging failed")?;
+    }
+    #[cfg(not(feature = "m27-ab-slot-acceptance"))]
+    let _ = selected_pending_candidate;
+
+    let decision = journal
+        .begin_boot()
+        .map_err(|_| "Nagi Loader: M27 boot-control decision failed")?;
+    if decision.rolled_back {
+        uefi::println!("Nagi M27 persistence decision: rollback slot=A");
+    } else if decision.trial_attempt == 0 {
+        let state = journal
+            .load()
+            .map_err(|_| "Nagi Loader: M27 confirmed journal read failed")?;
+        uefi::println!(
+            "Nagi M27 persistence decision: confirmed slot={}",
+            if state.confirmed_slot() == SystemSlot::A {
+                "A"
+            } else {
+                "B"
+            }
+        );
+    } else {
+        uefi::println!(
+            "Nagi M27 persistence decision: trial attempt={} slot={}",
+            decision.trial_attempt,
+            if decision.slot == SystemSlot::A {
+                "A"
+            } else {
+                "B"
+            }
+        );
+    }
+    uefi::println!("Nagi M27 UEFI variable journal persistence PASS");
+
+    let context = if decision.trial_attempt == 0 {
+        BootControlInfo::default()
+    } else {
+        let state: BootControlState = journal
+            .load()
+            .map_err(|_| "Nagi Loader: M27 trial context read failed")?;
+        if state.pending_slot() != Some(decision.slot) || state.attempts() != decision.trial_attempt
+        {
+            return Err("Nagi Loader: M27 trial context mismatch");
+        }
+        let system_table =
+            uefi::table::system_table_raw().ok_or("Nagi Loader: M27 runtime table unavailable")?;
+        // SAFETY: UEFI initialized the system table, which remains valid while
+        // the loader is running with boot services active.
+        let system_table = unsafe { system_table.as_ref() };
+        // SAFETY: the firmware supplies a valid runtime-services table.
+        let runtime_services = unsafe { system_table.runtime_services.as_ref() }
+            .ok_or("Nagi Loader: M27 runtime services unavailable")?;
+        BootControlInfo {
+            set_variable_address: runtime_services.set_variable as *const () as u64,
+            journal_generation: state.generation(),
+            slot: decision.slot as u8,
+            attempt: decision.trial_attempt,
+            reserved: [0; 6],
+        }
+    };
+    Ok((
+        match decision.slot {
+            SystemSlot::A => BootImageSelection::SystemA,
+            SystemSlot::B => BootImageSelection::SystemB,
+        },
+        context,
+    ))
+}
+
+#[cfg(feature = "m27-ab-slot-boot-control")]
+fn m27_boot_menu(state: nagi_loader::ab::BootControlState) -> BootImageSelection {
+    use uefi::proto::console::text::Key;
+
+    uefi::println!(
+        "Nagi M27 boot menu: confirmed={} pending={} (A=System A, B=System B, R=Recovery)",
+        if state.confirmed_slot() == SystemSlot::A {
+            "A"
+        } else {
+            "B"
+        },
+        match state.pending_slot() {
+            Some(SystemSlot::A) => "A",
+            Some(SystemSlot::B) => "B",
+            None => "none",
+        }
+    );
+    uefi::println!("Nagi M27 Recovery boot menu READY");
+
+    for _ in 0..30 {
+        let key = uefi::system::with_stdin(|stdin| stdin.read_key().ok().flatten());
+        if let Some(Key::Printable(key)) = key {
+            let key = char::from(key).to_ascii_uppercase();
+            let requested = match key {
+                'A' => Some(SystemSlot::A),
+                'B' => Some(SystemSlot::B),
+                'R' => return BootImageSelection::Recovery,
+                _ => None,
+            };
+            if let Some(slot) = requested {
+                if slot == state.confirmed_slot() || state.pending_slot() == Some(slot) {
+                    return match slot {
+                        SystemSlot::A => BootImageSelection::SystemA,
+                        SystemSlot::B => BootImageSelection::SystemB,
+                    };
+                }
+                uefi::println!(
+                    "Nagi M27 boot menu: System {} unavailable (no staged image)",
+                    if slot == SystemSlot::A { "A" } else { "B" }
+                );
+            }
+        }
+        uefi::boot::stall(Duration::from_millis(100));
+    }
+    uefi::println!("Nagi M27 boot menu timeout; using automatic A/B policy");
+    BootImageSelection::Default
+}
+
+fn report_m27_trial_payload_rejection(selected_slot: Option<SystemSlot>) {
+    #[cfg(feature = "m27-ab-slot-boot-control")]
+    if selected_slot == Some(SystemSlot::B) {
+        uefi::println!("Nagi M27 trial payload rejected slot=B");
+    }
+    #[cfg(not(feature = "m27-ab-slot-boot-control"))]
+    let _ = selected_slot;
+}
+
+fn read_kernel(image_handle: Handle, selection: BootImageSelection) -> Result<usize, &'static str> {
+    let (mut root, from_partition) = open_selected_volume_root(image_handle, selection)?;
+    let path = if from_partition {
+        cstr16!("\\KERNEL.ELF")
+    } else {
+        match selection {
+            BootImageSelection::SystemA => cstr16!("\\EFI\\NAGI\\SYSTEMA\\KERNEL.ELF"),
+            BootImageSelection::SystemB => cstr16!("\\EFI\\NAGI\\SYSTEMB\\KERNEL.ELF"),
+            BootImageSelection::Recovery => cstr16!("\\EFI\\NAGI\\RECOVERY\\KERNEL.ELF"),
+            BootImageSelection::Default => cstr16!("\\EFI\\NAGI\\KERNEL.ELF"),
+        }
+    };
+    let handle = root
+        .open(path, FileMode::Read, FileAttribute::empty())
         .map_err(|_| error_message("Nagi Loader: KERNEL.ELF not found"))?;
     let mut file = match handle
         .into_type()
@@ -124,18 +409,23 @@ fn read_kernel(image_handle: Handle) -> Result<usize, &'static str> {
     )
 }
 
-fn read_init(image_handle: Handle) -> Result<InitImageInfo, &'static str> {
-    let mut filesystem = boot::get_image_file_system(image_handle)
-        .map_err(|_| error_message("Nagi Loader: filesystem unavailable"))?;
-    let mut root = filesystem
-        .open_volume()
-        .map_err(|_| error_message("Nagi Loader: volume unavailable"))?;
+fn read_init(
+    image_handle: Handle,
+    selection: BootImageSelection,
+) -> Result<InitImageInfo, &'static str> {
+    let (mut root, from_partition) = open_selected_volume_root(image_handle, selection)?;
+    let path = if from_partition {
+        cstr16!("\\INIT.ELF")
+    } else {
+        match selection {
+            BootImageSelection::SystemA => cstr16!("\\EFI\\NAGI\\SYSTEMA\\INIT.ELF"),
+            BootImageSelection::SystemB => cstr16!("\\EFI\\NAGI\\SYSTEMB\\INIT.ELF"),
+            BootImageSelection::Recovery => cstr16!("\\EFI\\NAGI\\RECOVERY\\INIT.ELF"),
+            BootImageSelection::Default => cstr16!("\\EFI\\NAGI\\INIT.ELF"),
+        }
+    };
     let handle = root
-        .open(
-            cstr16!("\\EFI\\NAGI\\INIT.ELF"),
-            FileMode::Read,
-            FileAttribute::empty(),
-        )
+        .open(path, FileMode::Read, FileAttribute::empty())
         .map_err(|_| error_message("Nagi Loader: INIT.ELF not found"))?;
     let mut file = match handle
         .into_type()
@@ -202,6 +492,90 @@ fn read_init(image_handle: Handle) -> Result<InitImageInfo, &'static str> {
         address: allocation_start,
         size: size as u64,
     })
+}
+
+fn open_selected_volume_root(
+    image_handle: Handle,
+    selection: BootImageSelection,
+) -> Result<(Directory, bool), &'static str> {
+    let unique_guid = match selection {
+        BootImageSelection::Default | BootImageSelection::SystemA => SYSTEM_A_UNIQUE_GUID,
+        BootImageSelection::SystemB => SYSTEM_B_UNIQUE_GUID,
+        BootImageSelection::Recovery => RECOVERY_UNIQUE_GUID,
+    };
+    if let Some(root) = open_partition_root(unique_guid)? {
+        if selection != BootImageSelection::Recovery {
+            uefi::println!(
+                "Nagi M30 GPT partition boot: System {} PASS",
+                if selection == BootImageSelection::SystemB {
+                    "B"
+                } else {
+                    "A"
+                }
+            );
+        } else {
+            uefi::println!("Nagi M30 GPT partition boot: Recovery PASS");
+        }
+        return Ok((root, true));
+    }
+
+    let mut filesystem = boot::get_image_file_system(image_handle)
+        .map_err(|_| error_message("Nagi Loader: filesystem unavailable"))?;
+    let root = filesystem
+        .open_volume()
+        .map_err(|_| error_message("Nagi Loader: volume unavailable"))?;
+    Ok((root, false))
+}
+
+fn open_partition_root(unique_guid: uefi::Guid) -> Result<Option<Directory>, &'static str> {
+    let handles = match boot::locate_handle_buffer(SearchType::from_proto::<PartitionInfo>()) {
+        Ok(handles) => handles,
+        Err(_) => return Ok(None),
+    };
+    let mut matched_handle = None;
+    let mut found_nagi_boot_partition = false;
+    for handle in handles.iter().copied() {
+        let partition = boot::open_protocol_exclusive::<PartitionInfo>(handle)
+            .map_err(|_| error_message("Nagi Loader: GPT partition info unavailable"))?;
+        let Some(entry) = partition.gpt_partition_entry() else {
+            continue;
+        };
+        let candidate_guid = entry.unique_partition_guid;
+        found_nagi_boot_partition |= guid_matches(candidate_guid, ESP_UNIQUE_GUID)
+            || guid_matches(candidate_guid, SYSTEM_A_UNIQUE_GUID)
+            || guid_matches(candidate_guid, SYSTEM_B_UNIQUE_GUID)
+            || guid_matches(candidate_guid, RECOVERY_UNIQUE_GUID);
+        if guid_matches(candidate_guid, unique_guid) {
+            if matched_handle.is_some() {
+                return Err(error_message("Nagi Loader: duplicate GPT partition GUID"));
+            }
+            matched_handle = Some(handle);
+        }
+    }
+    let Some(handle) = matched_handle else {
+        if !found_nagi_boot_partition {
+            return Ok(None);
+        }
+        return Err(error_message(
+            "Nagi Loader: selected GPT partition is missing",
+        ));
+    };
+    let mut filesystem = boot::open_protocol_exclusive::<SimpleFileSystem>(handle)
+        .map_err(|_| error_message("Nagi Loader: GPT partition filesystem unavailable"))?;
+    filesystem
+        .open_volume()
+        .map(Some)
+        .map_err(|_| error_message("Nagi Loader: GPT partition volume unavailable"))
+}
+
+fn guid_matches(left: uefi::Guid, right: uefi::Guid) -> bool {
+    let left = left.to_bytes();
+    let right = right.to_bytes();
+    let mut difference = 0u8;
+    for index in 0..left.len() {
+        difference |= left[index] ^ right[index];
+    }
+    difference == 0
 }
 
 #[allow(clippy::too_many_arguments)]

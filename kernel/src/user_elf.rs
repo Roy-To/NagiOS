@@ -151,6 +151,12 @@ pub fn parse(bytes: &[u8]) -> Result<UserLoadPlan, UserElfError> {
                     memory_size: read_u64(bytes, offset + 40)?,
                     alignment: read_u64(bytes, offset + 48)?,
                 };
+                // Some linkers emit an empty PT_TLS header even when the
+                // image has no static TLS. It carries no template and should
+                // not be treated as a malformed non-empty TLS segment.
+                if tls.file_size == 0 && tls.memory_size == 0 {
+                    continue;
+                }
                 validate_tls_segment(bytes, tls)?;
                 plan.tls = Some(tls);
             }
@@ -381,6 +387,15 @@ mod tests {
         bytes
     }
 
+    fn elf_with_empty_tls_header() -> Vec<u8> {
+        let mut bytes = elf_with_segment(USER_IMAGE_BASE, 4096, 5);
+        write_u16(&mut bytes, 56, 2);
+        let ph = ELF_HEADER_SIZE + PROGRAM_HEADER_SIZE;
+        write_u32(&mut bytes, ph, 7);
+        write_u32(&mut bytes, ph + 4, 4);
+        bytes
+    }
+
     #[test]
     fn parses_a_bounded_executable_user_segment() {
         let bytes = elf_with_segment(USER_IMAGE_BASE, 4096, 5);
@@ -407,6 +422,13 @@ mod tests {
                 alignment: 16,
             })
         );
+    }
+
+    #[test]
+    fn accepts_an_empty_tls_program_header_as_no_tls_template() {
+        let plan = parse(&elf_with_empty_tls_header()).expect("empty TLS header is harmless");
+
+        assert_eq!(plan.tls, None);
     }
 
     #[test]

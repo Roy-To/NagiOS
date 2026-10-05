@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod speech;
+
 pub const MAX_SESSIONS: usize = 4;
 pub const MAX_SESSION_SAMPLES: usize = 1024;
 
@@ -27,8 +29,15 @@ impl PcmFormat {
         }
     }
 
+    pub const fn mono_16khz() -> Self {
+        Self {
+            sample_rate: 16_000,
+            channels: 1,
+        }
+    }
+
     pub const fn new(sample_rate: u32, channels: u16) -> Result<Self, AudioError> {
-        if sample_rate == 48_000 && channels == 2 {
+        if (sample_rate == 48_000 && channels == 2) || (sample_rate == 16_000 && channels == 1) {
             Ok(Self {
                 sample_rate,
                 channels,
@@ -89,11 +98,13 @@ pub struct Mixer {
 
 /// User-space audio service boundary. Applications use this bounded service
 /// object; only the service owns the device capability and mixer state.
+#[cfg(target_os = "nagi")]
 pub struct AudioService {
     capability: u64,
     mixer: Mixer,
 }
 
+#[cfg(target_os = "nagi")]
 impl AudioService {
     pub fn new(capability: u64) -> Self {
         Self {
@@ -247,6 +258,7 @@ mod tests {
     #[test]
     fn rejects_an_unsupported_pcm_format() {
         assert_eq!(PcmFormat::new(48_000, 2).unwrap().sample_rate(), 48_000);
+        assert_eq!(PcmFormat::new(16_000, 1), Ok(PcmFormat::mono_16khz()));
         assert_eq!(
             PcmFormat::new(48_000, 1),
             Err(AudioError::UnsupportedFormat)

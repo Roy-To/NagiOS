@@ -441,7 +441,7 @@
         "development-foundation"
       ],
       "allowed_paths": [
-        "crates/nagi-localization/**",
+        "crates/nagi-i18n/**",
         "docs/architecture/language-architecture.md",
         "docs/guides/localization.md",
         "docs/workstreams/localization-i18n/**",

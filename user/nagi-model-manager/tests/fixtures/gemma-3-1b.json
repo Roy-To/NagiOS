@@ -10,6 +10,7 @@
   "version": "3",
   "variant": "1b",
   "runtime_api_version": "nagi.ai/1",
+  "runtime_class": "generative_llm",
   "execution": "local",
   "artifact": {
     "format": "gguf",
@@ -17,8 +18,11 @@
       "kind": "model_store",
       "artifact_id": "google.gemma-3-1b"
     },
-    "size_bytes": null,
-    "integrity": null
+    "size_bytes": 806058240,
+    "integrity": {
+      "algorithm": "sha256",
+      "digest": "8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135"
+    }
   },
   "capabilities": ["text.generate"],
   "modalities": ["text"],
@@ -33,6 +37,7 @@
     "minimum_cpu_cores": 1,
     "gpu_required": false
   },
+  "resource_class": "lite",
   "supported_backends": ["llama_cpp"],
   "roles": ["lite"],
   "compatibility": {
@@ -40,16 +45,20 @@
     "minimum_os_version": null
   },
   "license": {
-    "identifier": "google-gemma-terms",
-    "terms_reference": "provider-terms:google.gemma",
+    "identifier": "Gemma Terms of Use",
+    "terms_reference": "https://ai.google.dev/gemma/terms",
     "acknowledgement_required": true,
     "notices": [
       {
-        "notice_id": "gemma-notice",
-        "reference": "provider-notice:google.gemma",
+        "notice_id": "gemma-terms-of-use",
+        "reference": "https://ai.google.dev/gemma/terms",
         "required": true
       }
     ]
   },
-  "source": null
+  "source": {
+    "uri": "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF",
+    "revision": "f9c28bcd85737ffc5aef028638d3341d49869c27",
+    "file_name": "gemma-3-1b-it-Q4_K_M.gguf"
+  }
 }

@@ -1,0 +1,946 @@
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 88851c6..54bdc0e 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -21,6 +21,24 @@
+ #include <string>
+ #include <unordered_map>
+ 
++#if defined(__NAGI__)
++#define LLAMA_CONTEXT_FAIL_RETURN(message) \
++    do { \
++        const std::string error_message(message); \
++        LLAMA_LOG_ERROR("%s: %s\n", __func__, error_message.c_str()); \
++        return; \
++    } while (0)
++#define LLAMA_CONTEXT_FAIL_FALSE(message) \
++    do { \
++        const std::string error_message(message); \
++        LLAMA_LOG_ERROR("%s: %s\n", __func__, error_message.c_str()); \
++        return false; \
++    } while (0)
++#else
++#define LLAMA_CONTEXT_FAIL_RETURN(message) throw std::runtime_error(message)
++#define LLAMA_CONTEXT_FAIL_FALSE(message) throw std::runtime_error(message)
++#endif
++
+ //
+ // llama_context
+ //
+@@ -30,7 +48,12 @@ static llm_graph_type ctx_type_to_graph_type(llama_context_type ctx_type) {
+         case LLAMA_CONTEXT_TYPE_DEFAULT: return LLM_GRAPH_TYPE_DEFAULT;
+         case LLAMA_CONTEXT_TYPE_MTP    : return LLM_GRAPH_TYPE_DECODER_MTP;
+     }
++#if defined(__NAGI__)
++    LLAMA_LOG_ERROR("%s: unsupported context type: %d\n", __func__, (int) ctx_type);
++    return LLM_GRAPH_TYPE_DEFAULT;
++#else
+     throw std::runtime_error("Unsupported ctx type");
++#endif
+ }
+ 
+ struct llm_fused_op_probe {
+@@ -99,7 +122,7 @@ llama_context::llama_context(
+ 
+     cparams.n_seq_max = std::max(1u, params.n_seq_max);
+     if (cparams.n_seq_max > LLAMA_MAX_SEQ) {
+-        throw std::runtime_error("n_seq_max must be <= " + std::to_string(LLAMA_MAX_SEQ));
++        LLAMA_CONTEXT_FAIL_RETURN("n_seq_max must be <= " + std::to_string(LLAMA_MAX_SEQ));
+     }
+ 
+     cparams.n_rs_seq = params.n_rs_seq;
+@@ -147,7 +170,7 @@ llama_context::llama_context(
+     if (model.arch == LLM_ARCH_GEMMA4_ASSISTANT) {
+         if (params.ctx_other == nullptr) {
+             // TODO: change from runtime_error to llama_exception to avoid printing error message
+-            throw std::runtime_error("Gemma4Assistant requires ctx_other to be set (this warning is normal during memory fitting)");
++            LLAMA_CONTEXT_FAIL_RETURN("Gemma4Assistant requires ctx_other to be set (this warning is normal during memory fitting)");
+         }
+ 
+         cparams.ctx_other = params.ctx_other;
+@@ -156,7 +179,7 @@ llama_context::llama_context(
+     if (model.arch == LLM_ARCH_EAGLE3 || model.arch == LLM_ARCH_DFLASH) {
+         if (model.tok_embd == nullptr || model.output == nullptr) {
+             if (params.ctx_other == nullptr) {
+-                throw std::runtime_error(model.arch_name() + " requires ctx_other to be set (this warning is normal during memory fitting)");
++                LLAMA_CONTEXT_FAIL_RETURN(model.arch_name() + " requires ctx_other to be set (this warning is normal during memory fitting)");
+             }
+             cparams.ctx_other = params.ctx_other;
+         }
+@@ -259,7 +282,7 @@ llama_context::llama_context(
+             const auto & config = params.samplers[i];
+ 
+             if (llama_sampler_chain_get(config.sampler, -1) == nullptr) {
+-                throw std::runtime_error("the backend samplers must be of type llama_sampler_chain");
++                LLAMA_CONTEXT_FAIL_RETURN("the backend samplers must be of type llama_sampler_chain");
+             }
+ 
+             if (set_sampler(config.seq_id, config.sampler)) {
+@@ -295,7 +318,7 @@ llama_context::llama_context(
+         cparams.n_ctx_seq = GGML_PAD(cparams.n_ctx_seq, 256);
+ 
+         if (cparams.n_ctx_seq == 0) {
+-            throw std::runtime_error("n_ctx_seq == 0");
++            LLAMA_CONTEXT_FAIL_RETURN("n_ctx_seq == 0");
+         }
+ 
+         if (cparams.n_ctx != cparams.n_ctx_seq * cparams.n_seq_max) {
+@@ -333,7 +356,7 @@ llama_context::llama_context(
+         for (const auto & dev : model.devices) {
+             ggml_backend_t backend = ggml_backend_dev_init(dev.dev, nullptr);
+             if (backend == nullptr) {
+-                throw std::runtime_error(format("failed to initialize %s backend", ggml_backend_dev_name(dev.dev)));
++                LLAMA_CONTEXT_FAIL_RETURN(format("failed to initialize %s backend", ggml_backend_dev_name(dev.dev)));
+             }
+             backends.emplace_back(backend);
+         }
+@@ -344,7 +367,7 @@ llama_context::llama_context(
+             if (ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+                 ggml_backend_t backend = ggml_backend_dev_init(dev, nullptr);
+                 if (backend == nullptr) {
+-                    throw std::runtime_error(format("failed to initialize %s backend", ggml_backend_dev_name(dev)));
++                    LLAMA_CONTEXT_FAIL_RETURN(format("failed to initialize %s backend", ggml_backend_dev_name(dev)));
+                 }
+                 backends.emplace_back(backend);
+             }
+@@ -353,7 +376,7 @@ llama_context::llama_context(
+         // add CPU backend
+         backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+         if (backend_cpu == nullptr) {
+-            throw std::runtime_error("failed to initialize CPU backend");
++            LLAMA_CONTEXT_FAIL_RETURN("failed to initialize CPU backend");
+         }
+         backends.emplace_back(backend_cpu);
+ 
+@@ -374,7 +397,7 @@ llama_context::llama_context(
+         // graph outputs buffer
+         {
+             if (output_reserve(params.n_seq_max) < params.n_seq_max) {
+-                throw std::runtime_error("failed to reserve initial output buffer");
++                LLAMA_CONTEXT_FAIL_RETURN("failed to reserve initial output buffer");
+             }
+ 
+             LLAMA_LOG_INFO("%s: %10s  output buffer size = %8.2f MiB\n", __func__,
+@@ -394,6 +417,9 @@ llama_context::llama_context(
+         };
+ 
+         memory.reset(model.create_memory(params_mem, cparams));
++        if (!memory) {
++            LLAMA_CONTEXT_FAIL_RETURN("failed to initialize memory module");
++        }
+     }
+ 
+     // init backends
+@@ -459,11 +485,13 @@ llama_context::llama_context(
+             LLAMA_LOG_INFO("%s: pipeline parallelism enabled\n", __func__);
+         }
+ 
+-        sched_reserve();
++        if (!sched_reserve()) {
++            return;
++        }
+ 
+         if (!cparams.flash_attn) {
+             if (ggml_is_quantized(params.type_v)) {
+-                throw std::runtime_error("quantized V cache was requested, but this requires Flash Attention");
++                LLAMA_CONTEXT_FAIL_RETURN("quantized V cache was requested, but this requires Flash Attention");
+             }
+         }
+     }
+@@ -477,15 +505,18 @@ llama_context::llama_context(
+             sampling.token_ids_full_vocab[i] = i;
+         }
+     }
++
++    initialization_complete = true;
+ }
+ 
+ llama_context::~llama_context() {
+-    // wait for any pending asynchronous copies into the output buffers before they are freed
+-    synchronize();
++    if (initialization_complete) {
++        // wait for any pending asynchronous copies into the output buffers before they are freed
++        synchronize();
+ 
+-    // when training, ggml_opt allocates extra buffers through the scheduler, so the sizes no longer match the expectation
+-    if (!model.hparams.no_alloc && !opt_ctx) {
+-        for (size_t i = 0; i < backend_ptrs.size(); ++i) {
++        // when training, ggml_opt allocates extra buffers through the scheduler, so the sizes no longer match the expectation
++        if (!model.hparams.no_alloc && !opt_ctx) {
++            for (size_t i = 0; i < backend_ptrs.size(); ++i) {
+             ggml_backend_t             backend = backend_ptrs[i];
+             ggml_backend_buffer_type_t buft    = backend_buft[i];
+ 
+@@ -498,23 +529,24 @@ llama_context::~llama_context() {
+                 LLAMA_LOG_WARN("%s: %10s compute buffer size of %8.4f MiB, does not match expectation of %8.4f MiB\n",
+                     __func__, ggml_backend_buft_name(buft), size_act / (1024.0*1024.0), size_exp / (1024.0*1024.0));
+             }
++            }
+         }
+     }
+     ggml_opt_free(opt_ctx);
+ }
+ 
+-void llama_context::resolve_fused_ops(const llama_memory_context_i * mctx, uint32_t n_seqs) {
++bool llama_context::resolve_fused_ops(const llama_memory_context_i * mctx, uint32_t n_seqs) {
+     const char * func = __func__;
+     auto resolve = [&](const llm_fused_op_probe & probe, bool & enabled) {
+         if (!enabled) {
+-            return;
++            return true;
+         }
+ 
+         const uint32_t n_tokens_probe = probe.n_tokens_per_seq*n_seqs;
+ 
+         auto * gf = graph_reserve(n_tokens_probe, n_seqs, n_tokens_probe, mctx, true);
+         if (!gf) {
+-            throw std::runtime_error(std::string("failed to reserve graph for ") + probe.name + " check");
++            LLAMA_CONTEXT_FAIL_FALSE(std::string("failed to reserve graph for ") + probe.name + " check");
+         }
+ 
+         bool device_mismatch = false;
+@@ -551,33 +583,43 @@ void llama_context::resolve_fused_ops(const llama_memory_context_i * mctx, uint3
+             enabled = true;
+             LLAMA_LOG_INFO("%s: %s enabled\n", func, probe.name);
+         }
++        return true;
+     };
+ 
+     if (cparams.auto_fa) {
+-        resolve(llm_fused_op_flash_attn_probe, cparams.flash_attn);
++        if (!resolve(llm_fused_op_flash_attn_probe, cparams.flash_attn)) {
++            return false;
++        }
+         cparams.auto_fa = false;
+     }
+ 
+     if (cparams.auto_fgdn) {
+         LLAMA_LOG_INFO("%s: resolving fused Gated Delta Net support:\n", func);
+-        resolve(llm_fused_op_gdn_ar_probe, cparams.fused_gdn_ar);
+-        resolve(llm_fused_op_gdn_ch_probe, cparams.fused_gdn_ch);
++        if (!resolve(llm_fused_op_gdn_ar_probe, cparams.fused_gdn_ar) ||
++                !resolve(llm_fused_op_gdn_ch_probe, cparams.fused_gdn_ch)) {
++            return false;
++        }
+         cparams.auto_fgdn = false;
+     }
+ 
+     if (cparams.auto_flid) {
+         LLAMA_LOG_INFO("%s: resolving fused Lightning Indexer support:\n", func);
+-        resolve(llm_fused_op_lid_probe, cparams.fused_lid);
++        if (!resolve(llm_fused_op_lid_probe, cparams.fused_lid)) {
++            return false;
++        }
+         cparams.auto_flid = false;
+     }
+ 
+     if (cparams.auto_fhc) {
+         LLAMA_LOG_INFO("%s: resolving fused DeepSeek V4 HC support:\n", func);
+-        resolve(llm_fused_op_dsv4_hc_pre_probe,  cparams.fused_dsv4_hc_pre);
+-        resolve(llm_fused_op_dsv4_hc_comb_probe, cparams.fused_dsv4_hc_comb);
+-        resolve(llm_fused_op_dsv4_hc_post_probe, cparams.fused_dsv4_hc_post);
++        if (!resolve(llm_fused_op_dsv4_hc_pre_probe,  cparams.fused_dsv4_hc_pre) ||
++                !resolve(llm_fused_op_dsv4_hc_comb_probe, cparams.fused_dsv4_hc_comb) ||
++                !resolve(llm_fused_op_dsv4_hc_post_probe, cparams.fused_dsv4_hc_post)) {
++            return false;
++        }
+         cparams.auto_fhc = false;
+     }
++    return true;
+ }
+ 
+ static int llama_graph_n_input_tensors(ggml_cgraph * gf) {
+@@ -614,9 +656,9 @@ static int llama_graph_n_input_tensors(ggml_cgraph * gf) {
+     return (int) users.size();
+ }
+ 
+-void llama_context::sched_reserve() {
++bool llama_context::sched_reserve() {
+     if (!sched_need_reserve) {
+-        return;
++        return true;
+     }
+ 
+     sched_need_reserve = false;
+@@ -647,7 +689,8 @@ void llama_context::sched_reserve() {
+         LLAMA_LOG_DEBUG("%s: reserving full memory module\n", __func__);
+         mctx = memory->init_full();
+         if (!mctx) {
+-            throw std::runtime_error("failed to initialize memory module");
++            sched_need_reserve = true;
++            LLAMA_CONTEXT_FAIL_FALSE("failed to initialize memory module");
+         }
+     }
+ 
+@@ -656,7 +699,10 @@ void llama_context::sched_reserve() {
+ 
+     LLAMA_LOG_DEBUG("%s: worst-case: n_tokens = %d, n_seqs = %d, n_outputs = %d\n", __func__, n_tokens, n_seqs, n_outputs);
+ 
+-    resolve_fused_ops(mctx.get(), n_seqs);
++    if (!resolve_fused_ops(mctx.get(), n_seqs)) {
++        sched_need_reserve = true;
++        return false;
++    }
+ 
+     // reserve worst-case graph
+     int n_splits_pp        = -1;
+@@ -683,7 +729,8 @@ void llama_context::sched_reserve() {
+                 gf = graph_reserve(n_tokens, n_seqs, n_outputs_pp, mctx.get());
+             }
+             if (!gf) {
+-                throw std::runtime_error("failed to allocate compute pp buffers");
++                sched_need_reserve = true;
++                LLAMA_CONTEXT_FAIL_FALSE("failed to allocate compute pp buffers");
+             }
+         }
+ 
+@@ -697,7 +744,8 @@ void llama_context::sched_reserve() {
+     {
+         auto * gf = graph_reserve(n_seqs, n_seqs, n_seqs, mctx.get(), model.hparams.no_alloc);
+         if (!gf) {
+-            throw std::runtime_error("failed to allocate compute tg buffers");
++            sched_need_reserve = true;
++            LLAMA_CONTEXT_FAIL_FALSE("failed to allocate compute tg buffers");
+         }
+ 
+         n_splits_tg        = ggml_backend_sched_get_n_splits(sched.get());
+@@ -724,7 +772,8 @@ void llama_context::sched_reserve() {
+         };
+ 
+         if (!gf) {
+-            throw std::runtime_error("failed to allocate compute pp buffers");
++            sched_need_reserve = true;
++            LLAMA_CONTEXT_FAIL_FALSE("failed to allocate compute pp buffers");
+         }
+     }
+ 
+@@ -762,6 +811,7 @@ void llama_context::sched_reserve() {
+ 
+     LLAMA_LOG_INFO("%s: reserve took %.2f ms, sched copies = %d\n",
+             __func__, (t_end_us - t_start_us)/1000.0, ggml_backend_sched_get_n_copies(sched.get()));
++    return true;
+ }
+ 
+ void llama_context::synchronize() {
+@@ -830,6 +880,10 @@ uint32_t llama_context::n_seq_max() const {
+     return cparams.n_seq_max;
+ }
+ 
++bool llama_context::is_initialized() const {
++    return initialization_complete;
++}
++
+ uint32_t llama_context::n_threads() const {
+     return cparams.n_threads;
+ }
+@@ -842,9 +896,9 @@ llama_memory_t llama_context::get_memory() const {
+     return memory.get();
+ }
+ 
+-bool llama_context::memory_update(bool optimize) {
++llama_context::memory_update_status llama_context::memory_update(bool optimize) {
+     if (!memory) {
+-        return false;
++        return memory_update_status::no_update;
+     }
+ 
+     {
+@@ -857,13 +911,13 @@ bool llama_context::memory_update(bool optimize) {
+             case LLAMA_MEMORY_STATUS_NO_UPDATE:
+                 {
+                     // no updates need to be performed
+-                    return false;
++                    return memory_update_status::no_update;
+                 }
+             case LLAMA_MEMORY_STATUS_FAILED_PREPARE:
+             case LLAMA_MEMORY_STATUS_FAILED_COMPUTE:
+                 {
+                     LLAMA_LOG_ERROR("%s: failed to prepare memory update\n", __func__);
+-                    return false;
++                    return memory_update_status::no_update;
+                 }
+         }
+ 
+@@ -878,6 +932,9 @@ bool llama_context::memory_update(bool optimize) {
+ 
+         if (!mctx->apply()) {
+             LLAMA_LOG_ERROR("%s: failed to apply memory update\n", __func__);
++#if defined(__NAGI__)
++            return memory_update_status::failed;
++#endif
+         }
+     }
+ 
+@@ -885,7 +942,12 @@ bool llama_context::memory_update(bool optimize) {
+     {
+         const auto mctx = memory->init_full();
+         if (!mctx) {
++#if defined(__NAGI__)
++            LLAMA_LOG_ERROR("%s: failed to initialize memory context\n", __func__);
++            return memory_update_status::failed;
++#else
+             throw std::runtime_error("failed to initialize memory context");
++#endif
+         }
+ 
+         const uint32_t n_seqs = cparams.n_seq_max;
+@@ -896,10 +958,13 @@ bool llama_context::memory_update(bool optimize) {
+         auto * gf = graph_reserve(n_tokens, n_seqs, n_outputs_max, mctx.get());
+         if (!gf) {
+             LLAMA_LOG_ERROR("%s: failed to reserve graph after the memory update\n", __func__);
++#if defined(__NAGI__)
++            return memory_update_status::failed;
++#endif
+         }
+     }
+ 
+-    return true;
++    return memory_update_status::updated;
+ }
+ 
+ enum llama_pooling_type llama_context::pooling_type() const {
+@@ -912,53 +977,57 @@ float * llama_context::get_logits() {
+     return logits.data;
+ }
+ 
+-int64_t llama_context::output_resolve_row(int32_t i) const {
+-    int64_t j = -1;
++bool llama_context::output_resolve_row(int32_t i, int64_t & row, const char * & reason) const {
++    row = -1;
++    reason = nullptr;
+ 
+     // support negative indices (last output row)
+     if (i < 0) {
+-        j = n_outputs + i;
+-        if (j < 0) {
+-            throw std::runtime_error(format("negative index out of range [0, %d)", n_outputs));
++        row = (int64_t) n_outputs + i;
++        if (row < 0) {
++            reason = "negative index out of range";
++            return false;
+         }
+     } else if ((size_t) i >= output_ids.size()) {
+-        throw std::runtime_error(format("out of range [0, %zu)", output_ids.size()));
++        reason = "output index out of range";
++        return false;
+     } else {
+         // use output_ids to translate the batch token index into a row number
+         // that holds this token's data.
+-        j = output_ids[i];
++        row = output_ids[i];
+     }
+ 
+-    if (j < 0) {
++    if (row < 0) {
+         // the batch token was not configured to output anything
+-        throw std::runtime_error(format("batch.logits[%d] != true", i));
++        reason = "batch output is disabled";
++        return false;
+     }
+ 
+-    if (j >= n_outputs) {
+-        throw std::runtime_error(format("corrupt output buffer (j=%" PRId64 ", n_outputs=%d)", j, n_outputs));
++    if (row >= n_outputs) {
++        reason = "corrupt output row";
++        return false;
+     }
+ 
+-    return j;
++    return true;
+ }
+ 
+ float * llama_context::get_logits_ith(int32_t i) {
+     output_reorder();
+ 
+-    try {
+-        if (logits.data == nullptr) {
+-            throw std::runtime_error("no logits");
+-        }
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (logits.data == nullptr) {
++        reason = "no logits";
++    } else if (output_resolve_row(i, row, reason)) {
++        return logits.data + row*model.vocab.n_tokens();
++    }
+ 
+-        const int64_t j = output_resolve_row(i);
+-        return logits.data + j*model.vocab.n_tokens();
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid logits id %d, reason: %s\n", __func__, i, err.what());
++    LLAMA_LOG_ERROR("%s: invalid logits id %d, reason: %s\n", __func__, i, reason);
+ #ifndef NDEBUG
+-        GGML_ABORT("fatal error");
++    GGML_ABORT("fatal error");
+ #else
+-        return nullptr;
++    return nullptr;
+ #endif
+-    }
+ }
+ 
+ float * llama_context::get_embeddings() {
+@@ -974,22 +1043,21 @@ llama_token * llama_context::get_sampled_tokens()  const{
+ float * llama_context::get_embeddings_ith(int32_t i) {
+     output_reorder();
+ 
+-    try {
+-        if (embd.data == nullptr) {
+-            throw std::runtime_error("no embeddings");
+-        }
+-
+-        const int64_t j = output_resolve_row(i);
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (embd.data == nullptr) {
++        reason = "no embeddings";
++    } else if (output_resolve_row(i, row, reason)) {
+         const uint32_t n_embd_out = model.hparams.n_embd_out();
+-        return embd.data + j*n_embd_out;
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid embeddings id %d, reason: %s\n", __func__, i, err.what());
++        return embd.data + row*n_embd_out;
++    }
++
++    LLAMA_LOG_ERROR("%s: invalid embeddings id %d, reason: %s\n", __func__, i, reason);
+ #ifndef NDEBUG
+-        GGML_ABORT("fatal error");
++    GGML_ABORT("fatal error");
+ #else
+-        return nullptr;
++    return nullptr;
+ #endif
+-    }
+ }
+ 
+ float * llama_context::get_embeddings_seq(llama_seq_id seq_id) {
+@@ -1010,31 +1078,31 @@ float * llama_context::get_embeddings_nextn() {
+ float * llama_context::get_embeddings_nextn_ith(int32_t i) {
+     output_reorder();
+ 
+-    try {
+-        if (embd_nextn.data == nullptr) {
+-            throw std::runtime_error("no nextn embeddings");
+-        }
+-
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (embd_nextn.data == nullptr) {
++        reason = "no nextn embeddings";
++    } else {
+         const uint32_t n_embd = model.hparams.n_embd_out();
+ 
+         if (!cparams.embeddings_nextn_masked) {
+             // unmasked: nextn rows are stored densely, indexed by raw token position.
+-            if (i < 0 || (size_t)(i + 1) * n_embd > embd_nextn.size) {
+-                throw std::runtime_error(format("out of range [0, %zu)", embd_nextn.size / n_embd));
++            if (n_embd == 0 || i < 0 || (size_t) i >= embd_nextn.size / n_embd) {
++                reason = "nextn embeddings index out of range";
++            } else {
++                return embd_nextn.data + (size_t) i * n_embd;
+             }
+-            return embd_nextn.data + (size_t) i * n_embd;
++        } else if (output_resolve_row(i, row, reason)) {
++            return embd_nextn.data + row*n_embd;
+         }
++    }
+ 
+-        const int64_t j = output_resolve_row(i);
+-        return embd_nextn.data + j*n_embd;
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid nextn embeddings id %d, reason: %s\n", __func__, i, err.what());
++    LLAMA_LOG_ERROR("%s: invalid nextn embeddings id %d, reason: %s\n", __func__, i, reason);
+ #ifndef NDEBUG
+-        GGML_ABORT("fatal error");
++    GGML_ABORT("fatal error");
+ #else
+-        return nullptr;
++    return nullptr;
+ #endif
+-    }
+ }
+ 
+ float * llama_context::get_embeddings_layer_inp(uint32_t lid) {
+@@ -1052,14 +1120,14 @@ llama_token llama_context::get_sampled_token_ith(int32_t idx) {
+         return LLAMA_TOKEN_NULL;
+     }
+ 
+-    try {
+-        const int64_t row = output_resolve_row(idx);
+-        GGML_ASSERT(row < (int64_t) sampling.sampled.size);
+-        return sampling.sampled.data[row];
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid backend sampled token id %d, reason: %s\n", __func__, idx, err.what());
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (!output_resolve_row(idx, row, reason)) {
++        LLAMA_LOG_ERROR("%s: invalid backend sampled token id %d, reason: %s\n", __func__, idx, reason);
+         return LLAMA_TOKEN_NULL;
+     }
++    GGML_ASSERT(row < (int64_t) sampling.sampled.size);
++    return sampling.sampled.data[row];
+ }
+ 
+ float * llama_context::get_sampled_probs_ith(int32_t idx) {
+@@ -1069,16 +1137,16 @@ float * llama_context::get_sampled_probs_ith(int32_t idx) {
+         return nullptr;
+     }
+ 
+-    try {
+-        const int64_t row = output_resolve_row(idx);
+-        if ((size_t) row >= sampling.probs_count.size() || sampling.probs_count[row] == 0) {
+-            return nullptr;
+-        }
+-        return sampling.probs.data + row*model.vocab.n_tokens();
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid backend sampled probs id %d, reason: %s\n", __func__, idx, err.what());
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (!output_resolve_row(idx, row, reason)) {
++        LLAMA_LOG_ERROR("%s: invalid backend sampled probs id %d, reason: %s\n", __func__, idx, reason);
++        return nullptr;
++    }
++    if ((size_t) row >= sampling.probs_count.size() || sampling.probs_count[row] == 0) {
+         return nullptr;
+     }
++    return sampling.probs.data + row*model.vocab.n_tokens();
+ }
+ 
+ float * llama_context::get_sampled_logits_ith(int32_t idx) {
+@@ -1088,31 +1156,31 @@ float * llama_context::get_sampled_logits_ith(int32_t idx) {
+         return nullptr;
+     }
+ 
+-    try {
+-        const int64_t row = output_resolve_row(idx);
+-        if ((size_t) row >= sampling.logits_count.size() || sampling.logits_count[row] == 0) {
+-            return nullptr;
+-        }
+-        return sampling.logits.data + row*model.vocab.n_tokens();
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid backend sampled logits id %d, reason: %s\n", __func__, idx, err.what());
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (!output_resolve_row(idx, row, reason)) {
++        LLAMA_LOG_ERROR("%s: invalid backend sampled logits id %d, reason: %s\n", __func__, idx, reason);
++        return nullptr;
++    }
++    if ((size_t) row >= sampling.logits_count.size() || sampling.logits_count[row] == 0) {
+         return nullptr;
+     }
++    return sampling.logits.data + row*model.vocab.n_tokens();
+ }
+ 
+ const llama_token * llama_context::get_sampled_candidates_ith(int32_t idx) {
+     output_reorder();
+ 
+-    try {
+-        const int64_t row = output_resolve_row(idx);
+-        if (sampling.candidates.has_data() &&
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (!output_resolve_row(idx, row, reason)) {
++        // fallback to full vocab list
++        return sampling.token_ids_full_vocab.data();
++    }
++    if (sampling.candidates.has_data() &&
+             (size_t) row < sampling.candidates_count.size() &&
+             sampling.candidates_count[row] > 0) {
+-            return sampling.candidates.data + row*model.vocab.n_tokens();
+-        }
+-    } catch (const std::exception & err) {
+-        // fallback to full vocab list
+-        GGML_UNUSED(err);
++        return sampling.candidates.data + row*model.vocab.n_tokens();
+     }
+ 
+     return sampling.token_ids_full_vocab.data();
+@@ -1125,16 +1193,16 @@ size_t llama_context::get_sampled_candidates_count(int32_t idx) {
+         return 0;
+     }
+ 
+-    try {
+-        const int64_t row = output_resolve_row(idx);
+-        if ((size_t) row >= sampling.candidates_count.size()) {
+-            return 0;
+-        }
+-        return sampling.candidates_count[row];
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid backend sampled candidates count id %d, reason: %s\n", __func__, idx, err.what());
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (!output_resolve_row(idx, row, reason)) {
++        LLAMA_LOG_ERROR("%s: invalid backend sampled candidates count id %d, reason: %s\n", __func__, idx, reason);
++        return 0;
++    }
++    if ((size_t) row >= sampling.candidates_count.size()) {
+         return 0;
+     }
++    return sampling.candidates_count[row];
+ }
+ 
+ size_t llama_context::get_sampled_logits_count(int32_t idx) {
+@@ -1144,16 +1212,16 @@ size_t llama_context::get_sampled_logits_count(int32_t idx) {
+         return model.vocab.n_tokens();
+     }
+ 
+-    try {
+-        const int64_t row = output_resolve_row(idx);
+-        if ((size_t) row >= sampling.logits_count.size()) {
+-            return 0;
+-        }
+-        return sampling.logits_count[row];
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid backend sampled logits count id %d, reason: %s\n", __func__, idx, err.what());
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (!output_resolve_row(idx, row, reason)) {
++        LLAMA_LOG_ERROR("%s: invalid backend sampled logits count id %d, reason: %s\n", __func__, idx, reason);
++        return 0;
++    }
++    if ((size_t) row >= sampling.logits_count.size()) {
+         return 0;
+     }
++    return sampling.logits_count[row];
+ }
+ 
+ size_t llama_context::get_sampled_probs_count(int32_t idx) {
+@@ -1163,16 +1231,16 @@ size_t llama_context::get_sampled_probs_count(int32_t idx) {
+         return 0;
+     }
+ 
+-    try {
+-        const int64_t row = output_resolve_row(idx);
+-        if ((size_t) row >= sampling.probs_count.size()) {
+-            return 0;
+-        }
+-        return sampling.probs_count[row];
+-    } catch (const std::exception & err) {
+-        LLAMA_LOG_ERROR("%s: invalid backend sampled probs count id %d, reason: %s\n", __func__, idx, err.what());
++    int64_t row = -1;
++    const char * reason = nullptr;
++    if (!output_resolve_row(idx, row, reason)) {
++        LLAMA_LOG_ERROR("%s: invalid backend sampled probs count id %d, reason: %s\n", __func__, idx, reason);
++        return 0;
++    }
++    if ((size_t) row >= sampling.probs_count.size()) {
+         return 0;
+     }
++    return sampling.probs_count[row];
+ }
+ 
+ 
+@@ -1511,7 +1579,10 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
+         t_compute_start_us = ggml_time_us();
+     }
+ 
+-    sched_reserve();
++    if (!sched_reserve()) {
++        t_compute_start_us = 0;
++        return -2;
++    }
+ 
+     n_queued_tokens += n_tokens;
+ 
+@@ -1794,16 +1865,20 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
+     if (t_compute_start_us == 0) {
+         t_compute_start_us = ggml_time_us();
+     }
+-    n_queued_tokens += n_tokens_all;
+-
+     output_swaps.clear();
+ 
+-    sched_reserve();
++    if (!sched_reserve()) {
++        t_compute_start_us = 0;
++        return -2;
++    }
+ 
+     bool did_optimize = false;
+ 
+     // handle any pending shifts/copies
+-    memory_update(false);
++    if (memory_update(false) == memory_update_status::failed) {
++        t_compute_start_us = 0;
++        return -2;
++    }
+ 
+     llama_memory_context_ptr mctx;
+ 
+@@ -1828,7 +1903,11 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
+                     if (!did_optimize) {
+                         did_optimize = true;
+ 
+-                        if (memory_update(true)) {
++                        const auto update = memory_update(true);
++                        if (update == memory_update_status::failed) {
++                            return -2;
++                        }
++                        if (update == memory_update_status::updated) {
+                             LLAMA_LOG_DEBUG("%s: retrying batch size %d after cache optimization\n", __func__, balloc->get_n_tokens());
+ 
+                             continue;
+@@ -1850,6 +1929,8 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
+         break;
+     }
+ 
++    n_queued_tokens += n_tokens_all;
++
+     // reserve output buffer
+     if (output_reserve(n_outputs_all) < n_outputs_all) {
+         LLAMA_LOG_ERROR("%s: could not reserve space for batch with %d outputs\n", __func__, n_outputs_all);
+@@ -3506,7 +3587,10 @@ void llama_context::opt_init(struct llama_model * model, struct llama_opt_params
+ 
+         // the graph changes without flash attention, need to reserve again
+         sched_need_reserve = true;
+-        sched_reserve();
++        if (!sched_reserve()) {
++            LLAMA_LOG_ERROR("%s: cannot initialize optimizer because graph reservation failed\n", __func__);
++            return;
++        }
+     }
+ 
+     ggml_opt_params opt_params = ggml_opt_default_params(sched.get(), GGML_OPT_LOSS_TYPE_CROSS_ENTROPY);
+@@ -3771,6 +3855,11 @@ llama_context * llama_init_from_model(
+         return nullptr;
+     }
+ 
++    if (params.ctx_type != LLAMA_CONTEXT_TYPE_DEFAULT && params.ctx_type != LLAMA_CONTEXT_TYPE_MTP) {
++        LLAMA_LOG_ERROR("%s: unsupported context type: %d\n", __func__, (int) params.ctx_type);
++        return nullptr;
++    }
++
+     if (params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED && model->arch == LLM_ARCH_GROK) {
+         LLAMA_LOG_WARN("%s: flash_attn is not compatible with Grok - forcing off\n", __func__);
+         params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+@@ -3842,8 +3931,16 @@ llama_context * llama_init_from_model(
+         return nullptr;
+     }
+ 
++#if !defined(__NAGI__)
+     try {
++#endif
+         auto * ctx = new llama_context(*model, params);
++#if defined(__NAGI__)
++        if (!ctx->is_initialized()) {
++            delete ctx;
++            return nullptr;
++        }
++#endif
+         const auto & cparams = ctx->get_cparams();
+ 
+         if (cparams.rope_scaling_type == LLAMA_ROPE_SCALING_TYPE_YARN && cparams.rope_freq_scale != model->hparams.rope_freq_scale_train) {
+@@ -3853,9 +3950,11 @@ llama_context * llama_init_from_model(
+         }
+ 
+         return ctx;
++#if !defined(__NAGI__)
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: failed to initialize the context: %s\n", __func__, err.what());
+     }
++#endif
+ 
+     return nullptr;
+ }
+diff --git a/src/llama-context.h b/src/llama-context.h
+index 35a7071..6a02274 100644
+--- a/src/llama-context.h
++++ b/src/llama-context.h
+@@ -54,7 +54,7 @@ struct llama_context {
+     //   - changing samplers
+     //   - changing attention type
+     //   - etc.
+-    void sched_reserve();
++    bool sched_reserve();
+ 
+     void synchronize();
+ 
+@@ -68,14 +68,19 @@ struct llama_context {
+     uint32_t n_batch()   const;
+     uint32_t n_ubatch()  const;
+     uint32_t n_seq_max() const;
++    bool is_initialized() const;
+ 
+     uint32_t n_threads()       const;
+     uint32_t n_threads_batch() const;
+ 
+     llama_memory_t get_memory() const;
+ 
+-    // return true if the memory was updated
+-    bool memory_update(bool optimize);
++    enum class memory_update_status {
++        no_update,
++        updated,
++        failed,
++    };
++    memory_update_status memory_update(bool optimize);
+ 
+     enum llama_pooling_type pooling_type() const;
+ 
+@@ -235,7 +240,7 @@ private:
+     void output_reorder();
+ 
+     // map the output row index `i` to batch index
+-    int64_t output_resolve_row(int32_t i) const;
++    bool output_resolve_row(int32_t i, int64_t & row, const char * & reason) const;
+ 
+     // async-copy enabled layer-input tensors (per cparams.output_layer_inp)
+     // from backend into host-side embd_layer_inp buffers
+@@ -273,7 +278,7 @@ private:
+ 
+     // disable auto fused ops (Flash Attention, Gated Delta Net) whose op lands on a device
+     // that differs from the layer it belongs to (usually due to missing backend support)
+-    void resolve_fused_ops(const llama_memory_context_i * mctx, uint32_t n_seqs);
++    bool resolve_fused_ops(const llama_memory_context_i * mctx, uint32_t n_seqs);
+ 
+     // TODO: read/write lora adapters and cvec
+     size_t state_write_data(llama_io_write_i & io);
+@@ -354,6 +359,7 @@ private:
+     ggml_backend_sched_ptr sched;
+ 
+     bool sched_need_reserve = true;
++    bool initialization_complete = false;
+ 
+     ggml_backend_t backend_cpu = nullptr;
+     std::vector<ggml_backend_ptr> backends;
+diff --git a/tests/test-model-loader-bounds.cpp b/tests/test-model-loader-bounds.cpp
+index e04f9ae..ca7e70b 100644
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -36,6 +36,27 @@ static bool llama_load_mode_status() {
+     return true;
+ }
+ 
++static bool invalid_context_parameters_return_null() {
++    llama_model_params model_params = llama_model_default_params();
++    llama_model * model = llama_model_create(LLM_ARCH_GROK, model_params);
++    if (model == nullptr) {
++        std::fprintf(stderr, "cannot create model for invalid-context fixture\n");
++        return false;
++    }
++
++    llama_context_params context_params = llama_context_default_params();
++    context_params.n_ctx = 512;
++    context_params.n_seq_max = std::numeric_limits<uint32_t>::max();
++    llama_context * context = llama_init_from_model(model, context_params);
++    llama_model_free(model);
++    if (context != nullptr) {
++        llama_free(context);
++        std::fprintf(stderr, "invalid context parameters unexpectedly initialized\n");
++        return false;
++    }
++    return true;
++}
++
+ static bool malformed_lora_adapter_returns_null() {
+     FILE * file = std::tmpfile();
+     if (file == nullptr) {
+@@ -544,7 +565,7 @@ static bool invalid_tensor_data_status() {
+ }
+ 
+ int main() {
+-    if (!llama_load_mode_status()) {
++    if (!llama_load_mode_status() || !invalid_context_parameters_return_null()) {
+         return 1;
+     }
+ 

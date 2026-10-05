@@ -350,6 +350,15 @@ pub fn current_cr3() -> u64 {
     value & PAGE_TABLE_ADDRESS_MASK
 }
 
+/// Invalidate one translation in the currently active address space after a
+/// bootstrap user mapping or protection change.
+#[inline]
+pub fn invalidate_page(address: u64) {
+    unsafe {
+        core::arch::asm!("invlpg [{}]", in(reg) address, options(nostack, preserves_flags));
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct KernelHeap {
     start: u64,

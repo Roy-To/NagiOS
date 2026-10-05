@@ -2,13 +2,89 @@
 #![cfg_attr(target_os = "nagi", no_main)]
 #![cfg_attr(all(target_os = "nagi", feature = "m13-std"), feature(restricted_std))]
 
-#[cfg(target_os = "nagi")]
+#[cfg(any(
+    feature = "m16-package",
+    feature = "m19-search",
+    feature = "m27-recovery",
+    feature = "m25-whisper-inference-acceptance"
+))]
+extern crate alloc;
+
+#[cfg(all(
+    target_os = "nagi",
+    not(feature = "m17-servo"),
+    any(
+        feature = "m16-package",
+        feature = "m19-search",
+        feature = "m20-llama-inference-acceptance",
+        feature = "m27-recovery",
+        feature = "m25-whisper-inference-acceptance"
+    )
+))]
+struct GuestAllocator;
+
+#[cfg(all(
+    target_os = "nagi",
+    not(feature = "m17-servo"),
+    any(
+        feature = "m16-package",
+        feature = "m19-search",
+        feature = "m20-llama-inference-acceptance",
+        feature = "m27-recovery",
+        feature = "m25-whisper-inference-acceptance"
+    )
+))]
+unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
+    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+        if layout.size() == 0 {
+            return layout.align() as *mut u8;
+        }
+        nagi_posix::nagi_posix_malloc_aligned(
+            layout.size(),
+            layout.align().max(core::mem::size_of::<usize>()),
+        )
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: core::alloc::Layout) {
+        if layout.size() != 0 {
+            nagi_posix::nagi_posix_free(pointer);
+        }
+    }
+}
+
+#[cfg(all(
+    target_os = "nagi",
+    not(feature = "m17-servo"),
+    any(
+        feature = "m16-package",
+        feature = "m19-search",
+        feature = "m27-recovery",
+        feature = "m25-whisper-inference-acceptance"
+    )
+))]
+#[global_allocator]
+static GUEST_ALLOCATOR: GuestAllocator = GuestAllocator;
+
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 use core::arch::asm;
 #[cfg(all(target_os = "nagi", not(feature = "m13-std")))]
 use core::panic::PanicInfo;
-#[cfg(all(target_os = "nagi", feature = "m17-servo"))]
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m17-servo",
+    not(feature = "m18-acceptance")
+))]
 use nagi_albert::run_first_web_pixel;
+#[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
+use nagi_albert::run_m18_https_acceptance;
 
+#[cfg(all(target_os = "nagi", feature = "m20-llama-link-smoke"))]
+unsafe extern "C" {
+    fn nagi_m20_llama_backend_init_smoke() -> i32;
+}
+
+#[cfg(all(target_os = "nagi", feature = "m21-action-ipc"))]
+mod action_ipc;
 #[cfg(all(
     target_os = "nagi",
     feature = "m10-desktop",
@@ -23,6 +99,8 @@ mod boot;
 mod desktop;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod font;
+#[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
+mod isolated_process;
 #[cfg(all(target_os = "nagi", feature = "m13-posix"))]
 mod m13;
 #[cfg(all(target_os = "nagi", feature = "m13-std"))]
@@ -33,12 +111,27 @@ mod m14_audio;
 mod m15_history;
 #[cfg(all(target_os = "nagi", feature = "m16-package"))]
 mod m16_package;
+#[cfg(all(target_os = "nagi", feature = "m19-search"))]
+mod m19_search;
+#[cfg(all(target_os = "nagi", feature = "m20-llama-inference-acceptance"))]
+mod m20_granite;
+#[cfg(feature = "m20-fixture-acceptance")]
+#[path = "../../../tests/fixtures/m20_model_store_reader.rs"]
+mod m20_model_store_fixture;
+#[cfg(all(target_os = "nagi", feature = "m22-history"))]
+mod m22_history;
+#[cfg(all(target_os = "nagi", feature = "m25-voice-acceptance"))]
+mod m25_voice;
+#[cfg(all(target_os = "nagi", feature = "m25-whisper-inference-acceptance"))]
+mod m25_whisper;
 #[cfg(all(
     target_os = "nagi",
     feature = "m12-network",
     not(feature = "m13-posix")
 ))]
 mod network;
+#[cfg(all(target_os = "nagi", feature = "m27-recovery"))]
+mod recovery;
 #[cfg(all(target_os = "nagi", feature = "m11-security"))]
 mod security;
 #[cfg(all(
@@ -51,6 +144,11 @@ mod security;
     not(feature = "m13-posix")
 ))]
 mod shell;
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "isolated-process-acceptance", feature = "m19-search-ipc")
+))]
+mod supervisor;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod ui;
 #[cfg(all(target_os = "nagi", feature = "m9-window"))]
@@ -260,7 +358,7 @@ static NAGI_INIT_M6_ACCEPTANCE_PASS: [u8; M6_ACCEPTANCE_PASS_LEN] = *b"Nagi M6 a
 #[no_mangle]
 static NAGI_INIT_M7_ACCEPTANCE_PASS: [u8; M7_ACCEPTANCE_PASS_LEN] = *b"Nagi M7 acceptance PASS\r\n";
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 macro_rules! static_message {
     ($symbol:ident, $length:expr) => {{
         let message: *const u8;
@@ -276,7 +374,7 @@ macro_rules! static_message {
     }};
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn echo_handler(
     request: &[u8],
     response: &mut [u8],
@@ -297,7 +395,7 @@ fn echo_handler(
     Ok(request.len())
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn echo_handler_pointer() -> libnagi::service::ServiceHandler {
     let address: usize;
     unsafe {
@@ -311,7 +409,7 @@ fn echo_handler_pointer() -> libnagi::service::ServiceHandler {
     }
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn run_m6_service_acceptance() -> bool {
     libnagi::console_write(static_message!(
         NAGI_INIT_M6_SUPERVISOR_START,
@@ -390,7 +488,7 @@ fn run_m6_service_acceptance() -> bool {
     true
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn bytes_equal(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
@@ -407,13 +505,29 @@ fn bytes_equal(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 type GuestVolume = libnagi::storage::Vfs<libnagi::storage::SyscallBlockDevice>;
 
-#[cfg(target_os = "nagi")]
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<GuestVolume>)> {
     let file_name = static_message!(NAGI_INIT_M7_FILE_NAME, M7_FILE_NAME_LEN);
     let payload = static_message!(NAGI_INIT_M7_PAYLOAD, M7_PAYLOAD_LEN);
+    #[cfg(feature = "m27-ro-vfs-check")]
+    {
+        let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
+        let report = libnagi::storage::Vfs::<libnagi::storage::SyscallBlockDevice>::check_existing(
+            &mut device,
+        )
+        .ok()?;
+        if report.regular_files == 0
+            || report.directories == 0
+            || report.allocated_data_blocks == 0
+            || report.directory_entries == 0
+        {
+            return None;
+        }
+        libnagi::console_write(b"Nagi M27 read-only VFS check PASS\r\n");
+    }
     let device = libnagi::storage::SyscallBlockDevice::new(block_capability);
     let (mut volume, formatted) = libnagi::storage::Vfs::mount_or_format(device).ok()?;
 
@@ -442,7 +556,10 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     }
 
     libnagi::console_write(static_message!(NAGI_INIT_M7_MOUNT_PASS, M7_MOUNT_PASS_LEN));
-    let mut entries = [libnagi::storage::DirectoryEntry::empty(); 8];
+    // The ext2 fixture has 64 inodes and M19/M22 add guest-side state files.
+    // Keep the M7 persistence lookup bounded by that filesystem limit rather
+    // than assuming the root directory still contains at most eight entries.
+    let mut entries = [libnagi::storage::DirectoryEntry::empty(); 64];
     let count = volume.list_root(&mut entries).ok()?;
     let mut directory_inode = 0;
     let mut index = 0;
@@ -481,7 +598,327 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     Some((0, Some(volume)))
 }
 
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m20-model-store-acceptance",
+    not(feature = "m27-recovery")
+))]
+struct SyscallModelStoreReader(u64);
+
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m20-model-store-acceptance",
+    not(feature = "m27-recovery")
+))]
+impl nagi_model_manager::ModelStoreSectorReader for SyscallModelStoreReader {
+    fn read_sector(
+        &mut self,
+        partition_relative_sector: u64,
+        destination: &mut [u8; nagi_model_manager::FAT32_SECTOR_SIZE],
+    ) -> Result<(), nagi_model_manager::ArtifactReadError> {
+        if libnagi::block_read(self.0, partition_relative_sector, destination) {
+            Ok(())
+        } else {
+            Err(nagi_model_manager::ArtifactReadError::Unavailable)
+        }
+    }
+}
+
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m20-model-store-acceptance",
+    not(feature = "m27-recovery")
+))]
+fn run_m20_model_store_capability_acceptance(model_store_capability: u64) -> bool {
+    if model_store_capability == 0 {
+        return false;
+    }
+    let mut boot_sector = [0u8; libnagi::BLOCK_SECTOR_SIZE];
+    if !libnagi::block_read(model_store_capability, 0, &mut boot_sector)
+        || boot_sector[11..13] != [0, 2]
+        || &boot_sector[82..87] != b"FAT32"
+        || boot_sector[510..512] != [0x55, 0xaa]
+    {
+        return false;
+    }
+    if libnagi::block_write(model_store_capability, 0, &boot_sector) {
+        return false;
+    }
+    let mut after_rejected_write = [0u8; libnagi::BLOCK_SECTOR_SIZE];
+    if !libnagi::block_read(model_store_capability, 0, &mut after_rejected_write)
+        || !bytes_equal(&boot_sector, &after_rejected_write)
+    {
+        return false;
+    }
+    let artifact_id = match nagi_model_manager::ArtifactId::new("ibm.granite-4.2-3b") {
+        Ok(artifact_id) => artifact_id,
+        Err(_) => return false,
+    };
+    // ADR-0013 fixes the reference Model Store at 32 GiB, or 67,108,864
+    // 512-byte sectors. The kernel still enforces the exact GPT extent on
+    // every read.
+    const M30_MODEL_STORE_SECTORS: u64 = 67_108_864;
+    let artifact = nagi_model_manager::Fat32ArtifactReader::open(
+        SyscallModelStoreReader(model_store_capability),
+        M30_MODEL_STORE_SECTORS,
+        artifact_id,
+    );
+    match artifact {
+        Ok(mut artifact) => {
+            let mut header = [0u8; 4];
+            if nagi_model_manager::ModelArtifactReader::read_at(&mut artifact, 0, &mut header)
+                != Ok(4)
+                || &header != b"GGUF"
+            {
+                return false;
+            }
+            #[cfg(feature = "m20-granite-artifact-acceptance")]
+            {
+                let manifest = match nagi_model_manager::ModelManifest::parse_json(include_bytes!(
+                    "../../nagi-model-manager/tests/fixtures/granite-4.2-3b.json"
+                )) {
+                    Ok(manifest) => manifest,
+                    Err(_) => return false,
+                };
+                if manifest.artifact.size_bytes
+                    != Some(nagi_model_manager::ModelArtifactReader::len(&artifact))
+                {
+                    return false;
+                }
+                let Some(integrity) = manifest.artifact.integrity.as_ref() else {
+                    return false;
+                };
+                if nagi_model_manager::verify_model_artifact_integrity(&mut artifact, integrity)
+                    .is_err()
+                {
+                    return false;
+                }
+                let marker = b"Nagi M20 Granite artifact digest PASS\r\n";
+                if libnagi::console_write(marker) != marker.len() {
+                    return false;
+                }
+            }
+        }
+        Err(nagi_model_manager::Fat32ArtifactError::ArtifactNotFound) => {
+            #[cfg(feature = "m20-granite-artifact-acceptance")]
+            return false;
+        }
+        Err(_) => return false,
+    }
+    #[cfg(feature = "m25-whisper-artifact-acceptance")]
+    if !run_m25_whisper_artifact_acceptance(model_store_capability) {
+        return false;
+    }
+    #[cfg(feature = "m26-qwen-artifact-acceptance")]
+    if !run_m26_model_store_artifact_acceptance(
+        model_store_capability,
+        "qwen.qwen3-4b",
+        2_497_280_256,
+        "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+        b"Nagi M26 Qwen artifact digest PASS\r\n",
+    ) {
+        return false;
+    }
+    #[cfg(feature = "m26-gemma-artifact-acceptance")]
+    if !run_m26_model_store_artifact_acceptance(
+        model_store_capability,
+        "google.gemma-3-1b",
+        806_058_240,
+        "8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135",
+        b"Nagi M26 Gemma artifact digest PASS\r\n",
+    ) {
+        return false;
+    }
+    #[cfg(feature = "m20-fixture-acceptance")]
+    {
+        let fixture_id =
+            match nagi_model_manager::ArtifactId::new(m20_model_store_fixture::ARTIFACT_ID) {
+                Ok(artifact_id) => artifact_id,
+                Err(_) => return false,
+            };
+        let mut fixture = match nagi_model_manager::Fat32ArtifactReader::open(
+            SyscallModelStoreReader(model_store_capability),
+            M30_MODEL_STORE_SECTORS,
+            fixture_id,
+        ) {
+            Ok(fixture) => fixture,
+            Err(_) => return false,
+        };
+        let fixture_len = nagi_model_manager::ModelArtifactReader::len(&fixture);
+        if fixture_len != m20_model_store_fixture::FIXTURE_LEN as u64 {
+            return false;
+        }
+        let mut offset = 0u64;
+        let mut chunk = [0u8; 512];
+        while offset < fixture_len {
+            let expected_len = (fixture_len - offset).min(chunk.len() as u64) as usize;
+            if nagi_model_manager::ModelArtifactReader::read_at(
+                &mut fixture,
+                offset,
+                &mut chunk[..expected_len],
+            ) != Ok(expected_len)
+            {
+                return false;
+            }
+            for (index, actual) in chunk[..expected_len].iter().copied().enumerate() {
+                if actual != m20_model_store_fixture::fixture_byte_at(offset as usize + index) {
+                    return false;
+                }
+            }
+            offset += expected_len as u64;
+        }
+
+        let mut boundary = [0u8; 64];
+        if nagi_model_manager::ModelArtifactReader::read_at(&mut fixture, 4_075, &mut boundary)
+            != Ok(boundary.len())
+        {
+            return false;
+        }
+        for (index, actual) in boundary.iter().copied().enumerate() {
+            if actual != m20_model_store_fixture::fixture_byte_at(4_075 + index) {
+                return false;
+            }
+        }
+        let mut eof = [0u8; 1];
+        if nagi_model_manager::ModelArtifactReader::read_at(&mut fixture, fixture_len, &mut eof)
+            != Ok(0)
+        {
+            return false;
+        }
+    }
+    if libnagi::console_write(b"Nagi M20 Model Store capability PASS\r\n")
+        != b"Nagi M20 Model Store capability PASS\r\n".len()
+    {
+        return false;
+    }
+    #[cfg(feature = "m20-fixture-acceptance")]
+    {
+        return libnagi::console_write(b"Nagi M20 FAT32 fixture read PASS\r\n")
+            == b"Nagi M20 FAT32 fixture read PASS\r\n".len();
+    }
+    #[cfg(not(feature = "m20-fixture-acceptance"))]
+    true
+}
+
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m25-whisper-artifact-acceptance",
+    not(feature = "m27-recovery")
+))]
+fn run_m25_whisper_artifact_acceptance(model_store_capability: u64) -> bool {
+    const MODEL_STORE_SECTORS: u64 = 67_108_864;
+    const EXPECTED_SIZE: u64 = 487_601_967;
+    const EXPECTED_SHA256: &str =
+        "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b";
+    let artifact_id = match nagi_model_manager::ArtifactId::new("openai.whisper-small-multilingual")
+    {
+        Ok(artifact_id) => artifact_id,
+        Err(_) => return false,
+    };
+    let mut artifact = match nagi_model_manager::Fat32ArtifactReader::open(
+        SyscallModelStoreReader(model_store_capability),
+        MODEL_STORE_SECTORS,
+        artifact_id,
+    ) {
+        Ok(artifact) => artifact,
+        Err(_) => return false,
+    };
+    if nagi_model_manager::ModelArtifactReader::len(&artifact) != EXPECTED_SIZE {
+        return false;
+    }
+    // GGML_FILE_MAGIC is 0x67676d6c; the pinned little-endian artifact starts
+    // with the bytes `lmgg`.
+    let mut magic = [0u8; 4];
+    if nagi_model_manager::ModelArtifactReader::read_at(&mut artifact, 0, &mut magic) != Ok(4)
+        || &magic != b"lmgg"
+    {
+        return false;
+    }
+    let integrity = nagi_model_manager::IntegrityMetadata {
+        algorithm: "sha256".into(),
+        digest: EXPECTED_SHA256.into(),
+    };
+    if nagi_model_manager::verify_model_artifact_integrity(&mut artifact, &integrity).is_err() {
+        return false;
+    }
+    let marker = b"Nagi M25 Whisper artifact digest PASS\r\n";
+    libnagi::console_write(marker) == marker.len()
+}
+
+#[cfg(all(
+    target_os = "nagi",
+    any(
+        feature = "m26-qwen-artifact-acceptance",
+        feature = "m26-gemma-artifact-acceptance"
+    ),
+    not(feature = "m27-recovery")
+))]
+fn run_m26_model_store_artifact_acceptance(
+    model_store_capability: u64,
+    artifact_id: &str,
+    expected_size: u64,
+    expected_sha256: &str,
+    marker: &[u8],
+) -> bool {
+    const MODEL_STORE_SECTORS: u64 = 67_108_864;
+    let artifact_id = match nagi_model_manager::ArtifactId::new(artifact_id) {
+        Ok(artifact_id) => artifact_id,
+        Err(_) => return false,
+    };
+    let mut artifact = match nagi_model_manager::Fat32ArtifactReader::open(
+        SyscallModelStoreReader(model_store_capability),
+        MODEL_STORE_SECTORS,
+        artifact_id,
+    ) {
+        Ok(artifact) => artifact,
+        Err(_) => return false,
+    };
+    if nagi_model_manager::ModelArtifactReader::len(&artifact) != expected_size {
+        return false;
+    }
+    let mut magic = [0u8; 4];
+    if nagi_model_manager::ModelArtifactReader::read_at(&mut artifact, 0, &mut magic) != Ok(4)
+        || &magic != b"GGUF"
+    {
+        return false;
+    }
+    let integrity = nagi_model_manager::IntegrityMetadata {
+        algorithm: "sha256".into(),
+        digest: expected_sha256.into(),
+    };
+    if nagi_model_manager::verify_model_artifact_integrity(&mut artifact, &integrity).is_err() {
+        return false;
+    }
+    libnagi::console_write(marker) == marker.len()
+}
+
 #[cfg(target_os = "nagi")]
+unsafe fn run_elf_initializers() {
+    unsafe extern "C" {
+        static __preinit_array_start: u8;
+        static __preinit_array_end: u8;
+        static __init_array_start: u8;
+        static __init_array_end: u8;
+    }
+
+    let run_array = |mut cursor: usize, end: usize| {
+        while cursor < end {
+            let constructor = unsafe { (cursor as *const extern "C" fn()).read() };
+            constructor();
+            cursor += core::mem::size_of::<extern "C" fn()>();
+        }
+    };
+
+    let preinit_start = core::ptr::addr_of!(__preinit_array_start) as usize;
+    let preinit_end = core::ptr::addr_of!(__preinit_array_end) as usize;
+    run_array(preinit_start, preinit_end);
+
+    let init_start = core::ptr::addr_of!(__init_array_start) as usize;
+    let init_end = core::ptr::addr_of!(__init_array_end) as usize;
+    run_array(init_start, init_end);
+}
+
+#[cfg(all(target_os = "nagi", feature = "m27-recovery"))]
 #[no_mangle]
 pub extern "C" fn _start(
     block_capability: u64,
@@ -489,40 +926,34 @@ pub extern "C" fn _start(
     input_capability: u64,
     net_capability: u64,
     audio_capability: u64,
+    model_store_capability: u64,
 ) -> ! {
-    #[cfg(all(feature = "m13-std", not(feature = "m17-servo")))]
-    return m13_std::run(block_capability, net_capability);
+    unsafe { run_elf_initializers() };
+    let _ = (
+        display_capability,
+        input_capability,
+        net_capability,
+        audio_capability,
+        model_store_capability,
+    );
+    recovery::run(block_capability)
+}
 
-    #[cfg(feature = "m17-servo")]
-    {
-        libnagi::console_write(b"Nagi M17 trace: user entry reached\r\n");
-        let Some((exit_code, volume)) = run_m7_storage_acceptance(block_capability) else {
-            libnagi::console_write(static_message!(
-                NAGI_INIT_M7_STORAGE_FAIL,
-                M7_STORAGE_FAIL_LEN
-            ));
-            libnagi::exit(1);
-        };
-        if exit_code != 0 {
-            libnagi::exit(exit_code);
-        }
-        drop(volume);
-        libnagi::console_write(b"Nagi M17 trace: persistent storage accepted\r\n");
-        return run_first_web_pixel(display_capability);
-    }
-
-    #[cfg(not(any(
-        feature = "m9-window",
-        feature = "m10-desktop",
-        feature = "m11-security"
-    )))]
-    let _ = (display_capability, input_capability);
-    #[cfg(feature = "m11-security")]
-    let _ = (display_capability, input_capability);
-    #[cfg(not(feature = "m12-network"))]
-    let _ = net_capability;
-    #[cfg(not(feature = "m14-audio"))]
-    let _ = audio_capability;
+#[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
+#[cfg_attr(feature = "m20-llama-link-smoke", allow(unreachable_code))]
+#[no_mangle]
+pub extern "C" fn _start(
+    block_capability: u64,
+    display_capability: u64,
+    input_capability: u64,
+    net_capability: u64,
+    audio_capability: u64,
+    model_store_capability: u64,
+) -> ! {
+    // Check the kernel-provided ring-3 FPU state before C/C++ ELF constructors
+    // run. Those user-space initializers may legitimately use SIMD registers,
+    // so checking after them would test constructor residue instead of the
+    // process-entry contract.
     if !libnagi::fpu_state_is_initial() {
         libnagi::console_write(static_message!(
             NAGI_INIT_FPU_STATE_FAIL,
@@ -556,6 +987,116 @@ pub extern "C" fn _start(
         NAGI_INIT_FPU_STATE_ROUND_TRIP_PASS,
         FPU_STATE_ROUND_TRIP_PASS_LEN
     ));
+
+    unsafe { run_elf_initializers() };
+
+    #[cfg(feature = "isolated-process-acceptance")]
+    if !isolated_process::run() {
+        libnagi::exit(1);
+    }
+
+    #[cfg(feature = "m20-llama-link-smoke")]
+    {
+        let _ = (
+            block_capability,
+            display_capability,
+            input_capability,
+            net_capability,
+            audio_capability,
+            model_store_capability,
+        );
+        if relibc::nagi_backend_probe() != 0x4e41_4749 {
+            libnagi::console_write(b"Nagi M20 relibc link FAIL\r\n");
+            libnagi::exit(1);
+        }
+        if unsafe { nagi_m20_llama_backend_init_smoke() } == 0 {
+            libnagi::console_write(b"Nagi M20 llama backend init PASS\r\n");
+            libnagi::exit(0);
+        }
+        libnagi::console_write(b"Nagi M20 llama backend init FAIL\r\n");
+        libnagi::exit(1);
+    }
+
+    #[cfg(not(feature = "m20-model-store-acceptance"))]
+    let _ = model_store_capability;
+
+    #[cfg(all(feature = "m13-std", not(feature = "m17-servo")))]
+    return m13_std::run(block_capability, net_capability);
+
+    #[cfg(feature = "m17-servo")]
+    {
+        libnagi::console_write(b"Nagi M17 trace: ELF constructors completed\r\n");
+        libnagi::console_write(b"Nagi M17 trace: user entry reached\r\n");
+        let Some((exit_code, volume)) = run_m7_storage_acceptance(block_capability) else {
+            libnagi::console_write(static_message!(
+                NAGI_INIT_M7_STORAGE_FAIL,
+                M7_STORAGE_FAIL_LEN
+            ));
+            libnagi::exit(1);
+        };
+        if exit_code != 0 {
+            libnagi::exit(exit_code);
+        }
+        drop(volume);
+        libnagi::console_write(b"Nagi M17 trace: persistent storage accepted\r\n");
+        libnagi::console_write(b"Nagi M17 trace: POSIX filesystem initialization started\r\n");
+        if unsafe { nagi_posix::nagi_posix_initialize_filesystem(block_capability) } != 0 {
+            libnagi::console_write(b"Nagi M17 first web pixel FAIL POSIX filesystem\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M17 trace: POSIX filesystem initialized\r\n");
+        if unsafe { nagi_posix::nagi_posix_ensure_directory(c"/tmp".as_ptr()) } != 0 {
+            libnagi::console_write(b"Nagi M17 first web pixel FAIL temporary directory\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M17 trace: temporary directory ready\r\n");
+        #[cfg(feature = "m18-acceptance")]
+        {
+            libnagi::console_write(b"Nagi M18 browser trace: network initialization started\r\n");
+            if unsafe { nagi_posix::nagi_posix_initialize_network(net_capability) } != 0 {
+                libnagi::console_write(b"Nagi M18 browser FAIL network initialization\r\n");
+                libnagi::exit(1);
+            }
+            libnagi::console_write(b"Nagi M18 browser trace: network capability initialized\r\n");
+            if nagi_posix::cleanup_m18_servo_temp_directories().is_none() {
+                libnagi::console_write(b"Nagi M18 browser FAIL temporary storage cleanup\r\n");
+                libnagi::exit(1);
+            }
+            if libnagi::console_write(b"Nagi M18 browser temporary storage cleanup PASS\r\n")
+                != b"Nagi M18 browser temporary storage cleanup PASS\r\n".len()
+            {
+                libnagi::exit(1);
+            }
+            if unsafe {
+                nagi_posix::nagi_posix_ensure_directory(c"/tmp/nagi-servo-profile".as_ptr())
+            } != 0
+            {
+                libnagi::console_write(b"Nagi M18 browser FAIL Servo profile directory\r\n");
+                libnagi::exit(1);
+            }
+            return run_m18_https_acceptance(display_capability, input_capability);
+        }
+        #[cfg(not(feature = "m18-acceptance"))]
+        return run_first_web_pixel(display_capability);
+    }
+
+    #[cfg(not(any(
+        feature = "m9-window",
+        feature = "m10-desktop",
+        feature = "m11-security"
+    )))]
+    let _ = (display_capability, input_capability);
+    #[cfg(feature = "m11-security")]
+    let _ = (display_capability, input_capability);
+    #[cfg(not(feature = "m12-network"))]
+    let _ = net_capability;
+    #[cfg(not(feature = "m14-audio"))]
+    let _ = audio_capability;
+    #[cfg(feature = "m20-model-store-acceptance")]
+    if !run_m20_model_store_capability_acceptance(model_store_capability) {
+        libnagi::console_write(b"Nagi M20 Model Store capability FAIL\r\n");
+        libnagi::exit(1);
+    }
     #[cfg(all(
         feature = "m10-desktop",
         not(any(
@@ -615,6 +1156,19 @@ pub extern "C" fn _start(
         ));
         libnagi::exit(1);
     };
+    #[cfg(feature = "m20-llama-inference-acceptance")]
+    {
+        if relibc::nagi_backend_probe() != 0x4e41_4749 {
+            libnagi::console_write(b"Nagi M20 relibc link FAIL\r\n");
+            libnagi::exit(1);
+        }
+        if exit_code != 0 || !m20_granite::run(model_store_capability) {
+            libnagi::console_write(b"Nagi M20 Granite structured inference FAIL\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M20 Granite structured inference PASS\r\n");
+        libnagi::exit(0);
+    }
     #[cfg(all(
         feature = "m10-desktop",
         not(any(
@@ -630,21 +1184,60 @@ pub extern "C" fn _start(
         libnagi::console_write(b"Nagi boot storage FAIL\r\n");
         libnagi::exit(1);
     }
-    #[cfg(any(
-        feature = "m9-window",
+    #[cfg(not(all(
         feature = "m10-desktop",
-        feature = "m11-security",
-        feature = "m12-network",
-        all(
-            not(feature = "m8-shell"),
-            not(feature = "m9-window"),
-            not(feature = "m10-desktop"),
-            not(feature = "m11-security"),
-            not(feature = "m12-network"),
-            not(feature = "m13-posix")
-        )
-    ))]
+        not(any(
+            feature = "m11-security",
+            feature = "m12-network",
+            feature = "m13-posix"
+        ))
+    )))]
     let _ = volume;
+    #[cfg(feature = "m25-whisper-inference-acceptance")]
+    {
+        if exit_code != 0 {
+            libnagi::exit(exit_code);
+        }
+        if !m25_whisper::run(model_store_capability) {
+            libnagi::console_write(b"Nagi M25 Whisper Japanese fixture inference FAIL\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M25 Whisper Japanese fixture inference PASS\r\n");
+        libnagi::exit(0);
+    }
+    #[cfg(all(
+        feature = "m25-voice-acceptance",
+        not(feature = "m25-whisper-inference-acceptance")
+    ))]
+    {
+        if exit_code != 0 {
+            libnagi::exit(exit_code);
+        }
+        libnagi::console_write(static_message!(
+            NAGI_INIT_M5_SYSCALL_PASS,
+            M5_SYSCALL_PASS_LEN
+        ));
+        libnagi::console_write(static_message!(
+            NAGI_INIT_M5_ACCEPTANCE_PASS,
+            M5_ACCEPTANCE_PASS_LEN
+        ));
+        libnagi::console_write(static_message!(
+            NAGI_INIT_M6_ACCEPTANCE_PASS,
+            M6_ACCEPTANCE_PASS_LEN
+        ));
+        libnagi::console_write(static_message!(
+            NAGI_INIT_M7_ACCEPTANCE_PASS,
+            M7_ACCEPTANCE_PASS_LEN
+        ));
+        if !m25_voice::run() {
+            libnagi::console_write(b"Nagi M25 voice orchestration FAIL\r\n");
+            libnagi::exit(1);
+        }
+        libnagi::console_write(b"Nagi M25 voice orchestration PASS\r\n");
+        loop {
+            unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)) };
+        }
+    }
     #[cfg(all(feature = "m11-security", not(feature = "m12-network")))]
     {
         if exit_code != 0 {
@@ -754,7 +1347,11 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi boot transition FAIL\r\n");
             libnagi::exit(1);
         }
-        desktop::run(display_capability, input_capability);
+        let Some(volume) = volume else {
+            libnagi::console_write(b"Nagi M10 User Data handoff FAIL\r\n");
+            libnagi::exit(1);
+        };
+        desktop::run(display_capability, input_capability, volume);
     }
     #[cfg(all(
         feature = "m9-window",
@@ -827,7 +1424,8 @@ pub extern "C" fn _start(
         feature = "m10-desktop",
         feature = "m11-security",
         feature = "m12-network",
-        feature = "m13-posix"
+        feature = "m13-posix",
+        feature = "m25-voice-acceptance"
     )))]
     libnagi::exit(exit_code)
 }

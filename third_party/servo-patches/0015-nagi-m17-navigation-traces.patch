@@ -1,0 +1,56 @@
+diff --git a/components/constellation/constellation.rs b/components/constellation/constellation.rs
+index 6474a532f..94c939f54 100644
+--- a/components/constellation/constellation.rs
++++ b/components/constellation/constellation.rs
+@@ -191,0 +192,17 @@ use crate::session_history::{NeedsToReload, SessionHistoryChange, SessionHistory
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m17_trace(stage: &str) {
++    #[expect(unsafe_code)]
++    unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+@@ -1016,0 +1034,2 @@ where
++        nagi_m17_trace("Constellation new pipeline started");
++
+@@ -1025,0 +1045 @@ where
++        nagi_m17_trace("Constellation pipeline event loop setup started");
+@@ -1033 +1053,4 @@ where
+-            Ok(event_loop) => event_loop,
++            Ok(event_loop) => {
++                nagi_m17_trace("Constellation pipeline event loop setup completed");
++                event_loop
++            },
+@@ -1054,0 +1078 @@ where
++        nagi_m17_trace("Constellation Pipeline::spawn started");
+@@ -1056,2 +1080,8 @@ where
+-            Ok(pipeline) => pipeline,
+-            Err(error) => return self.handle_send_error(new_pipeline_id, error),
++            Ok(pipeline) => {
++                nagi_m17_trace("Constellation Pipeline::spawn returned");
++                pipeline
++            },
++            Err(error) => {
++                nagi_m17_trace("Constellation Pipeline::spawn failed");
++                return self.handle_send_error(new_pipeline_id, error);
++            },
+@@ -1341,0 +1372 @@ where
++                nagi_m17_trace("Constellation received NewWebView");
+@@ -3301,0 +3333 @@ where
++        nagi_m17_trace("Constellation NewWebView handler started");
+@@ -3323,0 +3356 @@ where
++        nagi_m17_trace("Constellation NewWebView registered browsing context");
+@@ -3333,0 +3367 @@ where
++        nagi_m17_trace("Constellation NewWebView pipeline creation started");
+@@ -3345,0 +3380 @@ where
++        nagi_m17_trace("Constellation NewWebView pipeline creation returned");

@@ -10,39 +10,39 @@
     "verified_at": "2026-09-26T07:18:35Z",
     "normal_state": "Integrated codex/ws-localization-i18n commit efa7706baed554f65d2ec5c9adde61305479d607 as a shared user-space localization foundation and registered its durable state. Current integration-tree checks pass: 26 unit tests, Clippy with warnings denied, crate formatting, catalog check (2 locales/14 messages), and a Nagi user-target library compile. en-US and ja-JP are first-class catalogs; locale/system-language and region inputs remain separate; no process-global host locale is consulted. Settings, IME/input language, Albert conversation preferences, and first-party runtime consumers remain outside this checkpoint. The source branch Actions run 36215320154 passed Ubuntu and Windows host jobs plus target builds through UEFI, then failed only at the independent M17 QEMU first-web-pixel acceptance. Mainline M17 remains BLOCKED; M18 remains NOT STARTED.",
     "commands": [
-      "cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check",
-      "cargo test --locked -p nagi-localization",
-      "cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
-      "cargo run --locked -p nagi-localization --bin localization-check",
-      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "cargo fmt --manifest-path crates/nagi-i18n/Cargo.toml -- --check",
+      "cargo test --locked -p nagi-i18n",
+      "cargo clippy --locked -p nagi-i18n --all-targets -- -D warnings",
+      "cargo run --locked -p nagi-i18n --bin localization-check",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
       "./nagi dev verify",
       "git diff --check; git diff --cached --check"
     ],
     "tests": [
       {
         "name": "Localization library unit tests",
-        "command": "cargo test --locked -p nagi-localization",
+        "command": "cargo test --locked -p nagi-i18n",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "All 26 tests passed, covering locale parsing, deterministic fallback, independent language and region inputs, message interpolation, UTF-8 catalogs, parity, duplicate IDs, formatting, and pseudo-localization."
       },
       {
         "name": "Localization formatting and Clippy",
-        "command": "cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check; cargo clippy --locked -p nagi-localization --all-targets -- -D warnings",
+        "command": "cargo fmt --manifest-path crates/nagi-i18n/Cargo.toml -- --check; cargo clippy --locked -p nagi-i18n --all-targets -- -D warnings",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Package formatting passed; Clippy passed with warnings denied."
       },
       {
         "name": "Bundled localization catalog verification",
-        "command": "cargo run --locked -p nagi-localization --bin localization-check",
+        "command": "cargo run --locked -p nagi-i18n --bin localization-check",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Catalog checker validated 2 locales and 14 messages, including English/Japanese and placeholder parity."
       },
       {
         "name": "Nagi user-target localization library compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The localization library compiled for the x86_64 Nagi user target; this is compile evidence only, with no process/runtime integration or QEMU claim."

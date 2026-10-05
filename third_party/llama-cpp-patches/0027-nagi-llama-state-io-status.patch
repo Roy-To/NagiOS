@@ -1,0 +1,2083 @@
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 54bdc0e..2700f01 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -2741,6 +2741,10 @@ public:
+             uint8_t * p, size_t len) : ptr(p), buf_size(len) {}
+ 
+     ~llama_io_write_host() {
++        if (failed()) {
++            return;
++        }
++
+         // TODO: add backend support to batch tensor_get? or some other way to speed this up
+         for (const auto & winfo : winfos) {
+             ggml_backend_tensor_get(winfo.tensor, winfo.ptr, winfo.offset, winfo.size);
+@@ -2748,18 +2752,32 @@ public:
+     }
+ 
+     void write(const void * src, size_t size) override {
+-        if (size > buf_size) {
+-            throw std::runtime_error("unexpectedly reached end of buffer");
++        if (failed()) {
++            return;
++        }
++        if (size > buf_size || (size != 0 && (ptr == nullptr || src == nullptr))) {
++            fail("unexpectedly reached end of buffer");
++#if defined(__NAGI__)
++            return;
++#endif
++        }
++        if (size != 0) {
++            memcpy(ptr, src, size);
+         }
+-        memcpy(ptr, src, size);
+         ptr += size;
+         size_written += size;
+         buf_size -= size;
+     }
+ 
+     void write_tensor(ggml_tensor * tensor, size_t offset, size_t size) override {
+-        if (size > buf_size) {
+-            throw std::runtime_error("unexpectedly reached end of buffer");
++        if (failed()) {
++            return;
++        }
++        if (size > buf_size || (size != 0 && ptr == nullptr)) {
++            fail("unexpectedly reached end of buffer");
++#if defined(__NAGI__)
++            return;
++#endif
+         }
+ 
+         // save the write for later during destruction
+@@ -2793,6 +2811,11 @@ public:
+     llama_io_read_host(const uint8_t * p, size_t len) : ptr(p), buf_size(len) {}
+ 
+     ~llama_io_read_host() {
++        if (failed()) {
++            rinfos.clear();
++            return;
++        }
++
+         // flush the reads
+         for (const auto & rinfo : rinfos) {
+             ggml_backend_tensor_set(rinfo.tensor, rinfo.ptr, rinfo.offset, rinfo.size);
+@@ -2800,18 +2823,36 @@ public:
+     }
+ 
+     void read(void * dst, size_t size) override {
+-        if (size > buf_size) {
+-            throw std::runtime_error("unexpectedly reached end of buffer");
++        if (failed()) {
++            if (dst != nullptr && size != 0) {
++                memset(dst, 0, size);
++            }
++            return;
++        }
++        if (size > buf_size || (size != 0 && (ptr == nullptr || dst == nullptr))) {
++            fail("unexpectedly reached end of buffer");
++            if (dst != nullptr && size != 0) {
++                memset(dst, 0, size);
++            }
++            return;
++        }
++        if (size != 0) {
++            memcpy(dst, ptr, size);
+         }
+-        memcpy(dst, ptr, size);
+         ptr += size;
+         size_read += size;
+         buf_size -= size;
+     }
+ 
+     void read_tensor(ggml_tensor * tensor, size_t offset, size_t size) override {
+-        if (size > buf_size) {
+-            throw std::runtime_error("unexpectedly reached end of buffer");
++        if (failed()) {
++            return;
++        }
++        if (size > buf_size || (size != 0 && ptr == nullptr)) {
++            fail("unexpectedly reached end of buffer");
++#if defined(__NAGI__)
++            return;
++#endif
+         }
+ 
+         // save for later during destruction
+@@ -2900,6 +2941,10 @@ public:
+     }
+ 
+     ~llama_io_write_device() {
++        if (failed()) {
++            return;
++        }
++
+         llama_memory_buffers mbufs_new;
+ 
+         for (const auto & winfo : winfos) {
+@@ -2992,10 +3037,18 @@ public:
+     }
+ 
+     void write(const void * src, size_t size) override {
+-        if (size > buf_size) {
+-            throw std::runtime_error("unexpectedly reached end of buffer");
++        if (failed()) {
++            return;
++        }
++        if (size > buf_size || (size != 0 && (ptr == nullptr || src == nullptr))) {
++            fail("unexpectedly reached end of buffer");
++#if defined(__NAGI__)
++            return;
++#endif
++        }
++        if (size != 0) {
++            memcpy(ptr, src, size);
+         }
+-        memcpy(ptr, src, size);
+         ptr += size;
+         size_written += size;
+         buf_size -= size;
+@@ -3032,6 +3085,11 @@ public:
+     }
+ 
+     ~llama_io_read_device() {
++        if (failed()) {
++            rinfos.clear();
++            return;
++        }
++
+         llama_memory_buffers mbufs_new;
+ 
+         for (const auto & rinfo : rinfos) {
+@@ -3162,10 +3220,22 @@ public:
+     }
+ 
+     void read(void * dst, size_t size) override {
+-        if (size > buf_size) {
+-            throw std::runtime_error("unexpectedly reached end of buffer");
++        if (failed()) {
++            if (dst != nullptr && size != 0) {
++                memset(dst, 0, size);
++            }
++            return;
++        }
++        if (size > buf_size || (size != 0 && (ptr == nullptr || dst == nullptr))) {
++            fail("unexpectedly reached end of buffer");
++            if (dst != nullptr && size != 0) {
++                memset(dst, 0, size);
++            }
++            return;
++        }
++        if (size != 0) {
++            memcpy(dst, ptr, size);
+         }
+-        memcpy(dst, ptr, size);
+         ptr += size;
+         size_read += size;
+         buf_size -= size;
+@@ -3203,26 +3273,54 @@ private:
+ 
+ size_t llama_context::state_get_size() {
+     llama_io_write_dummy io(false);
++#if defined(__NAGI__)
++    const size_t result = state_write_data(io);
++    return io.failed() ? 0 : result;
++#else
+     try {
+         return state_write_data(io);
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: error getting state size: %s\n", __func__, err.what());
+         return 0;
+     }
++#endif
+ }
+ 
+ size_t llama_context::state_get_data(uint8_t * dst, size_t size) {
++    const size_t required = state_get_size();
++    if (required == 0 || size < required || dst == nullptr) {
++        LLAMA_LOG_ERROR("%s: output buffer is too small or unavailable\n", __func__);
++        return 0;
++    }
++
+     llama_io_write_host io(dst, size);
++#if defined(__NAGI__)
++    const size_t result = state_write_data(io);
++    return io.failed() ? 0 : result;
++#else
+     try {
+         return state_write_data(io);
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: error saving state: %s\n", __func__, err.what());
+         return 0;
+     }
++#endif
+ }
+ 
+ size_t llama_context::state_set_data(const uint8_t * src, size_t size) {
++    if (src == nullptr && size != 0) {
++        LLAMA_LOG_ERROR("%s: state input buffer is unavailable\n", __func__);
++        return 0;
++    }
+     llama_io_read_host io(src, size);
++#if defined(__NAGI__)
++    const size_t result = state_read_data(io);
++    if (io.failed()) {
++        io.discard();
++        return 0;
++    }
++    return result;
++#else
+     try {
+         return state_read_data(io);
+     } catch (const std::exception & err) {
+@@ -3230,12 +3328,27 @@ size_t llama_context::state_set_data(const uint8_t * src, size_t size) {
+         io.discard();
+         return 0;
+     }
++#endif
+ }
+ 
+ static constexpr uint32_t io_magic = 0xaf143cd8;
+ 
+ size_t llama_context::state_seq_get_size(llama_seq_id seq_id, llama_state_seq_flags flags) {
++    if (seq_id < 0 || (uint32_t) seq_id >= cparams.n_seq_max) {
++        LLAMA_LOG_ERROR("%s: sequence id %d is out of range\n", __func__, seq_id);
++        return 0;
++    }
++    if ((flags & LLAMA_STATE_SEQ_FLAGS_ON_DEVICE) && mem_storage.find(seq_id) == mem_storage.end()) {
++        LLAMA_LOG_ERROR("%s: sequence %d has no device state buffer\n", __func__, seq_id);
++        return 0;
++    }
+     llama_io_write_dummy io(flags & LLAMA_STATE_SEQ_FLAGS_ON_DEVICE);
++#if defined(__NAGI__)
++    io.write(&io_magic, sizeof(io_magic));
++    io.write(&seq_id, sizeof(seq_id));
++    const size_t result = state_seq_write_data(io, seq_id, flags);
++    return io.failed() ? 0 : result;
++#else
+     try {
+         io.write(&io_magic, sizeof(io_magic));
+         io.write(&seq_id, sizeof(seq_id));
+@@ -3245,16 +3358,29 @@ size_t llama_context::state_seq_get_size(llama_seq_id seq_id, llama_state_seq_fl
+         LLAMA_LOG_ERROR("%s: error getting state size: %s\n", __func__, err.what());
+         return 0;
+     }
++#endif
+ }
+ 
+ size_t llama_context::state_seq_get_data(llama_seq_id seq_id, uint8_t * dst, size_t size, llama_state_seq_flags flags) {
++    const size_t required = state_seq_get_size(seq_id, flags);
++    if (required == 0 || size < required || dst == nullptr) {
++        LLAMA_LOG_ERROR("%s: output buffer is too small or unavailable\n", __func__);
++        return 0;
++    }
++
+     std::unique_ptr<llama_io_write_i> io;
+     if (flags & LLAMA_STATE_SEQ_FLAGS_ON_DEVICE) {
+-        io = std::make_unique<llama_io_write_device>(dst, size, mem_storage[seq_id]);
++        io = std::make_unique<llama_io_write_device>(dst, size, mem_storage.at(seq_id));
+     } else {
+         io = std::make_unique<llama_io_write_host>(dst, size);
+     }
+ 
++#if defined(__NAGI__)
++    io->write(&io_magic, sizeof(io_magic));
++    io->write(&seq_id, sizeof(seq_id));
++    const size_t result = state_seq_write_data(*io, seq_id, flags);
++    return io->failed() ? 0 : result;
++#else
+     try {
+         io->write(&io_magic, sizeof(io_magic));
+         io->write(&seq_id, sizeof(seq_id));
+@@ -3264,30 +3390,63 @@ size_t llama_context::state_seq_get_data(llama_seq_id seq_id, uint8_t * dst, siz
+         LLAMA_LOG_ERROR("%s: error saving state: %s\n", __func__, err.what());
+         return 0;
+     }
++#endif
+ }
+ 
+ size_t llama_context::state_seq_set_data(llama_seq_id seq_id, const uint8_t * src, size_t size, llama_state_seq_flags flags) {
++    if (seq_id < 0 || (uint32_t) seq_id >= cparams.n_seq_max) {
++        LLAMA_LOG_ERROR("%s: sequence id %d is out of range\n", __func__, seq_id);
++        return 0;
++    }
++    constexpr size_t header_size = sizeof(uint32_t) + sizeof(llama_seq_id);
++    if (src == nullptr || size < header_size) {
++        LLAMA_LOG_ERROR("%s: sequence state is shorter than its header\n", __func__);
++        return 0;
++    }
++
++    uint32_t source_magic = 0;
++    llama_seq_id source_seq_id = -1;
++    memcpy(&source_magic, src, sizeof(source_magic));
++    memcpy(&source_seq_id, src + sizeof(source_magic), sizeof(source_seq_id));
++    if (source_magic != io_magic) {
++        LLAMA_LOG_ERROR("%s: wrong sequence state magic\n", __func__);
++        return 0;
++    }
++
+     std::unique_ptr<llama_io_read_i> io;
+     if (flags & LLAMA_STATE_SEQ_FLAGS_ON_DEVICE) {
+-        // create a temporary io to read the magic and the src seq_id
+-        io = std::make_unique<llama_io_read_host>(src, size);
+-
+-        uint32_t magic_read;
+-        io->read(&magic_read, sizeof(magic_read));
+-        if (io_magic != magic_read) {
+-            throw std::runtime_error("wrong sequence state magic");
++        const auto storage = mem_storage.find(source_seq_id);
++        if (storage == mem_storage.end()) {
++            LLAMA_LOG_ERROR("%s: sequence %d has no device state buffer\n", __func__, source_seq_id);
++            return 0;
+         }
+-
+-        llama_seq_id seq_id_read;
+-        io->read(&seq_id_read, sizeof(seq_id_read));
+-
+-        GGML_ASSERT(mem_storage.find(seq_id_read) != mem_storage.end());
+-
+-        io = std::make_unique<llama_io_read_device>(src, size, mem_storage[seq_id_read]);
++        io = std::make_unique<llama_io_read_device>(src, size, storage->second);
+     } else {
+         io = std::make_unique<llama_io_read_host>(src, size);
+     }
+ 
++#if defined(__NAGI__)
++    uint32_t magic_read = 0;
++    io->read(&magic_read, sizeof(magic_read));
++    if (io->failed() || magic_read != io_magic) {
++        io->discard();
++        return 0;
++    }
++
++    llama_seq_id seq_id_read = -1;
++    io->read(&seq_id_read, sizeof(seq_id_read));
++    if (io->failed()) {
++        io->discard();
++        return 0;
++    }
++
++    const size_t result = state_seq_read_data(*io, seq_id, flags);
++    if (io->failed()) {
++        io->discard();
++        return 0;
++    }
++    return result;
++#else
+     try {
+         uint32_t magic_read;
+         io->read(&magic_read, sizeof(magic_read));
+@@ -3304,9 +3463,15 @@ size_t llama_context::state_seq_set_data(llama_seq_id seq_id, const uint8_t * sr
+         io->discard();
+         return 0;
+     }
++#endif
+ }
+ 
+ bool llama_context::state_load_file(const char * filepath, llama_token * tokens_out, size_t n_token_capacity, size_t * n_token_count_out) {
++    if (n_token_count_out == nullptr) {
++        LLAMA_LOG_ERROR("%s: token count output is unavailable\n", __func__);
++        return false;
++    }
++
+     llama_file file(filepath, "rb");
+ 
+     // sanity checks
+@@ -3329,27 +3494,60 @@ bool llama_context::state_load_file(const char * filepath, llama_token * tokens_
+             return false;
+         }
+ 
+-        file.read_raw(tokens_out, sizeof(llama_token) * n_token_count);
+-        *n_token_count_out = n_token_count;
+-    }
++        if (n_token_count != 0 && tokens_out == nullptr) {
++            LLAMA_LOG_ERROR("%s: token output is unavailable\n", __func__);
++            return false;
++        }
++#if SIZE_MAX < UINT64_MAX
++        if ((uint64_t) n_token_count * sizeof(llama_token) > SIZE_MAX) {
++            LLAMA_LOG_ERROR("%s: token byte count overflows size_t\n", __func__);
++            return false;
++        }
++#endif
+ 
+-    // restore the context state
+-    {
+-        const size_t n_state_size_cur = file.size() - file.tell();
++        const size_t token_bytes = (size_t) n_token_count * sizeof(llama_token);
++        if (token_bytes > file.size() - file.tell()) {
++            LLAMA_LOG_ERROR("%s: token data exceeds the session file size\n", __func__);
++            return false;
++        }
+ 
+-        llama_io_read_file io( &file);
+-        const size_t n_read = state_read_data(io);
++        std::vector<llama_token> tokens_tmp(n_token_count);
++        if (token_bytes != 0) {
++            file.read_raw(tokens_tmp.data(), token_bytes);
++        }
+ 
+-        if (n_read != n_state_size_cur) {
+-            LLAMA_LOG_ERROR("%s: did not read all of the session file data! size %zu, got %zu\n", __func__, n_state_size_cur, n_read);
++        const size_t n_state_size_cur = file.size() - file.tell();
++        llama_io_read_file io(&file);
++        const size_t n_read = state_read_data(io);
++        if (io.failed() || n_read == 0 || n_read != n_state_size_cur) {
++            io.discard();
++            LLAMA_LOG_ERROR("%s: failed to restore the complete session state (size %zu, got %zu)\n",
++                    __func__, n_state_size_cur, n_read);
+             return false;
+         }
++
++        if (token_bytes != 0) {
++            memcpy(tokens_out, tokens_tmp.data(), token_bytes);
++        }
++        *n_token_count_out = n_token_count;
+     }
+ 
+     return true;
+ }
+ 
+ bool llama_context::state_save_file(const char * filepath, const llama_token * tokens, size_t n_token_count) {
++    if (n_token_count > std::numeric_limits<uint32_t>::max() ||
++            (n_token_count != 0 && tokens == nullptr)) {
++        LLAMA_LOG_ERROR("%s: invalid token input\n", __func__);
++        return false;
++    }
++#if SIZE_MAX < UINT64_MAX
++    if ((uint64_t) n_token_count * sizeof(llama_token) > SIZE_MAX) {
++        LLAMA_LOG_ERROR("%s: token byte count overflows size_t\n", __func__);
++        return false;
++    }
++#endif
++
+     llama_file file(filepath, "wb");
+ 
+     file.write_u32(LLAMA_SESSION_MAGIC);
+@@ -3357,7 +3555,9 @@ bool llama_context::state_save_file(const char * filepath, const llama_token * t
+ 
+     // save the prompt
+     file.write_u32((uint32_t) n_token_count);
+-    file.write_raw(tokens, sizeof(llama_token) * n_token_count);
++    if (n_token_count != 0) {
++        file.write_raw(tokens, sizeof(llama_token) * n_token_count);
++    }
+ 
+     // save the context state using stream saving
+     llama_io_write_file io(&file);
+@@ -3367,6 +3567,15 @@ bool llama_context::state_save_file(const char * filepath, const llama_token * t
+ }
+ 
+ size_t llama_context::state_seq_load_file(llama_seq_id seq_id, const char * filepath, llama_token * tokens_out, size_t n_token_capacity, size_t * n_token_count_out) {
++    if (seq_id < 0 || (uint32_t) seq_id >= cparams.n_seq_max) {
++        LLAMA_LOG_ERROR("%s: sequence id %d is out of range\n", __func__, seq_id);
++        return 0;
++    }
++    if (n_token_count_out == nullptr) {
++        LLAMA_LOG_ERROR("%s: token count output is unavailable\n", __func__);
++        return 0;
++    }
++
+     llama_file file(filepath, "rb");
+ 
+     // version checks
+@@ -3385,9 +3594,14 @@ size_t llama_context::state_seq_load_file(llama_seq_id seq_id, const char * file
+         const uint32_t n_token_count = file.read_u32();
+ 
+         if (tokens_out == nullptr) {
+-            const size_t n_token_max = (file.size() - file.tell()) / sizeof(llama_token);
+-            if (n_token_count > n_token_max) {
+-                LLAMA_LOG_ERROR("%s: token count in sequence state file exceeds the file size! %u > %zu\n", __func__, n_token_count, n_token_max);
++#if SIZE_MAX < UINT64_MAX
++            if ((uint64_t) n_token_count * sizeof(llama_token) > SIZE_MAX) {
++                LLAMA_LOG_ERROR("%s: token byte count overflows size_t\n", __func__);
++                return 0;
++            }
++#endif
++            if ((uint64_t) n_token_count * sizeof(llama_token) > file.size() - file.tell()) {
++                LLAMA_LOG_ERROR("%s: token count in sequence state file exceeds the file size! %u\n", __func__, n_token_count);
+                 return 0;
+             }
+ 
+@@ -3400,27 +3614,69 @@ size_t llama_context::state_seq_load_file(llama_seq_id seq_id, const char * file
+             return 0;
+         }
+ 
+-        file.read_raw(tokens_out, sizeof(llama_token) * n_token_count);
+-        *n_token_count_out = n_token_count;
+-    }
++        if (n_token_count != 0 && tokens_out == nullptr) {
++            LLAMA_LOG_ERROR("%s: token output is unavailable\n", __func__);
++            return 0;
++        }
++#if SIZE_MAX < UINT64_MAX
++        if ((uint64_t) n_token_count * sizeof(llama_token) > SIZE_MAX) {
++            LLAMA_LOG_ERROR("%s: token byte count overflows size_t\n", __func__);
++            return 0;
++        }
++#endif
++
++        const size_t token_bytes = (size_t) n_token_count * sizeof(llama_token);
++        if (token_bytes > file.size() - file.tell()) {
++            LLAMA_LOG_ERROR("%s: token data exceeds the sequence state file size\n", __func__);
++            return 0;
++        }
++        std::vector<llama_token> tokens_tmp(n_token_count);
++        if (token_bytes != 0) {
++            file.read_raw(tokens_tmp.data(), token_bytes);
++        }
+ 
+-    // restore the context state
+-    {
+         const size_t state_size = file.size() - file.tell();
+         llama_io_read_file io(&file);
+         const size_t nread = state_seq_read_data(io, seq_id, 0);
+-        if (!nread) {
++        if (io.failed() || nread == 0 || nread > state_size) {
++            io.discard();
+             LLAMA_LOG_ERROR("%s: failed to restore sequence state\n", __func__);
+             return 0;
+         }
+-        GGML_ASSERT(nread <= state_size);
+-        GGML_ASSERT(nread + sizeof(uint32_t) * 3 + sizeof(llama_token) * *n_token_count_out == file.tell());
++
++        const size_t expected_tell = sizeof(uint32_t) * 3 + token_bytes + nread;
++        if (expected_tell != file.tell()) {
++            io.discard();
++            LLAMA_LOG_ERROR("%s: sequence state reader consumed an inconsistent byte count\n", __func__);
++            return 0;
++        }
++
++        if (token_bytes != 0) {
++            memcpy(tokens_out, tokens_tmp.data(), token_bytes);
++        }
++        *n_token_count_out = n_token_count;
+     }
+ 
+     return file.tell();
+ }
+ 
+ size_t llama_context::state_seq_save_file(llama_seq_id seq_id, const char * filepath, const llama_token * tokens, size_t n_token_count) {
++    if (seq_id < 0 || (uint32_t) seq_id >= cparams.n_seq_max) {
++        LLAMA_LOG_ERROR("%s: sequence id %d is out of range\n", __func__, seq_id);
++        return 0;
++    }
++    if (n_token_count > std::numeric_limits<uint32_t>::max() ||
++            (n_token_count != 0 && tokens == nullptr)) {
++        LLAMA_LOG_ERROR("%s: invalid token input\n", __func__);
++        return 0;
++    }
++#if SIZE_MAX < UINT64_MAX
++    if ((uint64_t) n_token_count * sizeof(llama_token) > SIZE_MAX) {
++        LLAMA_LOG_ERROR("%s: token byte count overflows size_t\n", __func__);
++        return 0;
++    }
++#endif
++
+     llama_file file(filepath, "wb");
+ 
+     file.write_u32(LLAMA_STATE_SEQ_MAGIC);
+@@ -3428,7 +3684,9 @@ size_t llama_context::state_seq_save_file(llama_seq_id seq_id, const char * file
+ 
+     // save the prompt
+     file.write_u32((uint32_t) n_token_count);
+-    file.write_raw(tokens, sizeof(llama_token) * n_token_count);
++    if (n_token_count != 0) {
++        file.write_raw(tokens, sizeof(llama_token) * n_token_count);
++    }
+ 
+     // save the context state using stream saving
+     llama_io_write_file io(&file);
+@@ -3470,9 +3728,16 @@ size_t llama_context::state_read_data(llama_io_read_i & io) {
+         const std::string cur_arch_str = llm_arch_name(model.arch);
+ 
+         std::string arch_str;
+-        io.read_string(arch_str);
++        if (!io.read_string(arch_str) || io.failed()) {
++            io.discard();
++            return 0;
++        }
+         if (cur_arch_str != arch_str) {
+-            throw std::runtime_error(format("wrong model arch: '%s' instead of '%s'", arch_str.c_str(), cur_arch_str.c_str()));
++            char message[256];
++            snprintf(message, sizeof(message), "wrong model arch: '%s' instead of '%s'", arch_str.c_str(), cur_arch_str.c_str());
++            io.fail(message);
++            io.discard();
++            return 0;
+         }
+         // TODO: add more info which needs to be identical but which is not verified otherwise
+     }
+@@ -3483,6 +3748,10 @@ size_t llama_context::state_read_data(llama_io_read_i & io) {
+         memory->state_read(io);
+     }
+ 
++    if (io.failed()) {
++        io.discard();
++        return 0;
++    }
+     return io.n_bytes();
+ }
+ 
+@@ -3499,6 +3768,10 @@ size_t llama_context::state_seq_read_data(llama_io_read_i & io, llama_seq_id seq
+         memory->state_read(io, seq_id, flags);
+     }
+ 
++    if (io.failed()) {
++        io.discard();
++        return 0;
++    }
+     return io.n_bytes();
+ }
+ 
+@@ -4343,10 +4616,13 @@ bool llama_save_session_file(llama_context * ctx, const char * path_session, con
+ // Returns the *actual* size of the state.
+ // Intended to be used when saving to state to a buffer.
+ size_t llama_state_get_size(llama_context * ctx) {
+-    return ctx->state_get_size();
++    return ctx == nullptr ? 0 : ctx->state_get_size();
+ }
+ 
+ size_t llama_state_get_data(llama_context * ctx, uint8_t * dst, size_t size) {
++    if (ctx == nullptr) {
++        return 0;
++    }
+     ctx->synchronize();
+ 
+     return ctx->state_get_data(dst, size);
+@@ -4354,31 +4630,48 @@ size_t llama_state_get_data(llama_context * ctx, uint8_t * dst, size_t size) {
+ 
+ // Sets the state reading from the specified source address
+ size_t llama_state_set_data(llama_context * ctx, const uint8_t * src, size_t size) {
++    if (ctx == nullptr) {
++        return 0;
++    }
+     ctx->synchronize();
+ 
+     return ctx->state_set_data(src, size);
+ }
+ 
+ bool llama_state_load_file(llama_context * ctx, const char * path_session, llama_token * tokens_out, size_t n_token_capacity, size_t * n_token_count_out) {
++    if (ctx == nullptr) {
++        return false;
++    }
+     ctx->synchronize();
+ 
++#if defined(__NAGI__)
++    return ctx->state_load_file(path_session, tokens_out, n_token_capacity, n_token_count_out);
++#else
+     try {
+         return ctx->state_load_file(path_session, tokens_out, n_token_capacity, n_token_count_out);
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: error loading session file: %s\n", __func__, err.what());
+         return false;
+     }
++#endif
+ }
+ 
+ bool llama_state_save_file(llama_context * ctx, const char * path_session, const llama_token * tokens, size_t n_token_count) {
++    if (ctx == nullptr) {
++        return false;
++    }
+     ctx->synchronize();
+ 
++#if defined(__NAGI__)
++    return ctx->state_save_file(path_session, tokens, n_token_count);
++#else
+     try {
+         return ctx->state_save_file(path_session, tokens, n_token_count);
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: error saving session file: %s\n", __func__, err.what());
+         return false;
+     }
++#endif
+ }
+ 
+ size_t llama_state_seq_get_size(llama_context * ctx, llama_seq_id seq_id) {
+@@ -4394,40 +4687,60 @@ size_t llama_state_seq_set_data(llama_context * ctx, const uint8_t * src, size_t
+ }
+ 
+ size_t llama_state_seq_get_size_ext(llama_context * ctx, llama_seq_id seq_id, llama_state_seq_flags flags) {
+-    return ctx->state_seq_get_size(seq_id, flags);
++    return ctx == nullptr ? 0 : ctx->state_seq_get_size(seq_id, flags);
+ }
+ 
+ size_t llama_state_seq_get_data_ext(llama_context * ctx, uint8_t * dst, size_t size, llama_seq_id seq_id, llama_state_seq_flags flags) {
++    if (ctx == nullptr) {
++        return 0;
++    }
+     ctx->synchronize();
+ 
+     return ctx->state_seq_get_data(seq_id, dst, size, flags);
+ }
+ size_t llama_state_seq_set_data_ext(llama_context * ctx, const uint8_t * src, size_t size, llama_seq_id seq_id, llama_state_seq_flags flags) {
++    if (ctx == nullptr) {
++        return 0;
++    }
+     ctx->synchronize();
+ 
+     return ctx->state_seq_set_data(seq_id, src, size, flags);
+ }
+ 
+ size_t llama_state_seq_save_file(llama_context * ctx, const char * filepath, llama_seq_id seq_id, const llama_token * tokens, size_t n_token_count) {
++    if (ctx == nullptr) {
++        return 0;
++    }
+     ctx->synchronize();
+ 
++#if defined(__NAGI__)
++    return ctx->state_seq_save_file(seq_id, filepath, tokens, n_token_count);
++#else
+     try {
+         return ctx->state_seq_save_file(seq_id, filepath, tokens, n_token_count);
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: error saving sequence state file: %s\n", __func__, err.what());
+         return 0;
+     }
++#endif
+ }
+ 
+ size_t llama_state_seq_load_file(llama_context * ctx, const char * filepath, llama_seq_id dest_seq_id, llama_token * tokens_out, size_t n_token_capacity, size_t * n_token_count_out) {
++    if (ctx == nullptr) {
++        return 0;
++    }
+     ctx->synchronize();
+ 
++#if defined(__NAGI__)
++    return ctx->state_seq_load_file(dest_seq_id, filepath, tokens_out, n_token_capacity, n_token_count_out);
++#else
+     try {
+         return ctx->state_seq_load_file(dest_seq_id, filepath, tokens_out, n_token_capacity, n_token_count_out);
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: error loading sequence state file: %s\n", __func__, err.what());
+         return 0;
+     }
++#endif
+ }
+ 
+ // compat: llama_batch -> llama_batch_ext -> encode/decode
+diff --git a/src/llama-io.cpp b/src/llama-io.cpp
+index 5ec4634..1bada80 100644
+--- a/src/llama-io.cpp
++++ b/src/llama-io.cpp
+@@ -1,20 +1,67 @@
+ #include "llama-io.h"
+ 
++#include <cstring>
++#include <limits>
++#include <stdexcept>
+ #include <vector>
+ 
++void llama_io_write_i::fail(const char * message) {
++    failed_ = true;
++#if !defined(__NAGI__)
++    throw std::runtime_error(message);
++#else
++    (void) message;
++#endif
++}
++
+ void llama_io_write_i::write_string(const std::string & str) {
++    if (str.size() > std::numeric_limits<uint32_t>::max()) {
++        fail("state string size exceeds the format limit");
++#if defined(__NAGI__)
++        return;
++#endif
++    }
++
+     uint32_t str_size = str.size();
+ 
+     write(&str_size,  sizeof(str_size));
+     write(str.data(), str_size);
+ }
+ 
+-void llama_io_read_i::read_string(std::string & str) {
+-    uint32_t str_size;
++void llama_io_read_i::fail(const char * message) {
++    failed_ = true;
++#if !defined(__NAGI__)
++    throw std::runtime_error(message);
++#else
++    (void) message;
++#endif
++}
++
++bool llama_io_read_i::read_string(std::string & str) {
++    constexpr uint32_t max_state_string_size = 4096;
++    uint32_t str_size = 0;
+     read(&str_size, sizeof(str_size));
++    if (failed()) {
++        return false;
++    }
++
++    if (str_size > max_state_string_size) {
++        fail("maximum state string size exceeded");
++#if defined(__NAGI__)
++        return false;
++#endif
++    }
+ 
+     std::vector<char> buf(str_size);
+-    read(buf.data(), str_size);
++    if (str_size != 0) {
++        read(buf.data(), str_size);
++        if (failed()) {
++            return false;
++        }
++        str.assign(buf.data(), str_size);
++    } else {
++        str.clear();
++    }
+ 
+-    str.assign(buf.data(), str_size);
++    return true;
+ }
+diff --git a/src/llama-io.h b/src/llama-io.h
+index 0aca733..0c96f66 100644
+--- a/src/llama-io.h
++++ b/src/llama-io.h
+@@ -17,7 +17,16 @@ public:
+     // bytes written so far
+     virtual size_t n_bytes() = 0;
+ 
++    bool failed() const { return failed_; }
++#if !defined(__NAGI__)
++    [[noreturn]]
++#endif
++    void fail(const char * message);
++
+     void write_string(const std::string & str);
++
++private:
++    bool failed_ = false;
+ };
+ 
+ class llama_io_read_i {
+@@ -34,5 +43,14 @@ public:
+     // bytes read so far
+     virtual size_t n_bytes() = 0;
+ 
+-    void read_string(std::string & str);
++    bool failed() const { return failed_; }
++#if !defined(__NAGI__)
++    [[noreturn]]
++#endif
++    void fail(const char * message);
++
++    bool read_string(std::string & str);
++
++private:
++    bool failed_ = false;
+ };
+diff --git a/src/llama-kv-cache-dsa.cpp b/src/llama-kv-cache-dsa.cpp
+index 6e5f7d4..a093a20 100644
+--- a/src/llama-kv-cache-dsa.cpp
++++ b/src/llama-kv-cache-dsa.cpp
+@@ -1,5 +1,6 @@
+ #include "llama-kv-cache-dsa.h"
+ 
++#include "llama-io.h"
+ #include "llama-impl.h"
+ #include "llama-batch.h"
+ #include "llama-model.h"
+@@ -168,7 +169,18 @@ void llama_kv_cache_dsa::state_write(llama_io_write_i & io, llama_seq_id seq_id,
+ 
+ void llama_kv_cache_dsa::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
+     kv_mla->state_read(io, seq_id, flags);
++    if (io.failed()) {
++        return;
++    }
+ 
++#if defined(__NAGI__)
++    kv_lid->state_read(io, seq_id, flags);
++    if (io.failed()) {
++        // The MLA portion is no longer consistent with the failed indexer restore.
++        kv_mla->state_clear(seq_id);
++        return;
++    }
++#else
+     try {
+         kv_lid->state_read(io, seq_id, flags);
+     } catch (...) {
+@@ -177,6 +189,7 @@ void llama_kv_cache_dsa::state_read(llama_io_read_i & io, llama_seq_id seq_id, l
+ 
+         throw;
+     }
++#endif
+ }
+ 
+ llama_kv_cache * llama_kv_cache_dsa::get_mla() const {
+diff --git a/src/llama-kv-cache-dsv4.cpp b/src/llama-kv-cache-dsv4.cpp
+index 948d081..c467366 100644
+--- a/src/llama-kv-cache-dsv4.cpp
++++ b/src/llama-kv-cache-dsv4.cpp
+@@ -222,28 +222,29 @@ static void dsv4_state_src_stream_range(
+     ns = seq_id >= 0 ? 1 : n_stream;
+ }
+ 
+-static void dsv4_state_dst_stream_range(
++static bool dsv4_state_dst_stream_range(
+         uint32_t       n_stream,
+         llama_seq_id   seq_id,
+         uint32_t       ns,
+         uint32_t     & s0) {
+     if (seq_id >= 0) {
+         if (ns != 1) {
+-            throw std::runtime_error("DSV4 sequence state stream count mismatch");
++            return false;
+         }
+         if (n_stream > 1 && (uint32_t) seq_id >= n_stream) {
+-            throw std::runtime_error("DSV4 state sequence id out of stream range");
++            return false;
+         }
+ 
+         s0 = n_stream > 1 ? (uint32_t) seq_id : 0;
+-        return;
++        return true;
+     }
+ 
+     if (ns != n_stream) {
+-        throw std::runtime_error("DSV4 full state stream count mismatch");
++        return false;
+     }
+ 
+     s0 = 0;
++    return true;
+ }
+ 
+ static void dsv4_state_write_tensor_streams(
+@@ -288,22 +289,25 @@ static void dsv4_state_write_tensor_streams(
+     }
+ }
+ 
+-static void dsv4_state_read_tensor_streams(
++static bool dsv4_state_read_tensor_streams(
+         llama_io_read_i & io,
+         ggml_tensor     * tensor,
+         uint32_t          tensor_rows,
+         uint32_t          n_rows,
+         uint32_t          s0,
+         uint32_t          ns) {
+-    int32_t  type_i_ref;
+-    uint64_t ne0_ref;
+-    uint64_t rows_ref;
+-    uint64_t row_size_ref;
++    int32_t  type_i_ref = 0;
++    uint64_t ne0_ref = 0;
++    uint64_t rows_ref = 0;
++    uint64_t row_size_ref = 0;
+ 
+     io.read(&type_i_ref,   sizeof(type_i_ref));
+     io.read(&ne0_ref,      sizeof(ne0_ref));
+     io.read(&rows_ref,     sizeof(rows_ref));
+     io.read(&row_size_ref, sizeof(row_size_ref));
++    if (io.failed()) {
++        return false;
++    }
+ 
+     const int32_t  type_i   = (int32_t) tensor->type;
+     const uint64_t ne0      = tensor->ne[0];
+@@ -311,22 +315,29 @@ static void dsv4_state_read_tensor_streams(
+     const uint64_t row_size = ggml_row_size(tensor->type, tensor->ne[0]);
+ 
+     if (type_i != type_i_ref || ne0 != ne0_ref || rows != rows_ref || row_size != row_size_ref) {
+-        throw std::runtime_error("DSV4 state tensor metadata mismatch");
++        io.fail("DSV4 state tensor metadata mismatch");
++#if defined(__NAGI__)
++        return false;
++#endif
+     }
+     if (n_rows > tensor_rows) {
+-        throw std::runtime_error("DSV4 state tensor row count exceeds storage");
++        io.fail("DSV4 state tensor row count exceeds storage");
++#if defined(__NAGI__)
++        return false;
++#endif
+     }
+ 
+     const size_t stream_stride = (size_t) tensor_rows*row_size;
+     const size_t size          = (size_t) n_rows*row_size;
+     if (size == 0) {
+-        return;
++        return true;
+     }
+ 
+     for (uint32_t s = 0; s < ns; ++s) {
+         const size_t offset = (size_t) (s0 + s)*stream_stride;
+         io.read_tensor(tensor, offset, size);
+     }
++    return !io.failed();
+ }
+ 
+ static void dsv4_state_write_k_cache(
+@@ -361,54 +372,83 @@ static void dsv4_state_write_k_cache(
+     }
+ }
+ 
+-static void dsv4_state_read_k_cache(
++static bool dsv4_state_read_k_cache(
+         llama_io_read_i  & io,
+         llama_kv_cache   * kv,
+         llama_seq_id       seq_id,
+         llama_state_seq_flags flags) {
+     GGML_UNUSED(flags);
+ 
+-    uint32_t version;
+-    uint32_t n_rows_ref;
+-    uint32_t ns;
+-    uint32_t n_layer_ref;
++    uint32_t version = 0;
++    uint32_t n_rows_ref = 0;
++    uint32_t ns = 0;
++    uint32_t n_layer_ref = 0;
+ 
+     io.read(&version,     sizeof(version));
+     io.read(&n_rows_ref,  sizeof(n_rows_ref));
+     io.read(&ns,          sizeof(ns));
+     io.read(&n_layer_ref, sizeof(n_layer_ref));
++    if (io.failed()) {
++        return false;
++    }
+ 
+     if (version != 1 && version != DSV4_K_CACHE_STATE_VER) {
+-        throw std::runtime_error("DSV4 K-cache state version mismatch");
++        io.fail("DSV4 K-cache state version mismatch");
++#if defined(__NAGI__)
++        return false;
++#endif
+     }
+ 
+     const uint32_t kv_size = kv->get_size();
+     if (version == 1 && n_rows_ref != kv_size) {
+         LLAMA_LOG_INFO("kv size ref %d kv %d\n", n_rows_ref, kv_size);
+-        throw std::runtime_error("DSV4 K-cache state size mismatch");
++        io.fail("DSV4 K-cache state size mismatch");
++#if defined(__NAGI__)
++        return false;
++#endif
+     }
+     if (n_rows_ref > kv_size) {
+         LLAMA_LOG_INFO("kv rows ref %d kv %d\n", n_rows_ref, kv_size);
+-        throw std::runtime_error("DSV4 K-cache state size mismatch");
++        io.fail("DSV4 K-cache state size mismatch");
++#if defined(__NAGI__)
++        return false;
++#endif
+     }
+ 
+     uint32_t s0;
+-    dsv4_state_dst_stream_range(kv->get_n_stream(), seq_id, ns, s0);
++    if (!dsv4_state_dst_stream_range(kv->get_n_stream(), seq_id, ns, s0)) {
++        io.fail("DSV4 K-cache state stream mapping mismatch");
++#if defined(__NAGI__)
++        return false;
++#endif
++    }
+ 
+     const auto layer_ids = kv->get_layer_ids();
+     if (n_layer_ref != layer_ids.size()) {
+-        throw std::runtime_error("DSV4 K-cache layer count mismatch");
++        io.fail("DSV4 K-cache layer count mismatch");
++#if defined(__NAGI__)
++        return false;
++#endif
+     }
+ 
+     for (uint32_t il : layer_ids) {
+-        uint32_t il_ref;
++        uint32_t il_ref = 0;
+         io.read(&il_ref, sizeof(il_ref));
++        if (io.failed()) {
++            return false;
++        }
+         if (il_ref != il) {
+-            throw std::runtime_error("DSV4 K-cache layer id mismatch");
++            io.fail("DSV4 K-cache layer id mismatch");
++#if defined(__NAGI__)
++            return false;
++#endif
+         }
+ 
+-        dsv4_state_read_tensor_streams(io, kv->get_k_storage(il), kv_size, n_rows_ref, s0, ns);
++        if (!dsv4_state_read_tensor_streams(io, kv->get_k_storage(il), kv_size, n_rows_ref, s0, ns)) {
++            return false;
++        }
+     }
++    return !io.failed();
+ }
+ 
+ static std::string dsv4_plan_positions(const std::vector<int32_t> & values) {
+@@ -1118,12 +1158,12 @@ void llama_dsv4_comp_state::state_write(
+ void llama_dsv4_comp_state::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
+     GGML_UNUSED(flags);
+ 
+-    uint32_t version;
+-    uint32_t ratio_ref;
+-    uint32_t state_size_ref;
+-    uint32_t n_embd_state_ref;
+-    uint32_t ns;
+-    uint32_t n_layer_ref;
++    uint32_t version = 0;
++    uint32_t ratio_ref = 0;
++    uint32_t state_size_ref = 0;
++    uint32_t n_embd_state_ref = 0;
++    uint32_t ns = 0;
++    uint32_t n_layer_ref = 0;
+ 
+     io.read(&version,          sizeof(version));
+     io.read(&ratio_ref,        sizeof(ratio_ref));
+@@ -1131,29 +1171,54 @@ void llama_dsv4_comp_state::state_read(llama_io_read_i & io, llama_seq_id seq_id
+     io.read(&n_embd_state_ref, sizeof(n_embd_state_ref));
+     io.read(&ns,               sizeof(ns));
+     io.read(&n_layer_ref,      sizeof(n_layer_ref));
++    if (io.failed()) {
++        return;
++    }
+ 
+     if (version != DSV4_COMP_STATE_VER) {
+-        throw std::runtime_error("DSV4 compressor state version mismatch");
++        io.fail("DSV4 compressor state version mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+     if (ratio_ref != ratio || state_size_ref != state_size || n_embd_state_ref != n_embd_state) {
+-        throw std::runtime_error("DSV4 compressor state metadata mismatch");
++        io.fail("DSV4 compressor state metadata mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+     if (n_layer_ref != layers.size()) {
+-        throw std::runtime_error("DSV4 compressor state layer count mismatch");
++        io.fail("DSV4 compressor state layer count mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+ 
+     uint32_t s0;
+-    dsv4_state_dst_stream_range(n_stream, seq_id, ns, s0);
++    if (!dsv4_state_dst_stream_range(n_stream, seq_id, ns, s0)) {
++        io.fail("DSV4 compressor state stream mapping mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
++    }
+ 
+     for (const auto & layer : layers) {
+-        uint32_t il_ref;
++        uint32_t il_ref = 0;
+         io.read(&il_ref, sizeof(il_ref));
++        if (io.failed()) {
++            return;
++        }
+         if (il_ref != layer.il) {
+-            throw std::runtime_error("DSV4 compressor state layer id mismatch");
++            io.fail("DSV4 compressor state layer id mismatch");
++#if defined(__NAGI__)
++            return;
++#endif
+         }
+ 
+-        dsv4_state_read_tensor_streams(io, layer.kv,    state_size, state_size, s0, ns);
+-        dsv4_state_read_tensor_streams(io, layer.score, state_size, state_size, s0, ns);
++        if (!dsv4_state_read_tensor_streams(io, layer.kv, state_size, state_size, s0, ns) ||
++                !dsv4_state_read_tensor_streams(io, layer.score, state_size, state_size, s0, ns)) {
++            return;
++        }
+     }
+ }
+ 
+@@ -1626,43 +1691,99 @@ void llama_kv_cache_dsv4::state_write(llama_io_write_i & io, llama_seq_id seq_id
+ }
+ 
+ void llama_kv_cache_dsv4::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
+-    uint32_t magic;
+-    uint32_t version;
++    if (seq_id != -1 && (seq_id < 0 || (uint32_t) seq_id >= n_seq_max)) {
++        io.fail("DSV4 state sequence id out of range");
++#if defined(__NAGI__)
++        return;
++#endif
++    }
++
++    uint32_t magic = 0;
++    uint32_t version = 0;
+     uint32_t mode = DSV4_STATE_MODE_FULL;
+ 
+     io.read(&magic,   sizeof(magic));
+     io.read(&version, sizeof(version));
++    if (io.failed()) {
++        return;
++    }
+ 
+     if (magic != DSV4_STATE_MAGIC) {
+-        throw std::runtime_error("DSV4 state magic mismatch");
++        io.fail("DSV4 state magic mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+     if (version != DSV4_STATE_VERSION) {
+-        throw std::runtime_error("DSV4 state version mismatch");
++        io.fail("DSV4 state version mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+ 
+     io.read(&mode, sizeof(mode));
++    if (io.failed()) {
++        return;
++    }
+     if (mode != DSV4_STATE_MODE_FULL && mode != DSV4_STATE_MODE_PARTIAL) {
+-        throw std::runtime_error("DSV4 state mode mismatch");
++        io.fail("DSV4 state mode mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+ 
+     const bool partial_only = mode == DSV4_STATE_MODE_PARTIAL;
+     if (partial_only != !!(flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY)) {
+-        throw std::runtime_error("DSV4 state flags mismatch");
++        io.fail("DSV4 state flags mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+ 
+     kv_raw->state_read(io, seq_id, flags);
++    if (io.failed()) {
++        return;
++    }
++
++    const auto rollback_restore = [&]() {
++        if (seq_id < 0) {
++            kv_raw->clear(true);
++        } else {
++            kv_raw->get_base()->state_clear(seq_id);
++            kv_raw->get_swa()->state_clear(seq_id);
++        }
++        clear_compressed(seq_id, true);
++    };
+ 
+     if (!partial_only) {
+         clear_compressed(seq_id, true);
+ 
+-        dsv4_state_read_k_cache(io, kv_csa.get(), seq_id, flags);
+-        dsv4_state_read_k_cache(io, kv_hca.get(), seq_id, flags);
+-        dsv4_state_read_k_cache(io, kv_lid.get(), seq_id, flags);
++        if (!dsv4_state_read_k_cache(io, kv_csa.get(), seq_id, flags) ||
++                !dsv4_state_read_k_cache(io, kv_hca.get(), seq_id, flags) ||
++                !dsv4_state_read_k_cache(io, kv_lid.get(), seq_id, flags)) {
++            rollback_restore();
++            if (!io.failed()) {
++                io.fail("failed to restore DSV4 compressed cache state");
++            }
++            return;
++        }
+     }
+ 
+     csa_state->state_read(io, seq_id, flags);
++    if (io.failed()) {
++        rollback_restore();
++        return;
++    }
+     hca_state->state_read(io, seq_id, flags);
++    if (io.failed()) {
++        rollback_restore();
++        return;
++    }
+     lid_state->state_read(io, seq_id, flags);
++    if (io.failed()) {
++        rollback_restore();
++        return;
++    }
+ 
+     if (seq_id >= 0) {
+         GGML_ASSERT((uint32_t) seq_id < n_seq_max);
+diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
+index 1c93f90..d49dec6 100644
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -2140,20 +2140,34 @@ const slot_info_vec_t *   sinfos_in) {
+     GGML_UNUSED(flags);
+ 
+     // TODO: fix incosistent handling of `seq_id < 0` and `seq_id == -1` in the codebase [TAG_LLAMA_SEQ_ID_NEG]
+-    GGML_ASSERT(seq_id == -1 || (seq_id >= 0 && (size_t) seq_id < seq_to_stream.size()));
++    if (seq_id != -1 && (seq_id < 0 || (size_t) seq_id >= seq_to_stream.size())) {
++        io.fail("sequence id is out of range for KV cache restore");
++#if defined(__NAGI__)
++        return;
++#endif
++    }
+ 
+     if (sinfos_out) {
+         sinfos_out->assign(n_stream, slot_info{});
+     }
+ 
+     if (sinfos_in && sinfos_in->size() != n_stream) {
+-        throw std::runtime_error("failed to restore kv cache: mirrored slot layout has the wrong stream count");
++        io.fail("failed to restore kv cache: mirrored slot layout has the wrong stream count");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+ 
+-    uint32_t n_stream_cur;
++    uint32_t n_stream_cur = 0;
+     io.read(&n_stream_cur, sizeof(n_stream_cur));
++    if (io.failed()) {
++        return;
++    }
+     if (n_stream_cur != n_stream) {
+-        throw std::runtime_error("n_stream mismatch");
++        io.fail("n_stream mismatch");
++#if defined(__NAGI__)
++        return;
++#endif
+     }
+ 
+     // a whole-context restore replaces every stream, so the cache is emptied once here
+@@ -2163,33 +2177,47 @@ const slot_info_vec_t *   sinfos_in) {
+     }
+ 
+     for (uint32_t s = 0; s < n_stream; ++s) {
+-        uint32_t cell_count;
++        uint32_t cell_count = 0;
+         io.read(&cell_count, sizeof(cell_count));
++        const uint32_t strm = seq_id == -1 ? s : seq_to_stream[seq_id];
++        if (io.failed()) {
++            state_clear(seq_id, strm, slot_info{});
++            return;
++        }
+ 
+         if (cell_count == 0) {
+             // a mirrored cache must be empty here as well, or the two no longer agree cell for cell
+             if (sinfos_in && !(*sinfos_in)[s].empty()) {
+-                throw std::runtime_error("failed to restore kv cache: mirrored cache holds cells this one does not");
++                state_clear(seq_id, strm, slot_info{});
++                io.fail("failed to restore kv cache: mirrored cache holds cells this one does not");
++#if defined(__NAGI__)
++                return;
++#endif
+             }
+             continue;
+         }
+ 
+-        const uint32_t strm = seq_id == -1 ? s : seq_to_stream[seq_id];
+-
+         slot_info sinfo;
+ 
+         bool res = true;
+         res = res && state_read_meta(io, strm, cell_count, sinfo, seq_id, sinfos_in ? &(*sinfos_in)[s] : nullptr);
+ 
++#if defined(__NAGI__)
++        res = res && !io.failed() && state_read_data(io, strm, cell_count, sinfo);
++#else
+         try {
+             res = res && state_read_data(io, strm, cell_count, sinfo);
+         } catch (...) {
+             res = false;
+         }
++#endif
+ 
+-        if (!res) {
++        if (!res || io.failed()) {
+             state_clear(seq_id, strm, sinfo);
+-            throw std::runtime_error("failed to restore kv cache");
++            if (!io.failed()) {
++                io.fail("failed to restore kv cache");
++            }
++            return;
+         }
+ 
+         if (sinfos_out) {
+@@ -2356,11 +2384,14 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
+         }
+ 
+         for (uint32_t i = 0; i < cell_count; ++i) {
+-            llama_pos pos;
+-            uint32_t n_seq_id;
++            llama_pos pos = 0;
++            uint32_t n_seq_id = 0;
+ 
+             io.read(&pos,      sizeof(pos));
+             io.read(&n_seq_id, sizeof(n_seq_id));
++            if (io.failed()) {
++                return false;
++            }
+ 
+             if (n_seq_id != 1) {
+                 LLAMA_LOG_ERROR("%s: invalid seq_id-agnostic kv cell\n", __func__);
+@@ -2368,8 +2399,11 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
+             }
+ 
+             if (has_cell_ext()) {
+-                llama_kv_cell_ext ext;
++                llama_kv_cell_ext ext = {};
+                 io.read(&ext, sizeof(ext));
++                if (io.failed()) {
++                    return false;
++                }
+ 
+                 if (hparams.n_pos_per_embd() > 1) {
+                     ubatch.pos[i + ubatch.n_tokens]   = ext.y;
+@@ -2384,8 +2418,11 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
+ 
+             // read the sequence id, but directly discard it - we will use dest_seq_id instead
+             {
+-                llama_seq_id seq_id;
++                llama_seq_id seq_id = -1;
+                 io.read(&seq_id, sizeof(seq_id));
++                if (io.failed() || seq_id < 0 || (uint32_t) seq_id >= n_seq_max) {
++                    return false;
++                }
+             }
+ 
+             ubatch.pos[i]      = pos;
+@@ -2465,29 +2502,45 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
+         }
+ 
+         for (uint32_t i = 0; i < cell_count; ++i) {
+-            llama_pos pos;
+-            uint32_t  n_seq_id;
++            llama_pos pos = 0;
++            uint32_t  n_seq_id = 0;
+ 
+             io.read(&pos,      sizeof(pos));
+             io.read(&n_seq_id, sizeof(n_seq_id));
++            if (io.failed() || n_seq_id > n_seq_max) {
++                return false;
++            }
+ 
+-            cells.pos_set(i, pos);
+-
++            llama_kv_cell_ext ext = {};
+             if (has_cell_ext()) {
+-                llama_kv_cell_ext ext;
+                 io.read(&ext, sizeof(ext));
+-                cells.ext_set(i, ext);
++                if (io.failed()) {
++                    return false;
++                }
+             }
+ 
++            std::vector<llama_seq_id> seq_ids;
++            seq_ids.reserve(n_seq_id);
+             for (uint32_t j = 0; j < n_seq_id; ++j) {
+-                llama_seq_id seq_id;
++                llama_seq_id seq_id = -1;
+                 io.read(&seq_id, sizeof(seq_id));
++                if (io.failed()) {
++                    return false;
++                }
+ 
+                 if (seq_id < 0 || (uint32_t) seq_id >= n_seq_max) {
+                     LLAMA_LOG_ERROR("%s: invalid seq_id, %d is out of range [0, %u)\n", __func__, seq_id, n_seq_max);
+                     return false;
+                 }
+ 
++                seq_ids.push_back(seq_id);
++            }
++
++            cells.pos_set(i, pos);
++            if (has_cell_ext()) {
++                cells.ext_set(i, ext);
++            }
++            for (const llama_seq_id seq_id : seq_ids) {
+                 cells.seq_add(i, seq_id);
+             }
+         }
+@@ -2529,11 +2582,14 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+         }
+     }
+ 
+-    uint32_t v_trans;
+-    uint32_t n_layer;
++    uint32_t v_trans = 0;
++    uint32_t n_layer = 0;
+ 
+     io.read(&v_trans, sizeof(v_trans));
+     io.read(&n_layer, sizeof(n_layer));
++    if (io.failed()) {
++        return false;
++    }
+ 
+     if (n_layer != layers.size()) {
+         LLAMA_LOG_ERROR("%s: mismatched layer count (%u instead of %u)\n", __func__, n_layer, (uint32_t) layers.size());
+@@ -2559,8 +2615,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+         auto * k = layer.k_stream[strm];
+ 
+         // Read type of key
+-        int32_t k_type_i_ref;
++        int32_t k_type_i_ref = 0;
+         io.read(&k_type_i_ref, sizeof(k_type_i_ref));
++        if (io.failed()) {
++            return false;
++        }
+         const int32_t k_type_i = (int32_t) k->type;
+         if (k_type_i != k_type_i_ref) {
+             LLAMA_LOG_ERROR("%s: mismatched key type (%d != %d, layer %d)\n", __func__, k_type_i, k_type_i_ref, il);
+@@ -2568,8 +2627,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+         }
+ 
+         // Read row size of key
+-        uint64_t k_size_row_ref;
++        uint64_t k_size_row_ref = 0;
+         io.read(&k_size_row_ref, sizeof(k_size_row_ref));
++        if (io.failed()) {
++            return false;
++        }
+         const size_t k_size_row = ggml_row_size(k->type, n_embd_k_gqa);
+         if (k_size_row != k_size_row_ref) {
+             LLAMA_LOG_ERROR("%s: mismatched key row size (%zu != %zu, layer %d)\n", __func__, k_size_row, (size_t) k_size_row_ref, il);
+@@ -2593,8 +2655,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+             }
+ 
+             // Read type of value
+-            int32_t v_type_i_ref;
++            int32_t v_type_i_ref = 0;
+             io.read(&v_type_i_ref, sizeof(v_type_i_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const int32_t v_type_i = (int32_t) v->type;
+             if (v_type_i != v_type_i_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched value type (%d != %d, layer %d)\n", __func__, v_type_i, v_type_i_ref, il);
+@@ -2602,8 +2667,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+             }
+ 
+             // Read row size of value
+-            uint64_t v_size_row_ref;
++            uint64_t v_size_row_ref = 0;
+             io.read(&v_size_row_ref, sizeof(v_size_row_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const size_t v_size_row = ggml_row_size(v->type, n_embd_v_gqa);
+             if (v_size_row != v_size_row_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched value row size (%zu != %zu, layer %d)\n", __func__, v_size_row, (size_t) v_size_row_ref, il);
+@@ -2627,8 +2695,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+             }
+ 
+             // Read type of value
+-            int32_t v_type_i_ref;
++            int32_t v_type_i_ref = 0;
+             io.read(&v_type_i_ref, sizeof(v_type_i_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const int32_t v_type_i = (int32_t) v->type;
+             if (v_type_i != v_type_i_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched value type (%d != %d, layer %d)\n", __func__, v_type_i, v_type_i_ref, il);
+@@ -2636,8 +2707,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+             }
+ 
+             // Read element size of value
+-            uint32_t v_size_el_ref;
++            uint32_t v_size_el_ref = 0;
+             io.read(&v_size_el_ref, sizeof(v_size_el_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const size_t v_size_el = ggml_type_size(v->type);
+             if (v_size_el != v_size_el_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched value element size (%zu != %zu, layer %d)\n", __func__, v_size_el, (size_t) v_size_el_ref, il);
+@@ -2645,8 +2719,11 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+             }
+ 
+             // Read GQA embedding size
+-            uint32_t n_embd_v_gqa_ref;
++            uint32_t n_embd_v_gqa_ref = 0;
+             io.read(&n_embd_v_gqa_ref, sizeof(n_embd_v_gqa_ref));
++            if (io.failed()) {
++                return false;
++            }
+             if (n_embd_v_gqa != n_embd_v_gqa_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched GQA embedding size (%u != %u, layer %d)\n", __func__, n_embd_v_gqa, n_embd_v_gqa_ref, il);
+                 return false;
+@@ -2661,7 +2738,7 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
+         }
+     }
+ 
+-    return true;
++    return !io.failed();
+ }
+ 
+ void llama_kv_cache::state_clear(llama_seq_id seq_id) {
+diff --git a/src/llama-memory-hybrid-idx.cpp b/src/llama-memory-hybrid-idx.cpp
+index 2adfa7a..57c54df 100644
+--- a/src/llama-memory-hybrid-idx.cpp
++++ b/src/llama-memory-hybrid-idx.cpp
+@@ -227,20 +227,34 @@ void llama_memory_hybrid_idx::state_read(llama_io_read_i & io, llama_seq_id seq_
+     // two find_slot calls agree only while both caches see the same occupancy, which a restore cannot promise
+     llama_kv_cache::slot_info_vec_t sinfos_attn;
+ 
++    const bool read_attn = (flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0;
++#if !defined(__NAGI__)
+     try {
+-        if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
++#endif
++        if (read_attn) {
+             get_mem_attn()->state_read_sinfo(io, seq_id, flags, mem_idx ? &sinfos_attn : nullptr, nullptr);
++            if (io.failed()) {
++                state_drop(seq_id);
++                return;
++            }
+         }
+ 
+         get_mem_recr()->state_read(io, seq_id, flags);
++        if (io.failed()) {
++            state_drop(seq_id);
++            return;
++        }
+ 
+         // [TAG_HYBRID_IDX_STATE] must mirror the write order in state_write
+-        if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
+-            if (mem_idx) {
+-                mem_idx->state_read_sinfo(io, seq_id, flags, nullptr, &sinfos_attn);
++        if (read_attn && mem_idx) {
++            mem_idx->state_read_sinfo(io, seq_id, flags, nullptr, &sinfos_attn);
++            if (io.failed()) {
++                state_drop(seq_id);
++                return;
+             }
+         }
+ 
++#if !defined(__NAGI__)
+     } catch (...) {
+         // a half-restored context is the one state the indexer cannot fix by itself: attention holds new cells, the indexer old ones
+         // drop what was being restored from all of them, which is a state they do agree on.
+@@ -248,6 +262,7 @@ void llama_memory_hybrid_idx::state_read(llama_io_read_i & io, llama_seq_id seq_
+ 
+         throw;
+     }
++#endif
+ }
+ 
+ void llama_memory_hybrid_idx::state_drop(llama_seq_id seq_id) {
+diff --git a/src/llama-memory-hybrid-iswa.cpp b/src/llama-memory-hybrid-iswa.cpp
+index 06f7fd5..b47b5ac 100644
+--- a/src/llama-memory-hybrid-iswa.cpp
++++ b/src/llama-memory-hybrid-iswa.cpp
+@@ -1,5 +1,6 @@
+ #include "llama-memory-hybrid-iswa.h"
+ 
++#include "llama-io.h"
+ #include "llama-impl.h"
+ #include "llama-model.h"
+ #include "llama-context.h"
+@@ -199,7 +200,18 @@ void llama_memory_hybrid_iswa::state_write(llama_io_write_i & io, llama_seq_id s
+ 
+ void llama_memory_hybrid_iswa::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
+     mem_attn->state_read(io, seq_id, flags);
++    if (io.failed()) {
++        return;
++    }
+     mem_recr->state_read(io, seq_id, flags);
++    if (io.failed()) {
++        if (seq_id < 0) {
++            mem_attn->clear(true);
++        } else {
++            mem_attn->get_base()->state_clear(seq_id);
++            mem_attn->get_swa()->state_clear(seq_id);
++        }
++    }
+ }
+ 
+ llama_kv_cache_iswa * llama_memory_hybrid_iswa::get_mem_attn() const {
+diff --git a/src/llama-memory-hybrid.cpp b/src/llama-memory-hybrid.cpp
+index 62f12de..0e78535 100644
+--- a/src/llama-memory-hybrid.cpp
++++ b/src/llama-memory-hybrid.cpp
+@@ -1,5 +1,6 @@
+ #include "llama-memory-hybrid.h"
+ 
++#include "llama-io.h"
+ #include "llama-impl.h"
+ #include "llama-model.h"
+ #include "llama-context.h"
+@@ -199,8 +200,18 @@ void llama_memory_hybrid::state_read(llama_io_read_i & io, llama_seq_id seq_id,
+ 
+     if (read_attn) {
+         mem_attn->state_read(io, seq_id, flags);
++        if (io.failed()) {
++            return;
++        }
+     }
+ 
++#if defined(__NAGI__)
++    mem_recr->state_read(io, seq_id, flags);
++    if (io.failed() && read_attn) {
++        // The attention portion is already restored; drop it so both memories agree.
++        mem_attn->state_clear(seq_id);
++    }
++#else
+     try {
+         mem_recr->state_read(io, seq_id, flags);
+     } catch (...) {
+@@ -211,6 +222,7 @@ void llama_memory_hybrid::state_read(llama_io_read_i & io, llama_seq_id seq_id,
+ 
+         throw;
+     }
++#endif
+ }
+ 
+ llama_kv_cache * llama_memory_hybrid::get_mem_attn() const {
+diff --git a/src/llama-memory-recurrent.cpp b/src/llama-memory-recurrent.cpp
+index 528c90c..5c1274f 100644
+--- a/src/llama-memory-recurrent.cpp
++++ b/src/llama-memory-recurrent.cpp
+@@ -847,8 +847,11 @@ void llama_memory_recurrent::state_write(llama_io_write_i & io, llama_seq_id seq
+ void llama_memory_recurrent::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
+     GGML_UNUSED(flags);
+ 
+-    uint32_t cell_count;
++    uint32_t cell_count = 0;
+     io.read(&cell_count, sizeof(cell_count));
++    if (io.failed()) {
++        return;
++    }
+ 
+     bool res = true;
+ 
+@@ -859,15 +862,22 @@ void llama_memory_recurrent::state_read(llama_io_read_i & io, llama_seq_id seq_i
+ 
+     res = res && meta_read;
+ 
++#if defined(__NAGI__)
++    res = res && !io.failed() && state_read_data(io, cell_count);
++#else
+     try {
+         res = res && state_read_data(io, cell_count);
+     } catch (...) {
+         res = false;
+     }
++#endif
+ 
+-    if (!res) {
++    if (!res || io.failed()) {
+         state_clear(seq_id, cell_head, meta_read ? cell_count : 0);
+-        throw std::runtime_error("failed to restore kv cache");
++        if (!io.failed()) {
++            io.fail("failed to restore recurrent cache");
++        }
++        return;
+     }
+ 
+     if (n_rs_seq != 0) {
+@@ -1008,11 +1018,14 @@ bool llama_memory_recurrent::state_read_meta(llama_io_read_i & io, uint32_t cell
+         llama_ubatch ubatch = balloc.ubatch_reserve(cell_count, 1);
+ 
+         for (uint32_t i = 0; i < cell_count; ++i) {
+-            llama_pos pos;
+-            uint32_t n_seq_id;
++            llama_pos pos = 0;
++            uint32_t n_seq_id = 0;
+ 
+             io.read(&pos,      sizeof(pos));
+             io.read(&n_seq_id, sizeof(n_seq_id));
++            if (io.failed()) {
++                return false;
++            }
+ 
+             if (n_seq_id != 0) {
+                 LLAMA_LOG_ERROR("%s: invalid seq_id-agnostic kv cell\n", __func__);
+@@ -1049,25 +1062,41 @@ bool llama_memory_recurrent::state_read_meta(llama_io_read_i & io, uint32_t cell
+         for (uint32_t i = 0; i < cell_count; ++i) {
+             auto & cell = cells[i];
+ 
+-            llama_pos pos;
+-            uint32_t  n_seq_id;
++            llama_pos pos = 0;
++            uint32_t  n_seq_id = 0;
+ 
+             io.read(&pos,      sizeof(pos));
+             io.read(&n_seq_id, sizeof(n_seq_id));
++            if (io.failed() || n_seq_id > this->n_seq_max) {
++                return false;
++            }
+ 
+             cell.pos = pos;
+ 
++            std::vector<llama_seq_id> seq_ids;
++            seq_ids.reserve(n_seq_id);
+             for (uint32_t j = 0; j < n_seq_id; ++j) {
+-                llama_seq_id seq_id;
++                llama_seq_id seq_id = -1;
+                 io.read(&seq_id, sizeof(seq_id));
++                if (io.failed()) {
++                    return false;
++                }
+ 
+                 if (seq_id < 0 || (uint32_t) seq_id >= this->n_seq_max) {
+                     LLAMA_LOG_ERROR("%s: invalid seq_id, %d is out of range [0, %u)\n", __func__, seq_id, this->n_seq_max);
+                     return false;
+                 }
+ 
+-                cell.seq_id.insert(seq_id);
++                const auto duplicate = std::find(seq_ids.begin(), seq_ids.end(), seq_id);
++                if (duplicate != seq_ids.end()) {
++                    LLAMA_LOG_ERROR("%s: duplicate seq_id %d in restored cell %d\n", __func__, seq_id, i);
++                    return false;
++                }
++                seq_ids.push_back(seq_id);
++            }
+ 
++            cell.seq_id.insert(seq_ids.begin(), seq_ids.end());
++            for (const llama_seq_id seq_id : seq_ids) {
+                 int32_t & tail = cells[seq_id].tail;
+                 if (tail != -1) {
+                     LLAMA_LOG_ERROR("%s: duplicate tail for seq_id %d in cell %d and %d\n", __func__, seq_id, i, tail);
+@@ -1087,14 +1116,17 @@ bool llama_memory_recurrent::state_read_meta(llama_io_read_i & io, uint32_t cell
+         cells[cell_id].src = cell_id;
+     }
+ 
+-    return true;
++    return !io.failed();
+ }
+ 
+ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell_count) {
+-    uint32_t s_trans;
+-    uint32_t n_layer;
++    uint32_t s_trans = 0;
++    uint32_t n_layer = 0;
+     io.read(&s_trans, sizeof(s_trans));
+     io.read(&n_layer, sizeof(n_layer));
++    if (io.failed()) {
++        return false;
++    }
+ 
+     if (n_layer != hparams.n_layer()) {
+         LLAMA_LOG_ERROR("%s: mismatched layer count (%u instead of %u)\n", __func__, n_layer, hparams.n_layer());
+@@ -1115,8 +1147,11 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+         if (r_l[il] == nullptr) continue;
+ 
+         // Read type of key
+-        int32_t r_type_i_ref;
++        int32_t r_type_i_ref = 0;
+         io.read(&r_type_i_ref, sizeof(r_type_i_ref));
++        if (io.failed()) {
++            return false;
++        }
+         const int32_t r_type_i = (int32_t) r_l[il]->type;
+         if (r_type_i != r_type_i_ref) {
+             LLAMA_LOG_ERROR("%s: mismatched r type (%d != %d, layer %d)\n", __func__, r_type_i, r_type_i_ref, il);
+@@ -1124,8 +1159,11 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+         }
+ 
+         // Read row size of key
+-        uint64_t r_size_row_ref;
++        uint64_t r_size_row_ref = 0;
+         io.read(&r_size_row_ref, sizeof(r_size_row_ref));
++        if (io.failed()) {
++            return false;
++        }
+         const size_t r_size_row = ggml_row_size(r_l[il]->type, hparams.n_embd_r());
+         if (r_size_row != r_size_row_ref) {
+             LLAMA_LOG_ERROR("%s: mismatched r row size (%zu != %zu, layer %d)\n", __func__, r_size_row, (size_t) r_size_row_ref, il);
+@@ -1138,8 +1176,11 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+         }
+ 
+         if (p_l[il] != nullptr) {
+-            uint64_t p_size_row_ref;
++            uint64_t p_size_row_ref = 0;
+             io.read(&p_size_row_ref, sizeof(p_size_row_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const size_t p_size_row = ggml_row_size(p_l[il]->type, hparams.ple_conv_state());
+             if (p_size_row != p_size_row_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched ple row size (%zu != %zu, layer %d)\n", __func__, p_size_row, (size_t) p_size_row_ref, il);
+@@ -1158,8 +1199,11 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+             if (s_l[il] == nullptr) continue;
+ 
+             // Read type of value
+-            int32_t s_type_i_ref;
++            int32_t s_type_i_ref = 0;
+             io.read(&s_type_i_ref, sizeof(s_type_i_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const int32_t s_type_i = (int32_t)s_l[il]->type;
+ 
+             if (s_type_i != s_type_i_ref) {
+@@ -1168,8 +1212,11 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+             }
+ 
+             // Read row size of value
+-            uint64_t s_size_row_ref;
++            uint64_t s_size_row_ref = 0;
+             io.read(&s_size_row_ref, sizeof(s_size_row_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const size_t s_size_row = ggml_row_size(s_l[il]->type, hparams.n_embd_s());
+             if (s_size_row != s_size_row_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched s row size (%zu != %zu, layer %d)\n", __func__, s_size_row, (size_t) s_size_row_ref, il);
+@@ -1190,8 +1237,11 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+             const uint32_t n_embd_s = hparams.n_embd_s();
+ 
+             // Read type of value
+-            int32_t s_type_i_ref;
++            int32_t s_type_i_ref = 0;
+             io.read(&s_type_i_ref, sizeof(s_type_i_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const int32_t s_type_i = (int32_t)s_l[il]->type;
+             if (s_type_i != s_type_i_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched s type (%d != %d, layer %d)\n", __func__, s_type_i, s_type_i_ref, il);
+@@ -1199,8 +1249,11 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+             }
+ 
+             // Read element size of value
+-            uint32_t s_size_el_ref;
++            uint32_t s_size_el_ref = 0;
+             io.read(&s_size_el_ref, sizeof(s_size_el_ref));
++            if (io.failed()) {
++                return false;
++            }
+             const size_t s_size_el = ggml_type_size(s_l[il]->type);
+             if (s_size_el != s_size_el_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched s element size (%zu != %zu, layer %d)\n", __func__, s_size_el, (size_t) s_size_el_ref, il);
+@@ -1208,8 +1261,11 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+             }
+ 
+             // Read state embedding size
+-            uint32_t n_embd_s_ref;
++            uint32_t n_embd_s_ref = 0;
+             io.read(&n_embd_s_ref, sizeof(n_embd_s_ref));
++            if (io.failed()) {
++                return false;
++            }
+             if (n_embd_s != n_embd_s_ref) {
+                 LLAMA_LOG_ERROR("%s: mismatched s embedding size (%u != %u, layer %d)\n", __func__, n_embd_s, n_embd_s_ref, il);
+                 return false;
+@@ -1225,7 +1281,7 @@ bool llama_memory_recurrent::state_read_data(llama_io_read_i & io, uint32_t cell
+         }
+     }
+ 
+-    return true;
++    return !io.failed();
+ }
+ 
+ // the cleared ranges mirror the write pattern of state_read_data() - keep both in sync
+diff --git a/tests/test-model-loader-bounds.cpp b/tests/test-model-loader-bounds.cpp
+index ca7e70b..691ca6f 100644
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -1,5 +1,6 @@
+ #include "llama-model-loader.h"
+ #include "llama-model.h"
++#include "llama-io.h"
+ 
+ #include <cstdio>
+ #include <limits>
+@@ -9,6 +10,94 @@
+ 
+ using tensor_weight = llama_model_loader::llama_tensor_weight;
+ 
++class test_state_io_reader : public llama_io_read_i {
++public:
++    test_state_io_reader(const uint8_t * data, size_t size) : data(data), size(size) {}
++
++    void read(void * dst, size_t read_size) override {
++        if (failed()) {
++            if (dst != nullptr && read_size != 0) {
++                std::memset(dst, 0, read_size);
++            }
++            return;
++        }
++        if (read_size > size - position || (read_size != 0 && dst == nullptr)) {
++            fail("unexpectedly reached end of fixture buffer");
++            if (dst != nullptr && read_size != 0) {
++                std::memset(dst, 0, read_size);
++            }
++            return;
++        }
++        if (read_size != 0) {
++            std::memcpy(dst, data + position, read_size);
++        }
++        position += read_size;
++    }
++
++    void read_tensor(ggml_tensor *, size_t, size_t) override {}
++    size_t n_bytes() override { return position; }
++
++private:
++    const uint8_t * data;
++    size_t size;
++    size_t position = 0;
++};
++
++static bool state_io_short_string_returns_failure() {
++    const uint8_t empty_string_length[] = { 0, 0, 0, 0 };
++    test_state_io_reader empty_reader(empty_string_length, sizeof(empty_string_length));
++    std::string empty_value = "not empty";
++    if (!empty_reader.read_string(empty_value) || empty_reader.failed() || !empty_value.empty() ||
++            empty_reader.n_bytes() != sizeof(empty_string_length)) {
++        std::fprintf(stderr, "empty state string did not decode safely\n");
++        return false;
++    }
++
++    const uint8_t truncated_length[] = { 4, 0 };
++    test_state_io_reader short_reader(truncated_length, sizeof(truncated_length));
++    std::string value = "preserved";
++#ifdef __NAGI__
++    if (short_reader.read_string(value) || !short_reader.failed() || short_reader.n_bytes() != 0) {
++        std::fprintf(stderr, "truncated state string length did not return checked failure\n");
++        return false;
++    }
++#else
++    bool short_threw = false;
++    try {
++        (void) short_reader.read_string(value);
++    } catch (const std::runtime_error &) {
++        short_threw = true;
++    }
++    if (!short_threw) {
++        std::fprintf(stderr, "truncated host state string changed its exception contract\n");
++        return false;
++    }
++#endif
++
++    const uint32_t oversized_length = 4097;
++    uint8_t oversized_header[sizeof(oversized_length)] = {};
++    std::memcpy(oversized_header, &oversized_length, sizeof(oversized_length));
++    test_state_io_reader oversized_reader(oversized_header, sizeof(oversized_header));
++#ifdef __NAGI__
++    if (oversized_reader.read_string(value) || !oversized_reader.failed() || oversized_reader.n_bytes() != sizeof(oversized_header)) {
++        std::fprintf(stderr, "oversized state string did not fail before allocation\n");
++        return false;
++    }
++#else
++    bool oversized_threw = false;
++    try {
++        (void) oversized_reader.read_string(value);
++    } catch (const std::runtime_error &) {
++        oversized_threw = true;
++    }
++    if (!oversized_threw) {
++        std::fprintf(stderr, "oversized host state string changed its exception contract\n");
++        return false;
++    }
++#endif
++    return true;
++}
++
+ static bool llama_load_mode_status() {
+     if (std::string(llama_load_mode_name(LLAMA_LOAD_MODE_INVALID)) != "invalid" ||
+             llama_load_mode_from_str("mmap") != LLAMA_LOAD_MODE_MMAP) {
+@@ -565,7 +654,7 @@ static bool invalid_tensor_data_status() {
+ }
+ 
+ int main() {
+-    if (!llama_load_mode_status() || !invalid_context_parameters_return_null()) {
++    if (!state_io_short_string_returns_failure() || !llama_load_mode_status() || !invalid_context_parameters_return_null()) {
+         return 1;
+     }
+ 

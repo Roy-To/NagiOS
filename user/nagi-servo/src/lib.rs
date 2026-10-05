@@ -10,8 +10,9 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use nagi_abi::{
-    DisplayInfo, InputEvent, INPUT_EVENT_ABS, INPUT_EVENT_KEY, INPUT_EVENT_REL, INPUT_REL_X,
-    INPUT_REL_Y, PIXEL_FORMAT_RGBA8888, SURFACE_BYTES, SURFACE_HEIGHT, SURFACE_WIDTH,
+    DisplayInfo, InputEvent, INPUT_BUTTON_PRIMARY, INPUT_EVENT_ABS, INPUT_EVENT_KEY,
+    INPUT_EVENT_REL, INPUT_REL_X, INPUT_REL_Y, PIXEL_FORMAT_RGBA8888, SURFACE_BYTES,
+    SURFACE_HEIGHT, SURFACE_WIDTH,
 };
 
 const PIXEL_BYTES: usize = 4;
@@ -159,6 +160,10 @@ impl InputBridge {
         Self { x: 0, y: 0 }
     }
 
+    pub fn position(&self) -> (u32, u32) {
+        (self.x as u32, self.y as u32)
+    }
+
     pub fn translate(&mut self, event: InputEvent) -> Option<BrowserInput> {
         match event.event_type {
             INPUT_EVENT_REL if event.code == INPUT_REL_X || event.code == INPUT_REL_Y => {
@@ -181,6 +186,12 @@ impl InputBridge {
                 Some(BrowserInput::MouseMove {
                     x: self.x as u32,
                     y: self.y as u32,
+                })
+            }
+            INPUT_EVENT_KEY if event.code == INPUT_BUTTON_PRIMARY => {
+                Some(BrowserInput::MouseButton {
+                    button: 0,
+                    pressed: event.value != 0,
                 })
             }
             INPUT_EVENT_KEY => Some(BrowserInput::Key {
@@ -234,7 +245,10 @@ mod tests {
     extern crate std;
 
     use super::{BrowserInput, EventLoopSignal, InputBridge, NagiSurface};
-    use nagi_abi::{InputEvent, INPUT_EVENT_KEY, INPUT_EVENT_REL, INPUT_REL_X, SURFACE_BYTES};
+    use nagi_abi::{
+        InputEvent, INPUT_BUTTON_PRIMARY, INPUT_EVENT_KEY, INPUT_EVENT_REL, INPUT_REL_X,
+        SURFACE_BYTES,
+    };
     use std::vec;
 
     #[test]
@@ -280,6 +294,28 @@ mod tests {
             Some(BrowserInput::Key {
                 code: 30,
                 pressed: true
+            })
+        );
+        assert_eq!(
+            bridge.translate(InputEvent {
+                event_type: INPUT_EVENT_KEY,
+                code: INPUT_BUTTON_PRIMARY,
+                value: 1,
+            }),
+            Some(BrowserInput::MouseButton {
+                button: 0,
+                pressed: true,
+            })
+        );
+        assert_eq!(
+            bridge.translate(InputEvent {
+                event_type: INPUT_EVENT_KEY,
+                code: INPUT_BUTTON_PRIMARY,
+                value: 0,
+            }),
+            Some(BrowserInput::MouseButton {
+                button: 0,
+                pressed: false,
             })
         );
     }

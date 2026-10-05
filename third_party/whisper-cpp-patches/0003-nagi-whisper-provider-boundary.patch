@@ -1,0 +1,328 @@
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index a5a9396..16e7a3d 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -28,11 +28,15 @@
+ #include <cstdarg>
+ #include <cstdio>
+ #include <cstring>
++#ifndef __NAGI__
+ #include <fstream>
++#endif
+ #include <functional>
+ #include <map>
+ #include <random>
++#ifndef __NAGI__
+ #include <regex>
++#endif
+ #include <set>
+ #include <string>
+ #include <thread>
+@@ -3402,6 +3406,13 @@ static bool log_mel_spectrogram(
+     mel.data.resize(mel.n_mel * mel.n_len);
+ 
+     {
++#ifdef __NAGI__
++        // Nagi's M25 provider currently runs this CPU path serially. Pass one
++        // worker so every mel frame is computed without importing a host C++
++        // thread runtime.
++        log_mel_spectrogram_worker_thread(0, hann, samples_padded,
++                n_samples + stage_2_pad, frame_size, frame_step, 1, filters, mel);
++#else
+         std::vector<std::thread> workers(n_threads - 1);
+         for (int iw = 0; iw < n_threads - 1; ++iw) {
+             workers[iw] = std::thread(
+@@ -3416,6 +3427,7 @@ static bool log_mel_spectrogram(
+         for (int iw = 0; iw < n_threads - 1; ++iw) {
+             workers[iw].join();
+         }
++#endif
+     }
+ 
+     // clamping and normalization
+@@ -3440,6 +3452,9 @@ static bool log_mel_spectrogram(
+ 
+     // Dump log_mel_spectrogram
+     if (debug) {
++#ifdef __NAGI__
++        WHISPER_LOG_WARN("%s: file-based mel dumps are unavailable on Nagi\n", __func__);
++#else
+         std::ofstream outFile("log_mel_spectrogram.json");
+         outFile << "[";
+         for (uint64_t i = 0; i < mel.data.size() - 1; i++) {
+@@ -3447,6 +3462,7 @@ static bool log_mel_spectrogram(
+         }
+         outFile << mel.data[mel.data.size() - 1] << "]";
+         outFile.close();
++#endif
+     }
+ 
+     return true;
+@@ -3467,6 +3483,83 @@ static std::vector<whisper_vocab::id> tokenize(const whisper_vocab & vocab, cons
+ 
+     // first split the text into words
+     {
++#ifdef __NAGI__
++        // Nagi does not link libc++'s locale/regex runtime. Reproduce the
++        // pinned GPT-2 byte-level pre-tokenizer pattern for the C-locale
++        // character classes used by whisper.cpp. UTF-8 non-ASCII bytes stay
++        // together until ASCII whitespace or an ASCII letter/digit boundary,
++        // preserving Japanese vocabulary lookup and model tokenization.
++        const auto is_ascii_alpha = [](unsigned char value) {
++            return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
++        };
++        const auto is_ascii_digit = [](unsigned char value) {
++            return value >= '0' && value <= '9';
++        };
++        const auto is_regex_space = [](unsigned char value) {
++            return value == ' ' || value == '\t' || value == '\n' ||
++                   value == '\r' || value == '\f' || value == '\v';
++        };
++        static const char * contractions[] = {"'s", "'t", "'re", "'ve", "'m", "'ll", "'d"};
++        size_t offset = 0;
++        while (offset < text.size()) {
++            bool matched_contraction = false;
++            for (const char * contraction : contractions) {
++                const size_t length = strlen(contraction);
++                if (text.compare(offset, length, contraction) == 0) {
++                    words.emplace_back(text, offset, length);
++                    offset += length;
++                    matched_contraction = true;
++                    break;
++                }
++            }
++            if (matched_contraction) {
++                continue;
++            }
++
++            const size_t start = offset;
++            size_t category_start = offset;
++            if (text[offset] == ' ' && offset + 1 < text.size()) {
++                category_start = offset + 1;
++            }
++            const unsigned char first = static_cast<unsigned char>(text[category_start]);
++
++            if (is_ascii_alpha(first) || is_ascii_digit(first)) {
++                const bool alpha = is_ascii_alpha(first);
++                offset = category_start + 1;
++                while (offset < text.size()) {
++                    const unsigned char value = static_cast<unsigned char>(text[offset]);
++                    if (alpha ? is_ascii_alpha(value) : is_ascii_digit(value)) {
++                        ++offset;
++                    } else {
++                        break;
++                    }
++                }
++                words.emplace_back(text, start, offset - start);
++                continue;
++            }
++
++            if (!is_regex_space(first)) {
++                offset = category_start + 1;
++                while (offset < text.size()) {
++                    const unsigned char value = static_cast<unsigned char>(text[offset]);
++                    if (!is_regex_space(value) && !is_ascii_alpha(value) &&
++                        !is_ascii_digit(value)) {
++                        ++offset;
++                    } else {
++                        break;
++                    }
++                }
++                words.emplace_back(text, start, offset - start);
++                continue;
++            }
++
++            offset = start + 1;
++            while (offset < text.size() && is_regex_space(static_cast<unsigned char>(text[offset]))) {
++                ++offset;
++            }
++            words.emplace_back(text, start, offset - start);
++        }
++#else
+         std::string str = text;
+         std::string pat = R"('s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^\s[:alpha:][:digit:]]+|\s+(?!\S)|\s+)";
+ 
+@@ -3479,6 +3572,7 @@ static std::vector<whisper_vocab::id> tokenize(const whisper_vocab & vocab, cons
+             }
+             str = m.suffix();
+         }
++#endif
+     }
+ 
+     // find the longest tokens that form the words:
+@@ -3843,6 +3937,14 @@ struct whisper_context_params whisper_context_default_params() {
+ }
+ 
+ struct whisper_context * whisper_init_from_file_with_params_no_state(const char * path_model, struct whisper_context_params params) {
++#ifdef __NAGI__
++    (void) params;
++    WHISPER_LOG_ERROR("%s: path-based model loading is unavailable on Nagi; use the model-loader interface\n", __func__);
++    if (path_model != nullptr) {
++        WHISPER_LOG_ERROR("%s: rejected path `%s`\n", __func__, path_model);
++    }
++    return nullptr;
++#else
+     WHISPER_LOG_INFO("%s: loading model from '%s'\n", __func__, path_model);
+ #ifdef _MSC_VER
+     // Convert UTF-8 path to wide string (UTF-16) for Windows, resolving character encoding issues.
+@@ -3884,6 +3986,7 @@ struct whisper_context * whisper_init_from_file_with_params_no_state(const char
+     }
+ 
+     return ctx;
++#endif
+ }
+ 
+ struct whisper_context * whisper_init_from_buffer_with_params_no_state(void * buffer, size_t buffer_size, struct whisper_context_params params) {
+@@ -4983,6 +5086,14 @@ static bool whisper_vad_init_context(whisper_vad_context * vctx) {
+ struct whisper_vad_context * whisper_vad_init_from_file_with_params(
+         const char * path_model,
+         struct whisper_vad_context_params params) {
++#ifdef __NAGI__
++    (void) params;
++    WHISPER_LOG_ERROR("%s: path-based VAD model loading is unavailable on Nagi\n", __func__);
++    if (path_model != nullptr) {
++        WHISPER_LOG_ERROR("%s: rejected path `%s`\n", __func__, path_model);
++    }
++    return nullptr;
++#else
+     WHISPER_LOG_INFO("%s: loading VAD model from '%s'\n", __func__, path_model);
+ #ifdef _MSC_VER
+     std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+@@ -5022,6 +5133,7 @@ struct whisper_vad_context * whisper_vad_init_from_file_with_params(
+     }
+     ctx->path_model = path_model;
+     return ctx;
++#endif
+ }
+ 
+ struct whisper_vad_context * whisper_vad_init_with_params(
+@@ -6223,7 +6335,11 @@ struct whisper_full_params whisper_full_default_params(enum whisper_sampling_str
+     struct whisper_full_params result = {
+         /*.strategy          =*/ strategy,
+ 
++#ifdef __NAGI__
++        /*.n_threads         =*/ 1,
++#else
+         /*.n_threads         =*/ std::min(4, (int32_t) std::thread::hardware_concurrency()),
++#endif
+         /*.n_max_text_ctx    =*/ 16384,
+         /*.offset_ms         =*/ 0,
+         /*.duration_ms       =*/ 0,
+@@ -6559,12 +6675,14 @@ static void whisper_process_logits(
+         // suppress any tokens matching a regular expression
+         // ref: https://github.com/openai/whisper/discussions/1041
+         if (params.suppress_regex != nullptr) {
++#ifndef __NAGI__
+             std::regex re(params.suppress_regex);
+             for (std::pair<whisper_vocab::token, whisper_vocab::id> token_id : vocab.token_to_id) {
+                 if (std::regex_match(token_id.first, re)) {
+                     logits[token_id.second] = -INFINITY;
+                 }
+             }
++#endif
+         }
+ 
+         // suppress non-speech tokens
+@@ -6948,6 +7066,16 @@ static bool whisper_vad(
+                    const float * samples,
+                            int   n_samples,
+             std::vector<float> & filtered_samples) {
++#ifdef __NAGI__
++    (void) ctx;
++    (void) state;
++    (void) params;
++    (void) samples;
++    (void) n_samples;
++    (void) filtered_samples;
++    WHISPER_LOG_ERROR("%s: VAD is unavailable on Nagi without an explicit model-loader integration\n", __func__);
++    return false;
++#else
+     WHISPER_LOG_INFO("%s: VAD is enabled, processing speech segments only\n", __func__);
+     int filtered_n_samples = 0;
+ 
+@@ -7105,6 +7233,7 @@ static bool whisper_vad(
+ 
+     whisper_vad_free_segments(vad_segments);
+     return true;
++#endif
+ }
+ 
+ int whisper_full_with_state(
+@@ -7113,6 +7242,19 @@ int whisper_full_with_state(
+     struct whisper_full_params   params,
+                    const float * samples,
+                            int   n_samples) {
++#ifdef __NAGI__
++    if (params.vad) {
++        WHISPER_LOG_ERROR("%s: VAD is unavailable on Nagi without an explicit model-loader integration\n", __func__);
++        return -4;
++    }
++    if (params.suppress_regex != nullptr) {
++        WHISPER_LOG_ERROR("%s: regular-expression token suppression is unavailable on Nagi\n", __func__);
++        return -4;
++    }
++    // The M25 target path does not expose a worker-pool capability yet. Keep
++    // all upstream Whisper CPU loops on the calling guest thread.
++    params.n_threads = 1;
++#endif
+     // clear old results
+     auto & result_all = state->result_all;
+ 
+@@ -7568,6 +7710,9 @@ int whisper_full_with_state(
+ 
+                     const int n_threads = std::min(params.n_threads, n_decoders_cur);
+ 
++#ifdef __NAGI__
++                    process();
++#else
+                     if (n_threads == 1) {
+                         process();
+                     } else {
+@@ -7583,6 +7728,7 @@ int whisper_full_with_state(
+                             threads[t].join();
+                         }
+                     }
++#endif
+                 }
+ 
+                 beam_candidates.clear();
+@@ -7818,6 +7964,9 @@ int whisper_full_with_state(
+ 
+                         const int n_threads = std::min(params.n_threads, n_decoders_cur);
+ 
++#ifdef __NAGI__
++                        process();
++#else
+                         if (n_threads == 1) {
+                             process();
+                         } else {
+@@ -7833,6 +7982,7 @@ int whisper_full_with_state(
+                                 threads[t].join();
+                             }
+                         }
++#endif
+                     }
+ 
+                     state->t_sample_us += ggml_time_us() - t_start_sample_us;
+@@ -8110,6 +8260,13 @@ int whisper_full_parallel(
+         int n_samples,
+         int n_processors) {
+ 
++#ifdef __NAGI__
++    if (n_processors != 1) {
++        WHISPER_LOG_ERROR("%s: parallel processing is unavailable on Nagi\n", __func__);
++        return -1;
++    }
++    return whisper_full(ctx, params, samples, n_samples);
++#else
+     if (n_processors == 1) {
+         return whisper_full(ctx, params, samples, n_samples);
+     }
+@@ -8231,6 +8388,7 @@ int whisper_full_parallel(
+     WHISPER_LOG_WARN("%s: the transcription quality may be degraded near these boundaries\n", __func__);
+ 
+     return ret;
++#endif
+ }
+ 
+ int whisper_full_n_segments_from_state(struct whisper_state * state) {

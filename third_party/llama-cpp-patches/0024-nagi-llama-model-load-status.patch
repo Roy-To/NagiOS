@@ -1,0 +1,163 @@
+diff --git a/src/models/arwkv7.cpp b/src/models/arwkv7.cpp
+--- a/src/models/arwkv7.cpp
++++ b/src/models/arwkv7.cpp
+@@ -43,7 +43,7 @@
+     }
+ }
+ 
+-void llama_model_arwkv7::load_arch_tensors(llama_model_loader &) {
++void llama_model_arwkv7::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+@@ -85,12 +85,20 @@
+         layer.time_mix_g1 = create_tensor(tn(LLM_TENSOR_TIME_MIX_G1, "weight", i), {n_embd, n_lora_gate}, TENSOR_NOT_REQUIRED);
+         layer.time_mix_g2 = create_tensor(tn(LLM_TENSOR_TIME_MIX_G2, "weight", i), {n_lora_gate, n_embd}, TENSOR_NOT_REQUIRED);
+ 
+-        try {
+-            layer.time_mix_lerp_fused = create_tensor(tn(LLM_TENSOR_TIME_MIX_LERP_FUSED, "weight", i), {n_embd, 1, 1, 6}, 0);
+-        } catch(std::runtime_error & e) {
+-            // ARWKV models may not have gate tensors
+-            layer.time_mix_lerp_fused = create_tensor(tn(LLM_TENSOR_TIME_MIX_LERP_FUSED, "weight", i), {n_embd, 1, 1, 5}, 0);
+-        }
++        const auto time_mix_lerp_fused_tn = tn(LLM_TENSOR_TIME_MIX_LERP_FUSED, "weight", i);
++        const std::string time_mix_lerp_fused_name = time_mix_lerp_fused_tn.str();
++        const ggml_tensor * time_mix_lerp_fused_meta = ml.get_tensor_meta(time_mix_lerp_fused_name.c_str());
++        if (time_mix_lerp_fused_meta == nullptr) {
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, format("%s: missing required tensor '%s'", __func__, time_mix_lerp_fused_name.c_str()));
++        }
++
++        const int64_t n_lerp = time_mix_lerp_fused_meta->ne[3];
++        if (n_lerp != 5 && n_lerp != 6) {
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, format(
++                "%s: tensor '%s' must have a fused width of 5 or 6, got %lld",
++                __func__, time_mix_lerp_fused_name.c_str(), (long long) n_lerp));
++        }
++        layer.time_mix_lerp_fused = create_tensor(time_mix_lerp_fused_tn, {n_embd, 1, 1, n_lerp}, 0);
+ 
+         layer.time_mix_k_k = create_tensor(tn(LLM_TENSOR_TIME_MIX_K_K, "weight", i), {attn_hidden_size}, 0);
+         layer.time_mix_k_a = create_tensor(tn(LLM_TENSOR_TIME_MIX_K_A, "weight", i), {attn_hidden_size}, 0);
+diff --git a/src/models/bailingmoe.cpp b/src/models/bailingmoe.cpp
+--- a/src/models/bailingmoe.cpp
++++ b/src/models/bailingmoe.cpp
+@@ -15,11 +15,18 @@
+     }
+ }
+ 
+-void llama_model_bailingmoe::load_arch_tensors(llama_model_loader &) {
++void llama_model_bailingmoe::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
++
++    if (n_expert == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0");
++    }
++    if (n_expert_used == 0) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0");
++    }
++
+     const int64_t n_expert_shared = hparams.n_expert_shared;
+-
+-    const int64_t n_ff_exp            = hparams.n_ff_exp();
++    const int64_t n_ff_exp        = hparams.n_ff_exp();
+ 
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+ 
+@@ -37,13 +44,6 @@
+         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+ 
+         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+-
+-        if (n_expert == 0) {
+-            throw std::runtime_error("n_expert must be > 0");
+-        }
+-        if (n_expert_used == 0) {
+-            throw std::runtime_error("n_expert_used must be > 0");
+-        }
+ 
+         layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
+         layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, 0);
+diff --git a/src/models/bert.cpp b/src/models/bert.cpp
+--- a/src/models/bert.cpp
++++ b/src/models/bert.cpp
+@@ -20,11 +20,11 @@
+     }
+ }
+ 
+-void llama_model_bert::load_arch_tensors(llama_model_loader &) {
++void llama_model_bert::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+ 
+     if (n_token_types == 0) {
+-        throw std::runtime_error(arch_name() + " model needs to define token type count");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, arch_name() + " model needs to define token type count");
+     }
+     tok_embd     = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD,  "weight"), {n_embd, n_vocab}, 0);
+     type_embd    = create_tensor(tn(LLM_TENSOR_TOKEN_TYPES, "weight"), {n_embd, n_token_types}, TENSOR_NOT_REQUIRED);
+diff --git a/src/models/dots1.cpp b/src/models/dots1.cpp
+--- a/src/models/dots1.cpp
++++ b/src/models/dots1.cpp
+@@ -15,10 +15,19 @@
+     }
+ }
+ 
+-void llama_model_dots1::load_arch_tensors(llama_model_loader &) {
++void llama_model_dots1::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
++
++    if (n_layer > (int) hparams.n_layer_dense_lead) {
++        if (n_expert == 0) {
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert must be > 0");
++        }
++        if (n_expert_used == 0) {
++            LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert_used must be > 0");
++        }
++    }
++
+     const int64_t n_expert_shared = hparams.n_expert_shared;
+-
+     const int64_t n_ff_exp        = hparams.n_ff_exp();
+ 
+     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+@@ -46,13 +55,6 @@
+         } else {
+             layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
+-
+-            if (n_expert == 0) {
+-                throw std::runtime_error("n_expert must be > 0");
+-            }
+-            if (n_expert_used == 0) {
+-                throw std::runtime_error("n_expert_used must be > 0");
+-            }
+ 
+             // MoE branch
+             layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
+diff --git a/src/models/dots3note.cpp b/src/models/dots3note.cpp
+--- a/src/models/dots3note.cpp
++++ b/src/models/dots3note.cpp
+@@ -47,10 +47,11 @@
+ 
+ void llama_model_dots3note::load_arch_tensors(llama_model_loader & ml) {
+     LLAMA_LOAD_LOCALS;
+-    GGML_UNUSED(ml);
+-
+     if (!hparams.is_mla()) {
+-        throw std::runtime_error("DOTS3NOTE architecture requires MLA");
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "DOTS3NOTE architecture requires MLA");
++    }
++    if (n_layer > (int) hparams.n_layer_dense_lead && (n_expert == 0 || n_expert_used == 0)) {
++        LLAMA_MODEL_ARCH_FAIL_LOAD_RETURN(ml, "n_expert and n_expert_used must be > 0");
+     }
+ 
+     const int64_t n_embd_head_qk_rope = hparams.n_rot();
+@@ -119,10 +120,6 @@
+             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, flags);
+             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, flags);
+         } else {
+-            if (n_expert == 0 || n_expert_used == 0) {
+-                throw std::runtime_error("n_expert and n_expert_used must be > 0");
+-            }
+-
+             layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,    "weight", i), {n_embd, n_expert}, flags);
+             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias",   i), {n_expert}, flags);
+ 

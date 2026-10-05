@@ -7,6 +7,10 @@ autobins = false
 
 [workspace]
 
+[features]
+m27-ab-slot-boot-control = []
+m27-ab-slot-acceptance = ["m27-ab-slot-boot-control"]
+
 [lib]
 path = "src/lib.rs"
 test = true

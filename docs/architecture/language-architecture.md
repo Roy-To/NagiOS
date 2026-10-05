@@ -118,7 +118,7 @@ of the selected presentation language.
 
 ## Current implementation boundary
 
-`crates/nagi-localization` provides the shared user-space foundation: canonical
+`crates/nagi-i18n` (package `nagi-i18n`) provides the shared host-side user-space foundation: canonical
 locale IDs, separate system-language and region inputs, versioned UTF-8 JSON
 catalogs, stable message IDs, named interpolation, exact/language/English
 fallback, structured diagnostics, first-class `en-US` and `ja-JP` resources,
@@ -131,7 +131,35 @@ This foundation does not implement the Settings service, input-language or IME
 selection, Albert conversation-language preferences, UI components, font
 resolution, or dictionary-based collation. Those remain owned by their
 respective system workstreams and should consume this crate through its public
-API. Nagi 0.1 formatting currently covers Gregorian dates, clock times,
+API. It was developed as `nagi-localization` on the 0.2 integration line and
+renamed when that line merged with the 0.1 release line, which already ships a
+guest `no_std` crate under that name (see
+`docs/decisions/0052-merge-0.1-release-line-into-0.2-integration.md`). Nagi 0.1 formatting currently covers Gregorian dates, clock times,
 numbers, percentages, USD/JPY display, and a small symbol-based unit set; it
 does not provide timezone conversion, currency conversion, CLDR-wide data, or
 linguistic sorting. No process-global host locale or timezone is consulted.
+
+The existing M10 Japanese UTF-8 rendering/input path is compatible with this
+architecture, but it is not by itself the shared localization framework.
+The guest `user/nagi-localization` no-std library now embeds an initial shared `en-US` and
+`ja-JP` catalog, parses the two canonical locale codes, resolves stable keys,
+and falls back to English without exposing unknown keys. The M10 desktop uses
+that catalog for its Settings overlay and four panel titles. The selected
+System language (`en-US` or `ja-JP`) is stored as a strict UTF-8 value in the
+User Data VFS file `system-language` and is loaded before the next Desktop's
+first frame. Missing or invalid values use `en-US`; an invalid UTF-8 value or
+unsupported language tag is never applied. `./nagi m29` verifies that the
+Japanese preference survives a guest restart. This is still not a persistent
+language settings service or cross-process propagation, and does not couple
+the System language to region formats, input language/keyboard, or Albert's
+conversation language. First-party UI coverage remains partial. The fixed M10
+Desktop acceptance surface has a limited keyboard focus path: Tab cycles
+through the Settings button and the Calculator, Notes, Files, and Terminal
+panels; Enter/Space activates the focused control. The Settings overlay also
+lets Tab and Up/Down move between locale choices, Enter/Space select a choice,
+and Escape close the overlay. An amber focus indicator marks the focused
+control. This covers only those fixed acceptance panels and the Settings
+overlay; it does not provide a system-wide focus service, a general
+application launcher, an accessibility tree, or assistive-technology support.
+Focused host tests cover catalog keys, UTF-8 Japanese, locale validation, safe
+missing-key behavior, and fallback behavior.

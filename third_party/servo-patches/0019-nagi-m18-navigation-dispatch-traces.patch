@@ -1,0 +1,31 @@
+diff --git a/components/constellation/constellation.rs b/components/constellation/constellation.rs
+--- a/components/constellation/constellation.rs
++++ b/components/constellation/constellation.rs
+@@ -1342,6 +1342,7 @@
+             // If there is already a pending page (self.pending_changes), it will not be overridden;
+             // However, if the id is not encompassed by another change, it will be.
+             EmbedderToConstellationMessage::LoadUrl(webview_id, url_request) => {
++                nagi_m17_trace("M18 Constellation received LoadUrl");
+                 let mut load_data = LoadData::new_for_new_unrelated_webview(url_request.url);
+ 
+                 if !url_request.headers.is_empty() {
+@@ -1361,12 +1362,18 @@
+                 // Since this is a top-level load, initiated by the embedder, go straight to load_url,
+                 // bypassing schedule_navigation.
+-                self.load_url(
++                nagi_m17_trace("M18 Constellation load_url dispatch started");
++                let load_result = self.load_url(
+                     webview_id,
+                     pipeline_id,
+                     load_data,
+                     NavigationHistoryBehavior::Push,
+                     TargetSnapshotParams::default(),
+                 );
++                if load_result.is_some() {
++                    nagi_m17_trace("M18 Constellation load_url dispatch returned pipeline");
++                } else {
++                    nagi_m17_trace("M18 Constellation load_url dispatch returned no pipeline");
++                }
+             },
+             // Create a new top level browsing context. Will use response_chan to return
+             // the browsing context id.

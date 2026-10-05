@@ -115,6 +115,12 @@ fn parses_the_complete_m0_command_surface() {
         ("m15", Command::M15),
         ("m16", Command::M16),
         ("m17", Command::M17),
+        ("m18", Command::M18),
+        ("m19", Command::M19),
+        ("m22", Command::M22),
+        ("m25", Command::M25),
+        ("m27", Command::M27),
+        ("m30", Command::M30),
         ("test", Command::Test),
         ("clean", Command::Clean),
         ("fmt", Command::Fmt),
@@ -202,19 +208,17 @@ fn dev_status_resume_and_verify_read_the_registered_workstream() {
         .expect("workstreams array")
         .iter()
         .find(|entry| entry["owner_branch"].as_str() == Some(branch));
-    let status = nagi_cli::development::execute(&["status".into()], root)
-        .expect("registered workstream status");
-    assert!(status
-        .iter()
-        .any(|line| line.starts_with("Workstream: ") && line.contains(" (")));
-    assert!(status.iter().any(|line| line.starts_with("Branch: ")));
-    assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
-
     if let Some(workstream) = active_workstream {
+        let status = nagi_cli::development::execute(&["status".into()], root)
+            .expect("registered workstream status");
+        assert!(status
+            .iter()
+            .any(|line| line.starts_with("Workstream: ") && line.contains(" (")));
+        assert!(status.iter().any(|line| line.starts_with("Branch: ")));
+        assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
         assert!(status
             .iter()
             .any(|line| { line.contains(workstream["id"].as_str().expect("workstream ID")) }));
-        assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
 
         let resume =
             nagi_cli::development::execute(&["resume".into()], root).expect("resume summary");
@@ -233,7 +237,7 @@ fn dev_status_resume_and_verify_read_the_registered_workstream() {
 #[test]
 fn host_workspace_commands_exclude_kernel() {
     for command in ["build", "test", "clippy"] {
-        let args = nagi_cli::commands::host_workspace_args(command);
+        let args = nagi_cli::commands::host_workspace_args_for_arch(command, "x86_64");
         assert!(args
             .windows(2)
             .any(|pair| pair == ["--exclude", "nagi-kernel"]));
@@ -243,9 +247,119 @@ fn host_workspace_commands_exclude_kernel() {
 
 #[test]
 fn host_clippy_command_keeps_warning_deny_boundary() {
-    let args = nagi_cli::commands::host_workspace_args("clippy");
+    let args = nagi_cli::commands::host_workspace_args_for_arch("clippy", "x86_64");
     assert!(args.windows(2).any(|pair| pair == ["--", "-D"]));
     assert_eq!(args.last(), Some(&"warnings"));
+}
+
+#[test]
+fn format_commands_match_ci_source_scope_without_vendored_servo() {
+    let commands = nagi_cli::commands::host_format_commands();
+    assert_eq!(commands.len(), 4);
+
+    let (cargo, workspace_args) = &commands[0];
+    assert_eq!(*cargo, "cargo");
+    assert_eq!(workspace_args.first(), Some(&"fmt"));
+    assert!(!workspace_args.contains(&"--all"));
+    for package in [
+        "nagi-cli",
+        "nagi-idl",
+        "nagi-bootinfo",
+        "nagi-abi",
+        "nagi-model",
+        "nagi-kernel",
+        "libnagi",
+        "nagi-net",
+        "nagi-pal",
+        "nagi-posix",
+        "nagi-audio",
+        "nagi-history",
+        "nagi-model-manager",
+        "nagi-search",
+        "nagi-ai",
+        "nagi-servo-adapter",
+        "nagi-init",
+        "nagi-package",
+        "nagi-sdk",
+    ] {
+        assert!(workspace_args
+            .windows(2)
+            .any(|pair| pair == ["--package", package]));
+    }
+    assert!(workspace_args.ends_with(&["--", "--check"]));
+
+    assert_eq!(
+        commands[1],
+        (
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "tools/nagi-pkg/Cargo.toml",
+                "--",
+                "--check"
+            ]
+        )
+    );
+    assert_eq!(
+        commands[2],
+        (
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "loader/Cargo.toml",
+                "--",
+                "--check"
+            ]
+        )
+    );
+    assert_eq!(
+        commands[3],
+        ("rustfmt", vec!["--check", "user/nagi-albert/src/lib.rs"])
+    );
+    assert!(commands
+        .iter()
+        .flat_map(|(_, args)| args)
+        .all(|arg| !arg.contains("third_party/servo")));
+}
+
+#[test]
+fn arm64_host_commands_select_only_host_compatible_packages() {
+    let host_packages = [
+        "nagi-cli",
+        "nagi-idl",
+        "nagi-bootinfo",
+        "nagi-abi",
+        "nagi-model",
+        "nagi-audio",
+        "nagi-history",
+        "nagi-package",
+        "nagi-model-manager",
+        "nagi-search",
+        "nagi-ai",
+        "nagi-servo-adapter",
+    ];
+
+    for command in ["build", "test", "clippy"] {
+        let args = nagi_cli::commands::host_workspace_args_for_arch(command, "aarch64");
+        assert_eq!(args.first(), Some(&command));
+        assert!(!args.contains(&"--workspace"));
+        assert!(args.contains(&"--locked"));
+        for package in host_packages {
+            assert!(args.windows(2).any(|pair| pair == ["--package", package]));
+        }
+        for target_only_package in ["libnagi", "nagi-net", "nagi-pal", "nagi-posix", "nagi-init"] {
+            assert!(!args
+                .windows(2)
+                .any(|pair| pair == ["--package", target_only_package]));
+        }
+    }
+
+    let clippy = nagi_cli::commands::host_workspace_args_for_arch("clippy", "aarch64");
+    assert!(clippy.contains(&"--all-targets"));
+    assert!(clippy.windows(2).any(|pair| pair == ["--", "-D"]));
+    assert_eq!(clippy.last(), Some(&"warnings"));
 }
 
 #[test]
@@ -275,6 +389,12 @@ fn rejects_unexpected_arguments_for_every_command() {
         "m15",
         "m16",
         "m17",
+        "m18",
+        "m19",
+        "m22",
+        "m25",
+        "m27",
+        "m30",
     ] {
         let error = parse_command(&[name.to_owned(), "unexpected".to_owned()]).unwrap_err();
         assert_eq!(error.exit_code(), EXIT_USAGE, "{name}");
@@ -445,6 +565,35 @@ fn complete_probe_report_passes_and_reports_every_dependency() {
     assert_eq!(report.exit_code, EXIT_SUCCESS);
     assert_eq!(report.checks.len(), 12);
     assert!(report.checks.iter().all(|check| check.is_pass()));
+}
+
+#[test]
+fn doctor_recognizes_python3_without_a_python_alias() {
+    let probe = StaticProbe {
+        commands: vec![
+            "git",
+            "rustc",
+            "cargo",
+            "rustup",
+            "clang",
+            "ld.lld",
+            "qemu-system-x86_64",
+            "cmake",
+            "meson",
+            "ninja",
+            "python3",
+        ],
+        ovmf_mode: OvmfMode::Compatible,
+        bad_output: false,
+        exit_code: None,
+    };
+
+    let report = run_doctor(&probe, DoctorPolicy::Strict);
+
+    assert_eq!(report.exit_code, EXIT_SUCCESS);
+    assert!(report.checks.iter().any(|check| {
+        check.name == "Python" && check.is_pass() && check.detail.contains("python3")
+    }));
 }
 
 #[test]

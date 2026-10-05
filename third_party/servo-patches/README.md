@@ -33,3 +33,51 @@ Surfman GL context-creation error through that callback on Nagi. Servo's normal
 failure report uses `println!`, whose stdout path returns `EIO` in the guest
 and can panic before the underlying Surfman error is visible. Other targets
 retain Servo's existing fallback diagnostics.
+
+The ordered patch `0011-nagi-m17-servo-construction-traces.patch` adds
+Nagi-only checkpoints around `Servo::new` option/media setup, profiler
+creation, JavaScript initialization, paint/resource/storage setup, constellation
+startup, TLS prewarming, and final Servo construction. The checkpoints use the
+same Nagi console callback and compile to no-ops on other targets. They locate
+synchronous initialization stalls without changing Servo's startup order.
+
+The ordered patch `0012-nagi-m17-servo-worker-traces.patch` follows the first
+Servo media worker and memory-profiler worker across spawn, entry, and return.
+It distinguishes spawn failure from a worker that starts but stalls during
+backend or profiler initialization, and marks when the memory profiler has
+been constructed before it enters its receive loop. These Nagi-only
+checkpoints use the same console callback and are no-ops on other targets;
+they do not change thread creation or scheduling behavior.
+
+
+The ordered patch `0013-nagi-m17-js-engine-init-traces.patch` adds Nagi-only
+checkpoints inside Servo's synchronous `script::init()` path. It brackets the
+JIT decision, proxy-handler setup, generated static binding registration,
+memory reporter initialization, platform initialization, and engine setup
+construction. This narrows a JavaScript bootstrap stall without changing the
+initialization order or operations; other targets compile a no-op helper.
+
+The ordered patch `0014-nagi-m17-webpki-root-verifier.patch` selects Servo's
+existing WebPKI verifier for `target_os = "nagi"`. It uses the pinned
+`webpki-roots` set as the guest bootstrap system roots because Nagi has no host
+certificate store. Rustls certificate-chain and hostname verification remain
+enabled, and Servo's explicit certificate override path remains additive.
+Other target verifier selection is unchanged.
+
+The ordered patch `0015-nagi-m17-navigation-traces.patch` adds Nagi-only
+checkpoints from Servo's `NewWebView` message through top-level browsing
+context setup, event-loop creation, and `Pipeline::spawn`. It narrows a guest
+navigation stall without changing the message flow or pipeline behavior;
+other targets compile a no-op trace helper.
+
+The ordered patch `0016-nagi-m17-script-pipeline-traces.patch` continues those
+checkpoints in the script event loop. It distinguishes script-thread entry,
+per-thread JavaScript runtime and debugger-global initialization, receipt of
+`SpawnPipeline`, and the synchronous `about:blank` parser response stages.
+These Nagi-only traces add no scheduling or page-loading behavior; other
+targets compile a no-op helper.
+
+The ordered patch `0017-nagi-m17-js-runtime-traces.patch` splits Servo's
+per-thread JavaScript runtime creation into engine-handle acquisition,
+SpiderMonkey Rust runtime construction, and JSContext retrieval checkpoints.
+It is diagnostic only, and other targets compile a no-op helper.

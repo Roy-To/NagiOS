@@ -1,8 +1,11 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use sha2::{Digest, Sha256};
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
 use crate::config::{load_toolchain_requirements, validate_project};
@@ -15,16 +18,32 @@ use crate::doctor::{
     ovmf_pair_is_allowed, run_doctor_with_requirements, CheckState, DoctorPolicy, HostProbe,
 };
 use crate::image::{
-    ensure_persistent_disk, run_qemu, run_qemu_gui, run_qemu_gui_with_events, run_qemu_interactive,
-    run_qemu_with_read_only_boot_disk, write_fat12_image, write_m17_fat12_image, ImageLayout,
-    QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui,
+    run_qemu_gui_reusing_ovmf_vars_with_events,
+    run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
+    run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
+    run_qemu_gui_with_events, run_qemu_gui_with_events_and_screenshot,
+    run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot,
+    run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input, run_qemu_interactive,
+    run_qemu_reusing_ovmf_vars, run_qemu_reusing_ovmf_vars_with_read_only_boot_disk,
+    run_qemu_until_any_acceptance_marker, run_qemu_until_any_acceptance_marker_reusing_ovmf_vars,
+    run_qemu_until_any_acceptance_marker_with_read_only_boot_disk,
+    run_qemu_with_read_only_boot_disk, validate_reference_disk_qcow2, write_fat12_image,
+    write_isolated_apps_fat12_image, write_m17_fat12_image,
+    write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
+    write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
+    write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
+    ImageLayout, QemuConfig, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
 };
+use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
+use crate::model_artifact::{validate_m26_model_lock, validate_m26_model_manifest, M26Model};
 use crate::mozjs_sys_nagi::ensure_mozjs_sys_nagi_checkout;
 use crate::paths::{clean_owned_outputs, ensure_owned_directory};
 use crate::servo::ensure_servo_checkout;
 use crate::surfman::ensure_surfman_checkout;
 use crate::tempfile_nagi::ensure_tempfile_nagi_checkout;
+use crate::whisper_cpp::ensure_whisper_cpp_checkout;
 
 pub const EXIT_SUCCESS: i32 = 0;
 pub const EXIT_USAGE: i32 = 2;
@@ -33,7 +52,99 @@ pub const EXIT_CONFIG_ERROR: i32 = 4;
 pub const EXIT_DOCTOR_FAILURE: i32 = 10;
 pub const EXIT_VERIFY_FAILURE: i32 = 11;
 
-type ImageWriter = fn(&Path, &[u8], &[u8], &[u8]) -> Result<ImageLayout, String>;
+type ImageWriter = fn(&Path, &[u8], &[u8], &[u8], Option<&[u8]>) -> Result<ImageLayout, String>;
+
+#[derive(Clone, Copy, Default)]
+struct ImageBuildFeatures<'a> {
+    kernel: &'a [&'a str],
+    loader: &'a [&'a str],
+}
+
+struct ImageBuildRequest<'a> {
+    image_name: &'a str,
+    cargo_env: &'a [(&'a str, &'a Path)],
+    recovery_init: Option<&'a [u8]>,
+    image_writer: ImageWriter,
+    external_model_store_file: Option<(&'a str, &'a Path)>,
+    build_features: ImageBuildFeatures<'a>,
+}
+
+struct DesktopAcceptanceConfig {
+    label: &'static str,
+    features: &'static str,
+    image_name: &'static str,
+    persistent_disk_name: &'static str,
+    vars_name: &'static str,
+    first_log_name: &'static str,
+    run_log_name: &'static str,
+    evidence_prefix: &'static str,
+    screenshot_name: &'static str,
+    acceptance_marker: &'static str,
+    required_markers: &'static [&'static str],
+    restart_marker: Option<&'static str>,
+    restart_log_name: Option<&'static str>,
+    unique_run_artifacts: bool,
+}
+
+const M18_INPUT_EVENTS: [&str; 2] = [
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"rel","data":{"axis":"x","value":100}},
+            {"type":"rel","data":{"axis":"y","value":30}},
+            {"type":"btn","data":{"button":"left","down":true}},
+            {"type":"btn","data":{"button":"left","down":false}}
+        ]}
+    }"#,
+    r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"e"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"e"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"x"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"x"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"m"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"m"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"p"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"p"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"l"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"l"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"e"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"e"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"dot"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"dot"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"c"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"c"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"o"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"m"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"m"}}},
+            {"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},
+            {"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}
+        ]}
+    }"#,
+];
+
+const M27_SYSTEM_A_MENU_EVENTS: [&str; 2] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}}]}}"#,
+];
+
+const M27_BOOTSTRAP_COMPLETION_MARKER: &str = "Nagi M7 reboot required PASS";
+
+const M27_RECOVERY_MENU_EVENTS: [&str; 2] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"r"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"r"}}}]}}"#,
+];
+
+const M30_UNSTAGED_SYSTEM_B_MENU_EVENTS: [&str; 4] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"b"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"b"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}}]}}"#,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -58,6 +169,21 @@ pub enum Command {
     M15,
     M16,
     M17,
+    M18,
+    M19,
+    M29,
+    M22,
+    M25,
+    M27,
+    M30,
+    IsolatedProcess,
+    M20Granite,
+    M20GraniteInference,
+    M20LlamaSmoke,
+    M26Qwen,
+    M26Gemma,
+    M25Whisper,
+    M25WhisperInference,
     Test,
     Acceptance,
     Clean,
@@ -257,6 +383,21 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m16" => Command::M16,
         "m17" => Command::M17,
         "test" if args.get(1).is_some_and(|arg| arg == "--acceptance") => Command::Acceptance,
+        "m18" => Command::M18,
+        "m19" => Command::M19,
+        "m29" => Command::M29,
+        "m22" => Command::M22,
+        "m25" => Command::M25,
+        "m27" => Command::M27,
+        "m30" => Command::M30,
+        "isolated-process" => Command::IsolatedProcess,
+        "m20-granite" => Command::M20Granite,
+        "m20-granite-inference" => Command::M20GraniteInference,
+        "m20-llama-smoke" => Command::M20LlamaSmoke,
+        "m26-qwen" => Command::M26Qwen,
+        "m26-gemma" => Command::M26Gemma,
+        "m25-whisper" => Command::M25Whisper,
+        "m25-whisper-inference" => Command::M25WhisperInference,
         "test" => Command::Test,
         "clean" => Command::Clean,
         "fmt" => Command::Fmt,
@@ -290,6 +431,13 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         Command::Dev => args.len() >= 2,
         Command::Test => args.len() == 1,
         Command::Acceptance => args.len() >= 2,
+        Command::M20Granite => args.len() == 2,
+        Command::M20GraniteInference => args.len() == 2,
+        Command::M20LlamaSmoke => args.len() == 1,
+        Command::M26Qwen => args.len() == 2,
+        Command::M26Gemma => args.len() == 3 && args[2] == "--accept-gemma-terms",
+        Command::M25Whisper => args.len() == 2,
+        Command::M25WhisperInference => args.len() == 4,
         Command::Help
         | Command::Fetch
         | Command::Build
@@ -307,6 +455,14 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M15
         | Command::M16
         | Command::M17
+        | Command::M18
+        | Command::M19
+        | Command::M29
+        | Command::M22
+        | Command::M25
+        | Command::M27
+        | Command::M30
+        | Command::IsolatedProcess
         | Command::Clean
         | Command::Fmt
         | Command::Lint => args.len() == 1,
@@ -323,34 +479,114 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
 }
 
 pub fn host_workspace_args(command: &str) -> Vec<&'static str> {
-    match command {
-        "build" => vec![
-            "build",
-            "--workspace",
-            "--exclude",
-            "nagi-kernel",
-            "--locked",
-        ],
-        "test" => vec![
-            "test",
-            "--workspace",
-            "--exclude",
-            "nagi-kernel",
-            "--locked",
-        ],
-        "clippy" => vec![
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--exclude",
-            "nagi-kernel",
-            "--locked",
-            "--",
-            "-D",
-            "warnings",
-        ],
+    host_workspace_args_for_arch(command, std::env::consts::ARCH)
+}
+
+pub fn host_workspace_args_for_arch(command: &str, host_arch: &str) -> Vec<&'static str> {
+    let command_name = match command {
+        "build" => "build",
+        "test" => "test",
+        "clippy" => "clippy",
         _ => panic!("unsupported host workspace command: {command}"),
+    };
+    let mut args = vec![command_name];
+    if host_arch == "x86_64" {
+        args.push("--workspace");
+    } else {
+        // Nagi user-space syscall stubs currently use the x86_64 register ABI.
+        // On other hosts, check the host-compatible workspace crates while
+        // leaving those target-only crates to the Nagi target build.
+        for package in [
+            "nagi-cli",
+            "nagi-idl",
+            "nagi-bootinfo",
+            "nagi-abi",
+            "nagi-model",
+            "nagi-i18n",
+            "nagi-audio",
+            "nagi-history",
+            "nagi-package",
+            "nagi-model-manager",
+            "nagi-ui",
+            "nagi-localization",
+            "nagi-search",
+            "nagi-ai",
+            "nagi-servo-adapter",
+        ] {
+            args.extend(["--package", package]);
+        }
     }
+
+    if command == "clippy" {
+        args.push("--all-targets");
+    }
+
+    if host_arch == "x86_64" {
+        args.extend(["--exclude", "nagi-kernel"]);
+    }
+
+    args.push("--locked");
+    if command == "clippy" {
+        args.extend(["--", "-D", "warnings"]);
+    }
+
+    args
+}
+
+pub fn host_format_commands() -> Vec<(&'static str, Vec<&'static str>)> {
+    let mut workspace_args = vec!["fmt"];
+    for package in [
+        "nagi-cli",
+        "nagi-idl",
+        "nagi-bootinfo",
+        "nagi-abi",
+        "nagi-model",
+        "nagi-i18n",
+        "nagi-kernel",
+        "libnagi",
+        "nagi-net",
+        "nagi-pal",
+        "nagi-posix",
+        "nagi-audio",
+        "nagi-history",
+        "nagi-model-manager",
+        "nagi-ui",
+        "nagi-localization",
+        "nagi-search",
+        "nagi-ai",
+        "nagi-servo-adapter",
+        "nagi-init",
+        "nagi-package",
+        "nagi-sdk",
+    ] {
+        workspace_args.extend(["--package", package]);
+    }
+    workspace_args.extend(["--", "--check"]);
+
+    vec![
+        ("cargo", workspace_args),
+        (
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "tools/nagi-pkg/Cargo.toml",
+                "--",
+                "--check",
+            ],
+        ),
+        (
+            "cargo",
+            vec![
+                "fmt",
+                "--manifest-path",
+                "loader/Cargo.toml",
+                "--",
+                "--check",
+            ],
+        ),
+        ("rustfmt", vec!["--check", "user/nagi-albert/src/lib.rs"]),
+    ]
 }
 
 pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -377,7 +613,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::Build => run_cargo(root, "build", &host_workspace_args("build")),
         Command::Test => run_cargo(root, "test", &host_workspace_args("test")),
         Command::Acceptance => crate::acceptance::execute(&args[2..], root),
-        Command::Fmt => run_cargo(root, "fmt", &["fmt", "--all", "--", "--check"]),
+        Command::Fmt => execute_format(root),
         Command::Lint => run_cargo(root, "lint", &host_workspace_args("clippy")),
         Command::Clean => execute_clean(root),
         Command::Image => execute_image(root),
@@ -385,6 +621,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::Shell => execute_shell(root, probe),
         Command::Gui => execute_gui(root, probe),
         Command::Desktop => execute_desktop(root, probe),
+        Command::M29 => execute_m29(root, probe),
         Command::Security => execute_security(root, probe),
         Command::Network => execute_network(root, probe),
         Command::Posix => execute_posix(root, probe),
@@ -394,6 +631,20 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M15 => execute_m15(root, probe),
         Command::M16 => execute_m16(root, probe),
         Command::M17 => execute_m17(root, probe),
+        Command::M18 => execute_m18(root, probe),
+        Command::M19 => execute_m19(root, probe),
+        Command::M22 => execute_m22(root, probe),
+        Command::IsolatedProcess => execute_isolated_process(root, probe),
+        Command::M25 => execute_m25(root, probe),
+        Command::M27 => execute_m27(root, probe),
+        Command::M30 => execute_m30(root, probe),
+        Command::M20Granite => execute_m20_granite(&args[1..], root, probe),
+        Command::M20GraniteInference => execute_m20_granite_inference(&args[1..], root, probe),
+        Command::M20LlamaSmoke => execute_m20_llama_smoke(root, probe),
+        Command::M26Qwen => execute_m26_model(&args[1..], root, probe, M26Model::Qwen),
+        Command::M26Gemma => execute_m26_model(&args[1..], root, probe, M26Model::Gemma),
+        Command::M25Whisper => execute_m25_whisper(&args[1..], root, probe),
+        Command::M25WhisperInference => execute_m25_whisper_inference(&args[1..], root, probe),
         Command::Dev => execute_dev(&args[1..], root),
     }
 }
@@ -952,7 +1203,7 @@ fn execute_fetch(root: &Path) -> CommandResult {
                 format!(
                     "fetch: cannot read third_party/sources.lock; source fetching is not reproducible: {error}"
                 ),
-            )
+            );
         }
     };
     for required in [
@@ -971,6 +1222,14 @@ fn execute_fetch(root: &Path) -> CommandResult {
             );
         }
     }
+    let llama_cpp = match ensure_llama_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+    };
+    let whisper_cpp = match ensure_whisper_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+    };
     let surfman = match ensure_surfman_checkout(root) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
@@ -1011,23 +1270,35 @@ fn execute_fetch(root: &Path) -> CommandResult {
         .unwrap_or(Path::new("third_party/mesa"));
     CommandResult {
         exit_code: EXIT_SUCCESS,
-        lines: vec![
-            format!(
-                "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, and Mesa/Softpipe sources validated ({}, {}, {}, {}, {}, {})",
-                surfman.strip_prefix(root).unwrap_or(Path::new("third_party/surfman")).display(),
-                tempfile_nagi.strip_prefix(root).unwrap_or(Path::new("third_party/tempfile-nagi")).display(),
-                mozjs_sys_nagi
-                    .strip_prefix(root)
-                    .unwrap_or(Path::new("third_party/mozjs-sys-nagi"))
-                    .display(),
-                cc_nagi
-                    .strip_prefix(root)
-                    .unwrap_or(Path::new("third_party/cc-nagi"))
-                    .display(),
-                servo_relative.display(),
-                mesa_relative.display()
-            ),
-        ],
+        lines: vec![format!(
+            "PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, Mesa/Softpipe, and llama.cpp sources validated; pinned whisper.cpp source and Nagi patch validated with Whisper small model metadata ({}, {}, {}, {}, {}, {}, {}, {})",
+            llama_cpp
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/llama.cpp"))
+                .display(),
+            surfman
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/surfman"))
+                .display(),
+            tempfile_nagi
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/tempfile-nagi"))
+                .display(),
+            mozjs_sys_nagi
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/mozjs-sys-nagi"))
+                .display(),
+            cc_nagi
+                .strip_prefix(root)
+                .unwrap_or(Path::new("third_party/cc-nagi"))
+                .display(),
+            servo_relative.display(),
+            mesa_relative.display(),
+            whisper_cpp
+                .strip_prefix(root)
+                .unwrap_or(Path::new("out/cache/whisper-cpp-nagi"))
+                .display()
+        )],
     }
 }
 
@@ -1062,6 +1333,28 @@ fn execute_image_with_features(
     image_name: &str,
 ) -> CommandResult {
     let init_args = match init_feature {
+        Some("m19-search") => vec![
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m19-search",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+        ],
+        Some("m22-history") => vec![
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m22-history",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+        ],
         Some(feature) => vec![
             "build",
             "-p",
@@ -1070,7 +1363,7 @@ fn execute_image_with_features(
             feature,
             "--target",
             "targets/x86_64-unknown-nagi-user.json",
-            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std=core,alloc,compiler_builtins",
             "--release",
         ],
         None => vec![
@@ -1079,7 +1372,7 @@ fn execute_image_with_features(
             "nagi-init",
             "--target",
             "targets/x86_64-unknown-nagi-user.json",
-            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std=core,alloc,compiler_builtins",
             "--release",
         ],
     };
@@ -1130,6 +1423,7 @@ fn execute_image_with_init_build_env(
         image_name,
         cargo_env,
         write_fat12_image,
+        ImageBuildFeatures::default(),
     )
 }
 
@@ -1140,7 +1434,37 @@ fn execute_image_with_init_build_env_using_writer(
     image_name: &str,
     cargo_env: &[(&str, &Path)],
     image_writer: ImageWriter,
+    build_features: ImageBuildFeatures<'_>,
 ) -> CommandResult {
+    execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        init_args,
+        rust_std_source,
+        ImageBuildRequest {
+            image_name,
+            cargo_env,
+            recovery_init: None,
+            image_writer,
+            external_model_store_file: None,
+            build_features,
+        },
+    )
+}
+
+fn execute_image_with_init_build_env_using_writer_and_recovery(
+    root: &Path,
+    init_args: &[&str],
+    rust_std_source: Option<&Path>,
+    request: ImageBuildRequest<'_>,
+) -> CommandResult {
+    let ImageBuildRequest {
+        image_name,
+        cargo_env,
+        recovery_init,
+        image_writer,
+        external_model_store_file,
+        build_features,
+    } = request;
     let init_build = match rust_std_source {
         Some(source) => {
             run_cargo_with_rust_std_source(root, "user init", init_args, source, cargo_env)
@@ -1150,34 +1474,28 @@ fn execute_image_with_init_build_env_using_writer(
     if init_build.exit_code != EXIT_SUCCESS {
         return init_build;
     }
-    let kernel_build = run_cargo(
-        root,
-        "kernel",
-        &[
-            "build",
-            "-p",
-            "nagi-kernel",
-            "--target",
-            "targets/x86_64-unknown-nagi.json",
-            "-Zbuild-std=core,compiler_builtins",
-            "--release",
-        ],
-    );
+    let kernel_features = build_features.kernel.join(",");
+    let mut kernel_args = vec!["build", "-p", "nagi-kernel"];
+    if !kernel_features.is_empty() {
+        kernel_args.extend(["--features", kernel_features.as_str()]);
+    }
+    kernel_args.extend([
+        "--target",
+        "targets/x86_64-unknown-nagi.json",
+        "-Zbuild-std=core,compiler_builtins",
+        "--release",
+    ]);
+    let kernel_build = run_cargo(root, "kernel", &kernel_args);
     if kernel_build.exit_code != EXIT_SUCCESS {
         return kernel_build;
     }
-    let loader_build = run_cargo(
-        root,
-        "loader",
-        &[
-            "build",
-            "--manifest-path",
-            "loader/Cargo.toml",
-            "--target",
-            "x86_64-unknown-uefi",
-            "--release",
-        ],
-    );
+    let loader_features = build_features.loader.join(",");
+    let mut loader_args = vec!["build", "--manifest-path", "loader/Cargo.toml"];
+    if !loader_features.is_empty() {
+        loader_args.extend(["--features", loader_features.as_str()]);
+    }
+    loader_args.extend(["--target", "x86_64-unknown-uefi", "--release", "--locked"]);
+    let loader_build = run_cargo(root, "loader", &loader_args);
     if loader_build.exit_code != EXIT_SUCCESS {
         return loader_build;
     }
@@ -1231,7 +1549,21 @@ fn execute_image_with_init_build_env_using_writer(
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
     };
     let image_path = artifacts.join(image_name);
-    let layout = match image_writer(&image_path, &loader, &kernel, &init) {
+    let layout_result = match external_model_store_file {
+        Some((file_name, source_path)) => {
+            write_reference_disk_qcow2_with_external_model_store_file(
+                &image_path,
+                &loader,
+                &kernel,
+                &init,
+                recovery_init,
+                file_name,
+                source_path,
+            )
+        }
+        None => image_writer(&image_path, &loader, &kernel, &init, recovery_init),
+    };
+    let layout = match layout_result {
         Ok(layout) => layout,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("image: {error}")),
     };
@@ -1251,6 +1583,2691 @@ fn execute_image_with_init_build_env_using_writer(
             layout.init_start_cluster + layout.init_clusters as u16 - 1,
         )],
     }
+}
+
+struct ModelStoreArtifactProfile {
+    command_name: &'static str,
+    model_id: String,
+    artifact_id: String,
+    source_uri: String,
+    source_revision: String,
+    file_name: String,
+    format: String,
+    size_bytes: u64,
+    sha256: String,
+    init_feature: &'static str,
+    kernel_features: &'static [&'static str],
+    image_prefix: &'static str,
+    evidence_prefix: &'static str,
+    vars_name: &'static str,
+    serial_name: &'static str,
+    digest_marker: &'static str,
+}
+
+struct ModelStoreEvidenceInput<'a> {
+    environment: Option<&'a str>,
+    source: &'a Path,
+    evidence_name: &'a str,
+}
+
+struct ModelStoreAcceptanceOptions<'a> {
+    acceptance_marker: &'a str,
+    required_markers: &'a [&'a str],
+    early_exit_markers: &'a [&'a str],
+    cargo_env: &'a [(&'a str, &'a Path)],
+    evidence_inputs: &'a [ModelStoreEvidenceInput<'a>],
+    timeout: Duration,
+    claims: &'a str,
+    success_summary: &'a str,
+}
+
+fn execute_m20_granite(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let manifest = match pinned_granite_manifest(root) {
+        Ok(manifest) => manifest,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite: {error}")),
+    };
+    let Some(source) = manifest.source.as_ref() else {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m20-granite: manifest source metadata is missing",
+        );
+    };
+    let (
+        nagi_model_manager::ArtifactReference::ModelStore { artifact_id },
+        Some(size_bytes),
+        Some(integrity),
+    ) = (
+        &manifest.artifact.reference,
+        manifest.artifact.size_bytes,
+        manifest.artifact.integrity.as_ref(),
+    )
+    else {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m20-granite: pinned manifest lacks Model Store size or integrity metadata",
+        );
+    };
+    execute_model_store_artifact(
+        args,
+        root,
+        probe,
+        ModelStoreArtifactProfile {
+            command_name: "m20-granite",
+            model_id: manifest.model_id.as_str().to_owned(),
+            artifact_id: artifact_id.as_str().to_owned(),
+            source_uri: source.uri.clone(),
+            source_revision: source.revision.clone(),
+            file_name: source.file_name.clone(),
+            format: manifest.artifact.format.as_str().to_owned(),
+            size_bytes,
+            sha256: integrity.digest.clone(),
+            init_feature: "m20-granite-artifact-acceptance",
+            kernel_features: &[],
+            image_prefix: "nagi-0.1-m20-granite",
+            evidence_prefix: "m20-granite-artifact",
+            vars_name: "granite-OVMF_VARS.fd",
+            serial_name: "m20-granite-qemu.log",
+            digest_marker: "Nagi M20 Granite artifact digest PASS",
+        },
+    )
+}
+
+fn execute_m20_granite_inference(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+) -> CommandResult {
+    let manifest = match pinned_granite_manifest(root) {
+        Ok(manifest) => manifest,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+    let Some(source) = manifest.source.as_ref() else {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m20-granite-inference: manifest source metadata is missing",
+        );
+    };
+    let (
+        nagi_model_manager::ArtifactReference::ModelStore { artifact_id },
+        Some(size_bytes),
+        Some(integrity),
+    ) = (
+        &manifest.artifact.reference,
+        manifest.artifact.size_bytes,
+        manifest.artifact.integrity.as_ref(),
+    )
+    else {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m20-granite-inference: pinned manifest lacks Model Store size or integrity metadata",
+        );
+    };
+
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite-inference: system clock: {error}"),
+            )
+        }
+    };
+    let target_evidence = root
+        .join("out/evidence")
+        .join(format!("m20-granite-inference-target-{run_id}"));
+    if let Err(error) = fs::create_dir_all(&target_evidence) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite-inference: create target evidence directory: {error}"),
+        );
+    }
+
+    let llama_source = match ensure_llama_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite-inference: pinned llama.cpp source: {error}"),
+            )
+        }
+    };
+    let target_clang = match resolve_m20_target_clang() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+    let cxx_headers = match resolve_m20_cxx_headers(&target_clang) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+    let relibc_headers = std::env::var_os("NAGI_RELIBC_HEADERS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            root.join("out/m17-mesa/relibc-target/x86_64-unknown-nagi-user/include")
+        });
+    if !relibc_headers.join("pthread.h").is_file() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: generated Nagi relibc headers are missing at {}; complete the target header generation first",
+                relibc_headers.display()
+            ),
+        );
+    }
+    let llvm_bin = target_clang.parent().unwrap_or_else(|| Path::new("."));
+    let llvm_ar = match resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+    let llvm_ranlib = match resolve_m20_llvm_tool("NAGI_LLVM_RANLIB", "llvm-ranlib", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
+    };
+
+    let build_dir = target_evidence.join("target-build");
+    let build_log = target_evidence.join("target-build.log");
+    let mut build = ProcessCommand::new("bash");
+    build
+        .args(["tools/llama/build-nagi-target.sh"])
+        .current_dir(root)
+        .env("NAGI_LLAMA_BUILD", &build_dir)
+        .env("NAGI_TARGET_CLANG", &target_clang)
+        .env("NAGI_CXX_HEADERS", &cxx_headers)
+        .env("NAGI_RELIBC_HEADERS", &relibc_headers)
+        .env("NAGI_LLVM_AR", &llvm_ar)
+        .env("NAGI_LLVM_RANLIB", &llvm_ranlib);
+    let build_output = match build.output() {
+        Ok(output) => output,
+        Err(error) => {
+            let detail = format!("cannot start target archive build: {error}");
+            let _ = fs::write(&build_log, &detail);
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-granite-inference: {detail} (evidence {})",
+                    target_evidence.display()
+                ),
+            );
+        }
+    };
+    let build_detail = command_output(&build_output);
+    if let Err(error) = fs::write(&build_log, &build_detail) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: cannot write {}: {error}",
+                build_log.display()
+            ),
+        );
+    }
+    if !build_output.status.success() {
+        let _ = fs::write(
+            target_evidence.join("README.md"),
+            format!(
+                "# M20 Granite inference target archives\n\nStatus: BLOCKED\nPinned llama.cpp source: {}\nTarget archive build exited with {}.\nBuild log: target-build.log\n",
+                llama_source.display(),
+                build_output.status
+            ),
+        );
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: target archive build failed ({}); log {}; evidence {}",
+                build_output.status,
+                build_log.display(),
+                target_evidence.display()
+            ),
+        );
+    }
+    let pre_run = target_evidence.join("pre-run-target-artifacts");
+    if let Err(error) = fs::create_dir(&pre_run) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite-inference: create target artifact archive: {error}"),
+        );
+    }
+    for (relative, name) in [
+        (
+            "target/x86_64-unknown-nagi-user/release/nagi-init",
+            "nagi-init",
+        ),
+        (
+            "target/x86_64-unknown-nagi/release/nagi-kernel",
+            "nagi-kernel",
+        ),
+        (
+            "loader/target/x86_64-unknown-uefi/release/nagi-loader.efi",
+            "nagi-loader.efi",
+        ),
+    ] {
+        let source = root.join(relative);
+        match fs::symlink_metadata(&source) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                if let Err(error) = fs::copy(&source, pre_run.join(name)) {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "m20-granite-inference: preserve {}: {error}",
+                            source.display()
+                        ),
+                    );
+                }
+            }
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m20-granite-inference: refusing non-regular generated artifact {}",
+                        source.display()
+                    ),
+                )
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m20-granite-inference: inspect {}: {error}",
+                        source.display()
+                    ),
+                )
+            }
+        }
+    }
+    if let Err(error) = fs::write(
+        target_evidence.join("README.md"),
+        format!(
+            "# M20 Granite inference target archives\n\nStatus: PASS\nPinned llama.cpp source: {}\nTarget archive directory: target-build\nTarget compiler: {}\nNagi C++ headers: {}\nNagi relibc headers: {}\nBuild log: target-build.log\nPrior generated target artifacts: pre-run-target-artifacts/\n",
+            llama_source.display(),
+            target_clang.display(),
+            cxx_headers.display(),
+            relibc_headers.display()
+        ),
+    ) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-granite-inference: cannot write target build README: {error}"),
+        );
+    }
+
+    let cargo_env = [
+        ("NAGI_LLAMA_BUILD", build_dir.as_path()),
+        ("NAGI_LLAMA_SOURCE", llama_source.as_path()),
+        ("NAGI_TARGET_CLANG", target_clang.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        ("NAGI_RELIBC_HEADERS", relibc_headers.as_path()),
+        ("NAGI_LLVM_AR", llvm_ar.as_path()),
+        ("NAGI_LLVM_RANLIB", llvm_ranlib.as_path()),
+    ];
+    let evidence_inputs = [ModelStoreEvidenceInput {
+        environment: None,
+        source: &build_log,
+        evidence_name: "llama-target-build.log",
+    }];
+    let required_markers = ["Nagi M20 Granite structured inference PASS"];
+    let early_exit_markers = [
+        "Nagi M20 Model Store capability FAIL",
+        "Nagi M20 Granite structured inference FAIL",
+    ];
+    let options = ModelStoreAcceptanceOptions {
+        acceptance_marker: "Nagi M20 Granite structured inference PASS",
+        required_markers: &required_markers,
+        early_exit_markers: &early_exit_markers,
+        cargo_env: &cargo_env,
+        evidence_inputs: &evidence_inputs,
+        timeout: Duration::from_secs(21_600),
+        claims: "The guest ModelRuntime verifies the pinned Granite artifact before loading it through a seekable read-only Model Store descriptor into the target llama.cpp CPU backend. It generates a schema-constrained JSON response inside Nagi, then ModelRuntime validates that response. No host inference is used.",
+        success_summary: "guest Model Store load and structured Granite inference acceptance",
+    };
+    execute_model_store_artifact_with_options(
+        args,
+        root,
+        probe,
+        ModelStoreArtifactProfile {
+            command_name: "m20-granite-inference",
+            model_id: manifest.model_id.as_str().to_owned(),
+            artifact_id: artifact_id.as_str().to_owned(),
+            source_uri: source.uri.clone(),
+            source_revision: source.revision.clone(),
+            file_name: source.file_name.clone(),
+            format: manifest.artifact.format.as_str().to_owned(),
+            size_bytes,
+            sha256: integrity.digest.clone(),
+            init_feature: "m20-llama-inference-acceptance",
+            kernel_features: &["m20-llama-memory"],
+            image_prefix: "nagi-0.1-m20-granite-inference",
+            evidence_prefix: "m20-granite-inference",
+            vars_name: "granite-inference-OVMF_VARS.fd",
+            serial_name: "granite-inference-qemu.log",
+            digest_marker: "Nagi M20 Model Store capability PASS",
+        },
+        &options,
+    )
+}
+
+fn execute_m20_llama_smoke(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-llama-smoke: system clock: {error}"),
+            )
+        }
+    };
+    let evidence = root
+        .join("out/evidence")
+        .join(format!("m20-llama-link-smoke-{run_id}"));
+    if let Err(error) = fs::create_dir_all(evidence.parent().expect("evidence parent")) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: create evidence parent: {error}"),
+        );
+    }
+    if let Err(error) = fs::create_dir(&evidence) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: create evidence directory {}: {error}",
+                evidence.display()
+            ),
+        );
+    }
+
+    let llama_source = match ensure_llama_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-llama-smoke: pinned llama.cpp source: {error}"),
+            );
+        }
+    };
+    let target_clang = match resolve_m20_target_clang() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+    let cxx_headers = match resolve_m20_cxx_headers(&target_clang) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+    let relibc_headers = std::env::var_os("NAGI_RELIBC_HEADERS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            root.join("out/m17-mesa/relibc-target/x86_64-unknown-nagi-user/include")
+        });
+    if !relibc_headers.join("pthread.h").is_file() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: generated Nagi relibc headers are missing at {}; complete the target header generation first",
+                relibc_headers.display()
+            ),
+        );
+    }
+    let llvm_bin = target_clang.parent().unwrap_or_else(|| Path::new("."));
+    let llvm_ar = match resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+    let llvm_ranlib = match resolve_m20_llvm_tool("NAGI_LLVM_RANLIB", "llvm-ranlib", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+
+    let build_dir = evidence.join("target-build");
+    let build_log = evidence.join("target-build.log");
+    let pre_run = evidence.join("pre-run-target-artifacts");
+    if let Err(error) = fs::create_dir(&pre_run) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: create pre-run archive: {error}"),
+        );
+    }
+    let mut pre_run_files = Vec::new();
+    for (relative, name) in [
+        (
+            "target/x86_64-unknown-nagi-user/release/nagi-init",
+            "nagi-init",
+        ),
+        (
+            "target/x86_64-unknown-nagi/release/nagi-kernel",
+            "nagi-kernel",
+        ),
+        (
+            "loader/target/x86_64-unknown-uefi/release/nagi-loader.efi",
+            "nagi-loader.efi",
+        ),
+    ] {
+        let source = root.join(relative);
+        match fs::symlink_metadata(&source) {
+            Ok(metadata) if metadata.file_type().is_file() => {
+                let destination = pre_run.join(name);
+                if let Err(error) = fs::copy(&source, &destination) {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!("m20-llama-smoke: preserve {}: {error}", source.display()),
+                    );
+                }
+                pre_run_files.push((destination, format!("pre-run-target-artifacts/{name}")));
+            }
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m20-llama-smoke: refusing non-regular generated artifact {}",
+                        source.display()
+                    ),
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m20-llama-smoke: inspect {}: {error}", source.display()),
+                );
+            }
+        }
+    }
+
+    let mut build = ProcessCommand::new("bash");
+    build
+        .args(["tools/llama/build-nagi-target.sh"])
+        .current_dir(root)
+        .env("NAGI_LLAMA_BUILD", &build_dir)
+        .env("NAGI_TARGET_CLANG", &target_clang)
+        .env("NAGI_CXX_HEADERS", &cxx_headers)
+        .env("NAGI_RELIBC_HEADERS", &relibc_headers)
+        .env("NAGI_LLVM_AR", &llvm_ar)
+        .env("NAGI_LLVM_RANLIB", &llvm_ranlib);
+    let build_output = match build.output() {
+        Ok(output) => output,
+        Err(error) => {
+            let detail = format!("cannot start target archive build: {error}");
+            let _ = fs::write(&build_log, &detail);
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-llama-smoke: {detail} (evidence {})",
+                    evidence.display()
+                ),
+            );
+        }
+    };
+    let build_detail = command_output(&build_output);
+    if let Err(error) = fs::write(&build_log, &build_detail) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: cannot write {}: {error}",
+                build_log.display()
+            ),
+        );
+    }
+    if !build_output.status.success() {
+        let _ = write_m20_llama_smoke_readme(
+            &evidence,
+            &format!(
+                "Status: BLOCKED\nTarget archive build failed with {}.\nPinned source: {}\nBuild log: {}\n",
+                build_output.status,
+                llama_source.display(),
+                build_log.display()
+            ),
+        );
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: target archive build failed ({}); log {}; evidence {}",
+                build_output.status,
+                build_log.display(),
+                evidence.display()
+            ),
+        );
+    }
+
+    let image_name = format!("nagi-0.1-m20-llama-smoke-{run_id}.img");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m20-llama-link-smoke",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let cargo_env = [
+        ("NAGI_LLAMA_BUILD", build_dir.as_path()),
+        ("NAGI_LLAMA_SOURCE", llama_source.as_path()),
+        ("NAGI_TARGET_CLANG", target_clang.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        ("NAGI_RELIBC_HEADERS", relibc_headers.as_path()),
+        ("NAGI_LLVM_AR", llvm_ar.as_path()),
+        ("NAGI_LLVM_RANLIB", llvm_ranlib.as_path()),
+    ];
+    let image_result = execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        &image_name,
+        &cargo_env,
+        write_m17_fat12_image,
+        ImageBuildFeatures::default(),
+    );
+    let image_result_log = evidence.join("image-build.log");
+    if let Err(error) = fs::write(&image_result_log, image_result.lines.join("\n")) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: cannot write {}: {error}",
+                image_result_log.display()
+            ),
+        );
+    }
+    let mut target_elf_files = Vec::new();
+    let target_artifacts_built = image_result.exit_code == EXIT_SUCCESS
+        || image_result
+            .lines
+            .iter()
+            .any(|line| line.starts_with("FAIL image:"));
+    if target_artifacts_built {
+        let target_elf_dir = evidence.join("target-elf");
+        if let Err(error) = fs::create_dir(&target_elf_dir) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-llama-smoke: create target ELF evidence directory: {error}"),
+            );
+        }
+        for (relative, name) in [
+            (
+                "target/x86_64-unknown-nagi-user/release/nagi-init",
+                "nagi-init",
+            ),
+            (
+                "target/x86_64-unknown-nagi/release/nagi-kernel",
+                "nagi-kernel",
+            ),
+            (
+                "loader/target/x86_64-unknown-uefi/release/nagi-loader.efi",
+                "nagi-loader.efi",
+            ),
+        ] {
+            let source = root.join(relative);
+            match fs::symlink_metadata(&source) {
+                Ok(metadata) if metadata.file_type().is_file() => {
+                    let destination = target_elf_dir.join(name);
+                    if let Err(error) = fs::copy(&source, &destination) {
+                        return failure(
+                            EXIT_CONFIG_ERROR,
+                            format!(
+                                "m20-llama-smoke: preserve built target artifact {}: {error}",
+                                source.display()
+                            ),
+                        );
+                    }
+                    target_elf_files.push((destination, format!("target-elf/{name}")));
+                }
+                Ok(_) => {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "m20-llama-smoke: refusing non-regular built target artifact {}",
+                            source.display()
+                        ),
+                    );
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!("m20-llama-smoke: inspect built target artifact: {error}"),
+                    );
+                }
+            }
+        }
+    }
+    if image_result.exit_code != EXIT_SUCCESS {
+        let _ = write_m20_llama_smoke_readme(
+            &evidence,
+            &format!(
+                "Status: BLOCKED\nTarget llama.cpp archives built, but Nagi target image/link failed with exit code {}.\nPinned source: {}\nBuild log: {}\nImage build log: {}\n",
+                image_result.exit_code,
+                llama_source.display(),
+                build_log.display(),
+                image_result_log.display()
+            ),
+        );
+        let mut result = image_result;
+        result
+            .lines
+            .push(format!("M20 target-build evidence: {}", evidence.display()));
+        return result;
+    }
+
+    let host = match resolve_qemu_host(root, probe, "m20-llama-smoke") {
+        Ok(host) => host,
+        Err(error) => {
+            let _ = write_m20_llama_smoke_readme(
+                &evidence,
+                &format!(
+                    "Status: PARTIAL\nNagi target link completed; QEMU unavailable: {error}\n"
+                ),
+            );
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{error}; target ELF and archives are preserved at {}",
+                    evidence.display()
+                ),
+            );
+        }
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out/artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: {error}")),
+    };
+    let image_path = artifacts.join(&image_name);
+    let image_evidence = evidence.join(&image_name);
+    if let Err(error) = fs::copy(&image_path, &image_evidence) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: preserve {}: {error}",
+                image_path.display()
+            ),
+        );
+    }
+    let persistent_disk = evidence.join(format!("user-data-{run_id}.img"));
+    if let Err(error) = ensure_persistent_disk(&persistent_disk) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: initialize User Data image: {error}"),
+        );
+    }
+    let vars_copy = evidence.join("OVMF_VARS.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: initialize OVMF variables: {error}"),
+        );
+    }
+    let serial_log = evidence.join("qemu-serial.log");
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &serial_log,
+        acceptance_marker: "Nagi M20 llama backend init PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let qemu_status = match run_qemu_until_any_acceptance_marker_with_read_only_boot_disk(
+        &config,
+        &[
+            "Nagi M20 llama backend init PASS",
+            "Nagi M20 llama backend init FAIL",
+            "Nagi M7 VirtIO Block FAIL",
+        ],
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = write_m20_llama_smoke_readme(
+                &evidence,
+                &format!(
+                    "Status: BLOCKED\nTarget link completed, but QEMU did not reach the backend init marker: {error}\nQEMU log: {}\n",
+                    serial_log.display()
+                ),
+            );
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-llama-smoke: QEMU did not reach backend init marker: {error} (log {})",
+                    serial_log.display()
+                ),
+            );
+        }
+    };
+    let serial = match fs::read_to_string(&serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-llama-smoke: cannot read {}: {error}",
+                    serial_log.display()
+                ),
+            );
+        }
+    };
+    if !serial.contains("Nagi M20 llama backend init PASS") {
+        let _ = write_m20_llama_smoke_readme(
+            &evidence,
+            &format!(
+                "Status: FAIL\nQEMU exit: {qemu_status}\nGuest did not register the CPU backend.\nSerial log: {}\n",
+                serial_log.display()
+            ),
+        );
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-llama-smoke: guest backend init failed (QEMU exit {qemu_status}); log {}; evidence {}",
+                serial_log.display(),
+                evidence.display()
+            ),
+        );
+    }
+    for marker in ["Nagi Kernel started", "Nagi M20 llama backend init PASS"] {
+        if !serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m20-llama-smoke: guest log lacks `{marker}` (log {})",
+                    serial_log.display()
+                ),
+            );
+        }
+    }
+
+    let readme = evidence.join("README.md");
+    if let Err(error) = write_m20_llama_smoke_readme(
+        &evidence,
+        &format!(
+            "# M20 llama.cpp target link/init smoke\n\nStatus: PASS\nRun: {run_id}\nPinned patched source: {}\nTarget build: {}\nQEMU exit: {qemu_status}\nSerial acceptance: `llama_backend_init()` returned and the actual ggml CPU backend registry contained `CPU`.\n\nThis checks target archive build, static target linking, process startup, and backend initialization only. It does not load a model, validate Model Store integration, or run inference.\n",
+            llama_source.display(),
+            build_dir.display()
+        ),
+    ) {
+        return failure(EXIT_CONFIG_ERROR, format!("m20-llama-smoke: write README: {error}"));
+    }
+    let mut manifest_files = vec![
+        (readme.as_path(), "README.md".to_owned()),
+        (build_log.as_path(), "target-build.log".to_owned()),
+        (image_evidence.as_path(), image_name.clone()),
+        (persistent_disk.as_path(), format!("user-data-{run_id}.img")),
+        (vars_copy.as_path(), "OVMF_VARS.fd".to_owned()),
+        (serial_log.as_path(), "qemu-serial.log".to_owned()),
+    ];
+    manifest_files.extend(
+        pre_run_files
+            .iter()
+            .map(|(path, relative)| (path.as_path(), relative.clone())),
+    );
+    manifest_files.extend(
+        target_elf_files
+            .iter()
+            .map(|(path, relative)| (path.as_path(), relative.clone())),
+    );
+    let llama_archive = build_dir.join("src/libllama.a");
+    let ggml_archive = build_dir.join("ggml/src/libggml.a");
+    let ggml_cpu_archive = build_dir.join("ggml/src/libggml-cpu.a");
+    let ggml_base_archive = build_dir.join("ggml/src/libggml-base.a");
+    manifest_files.extend([
+        (
+            llama_archive.as_path(),
+            "target-build/src/libllama.a".to_owned(),
+        ),
+        (
+            ggml_archive.as_path(),
+            "target-build/ggml/src/libggml.a".to_owned(),
+        ),
+        (
+            ggml_cpu_archive.as_path(),
+            "target-build/ggml/src/libggml-cpu.a".to_owned(),
+        ),
+        (
+            ggml_base_archive.as_path(),
+            "target-build/ggml/src/libggml-base.a".to_owned(),
+        ),
+    ]);
+    if let Err(error) = write_sha256_manifest(&evidence.join("SHA256SUMS"), &manifest_files) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m20-llama-smoke: write SHA256SUMS: {error}"),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M20 llama.cpp target link/init smoke: actual CPU backend registered in Nagi/QEMU (exit {qemu_status}; evidence {})",
+            evidence.display()
+        )],
+    }
+}
+
+fn write_m20_llama_smoke_readme(evidence: &Path, content: &str) -> Result<(), String> {
+    fs::write(evidence.join("README.md"), content).map_err(|error| {
+        format!(
+            "cannot write M20 link-smoke evidence in {}: {error}",
+            evidence.display()
+        )
+    })
+}
+
+fn resolve_m20_target_clang() -> Result<PathBuf, String> {
+    let configured = std::env::var_os("NAGI_TARGET_CLANG").map(PathBuf::from);
+    if let Some(path) = configured.as_ref() {
+        // Resolve a bare command name to LLVM 19 first when it is installed.
+        // Nagi's current no-exceptions llama archive was built with this
+        // compiler and its matching libc++ headers; an unqualified `clang`
+        // can otherwise select the macOS SDK's unrelated libc++ headers.
+        if path.components().count() == 1 {
+            let executable = path.file_name().unwrap_or_default();
+            for prefix in ["/opt/homebrew/opt/llvm@19", "/usr/local/opt/llvm@19"] {
+                let candidate = PathBuf::from(prefix).join("bin").join(executable);
+                if candidate.is_file() {
+                    return Ok(candidate);
+                }
+            }
+        }
+        return Ok(path.clone());
+    }
+    for candidate in [
+        PathBuf::from("/opt/homebrew/opt/llvm@19/bin/clang"),
+        PathBuf::from("/usr/local/opt/llvm@19/bin/clang"),
+    ] {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Ok(PathBuf::from("clang"))
+}
+
+fn resolve_m20_cxx_headers(compiler: &Path) -> Result<PathBuf, String> {
+    if let Some(configured) = std::env::var_os("NAGI_CXX_HEADERS") {
+        let path = PathBuf::from(configured);
+        if path.join("cstddef").is_file() {
+            return Ok(path);
+        }
+        return Err(format!(
+            "NAGI_CXX_HEADERS lacks cstddef: {}",
+            path.display()
+        ));
+    }
+    if let Some(candidate) = compiler
+        .parent()
+        .and_then(Path::parent)
+        .map(|prefix| prefix.join("include/c++/v1"))
+    {
+        if candidate.join("cstddef").is_file() {
+            return Ok(candidate);
+        }
+    }
+    let output = ProcessCommand::new(compiler)
+        .args(["-E", "-x", "c++", "-", "-v"])
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| {
+            format!(
+                "cannot inspect libc++ headers using {}: {error}",
+                compiler.display()
+            )
+        })?;
+    for line in String::from_utf8_lossy(&output.stderr).lines() {
+        let candidate = Path::new(line.trim());
+        if candidate.ends_with("c++/v1") && candidate.join("cstddef").is_file() {
+            return Ok(candidate.to_path_buf());
+        }
+    }
+    Err(format!(
+        "cannot find libc++ headers for {}; set NAGI_CXX_HEADERS",
+        compiler.display()
+    ))
+}
+
+fn resolve_m20_llvm_tool(
+    override_name: &str,
+    tool_name: &str,
+    compiler_dir: &Path,
+) -> Result<PathBuf, String> {
+    if let Some(configured) = std::env::var_os(override_name) {
+        return Ok(PathBuf::from(configured));
+    }
+    let sibling = compiler_dir.join(tool_name);
+    if sibling.is_file() {
+        return Ok(sibling);
+    }
+    for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        let candidate = directory.join(tool_name);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "{tool_name} was not found beside the configured clang or on PATH"
+    ))
+}
+
+fn execute_m25_whisper(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let model = match crate::whisper_cpp::validate_whisper_model_artifact_lock(root) {
+        Ok(model) => model,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper: {error}")),
+    };
+    execute_model_store_artifact(
+        args,
+        root,
+        probe,
+        ModelStoreArtifactProfile {
+            command_name: "m25-whisper",
+            model_id: model.model_id,
+            artifact_id: model.artifact_id,
+            source_uri: model.repository,
+            source_revision: model.revision,
+            file_name: model.file_name,
+            format: model.format,
+            size_bytes: model.size_bytes,
+            sha256: model.sha256,
+            init_feature: "m25-whisper-artifact-acceptance",
+            kernel_features: &[],
+            image_prefix: "nagi-0.1-m25-whisper",
+            evidence_prefix: "m25-whisper-artifact",
+            vars_name: "whisper-OVMF_VARS.fd",
+            serial_name: "m25-whisper-qemu.log",
+            digest_marker: "Nagi M25 Whisper artifact digest PASS",
+        },
+    )
+}
+
+fn execute_m25_whisper_inference(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+) -> CommandResult {
+    let model = match crate::whisper_cpp::validate_whisper_model_artifact_lock(root) {
+        Ok(model) => model,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let requested_pcm_path = PathBuf::from(&args[1]);
+    let pcm_path = if requested_pcm_path.is_absolute() {
+        requested_pcm_path
+    } else {
+        root.join(requested_pcm_path)
+    };
+    let pcm_metadata = match fs::symlink_metadata(&pcm_path) {
+        Ok(metadata) if metadata.file_type().is_file() => metadata,
+        Ok(_) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m25-whisper-inference: PCM input must be a regular file: {}",
+                    pcm_path.display()
+                ),
+            )
+        }
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m25-whisper-inference: cannot inspect {}: {error}",
+                    pcm_path.display()
+                ),
+            )
+        }
+    };
+    if pcm_metadata.len() == 0 || pcm_metadata.len() > 1_048_576 || pcm_metadata.len() % 2 != 0 {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m25-whisper-inference: input must be raw mono S16LE at 16 kHz, nonempty, even-sized, and at most 1 MiB",
+        );
+    }
+    let expected_text = &args[2];
+    if expected_text.is_empty()
+        || expected_text.len() > 1024
+        || expected_text
+            .chars()
+            .any(|character| matches!(character, '\n' | '\r' | '\0'))
+    {
+        return failure(
+            EXIT_USAGE,
+            "m25-whisper-inference: expected text must be 1–1024 UTF-8 bytes without line breaks",
+        );
+    }
+
+    let whisper_source = match ensure_whisper_cpp_checkout(root) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m25-whisper-inference: pinned whisper.cpp source: {error}"),
+            )
+        }
+    };
+    let target_clang = match resolve_m20_target_clang() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let cxx_headers = match resolve_m20_cxx_headers(&target_clang) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let relibc_headers = std::env::var_os("NAGI_RELIBC_HEADERS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            root.join("out/m17-mesa/relibc-target/x86_64-unknown-nagi-user/include")
+        });
+    if !relibc_headers.join("pthread.h").is_file() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25-whisper-inference: generated Nagi relibc headers are missing at {}",
+                relibc_headers.display()
+            ),
+        );
+    }
+    let llvm_bin = target_clang.parent().unwrap_or_else(|| Path::new("."));
+    let llvm_ar = match resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let llvm_ranlib = match resolve_m20_llvm_tool("NAGI_LLVM_RANLIB", "llvm-ranlib", llvm_bin) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m25-whisper-inference: system clock: {error}"),
+            )
+        }
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out/logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25-whisper-inference: {error}")),
+    };
+    let whisper_build_log = logs.join(format!("m25-whisper-target-build-{run_id}.log"));
+    let build_dir = root.join("out/m25-whisper-target");
+    let mut build = ProcessCommand::new("bash");
+    build
+        .arg("tools/whisper/build-nagi-target.sh")
+        .current_dir(root)
+        .env("NAGI_WHISPER_SOURCE", &whisper_source)
+        .env("NAGI_WHISPER_BUILD", &build_dir)
+        .env("NAGI_TARGET_CLANG", &target_clang)
+        .env("NAGI_CXX_HEADERS", &cxx_headers)
+        .env("NAGI_RELIBC_HEADERS", &relibc_headers)
+        .env("NAGI_LLVM_AR", &llvm_ar)
+        .env("NAGI_LLVM_RANLIB", &llvm_ranlib);
+    let build_output = match build.output() {
+        Ok(output) => output,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m25-whisper-inference: cannot start target build: {error}"),
+            )
+        }
+    };
+    let build_detail = command_output(&build_output);
+    if let Err(error) = fs::write(&whisper_build_log, &build_detail) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25-whisper-inference: cannot write target build log {}: {error}",
+                whisper_build_log.display()
+            ),
+        );
+    }
+    if !build_output.status.success() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25-whisper-inference: Nagi-target whisper.cpp build failed ({}); log {}",
+                build_output.status,
+                whisper_build_log.display()
+            ),
+        );
+    }
+
+    let expected_text_path = logs.join(format!("m25-whisper-expected-text-{run_id}.txt"));
+    let mut expected_output = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&expected_text_path)
+    {
+        Ok(file) => file,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m25-whisper-inference: cannot create expected-text fixture {}: {error}",
+                    expected_text_path.display()
+                ),
+            )
+        }
+    };
+    if let Err(error) = expected_output.write_all(expected_text.as_bytes()) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25-whisper-inference: cannot write expected-text fixture {}: {error}",
+                expected_text_path.display()
+            ),
+        );
+    }
+    drop(expected_output);
+
+    let cargo_env = [
+        ("NAGI_WHISPER_BUILD", build_dir.as_path()),
+        ("NAGI_WHISPER_SOURCE", whisper_source.as_path()),
+        ("NAGI_TARGET_CLANG", target_clang.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        ("NAGI_RELIBC_HEADERS", relibc_headers.as_path()),
+        ("NAGI_LLVM_AR", llvm_ar.as_path()),
+        ("NAGI_LLVM_RANLIB", llvm_ranlib.as_path()),
+    ];
+    let evidence_inputs = [
+        ModelStoreEvidenceInput {
+            environment: Some("NAGI_M25_WHISPER_PCM_FIXTURE"),
+            source: &pcm_path,
+            evidence_name: "whisper-input-16khz-mono-s16le.pcm",
+        },
+        ModelStoreEvidenceInput {
+            environment: Some("NAGI_M25_WHISPER_EXPECTED_TEXT_FILE"),
+            source: &expected_text_path,
+            evidence_name: "expected-transcript.txt",
+        },
+        ModelStoreEvidenceInput {
+            environment: None,
+            source: &whisper_build_log,
+            evidence_name: "whisper-target-build.log",
+        },
+    ];
+    let required_markers = ["Nagi M25 Whisper Japanese fixture inference PASS"];
+    let early_exit_markers = [
+        "Nagi M20 Model Store capability FAIL",
+        "Nagi M25 Whisper artifact digest FAIL",
+        "Nagi M25 Whisper Japanese fixture inference FAIL",
+    ];
+    let options = ModelStoreAcceptanceOptions {
+        acceptance_marker: "Nagi M25 Whisper Japanese fixture inference PASS",
+        required_markers: &required_markers,
+        early_exit_markers: &early_exit_markers,
+        cargo_env: &cargo_env,
+        evidence_inputs: &evidence_inputs,
+        timeout: Duration::from_secs(3600),
+        claims: "The guest loads the pinned model through its read-only Model Store capability and runs whisper.cpp against the checksummed raw mono 16 kHz S16LE fixture. It verifies that inference includes the supplied expected Japanese text. This does not use a microphone, grant site or app authority, or execute the transcript.",
+        success_summary: "guest Model Store load and Japanese Whisper fixture inference acceptance",
+    };
+    let result = execute_model_store_artifact_with_options(
+        args,
+        root,
+        probe,
+        ModelStoreArtifactProfile {
+            command_name: "m25-whisper-inference",
+            model_id: model.model_id,
+            artifact_id: model.artifact_id,
+            source_uri: model.repository,
+            source_revision: model.revision,
+            file_name: model.file_name,
+            format: model.format,
+            size_bytes: model.size_bytes,
+            sha256: model.sha256,
+            init_feature: "m25-whisper-inference-acceptance",
+            kernel_features: &["m25-whisper-memory"],
+            image_prefix: "nagi-0.1-m25-whisper-inference",
+            evidence_prefix: "m25-whisper-inference",
+            vars_name: "whisper-inference-OVMF_VARS.fd",
+            serial_name: "whisper-inference-qemu.log",
+            digest_marker: "Nagi M25 Whisper artifact digest PASS",
+        },
+        &options,
+    );
+    let _ = fs::remove_file(expected_text_path);
+    result
+}
+
+fn execute_m26_model(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+    model: M26Model,
+) -> CommandResult {
+    let command_name = match model {
+        M26Model::Qwen => "m26-qwen",
+        M26Model::Gemma => "m26-gemma",
+    };
+    let pin = match validate_m26_model_lock(root, model) {
+        Ok(pin) => pin,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{command_name}: {error}")),
+    };
+    if let Err(error) = validate_m26_model_manifest(root, model, pin) {
+        return failure(EXIT_CONFIG_ERROR, format!("{command_name}: {error}"));
+    }
+    let init_feature = match model {
+        M26Model::Qwen => "m26-qwen-artifact-acceptance",
+        M26Model::Gemma => "m26-gemma-artifact-acceptance",
+    };
+    let artifact_args = match model {
+        M26Model::Qwen => args,
+        M26Model::Gemma if args.get(1).map(String::as_str) == Some("--accept-gemma-terms") => {
+            &args[..1]
+        }
+        M26Model::Gemma => {
+            return failure(
+                EXIT_USAGE,
+                "m26-gemma: user must explicitly pass --accept-gemma-terms after reviewing the Gemma Terms of Use",
+            )
+        }
+    };
+    execute_model_store_artifact(
+        artifact_args,
+        root,
+        probe,
+        ModelStoreArtifactProfile {
+            command_name,
+            model_id: pin.model_id.to_owned(),
+            artifact_id: pin.artifact_id.to_owned(),
+            source_uri: pin.repository.to_owned(),
+            source_revision: pin.revision.to_owned(),
+            file_name: pin.file_name.to_owned(),
+            format: pin.format.to_owned(),
+            size_bytes: pin.size_bytes,
+            sha256: pin.sha256.to_owned(),
+            init_feature,
+            kernel_features: &[],
+            image_prefix: match model {
+                M26Model::Qwen => "nagi-0.1-m26-qwen",
+                M26Model::Gemma => "nagi-0.1-m26-gemma",
+            },
+            evidence_prefix: match model {
+                M26Model::Qwen => "m26-qwen-artifact",
+                M26Model::Gemma => "m26-gemma-artifact",
+            },
+            vars_name: match model {
+                M26Model::Qwen => "qwen-OVMF_VARS.fd",
+                M26Model::Gemma => "gemma-OVMF_VARS.fd",
+            },
+            serial_name: match model {
+                M26Model::Qwen => "m26-qwen-qemu.log",
+                M26Model::Gemma => "m26-gemma-qemu.log",
+            },
+            digest_marker: match model {
+                M26Model::Qwen => "Nagi M26 Qwen artifact digest PASS",
+                M26Model::Gemma => "Nagi M26 Gemma artifact digest PASS",
+            },
+        },
+    )
+}
+
+fn execute_model_store_artifact(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+    profile: ModelStoreArtifactProfile,
+) -> CommandResult {
+    let options = ModelStoreAcceptanceOptions {
+        acceptance_marker: "Nagi M20 Model Store capability PASS",
+        required_markers: &[],
+        early_exit_markers: &[],
+        cargo_env: &[],
+        evidence_inputs: &[],
+        timeout: Duration::from_secs(1800),
+        claims: "The guest verifies the pinned artifact bytes through its read-only Model Store capability. No backend is loaded and no inference is performed.",
+        success_summary: "guest Model Store artifact digest acceptance",
+    };
+    execute_model_store_artifact_with_options(args, root, probe, profile, &options)
+}
+
+fn execute_model_store_artifact_with_options(
+    args: &[String],
+    root: &Path,
+    probe: &dyn HostProbe,
+    profile: ModelStoreArtifactProfile,
+    options: &ModelStoreAcceptanceOptions<'_>,
+) -> CommandResult {
+    let requested_path = PathBuf::from(&args[0]);
+    let artifact_path = if requested_path.is_absolute() {
+        requested_path
+    } else {
+        root.join(requested_path)
+    };
+    if let Err(error) =
+        verify_external_artifact(&artifact_path, profile.size_bytes, &profile.sha256)
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("{}: {error}", profile.command_name),
+        );
+    }
+    let artifact_id = match nagi_model_manager::ArtifactId::new(profile.artifact_id.clone()) {
+        Ok(artifact_id) => artifact_id,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: invalid pinned artifact ID: {error}",
+                    profile.command_name
+                ),
+            )
+        }
+    };
+    let short_name = nagi_model_manager::model_store_short_name(&artifact_id);
+    let file_name = match (
+        std::str::from_utf8(&short_name[..8]),
+        std::str::from_utf8(&short_name[8..]),
+    ) {
+        (Ok(base), Ok(extension)) => format!("{base}.{extension}"),
+        _ => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: invalid FAT32 Model Store name", profile.command_name),
+            )
+        }
+    };
+    let host = match resolve_qemu_host(root, probe, profile.command_name) {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: system clock: {error}", profile.command_name),
+            )
+        }
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: {error}", profile.command_name),
+            )
+        }
+    };
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("{}-{}", profile.evidence_prefix, run_id)),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: {error}", profile.command_name),
+            )
+        }
+    };
+    let mut copied_evidence_inputs = Vec::new();
+    let mut owned_cargo_env: Vec<(String, PathBuf)> = options
+        .cargo_env
+        .iter()
+        .map(|(name, path)| ((*name).to_owned(), (*path).to_path_buf()))
+        .collect();
+    for input in options.evidence_inputs {
+        let destination = evidence.join(input.evidence_name);
+        if let Err(error) = fs::copy(input.source, &destination) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: preserve evidence input {}: {error}",
+                    profile.command_name,
+                    input.source.display()
+                ),
+            );
+        }
+        if let Some(environment) = input.environment {
+            owned_cargo_env.push((environment.to_owned(), destination.clone()));
+        }
+        copied_evidence_inputs.push((destination, input.evidence_name.to_owned()));
+    }
+    let borrowed_cargo_env: Vec<(&str, &Path)> = owned_cargo_env
+        .iter()
+        .map(|(name, path)| (name.as_str(), path.as_path()))
+        .collect();
+    let image_name = format!("{}-{}.qcow2", profile.image_prefix, run_id);
+    let image_path = artifacts.join(&image_name);
+    let evidence_readme = evidence.join("README.md");
+    let initial_readme = format!(
+        "# {} Model Store acceptance\n\nModel ID: {}\nArtifact ID: {}\nSource: {} at {}\nLocked filename: {}\nModel Store filename: {}\nExternal artifact: {}\nFormat: {}\nExpected size: {} bytes\nExpected SHA-256: {}\n\nThe host verifies the external artifact against its source lock before streaming it into a separate GPT Model Store. {}\n",
+        profile.command_name,
+        profile.model_id,
+        profile.artifact_id,
+        profile.source_uri,
+        profile.source_revision,
+        profile.file_name,
+        file_name,
+        artifact_path.display(),
+        profile.format,
+        profile.size_bytes,
+        profile.sha256,
+        options.claims
+    );
+    if let Err(error) = fs::write(&evidence_readme, initial_readme) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("{}: cannot write README: {error}", profile.command_name),
+        );
+    }
+
+    let recovery_init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m27-recovery",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+        "--offline",
+    ];
+    let recovery_build = run_cargo(root, "Model Store Recovery init", &recovery_init_args);
+    if recovery_build.exit_code != EXIT_SUCCESS {
+        return recovery_build;
+    }
+    let recovery_init_path = root.join("target/x86_64-unknown-nagi-user/release/nagi-init");
+    let recovery_init = match fs::read(&recovery_init_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: cannot read {}: {error}",
+                    profile.command_name,
+                    recovery_init_path.display()
+                ),
+            );
+        }
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        profile.init_feature,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+        "--offline",
+    ];
+    let image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &image_name,
+            cargo_env: &borrowed_cargo_env,
+            recovery_init: Some(&recovery_init),
+            image_writer: write_reference_disk_qcow2,
+            external_model_store_file: Some((&file_name, &artifact_path)),
+            build_features: ImageBuildFeatures {
+                kernel: profile.kernel_features,
+                loader: &["m27-ab-slot-boot-control"],
+            },
+        },
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+
+    let vars_copy = evidence.join(profile.vars_name);
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "{}: initialize OVMF variables: {error}",
+                profile.command_name
+            ),
+        );
+    }
+    let serial_log = evidence.join(profile.serial_name);
+    let first_boot_log_name = format!("{}-first-boot.log", profile.evidence_prefix);
+    let first_boot_log = evidence.join(&first_boot_log_name);
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &image_path,
+        vars_copy: &vars_copy,
+        serial_log: &serial_log,
+        acceptance_marker: options.acceptance_marker,
+        timeout: options.timeout,
+    };
+    let mut qemu_stop_markers = vec![options.acceptance_marker];
+    qemu_stop_markers.extend_from_slice(options.early_exit_markers);
+    qemu_stop_markers.push("Nagi M5 process exit FAIL");
+    let mut first_boot_stop_markers = qemu_stop_markers.clone();
+    first_boot_stop_markers.push("Nagi M7 reboot required PASS");
+    let first_boot_config = QemuConfig {
+        serial_log: &first_boot_log,
+        ..config
+    };
+    let first_boot_status =
+        match run_qemu_until_any_acceptance_marker(&first_boot_config, &first_boot_stop_markers) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "{}: QEMU acceptance failed; log {}: {error}",
+                        profile.command_name,
+                        first_boot_log.display()
+                    ),
+                )
+            }
+        };
+    let first_boot_serial = match fs::read_to_string(&first_boot_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: cannot read {}: {error}",
+                    profile.command_name,
+                    first_boot_log.display()
+                ),
+            )
+        }
+    };
+    let mut first_boot_log_for_manifest = None;
+    let (qemu_status, serial) = if first_boot_serial.contains("Nagi M7 reboot required PASS") {
+        for marker in [
+            "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi M20 Model Store capability PASS",
+            profile.digest_marker,
+            "Nagi M7 ext2 format PASS",
+            "Nagi M7 persistent write PASS",
+        ] {
+            if !first_boot_serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "{}: User Data bootstrap did not print `{marker}` (log {})",
+                        profile.command_name,
+                        first_boot_log.display()
+                    ),
+                );
+            }
+        }
+        let restart_config = QemuConfig {
+            serial_log: &serial_log,
+            ..config
+        };
+        let status = match run_qemu_until_any_acceptance_marker_reusing_ovmf_vars(
+                &restart_config,
+                &qemu_stop_markers,
+            ) {
+                Ok(status) => status,
+                Err(error) => {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "{}: QEMU restart acceptance failed; first boot log {}, restart log {}: {error}",
+                            profile.command_name,
+                            first_boot_log.display(),
+                            serial_log.display()
+                        ),
+                    )
+                }
+            };
+        let serial = match fs::read_to_string(&serial_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "{}: cannot read {}: {error}",
+                        profile.command_name,
+                        serial_log.display()
+                    ),
+                )
+            }
+        };
+        first_boot_log_for_manifest = Some(first_boot_log_name.clone());
+        (status, serial)
+    } else {
+        if let Err(error) = fs::copy(&first_boot_log, &serial_log) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: preserve QEMU log {}: {error}",
+                    profile.command_name,
+                    serial_log.display()
+                ),
+            );
+        }
+        if let Err(error) = fs::remove_file(&first_boot_log) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: remove temporary first-boot log {}: {error}",
+                    profile.command_name,
+                    first_boot_log.display()
+                ),
+            );
+        }
+        (first_boot_status, first_boot_serial)
+    };
+    let mut required_markers = vec![
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M20 Model Store capability PASS",
+        profile.digest_marker,
+    ];
+    required_markers.extend_from_slice(options.required_markers);
+    for marker in required_markers {
+        if !serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: guest did not print {} (QEMU exit {qemu_status}; log {})",
+                    profile.command_name,
+                    marker,
+                    serial_log.display()
+                ),
+            );
+        }
+    }
+    let image_check = ProcessCommand::new("qemu-img")
+        .args(["check", "-f", "qcow2"])
+        .arg(&image_path)
+        .output();
+    match image_check {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: qemu-img check failed: {}",
+                    profile.command_name,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ),
+            )
+        }
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: qemu-img check: {error}", profile.command_name),
+            )
+        }
+    }
+    let bootstrap_note = first_boot_log_for_manifest.as_ref().map_or_else(
+        || "The host acceptance runner did not need a separate User Data bootstrap restart.".to_owned(),
+        |first_boot_log_name| {
+            format!(
+                "The host acceptance runner relaunched QEMU after User Data bootstrap, reusing the same qcow2 image and OVMF variables; first-boot log: {first_boot_log_name}."
+            )
+        },
+    );
+    let final_readme = format!(
+        "# {} Model Store acceptance\n\nStatus: PASS\nModel ID: {}\nArtifact ID: {}\nSource: {} at {}\nLocked filename: {}\nModel Store filename: {}\nExternal artifact: {}\nFormat: {}\nSize: {} bytes\nSHA-256: {}\n\nThe guest booted System A, read the complete artifact through the separate read-only Model Store FAT32 reader, and verified its actual bytes against the locked SHA-256. qemu-img check passed for {}. {} {} QEMU log: {}.\n",
+        profile.command_name,
+        profile.model_id,
+        profile.artifact_id,
+        profile.source_uri,
+        profile.source_revision,
+        profile.file_name,
+        file_name,
+        artifact_path.display(),
+        profile.format,
+        profile.size_bytes,
+        profile.sha256,
+        image_path.display(),
+        bootstrap_note,
+        options.claims,
+        profile.serial_name
+    );
+    if let Err(error) = fs::write(&evidence_readme, final_readme) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("{}: cannot update README: {error}", profile.command_name),
+        );
+    }
+    let mut manifest_paths = vec![
+        (evidence_readme.as_path(), "README.md".to_owned()),
+        (
+            image_path.as_path(),
+            format!("../../artifacts/{image_name}"),
+        ),
+        (vars_copy.as_path(), profile.vars_name.to_owned()),
+        (serial_log.as_path(), profile.serial_name.to_owned()),
+    ];
+    manifest_paths.extend(
+        copied_evidence_inputs
+            .iter()
+            .map(|(path, relative)| (path.as_path(), relative.clone())),
+    );
+    if let Some(first_boot_log_name) = first_boot_log_for_manifest.as_ref() {
+        manifest_paths.push((first_boot_log.as_path(), first_boot_log_name.clone()));
+    }
+    if let Err(error) = write_sha256_manifest(&evidence.join("SHA256SUMS"), &manifest_paths) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("{}: write evidence manifest: {error}", profile.command_name),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS {} {} (image {}; artifact {}; log {}; evidence {})",
+            profile.command_name,
+            options.success_summary,
+            image_path.display(),
+            artifact_path.display(),
+            serial_log.display(),
+            evidence.display()
+        )],
+    }
+}
+
+fn pinned_granite_manifest(root: &Path) -> Result<nagi_model_manager::ModelManifest, String> {
+    let manifest_path = root.join("user/nagi-model-manager/tests/fixtures/granite-4.2-3b.json");
+    let manifest_bytes = fs::read(&manifest_path)
+        .map_err(|error| format!("cannot read {}: {error}", manifest_path.display()))?;
+    let manifest = nagi_model_manager::ModelManifest::parse_json(&manifest_bytes)
+        .map_err(|error| format!("Granite manifest is invalid: {error}"))?;
+    if manifest.model_id.as_str() != "ibm.granite-4.2-3b" {
+        return Err("Granite manifest has an unexpected model ID".to_owned());
+    }
+    let (artifact_id, source, integrity, size) = match (
+        &manifest.artifact.reference,
+        manifest.source.as_ref(),
+        manifest.artifact.integrity.as_ref(),
+        manifest.artifact.size_bytes,
+    ) {
+        (
+            nagi_model_manager::ArtifactReference::ModelStore { artifact_id },
+            Some(source),
+            Some(integrity),
+            Some(size),
+        ) => (artifact_id.as_str(), source, integrity, size),
+        _ => return Err("Granite manifest is missing pinned Model Store metadata".to_owned()),
+    };
+    if integrity.algorithm != "sha256" || manifest.artifact.format.as_str() != "gguf" {
+        return Err("Granite manifest has an unsupported artifact contract".to_owned());
+    }
+    let lock = fs::read_to_string(root.join("third_party/models.lock"))
+        .map_err(|error| format!("cannot read third_party/models.lock: {error}"))?;
+    let locked = |key: &str| {
+        crate::llama_cpp::lock_value(&lock, "models.granite_4_2_3b", key)
+            .ok_or_else(|| format!("third_party/models.lock is missing Granite field `{key}`"))
+    };
+    let notice = manifest
+        .license
+        .notices
+        .iter()
+        .find(|notice| notice.notice_id == "apache-2.0")
+        .ok_or_else(|| "Granite manifest is missing the Apache-2.0 notice".to_owned())?;
+    let fields = [
+        ("model_id", manifest.model_id.as_str().to_owned()),
+        ("repository", source.uri.clone()),
+        ("revision", source.revision.clone()),
+        ("file_name", source.file_name.clone()),
+        ("format", manifest.artifact.format.as_str().to_owned()),
+        ("size_bytes", size.to_string()),
+        ("sha256", integrity.digest.clone()),
+        ("license", manifest.license.identifier.clone()),
+        (
+            "license_reference",
+            manifest.license.terms_reference.clone().unwrap_or_default(),
+        ),
+        ("notice_id", notice.notice_id.clone()),
+        ("notice_reference", notice.reference.clone()),
+        (
+            "acknowledgement_required",
+            manifest.license.acknowledgement_required.to_string(),
+        ),
+        ("artifact_id", artifact_id.to_owned()),
+        ("storage", "model_store".to_owned()),
+    ];
+    for (key, expected) in fields {
+        let actual = locked(key)?;
+        if actual != expected {
+            return Err(format!(
+                "Granite manifest field `{key}` does not match third_party/models.lock"
+            ));
+        }
+    }
+    Ok(manifest)
+}
+
+fn verify_external_artifact(
+    path: &Path,
+    expected_size: u64,
+    expected_digest: &str,
+) -> Result<(), String> {
+    let mut file = fs::File::open(path).map_err(|error| {
+        format!(
+            "cannot open external model artifact {}: {error}",
+            path.display()
+        )
+    })?;
+    let metadata = file.metadata().map_err(|error| {
+        format!(
+            "cannot inspect external model artifact {}: {error}",
+            path.display()
+        )
+    })?;
+    if !metadata.is_file() || metadata.len() != expected_size {
+        return Err(format!(
+            "external model artifact {} has the wrong file type or size (expected {expected_size} bytes)",
+            path.display()
+        ));
+    }
+    let mut hasher = Sha256::new();
+    let mut total = 0u64;
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| {
+            format!("cannot hash external artifact {}: {error}", path.display())
+        })?;
+        if read == 0 {
+            break;
+        }
+        total = total
+            .checked_add(read as u64)
+            .ok_or_else(|| "external model size overflow".to_owned())?;
+        hasher.update(&buffer[..read]);
+    }
+    if total != expected_size {
+        return Err(format!(
+            "external model artifact {} changed size during verification",
+            path.display()
+        ));
+    }
+    let actual_digest = format!("{:x}", hasher.finalize());
+    if actual_digest != expected_digest {
+        return Err(format!(
+            "external model artifact {} has SHA-256 {actual_digest}, expected {expected_digest}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn write_sha256_manifest(paths: &Path, files: &[(&Path, String)]) -> Result<(), String> {
+    let mut manifest = String::new();
+    for (path, relative_name) in files {
+        let digest = m30_image_sha256(path)?;
+        manifest.push_str(&format!("{digest}  {relative_name}\n"));
+    }
+    fs::write(paths, manifest).map_err(|error| format!("cannot write {}: {error}", paths.display()))
+}
+
+fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let host = match resolve_qemu_host(root, probe, "m30") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let source_revision = match m30_clean_source_revision(root) {
+        Ok(revision) => revision,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+    };
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: system clock: {error}")),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+    };
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m30-release-{run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+    };
+    let image_name = "Nagi-OS-0.1-devpreview.qcow2";
+    let image_path = artifacts.join(image_name);
+    let vars_copy = artifacts.join(format!("nagi-0.1-m30-vars-{run_id}.fd"));
+    let image_is_new = match fs::symlink_metadata(&image_path) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            if let Err(error) = validate_reference_disk_qcow2(&image_path) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m30: existing release image is invalid: {error}"),
+                );
+            }
+            if let Err(error) = verify_m30_image_build_info(&image_path, &source_revision) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m30: refusing to accept an image without matching current-source provenance ({error}); preserve the existing image, move it and its `.build-info` file out of `out/artifacts`, then rerun `./nagi m30`"
+                    ),
+                );
+            }
+            false
+        }
+        Ok(_) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: release image path is not a regular file: {}",
+                    image_path.display()
+                ),
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: cannot inspect release image {}: {error}",
+                    image_path.display()
+                ),
+            );
+        }
+    };
+
+    if image_is_new {
+        let recovery_init_args = [
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m27-recovery",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+            "--locked",
+        ];
+        let recovery_init_build = run_cargo(root, "M30 Recovery init", &recovery_init_args);
+        if recovery_init_build.exit_code != EXIT_SUCCESS {
+            return recovery_init_build;
+        }
+        let recovery_init_path = root
+            .join("target")
+            .join("x86_64-unknown-nagi-user")
+            .join("release")
+            .join("nagi-init");
+        let recovery_init = match fs::read(&recovery_init_path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m30: cannot read {}: {error}", recovery_init_path.display()),
+                );
+            }
+        };
+        let client_env = match isolated_client_env(root) {
+            Ok(env) => env,
+            Err(result) => return result,
+        };
+        let client_env_refs = client_env
+            .each_ref()
+            .map(|(key, path)| (*key, path.as_path()));
+        let init_args = [
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m10-desktop,m19-search,m20-model-store-acceptance,m22-history,m21-action-ipc",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+            "--locked",
+        ];
+        let image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+            root,
+            &init_args,
+            None,
+            ImageBuildRequest {
+                image_name,
+                cargo_env: &client_env_refs,
+                recovery_init: Some(&recovery_init),
+                image_writer: write_reference_disk_qcow2,
+                external_model_store_file: None,
+                build_features: ImageBuildFeatures {
+                    kernel: &[],
+                    loader: &["m27-ab-slot-boot-control"],
+                },
+            },
+        );
+        if image_result.exit_code != EXIT_SUCCESS {
+            return image_result;
+        }
+        if let Err(error) = write_m30_image_build_info(&image_path, &source_revision) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot write current-source image provenance: {error}"),
+            );
+        }
+    }
+
+    let qemu_test_image = evidence.join("reference-disk-qemu-acceptance-copy.qcow2");
+    if let Err(error) = fs::copy(&image_path, &qemu_test_image) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: cannot create QEMU acceptance copy {} from {}: {error}",
+                qemu_test_image.display(),
+                image_path.display()
+            ),
+        );
+    }
+
+    let first_log = evidence.join("reference-disk-first-boot.log");
+    let first_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &qemu_test_image,
+        persistent_disk: &qemu_test_image,
+        vars_copy: &vars_copy,
+        serial_log: &first_log,
+        acceptance_marker: "Nagi M7 acceptance PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let first_status = match run_qemu_until_any_acceptance_marker(
+        &first_config,
+        &["Nagi M7 reboot required PASS", "Nagi M7 acceptance PASS"],
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: initial QEMU boot: {error}"),
+            );
+        }
+    };
+    let first_serial = match fs::read_to_string(&first_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", first_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M20 Model Store capability PASS",
+        "Nagi M27 persistence decision: confirmed slot=A",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi Kernel started",
+        "Nagi M7 VirtIO Block PASS",
+    ] {
+        if !first_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: initial boot did not print `{marker}` (QEMU exit {first_status}; log {})",
+                    first_log.display()
+                ),
+            );
+        }
+    }
+    if first_serial.contains("Nagi M7 reboot required PASS") {
+        for marker in ["Nagi M7 ext2 format PASS", "Nagi M7 persistent write PASS"] {
+            if !first_serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m30: User Data bootstrap did not print `{marker}` (log {})",
+                        first_log.display()
+                    ),
+                );
+            }
+        }
+    } else if !first_serial.contains("Nagi M7 persistent read PASS") {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: existing User Data did not print the persistent read marker (log {})",
+                first_log.display()
+            ),
+        );
+    }
+
+    let serial_log = evidence.join("reference-disk-restart.log");
+    let restart_config = QemuConfig {
+        serial_log: &serial_log,
+        acceptance_marker: "Nagi M13 acceptance PASS",
+        ..first_config
+    };
+    let qemu_status = match run_m13_qemu_with_http_fixture(root, &restart_config) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: persistent restart boot: {error}"),
+            );
+        }
+    };
+    let serial = match fs::read_to_string(&serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", serial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M20 Model Store capability PASS",
+        "Nagi M27 persistence decision: confirmed slot=A",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi Kernel started",
+        "Nagi M7 VirtIO Block PASS",
+        "Nagi M7 ext2 mount PASS",
+        "Nagi M7 persistent read PASS",
+        "Nagi M7 acceptance PASS",
+        "Nagi bootstrap Channel wait/wake PASS",
+        "Nagi M19 live VFS file ObjectId rename/restart PASS",
+        "Nagi M19 guest search persistence PASS",
+        "Nagi M22 file.search Activity Ledger PASS",
+        "Nagi M22 AI Activity Ledger committed PASS",
+        "Nagi M21 file.move Plan Validate Execute PASS",
+        "Nagi M22 move group persisted in guest VFS PASS",
+        "Nagi M21 file.copy Plan Validate Execute PASS",
+        "Nagi M22 file.copy prepared transaction persisted PASS",
+        "Nagi M13 acceptance PASS",
+    ] {
+        if !serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: release guest did not print `{marker}` (QEMU exit {qemu_status}; log {})",
+                    serial_log.display()
+                ),
+            );
+        }
+    }
+
+    let recovery_log = evidence.join("reference-disk-recovery-boot.log");
+    let recovery_config = QemuConfig {
+        serial_log: &recovery_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        timeout: Duration::from_secs(180),
+        ..restart_config
+    };
+    let recovery_status = match run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
+        &recovery_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_RECOVERY_MENU_EVENTS,
+        "Nagi M27 Recovery console READY",
+        b"check\nfiles\nhelp\n",
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: Recovery QEMU boot: {error}"),
+            );
+        }
+    };
+    let recovery_serial = match fs::read_to_string(&recovery_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", recovery_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 boot menu: confirmed=A pending=none",
+        "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+        "Nagi M30 GPT partition boot: Recovery PASS",
+        "Nagi M27 Recovery Environment START",
+        "Nagi M27 Recovery VFS check PASS files=",
+        "Nagi M27 Recovery command help PASS",
+    ] {
+        if !recovery_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: Recovery boot did not print `{marker}` (QEMU exit {recovery_status}; log {})",
+                    recovery_log.display()
+                ),
+            );
+        }
+    }
+    if recovery_serial.contains("Nagi M27 persistence decision:")
+        || recovery_serial.contains("Nagi M27 readiness persisted")
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: Recovery changed the A/B boot decision or reported trial readiness (log {})",
+                recovery_log.display()
+            ),
+        );
+    }
+
+    let unstaged_b_log = evidence.join("reference-disk-unstaged-system-b.log");
+    let unstaged_b_config = QemuConfig {
+        serial_log: &unstaged_b_log,
+        acceptance_marker: "Nagi M30 GPT partition boot: System A PASS",
+        ..restart_config
+    };
+    let unstaged_b_status = match run_qemu_gui_reusing_ovmf_vars_with_events(
+        &unstaged_b_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M30_UNSTAGED_SYSTEM_B_MENU_EVENTS,
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: unstaged System B selection QEMU: {error}"),
+            );
+        }
+    };
+    let unstaged_b_serial = match fs::read_to_string(&unstaged_b_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", unstaged_b_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 boot menu: confirmed=A pending=none",
+        "Nagi M27 boot menu: System B unavailable (no staged image)",
+        "Nagi M27 manual selection: confirmed slot=A (pending trial preserved) PASS",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi M30 GPT partition boot: System A PASS",
+    ] {
+        if !unstaged_b_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: unstaged System B selection did not print `{marker}` (QEMU exit {unstaged_b_status}; log {})",
+                    unstaged_b_log.display()
+                ),
+            );
+        }
+    }
+    if unstaged_b_serial.contains("Nagi M27 persistence decision:")
+        || unstaged_b_serial.contains("Nagi M27 readiness persisted")
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: an unstaged System B selection changed boot policy state (log {})",
+                unstaged_b_log.display()
+            ),
+        );
+    }
+
+    let post_recovery_log = evidence.join("reference-disk-post-recovery-boot.log");
+    let post_recovery_config = QemuConfig {
+        serial_log: &post_recovery_log,
+        ..restart_config
+    };
+    let post_recovery_status = match run_m13_qemu_with_http_fixture(root, &post_recovery_config) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: post-Recovery System A restart: {error}"),
+            );
+        }
+    };
+    let post_recovery_serial = match fs::read_to_string(&post_recovery_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", post_recovery_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M27 persistence decision: confirmed slot=A",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi M7 persistent read PASS",
+        "Nagi M7 acceptance PASS",
+        "Nagi bootstrap Channel wait/wake PASS",
+        "Nagi M19 live VFS file ObjectId rename/restart PASS",
+        "Nagi M19 guest search persistence PASS",
+        "Nagi M22 file.search Activity Ledger PASS",
+        "Nagi M22 AI Activity Ledger undo result PASS",
+        "Nagi M22 composite undo applied and persisted PASS",
+        "Nagi M13 acceptance PASS",
+    ] {
+        if !post_recovery_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: post-Recovery boot did not print `{marker}` (QEMU exit {post_recovery_status}; log {})",
+                    post_recovery_log.display()
+                ),
+            );
+        }
+    }
+
+    let evidence_vars_copy = evidence.join("reference-disk-OVMF_VARS.fd");
+    if let Err(error) = fs::copy(&vars_copy, &evidence_vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: cannot preserve final OVMF variables at {}: {error}",
+                evidence_vars_copy.display()
+            ),
+        );
+    }
+
+    let recovery_init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m27-recovery",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let recovery_init_build = run_cargo(root, "M20 fixture Recovery init", &recovery_init_args);
+    if recovery_init_build.exit_code != EXIT_SUCCESS {
+        return recovery_init_build;
+    }
+    let recovery_init_path = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release")
+        .join("nagi-init");
+    let recovery_init = match fs::read(&recovery_init_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", recovery_init_path.display()),
+            );
+        }
+    };
+    let fixture_image_name = format!("nagi-0.1-m20-reader-{run_id}.qcow2");
+    let fixture_client_env = match isolated_client_env(root) {
+        Ok(env) => env,
+        Err(result) => return result,
+    };
+    let fixture_client_env_refs = fixture_client_env
+        .each_ref()
+        .map(|(key, path)| (*key, path.as_path()));
+    let fixture_init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m10-desktop,m19-search,m20-fixture-acceptance,m22-history,m21-action-ipc",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let fixture_image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &fixture_init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &fixture_image_name,
+            cargo_env: &fixture_client_env_refs,
+            recovery_init: Some(&recovery_init),
+            image_writer: write_m20_model_store_fixture_reference_disk_qcow2,
+            external_model_store_file: None,
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-boot-control"],
+            },
+        },
+    );
+    if fixture_image_result.exit_code != EXIT_SUCCESS {
+        return fixture_image_result;
+    }
+    let fixture_image_artifact = artifacts.join(&fixture_image_name);
+    let fixture_image = evidence.join("m20-model-store-reader-fixture.qcow2");
+    if let Err(error) = fs::copy(&fixture_image_artifact, &fixture_image) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m30: cannot preserve M20 reader fixture {}: {error}",
+                fixture_image.display()
+            ),
+        );
+    }
+    let fixture_vars_copy = evidence.join("m20-model-store-reader-fixture-vars.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &fixture_vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m30: initialize M20 fixture OVMF variables: {error}"),
+        );
+    }
+    let fixture_serial_log = evidence.join("m20-model-store-reader-fixture.log");
+    let fixture_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &fixture_image,
+        persistent_disk: &fixture_image,
+        vars_copy: &fixture_vars_copy,
+        serial_log: &fixture_serial_log,
+        acceptance_marker: "Nagi M20 FAT32 fixture read PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let fixture_status = match run_qemu_until_any_acceptance_marker(
+        &fixture_config,
+        &["Nagi M20 FAT32 fixture read PASS"],
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: M20 Model Store fixture QEMU boot: {error}"),
+            );
+        }
+    };
+    let fixture_serial = match fs::read_to_string(&fixture_serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30: cannot read {}: {error}", fixture_serial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M30 GPT partition boot: System A PASS",
+        "Nagi M20 Model Store capability PASS",
+        "Nagi M20 FAT32 fixture read PASS",
+    ] {
+        if !fixture_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m30: M20 fixture guest did not print `{marker}` (QEMU exit {fixture_status}; log {})",
+                    fixture_serial_log.display()
+                ),
+            );
+        }
+    }
+    for checked_image in [&image_path, &qemu_test_image, &fixture_image] {
+        let image_check = ProcessCommand::new("qemu-img")
+            .args(["check", "-f", "qcow2"])
+            .arg(checked_image)
+            .output();
+        match image_check {
+            Ok(output) if output.status.success() => {}
+            Ok(output) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m30: qemu-img check failed for {}: {}",
+                        checked_image.display(),
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ),
+                );
+            }
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m30: qemu-img check {}: {error}", checked_image.display()),
+                );
+            }
+        }
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M30 64 GiB GPT qcow2 passed System A, User Data persistence, Recovery, unstaged System B rejection, and post-Recovery restart acceptance; separate M20 guest FAT32 fixture read passed (image {}; QEMU copy {}; System A log {}; Recovery log {}; unstaged System B log {}; post-Recovery log {}; M20 fixture {}; M20 log {})",
+            image_path.display(),
+            qemu_test_image.display(),
+            serial_log.display(),
+            recovery_log.display(),
+            unstaged_b_log.display(),
+            post_recovery_log.display(),
+            fixture_image.display(),
+            fixture_serial_log.display()
+        )],
+    }
+}
+
+fn m30_clean_source_revision(root: &Path) -> Result<String, String> {
+    let revision = ProcessCommand::new("git")
+        .args(["rev-parse", "--verify", "HEAD"])
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("cannot read Git source revision: {error}"))?;
+    if !revision.status.success() {
+        return Err(format!(
+            "cannot read Git source revision: {}",
+            String::from_utf8_lossy(&revision.stderr).trim()
+        ));
+    }
+    let revision = String::from_utf8(revision.stdout)
+        .map_err(|error| format!("Git source revision is not UTF-8: {error}"))?;
+    let revision = revision.trim();
+    if !valid_m30_source_revision(revision) {
+        return Err("Git returned an invalid full source revision".to_owned());
+    }
+
+    let status = ProcessCommand::new("git")
+        .args(["status", "--porcelain=v1", "--untracked-files=all"])
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("cannot verify Git source tree cleanliness: {error}"))?;
+    if !status.status.success() {
+        return Err(format!(
+            "cannot verify Git source tree cleanliness: {}",
+            String::from_utf8_lossy(&status.stderr).trim()
+        ));
+    }
+    if !status.stdout.is_empty() {
+        return Err("M30 image acceptance requires a clean committed source tree".to_owned());
+    }
+    Ok(revision.to_owned())
+}
+
+fn valid_m30_source_revision(revision: &str) -> bool {
+    matches!(revision.len(), 40 | 64)
+        && revision
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn m30_image_build_info_path(image_path: &Path) -> Result<PathBuf, String> {
+    let Some(file_name) = image_path.file_name() else {
+        return Err(format!(
+            "image path has no filename: {}",
+            image_path.display()
+        ));
+    };
+    let mut build_info_name = file_name.to_os_string();
+    build_info_name.push(".build-info");
+    Ok(image_path.with_file_name(build_info_name))
+}
+
+fn m30_image_sha256(image_path: &Path) -> Result<String, String> {
+    let mut image = fs::File::open(image_path)
+        .map_err(|error| format!("cannot open {}: {error}", image_path.display()))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let length = image
+            .read(&mut buffer)
+            .map_err(|error| format!("cannot hash {}: {error}", image_path.display()))?;
+        if length == 0 {
+            break;
+        }
+        digest.update(&buffer[..length]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn m30_image_build_info_matches(contents: &str, source_revision: &str, image_sha256: &str) -> bool {
+    valid_m30_source_revision(source_revision)
+        && image_sha256.len() == 64
+        && image_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        && contents
+            == format!(
+                "format_version=1\nsource_revision={source_revision}\nimage_sha256={image_sha256}\n"
+            )
+}
+
+fn verify_m30_image_build_info(image_path: &Path, source_revision: &str) -> Result<(), String> {
+    let image_sha256 = m30_image_sha256(image_path)?;
+    let build_info_path = m30_image_build_info_path(image_path)?;
+    let metadata = fs::symlink_metadata(&build_info_path)
+        .map_err(|error| format!("cannot inspect {}: {error}", build_info_path.display()))?;
+    if !metadata.file_type().is_file() {
+        return Err(format!(
+            "{} is not a regular file",
+            build_info_path.display()
+        ));
+    }
+    let contents = fs::read_to_string(&build_info_path)
+        .map_err(|error| format!("cannot read {}: {error}", build_info_path.display()))?;
+    if !m30_image_build_info_matches(&contents, source_revision, &image_sha256) {
+        return Err(format!(
+            "{} does not match source revision {source_revision} and image SHA-256 {image_sha256}",
+            build_info_path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn write_m30_image_build_info(image_path: &Path, source_revision: &str) -> Result<(), String> {
+    if !valid_m30_source_revision(source_revision) {
+        return Err("invalid source revision".to_owned());
+    }
+    let image_sha256 = m30_image_sha256(image_path)?;
+    let build_info_path = m30_image_build_info_path(image_path)?;
+    match fs::symlink_metadata(&build_info_path) {
+        Ok(metadata) if metadata.file_type().is_file() => {}
+        Ok(_) => {
+            return Err(format!(
+                "{} is not a regular file",
+                build_info_path.display()
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect {}: {error}",
+                build_info_path.display()
+            ));
+        }
+    }
+    fs::write(
+        &build_info_path,
+        format!(
+            "format_version=1\nsource_revision={source_revision}\nimage_sha256={image_sha256}\n"
+        ),
+    )
+    .map_err(|error| format!("cannot write {}: {error}", build_info_path.display()))
 }
 
 struct QemuHost {
@@ -1305,6 +4322,80 @@ const M10_DESKTOP_EVENTS: [&str; 8] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"x","value":100}}]}}"#,
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}},{"type":"btn","data":{"button":"left","down":false}}]}}"#,
+];
+
+const M29_DESKTOP_FOCUS_EVENTS: [&str; 11] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"a"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"a"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+];
+
+const M29_SETTINGS_EVENTS: [&str; 10] = [
+    // Move the pointer away from the language controls before activating the
+    // final locale; the accepted Desktop may stop polling input immediately.
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"x","value":100}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":38}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"esc"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"esc"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"down"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"down"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"up"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"up"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"down"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"down"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"spc"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"spc"}}}]}}"#,
+];
+
+const M10_DESKTOP_REQUIRED_MARKERS: &[&str] = &[
+    "Nagi boot stage PLATFORM 15",
+    "Nagi boot stage CORE_SERVICES 30",
+    "Nagi boot stage STORAGE 50",
+    "Nagi boot stage GRAPHICS 70",
+    "Nagi boot stage SESSION 90",
+    "Nagi boot lock READY",
+    "Nagi boot collapse COMPLETE",
+    "Nagi boot frame checksum=",
+    "Nagi boot lock checksum=",
+    "Nagi M10 desktop READY",
+    "Nagi M10 surface checksum=",
+    "Nagi M10 Calculator focus PASS",
+    "Nagi M10 Notes focus PASS",
+    "Nagi M10 Japanese input PASS",
+    "Nagi M10 Files focus PASS",
+    "Nagi M10 GUI Terminal focus PASS",
+    "Nagi M29 keyboard locale selection PASS locale=ja-JP",
+    "Nagi M10 acceptance PASS",
+];
+
+const M29_SETTINGS_REQUIRED_MARKERS: &[&str] = &[
+    "Nagi boot stage PLATFORM 15",
+    "Nagi boot stage CORE_SERVICES 30",
+    "Nagi boot stage STORAGE 50",
+    "Nagi boot stage GRAPHICS 70",
+    "Nagi boot stage SESSION 90",
+    "Nagi boot lock READY",
+    "Nagi boot collapse COMPLETE",
+    "Nagi boot frame checksum=",
+    "Nagi boot lock checksum=",
+    "Nagi M10 desktop READY",
+    "Nagi M10 surface checksum=",
+    "Nagi M10 Calculator focus PASS",
+    "Nagi M10 Notes focus PASS",
+    "Nagi M10 Japanese input PASS",
+    "Nagi M10 Files focus PASS",
+    "Nagi M10 GUI Terminal focus PASS",
+    "Nagi M29 desktop keyboard focus PASS",
+    "Nagi M29 settings locale persisted PASS locale=ja-JP",
+    "Nagi M29 settings locale PASS locale=ja-JP",
+    "Nagi M10 acceptance PASS",
+    "Nagi M29 settings acceptance PASS",
 ];
 
 fn execute_gui(root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -1418,31 +4509,134 @@ fn execute_gui(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let image_result =
-        execute_image_with_features(root, Some("m10-desktop"), "nagi-0.1-m10-desktop.img");
+    execute_desktop_acceptance(
+        root,
+        probe,
+        DesktopAcceptanceConfig {
+            label: "desktop",
+            features: "m10-desktop",
+            image_name: "nagi-0.1-m10-desktop.img",
+            persistent_disk_name: "nagi-0.1-user-data.img",
+            vars_name: "nagi-0.1-m10-desktop-vars.fd",
+            first_log_name: "m10-first-boot.log",
+            run_log_name: "m10-desktop.log",
+            evidence_prefix: "m29-desktop",
+            screenshot_name: "nagi-m10-desktop.png",
+            acceptance_marker: "Nagi M10 acceptance PASS",
+            required_markers: M10_DESKTOP_REQUIRED_MARKERS,
+            restart_marker: None,
+            restart_log_name: None,
+            unique_run_artifacts: false,
+        },
+        &M10_DESKTOP_EVENTS,
+    )
+}
+
+fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let mut events = M29_DESKTOP_FOCUS_EVENTS.to_vec();
+    events.extend_from_slice(&M10_DESKTOP_EVENTS);
+    events.extend_from_slice(&M29_SETTINGS_EVENTS);
+    execute_desktop_acceptance(
+        root,
+        probe,
+        DesktopAcceptanceConfig {
+            label: "m29",
+            features: "m10-desktop,m29-settings-acceptance",
+            image_name: "nagi-0.1-m29-settings-persistent.img",
+            persistent_disk_name: "nagi-0.1-m29-settings-persistent-user-data.img",
+            vars_name: "nagi-0.1-m29-settings-persistent-vars.fd",
+            first_log_name: "m29-settings-persistent-first-boot.log",
+            run_log_name: "m29-settings-persistent.log",
+            evidence_prefix: "m29-settings",
+            screenshot_name: "nagi-m29-settings-ja-jp.png",
+            acceptance_marker: "Nagi M29 settings acceptance PASS",
+            required_markers: M29_SETTINGS_REQUIRED_MARKERS,
+            restart_marker: Some("Nagi M29 settings preference restored PASS locale=ja-JP"),
+            restart_log_name: Some("m29-settings-persistent-restart.log"),
+            unique_run_artifacts: true,
+        },
+        &events,
+    )
+}
+
+fn execute_desktop_acceptance(
+    root: &Path,
+    probe: &dyn HostProbe,
+    acceptance: DesktopAcceptanceConfig,
+    events: &[&str],
+) -> CommandResult {
+    let screenshot_run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: system clock: {error}", acceptance.label),
+            );
+        }
+    };
+    let image_name = scoped_artifact_name(
+        acceptance.image_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let persistent_disk_name = scoped_artifact_name(
+        acceptance.persistent_disk_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let vars_name = scoped_artifact_name(
+        acceptance.vars_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let first_log_name = scoped_artifact_name(
+        acceptance.first_log_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let run_log_name = scoped_artifact_name(
+        acceptance.run_log_name,
+        &screenshot_run_id,
+        acceptance.unique_run_artifacts,
+    );
+    let restart_log_name = acceptance.restart_log_name.map(|name| {
+        scoped_artifact_name(name, &screenshot_run_id, acceptance.unique_run_artifacts)
+    });
+    let image_result = execute_image_with_features(root, Some(acceptance.features), &image_name);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
-    let host = match resolve_qemu_host(root, probe, "desktop") {
+    let host = match resolve_qemu_host(root, probe, acceptance.label) {
         Ok(host) => host,
         Err(error) => return failure(EXIT_CONFIG_ERROR, error),
     };
     let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
-    let image_path = artifacts.join("nagi-0.1-m10-desktop.img");
-    let persistent_disk = artifacts.join("nagi-0.1-user-data.img");
-    let vars_copy = artifacts.join("nagi-0.1-m10-desktop-vars.fd");
-    let first_log = logs.join("m10-first-boot.log");
-    let desktop_log = logs.join("m10-desktop.log");
+    let screenshot_directory = match ensure_owned_directory(
+        root,
+        Path::new("out").join("evidence").join(format!(
+            "{}-{screenshot_run_id}",
+            acceptance.evidence_prefix
+        )),
+    ) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
+    };
+    let screenshot_path = screenshot_directory.join(acceptance.screenshot_name);
+    let image_path = artifacts.join(image_name);
+    let persistent_disk = artifacts.join(persistent_disk_name);
+    let vars_copy = artifacts.join(vars_name);
+    let first_log = logs.join(first_log_name);
+    let desktop_log = logs.join(run_log_name);
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let timeout = Duration::from_secs(45);
     if !had_persistent_disk {
@@ -1458,21 +4652,31 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             timeout,
         };
         if let Err(error) = run_qemu(&first_config) {
-            return failure(EXIT_CONFIG_ERROR, format!("desktop: first boot: {error}"));
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: first boot: {error}", acceptance.label),
+            );
         }
         let first_serial = match fs::read_to_string(&first_log) {
             Ok(serial) => serial,
             Err(error) => {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("desktop: cannot read {}: {error}", first_log.display()),
+                    format!(
+                        "{}: cannot read {}: {error}",
+                        acceptance.label,
+                        first_log.display()
+                    ),
                 );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("desktop: first boot did not print `{NAGI_WRITE_MARKER}`"),
+                format!(
+                    "{}: first boot did not print `{NAGI_WRITE_MARKER}`",
+                    acceptance.label
+                ),
             );
         }
     }
@@ -1484,60 +4688,160 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         persistent_disk: &persistent_disk,
         vars_copy: &vars_copy,
         serial_log: &desktop_log,
-        acceptance_marker: "Nagi M10 acceptance PASS",
+        acceptance_marker: acceptance.acceptance_marker,
         timeout,
     };
-    let status =
-        match run_qemu_gui_with_events(&config, "Nagi M10 desktop READY", &M10_DESKTOP_EVENTS) {
-            Ok(status) => status,
-            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("desktop: {error}")),
-        };
+    let outcome = match run_qemu_gui_with_events_and_screenshot(
+        &config,
+        "Nagi M10 desktop READY",
+        events,
+        &screenshot_path,
+    ) {
+        Ok(status) => status,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
+    };
     let serial = match fs::read_to_string(&desktop_log) {
         Ok(serial) => serial,
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("desktop: cannot read {}: {error}", desktop_log.display()),
+                format!(
+                    "{}: cannot read {}: {error}",
+                    acceptance.label,
+                    desktop_log.display()
+                ),
             );
         }
     };
     let mut last_marker_end = 0;
-    for marker in [
-        "Nagi boot stage PLATFORM 15",
-        "Nagi boot stage CORE_SERVICES 30",
-        "Nagi boot stage STORAGE 50",
-        "Nagi boot stage GRAPHICS 70",
-        "Nagi boot stage SESSION 90",
-        "Nagi boot lock READY",
-        "Nagi boot collapse COMPLETE",
-        "Nagi boot frame checksum=",
-        "Nagi boot lock checksum=",
-        "Nagi M10 desktop READY",
-        "Nagi M10 surface checksum=",
-        "Nagi M10 Calculator focus PASS",
-        "Nagi M10 Notes focus PASS",
-        "Nagi M10 Japanese input PASS",
-        "Nagi M10 Files focus PASS",
-        "Nagi M10 GUI Terminal focus PASS",
-        "Nagi M10 acceptance PASS",
-    ] {
+    for marker in acceptance.required_markers {
         let Some(relative) = serial[last_marker_end..].find(marker) else {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "desktop: guest did not print ordered marker `{marker}` (QEMU exit {status}; log {})",
+                    "{}: guest did not print ordered marker `{marker}` (QEMU exit {}; log {})",
+                    acceptance.label,
+                    outcome.exit_status,
                     desktop_log.display()
                 ),
             );
         };
         last_marker_end += relative + marker.len();
     }
+    if !outcome.acceptance_reached {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "{}: guest markers are present but QEMU did not reach its acceptance marker (exit {}; log {})",
+                acceptance.label,
+                outcome.exit_status,
+                desktop_log.display()
+            ),
+        );
+    }
+    let Some(ready_after) = outcome.ready_after else {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "{}: QEMU acceptance completed without observing the READY marker (log {})",
+                acceptance.label,
+                desktop_log.display()
+            ),
+        );
+    };
+    let restart_log_path = match (acceptance.restart_marker, restart_log_name) {
+        (Some(restart_marker), Some(restart_log_name)) => {
+            let restart_log = logs.join(restart_log_name);
+            let restart_config = QemuConfig {
+                qemu: &host.qemu,
+                ovmf_code: &host.ovmf_code,
+                ovmf_vars_template: &host.ovmf_vars,
+                disk_image: &image_path,
+                persistent_disk: &persistent_disk,
+                vars_copy: &vars_copy,
+                serial_log: &restart_log,
+                acceptance_marker: restart_marker,
+                timeout,
+            };
+            if let Err(error) = run_qemu(&restart_config) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("{}: persistence restart: {error}", acceptance.label),
+                );
+            }
+            let restart_serial = match fs::read_to_string(&restart_log) {
+                Ok(serial) => serial,
+                Err(error) => {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "{}: cannot read {}: {error}",
+                            acceptance.label,
+                            restart_log.display()
+                        ),
+                    );
+                }
+            };
+            let mut marker_end = 0;
+            for marker in ["Nagi M10 desktop READY", restart_marker] {
+                let Some(relative) = restart_serial[marker_end..].find(marker) else {
+                    return failure(
+                        EXIT_CONFIG_ERROR,
+                        format!(
+                            "{}: persistence restart did not print ordered marker `{marker}` (log {})",
+                            acceptance.label,
+                            restart_log.display()
+                        ),
+                    );
+                };
+                marker_end += relative + marker.len();
+            }
+            Some(restart_log)
+        }
+        (None, None) => None,
+        _ => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "{}: incomplete persistence restart configuration",
+                    acceptance.label
+                ),
+            );
+        }
+    };
+    let mut lines = vec![format!(
+        "PASS {}: QEMU guest rendered and interacted with the Nagi desktop (exit {}; guest READY after {} ms; log {}; screenshot {})",
+        acceptance.label,
+        outcome.exit_status,
+        ready_after.as_millis(),
+        desktop_log.display(),
+        screenshot_path.display(),
+    )];
+    if let Some(restart_log) = restart_log_path {
+        lines.push(format!(
+            "PASS {}: the selected system language was restored after a QEMU restart (log {})",
+            acceptance.label,
+            restart_log.display(),
+        ));
+    }
     CommandResult {
         exit_code: EXIT_SUCCESS,
-        lines: vec![format!(
-            "PASS desktop: QEMU guest rendered and interacted with the Nagi desktop (exit {status}; log {})",
-            desktop_log.display()
-        )],
+        lines,
+    }
+}
+
+fn scoped_artifact_name(name: &str, run_id: &str, unique_run: bool) -> String {
+    if !unique_run {
+        return name.to_owned();
+    }
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(name);
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) => format!("{stem}-{run_id}.{extension}"),
+        None => format!("{name}-{run_id}"),
     }
 }
 
@@ -2126,7 +5430,7 @@ fn execute_m14_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m14: cannot read {}: {error}", first_log.display()),
-                )
+                );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
@@ -2157,7 +5461,7 @@ fn execute_m14_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m14: cannot read {}: {error}", audio_log.display()),
-            )
+            );
         }
     };
     for marker in [
@@ -2213,6 +5517,183 @@ fn execute_m15(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     result
 }
 
+fn execute_m25(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: system clock: {error}")),
+    };
+    let host = match resolve_qemu_host(root, probe, "m25") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: {error}")),
+    };
+    let image_name = format!("nagi-0.1-m25-voice-{run_id}.img");
+    let image_path = artifacts.join(&image_name);
+    let persistent_disk = artifacts.join(format!("nagi-0.1-m25-voice-user-data-{run_id}.img"));
+    let vars_copy = artifacts.join(format!("nagi-0.1-m25-voice-vars-{run_id}.fd"));
+    let bootstrap_log = logs.join(format!("m25-voice-bootstrap-{run_id}.log"));
+    let voice_log = logs.join(format!("m25-voice-{run_id}.log"));
+    for path in [
+        &image_path,
+        &persistent_disk,
+        &vars_copy,
+        &bootstrap_log,
+        &voice_log,
+    ] {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m25: refusing to overwrite existing run artifact {}",
+                        path.display()
+                    ),
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m25: cannot inspect {}: {error}", path.display()),
+                );
+            }
+        }
+    }
+    let image_result = execute_image_with_features(root, Some("m25-voice-acceptance"), &image_name);
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: {error}")),
+    };
+    if had_persistent_disk {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m25: unique User Data path unexpectedly existed: {}",
+                persistent_disk.display()
+            ),
+        );
+    }
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m25: initialize OVMF variables: {error}"),
+        );
+    }
+    let timeout = Duration::from_secs(90);
+    if !had_persistent_disk {
+        let bootstrap_config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &bootstrap_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        let status = match run_qemu(&bootstrap_config) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m25: storage bootstrap: {error}"),
+                );
+            }
+        };
+        let serial = match fs::read_to_string(&bootstrap_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m25: cannot read {}: {error}", bootstrap_log.display()),
+                );
+            }
+        };
+        for marker in [NAGI_WRITE_MARKER, "Nagi M7 reboot required PASS"] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m25: storage bootstrap did not print `{marker}` (QEMU exit {status}; log {})",
+                        bootstrap_log.display()
+                    ),
+                );
+            }
+        }
+    }
+
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &voice_log,
+        acceptance_marker: "Nagi M25 voice orchestration PASS",
+        timeout,
+    };
+    let status = match run_qemu(&config) {
+        Ok(status) => status,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m25: QEMU: {error}")),
+    };
+    let serial = match fs::read_to_string(&voice_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m25: cannot read {}: {error}", voice_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi Kernel started",
+        "Nagi M2 acceptance PASS",
+        "Nagi M3 acceptance PASS",
+        "Nagi M4 acceptance PASS",
+        "Nagi M5 user process START",
+        "Nagi M6 acceptance PASS",
+        "Nagi M7 ext2 mount PASS",
+        "Nagi M7 persistent read PASS",
+        "Nagi M25 permission fail-closed PASS",
+        "Nagi M25 indicator-before-provider PASS",
+        "Nagi M25 bounded PCM forwarding PASS",
+        "Nagi M25 unavailable cleanup PASS",
+        "Nagi M25 empty transcript rejected PASS",
+        "Nagi M25 fixture transcript delivery PASS",
+        "Nagi M25 TTS provider contract PASS",
+        "Nagi M25 voice orchestration PASS",
+    ] {
+        if !serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m25: guest did not print `{marker}` (QEMU exit {status}; log {})",
+                    voice_log.display()
+                ),
+            );
+        }
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M25 guest voice orchestration: bounded fixture capture and TTS PCM, permission/indicator ordering, provider cleanup, empty-result rejection, and fixed Japanese fixture transcript handoff passed; no real audio device, STT model, or TTS engine was used (log {})",
+            voice_log.display()
+        )],
+    }
+}
+
 fn execute_m15_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let image_result =
         execute_image_with_features(root, Some("m15-history"), "nagi-0.1-m15-history.img");
@@ -2262,7 +5743,7 @@ fn execute_m15_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m15: cannot read {}: {error}", first_log.display()),
-                )
+                );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
@@ -2293,7 +5774,7 @@ fn execute_m15_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m15: cannot read {}: {error}", history_log.display()),
-            )
+            );
         }
     };
     for marker in [
@@ -2384,13 +5865,13 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     "m17: Mesa/Softpipe build failed: {}",
                     command_output(&output)
                 ),
-            )
+            );
         }
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m17: cannot start tools/mesa/build.sh through bash: {error}"),
-            )
+            );
         }
     }
 
@@ -2410,25 +5891,32 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "--locked",
         "--offline",
     ];
+    let mut init_build_env = vec![
+        ("NAGI_M16_PACKAGE", package_path.as_path()),
+        ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        // MozJS builds host-side configure helpers as well as Nagi
+        // target objects; keep those host probes off the target wrapper.
+        ("HOST_CC", Path::new("cc")),
+        ("HOST_CXX", Path::new("c++")),
+        (
+            "CC_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+        (
+            "CXX_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+    ];
+    append_nagi_target_archive_tools(&mut init_build_env, std::env::consts::OS);
     let image_result = execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
         Some(&rust_std_source),
         "nagi-0.1-m17-servo.img",
-        &[
-            ("NAGI_M16_PACKAGE", package_path.as_path()),
-            ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
-            ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
-            (
-                "CC_x86_64_unknown_nagi_user",
-                target_compiler_wrapper.as_path(),
-            ),
-            (
-                "CXX_x86_64_unknown_nagi_user",
-                target_compiler_wrapper.as_path(),
-            ),
-        ],
+        &init_build_env,
         write_m17_fat12_image,
+        ImageBuildFeatures::default(),
     );
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
@@ -2483,7 +5971,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m17: cannot read {}: {error}", first_log.display()),
-                )
+                );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
@@ -2517,7 +6005,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     serial_log_m17_trace_excerpt(&log_path, 256),
                     serial_log_tail(&log_path, 64),
                 ),
-            )
+            );
         }
     };
     let serial = match fs::read_to_string(&log_path) {
@@ -2526,7 +6014,7 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m17: cannot read {}: {error}", log_path.display()),
-            )
+            );
         }
     };
     for marker in [
@@ -2650,7 +6138,7 @@ fn execute_m16_sample_build(root: &Path) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: sample build failed: {}", command_output(&output)),
-            )
+            );
         }
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m16: sample build: {error}")),
     };
@@ -2678,13 +6166,13 @@ fn execute_m16_sample_build(root: &Path) -> CommandResult {
                     "m16: sample SDK artifact failed: {}",
                     command_output(&output)
                 ),
-            )
+            );
         }
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: sample SDK artifact: {error}"),
-            )
+            );
         }
     };
     let generated_dir = root.join("out").join("generated").join("m16");
@@ -2708,7 +6196,7 @@ fn execute_m16_sample_build(root: &Path) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: IDL generation failed: {}", command_output(&output)),
-            )
+            );
         }
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m16: IDL generation: {error}")),
     };
@@ -2761,7 +6249,7 @@ fn execute_m16_sample_build(root: &Path) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: package build failed: {}", command_output(&output)),
-            )
+            );
         }
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m16: package build: {error}")),
     };
@@ -2798,7 +6286,7 @@ fn execute_m16_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "m16-package",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
-        "-Zbuild-std=core,compiler_builtins",
+        "-Zbuild-std=core,alloc,compiler_builtins",
         "--release",
     ];
     let image_result = execute_image_with_init_build_env(
@@ -2854,7 +6342,7 @@ fn execute_m16_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("m16: cannot read {}: {error}", first_log.display()),
-                )
+                );
             }
         };
         if !first_serial.contains(NAGI_WRITE_MARKER) {
@@ -2885,7 +6373,7 @@ fn execute_m16_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!("m16: cannot read {}: {error}", package_log.display()),
-            )
+            );
         }
     };
     for marker in [
@@ -3269,6 +6757,24 @@ fn run_cargo(root: &Path, label: &str, args: &[&str]) -> CommandResult {
     )
 }
 
+fn execute_format(root: &Path) -> CommandResult {
+    for (program, args) in host_format_commands() {
+        let output = ProcessCommand::new(program)
+            .args(args)
+            .current_dir(root)
+            .output();
+        let result = finish_tool(&format!("fmt ({program})"), program, output);
+        if result.exit_code != EXIT_SUCCESS {
+            return result;
+        }
+    }
+
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec!["PASS fmt: configured repository source checks passed".into()],
+    }
+}
+
 fn run_cargo_in(
     root: &Path,
     relative_directory: &Path,
@@ -3317,21 +6823,29 @@ fn run_cargo_with_rust_std_source(
 }
 
 fn finish_cargo(label: &str, output: std::io::Result<std::process::Output>) -> CommandResult {
+    finish_tool(label, "cargo", output)
+}
+
+fn finish_tool(
+    label: &str,
+    program: &str,
+    output: std::io::Result<std::process::Output>,
+) -> CommandResult {
     match output {
         Ok(output) if output.status.success() => CommandResult {
             exit_code: EXIT_SUCCESS,
-            lines: vec![format!("PASS {label}: cargo completed successfully")],
+            lines: vec![format!("PASS {label}: {program} completed successfully")],
         },
         Ok(output) => {
             let detail = command_output(&output).trim().to_owned();
             failure(
                 output.status.code().unwrap_or(EXIT_CONFIG_ERROR),
-                format!("{label}: cargo failed{}", nonempty_detail(&detail)),
+                format!("{label}: {program} failed{}", nonempty_detail(&detail)),
             )
         }
         Err(error) => failure(
             EXIT_CONFIG_ERROR,
-            format!("{label}: cannot start cargo: {error}"),
+            format!("{label}: cannot start {program}: {error}"),
         ),
     }
 }
@@ -3459,12 +6973,2505 @@ fn nonempty_detail(detail: &str) -> String {
     }
 }
 
+fn append_nagi_target_archive_tools<'a>(cargo_env: &mut Vec<(&'a str, &'a Path)>, host_os: &str) {
+    if host_os == "macos" {
+        // Apple's archiver treats freestanding Nagi ELF objects as invalid
+        // Mach-O members. Keep the override target-qualified so build-script
+        // host tools continue using the native macOS archiver.
+        cargo_env.push(("AR_x86_64_unknown_nagi_user", Path::new("llvm-ar")));
+        cargo_env.push(("RANLIB_x86_64_unknown_nagi_user", Path::new("llvm-ranlib")));
+    }
+}
+
+fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let cxx_headers = match resolve_m17_cxx_headers() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: C++ headers: {error}")),
+    };
+
+    let fetch = execute_fetch(root);
+    if fetch.exit_code != EXIT_SUCCESS {
+        return fetch;
+    }
+    let sample = execute_m16_sample_build(root);
+    if sample.exit_code != EXIT_SUCCESS {
+        return sample;
+    }
+
+    let rust_std_source = match prepare_nagi_rust_std_source(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: rust std: {error}")),
+    };
+    let mesa_build = ProcessCommand::new("bash")
+        .args(["tools/mesa/build.sh"])
+        .current_dir(root)
+        .output();
+    match mesa_build {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: Mesa/Softpipe build failed: {}",
+                    command_output(&output)
+                ),
+            );
+        }
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m18: cannot start tools/mesa/build.sh through bash: {error}"),
+            );
+        }
+    }
+
+    let package_path = root.join("out").join("artifacts").join("hello-nagi.xapp");
+    let mesa_build_path = root.join("out").join("m17-mesa").join("mesa-build");
+    let target_compiler_wrapper = root.join("tools").join("nagi-target-cc.sh");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m18-acceptance",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=std,panic_abort",
+        "--release",
+        "--locked",
+        "--offline",
+    ];
+    let mut init_build_env = vec![
+        ("NAGI_M16_PACKAGE", package_path.as_path()),
+        ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        // MozJS builds host-side configure helpers as well as Nagi
+        // target objects; keep those host probes off the target wrapper.
+        ("HOST_CC", Path::new("cc")),
+        ("HOST_CXX", Path::new("c++")),
+        (
+            "CC_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+        (
+            "CXX_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+    ];
+    append_nagi_target_archive_tools(&mut init_build_env, std::env::consts::OS);
+    let image_result = execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        Some(&rust_std_source),
+        "nagi-0.1-m18-albert.img",
+        &init_build_env,
+        write_m17_fat12_image,
+        ImageBuildFeatures {
+            kernel: &["m18-browser-memory"],
+            loader: &[],
+        },
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+
+    let host = match resolve_qemu_host(root, probe, "m18") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: {error}")),
+    };
+    let evidence_run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: system clock: {error}")),
+    };
+    let evidence_directory = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m29-browser-{evidence_run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m18: evidence directory: {error}"),
+            )
+        }
+    };
+    let screenshot_path = evidence_directory.join("nagi-m18-browser.png");
+    let image_path = artifacts.join("nagi-0.1-m18-albert.img");
+    let persistent_disk = artifacts.join("nagi-0.1-m18-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-m18-vars.fd");
+    let first_log = logs.join("m18-first-boot.log");
+    let log_path = logs.join("m18-albert.log");
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m18: {error}")),
+    };
+    let timeout = Duration::from_secs(1_200);
+    if !had_persistent_disk {
+        let first_config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &first_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        if let Err(error) = run_qemu_with_read_only_boot_disk(&first_config) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: first boot: {error}\nserial log tail:\n{}",
+                    serial_log_tail(&first_log, 64)
+                ),
+            );
+        }
+        let first_serial = match fs::read_to_string(&first_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m18: cannot read {}: {error}", first_log.display()),
+                );
+            }
+        };
+        if !first_serial.contains(NAGI_WRITE_MARKER) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: first boot did not print `{NAGI_WRITE_MARKER}` (log {})",
+                    first_log.display()
+                ),
+            );
+        }
+    }
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &log_path,
+        acceptance_marker: "Nagi M18 browser scenario complete pages=3",
+        timeout,
+    };
+    let outcome =
+        match run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot(
+            &config,
+            "Nagi M18 browser READY",
+            &M18_INPUT_EVENTS,
+            "Nagi M18 browser FAIL",
+            &screenshot_path,
+        ) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m18: QEMU: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
+                        serial_log_m17_trace_excerpt(&log_path, 256),
+                        serial_log_tail(&log_path, 64),
+                    ),
+                );
+            }
+        };
+    let serial = match fs::read_to_string(&log_path) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m18: cannot read {}: {error}", log_path.display()),
+            );
+        }
+    };
+    if let Err(error) = crate::m18_acceptance::validate_serial_log(&serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m18: guest browser acceptance failed: {error} (QEMU exit {}; log {})",
+                outcome.exit_status,
+                log_path.display()
+            ),
+        );
+    }
+    if !outcome.acceptance_reached {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m18: guest reached no complete three-page browser acceptance (exit {}; log {})",
+                outcome.exit_status,
+                log_path.display()
+            ),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU (exit {}; log {}; screenshot {})",
+            outcome.exit_status,
+            log_path.display(),
+            screenshot_path.display(),
+        )],
+    }
+}
+const ISOLATED_PROCESS_MARKERS: [&str; 16] = [
+    "Nagi Kernel started",
+    "Nagi ADR0043 isolated process spawned pid=2",
+    "Nagi isolated process kernel-stamped sender PASS",
+    "Nagi isolated process forged payload identity denied PASS",
+    "Nagi isolated process address space and syscall isolation PASS",
+    "Nagi ADR0043 isolated process exit pid=2 code=0",
+    "Nagi isolated process exit cleanup PASS",
+    "Nagi ADR0047 isolated process fault pid=3 vector=14",
+    "Nagi ADR0047 isolated process fault pid=4 vector=6",
+    "Nagi ADR0047 isolated process fault pid=5 vector=13",
+    "Nagi isolated process fault containment PASS",
+    "Nagi Supervisor process exit status PASS",
+    "Nagi Supervisor signed package verification PASS",
+    "Nagi isolated processes concurrent PASS",
+    "Nagi Supervisor grant consent required PASS",
+    "Nagi Supervisor grant decisions PASS",
+];
+const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PASS";
+
+/// ADR 0043 acceptance: the Supervisor (init) spawns a real second ELF into
+/// its own address space and authorizes it only by kernel-stamped identity.
+/// Build the isolated application ELFs (ADR 0043/0044) and return the
+/// release output directory that contains them.
+fn build_isolated_apps(root: &Path) -> Result<PathBuf, CommandResult> {
+    let app_build = run_cargo(
+        root,
+        "isolated app build",
+        &[
+            "build",
+            "-p",
+            "nagi-isolated-app",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std-features=compiler-builtins-mem",
+            "--release",
+            "--locked",
+        ],
+    );
+    if app_build.exit_code != EXIT_SUCCESS {
+        return Err(app_build);
+    }
+    let release = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release");
+    let packages = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("artifacts")
+            .join("acceptance-packages"),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return Err(failure(
+                EXIT_CONFIG_ERROR,
+                format!("acceptance packages: {error}"),
+            ))
+        }
+    };
+    for (name, application, executable) in ACCEPTANCE_PACKAGES {
+        let manifest = root
+            .join("user")
+            .join("nagi-init")
+            .join("manifests")
+            .join(format!("{application}.manifest"));
+        let elf = release.join(executable);
+        let output = packages.join(format!("{name}.xapp"));
+        let (manifest, elf, output) = (
+            manifest.display().to_string(),
+            elf.display().to_string(),
+            output.display().to_string(),
+        );
+        let packaged = run_cargo(
+            root,
+            "acceptance package signing",
+            &[
+                "run",
+                "--quiet",
+                "--locked",
+                "--manifest-path",
+                "tools/nagi-pkg/Cargo.toml",
+                "--",
+                "build-signed",
+                &manifest,
+                &elf,
+                &output,
+            ],
+        );
+        if packaged.exit_code != EXIT_SUCCESS {
+            return Err(packaged);
+        }
+    }
+    Ok(packages)
+}
+
+/// Signed `.xapp` packages the Supervisor launches in acceptances
+/// (ADR 0049): `(package name, manifest application ID, isolated ELF)`.
+const ACCEPTANCE_PACKAGES: [(&str, &str, &str); 7] = [
+    (
+        "isolated-app",
+        "org.nagi.acceptance.isolated-app",
+        "nagi-isolated-app",
+    ),
+    (
+        "faulting-app",
+        "org.nagi.acceptance.faulting-app",
+        "nagi-faulting-app",
+    ),
+    (
+        "m19-search-search-client",
+        "org.nagi.acceptance.m19-search",
+        "nagi-m19-search-client",
+    ),
+    (
+        "m19-search-action-client",
+        "org.nagi.acceptance.m19-search",
+        "nagi-action-client",
+    ),
+    (
+        "foreign-search-client",
+        "org.nagi.acceptance.foreign-client",
+        "nagi-m19-search-client",
+    ),
+    (
+        "foreign-action-client",
+        "org.nagi.acceptance.foreign-client",
+        "nagi-action-client",
+    ),
+    (
+        "m22-files-action-client",
+        "org.nagi.acceptance.m22-files",
+        "nagi-action-client",
+    ),
+];
+
+/// Build and sign the acceptance packages and return the environment an
+/// init build with isolated applications needs.
+fn isolated_client_env(root: &Path) -> Result<[(&'static str, PathBuf); 1], CommandResult> {
+    Ok([("NAGI_ACCEPTANCE_PACKAGES", build_isolated_apps(root)?)])
+}
+
+/// Build an init image whose M19/M21/M22 callers are isolated client
+/// processes (ADR 0044/0045). `features` must include `m21-action-ipc`.
+fn execute_image_with_isolated_clients(
+    root: &Path,
+    features: &str,
+    image_name: &str,
+) -> CommandResult {
+    let packages = match build_isolated_apps(root) {
+        Ok(directory) => directory,
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+    ];
+    // Signed acceptance packages exceed the legacy 1.44 MB FAT12 image.
+    execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
+        write_isolated_apps_fat12_image,
+        ImageBuildFeatures::default(),
+    )
+}
+
+fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let packages = match build_isolated_apps(root) {
+        Ok(directory) => directory,
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "isolated-process-acceptance",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let image_name = "nagi-0.1-isolated-process.img";
+    let image_result = execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
+        write_isolated_apps_fat12_image,
+        ImageBuildFeatures::default(),
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let host = match resolve_qemu_host(root, probe, "isolated-process") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let image_path = artifacts.join(image_name);
+    let persistent_disk = artifacts.join("nagi-0.1-isolated-process-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-isolated-process-vars.fd");
+    let serial_log = logs.join("isolated-process.log");
+    if let Err(error) = ensure_persistent_disk(&persistent_disk) {
+        return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}"));
+    }
+    let config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &serial_log,
+        acceptance_marker: ISOLATED_PROCESS_PASS_MARKER,
+        timeout: Duration::from_secs(90),
+    };
+    let status = match run_qemu(&config) {
+        Ok(status) => status,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+    };
+    let serial = match fs::read_to_string(&serial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "isolated-process: cannot read {}: {error}",
+                    serial_log.display()
+                ),
+            );
+        }
+    };
+    if let Some(missing) = missing_isolated_process_marker(&serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "isolated-process: guest did not print `{missing}` (QEMU exit {status}; log {})",
+                serial_log.display()
+            ),
+        );
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS isolated-process: Supervisor spawned an isolated ELF, authorized it by kernel-stamped PID, denied a forged payload identity, and observed exit cleanup (exit {status}; log {})",
+            serial_log.display()
+        )],
+    }
+}
+
+fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
+    if serial.contains("Nagi isolated process acceptance FAIL")
+        || serial.contains("Nagi faulting app survived its fault FAIL")
+    {
+        return Some(ISOLATED_PROCESS_PASS_MARKER);
+    }
+    ISOLATED_PROCESS_MARKERS
+        .into_iter()
+        .chain([ISOLATED_PROCESS_PASS_MARKER])
+        .find(|marker| !serial.contains(marker))
+}
+
+fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let mut fixture = match start_m13_http_fixture(root) {
+        Ok(child) => child,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    };
+    let result = execute_m19_inner(root, probe);
+    let _ = fixture.kill();
+    let _ = fixture.wait();
+    result
+}
+
+fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let image_result = execute_image_with_isolated_clients(
+        root,
+        "m21-action-ipc",
+        "nagi-0.1-m19-vfs-objectid.img",
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let host = match resolve_qemu_host(root, probe, "m19") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    };
+    let image_path = artifacts.join("nagi-0.1-m19-vfs-objectid.img");
+    let persistent_disk = artifacts.join("nagi-0.1-m19-vfs-objectid-user-data.img");
+    let vars_copy = artifacts.join("nagi-0.1-m19-vfs-objectid-vars.fd");
+    let bootstrap_log = logs.join("m19-vfs-objectid-bootstrap.log");
+    let initial_log = logs.join("m19-vfs-objectid-initial.log");
+    let restart_log = logs.join("m19-vfs-objectid-restart.log");
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    };
+    // Repeated TCG integration boots have stalled in firmware past 90 seconds
+    // before the guest emits serial output. Keep the same guest marker gates
+    // while allowing a slow firmware start to finish.
+    let timeout = Duration::from_secs(180);
+
+    if !had_persistent_disk {
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &bootstrap_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        if let Err(error) = run_qemu(&config) {
+            return failure(EXIT_CONFIG_ERROR, format!("m19: bootstrap boot: {error}"));
+        }
+        let bootstrap = match fs::read_to_string(&bootstrap_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m19: cannot read {}: {error}", bootstrap_log.display()),
+                );
+            }
+        };
+        if !bootstrap.contains(NAGI_WRITE_MARKER) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m19: bootstrap did not print `{NAGI_WRITE_MARKER}`"),
+            );
+        }
+    }
+
+    let mut final_log = initial_log.as_path();
+    let mut verified_restart = false;
+    for boot_index in 0..2 {
+        let log_path = if boot_index == 0 {
+            &initial_log
+        } else {
+            &restart_log
+        };
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: log_path,
+            acceptance_marker: "Nagi M13 acceptance PASS",
+            timeout,
+        };
+        let final_status = match run_qemu(&config) {
+            Ok(status) => status,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: guest boot: {error}")),
+        };
+        final_log = log_path;
+        let serial = match fs::read_to_string(log_path) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m19: cannot read {}: {error}", log_path.display()),
+                );
+            }
+        };
+        for marker in [
+            "Nagi Kernel started",
+            "Nagi M3 CPU scheduler fairness PASS",
+            "Nagi M3 acceptance PASS",
+            "Nagi M7 VirtIO Block PASS",
+            "Nagi M13 Rust PAL PASS",
+            "Nagi M13 C POSIX PASS",
+            "Nagi bootstrap Channel ABI PASS",
+            "Nagi bootstrap Channel wait/wake PASS",
+            "Nagi M24 semantic index ready PASS",
+            "Nagi M19 Search IPC authorized isolated client PASS",
+            "Nagi M19 Search IPC foreign isolated client hidden PASS",
+            "Nagi M19 Search IPC authenticated caller PASS",
+            "Nagi M21 foreign isolated caller denied PASS",
+            "Nagi M21 file.search isolated caller PASS",
+            "Nagi M19 live VFS file ObjectId rename/restart PASS",
+            "Nagi M19 guest search persistence PASS",
+            "Nagi M19 acceptance PASS",
+            "Nagi M13 acceptance PASS",
+        ] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m19: guest did not print `{marker}` (QEMU exit {final_status}; log {})",
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        let metadata_restored = serial.contains("Nagi M19 previous-boot snapshot PASS");
+        let semantic_restored = serial.contains("Nagi M24 semantic index persistence PASS");
+        if metadata_restored && semantic_restored {
+            verified_restart = true;
+            break;
+        }
+        if boot_index == 0
+            && (metadata_restored || serial.contains("Nagi M19 initial snapshot/reopen PASS"))
+        {
+            continue;
+        }
+        if !metadata_restored || !semantic_restored {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m19: guest did not verify M19 metadata and M24 semantic-index persistence after QEMU restart (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+    }
+    if !verified_restart {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m19: persistent snapshot was not verified after QEMU restart (log {})",
+                final_log.display()
+            ),
+        );
+    }
+
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![format!(
+            "PASS M19 guest Search: live VFS file metadata and stable ObjectId survived rename, remount, and QEMU restart (acceptance marker reached; log {})",
+            final_log.display()
+        )],
+    }
+}
+
+fn run_m13_qemu_with_http_fixture(root: &Path, config: &QemuConfig<'_>) -> Result<i32, String> {
+    let mut fixture = start_m13_http_fixture(root)?;
+    let result = run_qemu_reusing_ovmf_vars(config);
+    let _ = fixture.kill();
+    let _ = fixture.wait();
+    result
+}
+
+fn execute_m22(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let mut fixture = match start_m13_http_fixture(root) {
+        Ok(child) => child,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
+    };
+    let result = execute_m22_inner(root, probe);
+    let _ = fixture.kill();
+    let _ = fixture.wait();
+    result
+}
+
+fn has_pre_guest_firmware_timeout_signature(error: &str, serial: &str) -> bool {
+    error.contains("QEMU did not reach acceptance within")
+        && !serial.contains("Nagi Kernel started")
+        && serial.contains("QEMU timeout diagnostics:")
+        && serial.contains("QMP query-status:")
+        && serial.contains("\"status\": \"running\"")
+        && serial.contains("QMP CPU registers:")
+        && serial.contains("QMP CPU instruction window:")
+}
+
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut output = path.as_os_str().to_os_string();
+    output.push(suffix);
+    PathBuf::from(output)
+}
+
+fn run_m27_headless_with_pre_guest_retry(
+    config: &QemuConfig<'_>,
+    read_only_boot_disk: bool,
+) -> Result<i32, String> {
+    run_headless_with_pre_guest_retry_using(config, read_only_boot_disk, "M27", |config| {
+        if read_only_boot_disk {
+            run_qemu_reusing_ovmf_vars_with_read_only_boot_disk(config)
+        } else {
+            run_qemu_reusing_ovmf_vars(config)
+        }
+    })
+}
+
+fn qemu_writable_disk_hashes(
+    config: &QemuConfig<'_>,
+    read_only_boot_disk: bool,
+    scope: &str,
+) -> Result<Vec<(PathBuf, String)>, String> {
+    let mut paths = Vec::new();
+    if !read_only_boot_disk {
+        paths.push(config.disk_image);
+    }
+    if config.persistent_disk != config.disk_image {
+        paths.push(config.persistent_disk);
+    }
+
+    paths
+        .into_iter()
+        .map(|path| {
+            m30_image_sha256(path)
+                .map(|digest| (path.to_path_buf(), digest))
+                .map_err(|error| {
+                    format!(
+                        "cannot hash writable {scope} disk {}: {error}",
+                        path.display()
+                    )
+                })
+        })
+        .collect()
+}
+
+fn run_headless_with_pre_guest_retry_using(
+    config: &QemuConfig<'_>,
+    read_only_boot_disk: bool,
+    scope: &str,
+    mut run: impl FnMut(&QemuConfig<'_>) -> Result<i32, String>,
+) -> Result<i32, String> {
+    let first_serial = path_with_suffix(config.serial_log, ".pre-guest-timeout-1");
+    let first_vars = path_with_suffix(config.serial_log, ".ovmf-vars.pre-guest-timeout-1");
+    let retry_source_vars_path =
+        path_with_suffix(config.serial_log, ".ovmf-vars.pre-guest-retry-source-1");
+    let retry_note = path_with_suffix(config.serial_log, ".pre-guest-retry-1.txt");
+    for path in [
+        &first_serial,
+        &first_vars,
+        &retry_source_vars_path,
+        &retry_note,
+    ] {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return Err(format!(
+                    "refusing to overwrite retry evidence {}",
+                    path.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect retry evidence {}: {error}",
+                    path.display()
+                ));
+            }
+        }
+    }
+
+    let retry_source_vars = fs::read(config.vars_copy).map_err(|read_error| {
+        format!(
+            "cannot snapshot OVMF variables {} before {scope} QEMU attempt: {read_error}",
+            config.vars_copy.display()
+        )
+    })?;
+    let retry_source_disk_hashes = qemu_writable_disk_hashes(config, read_only_boot_disk, scope)?;
+    let first_error = match run(config) {
+        Ok(status) => return Ok(status),
+        Err(error) => error,
+    };
+    let serial = fs::read_to_string(config.serial_log).map_err(|read_error| {
+        format!(
+            "{first_error}; cannot inspect pre-guest timeout log {}: {read_error}",
+            config.serial_log.display()
+        )
+    })?;
+    if !has_pre_guest_firmware_timeout_signature(&first_error, &serial) {
+        return Err(first_error);
+    }
+
+    fs::copy(config.serial_log, &first_serial).map_err(|error| {
+        format!(
+            "{first_error}; cannot preserve first-attempt log {}: {error}",
+            first_serial.display()
+        )
+    })?;
+    fs::copy(config.vars_copy, &first_vars).map_err(|error| {
+        format!(
+            "{first_error}; first-attempt log is preserved at {}, but OVMF variables could not be preserved at {}: {error}",
+            first_serial.display(),
+            first_vars.display()
+        )
+    })?;
+    fs::write(&retry_source_vars_path, &retry_source_vars).map_err(|error| {
+        format!(
+            "{first_error}; failed-attempt evidence is preserved at {}, but pre-attempt OVMF variables could not be saved at {}: {error}",
+            first_vars.display(),
+            retry_source_vars_path.display()
+        )
+    })?;
+    let post_attempt_disk_hashes = qemu_writable_disk_hashes(config, read_only_boot_disk, scope)
+        .map_err(|error| format!("{first_error}; {error}; retry suppressed"))?;
+    let changed_disk = retry_source_disk_hashes
+        .iter()
+        .zip(&post_attempt_disk_hashes)
+        .find(|((before_path, before_hash), (after_path, after_hash))| {
+            before_path == after_path && before_hash != after_hash
+        });
+    if let Some(((path, before_hash), (_, after_hash))) = changed_disk {
+        let note = format!(
+            "Retry suppressed: a writable {scope} disk changed during the pre-guest timeout. The original failed-attempt state is preserved; no second QEMU attempt was started.\nDisk: {}\nSHA-256 before attempt: {before_hash}\nSHA-256 after attempt: {after_hash}\nFirst-attempt serial log: {}\nFirst post-attempt OVMF variables: {}\nPre-attempt OVMF variables: {}\n",
+            path.display(),
+            first_serial.display(),
+            first_vars.display(),
+            retry_source_vars_path.display()
+        );
+        fs::write(&retry_note, note).map_err(|error| {
+            format!(
+                "{first_error}; writable {scope} disk {} changed, retry was suppressed, but the note {} could not be written: {error}",
+                path.display(),
+                retry_note.display()
+            )
+        })?;
+        return Err(format!(
+            "{first_error}; writable {scope} disk changed during the pre-guest timeout: {} (before SHA-256 {before_hash}, after {after_hash}); retry suppressed and state recorded in {}",
+            path.display(),
+            retry_note.display()
+        ));
+    }
+
+    fs::write(config.vars_copy, &retry_source_vars).map_err(|error| {
+        format!(
+            "{first_error}; failed-attempt and pre-attempt OVMF variables are preserved at {} and {}, but the pre-attempt state could not be restored at {}: {error}",
+            first_vars.display(),
+            retry_source_vars_path.display(),
+            config.vars_copy.display()
+        )
+    })?;
+
+    match run(config) {
+        Ok(status) => {
+            fs::write(
+                &retry_note,
+                format!(
+                    "The first {scope} QEMU attempt timed out before the guest kernel-start marker. QMP reported a running CPU and captured registers and an instruction window. Before retry, the exact pre-attempt OVMF variables were restored and all writable {scope} disks were verified unchanged by SHA-256, so the boot journal and disk state start from the same state. The retry reached its configured acceptance marker with QEMU exit status {status}.\nInitial error: {first_error}\nWritable disk SHA-256 values before the attempt: {retry_source_disk_hashes:?}\nPreserved first serial log: {}\nPreserved first post-attempt OVMF variables: {}\nPreserved pre-attempt OVMF variables: {}\n",
+                    first_serial.display(),
+                    first_vars.display(),
+                    retry_source_vars_path.display()
+                ),
+            )
+            .map_err(|error| {
+                format!(
+                    "{scope} QEMU retry reached its marker (exit {status}) but retry evidence could not be written at {}: {error}",
+                    retry_note.display()
+                )
+            })?;
+            Ok(status)
+        }
+        Err(retry_error) => Err(format!(
+            "{first_error}; one pre-guest retry also failed ({retry_error}); first-attempt evidence is {}, {}",
+            first_serial.display(),
+            first_vars.display()
+        )),
+    }
+}
+
+fn run_m27_m13_fixture_with_pre_guest_retry(
+    root: &Path,
+    config: &QemuConfig<'_>,
+) -> Result<i32, String> {
+    run_headless_with_pre_guest_retry_using(config, false, "M27", |config| {
+        run_m13_qemu_with_http_fixture(root, config)
+    })
+}
+
+fn run_m22_guest_boot_with_pre_guest_retry(config: &QemuConfig<'_>) -> Result<i32, String> {
+    // Each M22 process boot starts from the vars template; reuse that exact
+    // state within the guarded retry so it cannot advance twice.
+    initialize_ovmf_vars(config.ovmf_vars_template, config.vars_copy)?;
+    run_headless_with_pre_guest_retry_using(config, false, "M22", |config| {
+        run_qemu_reusing_ovmf_vars(config)
+    })
+}
+
+fn execute_m22_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: system clock: {error}")),
+    };
+    let host = match resolve_qemu_host(root, probe, "m22") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
+    };
+    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
+    };
+    let image_name = format!("nagi-0.1-m22-history-{run_id}.img");
+    let image_path = artifacts.join(&image_name);
+    let persistent_disk = artifacts.join(format!("nagi-0.1-m22-history-user-data-{run_id}.img"));
+    let vars_copy = artifacts.join(format!("nagi-0.1-m22-history-vars-{run_id}.fd"));
+    let bootstrap_log = logs.join(format!("m22-history-bootstrap-{run_id}.log"));
+    let firmware_timeout_log = path_with_suffix(&bootstrap_log, ".pre-guest-timeout-1");
+    let firmware_timeout_vars = path_with_suffix(&bootstrap_log, ".ovmf-vars.pre-guest-timeout-1");
+    let firmware_retry_source_vars =
+        path_with_suffix(&bootstrap_log, ".ovmf-vars.pre-guest-retry-source-1");
+    let firmware_retry_note = path_with_suffix(&bootstrap_log, ".pre-guest-retry-1.txt");
+    let boot_logs = (1..=3)
+        .map(|boot_index| logs.join(format!("m22-history-{run_id}-boot-{boot_index}.log")))
+        .collect::<Vec<_>>();
+    for path in [
+        &image_path,
+        &persistent_disk,
+        &vars_copy,
+        &bootstrap_log,
+        &firmware_timeout_log,
+        &firmware_timeout_vars,
+        &firmware_retry_source_vars,
+        &firmware_retry_note,
+        &boot_logs[0],
+        &boot_logs[1],
+        &boot_logs[2],
+    ] {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: refusing to overwrite existing run artifact {}",
+                        path.display()
+                    ),
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: cannot inspect {}: {error}", path.display()),
+                );
+            }
+        }
+    }
+    let image_result =
+        execute_image_with_isolated_clients(root, "m22-history,m21-action-ipc", &image_name);
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
+        Ok(existing) => existing,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: {error}")),
+    };
+    if had_persistent_disk {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m22: unique User Data path unexpectedly existed: {}",
+                persistent_disk.display()
+            ),
+        );
+    }
+    // The repeated M28 gate boots M22 several times with persistent UEFI
+    // state. Preserve all guest markers while allowing a slow firmware start.
+    let timeout = Duration::from_secs(180);
+
+    let mut firmware_retry_evidence = None;
+    if !had_persistent_disk {
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &bootstrap_log,
+            acceptance_marker: NAGI_WRITE_MARKER,
+            timeout,
+        };
+        if let Err(error) = run_m22_guest_boot_with_pre_guest_retry(&config) {
+            return failure(EXIT_CONFIG_ERROR, format!("m22: bootstrap boot: {error}"));
+        }
+        if firmware_timeout_log.is_file() {
+            firmware_retry_evidence = Some((firmware_timeout_log, firmware_timeout_vars));
+        }
+        match fs::read_to_string(&bootstrap_log) {
+            Ok(serial) if serial.contains(NAGI_WRITE_MARKER) => {}
+            Ok(_) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: bootstrap did not print `{NAGI_WRITE_MARKER}` (log {})",
+                        bootstrap_log.display()
+                    ),
+                );
+            }
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: cannot read {}: {error}", bootstrap_log.display()),
+                );
+            }
+        }
+    }
+
+    let mut saw_move = false;
+    let mut saw_undo = false;
+    let mut saw_activity_ledger_commit = false;
+    let mut saw_activity_ledger_undo = false;
+    let mut saw_copy = false;
+    let mut saw_copy_transaction = false;
+    let mut last_log = PathBuf::new();
+    for (boot_index, log_path) in boot_logs.iter().enumerate() {
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: log_path,
+            acceptance_marker: "Nagi M13 acceptance PASS",
+            timeout,
+        };
+        let final_status = match run_m22_guest_boot_with_pre_guest_retry(&config) {
+            Ok(status) => status,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m22: guest boot: {error}")),
+        };
+        last_log = log_path.clone();
+        let serial = match fs::read_to_string(log_path) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: cannot read {}: {error}", log_path.display()),
+                );
+            }
+        };
+        for marker in [
+            "Nagi Kernel started",
+            "Nagi M3 CPU scheduler fairness PASS",
+            "Nagi M3 acceptance PASS",
+            "Nagi M7 VirtIO Block PASS",
+            "Nagi M13 C POSIX PASS",
+            "Nagi M24 semantic index ready PASS",
+            "Nagi M19 guest search persistence PASS",
+            "Nagi M22 file.search Activity Ledger PASS",
+            "Nagi M13 acceptance PASS",
+        ] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: guest did not print `{marker}` (QEMU exit {final_status}; log {})",
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        if boot_index == 2 && !serial.contains("Nagi M24 semantic index persistence PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: final restart did not verify the durable M24 semantic index (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if boot_index == 0 && !had_persistent_disk {
+            if let Some(marker) = [
+                "Nagi M21 foreign isolated caller denied PASS",
+                "Nagi M21 file.search isolated caller PASS",
+                "Nagi M22 foreign isolated caller denied PASS",
+                "Nagi M22 file.move isolated caller PASS",
+                "Nagi M22 file.copy isolated caller PASS",
+            ]
+            .into_iter()
+            .find(|marker| !serial.contains(marker))
+            {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m22: fresh guest did not print isolated-caller marker `{marker}` (QEMU exit {final_status}; log {})",
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        if boot_index == 0
+            && !had_persistent_disk
+            && !serial.contains("Nagi M21 file.move Plan Validate Execute PASS")
+        {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: fresh guest did not pass the M21 file.move Plan/Validate/Execute gate (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if boot_index == 0 && !serial.contains("Nagi M21 file.copy Plan Validate Execute PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: fresh guest did not pass the M21 file.copy Plan/Validate/Execute gate (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if boot_index == 0
+            && !had_persistent_disk
+            && !serial.contains("Nagi M21 plan rejection validation PASS")
+        {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: fresh guest did not reject malformed, unsupported, out-of-context, and capability-denied plans before execution (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if boot_index == 0
+            && !had_persistent_disk
+            && !serial.contains("Nagi M21 partial execution failure validation PASS")
+        {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: fresh guest did not verify Executor partial-failure reporting (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        saw_activity_ledger_commit |= serial.contains("Nagi M22 AI Activity Ledger committed PASS");
+        saw_activity_ledger_undo |= serial.contains("Nagi M22 AI Activity Ledger undo result PASS");
+        saw_copy |= serial.contains("Nagi M21 file.copy Plan Validate Execute PASS");
+        saw_copy_transaction |=
+            serial.contains("Nagi M22 file.copy prepared transaction persisted PASS");
+        saw_move |= serial.contains("Nagi M22 move group persisted in guest VFS PASS")
+            || serial.contains("Nagi M22 recovered prepared move group PASS");
+        saw_undo |= serial.contains("Nagi M22 composite undo applied and persisted PASS");
+        if boot_index == 2 && !serial.contains("Nagi M22 archive restart and restored files PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: final restart did not verify restored files and NH16 state (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if boot_index == 2 && !serial.contains("Nagi M22 AI Activity Ledger undo result PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m22: final restart did not verify the separate AI Activity Ledger (QEMU exit {final_status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+    }
+    if !saw_move && !saw_undo && had_persistent_disk {
+        let final_serial = match fs::read_to_string(&last_log) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m22: cannot read {}: {error}", last_log.display()),
+                );
+            }
+        };
+        if !final_serial.contains("Nagi M22 archive restart and restored files PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                "m22: existing guest archive neither completed the move/undo flow nor verified restored state",
+            );
+        }
+    }
+    if !had_persistent_disk && !saw_activity_ledger_commit {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m22: fresh guest did not persist an AI Activity Ledger commit record",
+        );
+    }
+    if !saw_activity_ledger_undo {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m22: guest did not persist an AI Activity Ledger undo result",
+        );
+    }
+    if !saw_copy || !saw_copy_transaction {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m22: guest did not persist the bounded file.copy action and NH16 Create transaction",
+        );
+    }
+
+    let mut lines = vec![format!(
+        "PASS M21/M22 guest fixture: VFS file.move and file.copy, NH16 Create/Move transactions, Activity Ledger, composite Undo, and restored state survived QEMU restarts (log {})",
+        last_log.display()
+    )];
+    if let Some((serial_log, vars)) = firmware_retry_evidence {
+        lines.push(format!(
+            "INFO M22 bootstrap recovered from a pre-guest OVMF timeout after one bounded retry; failed attempt preserved at {} and {}",
+            serial_log.display(),
+            vars.display()
+        ));
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines,
+    }
+}
+
+fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot create a unique evidence identifier: {error}"),
+            );
+        }
+    };
+    let bootstrap_image_name = format!("nagi-0.1-m27-bootstrap-{run_id}.img");
+    let slots_image_name = format!("nagi-0.1-m27-ab-slots-{run_id}.img");
+    let healthy_slots_image_name = format!("nagi-0.1-m27-ab-healthy-slots-{run_id}.img");
+    let recovery_image_name = format!("nagi-0.1-m27-recovery-{run_id}.img");
+    let bootstrap_image_result = execute_image_with_features(root, None, &bootstrap_image_name);
+    if bootstrap_image_result.exit_code != EXIT_SUCCESS {
+        return bootstrap_image_result;
+    }
+    let recovery_init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m27-recovery-undo-acceptance",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let recovery_init_build = run_cargo(root, "M27 Recovery init", &recovery_init_args);
+    if recovery_init_build.exit_code != EXIT_SUCCESS {
+        return recovery_init_build;
+    }
+    let recovery_init_path = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release")
+        .join("nagi-init");
+    let recovery_init = match fs::read(&recovery_init_path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", recovery_init_path.display()),
+            );
+        }
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m10-desktop,m27-ro-vfs-check",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+    ];
+    let image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &slots_image_name,
+            cargo_env: &[],
+            recovery_init: Some(&recovery_init),
+            image_writer: write_m27_broken_slot_image,
+            external_model_store_file: None,
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-acceptance"],
+            },
+        },
+    );
+    if image_result.exit_code != EXIT_SUCCESS {
+        return image_result;
+    }
+    let healthy_image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &healthy_slots_image_name,
+            cargo_env: &[],
+            recovery_init: Some(&recovery_init),
+            image_writer: write_m27_healthy_slot_image,
+            external_model_store_file: None,
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-acceptance"],
+            },
+        },
+    );
+    if healthy_image_result.exit_code != EXIT_SUCCESS {
+        return healthy_image_result;
+    }
+    let recovery_image_result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &recovery_image_name,
+            cargo_env: &[],
+            recovery_init: Some(&recovery_init),
+            image_writer: write_m27_recovery_image,
+            external_model_store_file: None,
+            build_features: ImageBuildFeatures {
+                kernel: &[],
+                loader: &["m27-ab-slot-acceptance"],
+            },
+        },
+    );
+    if recovery_image_result.exit_code != EXIT_SUCCESS {
+        return recovery_image_result;
+    }
+
+    let host = match resolve_qemu_host(root, probe, "m27") {
+        Ok(host) => host,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m27-ab-rollback-{run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m27: {error}")),
+    };
+    let bootstrap_image_path = root
+        .join("out")
+        .join("artifacts")
+        .join(&bootstrap_image_name);
+    let slots_image_path = root.join("out").join("artifacts").join(&slots_image_name);
+    let healthy_slots_image_path = root
+        .join("out")
+        .join("artifacts")
+        .join(&healthy_slots_image_name);
+    let recovery_image_path = root
+        .join("out")
+        .join("artifacts")
+        .join(&recovery_image_name);
+    let persistent_disk = evidence.join("user-data.img");
+    let vars_copy = evidence.join("OVMF_VARS.fd");
+    if let Err(error) = ensure_persistent_disk(&persistent_disk) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m27: create user-data disk: {error}"),
+        );
+    }
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &vars_copy) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m27: initialize OVMF variables: {error}"),
+        );
+    }
+
+    let bootstrap_log = evidence.join("bootstrap.log");
+    let bootstrap_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &bootstrap_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &bootstrap_log,
+        // The persistent-write marker comes before the reboot-required
+        // marker. Wait for the latter so QEMU cannot stop between them.
+        acceptance_marker: M27_BOOTSTRAP_COMPLETION_MARKER,
+        timeout: Duration::from_secs(90),
+    };
+    let bootstrap_status = match run_m27_headless_with_pre_guest_retry(&bootstrap_config, false) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: guest storage bootstrap failed: {error}"),
+            );
+        }
+    };
+    let bootstrap_serial = match fs::read_to_string(&bootstrap_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", bootstrap_log.display()),
+            );
+        }
+    };
+    if !m27_bootstrap_markers_present(&bootstrap_serial) {
+        for marker in [NAGI_WRITE_MARKER, M27_BOOTSTRAP_COMPLETION_MARKER] {
+            if bootstrap_serial.contains(marker) {
+                continue;
+            }
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: bootstrap did not print `{marker}` (QEMU exit {bootstrap_status}; log {})",
+                    bootstrap_log.display()
+                ),
+            );
+        }
+    }
+    if bootstrap_serial.contains("Nagi M27 UEFI variable journal persistence PASS") {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "m27: normal bootstrap loader unexpectedly modified the boot-control journal",
+        );
+    }
+
+    let recovery_vars = evidence.join("recovery-OVMF_VARS.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &recovery_vars) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m27: initialize Recovery OVMF variables: {error}"),
+        );
+    }
+
+    let recovery_undo_image_name = format!("nagi-0.1-m27-recovery-undo-{run_id}.img");
+    let recovery_undo_image_result = execute_image_with_isolated_clients(
+        root,
+        "m22-history,m21-action-ipc",
+        &recovery_undo_image_name,
+    );
+    if recovery_undo_image_result.exit_code != EXIT_SUCCESS {
+        return recovery_undo_image_result;
+    }
+    let recovery_undo_image_path = root
+        .join("out")
+        .join("artifacts")
+        .join(&recovery_undo_image_name);
+    let committed_log = evidence.join("recovery-committed-undo-fixture.log");
+    let committed_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &recovery_undo_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &recovery_vars,
+        serial_log: &committed_log,
+        acceptance_marker: "Nagi M13 acceptance PASS",
+        timeout: Duration::from_secs(90),
+    };
+    let committed_status = run_m27_m13_fixture_with_pre_guest_retry(root, &committed_config);
+    let committed_status = match committed_status {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: Recovery Undo guest fixture: {error}"),
+            );
+        }
+    };
+    let committed_serial = match fs::read_to_string(&committed_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", committed_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M21 file.move Plan Validate Execute PASS",
+        "Nagi M22 AI Activity Ledger committed PASS",
+        "Nagi M22 move group persisted in guest VFS PASS",
+        "Nagi M13 acceptance PASS",
+    ] {
+        if !committed_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery Undo fixture did not print `{marker}` (QEMU exit {committed_status}; log {})",
+                    committed_log.display()
+                ),
+            );
+        }
+    }
+
+    let recovery_log = evidence.join("recovery-boot.log");
+    let recovery_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &recovery_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &recovery_vars,
+        serial_log: &recovery_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        timeout: Duration::from_secs(90),
+    };
+    const RECOVERY_MENU_EVENTS: [&str; 2] = [
+        r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"r"}}}]}}"#,
+        r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"r"}}}]}}"#,
+    ];
+    const RECOVERY_COMMANDS: &[u8] =
+        b"check\nlog\nfiles\nslots\nhistory\nundo-conflict-test\nundo\nhelp\n";
+    let recovery_status = match run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input(
+        &recovery_config,
+        "Nagi M27 Recovery boot menu READY",
+        &RECOVERY_MENU_EVENTS,
+        "Nagi M27 Recovery console READY",
+        RECOVERY_COMMANDS,
+    ) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(EXIT_CONFIG_ERROR, format!("m27: Recovery QEMU: {error}"));
+        }
+    };
+    let recovery_serial = match fs::read_to_string(&recovery_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", recovery_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+        "Nagi M27 Recovery Environment START",
+        "Nagi M27 Recovery VFS check PASS files=",
+        "Nagi M27 Recovery current-boot log PASS",
+        "Nagi M27 Recovery files PASS",
+        "Nagi M27 Recovery history PASS entries=",
+        "Nagi M27 Recovery same-path move content conflict PASS",
+        "Nagi M27 Recovery undo preflight conflict PASS",
+        "Nagi M27 Recovery interrupted undo retry PASS",
+        "Nagi M27 Recovery NH16 undo PASS",
+        "Nagi M27 Recovery command help PASS",
+    ] {
+        if !recovery_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery boot did not print `{marker}` (QEMU exit {recovery_status}; log {})",
+                    recovery_log.display()
+                ),
+            );
+        }
+    }
+    if recovery_serial.contains("Nagi M27 persistence decision:")
+        || recovery_serial.contains("Nagi M27 readiness persisted")
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m27: Recovery changed the A/B boot decision or reported trial readiness (log {})",
+                recovery_log.display()
+            ),
+        );
+    }
+
+    let restored_log = evidence.join("recovery-undo-restart-verification.log");
+    let restored_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &recovery_undo_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &recovery_vars,
+        serial_log: &restored_log,
+        acceptance_marker: "Nagi M13 acceptance PASS",
+        timeout: Duration::from_secs(90),
+    };
+    let restored_status = match run_m27_m13_fixture_with_pre_guest_retry(root, &restored_config) {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: Recovery Undo restart verification: {error}"),
+            );
+        }
+    };
+    let restored_serial = match fs::read_to_string(&restored_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", restored_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M22 file.search Activity Ledger PASS",
+        "Nagi M22 archive restart and restored files PASS",
+        "Nagi M22 AI Activity Ledger undo result PASS",
+        "Nagi M13 acceptance PASS",
+    ] {
+        if !restored_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery Undo restart did not print `{marker}` (QEMU exit {restored_status}; log {})",
+                    restored_log.display()
+                ),
+            );
+        }
+    }
+
+    let first_trial_log = evidence.join("boot-1.log");
+    let first_trial_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &slots_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &first_trial_log,
+        acceptance_marker: "Nagi Loader: invalid ELF",
+        timeout: Duration::from_secs(90),
+    };
+    let first_trial_status = match run_m27_headless_with_pre_guest_retry(&first_trial_config, true)
+    {
+        Ok(status) => status,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: initial System B trial: {error}"),
+            );
+        }
+    };
+    let first_trial_serial = match fs::read_to_string(&first_trial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", first_trial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 persistence decision: trial attempt=1 slot=B",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi M27 trial payload rejected slot=B",
+        "Nagi Loader: invalid ELF",
+    ] {
+        if !first_trial_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: initial trial did not print `{marker}` (QEMU exit {first_trial_status}; log {})",
+                    first_trial_log.display()
+                ),
+            );
+        }
+    }
+    if !m27_trial_failure_observed(&first_trial_serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m27: initial malformed System B trial did not reach the rejection path (QEMU exit {first_trial_status}; log {})",
+                first_trial_log.display()
+            ),
+        );
+    }
+
+    let recovery_journal_log = evidence.join("recovery-preserved-trial-journal.log");
+    let recovery_journal_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &recovery_image_path,
+        persistent_disk: &persistent_disk,
+        vars_copy: &vars_copy,
+        serial_log: &recovery_journal_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        // Recovery boots through the interactive UEFI path and runs the
+        // four-vCPU M3 scheduler self-test before the console marker. Allow
+        // additional TCG time while keeping the exact guest acceptance gate.
+        timeout: Duration::from_secs(180),
+    };
+    let recovery_commands = b"check\nlog\nfiles\nslots\nhelp\n";
+    let recovery_journal_status =
+        match run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input(
+            &recovery_journal_config,
+            "Nagi M27 Recovery boot menu READY",
+            &M27_RECOVERY_MENU_EVENTS,
+            "Nagi M27 Recovery console READY",
+            recovery_commands,
+        ) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: Recovery with pending System B trial: {error}"),
+                );
+            }
+        };
+    let recovery_journal_serial = match fs::read_to_string(&recovery_journal_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: cannot read {}: {error}",
+                    recovery_journal_log.display()
+                ),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 boot menu: confirmed=A pending=B",
+        "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+        "Nagi M27 Recovery VFS check PASS files=",
+        "Nagi M27 Recovery command help PASS",
+    ] {
+        if !recovery_journal_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery with a pending trial did not print `{marker}` (QEMU exit {recovery_journal_status}; log {})",
+                    recovery_journal_log.display()
+                ),
+            );
+        }
+    }
+    if recovery_journal_serial.contains("Nagi M27 persistence decision:")
+        || recovery_journal_serial.contains("Nagi M27 readiness persisted")
+    {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m27: Recovery changed the pending journal or reported trial readiness (log {})",
+                recovery_journal_log.display()
+            ),
+        );
+    }
+
+    let second_trial_log = evidence.join("recovery-follow-up-trial.log");
+    let second_trial_config = QemuConfig {
+        serial_log: &second_trial_log,
+        ..first_trial_config
+    };
+    let second_trial_status =
+        match run_m27_headless_with_pre_guest_retry(&second_trial_config, true) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: Recovery journal trial continuation: {error}"),
+                );
+            }
+        };
+    let second_trial_serial = match fs::read_to_string(&second_trial_log) {
+        Ok(serial) => serial,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m27: cannot read {}: {error}", second_trial_log.display()),
+            );
+        }
+    };
+    for marker in [
+        "Nagi M27 persistence decision: trial attempt=2 slot=B",
+        "Nagi M27 UEFI variable journal persistence PASS",
+        "Nagi M27 trial payload rejected slot=B",
+        "Nagi Loader: invalid ELF",
+    ] {
+        if !second_trial_serial.contains(marker) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: Recovery follow-up trial did not print `{marker}` (QEMU exit {second_trial_status}; log {})",
+                    second_trial_log.display()
+                ),
+            );
+        }
+    }
+    if !m27_trial_failure_observed(&second_trial_serial) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m27: Recovery follow-up malformed System B trial did not reach rejection (QEMU exit {second_trial_status}; log {})",
+                second_trial_log.display()
+            ),
+        );
+    }
+
+    let expected_decisions = [
+        (3, "Nagi M27 persistence decision: trial attempt=3 slot=B"),
+        (4, "Nagi M27 persistence decision: rollback slot=A"),
+        (5, "Nagi M27 persistence decision: confirmed slot=A"),
+    ];
+    let mut final_log = PathBuf::new();
+    for (boot_number, expected_decision) in &expected_decisions {
+        let log_path = evidence.join(format!("boot-{boot_number}.log"));
+        let is_trial_boot = *boot_number == 3;
+        let acceptance_marker = if is_trial_boot {
+            // Stop only after the loader has printed its actual invalid-ELF
+            // failure. The preceding rejection marker alone is not enough:
+            // wait_for_qemu kills QEMU as soon as its acceptance marker appears.
+            "Nagi Loader: invalid ELF"
+        } else {
+            GUEST_ACCEPTANCE_MARKER
+        };
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &slots_image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &log_path,
+            acceptance_marker,
+            // Repeated TCG boots through the persisted journal sequence can
+            // exceed the standalone boot budget. Keep guest markers as the
+            // acceptance gate while allowing the sequence to finish under
+            // host load.
+            timeout: Duration::from_secs(180),
+        };
+        let status = match run_m27_headless_with_pre_guest_retry(&config, true) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: QEMU boot {boot_number} failed: {error}"),
+                );
+            }
+        };
+        let serial = match fs::read_to_string(&log_path) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: cannot read {}: {error}", log_path.display()),
+                );
+            }
+        };
+        for marker in [
+            *expected_decision,
+            "Nagi M27 UEFI variable journal persistence PASS",
+            acceptance_marker,
+        ] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m27: boot {boot_number} did not print `{marker}` (QEMU exit {status}; log {})",
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        if is_trial_boot && !m27_trial_failure_observed(&serial) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: boot {boot_number} did not complete the broken-slot failure path (QEMU exit {status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if *boot_number >= 4 && !serial.contains("Nagi M7 persistent read PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: fallback boot {boot_number} did not verify persistent user data (QEMU exit {status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if *boot_number >= 4 && !serial.contains("Nagi M27 read-only VFS check PASS") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: fallback boot {boot_number} did not complete the read-only VFS integrity check (QEMU exit {status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        final_log = log_path;
+    }
+
+    let readiness_relative = Path::new("out/evidence")
+        .join(format!("m27-ab-rollback-{run_id}"))
+        .join("readiness-promotion");
+    let readiness_evidence = match ensure_owned_directory(root, readiness_relative) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m27: {error}")),
+    };
+    let readiness_vars = readiness_evidence.join("OVMF_VARS.fd");
+    if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &readiness_vars) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("m27: initialize readiness OVMF variables: {error}"),
+        );
+    }
+    let readiness_boots = [
+        (
+            "trial-boot.log",
+            "Nagi M27 persistence decision: trial attempt=1 slot=B",
+            false,
+        ),
+        (
+            "promotion-boot.log",
+            "Nagi M27 persistence decision: confirmed slot=B",
+            true,
+        ),
+        (
+            "confirmed-boot.log",
+            "Nagi M27 persistence decision: confirmed slot=B",
+            false,
+        ),
+    ];
+    // Confirmation and post-promotion boots can exceed 90 seconds under
+    // repeated TCG load. Keep the exact readiness and desktop markers.
+    let readiness_timeout = Duration::from_secs(180);
+    for (index, (log_name, expected_decision, expect_consumed_readiness)) in
+        readiness_boots.iter().enumerate()
+    {
+        let log_path = readiness_evidence.join(log_name);
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &healthy_slots_image_path,
+            persistent_disk: &persistent_disk,
+            vars_copy: &readiness_vars,
+            serial_log: &log_path,
+            acceptance_marker: "Nagi M10 desktop READY",
+            timeout: readiness_timeout,
+        };
+        let status = match run_m27_headless_with_pre_guest_retry(&config, true) {
+            Ok(status) => status,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: readiness QEMU boot {} failed: {error}", index + 1),
+                );
+            }
+        };
+        let serial = match fs::read_to_string(&log_path) {
+            Ok(serial) => serial,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!("m27: cannot read {}: {error}", log_path.display()),
+                );
+            }
+        };
+        for marker in [*expected_decision, "Nagi M10 desktop READY"] {
+            if !serial.contains(marker) {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m27: readiness boot {} did not print `{marker}` (QEMU exit {status}; log {})",
+                        index + 1,
+                        log_path.display()
+                    ),
+                );
+            }
+        }
+        if index == 0 && !m27_readiness_persisted_before_desktop(&serial) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: healthy trial did not persist readiness before desktop readiness (QEMU exit {status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if *expect_consumed_readiness && !m27_readiness_consumed_before_promotion(&serial) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: loader did not consume the guest readiness record (QEMU exit {status}; log {})",
+                    log_path.display()
+                ),
+            );
+        }
+        if serial.contains("Nagi M27 readiness persistence FAIL") {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m27: readiness persistence failed during promotion acceptance (log {})",
+                    log_path.display()
+                ),
+            );
+        }
+    }
+
+    if let Err(error) = execute_m27_gpt_acceptance(root, &host, &evidence, &run_id, &recovery_init)
+    {
+        return failure(EXIT_CONFIG_ERROR, format!("m27 GPT acceptance: {error}"));
+    }
+
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines: vec![
+            format!(
+                "PASS M27 A/B and Recovery: three malformed System B trials rolled back to persistent System A; a healthy System B trial was promoted after guest readiness; Recovery boot left the journal unchanged and undid a committed M22 file.move group across restart (evidence {})",
+                evidence.display()
+            ),
+            format!("Final serial log: {}", final_log.display()),
+        ],
+    }
+}
+
+fn execute_m27_gpt_acceptance(
+    root: &Path,
+    host: &QemuHost,
+    evidence: &Path,
+    run_id: &str,
+    recovery_init: &[u8],
+) -> Result<(), String> {
+    let broken_image_name = format!("nagi-0.1-m27-gpt-broken-{run_id}.qcow2");
+    let healthy_image_name = format!("nagi-0.1-m27-gpt-healthy-{run_id}.qcow2");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m10-desktop",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    let boot_features = ImageBuildFeatures {
+        kernel: &[],
+        loader: &["m27-ab-slot-acceptance"],
+    };
+    for (image_name, writer) in [
+        (
+            broken_image_name.as_str(),
+            write_m27_gpt_broken_system_b_qcow2 as ImageWriter,
+        ),
+        (
+            healthy_image_name.as_str(),
+            write_reference_disk_qcow2 as ImageWriter,
+        ),
+    ] {
+        let result = execute_image_with_init_build_env_using_writer_and_recovery(
+            root,
+            &init_args,
+            None,
+            ImageBuildRequest {
+                image_name,
+                cargo_env: &[],
+                recovery_init: Some(recovery_init),
+                image_writer: writer,
+                external_model_store_file: None,
+                build_features: boot_features,
+            },
+        );
+        if result.exit_code != EXIT_SUCCESS {
+            return Err(format!("build {image_name}: {}", result.lines.join("; ")));
+        }
+    }
+
+    let artifacts = root.join("out").join("artifacts");
+    let broken_image_path = artifacts.join(&broken_image_name);
+    let healthy_image_path = artifacts.join(&healthy_image_name);
+    let gpt_evidence_relative = evidence
+        .strip_prefix(root)
+        .map_err(|error| {
+            format!(
+                "M27 evidence path {} is outside the repository: {error}",
+                evidence.display()
+            )
+        })?
+        .join("gpt-integration");
+    let gpt_evidence = ensure_owned_directory(root, gpt_evidence_relative)?;
+
+    let broken_vars = gpt_evidence.join("broken-OVMF_VARS.fd");
+    let broken_boot_log = gpt_evidence.join("broken-initialize-user-data.log");
+    let broken_boot_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &broken_image_path,
+        persistent_disk: &broken_image_path,
+        vars_copy: &broken_vars,
+        serial_log: &broken_boot_log,
+        acceptance_marker: "Nagi M7 reboot required PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let status = run_qemu_gui_with_events(
+        &broken_boot_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_SYSTEM_A_MENU_EVENTS,
+    )
+    .map_err(|error| format!("GPT broken image User Data bootstrap: {error}"))?;
+    let serial = fs::read_to_string(&broken_boot_log)
+        .map_err(|error| format!("read {}: {error}", broken_boot_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT broken image User Data bootstrap",
+        status,
+        &broken_boot_log,
+        &serial,
+        &[
+            "Nagi M27 manual selection: confirmed slot=A",
+            "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi M7 ext2 format PASS",
+            "Nagi M7 persistent write PASS",
+            "Nagi M7 reboot required PASS",
+        ],
+    )?;
+
+    for attempt in 1..=3 {
+        let log = gpt_evidence.join(format!("broken-system-b-trial-{attempt}.log"));
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &broken_image_path,
+            persistent_disk: &broken_image_path,
+            vars_copy: &broken_vars,
+            serial_log: &log,
+            acceptance_marker: "Nagi Loader: invalid ELF",
+            timeout: Duration::from_secs(120),
+        };
+        let status = run_m27_headless_with_pre_guest_retry(&config, false)
+            .map_err(|error| format!("GPT System B trial {attempt}: {error}"))?;
+        let serial =
+            fs::read_to_string(&log).map_err(|error| format!("read {}: {error}", log.display()))?;
+        let expected_decision =
+            format!("Nagi M27 persistence decision: trial attempt={attempt} slot=B");
+        require_m27_gpt_markers(
+            "GPT malformed System B trial",
+            status,
+            &log,
+            &serial,
+            &[
+                &expected_decision,
+                "Nagi M27 UEFI variable journal persistence PASS",
+                "Nagi M30 GPT partition boot: System B PASS",
+                "Nagi M27 trial payload rejected slot=B",
+                "Nagi Loader: invalid ELF",
+            ],
+        )?;
+        if !m27_trial_failure_observed(&serial) {
+            return Err(format!(
+                "GPT System B trial {attempt} reached the guest kernel or missed the rejection path (log {})",
+                log.display()
+            ));
+        }
+    }
+
+    let recovery_log = gpt_evidence.join("broken-recovery.log");
+    let recovery_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &broken_image_path,
+        persistent_disk: &broken_image_path,
+        vars_copy: &broken_vars,
+        serial_log: &recovery_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        timeout: Duration::from_secs(120),
+    };
+    let recovery_commands = b"check\nlog\nfiles\nslots\nhelp\n";
+    let status = run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
+        &recovery_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_RECOVERY_MENU_EVENTS,
+        "Nagi M27 Recovery console READY",
+        recovery_commands,
+    )
+    .map_err(|error| format!("GPT Recovery after three System B failures: {error}"))?;
+    let serial = fs::read_to_string(&recovery_log)
+        .map_err(|error| format!("read {}: {error}", recovery_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT Recovery after malformed System B",
+        status,
+        &recovery_log,
+        &serial,
+        &[
+            "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+            "Nagi M30 GPT partition boot: Recovery PASS",
+            "Nagi M27 Recovery VFS check PASS files=",
+            "Nagi M27 Recovery current-boot log PASS",
+            "Nagi M27 Recovery files PASS",
+            "Nagi M27 Recovery command help PASS",
+        ],
+    )?;
+    if serial.contains("Nagi M27 persistence decision:")
+        || serial.contains("Nagi M27 readiness persisted")
+    {
+        return Err(format!(
+            "GPT Recovery changed the boot journal or recorded trial readiness (log {})",
+            recovery_log.display()
+        ));
+    }
+
+    for (boot, expected_decision) in [
+        (4, "Nagi M27 persistence decision: rollback slot=A"),
+        (5, "Nagi M27 persistence decision: confirmed slot=A"),
+    ] {
+        let log = gpt_evidence.join(format!("broken-system-a-recovery-{boot}.log"));
+        let config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &broken_image_path,
+            persistent_disk: &broken_image_path,
+            vars_copy: &broken_vars,
+            serial_log: &log,
+            acceptance_marker: "Nagi M7 acceptance PASS",
+            timeout: Duration::from_secs(120),
+        };
+        let status = run_m27_headless_with_pre_guest_retry(&config, false)
+            .map_err(|error| format!("GPT rollback/confirmed boot {boot}: {error}"))?;
+        let serial =
+            fs::read_to_string(&log).map_err(|error| format!("read {}: {error}", log.display()))?;
+        require_m27_gpt_markers(
+            "GPT System A rollback after Recovery",
+            status,
+            &log,
+            &serial,
+            &[
+                expected_decision,
+                "Nagi M30 GPT partition boot: System A PASS",
+                "Nagi M7 persistent read PASS",
+                "Nagi M7 acceptance PASS",
+            ],
+        )?;
+    }
+
+    let healthy_vars = gpt_evidence.join("healthy-OVMF_VARS.fd");
+    let healthy_boot_log = gpt_evidence.join("healthy-initialize-user-data.log");
+    let healthy_boot_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &healthy_image_path,
+        persistent_disk: &healthy_image_path,
+        vars_copy: &healthy_vars,
+        serial_log: &healthy_boot_log,
+        acceptance_marker: "Nagi M7 reboot required PASS",
+        timeout: Duration::from_secs(180),
+    };
+    let status = run_qemu_gui_with_events(
+        &healthy_boot_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_SYSTEM_A_MENU_EVENTS,
+    )
+    .map_err(|error| format!("GPT healthy image User Data bootstrap: {error}"))?;
+    let serial = fs::read_to_string(&healthy_boot_log)
+        .map_err(|error| format!("read {}: {error}", healthy_boot_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT healthy image User Data bootstrap",
+        status,
+        &healthy_boot_log,
+        &serial,
+        &[
+            "Nagi M27 manual selection: confirmed slot=A",
+            "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi M7 reboot required PASS",
+        ],
+    )?;
+
+    let trial_log = gpt_evidence.join("healthy-system-b-readiness.log");
+    let trial_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &healthy_image_path,
+        persistent_disk: &healthy_image_path,
+        vars_copy: &healthy_vars,
+        serial_log: &trial_log,
+        acceptance_marker: "Nagi M10 desktop READY",
+        timeout: Duration::from_secs(120),
+    };
+    let status = run_m27_headless_with_pre_guest_retry(&trial_config, false)
+        .map_err(|error| format!("GPT healthy System B trial: {error}"))?;
+    let serial = fs::read_to_string(&trial_log)
+        .map_err(|error| format!("read {}: {error}", trial_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT healthy System B trial",
+        status,
+        &trial_log,
+        &serial,
+        &[
+            "Nagi M27 persistence decision: trial attempt=1 slot=B",
+            "Nagi M27 UEFI variable journal persistence PASS",
+            "Nagi M30 GPT partition boot: System B PASS",
+            "Nagi M7 persistent read PASS",
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=",
+            "Nagi M10 desktop READY",
+        ],
+    )?;
+    if !m27_readiness_persisted_before_desktop(&serial) {
+        return Err(format!(
+            "GPT System B did not persist readiness before the desktop marker (log {})",
+            trial_log.display()
+        ));
+    }
+
+    let healthy_recovery_log = gpt_evidence.join("healthy-recovery.log");
+    let healthy_recovery_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &healthy_image_path,
+        persistent_disk: &healthy_image_path,
+        vars_copy: &healthy_vars,
+        serial_log: &healthy_recovery_log,
+        acceptance_marker: "Nagi M27 Recovery command help PASS",
+        timeout: Duration::from_secs(120),
+    };
+    let status = run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
+        &healthy_recovery_config,
+        "Nagi M27 Recovery boot menu READY",
+        &M27_RECOVERY_MENU_EVENTS,
+        "Nagi M27 Recovery console READY",
+        recovery_commands,
+    )
+    .map_err(|error| format!("GPT Recovery after healthy B readiness: {error}"))?;
+    let serial = fs::read_to_string(&healthy_recovery_log)
+        .map_err(|error| format!("read {}: {error}", healthy_recovery_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT Recovery after healthy System B readiness",
+        status,
+        &healthy_recovery_log,
+        &serial,
+        &[
+            "Nagi M27 readiness record consumed slot=B PASS",
+            "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
+            "Nagi M30 GPT partition boot: Recovery PASS",
+            "Nagi M27 Recovery VFS check PASS files=",
+            "Nagi M27 Recovery command help PASS",
+        ],
+    )?;
+
+    let confirmed_log = gpt_evidence.join("healthy-system-b-confirmed.log");
+    let confirmed_config = QemuConfig {
+        qemu: &host.qemu,
+        ovmf_code: &host.ovmf_code,
+        ovmf_vars_template: &host.ovmf_vars,
+        disk_image: &healthy_image_path,
+        persistent_disk: &healthy_image_path,
+        vars_copy: &healthy_vars,
+        serial_log: &confirmed_log,
+        acceptance_marker: GUEST_ACCEPTANCE_MARKER,
+        timeout: Duration::from_secs(120),
+    };
+    let status = run_m27_headless_with_pre_guest_retry(&confirmed_config, false)
+        .map_err(|error| format!("GPT confirmed System B boot: {error}"))?;
+    let serial = fs::read_to_string(&confirmed_log)
+        .map_err(|error| format!("read {}: {error}", confirmed_log.display()))?;
+    require_m27_gpt_markers(
+        "GPT confirmed System B after Recovery",
+        status,
+        &confirmed_log,
+        &serial,
+        &[
+            "Nagi M27 persistence decision: confirmed slot=B",
+            "Nagi M30 GPT partition boot: System B PASS",
+            "Nagi M7 persistent read PASS",
+            "Nagi M7 acceptance PASS",
+        ],
+    )?;
+    Ok(())
+}
+
+fn require_m27_gpt_markers(
+    phase: &str,
+    qemu_status: i32,
+    log_path: &Path,
+    serial: &str,
+    markers: &[&str],
+) -> Result<(), String> {
+    for marker in markers {
+        if !serial.contains(marker) {
+            return Err(format!(
+                "{phase} did not print `{marker}` (QEMU exit {qemu_status}; log {})",
+                log_path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn m27_trial_failure_observed(serial: &str) -> bool {
+    serial.contains("Nagi M27 trial payload rejected slot=B")
+        && serial.contains("Nagi Loader: invalid ELF")
+        && !serial.contains("Nagi Kernel started")
+        && !serial.contains("Nagi M27 readiness persisted")
+}
+
+fn m27_bootstrap_markers_present(serial: &str) -> bool {
+    serial.contains(NAGI_WRITE_MARKER) && serial.contains(M27_BOOTSTRAP_COMPLETION_MARKER)
+}
+
+fn m27_readiness_persisted_before_desktop(serial: &str) -> bool {
+    let readiness_line = serial.lines().position(|line| {
+        line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 generation=")
+            && line.ends_with(" PASS")
+    });
+    let desktop_ready_line = serial
+        .lines()
+        .position(|line| line == "Nagi M10 desktop READY");
+    matches!((readiness_line, desktop_ready_line), (Some(record), Some(desktop)) if record < desktop)
+}
+
+fn m27_readiness_consumed_before_promotion(serial: &str) -> bool {
+    let consumed_line = serial
+        .lines()
+        .position(|line| line == "Nagi M27 readiness record consumed slot=B PASS");
+    let promotion_line = serial
+        .lines()
+        .position(|line| line == "Nagi M27 persistence decision: confirmed slot=B");
+    matches!((consumed_line, promotion_line), (Some(consumed), Some(promotion)) if consumed < promotion)
+}
+
 fn help() -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }
@@ -3479,7 +9486,514 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{last_serial_lines, m17_trace_excerpt};
+    use super::{
+        append_nagi_target_archive_tools, has_pre_guest_firmware_timeout_signature,
+        last_serial_lines, m17_trace_excerpt, m27_bootstrap_markers_present,
+        m27_readiness_consumed_before_promotion, m27_readiness_persisted_before_desktop,
+        m27_trial_failure_observed, m30_image_build_info_matches, parse_command, path_with_suffix,
+        pinned_granite_manifest, run_headless_with_pre_guest_retry_using, scoped_artifact_name,
+        verify_external_artifact, Command, QemuConfig, NAGI_WRITE_MARKER,
+    };
+    use sha2::{Digest, Sha256};
+    use std::path::Path;
+
+    #[test]
+    fn m22_retries_only_a_running_pre_guest_firmware_timeout_with_diagnostics() {
+        let firmware_timeout = concat!(
+            "\u{1b}[2J\u{1b}[01;01H\u{1b}[=3h\u{1b}[2J\u{1b}[01;01H\n",
+            "QEMU timeout diagnostics:\n",
+            "QMP query-status: {\"return\": {\"status\": \"running\", \"running\": true}}\n",
+            "QMP CPU registers: RIP=000000007eb84171\n",
+            "QMP CPU instruction window: 0x7eb84171: jmp 0x7eb84150\n"
+        );
+        let timeout = "QEMU did not reach acceptance within 180 seconds";
+        assert!(has_pre_guest_firmware_timeout_signature(
+            timeout,
+            firmware_timeout
+        ));
+        assert!(!has_pre_guest_firmware_timeout_signature(
+            "QEMU exited before acceptance",
+            firmware_timeout
+        ));
+        assert!(!has_pre_guest_firmware_timeout_signature(
+            timeout,
+            &firmware_timeout.replace(
+                "QMP CPU instruction window:",
+                "Nagi Kernel started\nQMP CPU instruction window:"
+            )
+        ));
+        assert!(!has_pre_guest_firmware_timeout_signature(
+            timeout,
+            "QEMU timeout diagnostics: no CPU state captured"
+        ));
+    }
+
+    #[test]
+    fn m27_pre_guest_retry_restores_journal_state_and_preserves_both_snapshots() {
+        use std::fs;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let root = std::env::temp_dir().join(format!(
+            "nagi-m27-pre-guest-retry-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create temporary evidence directory");
+        let qemu = root.join("qemu");
+        let ovmf_code = root.join("OVMF_CODE.fd");
+        let ovmf_vars_template = root.join("OVMF_VARS.template.fd");
+        let disk_image = root.join("boot.img");
+        let persistent_disk = root.join("user-data.img");
+        let vars_copy = root.join("OVMF_VARS.fd");
+        let serial_log = root.join("boot-4.log");
+        fs::write(&disk_image, b"boot image").expect("seed boot image");
+        fs::write(&persistent_disk, b"user data").expect("seed user data");
+        fs::write(&vars_copy, b"initial OVMF variables").expect("seed OVMF variables");
+        let config = QemuConfig {
+            qemu: &qemu,
+            ovmf_code: &ovmf_code,
+            ovmf_vars_template: &ovmf_vars_template,
+            disk_image: &disk_image,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &serial_log,
+            acceptance_marker: "Nagi M7 acceptance PASS",
+            timeout: Duration::from_secs(180),
+        };
+        let diagnostics = concat!(
+            "\u{1b}[2J\u{1b}[01;01H\u{1b}[=3h\u{1b}[2J\u{1b}[01;01H\n",
+            "QEMU timeout diagnostics:\n",
+            "QMP query-status: {\"return\": {\"status\": \"running\", \"running\": true}}\n",
+            "QMP CPU registers: RIP=000000007eb84171\n",
+            "QMP CPU instruction window: 0x7eb84171: jmp 0x7eb84150\n"
+        );
+        let mut attempts = 0;
+        let result = run_headless_with_pre_guest_retry_using(&config, false, "M27", |config| {
+            attempts += 1;
+            if attempts == 1 {
+                fs::write(config.serial_log, diagnostics).expect("write first-attempt log");
+                fs::write(config.vars_copy, b"first attempt advanced boot journal")
+                    .expect("mutate first-attempt variables");
+                Err("QEMU did not reach acceptance within 180 seconds".to_owned())
+            } else {
+                assert_eq!(
+                    fs::read(config.vars_copy).expect("read reused OVMF variables"),
+                    b"initial OVMF variables"
+                );
+                assert_eq!(
+                    fs::read(config.disk_image).expect("read boot disk before retry"),
+                    b"boot image"
+                );
+                assert_eq!(
+                    fs::read(config.persistent_disk).expect("read User Data before retry"),
+                    b"user data"
+                );
+                fs::write(config.vars_copy, b"retry advanced boot journal once")
+                    .expect("persist one retry journal attempt");
+                fs::write(
+                    config.serial_log,
+                    "Nagi Kernel started\nNagi M7 acceptance PASS\n",
+                )
+                .expect("write retry acceptance log");
+                Ok(7)
+            }
+        });
+        assert_eq!(result, Ok(7));
+        assert_eq!(attempts, 2);
+        assert_eq!(
+            fs::read(path_with_suffix(&serial_log, ".pre-guest-timeout-1"))
+                .expect("preserved first-attempt serial log"),
+            diagnostics.as_bytes()
+        );
+        assert_eq!(
+            fs::read(path_with_suffix(
+                &serial_log,
+                ".ovmf-vars.pre-guest-timeout-1"
+            ))
+            .expect("preserved first-attempt OVMF variables"),
+            b"first attempt advanced boot journal"
+        );
+        assert_eq!(
+            fs::read(path_with_suffix(
+                &serial_log,
+                ".ovmf-vars.pre-guest-retry-source-1"
+            ))
+            .expect("preserved pre-attempt OVMF variables"),
+            b"initial OVMF variables"
+        );
+        assert!(
+            fs::read_to_string(path_with_suffix(&serial_log, ".pre-guest-retry-1.txt"))
+                .expect("retry evidence note")
+                .contains("pre-attempt OVMF variables were restored")
+        );
+        assert_eq!(
+            fs::read(&vars_copy).expect("read retry OVMF variables"),
+            b"retry advanced boot journal once"
+        );
+        fs::remove_dir_all(root).expect("remove temporary evidence directory");
+    }
+
+    #[test]
+    fn m27_pre_guest_retry_refuses_to_replay_after_writable_disk_changes() {
+        use std::fs;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let root = std::env::temp_dir().join(format!(
+            "nagi-m27-pre-guest-disk-change-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create temporary evidence directory");
+        let disk_image = root.join("boot.img");
+        let persistent_disk = root.join("user-data.img");
+        fs::write(&disk_image, b"boot disk before attempt").expect("seed boot disk");
+        fs::write(&persistent_disk, b"user data before attempt").expect("seed user data");
+        let qemu = root.join("qemu");
+        let ovmf_code = root.join("OVMF_CODE.fd");
+        let ovmf_vars_template = root.join("OVMF_VARS.template.fd");
+        let vars_copy = root.join("OVMF_VARS.fd");
+        let serial_log = root.join("promotion-boot.log");
+        fs::write(&vars_copy, b"initial OVMF variables").expect("seed OVMF variables");
+        let config = QemuConfig {
+            qemu: &qemu,
+            ovmf_code: &ovmf_code,
+            ovmf_vars_template: &ovmf_vars_template,
+            disk_image: &disk_image,
+            persistent_disk: &persistent_disk,
+            vars_copy: &vars_copy,
+            serial_log: &serial_log,
+            acceptance_marker: "Nagi M10 desktop READY",
+            timeout: Duration::from_secs(180),
+        };
+        let diagnostics = concat!(
+            "QEMU timeout diagnostics:\n",
+            "QMP query-status: {\"return\": {\"status\": \"running\", \"running\": true}}\n",
+            "QMP CPU registers: RIP=000000007eb84171\n",
+            "QMP CPU instruction window: 0x7eb84171: jmp 0x7eb84150\n"
+        );
+        let mut attempts = 0;
+        let result = run_headless_with_pre_guest_retry_using(&config, false, "M27", |config| {
+            attempts += 1;
+            fs::write(config.serial_log, diagnostics).expect("write firmware timeout log");
+            fs::write(
+                config.persistent_disk,
+                b"user data changed during firmware attempt",
+            )
+            .expect("simulate persistent disk mutation");
+            Err("QEMU did not reach acceptance within 180 seconds".to_owned())
+        });
+
+        assert_eq!(attempts, 1, "changed disk state must suppress retry");
+        let error = result.expect_err("changed disk state must fail closed");
+        assert!(error.contains("writable M27 disk changed"), "{error}");
+        assert_eq!(
+            fs::read(&disk_image).expect("read unchanged boot disk"),
+            b"boot disk before attempt"
+        );
+        assert_eq!(
+            fs::read(&persistent_disk).expect("read preserved post-attempt User Data"),
+            b"user data changed during firmware attempt"
+        );
+        assert!(
+            fs::read_to_string(path_with_suffix(&serial_log, ".pre-guest-retry-1.txt"))
+                .expect("retry suppression evidence")
+                .contains("Retry suppressed")
+        );
+        fs::remove_dir_all(root).expect("remove temporary evidence directory");
+    }
+
+    #[test]
+    fn m22_pre_guest_retry_evidence_is_scoped_to_each_boot_log() {
+        use std::fs;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let root = std::env::temp_dir().join(format!(
+            "nagi-m22-pre-guest-retry-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock after Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create temporary evidence directory");
+        let disk_image = root.join("boot.img");
+        let persistent_disk = root.join("user-data.img");
+        let vars_template = root.join("OVMF_VARS.template.fd");
+        let vars_copy = root.join("OVMF_VARS.fd");
+        fs::write(&disk_image, b"boot disk").expect("seed boot disk");
+        fs::write(&persistent_disk, b"User Data").expect("seed User Data");
+        fs::write(&vars_template, b"fresh template variables").expect("seed vars template");
+        let diagnostics = concat!(
+            "QEMU timeout diagnostics:\n",
+            "QMP query-status: {\"return\": {\"status\": \"running\", \"running\": true}}\n",
+            "QMP CPU registers: RIP=000000007eb84171\n",
+            "QMP CPU instruction window: 0x7eb84171: jmp 0x7eb84150\n"
+        );
+
+        for boot_index in 1..=3 {
+            fs::copy(&vars_template, &vars_copy).expect("reset OVMF vars for next boot");
+            let serial_log = root.join(format!("boot-{boot_index}.log"));
+            let qemu = root.join("qemu");
+            let ovmf_code = root.join("OVMF_CODE.fd");
+            let config = QemuConfig {
+                qemu: &qemu,
+                ovmf_code: &ovmf_code,
+                ovmf_vars_template: &vars_template,
+                disk_image: &disk_image,
+                persistent_disk: &persistent_disk,
+                vars_copy: &vars_copy,
+                serial_log: &serial_log,
+                acceptance_marker: "Nagi M13 acceptance PASS",
+                timeout: Duration::from_secs(180),
+            };
+            let mut attempts = 0;
+            let result = run_headless_with_pre_guest_retry_using(&config, false, "M22", |config| {
+                attempts += 1;
+                if attempts == 1 {
+                    fs::write(config.serial_log, diagnostics).expect("write first boot log");
+                    fs::write(config.vars_copy, b"failed attempt variables")
+                        .expect("mutate first-attempt OVMF variables");
+                    Err("QEMU did not reach acceptance within 180 seconds".to_owned())
+                } else {
+                    assert_eq!(
+                        fs::read(config.vars_copy).expect("read restored OVMF variables"),
+                        b"fresh template variables"
+                    );
+                    fs::write(
+                        config.serial_log,
+                        "Nagi Kernel started\nNagi M13 acceptance PASS\n",
+                    )
+                    .expect("write retried boot acceptance log");
+                    Ok(0)
+                }
+            });
+
+            assert_eq!(result, Ok(0), "M22 boot {boot_index} retry should pass");
+            assert_eq!(attempts, 2, "M22 boot {boot_index} gets one retry");
+            assert!(
+                path_with_suffix(&serial_log, ".pre-guest-timeout-1").is_file(),
+                "M22 boot {boot_index} first log should be preserved"
+            );
+            assert!(
+                path_with_suffix(&serial_log, ".ovmf-vars.pre-guest-timeout-1").is_file(),
+                "M22 boot {boot_index} failed variables should be preserved"
+            );
+            assert!(
+                path_with_suffix(&serial_log, ".pre-guest-retry-1.txt").is_file(),
+                "M22 boot {boot_index} retry note should be preserved"
+            );
+        }
+
+        fs::remove_dir_all(root).expect("remove temporary evidence directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_evidence_path_suffix_preserves_non_utf8_path_bytes() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        use std::path::PathBuf;
+
+        let path = PathBuf::from(OsString::from_vec(b"/tmp/nagi-\xff".to_vec()));
+        let suffixed = path_with_suffix(&path, ".retry");
+
+        assert_eq!(suffixed.as_os_str().as_bytes(), b"/tmp/nagi-\xff.retry");
+    }
+
+    #[test]
+    fn m29_command_selects_the_settings_acceptance() {
+        assert_eq!(parse_command(&["m29".into()]), Ok(Command::M29));
+        assert!(parse_command(&["m29".into(), "extra".into()]).is_err());
+    }
+
+    #[test]
+    fn m20_granite_command_requires_exactly_one_external_artifact_path() {
+        assert_eq!(
+            parse_command(&["m20-granite".into(), "model.gguf".into()]),
+            Ok(Command::M20Granite)
+        );
+        assert!(parse_command(&["m20-granite".into()]).is_err());
+        assert!(
+            parse_command(&["m20-granite".into(), "model.gguf".into(), "extra".into()]).is_err()
+        );
+    }
+
+    #[test]
+    fn m20_granite_inference_command_requires_exactly_one_external_artifact_path() {
+        assert_eq!(
+            parse_command(&["m20-granite-inference".into(), "model.gguf".into()]),
+            Ok(Command::M20GraniteInference)
+        );
+        assert!(parse_command(&["m20-granite-inference".into()]).is_err());
+        assert!(parse_command(&[
+            "m20-granite-inference".into(),
+            "model.gguf".into(),
+            "extra".into()
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn m20_llama_smoke_command_accepts_no_arguments() {
+        assert_eq!(
+            parse_command(&["m20-llama-smoke".into()]),
+            Ok(Command::M20LlamaSmoke)
+        );
+        assert!(parse_command(&["m20-llama-smoke".into(), "extra".into()]).is_err());
+    }
+
+    #[test]
+    fn m25_whisper_command_requires_exactly_one_external_artifact_path() {
+        assert_eq!(
+            parse_command(&["m25-whisper".into(), "model.bin".into()]),
+            Ok(Command::M25Whisper)
+        );
+        assert!(parse_command(&["m25-whisper".into()]).is_err());
+        assert!(
+            parse_command(&["m25-whisper".into(), "model.bin".into(), "extra".into()]).is_err()
+        );
+    }
+
+    #[test]
+    fn m25_whisper_inference_requires_model_pcm_and_expected_text() {
+        assert_eq!(
+            parse_command(&[
+                "m25-whisper-inference".into(),
+                "model.bin".into(),
+                "voice.pcm".into(),
+                "アルバートを開いて".into(),
+            ]),
+            Ok(Command::M25WhisperInference)
+        );
+        assert!(parse_command(&["m25-whisper-inference".into()]).is_err());
+        assert!(parse_command(&[
+            "m25-whisper-inference".into(),
+            "model.bin".into(),
+            "voice.pcm".into(),
+        ])
+        .is_err());
+        assert!(parse_command(&[
+            "m25-whisper-inference".into(),
+            "model.bin".into(),
+            "voice.pcm".into(),
+            "expected".into(),
+            "extra".into(),
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn m26_model_commands_require_exact_artifact_and_gemma_terms_acknowledgement() {
+        assert_eq!(
+            parse_command(&["m26-qwen".into(), "qwen.gguf".into()]),
+            Ok(Command::M26Qwen)
+        );
+        assert!(parse_command(&["m26-qwen".into()]).is_err());
+        assert!(parse_command(&["m26-qwen".into(), "qwen.gguf".into(), "extra".into()]).is_err());
+        assert_eq!(
+            parse_command(&[
+                "m26-gemma".into(),
+                "gemma.gguf".into(),
+                "--accept-gemma-terms".into()
+            ]),
+            Ok(Command::M26Gemma)
+        );
+        assert!(parse_command(&["m26-gemma".into(), "gemma.gguf".into()]).is_err());
+        assert!(parse_command(&[
+            "m26-gemma".into(),
+            "gemma.gguf".into(),
+            "--wrong-flag".into()
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn m25_whisper_artifact_contract_matches_the_model_lock() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let model = crate::whisper_cpp::validate_whisper_model_artifact_lock(&root)
+            .expect("pinned Whisper artifact lock");
+        assert_eq!(model.model_id, "openai.whisper-small-multilingual");
+        assert_eq!(model.file_name, "ggml-small.bin");
+        assert_eq!(model.size_bytes, 487_601_967);
+        assert_eq!(
+            model.sha256,
+            "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
+        );
+    }
+
+    #[test]
+    fn m20_granite_manifest_matches_the_model_lock() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest = pinned_granite_manifest(&root).expect("pinned Granite manifest");
+        assert_eq!(manifest.model_id.as_str(), "ibm.granite-4.2-3b");
+        assert_eq!(manifest.artifact.size_bytes, Some(2_244_011_552));
+    }
+
+    #[test]
+    fn m20_granite_external_artifact_is_checked_by_size_and_digest() {
+        let path = std::env::temp_dir().join(format!(
+            "nagi-m20-artifact-{}-{}.gguf",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after Unix epoch")
+                .as_nanos()
+        ));
+        let bytes = b"pinned test artifact";
+        std::fs::write(&path, bytes).expect("write temporary artifact");
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        assert!(verify_external_artifact(&path, bytes.len() as u64, &digest).is_ok());
+        assert!(verify_external_artifact(&path, bytes.len() as u64 + 1, &digest).is_err());
+        assert!(verify_external_artifact(&path, bytes.len() as u64, &"0".repeat(64)).is_err());
+        std::fs::remove_file(path).expect("remove temporary artifact");
+    }
+
+    #[test]
+    fn m29_acceptance_artifacts_are_unique_and_keep_their_extensions() {
+        assert_eq!(
+            scoped_artifact_name("nagi-settings.img", "run-123", true),
+            "nagi-settings-run-123.img"
+        );
+        assert_eq!(
+            scoped_artifact_name("settings.log", "run-123", false),
+            "settings.log"
+        );
+    }
+
+    #[test]
+    fn m30_image_build_info_binds_the_source_revision_and_image_digest() {
+        let revision = "a".repeat(40);
+        let digest = "b".repeat(64);
+        let build_info =
+            format!("format_version=1\nsource_revision={revision}\nimage_sha256={digest}\n");
+
+        assert!(m30_image_build_info_matches(
+            &build_info,
+            &revision,
+            &digest
+        ));
+        assert!(!m30_image_build_info_matches(
+            &build_info,
+            &"c".repeat(40),
+            &digest
+        ));
+        assert!(!m30_image_build_info_matches(
+            &build_info,
+            &revision,
+            &"d".repeat(64)
+        ));
+        assert!(!m30_image_build_info_matches(
+            &format!("{build_info}unexpected=value\n"),
+            &revision,
+            &digest
+        ));
+    }
 
     #[test]
     fn serial_log_excerpt_keeps_the_last_lines_in_order() {
@@ -3487,6 +10001,54 @@ mod tests {
             last_serial_lines("first\r\nsecond\r\nthird\r\n", 2),
             "second\nthird"
         );
+    }
+
+    #[test]
+    fn m27_trial_acceptance_waits_for_loader_failure_after_rejection() {
+        assert!(m27_trial_failure_observed(
+            "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\n"
+        ));
+        assert!(!m27_trial_failure_observed(
+            "Nagi M27 trial payload rejected slot=B\n"
+        ));
+        assert!(!m27_trial_failure_observed(
+            "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\nNagi Kernel started\n"
+        ));
+    }
+
+    #[test]
+    fn m27_bootstrap_waits_for_storage_restart_required_marker() {
+        let complete = format!("{NAGI_WRITE_MARKER}\nNagi M7 reboot required PASS\n");
+        assert!(m27_bootstrap_markers_present(&complete));
+        assert!(!m27_bootstrap_markers_present(&format!(
+            "{NAGI_WRITE_MARKER}\n"
+        )));
+        assert!(!m27_bootstrap_markers_present(
+            "Nagi M7 reboot required PASS\n"
+        ));
+    }
+
+    #[test]
+    fn m27_readiness_must_be_persisted_before_desktop_ready() {
+        assert!(m27_readiness_persisted_before_desktop(
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\nNagi M10 desktop READY\r\n"
+        ));
+        assert!(!m27_readiness_persisted_before_desktop(
+            "Nagi M10 desktop READY\r\nNagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\n"
+        ));
+        assert!(!m27_readiness_persisted_before_desktop(
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=3 FAIL\r\nNagi M10 desktop READY\r\n"
+        ));
+    }
+
+    #[test]
+    fn m27_readiness_must_be_consumed_before_candidate_promotion() {
+        assert!(m27_readiness_consumed_before_promotion(
+            "Nagi M27 readiness record consumed slot=B PASS\r\nNagi M27 persistence decision: confirmed slot=B\r\n"
+        ));
+        assert!(!m27_readiness_consumed_before_promotion(
+            "Nagi M27 persistence decision: confirmed slot=B\r\nNagi M27 readiness record consumed slot=B PASS\r\n"
+        ));
     }
 
     #[test]
@@ -3498,6 +10060,23 @@ mod tests {
             ),
             "Nagi M17 trace: TLS initialized\nNagi M17 trace: EGL bind started"
         );
+    }
+
+    #[test]
+    fn cross_archive_tools_are_limited_to_macos_nagi_target_builds() {
+        let mut macos_env = Vec::<(&str, &Path)>::new();
+        append_nagi_target_archive_tools(&mut macos_env, "macos");
+        assert_eq!(
+            macos_env,
+            vec![
+                ("AR_x86_64_unknown_nagi_user", Path::new("llvm-ar")),
+                ("RANLIB_x86_64_unknown_nagi_user", Path::new("llvm-ranlib")),
+            ]
+        );
+
+        let mut linux_env = Vec::<(&str, &Path)>::new();
+        append_nagi_target_archive_tools(&mut linux_env, "linux");
+        assert!(linux_env.is_empty());
     }
 
     #[test]
@@ -3572,6 +10151,52 @@ mod tests {
     }
 
     #[test]
+    fn m18_browser_boot_keeps_the_esp_read_only_for_storage_selection() {
+        let commands = include_str!("commands.rs");
+        let m18_start = commands.find("fn execute_m18(").expect("M18 command");
+        let m18_end = commands[m18_start..]
+            .find("fn help() -> CommandResult")
+            .map(|offset| m18_start + offset)
+            .expect("next command helper");
+        assert!(commands[m18_start..m18_end].contains(
+            "run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot("
+        ));
+        assert!(commands[m18_start..m18_end].contains("m29-browser-{evidence_run_id}"));
+
+        let image = include_str!("image.rs");
+        assert!(image.contains("Duration::from_millis(100)"));
+        let compact_image: String = image.split_whitespace().collect();
+        assert!(compact_image.contains("mode.inter_event_delay.is_zero()"));
+        assert!(
+            compact_image.contains("vnc_port-5900,mode.boot_disk_read_only,mode.reuse_ovmf_vars,")
+        );
+        assert!(compact_image.contains(
+            "boot_disk_read_only:true,reuse_ovmf_vars:false,inter_event_delay:Duration::from_millis(100),"
+        ));
+    }
+
+    #[test]
+    fn m18_cleans_stale_servo_temp_storage_before_creating_its_profile() {
+        let init = include_str!("../../../user/nagi-init/src/main.rs");
+        let cleanup = init
+            .find("nagi_posix::cleanup_m18_servo_temp_directories()")
+            .expect("M18 stale Servo temp cleanup");
+        let profile = init
+            .find("nagi_posix_ensure_directory(c\"/tmp/nagi-servo-profile\".as_ptr())")
+            .expect("stable Servo profile directory");
+        assert!(
+            cleanup < profile,
+            "free VFS inodes before creating the profile"
+        );
+
+        let acceptance = include_str!("../../../user/nagi-albert/src/m18_acceptance.rs");
+        assert!(acceptance.contains(
+            "servo_options.config_dir = Some(std::path::PathBuf::from(SERVO_CONFIG_DIR))"
+        ));
+        assert!(acceptance.contains("const SERVO_CONFIG_DIR: &str = \"/tmp/nagi-servo-profile\""));
+    }
+
+    #[test]
     fn m17_rust_std_random_backend_uses_guest_rng_boundary() {
         let rust_std_patch =
             include_str!("../../../third_party/rust-std/patches/0001-nagi-target-support.patch");
@@ -3603,6 +10228,33 @@ mod tests {
                 .contains("else if #[cfg(any(target_os = \"redox\", target_os = \"nagi\"))]"),
             "Nagi must not use Rust std's Redox /scheme/rand backend"
         );
+    }
+
+    #[test]
+    fn m17_posix_urandom_device_uses_guest_virtio_rng() {
+        let runtime = include_str!("../../../user/nagi-posix/src/runtime.rs");
+        let libnagi = include_str!("../../../user/libnagi/src/lib.rs");
+        let open_start = runtime.find("pub fn open(").expect("POSIX runtime open");
+        let open_end = runtime[open_start..]
+            .find("\nfn allocate_descriptor(")
+            .map(|offset| open_start + offset)
+            .expect("descriptor allocation helper");
+        let open = &runtime[open_start..open_end];
+        let device = open
+            .find("if name == b\"/dev/urandom\"")
+            .expect("virtual urandom path");
+        let vfs = open
+            .find("let mut filesystem = FILESYSTEM.lock();")
+            .expect("persistent VFS path");
+        assert!(device < vfs, "urandom must not require a VFS mount");
+        assert!(open.contains("allocate_descriptor(FdEntry::Random)"));
+
+        assert!(runtime.contains("FdEntry::Random => {"));
+        assert!(runtime.contains("libnagi::random_fill(bytes)"));
+        assert!(runtime.contains("RuntimeError::EntropyUnavailable => 5"));
+        assert!(runtime.contains("FdEntry::Random => Ok(requested & POLLIN)"));
+        assert!(libnagi.contains("let mut result = SYS_RANDOM_GET;"));
+        assert!(libnagi.contains("pub fn random_fill(bytes: &mut [u8]) -> bool"));
     }
 
     #[test]

@@ -79,7 +79,7 @@ fn boot_renderer_is_guarded_by_m10_desktop_only_cfg() {
     }
 
     let desktop_run = source
-        .find("desktop::run(display_capability,input_capability);")
+        .find("desktop::run(display_capability,input_capability,volume);")
         .expect("desktop handoff must remain present");
     let guard_start = source[..desktop_run]
         .rfind(DESKTOP_ONLY_CFG)
@@ -99,7 +99,7 @@ fn boot_renderer_is_guarded_by_m10_desktop_only_cfg() {
         ("desktop transition", "boot_screen.finish_to_desktop()"),
         (
             "desktop handoff",
-            "desktop::run(display_capability,input_capability);",
+            "desktop::run(display_capability,input_capability,volume);",
         ),
     ] {
         assert!(

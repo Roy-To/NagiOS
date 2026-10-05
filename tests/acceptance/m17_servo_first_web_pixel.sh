@@ -78,4 +78,15 @@ if [ "$m17_acceptance_status" -ne 0 ]; then
         "$m17_process_status" "$m17_acceptance_status" >&2
     exit "$m17_acceptance_status"
 fi
+grep -F 'Nagi M17 first web pixel checksum=0x' "$serial_log" >/dev/null
+grep -F 'Nagi M17 first web pixel PASS' "$serial_log" >/dev/null
+grep -F 'Nagi M17 trace: Servo resource reader registered' "$serial_log" >/dev/null
+awk '
+/Nagi M17 trace: ELF constructors completed/ { constructors = NR }
+/Nagi M17 trace: user entry reached/ {
+    if (constructors == 0 || constructors >= NR) exit 1
+    entries++
+}
+END { if (entries == 0) exit 1 }
+' "$serial_log"
 printf '%s\n' 'PASS M17 first web pixel acceptance: real Servo guest frame reached Nagi Surface and QEMU'

@@ -1,0 +1,13 @@
+diff --git a/src/llama.cpp b/src/llama.cpp
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -141,7 +141,9 @@ void llama_backend_init(void) {
+     }
+ 
+     if (!ggml_backend_reg_count()) {
++#if !defined(__NAGI__)
+         ggml_backend_load_all();
++#endif
+     }
+ }
+ 

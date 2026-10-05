@@ -1,0 +1,273 @@
+diff --git a/mozjs/js/src/gc/Nursery.cpp b/mozjs/js/src/gc/Nursery.cpp
+--- a/mozjs/js/src/gc/Nursery.cpp
++++ b/mozjs/js/src/gc/Nursery.cpp
+@@ -15,0 +16 @@
++#include <stddef.h>
+@@ -43,0 +45,11 @@
++#if defined(__NAGI__)
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
++
+@@ -323,0 +336 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery profiling configuration started");
+@@ -327 +340,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey nursery profiling configuration completed");
++
++  NAGI_M17_TRACE("SpiderMonkey nursery report-stats configuration started");
+@@ -331,0 +347 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery report-stats configuration completed");
+@@ -339,0 +356 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery pretenuring configuration started");
+@@ -363 +380,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey nursery pretenuring configuration completed");
++
++  NAGI_M17_TRACE("SpiderMonkey nursery sweep-task allocation started");
+@@ -365,0 +385 @@
++    NAGI_M17_TRACE("SpiderMonkey nursery sweep-task allocation failed");
+@@ -368 +388,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey nursery sweep-task allocation completed");
++
++  NAGI_M17_TRACE("SpiderMonkey nursery decommit-task allocation started");
+@@ -370,0 +393 @@
++    NAGI_M17_TRACE("SpiderMonkey nursery decommit-task allocation failed");
+@@ -373 +396,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey nursery decommit-task allocation completed");
++
++  NAGI_M17_TRACE("SpiderMonkey nursery StoreBuffer enable started");
+@@ -374,0 +400 @@
++    NAGI_M17_TRACE("SpiderMonkey nursery StoreBuffer enable failed");
+@@ -377,2 +403,10 @@
+-
+-  return initFirstChunk(lock);
++  NAGI_M17_TRACE("SpiderMonkey nursery StoreBuffer enable completed");
++
++  NAGI_M17_TRACE("SpiderMonkey nursery first-chunk initialization started");
++  bool initialized = initFirstChunk(lock);
++  if (initialized) {
++    NAGI_M17_TRACE("SpiderMonkey nursery first-chunk initialization completed");
++  } else {
++    NAGI_M17_TRACE("SpiderMonkey nursery first-chunk initialization failed");
++  }
++  return initialized;
+@@ -417,0 +452 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery initial capacity set started");
+@@ -418,0 +454 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery initial capacity set completed");
+@@ -421,2 +457,3 @@
+-  if (!decommitTask->reserveSpaceForChunks(nchunks) ||
+-      !allocateNextChunk(lock)) {
++  NAGI_M17_TRACE("SpiderMonkey nursery decommit chunk reservation started");
++  if (!decommitTask->reserveSpaceForChunks(nchunks)) {
++    NAGI_M17_TRACE("SpiderMonkey nursery decommit chunk reservation failed");
+@@ -428 +465,13 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey nursery decommit chunk reservation completed");
++
++  NAGI_M17_TRACE("SpiderMonkey nursery first chunk allocation started");
++  if (!allocateNextChunk(lock)) {
++    NAGI_M17_TRACE("SpiderMonkey nursery first chunk allocation failed");
++    setCapacity(0);
++    MOZ_ASSERT(toSpace.isEmpty());
++    MOZ_ASSERT(fromSpace.isEmpty());
++    return false;
++  }
++  NAGI_M17_TRACE("SpiderMonkey nursery first chunk allocation completed");
++
++  NAGI_M17_TRACE("SpiderMonkey nursery to-space setup started");
+@@ -430,0 +480 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery to-space setup completed");
+@@ -432,0 +483 @@
++    NAGI_M17_TRACE("SpiderMonkey nursery from-space setup started");
+@@ -434,0 +486 @@
++    NAGI_M17_TRACE("SpiderMonkey nursery from-space setup completed");
+@@ -439,0 +492 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery current-chunk initialization started");
+@@ -440,0 +494 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery current-chunk initialization completed");
+@@ -2157,2 +2211,3 @@
+-  if (!toSpace.chunks_.reserve(newCount) ||
+-      (semispaceEnabled_ && !fromSpace.chunks_.reserve(newCount))) {
++  NAGI_M17_TRACE("SpiderMonkey nursery to-space chunk-vector reserve started");
++  if (!toSpace.chunks_.reserve(newCount)) {
++    NAGI_M17_TRACE("SpiderMonkey nursery to-space chunk-vector reserve failed");
+@@ -2161 +2216,14 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey nursery to-space chunk-vector reserve completed");
++
++  if (semispaceEnabled_) {
++    NAGI_M17_TRACE("SpiderMonkey nursery from-space chunk-vector reserve started");
++    if (!fromSpace.chunks_.reserve(newCount)) {
++      NAGI_M17_TRACE(
++          "SpiderMonkey nursery from-space chunk-vector reserve failed");
++      return false;
++    }
++    NAGI_M17_TRACE(
++        "SpiderMonkey nursery from-space chunk-vector reserve completed");
++  }
++
++  NAGI_M17_TRACE("SpiderMonkey nursery GC chunk acquisition started");
+@@ -2163,0 +2232 @@
++    NAGI_M17_TRACE("SpiderMonkey nursery GC chunk acquisition failed");
+@@ -2165,0 +2235 @@
++  NAGI_M17_TRACE("SpiderMonkey nursery GC chunk acquisition completed");
+@@ -2168,4 +2238,10 @@
+-  if (semispaceEnabled_ &&
+-      !(fromSpaceChunk = gc->getOrAllocChunk(StallAndRetry::No, lock))) {
+-    gc->recycleChunk(toSpaceChunk, lock);
+-    return false;
++  if (semispaceEnabled_) {
++    NAGI_M17_TRACE("SpiderMonkey nursery from-space GC chunk acquisition started");
++    fromSpaceChunk = gc->getOrAllocChunk(StallAndRetry::No, lock);
++    if (!fromSpaceChunk) {
++      NAGI_M17_TRACE(
++          "SpiderMonkey nursery from-space GC chunk acquisition failed");
++      gc->recycleChunk(toSpaceChunk, lock);
++      return false;
++    }
++    NAGI_M17_TRACE("SpiderMonkey nursery from-space GC chunk acquisition completed");
+diff --git a/mozjs/js/src/gc/Allocator.cpp b/mozjs/js/src/gc/Allocator.cpp
+--- a/mozjs/js/src/gc/Allocator.cpp
++++ b/mozjs/js/src/gc/Allocator.cpp
+@@ -27,0 +28,2 @@
++#include <stddef.h>
++
+@@ -31,0 +34,11 @@
++
++#if defined(__NAGI__)
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -583,0 +597 @@
++    NAGI_M17_TRACE("SpiderMonkey GC arena chunk allocation started");
+@@ -585,0 +600 @@
++      NAGI_M17_TRACE("SpiderMonkey GC arena chunk allocation failed");
+@@ -588,0 +604,2 @@
++    NAGI_M17_TRACE("SpiderMonkey GC arena chunk allocation completed");
++    NAGI_M17_TRACE("SpiderMonkey GC arena chunk initialization started");
+@@ -589,0 +607 @@
++    NAGI_M17_TRACE("SpiderMonkey GC arena chunk initialization completed");
+@@ -662,0 +681 @@
++  NAGI_M17_TRACE("SpiderMonkey GC arena aligned-page allocation started");
+@@ -664,0 +684 @@
++    NAGI_M17_TRACE("SpiderMonkey GC arena aligned-page allocation failed");
+@@ -666,0 +687 @@
++  NAGI_M17_TRACE("SpiderMonkey GC arena aligned-page allocation completed");
+diff --git a/mozjs/js/src/gc/Memory.cpp b/mozjs/js/src/gc/Memory.cpp
+--- a/mozjs/js/src/gc/Memory.cpp
++++ b/mozjs/js/src/gc/Memory.cpp
+@@ -564,0 +565,8 @@
++#if defined(__NAGI__)
++  const bool traceM17GCChunk = length == ChunkSize && alignment == ChunkSize;
++#else
++  constexpr bool traceM17GCChunk = false;
++#endif
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC aligned-page mapping started");
++  }
+@@ -569,0 +578,3 @@
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC aligned-page mapping parameters validated");
++  }
+@@ -590 +601,11 @@
+-  if (UsingScattershotAllocator()) {
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC scattershot allocator selection started");
++  }
++  bool useScattershotAllocator = UsingScattershotAllocator();
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC scattershot allocator selection completed");
++  }
++  if (useScattershotAllocator) {
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC scattershot mapping started");
++    }
+@@ -595,0 +617,4 @@
++      if (traceM17GCChunk) {
++        NAGI_M17_TRACE("SpiderMonkey GC scattershot mapping completed");
++        NAGI_M17_TRACE("SpiderMonkey GC aligned-page mapping completed");
++      }
+@@ -597,0 +623,3 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC scattershot mapping returned no region");
++    }
+@@ -601,0 +630,3 @@
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC base memory mapping started");
++  }
+@@ -603,0 +635,4 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC base memory mapping failed");
++      NAGI_M17_TRACE("SpiderMonkey GC aligned-page mapping failed");
++    }
+@@ -604,0 +640,3 @@
++  }
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC base memory mapping completed");
+@@ -609,0 +648,3 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC aligned-page mapping completed");
++    }
+@@ -616 +657,8 @@
+-  if (TryToAlignChunk(&region, &retainedRegion, length, alignment)) {
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC initial chunk-alignment attempt started");
++  }
++  bool aligned = TryToAlignChunk(&region, &retainedRegion, length, alignment);
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC initial chunk-alignment attempt completed");
++  }
++  if (aligned) {
+@@ -619,0 +668,3 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC aligned-page mapping completed");
++    }
+@@ -637,0 +689,3 @@
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC slow aligned-page mapping started");
++  }
+@@ -638,0 +693,8 @@
++  if (traceM17GCChunk) {
++    if (region) {
++      NAGI_M17_TRACE("SpiderMonkey GC slow aligned-page mapping completed");
++    } else {
++      NAGI_M17_TRACE(
++          "SpiderMonkey GC slow aligned-page mapping returned no region");
++    }
++  }
+@@ -641,0 +704,3 @@
++    if (traceM17GCChunk) {
++      NAGI_M17_TRACE("SpiderMonkey GC last-ditch mapping started");
++    }
+@@ -642,0 +708,7 @@
++    if (traceM17GCChunk) {
++      if (region) {
++        NAGI_M17_TRACE("SpiderMonkey GC last-ditch mapping completed");
++      } else {
++        NAGI_M17_TRACE("SpiderMonkey GC last-ditch mapping returned no region");
++      }
++    }
+@@ -643,0 +716,3 @@
++      if (traceM17GCChunk) {
++        NAGI_M17_TRACE("SpiderMonkey GC aligned-page mapping failed");
++      }
+@@ -651,0 +727,3 @@
++  if (traceM17GCChunk) {
++    NAGI_M17_TRACE("SpiderMonkey GC aligned-page mapping completed");
++  }

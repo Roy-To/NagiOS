@@ -1,0 +1,110 @@
+diff --git a/mozjs/js/src/gc/GC.cpp b/mozjs/js/src/gc/GC.cpp
+--- a/mozjs/js/src/gc/GC.cpp
++++ b/mozjs/js/src/gc/GC.cpp
+@@ -230,0 +231 @@
++#include <stddef.h>
+@@ -279,0 +281,11 @@
++
++#if defined(__NAGI__)
++extern "C" void nagi_m17_console_trace(const char* stage, size_t length);
++#  define NAGI_M17_TRACE(stage)                                      \
++    do {                                                             \
++      static constexpr char trace_stage[] = stage;                   \
++      nagi_m17_console_trace(trace_stage, sizeof(trace_stage) - 1);   \
++    } while (false)
++#else
++#  define NAGI_M17_TRACE(stage) ((void)0)
++#endif
+@@ -1033,0 +1046,2 @@
++  NAGI_M17_TRACE("SpiderMonkey GC runtime initialization entered");
++  NAGI_M17_TRACE("SpiderMonkey GC initialization-state assertion started");
+@@ -1035 +1049,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey GC initialization-state assertion completed");
++
++  NAGI_M17_TRACE("SpiderMonkey GC system-page-size assertion started");
+@@ -1036,0 +1053,2 @@
++  NAGI_M17_TRACE("SpiderMonkey GC system-page-size assertion completed");
++  NAGI_M17_TRACE("SpiderMonkey GC arena static assertions started");
+@@ -1037,0 +1056,2 @@
++  NAGI_M17_TRACE("SpiderMonkey GC arena static assertions completed");
++  NAGI_M17_TRACE("SpiderMonkey GC arena lookup-table checks started");
+@@ -1039 +1059,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey GC arena lookup-table checks completed");
++
++  NAGI_M17_TRACE("SpiderMonkey GC thread-context initialization started");
+@@ -1040,0 +1063 @@
++    NAGI_M17_TRACE("SpiderMonkey GC thread-context initialization failed");
+@@ -1042,0 +1066,2 @@
++  NAGI_M17_TRACE("SpiderMonkey GC thread-context initialization completed");
++  NAGI_M17_TRACE("SpiderMonkey GC thread-context assignment started");
+@@ -1044 +1069,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey GC thread-context assignment completed");
++
++  NAGI_M17_TRACE("SpiderMonkey GC helper-thread count update started");
+@@ -1045,0 +1073 @@
++  NAGI_M17_TRACE("SpiderMonkey GC helper-thread count update completed");
+@@ -1053,0 +1082 @@
++  NAGI_M17_TRACE("SpiderMonkey GC marker vector resize started");
+@@ -1054,0 +1084 @@
++    NAGI_M17_TRACE("SpiderMonkey GC marker vector resize failed");
+@@ -1056,0 +1087 @@
++  NAGI_M17_TRACE("SpiderMonkey GC marker vector resize completed");
+@@ -1058,0 +1090,2 @@
++    NAGI_M17_TRACE(
++        "SpiderMonkey GC background-allocation lock acquisition started");
+@@ -1060 +1093,4 @@
+-
++    NAGI_M17_TRACE(
++        "SpiderMonkey GC background-allocation lock acquisition completed");
++
++    NAGI_M17_TRACE("SpiderMonkey GC max-bytes parameter set started");
+@@ -1062 +1098,3 @@
+-
++    NAGI_M17_TRACE("SpiderMonkey GC max-bytes parameter set completed");
++
++    NAGI_M17_TRACE("SpiderMonkey GC nursery initialization started");
+@@ -1063,0 +1102 @@
++      NAGI_M17_TRACE("SpiderMonkey GC nursery initialization failed");
+@@ -1065,0 +1105 @@
++    NAGI_M17_TRACE("SpiderMonkey GC nursery initialization completed");
+@@ -1074,0 +1115 @@
++  NAGI_M17_TRACE("SpiderMonkey GC marker initialization started");
+@@ -1076,0 +1118 @@
++      NAGI_M17_TRACE("SpiderMonkey GC marker initialization failed");
+@@ -1080 +1122,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey GC marker initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey GC sweep-action initialization started");
+@@ -1081,0 +1126 @@
++    NAGI_M17_TRACE("SpiderMonkey GC sweep-action initialization failed");
+@@ -1084 +1129,3 @@
+-
++  NAGI_M17_TRACE("SpiderMonkey GC sweep-action initialization completed");
++
++  NAGI_M17_TRACE("SpiderMonkey GC atoms-zone allocation started");
+@@ -1086 +1133,3 @@
+-  if (!zone || !zone->init()) {
++  NAGI_M17_TRACE("SpiderMonkey GC atoms-zone allocation completed");
++  if (!zone) {
++    NAGI_M17_TRACE("SpiderMonkey GC atoms-zone allocation failed");
+@@ -1088,0 +1138,6 @@
++  NAGI_M17_TRACE("SpiderMonkey GC atoms-zone initialization started");
++  if (!zone->init()) {
++    NAGI_M17_TRACE("SpiderMonkey GC atoms-zone initialization failed");
++    return false;
++  }
++  NAGI_M17_TRACE("SpiderMonkey GC atoms-zone initialization completed");
+@@ -1092,0 +1148 @@
++  NAGI_M17_TRACE("SpiderMonkey GC zones-vector reserve started");
+@@ -1093,0 +1150 @@
++  NAGI_M17_TRACE("SpiderMonkey GC zones-vector reserve completed");
+@@ -1095,0 +1153 @@
++  NAGI_M17_TRACE("SpiderMonkey GC probes initialization started");
+@@ -1096,0 +1155 @@
++  NAGI_M17_TRACE("SpiderMonkey GC probes initialization completed");
+@@ -1098,0 +1158 @@
++  NAGI_M17_TRACE("SpiderMonkey GC runtime initialization completed");

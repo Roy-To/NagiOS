@@ -6,7 +6,9 @@ members = [
     "crates/nagi-bootinfo",
     "crates/nagi-abi",
     "crates/nagi-model",
-    "crates/nagi-localization",
+    "crates/nagi-i18n",
+    "crates/nagi-action-ipc",
+    "crates/nagi-search-ipc",
     "kernel",
     "user/libnagi",
     "user/nagi-net",
@@ -17,8 +19,12 @@ members = [
     "user/nagi-package",
     "user/nagi-model-manager",
     "user/nagi-ui",
+    "user/nagi-localization",
+    "user/nagi-search",
+    "services/nagi-ai",
     "user/nagi-servo",
     "user/nagi-init",
+    "user/nagi-isolated-app",
 ]
 default-members = [
     "tools/nagi-cli",
@@ -35,6 +41,7 @@ cc = { path = "third_party/cc-nagi" }
 libc = { path = "third_party/libc-servo" }
 freetype-sys = { path = "third_party/freetype-sys" }
 hyper-util = { path = "third_party/hyper-util-servo" }
+inventory = { path = "third_party/inventory-nagi" }
 mio = { path = "third_party/mio-servo" }
 socket2 = { path = "third_party/socket2-servo" }
 tempfile = { path = "third_party/tempfile-nagi" }

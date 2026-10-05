@@ -1,0 +1,15 @@
+diff --git a/mozjs/mfbt/RandomNum.cpp b/mozjs/mfbt/RandomNum.cpp
+--- a/mozjs/mfbt/RandomNum.cpp
++++ b/mozjs/mfbt/RandomNum.cpp
+@@ -5,0 +6,5 @@
++
++#if defined(__NAGI__)
++#  include <stddef.h>
++extern "C" int __nagi_random_fill(void* buffer, size_t length);
++#endif
+@@ -90,1 +95,4 @@
+-#if defined(XP_WIN)
++#if defined(__NAGI__)
++  // Nagi's entropy source is the guest VirtIO RNG syscall.
++  return __nagi_random_fill(aBuffer, aLength) == 0;
++#elif defined(XP_WIN)

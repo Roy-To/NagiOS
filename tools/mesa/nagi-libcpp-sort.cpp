@@ -1,5 +1,5 @@
-// The pinned libc++ ABI declares these integer sort specializations as
-// extern-template symbols, while Nagi does not link libc++.a. Keep the exact
+// The pinned libc++ ABI declares these integer and float sort specializations
+// as extern-template symbols, while Nagi does not link libc++.a. Keep the exact
 // libc++ ABI names and provide an allocation-free heapsort for each used type.
 // The source intentionally forward-declares only the ABI types and function
 // template: including <algorithm> would reintroduce the extern-template
@@ -59,6 +59,7 @@ NAGI_LIBCPP_SORT(unsigned short)
 NAGI_LIBCPP_SORT(unsigned char)
 NAGI_LIBCPP_SORT(unsigned int)
 NAGI_LIBCPP_SORT(unsigned long)
+NAGI_LIBCPP_SORT(float)
 
 #undef NAGI_LIBCPP_SORT
 

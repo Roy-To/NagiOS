@@ -44,7 +44,7 @@ jobs:
         run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
       - name: Format
         run: |
-          cargo fmt --package nagi-cli --package nagi-idl --package nagi-bootinfo --package nagi-abi --package nagi-model --package nagi-localization --package nagi-model-manager --package nagi-kernel --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-servo-adapter --package nagi-init --package nagi-ui --package nagi-package --package nagi-sdk -- --check
+          cargo fmt --package nagi-cli --package nagi-idl --package nagi-bootinfo --package nagi-abi --package nagi-model --package nagi-i18n --package nagi-ui --package nagi-localization --package nagi-kernel --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-model-manager --package nagi-search --package nagi-ai --package nagi-servo-adapter --package nagi-init --package nagi-package --package nagi-sdk --package nagi-isolated-app --package nagi-search-ipc --package nagi-action-ipc -- --check
           cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check
           cargo fmt --manifest-path loader/Cargo.toml -- --check
           rustfmt --check user/nagi-albert/src/lib.rs
@@ -79,6 +79,18 @@ jobs:
           if-no-files-found: ignore
       - name: Verify development workstream state
         run: ./nagi dev verify
+      - name: Test kernel display scanout geometry
+        run: cargo test --locked -p nagi-kernel --lib display::tests::scales_the_logical_surface_to_the_full_scanout_without_stretching
+      - name: Test bootstrap scheduler fairness under sustained contention
+        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable
+      - name: Test M3 self-test task frame layout
+        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout
+      - name: Test Albert browser state and input adapters
+        run: cargo test --manifest-path user/nagi-albert/Cargo.toml --locked
+      - name: M0 doctor acceptance
+        run: ./tests/acceptance/m0_doctor.sh
+      - name: M0 launcher acceptance
+        run: ./tests/acceptance/m0_launcher.sh
   windows-launcher:
     concurrency:
       group: nagi-ci-windows-launcher-${{ github.ref }}
@@ -174,7 +186,10 @@ jobs:
               - 'sdk/rust/**'
               - 'crates/nagi-abi/**'
               - 'crates/nagi-bootinfo/**'
-              - 'crates/nagi-localization/**'
+              - 'crates/nagi-i18n/**'
+              - 'crates/nagi-action-ipc/**'
+              - 'crates/nagi-search-ipc/**'
+              - 'services/**'
               - 'crates/nagi-model/**'
               - 'idl/**'
               - 'schemas/**'
@@ -188,7 +203,7 @@ jobs:
               - 'nagi'
               - 'nagi.ps1'
               - 'tests/acceptance/registry.tsv'
-              - 'tests/acceptance/m17_servo_first_web_pixel.*'
+              - 'tests/acceptance/**'
               - 'docs/Nagi_OS_0.1_Codex_Implementation_Spec.md'
   nagi-target:
     needs: [ubuntu-host, windows-launcher, target_classification]
@@ -203,7 +218,7 @@ jobs:
       - name: Install target build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm libc++-19-dev qemu-system-x86 ovmf cmake meson ninja-build python3 python3-venv flex bison build-essential
+          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm libc++-19-dev qemu-system-x86 qemu-utils ovmf cmake meson ninja-build python3 python3-venv flex bison build-essential
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 190
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 190
           sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-19 190
@@ -245,10 +260,34 @@ jobs:
           exit "$bootstrap_status"
       - name: Verify M17 target dependency feature boundary
         run: |
-          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p}')
+          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
           printf '%s\n' "$graph"
           if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
             echo 'M17 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$graph" | grep -E '^nagi-posix v.*\[.*browser-storage.*\]' >/dev/null; then
+            echo 'M17 Nagi target graph must not expose the M18 browser-storage service' >&2
+            exit 1
+          fi
+          if printf '%s\n' "$graph" | grep -E '^nagi-abi v.*\[.*m18-browser-threads.*\]' >/dev/null; then
+            echo 'M17 Nagi target graph must retain its 32-slot bootstrap thread pool' >&2
+            exit 1
+          fi
+      - name: Verify M18 target dependency feature boundary
+        run: |
+          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m18-acceptance --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
+          printf '%s\n' "$graph"
+          if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
+            echo 'M18 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$graph" | grep -E '^nagi-posix v.*\[.*browser-storage.*\]' >/dev/null; then
+            echo 'M18 Nagi target graph must enable the browser-storage service' >&2
+            exit 1
+          fi
+          if ! printf '%s\n' "$graph" | grep -E '^nagi-abi v.*\[.*m18-browser-threads.*\]' >/dev/null; then
+            echo 'M18 Nagi target graph must enable the bounded browser worker pool' >&2
             exit 1
           fi
       - name: Build pinned Nagi Mesa Softpipe archive
@@ -337,6 +376,29 @@ jobs:
         run: |
           source out/mesa-venv/bin/activate
           ./nagi test --acceptance --target-only --milestone M17 --ci
+      - name: M18-B Albert chrome acceptance
+        env:
+          NAGI_M18B_REUSE_M17_ACCEPTANCE: "1"
+        run: sh tests/acceptance/m18b_albert_ui_browser_state.sh
+      - name: M18 Albert interactive HTTPS acceptance
+        env:
+          NAGI_TARGET_CLANG: clang-19
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
+        run: |
+          source out/mesa-venv/bin/activate
+          ./nagi m18
+      - name: ADR 0043 isolated process identity acceptance
+        run: ./nagi isolated-process
+      - name: M19 live VFS Search acceptance
+        run: ./nagi m19
+      - name: M22 NH16 grouped Undo acceptance
+        run: ./nagi m22
+      - name: M27 broken-slot rollback acceptance
+        run: ./nagi m27
+      - name: M29 Desktop language Settings acceptance
+        run: ./nagi m29
+      - name: M30 reference release disk acceptance
+        run: ./nagi m30
       - name: Capture target runner resource state
         if: always()
         run: |

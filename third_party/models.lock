@@ -1,0 +1,66 @@
+format_version = 1
+
+# Exact model artifact pins. These entries describe external model bytes; they
+# do not download or place artifacts into the Model Store.
+
+[models.whisper_small_multilingual]
+component = "whisper-small-multilingual"
+model_id = "openai.whisper-small-multilingual"
+repository = "https://huggingface.co/ggerganov/whisper.cpp"
+revision = "5359861c739e955e79d9a303bcbc70fb988958b1"
+file_name = "ggml-small.bin"
+format = "ggml"
+size_bytes = 487601967
+sha256 = "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
+license = "MIT"
+license_reference = "https://huggingface.co/ggerganov/whisper.cpp/tree/5359861c739e955e79d9a303bcbc70fb988958b1"
+artifact_id = "openai.whisper-small-multilingual"
+storage = "model_store"
+
+[models.granite_4_2_3b]
+model_id = "ibm.granite-4.2-3b"
+repository = "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF"
+revision = "c40945d71cd90f249a56985e8155551a9188dc30"
+file_name = "granite-4.2-3b-Q4_K_M.gguf"
+format = "gguf"
+size_bytes = 2244011552
+sha256 = "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5"
+license = "Apache-2.0"
+license_reference = "https://huggingface.co/ibm-granite/granite-4.2-3b"
+notice_id = "apache-2.0"
+notice_reference = "https://www.apache.org/licenses/LICENSE-2.0"
+acknowledgement_required = true
+artifact_id = "ibm.granite-4.2-3b"
+storage = "model_store"
+
+[models.qwen3_4b]
+model_id = "qwen.qwen3-4b"
+repository = "https://huggingface.co/Qwen/Qwen3-4B-GGUF"
+revision = "bc640142c66e1fdd12af0bd68f40445458f3869b"
+file_name = "Qwen3-4B-Q4_K_M.gguf"
+format = "gguf"
+size_bytes = 2497280256
+sha256 = "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
+license = "Apache-2.0"
+license_reference = "https://huggingface.co/Qwen/Qwen3-4B-GGUF/blob/bc640142c66e1fdd12af0bd68f40445458f3869b/LICENSE"
+notice_id = "apache-2.0"
+notice_reference = "https://www.apache.org/licenses/LICENSE-2.0"
+acknowledgement_required = false
+artifact_id = "qwen.qwen3-4b"
+storage = "model_store"
+
+[models.gemma_3_1b]
+model_id = "google.gemma-3-1b"
+repository = "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF"
+revision = "f9c28bcd85737ffc5aef028638d3341d49869c27"
+file_name = "gemma-3-1b-it-Q4_K_M.gguf"
+format = "gguf"
+size_bytes = 806058240
+sha256 = "8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135"
+license = "Gemma Terms of Use"
+license_reference = "https://ai.google.dev/gemma/terms"
+notice_id = "gemma-terms-of-use"
+notice_reference = "https://ai.google.dev/gemma/terms"
+acknowledgement_required = true
+artifact_id = "google.gemma-3-1b"
+storage = "model_store"

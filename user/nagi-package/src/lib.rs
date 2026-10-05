@@ -3,7 +3,12 @@
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use nagi_model::AppId;
 
-pub const MAX_PACKAGE_BYTES: usize = 8192;
+/// Bound on a whole `.xapp`. Raised from 8 KiB so isolated application
+/// ELFs (ADR 0049) fit; the M16 sample stays well below it.
+pub const MAX_PACKAGE_BYTES: usize = 64 * 1024;
+/// Capability grants a package manifest may declare (`grant=` lines).
+pub const MAX_PACKAGE_GRANTS: usize = 8;
+pub const MAX_GRANT_BYTES: usize = 32;
 pub const MAX_MANIFEST_BYTES: usize = 1024;
 pub const MAX_ID_BYTES: usize = 64;
 pub const MAX_NAME_BYTES: usize = 64;
@@ -81,6 +86,8 @@ pub struct PackageManifest {
     version: Text<MAX_VERSION_BYTES>,
     entry: Text<MAX_ENTRY_BYTES>,
     surfaces: u8,
+    grants: [Text<MAX_GRANT_BYTES>; MAX_PACKAGE_GRANTS],
+    grant_count: u8,
 }
 
 impl PackageManifest {
@@ -93,6 +100,8 @@ impl PackageManifest {
         let mut version = None;
         let mut entry = None;
         let mut surfaces = 0;
+        let mut grants = [Text::EMPTY; MAX_PACKAGE_GRANTS];
+        let mut grant_count = 0;
         for line in text.split(|byte| *byte == b'\n') {
             let line = line.strip_suffix(b"\r").unwrap_or(line);
             if line.is_empty() {
@@ -118,6 +127,17 @@ impl PackageManifest {
                 b"surfaces" => {
                     surfaces = parse_surfaces(value)?;
                 }
+                b"grant" => {
+                    let grant = Text::<MAX_GRANT_BYTES>::parse(value)?;
+                    if !is_lower_identifier(grant.as_slice())
+                        || grants[..grant_count].contains(&grant)
+                        || grant_count == MAX_PACKAGE_GRANTS
+                    {
+                        return Err(PackageError::InvalidManifest);
+                    }
+                    grants[grant_count] = grant;
+                    grant_count += 1;
+                }
                 _ => return Err(PackageError::InvalidManifest),
             }
         }
@@ -139,7 +159,17 @@ impl PackageManifest {
             version,
             entry,
             surfaces,
+            grants,
+            grant_count: grant_count as u8,
         })
+    }
+
+    /// Capabilities this signed package asks the Supervisor to grant its
+    /// launched sessions (ADR 0049).
+    pub fn grants(&self) -> impl Iterator<Item = &[u8]> {
+        self.grants[..usize::from(self.grant_count)]
+            .iter()
+            .map(|grant| grant.as_slice())
     }
 
     pub const fn app_id(self) -> AppId {
@@ -477,6 +507,14 @@ pub fn build_xapp(
     Ok(total)
 }
 
+/// Lowercase capability names: `[a-z][a-z0-9._-]*`.
+fn is_lower_identifier(value: &[u8]) -> bool {
+    value.first().is_some_and(u8::is_ascii_lowercase)
+        && value
+            .iter()
+            .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_'))
+}
+
 fn parse_surfaces(value: &[u8]) -> Result<u8, PackageError> {
     let mut flags = 0;
     for surface in value.split(|byte| *byte == b',') {
@@ -681,5 +719,30 @@ mod tests {
             ),
             Err(PackageError::InvalidSignature)
         );
+    }
+
+    #[test]
+    fn manifest_grants_are_bounded_unique_and_signed_with_the_package() {
+        let manifest = PackageManifest::parse(
+            b"id=org.nagi.example\nname=Example\nversion=1\nentry=app\ngrant=files.search\ngrant=search.query\n",
+        )
+        .expect("manifest");
+        let mut grants = manifest.grants();
+        assert_eq!(grants.next(), Some(&b"files.search"[..]));
+        assert_eq!(grants.next(), Some(&b"search.query"[..]));
+        assert_eq!(grants.next(), None);
+        for text in [
+            &b"id=a\nname=A\nversion=1\nentry=a\ngrant=files.search\ngrant=files.search\n"[..],
+            b"id=a\nname=A\nversion=1\nentry=a\ngrant=Files\n",
+            b"id=a\nname=A\nversion=1\nentry=a\ngrant=files/x\n",
+            b"id=a\nname=A\nversion=1\nentry=a\ngrant=\n",
+        ] {
+            assert_eq!(
+                PackageManifest::parse(text),
+                Err(PackageError::InvalidManifest)
+            );
+        }
+        let no_grants = PackageManifest::parse(MANIFEST).expect("manifest");
+        assert_eq!(no_grants.grants().count(), 0);
     }
 }

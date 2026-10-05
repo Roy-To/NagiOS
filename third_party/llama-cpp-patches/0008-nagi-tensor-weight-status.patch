@@ -1,0 +1,238 @@
+diff --git a/src/llama-model-loader.h b/src/llama-model-loader.h
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -32,21 +32,51 @@
+ struct llama_model_loader {
+     // Holds information on a model weight
+     struct llama_tensor_weight {
+-        uint16_t  idx; // source file index
+-        size_t   offs; // tensor data offset in the original file
+-
+-        ggml_tensor * tensor;
+-
+-        llama_tensor_weight(const llama_file * file, uint16_t idx, const struct gguf_context * gguf_ctx, ggml_tensor * tensor) : idx(idx), tensor(tensor) {
+-            const int tensor_idx = gguf_find_tensor(gguf_ctx,  ggml_get_name(tensor));
++        uint16_t  idx = 0; // source file index
++        size_t   offs = 0; // tensor data offset in the original file
++
++        ggml_tensor * tensor = nullptr;
++
++        static bool checked_data_range(int tensor_idx, size_t file_size, size_t data_offset,
++                size_t tensor_offset, size_t tensor_size, size_t & result) noexcept {
++            if (tensor_idx < 0 || data_offset > file_size || tensor_offset > file_size - data_offset) {
++                return false;
++            }
++
++            const size_t tensor_data_offset = data_offset + tensor_offset;
++            if (tensor_size > file_size - tensor_data_offset) {
++                return false;
++            }
++
++            result = tensor_data_offset;
++            return true;
++        }
++
++        bool init(const llama_file * file, uint16_t source_idx, const struct gguf_context * gguf_ctx,
++                ggml_tensor * source_tensor) noexcept {
++            if (file == nullptr || gguf_ctx == nullptr || source_tensor == nullptr) {
++                LLAMA_LOG_ERROR("%s: tensor weight has missing file, metadata, or tensor\n", __func__);
++                return false;
++            }
++
++            const int tensor_idx = gguf_find_tensor(gguf_ctx, ggml_get_name(source_tensor));
+             if (tensor_idx < 0) {
+-                throw std::runtime_error(format("tensor '%s' not found in the model", ggml_get_name(tensor)));
+-            }
+-
+-            offs = gguf_get_data_offset(gguf_ctx) + gguf_get_tensor_offset(gguf_ctx, tensor_idx);
+-            if (offs + ggml_nbytes(tensor) < offs || offs + ggml_nbytes(tensor) > file->size()) {
+-                throw std::runtime_error(format("tensor '%s' data is not within the file bounds, model is corrupted or incomplete", ggml_get_name(tensor)));
+-            }
++                LLAMA_LOG_ERROR("%s: tensor '%s' not found in the model\n", __func__, ggml_get_name(source_tensor));
++                return false;
++            }
++
++            size_t tensor_data_offset = 0;
++            if (!checked_data_range(tensor_idx, file->size(), gguf_get_data_offset(gguf_ctx),
++                    gguf_get_tensor_offset(gguf_ctx, tensor_idx), ggml_nbytes(source_tensor), tensor_data_offset)) {
++                LLAMA_LOG_ERROR("%s: tensor '%s' data is not within the file bounds, model is corrupted or incomplete\n",
++                        __func__, ggml_get_name(source_tensor));
++                return false;
++            }
++
++            idx = source_idx;
++            offs = tensor_data_offset;
++            tensor = source_tensor;
++            return true;
+         }
+     };
+ 
+@@ -77,6 +107,7 @@
+ 
+     uint64_t n_elements = 0;
+     size_t   n_bytes    = 0;
++    bool tensor_weights_valid = true;
+ 
+     bool use_mmap = false;
+     bool use_direct_io = false;
+@@ -185,6 +216,9 @@
+         const llama_model_kv_override * param_overrides_p,
+         const llama_model_tensor_buft_override * param_tensor_buft_overrides_p);
+ 
++    bool add_tensor_weight(const std::string & name, const llama_file * file, uint16_t idx,
++            const struct gguf_context * gguf_ctx, ggml_tensor * tensor);
++
+     template<typename T>
+     typename std::enable_if<std::is_integral<T>::value, bool>::type
+     get_arr_n(const std::string & key, T & result, bool required = true);
+diff --git a/src/llama-model-loader.cpp b/src/llama-model-loader.cpp
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -529,6 +529,28 @@
+     template bool llama_model_loader::get_key_or_arr<std::array<float,    512>>(enum llm_kv kid, std::array<float,    512> & result, uint32_t n, bool required);
+ 
+ 
++bool llama_model_loader::add_tensor_weight(const std::string & name, const llama_file * file, uint16_t idx,
++        const struct gguf_context * gguf_ctx, ggml_tensor * tensor) {
++    if (weights_map.find(name) != weights_map.end()) {
++        LLAMA_LOG_ERROR("%s: invalid model: tensor '%s' is duplicated\n", __func__, ggml_get_name(tensor));
++        tensor_weights_valid = false;
++        return false;
++    }
++
++    llama_tensor_weight weight;
++    if (!weight.init(file, idx, gguf_ctx, tensor)) {
++        tensor_weights_valid = false;
++        return false;
++    }
++
++    if (!weights_map.emplace(name, weight).second) {
++        LLAMA_LOG_ERROR("%s: duplicate tensor weight '%s'\n", __func__, name.c_str());
++        tensor_weights_valid = false;
++        return false;
++    }
++    return true;
++}
++
+ llama_model_loader::llama_model_loader(
+         struct gguf_context * meta,
+         llama_model_set_tensor_data_t set_tensor_data,
+@@ -584,13 +606,11 @@
+         // so we build a unified tensors index for weights.
+         for (ggml_tensor * cur = ggml_get_first_tensor(ctx); cur; cur = ggml_get_next_tensor(ctx, cur)) {
+             std::string tensor_name = std::string(cur->name);
+-            // make sure there is no duplicated tensor names
+-            if (weights_map.find(tensor_name) != weights_map.end()) {
+-                throw std::runtime_error(format("invalid model: tensor '%s' is duplicated", ggml_get_name(cur)));
++            if (!add_tensor_weight(tensor_name, files.back().get(), 0, metadata, cur)) {
++                return;
+             }
+             n_elements += ggml_nelements(cur);
+             n_bytes    += ggml_nbytes(cur);
+-            weights_map.emplace(tensor_name, llama_tensor_weight(files.back().get(), 0, metadata, cur));
+         }
+         uint16_t n_split = 0;
+         get_key(llm_kv(LLM_KV_SPLIT_COUNT), n_split, false);
+@@ -650,13 +670,11 @@
+                 // Save tensors data offset info of the shard.
+                 for (ggml_tensor * cur = ggml_get_first_tensor(ctx); cur; cur = ggml_get_next_tensor(ctx, cur)) {
+                     std::string tensor_name = std::string(cur->name);
+-                    // make sure there is no duplicated tensor names
+-                    if (weights_map.find(tensor_name) != weights_map.end()) {
+-                        throw std::runtime_error(format("invalid model: tensor '%s' is duplicated", ggml_get_name(cur)));
++                    if (!add_tensor_weight(tensor_name, files.back().get(), idx, ctx_gguf.get(), cur)) {
++                        return;
+                     }
+                     n_elements += ggml_nelements(cur);
+                     n_bytes    += ggml_nbytes(cur);
+-                    weights_map.emplace(tensor_name, llama_tensor_weight(files.back().get(), idx, ctx_gguf.get(), cur));
+                 }
+             }
+ 
+@@ -701,13 +719,11 @@
+         // Save tensors data offset info of the main file.
+         for (ggml_tensor * cur = ggml_get_first_tensor(ctx); cur; cur = ggml_get_next_tensor(ctx, cur)) {
+             std::string tensor_name = std::string(cur->name);
+-            // make sure there is no duplicated tensor names
+-            if (weights_map.find(tensor_name) != weights_map.end()) {
+-                throw std::runtime_error(format("invalid model: tensor '%s' is duplicated", ggml_get_name(cur)));
++            if (!add_tensor_weight(tensor_name, files.back().get(), 0, metadata, cur)) {
++                return;
+             }
+             n_elements += ggml_nelements(cur);
+             n_bytes    += ggml_nbytes(cur);
+-            weights_map.emplace(tensor_name, llama_tensor_weight(files.back().get(), 0, metadata, cur));
+         }
+     } else {
+         get_key(llm_kv(LLM_KV_GENERAL_ARCHITECTURE), arch_name, false);
+diff --git a/src/llama.cpp b/src/llama.cpp
+--- a/src/llama.cpp
++++ b/src/llama.cpp
+@@ -319,6 +319,10 @@
+         llama_model_loader ml(metadata, set_tensor_data, set_tensor_data_ud, fname, splits, file, params.load_mode,
+             params.check_tensors, params.no_alloc, params.load_mtp, params.kv_overrides, params.tensor_buft_overrides);
+ 
++        if (!ml.tensor_weights_valid) {
++            return {-1, nullptr};
++        }
++
+         ml.lazy.mode = params.lazy_mode;
+ 
+         ml.print_info();
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -271,6 +271,8 @@
+ llama_build_and_test(test-model-resolution.cpp)
+ # the test serves its repos from an httplib server, and the library links it privately
+ target_link_libraries(test-model-resolution PRIVATE cpp-httplib)
++llama_build_and_test(test-model-loader-bounds.cpp LABEL "model")
++target_include_directories(test-model-loader-bounds PRIVATE ${PROJECT_SOURCE_DIR}/src)
+ 
+ if (NOT LLAMA_SANITIZE_ADDRESS AND NOT GGML_SCHED_NO_REALLOC)
+   # TODO: repair known memory leaks
+diff --git a/tests/test-model-loader-bounds.cpp b/tests/test-model-loader-bounds.cpp
+new file mode 100644
+--- /dev/null
++++ b/tests/test-model-loader-bounds.cpp
+@@ -0,0 +1,40 @@
++#include "llama-model-loader.h"
++
++#include <cstdio>
++#include <limits>
++
++using tensor_weight = llama_model_loader::llama_tensor_weight;
++
++static bool expect_rejected(int tensor_idx, size_t file_size, size_t data_offset,
++        size_t tensor_offset, size_t tensor_size, const char * label) {
++    size_t result = 0x5a5a;
++    if (tensor_weight::checked_data_range(tensor_idx, file_size, data_offset, tensor_offset, tensor_size, result)) {
++        std::fprintf(stderr, "%s: accepted invalid tensor extent\n", label);
++        return false;
++    }
++    if (result != 0x5a5a) {
++        std::fprintf(stderr, "%s: changed the output offset on failure\n", label);
++        return false;
++    }
++    return true;
++}
++
++int main() {
++    size_t result = 0;
++    if (!tensor_weight::checked_data_range(0, 64, 8, 16, 40, result) || result != 24) {
++        std::fprintf(stderr, "valid extent was rejected or returned the wrong offset\n");
++        return 1;
++    }
++
++    if (!expect_rejected(-1, 64, 8, 16, 40, "missing tensor metadata") ||
++            !expect_rejected(0, 64, 65, 0, 0, "data offset beyond EOF") ||
++            !expect_rejected(0, 64, 8, 57, 0, "tensor offset beyond EOF") ||
++            !expect_rejected(0, 64, 8, 16, 41, "tensor data truncated") ||
++            !expect_rejected(0, std::numeric_limits<size_t>::max(),
++                    std::numeric_limits<size_t>::max(), 1, 0, "offset addition overflow")) {
++        return 1;
++    }
++
++    std::puts("test-model-loader-bounds: all checks passed");
++    return 0;
++}

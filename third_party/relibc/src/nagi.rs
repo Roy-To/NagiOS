@@ -1513,6 +1513,42 @@ pub unsafe extern "C" fn ftell(stream: *mut c_void) -> c_long {
     if position < 0 { -1 } else { position as c_long }
 }
 
+/// Return the descriptor-backed FILE cursor using the target's 64-bit POSIX
+/// `off_t` width. This is required by seekable model readers larger than 2 GiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ftello(stream: *mut c_void) -> c_longlong {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return -1;
+    }
+    let stream = unsafe { &*stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        unsafe { set_errno(EBADF) };
+        return -1;
+    }
+    unsafe { nagi_posix_lseek(stream.fd, 0, 1) }
+}
+
+/// Seek a descriptor-backed FILE stream without truncating the target's
+/// 64-bit `off_t` offset.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fseeko(stream: *mut c_void, offset: c_longlong, whence: c_int) -> c_int {
+    if stream.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return EOF;
+    }
+    let stream = unsafe { &mut *stream.cast::<NagiFile>() };
+    if stream.kind != NAGI_FILE_FD {
+        unsafe { set_errno(EBADF) };
+        return EOF;
+    }
+    if unsafe { nagi_posix_lseek(stream.fd, offset, whence) } < 0 {
+        EOF
+    } else {
+        0
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fflush(stream: *mut c_void) -> c_int {
     if stream.is_null() {
@@ -1670,6 +1706,23 @@ struct NagiTm {
     tm_zone: *const c_char,
 }
 
+// POSIX localtime()/gmtime() return a shared struct tm object. Nagi exposes
+// UTC only, so both functions use the same buffer and the existing target
+// conversion routines.
+static mut NAGI_SHARED_C_TIME: NagiTm = NagiTm {
+    tm_sec: 0,
+    tm_min: 0,
+    tm_hour: 0,
+    tm_mday: 1,
+    tm_mon: 0,
+    tm_year: 70,
+    tm_wday: 4,
+    tm_yday: 0,
+    tm_isdst: 0,
+    tm_gmtoff: 0,
+    tm_zone: ptr::null(),
+};
+
 static NAGI_C_LOCALE: &[u8] = b"C\0";
 static NAGI_UTC_ZONE: &[u8] = b"UTC\0";
 
@@ -1753,6 +1806,19 @@ pub unsafe extern "C" fn localtime_r(timer: *const c_longlong, result: *mut Nagi
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gmtime_r(timer: *const c_longlong, result: *mut NagiTm) -> *mut NagiTm {
     unsafe { localtime_r(timer, result) }
+}
+
+/// Convert to UTC using the shared buffer required by the C `gmtime` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gmtime(timer: *const c_longlong) -> *mut NagiTm {
+    unsafe { gmtime_r(timer, &raw mut NAGI_SHARED_C_TIME) }
+}
+
+/// Convert to Nagi's UTC local time using the shared buffer required by the C
+/// `localtime` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn localtime(timer: *const c_longlong) -> *mut NagiTm {
+    unsafe { localtime_r(timer, &raw mut NAGI_SHARED_C_TIME) }
 }
 
 #[inline]
@@ -2006,6 +2072,98 @@ pub unsafe extern "C" fn isspace(value: c_int) -> c_int {
     } else {
         0
     }
+}
+
+/// C-locale printable ASCII classification for the Nagi target.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isprint(value: c_int) -> c_int {
+    c_int::from((0x20..=0x7e).contains(&value))
+}
+
+/// ASCII range test retained for C and libc++ callers on the Nagi target.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isascii(value: c_int) -> c_int {
+    c_int::from((value & !0x7f) == 0)
+}
+
+/// Hexadecimal digit classification in the target's C locale.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isxdigit(value: c_int) -> c_int {
+    c_int::from(
+        (b'0' as c_int..=b'9' as c_int).contains(&value)
+            || (b'a' as c_int..=b'f' as c_int).contains(&value)
+            || (b'A' as c_int..=b'F' as c_int).contains(&value),
+    )
+}
+
+/// Target-owned C-locale lower-case conversion. `tolower` accepts only EOF or
+/// a value representable as `unsigned char`; every valid non-ASCII byte is
+/// unchanged in Nagi's C/POSIX locale.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tolower(value: c_int) -> c_int {
+    if (b'A' as c_int..=b'Z' as c_int).contains(&value) {
+        value + (b'a' as c_int - b'A' as c_int)
+    } else {
+        value
+    }
+}
+
+/// C-locale uppercase conversion for the Nagi target.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn toupper(value: c_int) -> c_int {
+    if (b'a' as c_int..=b'z' as c_int).contains(&value) {
+        value - (b'a' as c_int - b'A' as c_int)
+    } else {
+        value
+    }
+}
+
+/// Compiler-runtime alias used by pinned libc++ and llama.cpp headers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __isinff(value: c_float) -> c_int {
+    c_int::from(value.is_infinite())
+}
+
+/// Bounded wide-character search for the Nagi x86-64 `wchar_t` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmemchr(
+    wide_string: *const c_int,
+    value: c_int,
+    count: usize,
+) -> *mut c_int {
+    if count == 0 {
+        return ptr::null_mut();
+    }
+    if wide_string.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return ptr::null_mut();
+    }
+    for index in 0..count {
+        if unsafe { wide_string.add(index).read() } == value {
+            return unsafe { wide_string.add(index).cast_mut() };
+        }
+    }
+    ptr::null_mut()
+}
+
+/// Bounded wide-character comparison for the Nagi x86-64 `wchar_t` ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmemcmp(first: *const c_int, second: *const c_int, count: usize) -> c_int {
+    if count == 0 {
+        return 0;
+    }
+    if first.is_null() || second.is_null() {
+        unsafe { set_errno(EINVAL) };
+        return 0;
+    }
+    for index in 0..count {
+        let left = unsafe { first.add(index).read() };
+        let right = unsafe { second.add(index).read() };
+        if left != right {
+            return if left < right { -1 } else { 1 };
+        }
+    }
+    0
 }
 
 /// Target-owned forward character search. The Nagi target does not select
@@ -2448,21 +2606,14 @@ pub unsafe extern "C" fn bsearch(
 }
 
 type QsortComparator = extern "C" fn(*const c_void, *const c_void) -> c_int;
+type QsortRComparator = extern "C" fn(*const c_void, *const c_void, *mut c_void) -> c_int;
 
-/// Bounded in-place sorting for the target backend. The standard relibc
-/// sorting module is excluded from the Nagi target, so use a deterministic
-/// selection sort with byte swaps and no host allocator dependency. The
-/// comparator and element storage remain caller-owned, as required by qsort.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn qsort(
+unsafe fn nagi_sort_by(
     base: *mut c_void,
     count: usize,
     width: usize,
-    comparator: Option<QsortComparator>,
+    mut comparator: impl FnMut(*const c_void, *const c_void) -> c_int,
 ) {
-    let Some(comparator) = comparator else {
-        return;
-    };
     if base.is_null() || count < 2 || width == 0 {
         return;
     }
@@ -2501,6 +2652,42 @@ pub unsafe extern "C" fn qsort(
             }
         }
     }
+}
+
+/// Bounded in-place sorting for the target backend. The standard relibc
+/// sorting module is excluded from the Nagi target, so use a deterministic
+/// selection sort with byte swaps and no host allocator dependency. The
+/// comparator and element storage remain caller-owned, as required by qsort.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qsort(
+    base: *mut c_void,
+    count: usize,
+    width: usize,
+    comparator: Option<QsortComparator>,
+) {
+    let Some(comparator) = comparator else {
+        return;
+    };
+    unsafe { nagi_sort_by(base, count, width, |left, right| comparator(left, right)) };
+}
+
+/// Context-aware POSIX sort entry point used by NIR and Servo dependencies.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn qsort_r(
+    base: *mut c_void,
+    count: usize,
+    width: usize,
+    comparator: Option<QsortRComparator>,
+    context: *mut c_void,
+) {
+    let Some(comparator) = comparator else {
+        return;
+    };
+    unsafe {
+        nagi_sort_by(base, count, width, |left, right| {
+            comparator(left, right, context)
+        })
+    };
 }
 
 #[unsafe(no_mangle)]
@@ -2971,6 +3158,64 @@ pub unsafe extern "C" fn exp(x: c_double) -> c_double {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expf(x: c_float) -> c_float {
     nagi_exp_real(c_double::from(x)) as c_float
+}
+
+/// Target-owned single-precision expm1. The series branch avoids cancellation
+/// near zero; larger magnitudes use Nagi's freestanding `expf` implementation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expm1f(value: c_float) -> c_float {
+    if value == 0.0 || value.is_nan() {
+        return value;
+    }
+    if value.abs() >= 0.5 {
+        return unsafe { expf(value) } - 1.0;
+    }
+
+    let mut sum = value;
+    let mut term = value;
+    let mut divisor = 1.0;
+    let mut index = 2;
+    while index <= 24 {
+        term *= value;
+        divisor *= index as c_float;
+        let next = term / divisor;
+        sum += next;
+        if next == 0.0 || sum == sum - next {
+            break;
+        }
+        index += 1;
+    }
+    sum
+}
+
+/// Target-owned error function approximation for the pinned CPU backend. The
+/// rational-polynomial approximation has a maximum absolute error below
+/// 1.6e-7 over finite inputs; infinities and NaN retain their IEEE behavior.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn erff(value: c_float) -> c_float {
+    if value.is_nan() {
+        return value;
+    }
+    if value == 0.0 {
+        return value;
+    }
+    if value.is_infinite() {
+        return if value.is_sign_negative() { -1.0 } else { 1.0 };
+    }
+
+    let absolute = value.abs();
+    let t = 1.0 / (1.0 + 0.3275911 * absolute);
+    let polynomial = (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736)
+        * t
+        + 0.254829592)
+        * t;
+    let magnitude =
+        1.0 - polynomial * nagi_exp_real(-c_double::from(absolute * absolute)) as c_float;
+    if value.is_sign_negative() {
+        -magnitude
+    } else {
+        magnitude
+    }
 }
 
 #[unsafe(no_mangle)]

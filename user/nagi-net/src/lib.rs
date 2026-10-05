@@ -6,6 +6,20 @@ mod smoltcp_stack;
 
 pub use smoltcp_stack::SocketApi;
 
+/// Opaque identifier for one bounded user-space TCP connection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TcpConnectionId(u8);
+
+impl TcpConnectionId {
+    pub(crate) const fn from_index(index: usize) -> Self {
+        Self(index as u8)
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Ipv4Address(pub [u8; 4]);
 
@@ -22,14 +36,17 @@ impl Ipv4Address {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NetError {
     Device,
+    EntropyUnavailable,
     BufferTooSmall,
     DhcpTimeout,
     DnsUnavailable,
     DnsTimeout,
+    DnsFailure,
     Icmp,
     IcmpTimeout,
     RouteTableFull,
     TcpTimeout,
+    WouldBlock,
     HttpTimeout,
     Malformed,
     Checksum,

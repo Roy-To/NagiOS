@@ -1,0 +1,65 @@
+diff --git a/components/media/servo-media/lib.rs b/components/media/servo-media/lib.rs
+index b0833ad..49564a7 100644
+--- a/components/media/servo-media/lib.rs
++++ b/components/media/servo-media/lib.rs
+@@ -28,0 +29,14 @@ use webrtc::{WebRtcController, WebRtcSignaller};
++#[cfg(target_os = "nagi")]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++fn nagi_m17_trace(stage: &str) {
++    unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+@@ -100 +114,8 @@ impl ServoMedia {
+-        thread::spawn(|| INSTANCE.get_or_init(|| Arc::new(ServoMedia(B::init()))));
++        nagi_m17_trace("ServoMedia init spawn started");
++        thread::spawn(|| {
++            nagi_m17_trace("ServoMedia worker entered");
++            let media = INSTANCE.get_or_init(|| Arc::new(ServoMedia(B::init())));
++            nagi_m17_trace("ServoMedia worker completed");
++            media
++        });
++        nagi_m17_trace("ServoMedia init spawn returned");
+diff --git a/components/profile/mem.rs b/components/profile/mem.rs
+index 07790f0..8b9293c 100644
+--- a/components/profile/mem.rs
++++ b/components/profile/mem.rs
+@@ -20,0 +21,17 @@ use crate::system_reporter;
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++unsafe extern "C" {
++    fn nagi_m17_console_trace(stage: *const u8, length: usize);
++}
++
++#[cfg(target_os = "nagi")]
++#[expect(unsafe_code)]
++fn nagi_m17_trace(stage: &str) {
++    #[expect(unsafe_code)]
++    unsafe { nagi_m17_console_trace(stage.as_ptr(), stage.len()) }
++}
++
++#[cfg(not(target_os = "nagi"))]
++#[inline]
++fn nagi_m17_trace(_: &str) {}
++
+@@ -32,0 +50 @@ impl Profiler {
++        nagi_m17_trace("MemoryProfiler create entered");
+@@ -41,0 +60 @@ impl Profiler {
++        nagi_m17_trace("MemoryProfiler spawn started");
+@@ -44,0 +64 @@ impl Profiler {
++                nagi_m17_trace("MemoryProfiler worker entered");
+@@ -45,0 +66 @@ impl Profiler {
++                nagi_m17_trace("MemoryProfiler initialized");
+@@ -46,0 +68 @@ impl Profiler {
++                nagi_m17_trace("MemoryProfiler worker returned");
+@@ -48,0 +71 @@ impl Profiler {
++        nagi_m17_trace("MemoryProfiler spawn returned");
+@@ -63,0 +87 @@ impl Profiler {
++        nagi_m17_trace("MemoryProfiler create completed");

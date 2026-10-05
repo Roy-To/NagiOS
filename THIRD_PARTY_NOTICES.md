@@ -19,20 +19,44 @@ The inventory uses these inclusion classifications:
 
 ## Pinned components
 
+This table covers every component, version/revision/toolchain pin, and declared
+license expression in `third_party/sources.lock`. A `nagi-cli` unit test checks
+that those fields remain represented here; rust-std is intentionally identified
+as missing license metadata rather than assigned an unverified value.
+
 | Component | Inclusion | Current source/pin | Declared metadata | Nagi boundary | Notice / redistribution status |
 | --- | --- | --- | --- | --- | --- |
 | relibc | A + B | `69bb008af1f6d93758631cf0df250500d53a065b` | MIT | `third_party/relibc`, `third_party/relibc/src/nagi.rs` | Upstream license files are tracked; verify the complete notice set for a binary release |
 | libc | A + B | `0.2.174`, locked archive hash | MIT OR Apache-2.0 | `third_party/libc`, `third_party/libc/src/unix/nagi.rs` | Vendored license files are tracked; verify the complete notice set for a binary release |
-| Rust std | B + C | `nightly-2025-08-01` plus Nagi patch | Upstream redistribution metadata is not complete in the lock | `third_party/rust-std/patches/` | Human review required for patched rust-src redistribution and notices |
-| smoltcp | B | revision `d2d647090d544b1e7c142571da9d55f7280f664b` | 0BSD | no Nagi patch | Verify upstream notice and binary redistribution obligations |
+| libc-nagi-servo | B + C | `0.2.189`, locked archive hash | MIT OR Apache-2.0 | `third_party/libc-servo`, `third_party/libc-servo-patches/` | Generated checkout contains both license texts; verify notice preservation for a binary release |
+| rust-std (Rust std) | B + C | `nightly-2025-08-01` plus Nagi patch | Upstream redistribution metadata is not complete in the lock | `third_party/rust-std/patches/` | Human review required for patched rust-src redistribution and notices |
+| smoltcp | B | `0.12.0`, revision `d2d647090d544b1e7c142571da9d55f7280f664b` | 0BSD | no Nagi patch | Verify upstream notice and binary redistribution obligations |
 | Servo | B + C | `b820a9679a784877f91b4acc90c2c6e849f18d3b` | MPL-2.0 in the source lock | `third_party/servo-patches/` | Source is fetched/generated at build time; verify upstream notices and MPL boundary |
-| Surfman | B + C | `205778f497327c573929c7b471194390e15f331d` | MIT OR Apache-2.0 OR MPL-2.0 | `third_party/surfman-patches/` | Source is fetched/generated at build time; verify upstream notices |
-| Mesa Softpipe | B + C | `f1f246cfda65eff82fba3be1caf2d23bdeda60cc` | MIT core/Gallium; component notices required | `third_party/mesa-patches/` | Softpipe/Gallium and copied-header notices require human review before binary redistribution |
+| Surfman (`surfman-nagi-mesa-surfaceless`) | B + C | `205778f497327c573929c7b471194390e15f331d` | MIT OR Apache-2.0 OR MPL-2.0 | `third_party/surfman-patches/` | Source is fetched/generated at build time; verify upstream notices |
+| mesa-softpipe (Mesa Softpipe) | B + C | `f1f246cfda65eff82fba3be1caf2d23bdeda60cc` | MIT (core/Gallium); component notices required | `third_party/mesa-patches/` | Softpipe/Gallium and copied-header notices require human review before binary redistribution |
 | freetype-sys | B + C | `0.23.0`, locked archive hash | MIT | `third_party/freetype-sys-patches/` | Source is fetched/generated at build time; verify bundled source notice |
-| mio | B + C | `1.2.3`, locked archive hash | MIT | `third_party/mio-servo-patches/` | Source is fetched/generated at build time; verify upstream notice |
-| socket2 | B + C | `0.6.5`, locked archive hash | MIT OR Apache-2.0 | `third_party/socket2-servo-patches/` | Source is fetched/generated at build time; verify upstream notice |
-| Tokio | B + C | `1.53.1`, locked archive hash | MIT | `third_party/tokio-servo-patches/` | Source is fetched/generated at build time; verify upstream notice |
-| hyper-util | B + C | `0.1.20`, locked archive hash | MIT | `third_party/hyper-util-servo-patches/` | Source is fetched/generated at build time; verify upstream notice |
+| mio-servo | B + C | `1.2.3`, locked archive hash | MIT | `third_party/mio-servo-patches/` | Source is fetched/generated at build time; verify upstream notice |
+| socket2-servo | B + C | `0.6.5`, locked archive hash | MIT OR Apache-2.0 | `third_party/socket2-servo-patches/` | Source is fetched/generated at build time; verify upstream notice |
+| tokio-servo | B + C | `1.53.1`, locked archive hash | MIT | `third_party/tokio-servo-patches/` | Source is fetched/generated at build time; verify upstream notice |
+| hyper-util-servo | B + C | `0.1.20`, locked archive hash | MIT | `third_party/hyper-util-servo-patches/` | Source is fetched/generated at build time; verify upstream notice |
+| tempfile-nagi | B + C | `3.27.0`, locked archive hash | MIT OR Apache-2.0 | `third_party/tempfile-nagi`, `third_party/tempfile-nagi-patches/` | Generated checkout contains both license texts; verify notice preservation for a binary release |
+| mozjs-sys-nagi | B + C | `153.0.0-2`, locked archive hash | MPL-2.0 | `third_party/mozjs-sys-nagi-patches/` | Generated source includes `third_party/mozjs-sys-nagi/mozjs/LICENSE`; review the exact linked-source boundary before redistribution |
+| cc-nagi | B + C | `1.4.6`, locked archive hash | MIT OR Apache-2.0 | `third_party/cc-nagi`, `third_party/cc-nagi-patches/` | Generated checkout contains both license texts; verify notice preservation for a binary release |
+| inventory-nagi | A + B + C | `0.3.24`, locked archive hash | MIT OR Apache-2.0 | `third_party/inventory-nagi`, `third_party/inventory-nagi-patches/` | Tracked source includes both license texts; verify notice preservation for a binary release |
+| llama.cpp-ggml-cpu | B + C | revision `c85b92c69c955961621193cd51da194f3cbcedf3` | MIT | `third_party/llama.cpp`, `third_party/llama-cpp-patches/` | Generated checkout includes the upstream license and component-license directory; review linked components before binary redistribution |
+| whisper.cpp-stt | B | revision `927cfce34f31707e17f2bff35c349632fb9e2c3a` | MIT | `third_party/whisper.cpp` | Source pin is fetched by `./nagi fetch`; review linked-source notices before binary redistribution |
+
+## External model artifact pins
+
+`third_party/models.lock` pins the Whisper small multilingual artifact at
+487,601,967 bytes with SHA-256
+`1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` and
+records the model repository's MIT declaration at an immutable revision. Model
+bytes are not fetched by `./nagi fetch`, stored in the source checkout, or
+included in a Nagi image by this metadata-only step. The Model Store uses the
+opaque artifact ID in the lock; it must verify the size and SHA-256 before a
+future STT backend can load the bytes. Keep model licensing distinct from the
+whisper.cpp source license and review both before redistribution.
 
 ## Cargo.lock transitive and native-source review
 
@@ -43,14 +67,29 @@ source-only snapshot:
 
 | Dependency | Locked version(s) observed | Inclusion | Review status |
 | --- | --- | --- | --- |
-| aws-lc-rs / aws-lc-sys | `1.18.1` / `0.45.0` | D | Review upstream license, notices, native bundled source, and redistribution boundary |
-| libz-sys | `1.1.29` | D | Review upstream license, notices, native bundled source, and redistribution boundary |
-| getrandom | `0.2.17`, `0.3.4`, `0.4.3` | D | Review each locked registry package and its platform-specific source/notice requirements |
-| ipc-channel and dpi | locked Cargo graph | D | Include in the complete Cargo dependency notice review before binary distribution |
+| aws-lc-rs / aws-lc-sys | `1.18.1` / `0.45.0` | D | Cargo metadata declares `ISC AND (Apache-2.0 OR ISC)` for aws-lc-rs and `ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0)` for aws-lc-sys; review bundled native source, full notices, and redistribution boundary |
+| libz-sys | `1.1.29` | D | Cargo metadata declares MIT OR Apache-2.0; review bundled native source, full notices, and redistribution boundary |
+| getrandom | `0.2.17`, `0.3.4`, `0.4.3` | D | Each Cargo metadata entry declares MIT OR Apache-2.0; review platform-specific source and notice requirements |
+| ipc-channel / dpi | `0.23.0` / `0.1.2` | D | Cargo metadata declares MIT OR Apache-2.0 for ipc-channel and Apache-2.0 AND MIT for dpi; include both in the complete binary notice review |
+| webpki-roots / webpki-root-certs | `1.0.9` / `1.0.9` | D | Both declare CDLA-Permissive-2.0; review root-certificate data notices and provenance in the selected target graph |
+| r-efi | `5.3.0`, `6.0.0` | D | Declares MIT OR Apache-2.0 OR LGPL-2.1-or-later; determine the selected target dependency and preserve applicable notices |
+| libfuzzer-sys | `0.4.13` | D | Declares (MIT OR Apache-2.0) AND NCSA; appears in the locked workspace graph, including development tooling, and must be checked against the release dependency graph |
 
 These entries are intentionally explicit rather than silently treated as
 covered by the direct Servo or Mesa entries. The source lock and Cargo.lock
 must continue to be reviewed together when the dependency graph changes.
+
+### Cargo metadata declaration audit — 2026-09-30
+
+`python3 tools/audit_cargo_license_metadata.py` runs
+`cargo metadata --locked --format-version 1` and reports that all 673 external
+packages in the current Cargo graph declare a license expression (41 distinct
+expressions). This graph includes dev and target-specific packages and is not a
+bill of materials for the Nagi image. The command uses Cargo's locked graph and does not change
+`Cargo.lock`; it may contact the configured registry if a package is not cached.
+This checks publisher-supplied package metadata only. It does not inspect
+license text, validate the declarations, enumerate all bundled native source,
+or establish binary redistribution permission.
 
 ## Project asset provenance
 

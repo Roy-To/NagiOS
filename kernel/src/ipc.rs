@@ -101,8 +101,38 @@ mod tests {
                 flags: 0,
             }
         );
+        assert_eq!(received.sender_process_id(), 1);
         assert_eq!(received.payload(), b"hello from A");
         assert_eq!(received.handle_count(), 0);
+    }
+
+    #[test]
+    fn received_sender_identity_comes_from_the_kernel_process_not_payload() {
+        let mut fixture = fixture();
+        let forged_process_id = fixture.receiver.id().to_le_bytes();
+        fixture
+            .channel
+            .send(
+                &mut fixture.registry,
+                &mut fixture.sender,
+                fixture.sender_endpoint,
+                message(&forged_process_id),
+                &mut fixture.waiters,
+            )
+            .expect("send");
+        let received = fixture
+            .channel
+            .receive(
+                &mut fixture.registry,
+                &mut fixture.receiver,
+                fixture.receiver_endpoint,
+            )
+            .expect("receive")
+            .expect("message");
+
+        assert_eq!(received.sender_process_id(), fixture.sender.id());
+        assert_eq!(received.sender_process_id(), 1);
+        assert_eq!(received.payload(), &forged_process_id);
     }
 
     #[test]
@@ -541,7 +571,7 @@ use crate::handles::{
     Handle, HandleError, ObjectId, ObjectKind, ObjectRegistry, Process, Rights, TransferToken,
 };
 
-pub const MAX_QUEUE: usize = 8;
+pub const MAX_QUEUE: usize = nagi_abi::MAX_CHANNEL_QUEUE_MESSAGES;
 pub const MAX_INLINE_PAYLOAD: usize = 128;
 pub const MAX_TRANSFER_HANDLES: usize = 4;
 pub const MAX_WAIT_ITEMS: usize = 8;
@@ -627,6 +657,7 @@ impl OutgoingMessage {
 }
 
 pub struct ReceivedMessage {
+    sender_process_id: u32,
     header: MessageHeader,
     payload: [u8; MAX_INLINE_PAYLOAD],
     payload_len: usize,
@@ -635,6 +666,11 @@ pub struct ReceivedMessage {
 }
 
 impl ReceivedMessage {
+    /// Kernel-selected identity of the process that enqueued the message.
+    pub fn sender_process_id(&self) -> u32 {
+        self.sender_process_id
+    }
+
     pub fn header(&self) -> MessageHeader {
         self.header
     }
@@ -653,6 +689,7 @@ impl ReceivedMessage {
 }
 
 struct QueuedMessage {
+    sender_process_id: u32,
     header: MessageHeader,
     payload: [u8; MAX_INLINE_PAYLOAD],
     payload_len: usize,
@@ -782,6 +819,18 @@ impl ChannelPair {
         first_error.map_or(Ok(()), Err)
     }
 
+    pub(crate) fn visit_escrow_objects(&self, mut visitor: impl FnMut(ObjectId)) {
+        for queued in self
+            .queues
+            .iter()
+            .flat_map(|queue| queue.entries.iter().flatten())
+        {
+            for token in queued.tokens[..queued.token_count].iter().flatten() {
+                visitor(token.capability.object);
+            }
+        }
+    }
+
     pub(crate) fn send<const R: usize, const A: usize>(
         &mut self,
         registry: &ObjectRegistry<R>,
@@ -818,6 +867,7 @@ impl ChannelPair {
                 .map_err(ChannelError::from)?;
         }
         let mut queued = QueuedMessage {
+            sender_process_id: sender.id(),
             header: message.header,
             payload: message.payload,
             payload_len: message.payload_len,
@@ -865,6 +915,7 @@ impl ChannelPair {
             return Ok(None);
         };
         let header = queued.header;
+        let sender_process_id = queued.sender_process_id;
         let payload = queued.payload;
         let payload_len = queued.payload_len;
         let token_count = queued.token_count;
@@ -904,6 +955,7 @@ impl ChannelPair {
             return Err(ChannelError::Empty);
         }
         Ok(Some(ReceivedMessage {
+            sender_process_id,
             header,
             payload,
             payload_len,
@@ -1190,6 +1242,25 @@ pub struct WaitRegistry {
     wakeups: [Option<WaitWake>; MAX_WAIT_WAKEUPS],
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WokenWaiters {
+    ids: [u32; MAX_WAIT_WAKEUPS],
+    length: usize,
+}
+
+impl WokenWaiters {
+    const fn new() -> Self {
+        Self {
+            ids: [0; MAX_WAIT_WAKEUPS],
+            length: 0,
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        self.ids[..self.length].iter().copied()
+    }
+}
+
 impl WaitRegistry {
     pub const fn new() -> Self {
         Self {
@@ -1282,6 +1353,26 @@ impl WaitRegistry {
                 *registration = None;
             }
         }
+    }
+
+    pub(crate) fn cancel_waiter(&mut self, waiter_id: u32) {
+        self.clear_for_waiter(waiter_id);
+        self.clear_wakeup_for_waiter(waiter_id);
+    }
+
+    pub(crate) fn take_woken_waiters(&mut self) -> WokenWaiters {
+        let mut woken = WokenWaiters::new();
+        for wakeup in &mut self.wakeups {
+            let Some(wakeup) = wakeup.take() else {
+                continue;
+            };
+            if woken.ids[..woken.length].contains(&wakeup.waiter_id) {
+                continue;
+            }
+            woken.ids[woken.length] = wakeup.waiter_id;
+            woken.length += 1;
+        }
+        woken
     }
 
     fn clear_wakeup_for_waiter(&mut self, waiter_id: u32) {

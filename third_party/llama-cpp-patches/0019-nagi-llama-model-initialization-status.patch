@@ -1,0 +1,254 @@
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -39,6 +39,12 @@
+ #include <stdexcept>
+ #include <string>
+ #include <vector>
++
++#ifdef __NAGI__
++#define LLAMA_MODEL_FAIL_LOAD_RETURN(ml, message) do { return (ml).fail_load(message); } while (0)
++#else
++#define LLAMA_MODEL_FAIL_LOAD_RETURN(ml, message) throw std::runtime_error(message)
++#endif
+ 
+ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params & params) {
+     switch (arch) {
+@@ -1119,17 +1125,19 @@
+     if (use_extra_bufts) {
+         auto * cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+         if (cpu_dev == nullptr) {
++#ifndef __NAGI__
+             throw std::runtime_error(format("%s: no CPU backend found", __func__));
+-        }
+-
+-        auto * cpu_reg = ggml_backend_dev_backend_reg(cpu_dev);
+-        auto ggml_backend_dev_get_extra_bufts_fn = (ggml_backend_dev_get_extra_bufts_t)
+-            ggml_backend_reg_get_proc_address(cpu_reg, "ggml_backend_dev_get_extra_bufts");
+-        if (ggml_backend_dev_get_extra_bufts_fn) {
+-            ggml_backend_buffer_type_t * extra_bufts = ggml_backend_dev_get_extra_bufts_fn(cpu_dev);
+-            while (extra_bufts && *extra_bufts) {
+-                buft_list.emplace_back(cpu_dev, *extra_bufts);
+-                ++extra_bufts;
++#endif
++        } else {
++            auto * cpu_reg = ggml_backend_dev_backend_reg(cpu_dev);
++            auto ggml_backend_dev_get_extra_bufts_fn = (ggml_backend_dev_get_extra_bufts_t)
++                ggml_backend_reg_get_proc_address(cpu_reg, "ggml_backend_dev_get_extra_bufts");
++            if (ggml_backend_dev_get_extra_bufts_fn) {
++                ggml_backend_buffer_type_t * extra_bufts = ggml_backend_dev_get_extra_bufts_fn(cpu_dev);
++                while (extra_bufts && *extra_bufts) {
++                    buft_list.emplace_back(cpu_dev, *extra_bufts);
++                    ++extra_bufts;
++                }
+             }
+         }
+     }
+@@ -1146,7 +1154,10 @@
+ }
+ 
+ // GPU: split if LLAMA_SPLIT_MODE_ROW -> GPU
+-static buft_list_t make_gpu_buft_list(ggml_backend_dev_t dev, llama_split_mode split_mode, const float * tensor_split) {
++static buft_list_t make_gpu_buft_list(ggml_backend_dev_t dev, llama_split_mode split_mode, const float * tensor_split, llama_model_loader & ml) {
++#ifndef __NAGI__
++    (void) ml;
++#endif
+     buft_list_t buft_list;
+ 
+     // add the device split buffer type if requested and available
+@@ -1155,21 +1166,34 @@
+         auto ggml_backend_split_buffer_type_fn = (ggml_backend_split_buffer_type_t)
+             ggml_backend_reg_get_proc_address(reg, "ggml_backend_split_buffer_type");
+         if (ggml_backend_split_buffer_type_fn) {
+-            size_t dev_index = [&]() {
+-                auto * reg = ggml_backend_dev_backend_reg(dev);
+-                for (size_t i = 0; i < ggml_backend_reg_dev_count(reg); ++i) {
+-                    if (ggml_backend_reg_dev_get(reg, i) == dev) {
+-                        return i;
+-                    }
++            auto * reg = ggml_backend_dev_backend_reg(dev);
++            const size_t reg_dev_count = ggml_backend_reg_dev_count(reg);
++            size_t dev_index = reg_dev_count;
++            for (size_t i = 0; i < reg_dev_count; ++i) {
++                if (ggml_backend_reg_dev_get(reg, i) == dev) {
++                    dev_index = i;
++                    break;
+                 }
++            }
++            if (dev_index == reg_dev_count) {
++#ifdef __NAGI__
++                (void) ml.fail_load(format("device %s not found in its backend reg", ggml_backend_dev_name(dev)));
++                return {};
++#else
+                 throw std::runtime_error(format("device %s not found in its backend reg", ggml_backend_dev_name(dev)));
+-            }();
++#endif
++            }
+             auto * buft = ggml_backend_split_buffer_type_fn(dev_index, tensor_split);
+             if (buft != nullptr) {
+                 buft_list.emplace_back(dev, buft);
+             }
+         } else {
++#ifdef __NAGI__
++            (void) ml.fail_load(format("device %s does not support split buffers", ggml_backend_dev_name(dev)));
++            return {};
++#else
+             throw std::runtime_error(format("device %s does not support split buffers", ggml_backend_dev_name(dev)));
++#endif
+         }
+     }
+ 
+@@ -1256,14 +1280,16 @@
+     const std::string key = ml.llm_kv(LLM_KV_GENERAL_TENSOR_EXTRA_PREC_A4);
+     const int kid = gguf_find_key(ctx, key.c_str());
+     if (kid < 0 || gguf_get_kv_type(ctx, kid) != GGUF_TYPE_ARRAY || gguf_get_arr_type(ctx, kid) != GGUF_TYPE_BOOL) {
+-        throw std::runtime_error(format("%s must be a bool array", key.c_str()));
++        (void) ml.fail_metadata(format("%s must be a bool array", key.c_str()));
++        return;
+     }
+ 
+     const size_t n_values = gguf_get_arr_n(ctx, kid);
+     if (n_values != tensor_names.size()) {
+-        throw std::runtime_error(format(
+-            "%s tensor/value length mismatch (%zu vs %zu)",
+-            key.c_str(), tensor_names.size(), n_values));
++        (void) ml.fail_metadata(format(
++                "%s tensor/value length mismatch (%zu vs %zu)",
++                key.c_str(), tensor_names.size(), n_values));
++        return;
+     }
+ 
+     // tensors that can not use 4-bit activations, keep src1 at higher precision
+@@ -1487,7 +1513,8 @@
+         }
+         if (arch == LLM_ARCH_LLAMA || arch == LLM_ARCH_DECI || arch == LLM_ARCH_FALCON || arch == LLM_ARCH_LLAMA_EMBED) {
+             if (hparams.n_rot_full != hparams.n_embd_head_k_full) {
+-                throw std::runtime_error(format("invalid n_rot: %u, expected %u", hparams.n_rot_full, hparams.n_embd_head_k_full));
++                (void) ml.fail_metadata(format("invalid n_rot: %u, expected %u", hparams.n_rot_full, hparams.n_embd_head_k_full));
++                return;
+             }
+         }
+     } else {
+@@ -1589,7 +1616,10 @@
+     // build a list of buffer types for the CPU and GPU devices
+     pimpl->cpu_buft_list = make_cpu_buft_list(devices, params.use_extra_bufts, params.no_host);
+     for (const auto & dev : devices) {
+-        buft_list_t buft_list = make_gpu_buft_list(dev.dev, split_mode, tensor_split);
++        buft_list_t buft_list = make_gpu_buft_list(dev.dev, split_mode, tensor_split, ml);
++        if (!ml.loader_valid) {
++            return false;
++        }
+         // add CPU buffer types as a fallback
+         buft_list.insert(buft_list.end(), pimpl->cpu_buft_list.begin(), pimpl->cpu_buft_list.end());
+         pimpl->gpu_buft_list.emplace(dev.dev, std::move(buft_list));
+@@ -1597,7 +1627,7 @@
+ 
+     ggml_backend_dev_t cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+     if (cpu_dev == nullptr) {
+-        throw std::runtime_error(format("%s: no CPU backend found", __func__));
++        LLAMA_MODEL_FAIL_LOAD_RETURN(ml, format("%s: no CPU backend found", __func__));
+     }
+ 
+     // calculate the split points
+@@ -1670,13 +1700,16 @@
+         const int64_t n_expert = hparams.n_expert;
+ 
+         if (n_expert > 0 && hparams.n_expert_used_max() == 0) {
+-            throw std::runtime_error("model has expert layers but no expert layers are used");
++            LLAMA_MODEL_FAIL_LOAD_RETURN(ml, "model has expert layers but no expert layers are used");
+         }
+ 
+         layers.resize(n_layer_all);
+ 
+         // call the per-model loading function
+         load_arch_tensors(ml);
++        if (!ml.loader_valid) {
++            return false;
++        }
+ 
+         // generic pass: load optional per-tensor/per-expert ".scale" tensors (e.g. NVFP4 scale2)
+         // this avoids having to add scale loading to every architecture
+@@ -1851,6 +1884,9 @@
+ 
+     // per-tensor activation precision policy
+     prec_policy.load(ml, *this);
++    if (!ml.metadata_valid) {
++        return false;
++    }
+ 
+     ml.init_mappings(true, use_mlock ? &pimpl->mlock_mmaps : nullptr);
+     pimpl->mappings.reserve(ml.mappings.size());
+@@ -1881,7 +1917,7 @@
+             // FIXME: workaround for CPU backend buft having a NULL device
+             dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+             if (!dev) {
+-                throw std::runtime_error(format("%s: no CPU backend found", __func__));
++                LLAMA_MODEL_FAIL_LOAD_RETURN(ml, format("%s: no CPU backend found", __func__));
+             }
+         }
+         ggml_backend_dev_props props;
+@@ -1910,7 +1946,7 @@
+                 const size_t max_size = ggml_get_max_tensor_size(ctx);
+                 ggml_backend_buffer_t buf = ggml_backend_dev_buffer_from_host_ptr(dev, (char *) addr + first, last - first, max_size);
+                 if (buf == nullptr) {
+-                    throw std::runtime_error(format("unable to allocate %s buffer", ggml_backend_buft_name(buft)));
++                    LLAMA_MODEL_FAIL_LOAD_RETURN(ml, format("unable to allocate %s buffer", ggml_backend_buft_name(buft)));
+                 }
+                 bufs.emplace_back(buf);
+                 buf_map.emplace(idx, buf);
+@@ -1926,7 +1962,7 @@
+                 buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx, buft); // real buffer
+             }
+             if (buf == nullptr) {
+-                throw std::runtime_error(format("unable to allocate %s buffer", ggml_backend_buft_name(buft)));
++                LLAMA_MODEL_FAIL_LOAD_RETURN(ml, format("unable to allocate %s buffer", ggml_backend_buft_name(buft)));
+             }
+             if (use_mlock && ggml_backend_buffer_is_host(buf)) {
+                 pimpl->mlock_bufs.emplace_back(new llama_mlock);
+@@ -2002,6 +2038,8 @@
+ 
+     return true;
+ }
++
++#undef LLAMA_MODEL_FAIL_LOAD_RETURN
+ 
+ ggml_tensor * llama_model_base::create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
+     const buft_list_t * buft_list_layer = tn.bid == -1 ? nullptr : pimpl->dev_layer.at(tn.bid).buft_list;
+@@ -2313,7 +2351,12 @@
+ 
+     ggml_context_ptr ctx { ggml_init(params) };
+     if (!ctx) {
++#ifdef __NAGI__
++        LLAMA_LOG_ERROR("%s: failed to create ggml context while probing buffer support\n", __func__);
++        return false;
++#else
+         throw std::runtime_error(format("failed to create ggml context"));
++#endif
+     }
+ 
+     ggml_backend_buffer_ptr buf { ggml_backend_buft_alloc_buffer(buft, 0) };
+@@ -2340,7 +2383,12 @@
+         }
+     }
+ 
++#ifdef __NAGI__
++    LLAMA_LOG_ERROR("%s: no suitable buffer type found\n", __func__);
++    return nullptr;
++#else
+     throw std::runtime_error(format("no suitable buffer type found"));
++#endif
+ }
+ 
+ ggml_backend_buffer_type_t llama_model::select_buft(int il) const {
+--- a/src/llama-adapter.cpp
++++ b/src/llama-adapter.cpp
+@@ -67,6 +67,10 @@
+     tensors.push_back(nullptr); // there's never a tensor for layer 0
+     for (size_t il = 1; il < hparams.n_layer(); il++) {
+         ggml_backend_buffer_type_t buft = model.select_buft(il);
++        if (buft == nullptr) {
++            LLAMA_LOG_ERROR("%s: failed to select a buffer type for control vector layer %zu\n", __func__, il);
++            return false;
++        }
+         ggml_context * ctx = ctx_for_buft(buft);
+         if (!ctx) {
+             LLAMA_LOG_ERROR("%s: failed to allocate context for control vector\n", __func__);

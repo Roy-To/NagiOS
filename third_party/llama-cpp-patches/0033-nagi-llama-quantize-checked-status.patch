@@ -1,0 +1,581 @@
+diff --git a/src/llama-ext.h b/src/llama-ext.h
+index 92a759b..c0e5bbd 100644
+--- a/src/llama-ext.h
++++ b/src/llama-ext.h
+@@ -52,7 +52,7 @@ LLAMA_API bool llama_quant_tensor_allows_quantization(
+ // Compute quantization type assignments for a list of tensors.
+ // All tensors should be quantizable (use llama_quant_tensor_allows_quantization to filter).
+ // result_types: caller-allocated array of n_tensors elements, filled with assigned types.
+-LLAMA_API void llama_quant_compute_types(
++LLAMA_API bool llama_quant_compute_types(
+         quantize_state_impl * qs,
+         llama_ftype ftype,
+         ggml_tensor ** tensors,
+diff --git a/src/llama-quant.cpp b/src/llama-quant.cpp
+index 9becd8b..4a9fcd0 100644
+--- a/src/llama-quant.cpp
++++ b/src/llama-quant.cpp
+@@ -213,18 +213,30 @@ struct tensor_metadata {
+ // dequantization
+ //
+ 
+-static void llama_tensor_dequantize_impl(
++static bool llama_quantization_error(const std::string & message, bool log_message = true) {
++#if defined(__NAGI__)
++    if (log_message) {
++        LLAMA_LOG_ERROR("llama quantization: %s\n", message.c_str());
++    }
++    return false;
++#else
++    (void) log_message;
++    throw std::runtime_error(message);
++#endif
++}
++
++static bool llama_tensor_dequantize_impl(
+     ggml_type type, const void * data, float * f32_output, std::vector<std::thread> & workers,
+     const size_t nelements, const int nthread
+ ) {
+     const ggml_type_traits * qtype = ggml_get_type_traits(type);
+     if (ggml_is_quantized(type)) {
+         if (qtype->to_float == NULL) {
+-            throw std::runtime_error(format("type %s unsupported for integer quantization: no dequantization available", ggml_type_name(type)));
++            return llama_quantization_error(format("type %s unsupported for integer quantization: no dequantization available", ggml_type_name(type)));
+         }
+     } else if (type != GGML_TYPE_F16 &&
+                type != GGML_TYPE_BF16) {
+-        throw std::runtime_error(format("cannot dequantize/convert tensor type %s", ggml_type_name(type)));
++        return llama_quantization_error(format("cannot dequantize/convert tensor type %s", ggml_type_name(type)));
+     }
+ 
+     if (nthread < 2) {
+@@ -237,7 +249,7 @@ static void llama_tensor_dequantize_impl(
+         } else {
+             GGML_ABORT("fatal error"); // unreachable
+         }
+-        return;
++        return true;
+     }
+ 
+     size_t block_size;
+@@ -278,6 +290,7 @@ static void llama_tensor_dequantize_impl(
+     }
+     for (auto & w : workers) { w.join(); }
+     workers.clear();
++    return true;
+ }
+ 
+ //
+@@ -369,8 +382,8 @@ static bool tensor_allows_quantization(const llama_model_quantize_params * param
+ //
+ 
+ // incompatible tensor shapes are handled here - fallback to a compatible type
+-static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tensor * t, const ggml_type target_type) {
+-    ggml_type return_type = target_type;
++static bool tensor_type_fallback(quantize_state_impl & qs, const ggml_tensor * t, const ggml_type target_type, ggml_type & result_type) {
++    result_type = target_type;
+ 
+     const int64_t ncols = t->ne[0];
+     const int64_t qk_k = ggml_blck_size(target_type);
+@@ -389,26 +402,26 @@ static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tenso
+             case GGML_TYPE_IQ2_S:
+             case GGML_TYPE_IQ3_XXS:
+             case GGML_TYPE_IQ3_S:   // types on the right: block size 32
+-            case GGML_TYPE_IQ4_XS:  return_type = GGML_TYPE_IQ4_NL; break;
++            case GGML_TYPE_IQ4_XS:  result_type = GGML_TYPE_IQ4_NL; break;
+             case GGML_TYPE_Q2_0:
+             case GGML_TYPE_Q2_K:
+             case GGML_TYPE_Q3_K:
+             case GGML_TYPE_TQ1_0:
+-            case GGML_TYPE_TQ2_0:   return_type = GGML_TYPE_Q4_0;   break;
+-            case GGML_TYPE_Q4_K:    return_type = GGML_TYPE_Q5_0;   break;
+-            case GGML_TYPE_Q5_K:    return_type = GGML_TYPE_Q5_1;   break;
+-            case GGML_TYPE_Q6_K:    return_type = GGML_TYPE_Q8_0;   break;
++            case GGML_TYPE_TQ2_0:   result_type = GGML_TYPE_Q4_0;   break;
++            case GGML_TYPE_Q4_K:    result_type = GGML_TYPE_Q5_0;   break;
++            case GGML_TYPE_Q5_K:    result_type = GGML_TYPE_Q5_1;   break;
++            case GGML_TYPE_Q6_K:    result_type = GGML_TYPE_Q8_0;   break;
+             default:
+                 if (qk_k <= 32) {
+                     // the target is already a 32-block type, so there is no smaller block to demote to
+                     // the check below turns it into F16, as a 256-block type does when its fallback does not fit
+-                    return_type = target_type;
++                    result_type = target_type;
+                     break;
+                 }
+-                throw std::runtime_error(format("no tensor type fallback is defined for type %s",
+-                                                ggml_type_name(target_type)));
++                return llama_quantization_error(format("no tensor type fallback is defined for type %s",
++                                                       ggml_type_name(target_type)));
+         }
+-        if (ncols % ggml_blck_size(return_type) != 0) {
++        if (ncols % ggml_blck_size(result_type) != 0) {
+             //
+             // the fallback return type is still not compatible for this tensor!
+             //
+@@ -417,15 +430,15 @@ static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tenso
+             // fallback to F16 / F32.
+             //
+             LLAMA_LOG_WARN("(WARNING: must use F16 due to unusual shape) ");
+-            return_type = GGML_TYPE_F16;
++            result_type = GGML_TYPE_F16;
+         }
+-        LLAMA_LOG_WARN("-> falling back to %7s\n", ggml_type_name(return_type));
++        LLAMA_LOG_WARN("-> falling back to %7s\n", ggml_type_name(result_type));
+     }
+-    return return_type;
++    return true;
+ }
+ 
+ // internal standard logic for selecting the target tensor type based on tensor category, ftype, and model arch
+-static ggml_type llama_tensor_get_type_impl(quantize_state_impl & qs, ggml_type new_type, const ggml_tensor * tensor, llama_ftype ftype, tensor_category category) {
++static bool llama_tensor_get_type_impl(quantize_state_impl & qs, ggml_type new_type, const ggml_tensor * tensor, llama_ftype ftype, tensor_category category, ggml_type & result_type) {
+     const std::string name = ggml_get_name(tensor);
+ 
+     // TODO: avoid hardcoded tensor names - use the TN_* constants
+@@ -435,20 +448,22 @@ static ggml_type llama_tensor_get_type_impl(quantize_state_impl & qs, ggml_type
+         return i_layer < n_layers/8 || i_layer >= 7*n_layers/8 || (i_layer - n_layers/8)%3 == 2;
+     };
+     const int n_expert = std::max(1, (int)qs.model.hparams.n_expert);
+-    auto layer_info = [n_expert] (int i_layer, int n_layer, const char * name) {
++    auto layer_info = [n_expert] (int i_layer, int n_layer, const char * name, int & result_layer, int & result_n_layer) {
+         if (n_expert > 1) {
+             // Believe it or not, "experts" in the FFN of Mixtral-8x7B are not consecutive, but occasionally randomly
+             // sprinkled in the model. Hence, simply dividing i_ffn_down by n_expert does not work
+             // for getting the current layer as I initially thought, and we need to resort to parsing the
+             // tensor name.
+             if (sscanf(name, "blk.%d.", &i_layer) != 1) {
+-                throw std::runtime_error(format("Failed to determine layer for tensor %s", name));
++                return llama_quantization_error(format("Failed to determine layer for tensor %s", name));
+             }
+             if (i_layer < 0 || i_layer >= n_layer) {
+-                throw std::runtime_error(format("Bad layer %d for tensor %s. Must be in [0, %d)", i_layer, name, n_layer));
++                return llama_quantization_error(format("Bad layer %d for tensor %s. Must be in [0, %d)", i_layer, name, n_layer));
+             }
+         }
+-        return std::make_pair(i_layer, n_layer);
++        result_layer = i_layer;
++        result_n_layer = n_layer;
++        return true;
+     };
+ 
+     // for arches that share the same tensor between the token embeddings and the output, we quantize the token embeddings
+@@ -588,8 +603,10 @@ static ggml_type llama_tensor_get_type_impl(quantize_state_impl & qs, ggml_type
+             new_type = GGML_TYPE_IQ2_S;
+         }
+     } else if (category == tensor_category::FFN_DOWN) {
+-        auto info = layer_info(qs.i_ffn_down, qs.n_ffn_down, name.c_str());
+-        int i_layer = info.first, n_layer = info.second;
++        int i_layer, n_layer;
++        if (!layer_info(qs.i_ffn_down, qs.n_ffn_down, name.c_str(), i_layer, n_layer)) {
++            return false;
++        }
+         if      (ftype == LLAMA_FTYPE_MOSTLY_Q2_K) new_type = GGML_TYPE_Q3_K;
+         else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_S) {
+             if (i_layer < n_layer/8) new_type = GGML_TYPE_Q4_K;
+@@ -660,29 +677,35 @@ static ggml_type llama_tensor_get_type_impl(quantize_state_impl & qs, ggml_type
+         else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M) new_type = GGML_TYPE_Q6_K;
+     }
+     else if (category == tensor_category::FFN_GATE) {
+-        auto info = layer_info(qs.i_ffn_gate, qs.n_ffn_gate, name.c_str());
+-        int i_layer = info.first, n_layer = info.second;
++        int i_layer, n_layer;
++        if (!layer_info(qs.i_ffn_gate, qs.n_ffn_gate, name.c_str(), i_layer, n_layer)) {
++            return false;
++        }
+         if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_XS && (i_layer >= n_layer/8 && i_layer < 7*n_layer/8)) {
+             new_type = GGML_TYPE_IQ3_XXS;
+         }
+         ++qs.i_ffn_gate;
+     }
+     else if (category == tensor_category::FFN_UP) {
+-        auto info = layer_info(qs.i_ffn_up, qs.n_ffn_up, name.c_str());
+-        int i_layer = info.first, n_layer = info.second;
++        int i_layer, n_layer;
++        if (!layer_info(qs.i_ffn_up, qs.n_ffn_up, name.c_str(), i_layer, n_layer)) {
++            return false;
++        }
+         if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_XS && (i_layer >= n_layer/8 && i_layer < 7*n_layer/8)) {
+             new_type = GGML_TYPE_IQ3_XXS;
+         }
+         ++qs.i_ffn_up;
+     }
+ 
+-    return new_type;
++    result_type = new_type;
++    return true;
+ }
+ 
+ // outer wrapper: determine the ggml_type that this tensor should be quantized to
+-static ggml_type llama_tensor_get_type(quantize_state_impl & qs, const llama_model_quantize_params * params, const ggml_tensor * tensor, ggml_type default_type, const tensor_metadata & tm) {
++static bool llama_tensor_get_type(quantize_state_impl & qs, const llama_model_quantize_params * params, const ggml_tensor * tensor, ggml_type default_type, const tensor_metadata & tm, ggml_type & result_type) {
+     if (!tensor_allows_quantization(params, qs.model.arch, tensor)) {
+-        return tensor->type;
++        result_type = tensor->type;
++        return true;
+     }
+     if (params->token_embedding_type < GGML_TYPE_COUNT && tm.category == tensor_category::TOKEN_EMBD) {
+         // per_layer_token_embd follows --token-embedding-type by default, but it is a large
+@@ -698,11 +721,13 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, const llama_mod
+             }
+         }
+         if (!named) {
+-            return params->token_embedding_type;
++            result_type = params->token_embedding_type;
++            return true;
+         }
+     }
+     if (params->output_tensor_type < GGML_TYPE_COUNT && tm.category == tensor_category::OUTPUT) {
+-        return params->output_tensor_type;
++        result_type = params->output_tensor_type;
++        return true;
+     }
+ 
+     ggml_type new_type = default_type;
+@@ -728,14 +753,19 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, const llama_mod
+ 
+         // if not manual - use the standard logic for choosing the quantization type based on the selected mixture
+         if (!manual && !params->pure) {
+-            new_type = llama_tensor_get_type_impl(qs, new_type, tensor, params->ftype, tm.category);
++            if (!llama_tensor_get_type_impl(qs, new_type, tensor, params->ftype, tm.category, new_type)) {
++                return false;
++            }
+         }
+ 
+         // incompatible tensor shapes are handled here - fallback to a compatible type
+-        new_type = tensor_type_fallback(qs, tensor, new_type);
++        if (!tensor_type_fallback(qs, tensor, new_type, new_type)) {
++            return false;
++        }
+     }
+ 
+-    return new_type;
++    result_type = new_type;
++    return true;
+ }
+ 
+ //
+@@ -744,7 +774,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, const llama_mod
+ 
+ // quantize rows [first_row, first_row + nrows), indexed globally across all expert matrices
+ // note: chunks never cross an expert boundary since each expert has its own imatrix slice
+-static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * f32_data, void * new_data, const int64_t chunk_size, int64_t first_row, int64_t nrows, int64_t nrows_per_expert, int64_t n_per_row, const float * imatrix, std::vector<std::thread> & workers, const int nthread) {
++static bool llama_tensor_quantize_impl(enum ggml_type new_type, const float * f32_data, void * new_data, const int64_t chunk_size, int64_t first_row, int64_t nrows, int64_t nrows_per_expert, int64_t n_per_row, const float * imatrix, std::vector<std::thread> & workers, const int nthread, size_t & result_size) {
++    result_size = 0;
+     const size_t row_size = ggml_row_size(new_type, n_per_row);
+ 
+     auto imatrix_for_row = [=](int64_t row_global) {
+@@ -760,12 +791,13 @@ static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float *
+             void * this_data = (char *) new_data + row * row_size;
+             size_t this_size = ggml_quantize_chunk(new_type, f32_data + row * n_per_row, this_data, 0, this_nrow, n_per_row, imatrix_for_row(row_global));
+             if (!ggml_validate_row_data(new_type, this_data, this_size)) {
+-                throw std::runtime_error("quantized data validation failed");
++                return llama_quantization_error("quantized data validation failed");
+             }
+             new_size += this_size;
+             row += this_nrow;
+         }
+-        return new_size;
++        result_size = new_size;
++        return true;
+     }
+ 
+     std::mutex mutex;
+@@ -810,9 +842,10 @@ static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float *
+     for (auto & w : workers) { w.join(); }
+     workers.clear();
+     if (!valid) {
+-        throw std::runtime_error("quantized data validation failed");
++        return llama_quantization_error("quantized data validation failed");
+     }
+-    return new_size;
++    result_size = new_size;
++    return true;
+ }
+ 
+ //
+@@ -911,6 +944,9 @@ static void init_quantize_state_counters(quantize_state_impl & qs, std::vector<t
+ //
+ 
+ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::string & fname_out, const llama_model_quantize_params * params) {
++    if (params == nullptr) {
++        return llama_quantization_error("quantization parameters are null");
++    }
+     llama_ftype ftype = params->ftype;
+ 
+     int nthread = params->nthread;
+@@ -921,7 +957,7 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+ 
+     ggml_type default_type = llama_ftype_get_default_type(ftype);
+     if (default_type == GGML_TYPE_COUNT) {
+-        throw std::runtime_error(format("invalid output file type %d\n", ftype));
++        return llama_quantization_error(format("invalid output file type %d\n", ftype));
+     }
+ 
+     // mmap consistently increases speed on Linux, and also increases speed on Windows with
+@@ -975,7 +1011,7 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+             for (const auto & kv : *imatrix_data) {
+                 for (float f : kv.second) {
+                     if (!std::isfinite(f)) {
+-                        throw std::runtime_error(format("imatrix contains non-finite value %f\n", f));
++                        return llama_quantization_error(format("imatrix contains non-finite value %f\n", f));
+                     }
+                 }
+             }
+@@ -1093,7 +1129,9 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+         metadata[i].allows_quantization = tensor_allows_quantization(params, model->arch, tensor);
+ 
+         if (metadata[i].allows_quantization) {
+-            metadata[i].target_type = llama_tensor_get_type(qs, params, tensor, default_type, metadata[i]);
++            if (!llama_tensor_get_type(qs, params, tensor, default_type, metadata[i], metadata[i].target_type)) {
++                return false;
++            }
+         } else {
+             metadata[i].target_type = tensor->type;
+         }
+@@ -1112,7 +1150,7 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+                                 "        - target type: %s\n"
+                                 "============================================================================\n\n",
+                                 metadata[i].name.c_str(), ggml_type_name(metadata[i].target_type));
+-                throw std::runtime_error("this quantization requires an imatrix!");
++                return llama_quantization_error("this quantization requires an imatrix!", false);
+             }
+         }
+     }
+@@ -1265,7 +1303,7 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+                             // since many people will miss the error and not realize that most of the model is being quantized without an imatrix
+                             // tok_embd should be ignored in this case, since it always causes this warning
+                             if (!tensor_name_match_token_embd(tensor->name)) {
+-                                throw std::runtime_error(format("imatrix size %d is different from tensor size %d for %s",
++                                return llama_quantization_error(format("imatrix size %d is different from tensor size %d for %s",
+                                         int(it->second.size()), int(tensor->ne[0]*tensor->ne[2]), tensor->name));
+                             }
+                         }
+@@ -1276,11 +1314,11 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+                     LLAMA_LOG_ERROR("Missing importance matrix for tensor %s in a very low-bit quantization\n", tensor->name);
+                     LLAMA_LOG_ERROR("The result will be garbage, so bailing out\n");
+                     LLAMA_LOG_ERROR("============================================================\n\n");
+-                    throw std::runtime_error(format("Missing importance matrix for tensor %s in a very low-bit quantization", tensor->name));
++                    return llama_quantization_error(format("Missing importance matrix for tensor %s in a very low-bit quantization", tensor->name), false);
+                 }
+ 
+                 if (ggml_is_quantized(tensor->type) && !params->allow_requantize) {
+-                    throw std::runtime_error(format("requantizing from type %s is disabled", ggml_type_name(tensor->type)));
++                    return llama_quantization_error(format("requantizing from type %s is disabled", ggml_type_name(tensor->type)));
+                 }
+ 
+                 LLAMA_LOG_INFO("converting to %s .. ", ggml_type_name(new_type));
+@@ -1318,7 +1356,9 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+                         if (f32_conv_buf.size() < (size_t) nelements_cur) {
+                             f32_conv_buf.resize(nelements_cur);
+                         }
+-                        llama_tensor_dequantize_impl(tensor->type, src, (float *) f32_conv_buf.data(), workers, nelements_cur, nthread);
++                        if (!llama_tensor_dequantize_impl(tensor->type, src, (float *) f32_conv_buf.data(), workers, nelements_cur, nthread)) {
++                            return false;
++                        }
+                         f32_data = (const float *) f32_conv_buf.data();
+                     }
+ 
+@@ -1329,7 +1369,10 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+                     const int64_t nchunk = (nelements_cur + chunk_size - 1)/chunk_size;
+                     const int64_t nthread_use = nthread > 1 ? std::max((int64_t)1, std::min((int64_t)nthread, nchunk)) : 1;
+ 
+-                    const size_t size_cur = llama_tensor_quantize_impl(new_type, f32_data, work.data(), chunk_size, ir, nrows_cur, nrows_per_expert, n_per_row, imatrix, workers, nthread_use);
++                    size_t size_cur = 0;
++                    if (!llama_tensor_quantize_impl(new_type, f32_data, work.data(), chunk_size, ir, nrows_cur, nrows_per_expert, n_per_row, imatrix, workers, nthread_use, size_cur)) {
++                        return false;
++                    }
+ 
+                     fout.write((const char *) work.data(), size_cur);
+                     new_size += size_cur;
+@@ -1403,14 +1446,18 @@ uint32_t llama_model_quantize(
+         const char * fname_inp,
+         const char * fname_out,
+         const llama_model_quantize_params * params) {
++#if !defined(__NAGI__)
+     try {
++#endif
+         if (!llama_model_quantize_impl(fname_inp, fname_out, params)) {
+             return 1;
+         }
++#if !defined(__NAGI__)
+     } catch (const std::exception & err) {
+         LLAMA_LOG_ERROR("%s: failed to quantize: %s\n", __func__, err.what());
+         return 1;
+     }
++#endif
+ 
+     return 0;
+ }
+@@ -1462,12 +1509,26 @@ bool llama_quant_tensor_allows_quantization(
+     return tensor_allows_quantization(qs->params, qs->model.arch, tensor);
+ }
+ 
+-void llama_quant_compute_types(
++bool llama_quant_compute_types(
+         quantize_state_impl * qs,
+         llama_ftype ftype,
+         ggml_tensor ** tensors,
+         ggml_type * result_types,
+         size_t n_tensors) {
++    if (result_types != nullptr) {
++        std::fill_n(result_types, n_tensors, GGML_TYPE_COUNT);
++    }
++    if (qs == nullptr || qs->params == nullptr) {
++        return llama_quantization_error("quantization state is null");
++    }
++    if (n_tensors > 0 && (tensors == nullptr || result_types == nullptr)) {
++        return llama_quantization_error("quantization tensor or result array is null");
++    }
++    const ggml_type default_type = llama_ftype_get_default_type(ftype);
++    if (default_type == GGML_TYPE_COUNT) {
++        return llama_quantization_error(format("invalid output file type %d\n", ftype));
++    }
++
+     // reset per-computation state
+     qs->n_attention_wv      = 0;
+     qs->n_ffn_down          = 0;
+@@ -1483,7 +1544,11 @@ void llama_quant_compute_types(
+ 
+     // build metadata from tensor names
+     std::vector<tensor_metadata> metadata(n_tensors);
++    std::vector<ggml_type> computed_types(n_tensors, GGML_TYPE_COUNT);
+     for (size_t i = 0; i < n_tensors; i++) {
++        if (tensors[i] == nullptr) {
++            return llama_quantization_error(format("quantization tensor %d is null", (int) i));
++        }
+         metadata[i].name = ggml_get_name(tensors[i]);
+     }
+ 
+@@ -1494,10 +1559,14 @@ void llama_quant_compute_types(
+     llama_model_quantize_params local_params = *qs->params;
+     local_params.ftype = ftype;
+ 
+-    ggml_type default_type = llama_ftype_get_default_type(ftype);
+-
+     // compute types
+     for (size_t i = 0; i < n_tensors; i++) {
+-        result_types[i] = llama_tensor_get_type(*qs, &local_params, tensors[i], default_type, metadata[i]);
++        if (!llama_tensor_get_type(*qs, &local_params, tensors[i], default_type, metadata[i], computed_types[i])) {
++            return false;
++        }
+     }
++    if (n_tensors > 0) {
++        std::copy(computed_types.begin(), computed_types.end(), result_types);
++    }
++    return true;
+ }
+diff --git a/tests/test-quant-type-selection.cpp b/tests/test-quant-type-selection.cpp
+index 1696ec1..a164d92 100644
+--- a/tests/test-quant-type-selection.cpp
++++ b/tests/test-quant-type-selection.cpp
+@@ -6,6 +6,7 @@
+ #include <algorithm>
+ #include <cstdio>
+ #include <cstring>
++#include <exception>
+ #include <fstream>
+ #include <map>
+ #include <sstream>
+@@ -286,10 +287,11 @@ static mock_tensors build_mock_tensors(const quantize_state_impl * qs, const ggu
+ // Use this when either adding new models or modifying quants
+ // ---------------------------------------------------------------------------
+ 
+-static std::string generate_snapshot(const std::string &       name,
+-                                     const gguf_remote_model & remote,
+-                                     quantize_state_impl *     qs,
+-                                     mock_tensors &            mt) {
++static bool generate_snapshot(const std::string &       name,
++                              const gguf_remote_model & remote,
++                              quantize_state_impl *     qs,
++                              mock_tensors &            mt,
++                              std::string &             snapshot) {
+     std::ostringstream out;
+ 
+     out << "# Model: " << name << "\n";
+@@ -312,7 +314,10 @@ static std::string generate_snapshot(const std::string &       name,
+         }
+ 
+         std::vector<ggml_type> result_types(mt.tensors.size());
+-        llama_quant_compute_types(qs, ft, mt.tensors.data(), result_types.data(), mt.tensors.size());
++        if (!llama_quant_compute_types(qs, ft, mt.tensors.data(), result_types.data(), mt.tensors.size())) {
++            fprintf(stderr, "ERROR: could not compute quantization types for %s (%s)\n", name.c_str(), fname);
++            return false;
++        }
+ 
+         out << "\n[" << fname << "] " << ggml_type_name(default_type) << "\n";
+         for (size_t j = 0; j < mt.tensors.size(); j++) {
+@@ -322,7 +327,8 @@ static std::string generate_snapshot(const std::string &       name,
+         }
+     }
+ 
+-    return out.str();
++    snapshot = out.str();
++    return true;
+ }
+ 
+ static int run_generate(const std::string & snapshot_dir) {
+@@ -355,7 +361,12 @@ static int run_generate(const std::string & snapshot_dir) {
+         quantize_state_impl *       qs      = llama_quant_init(model, &qparams);
+         auto                        mt      = build_mock_tensors(qs, remote);
+ 
+-        std::string content = generate_snapshot(name, remote, qs, mt);
++        std::string content;
++        if (!generate_snapshot(name, remote, qs, mt, content)) {
++            llama_quant_free(qs);
++            llama_model_free(model);
++            return 1;
++        }
+         std::string path    = snapshot_dir + "/" + snapshot_file_from_name(name) + ".schema";
+ 
+         std::ofstream f(path);
+@@ -390,7 +401,10 @@ static bool run_test_section(quantize_state_impl * qs, mock_tensors & mt, const
+     }
+ 
+     std::vector<ggml_type> result_types(mt.tensors.size());
+-    llama_quant_compute_types(qs, section.ftype, mt.tensors.data(), result_types.data(), mt.tensors.size());
++    if (!llama_quant_compute_types(qs, section.ftype, mt.tensors.data(), result_types.data(), mt.tensors.size())) {
++        printf("  FAIL  [%s] quantization type assignment failed\n", llama_ftype_to_name(section.ftype));
++        return false;
++    }
+ 
+     std::map<std::string, ggml_type> override_map(section.overrides.begin(), section.overrides.end());
+ 
+@@ -424,6 +438,26 @@ static bool run_test_section(quantize_state_impl * qs, mock_tensors & mt, const
+     return all_pass;
+ }
+ 
++static bool run_checked_quant_status_test() {
++    ggml_type result_type = GGML_TYPE_Q8_0;
++#if defined(__NAGI__)
++    const bool failed = !llama_quant_compute_types(nullptr, LLAMA_FTYPE_MOSTLY_Q8_0, nullptr, &result_type, 1) &&
++                        result_type == GGML_TYPE_COUNT;
++#else
++    bool failed = false;
++    try {
++        llama_quant_compute_types(nullptr, LLAMA_FTYPE_MOSTLY_Q8_0, nullptr, &result_type, 1);
++    } catch (const std::exception &) {
++        failed = result_type == GGML_TYPE_COUNT;
++    }
++#endif
++    if (!failed) {
++        fprintf(stderr, "FAIL: invalid quantization state did not return checked status\n");
++        return false;
++    }
++    return true;
++}
++
+ static int run_remote_tests(const std::string & snapshot_dir, const char * argv0) {
+     int total_pass = 0;
+     int total_fail = 0;
+@@ -513,6 +547,10 @@ int main(int argc, char ** argv) {
+         return run_generate(snapshot_dir);
+     }
+ 
++    if (!run_checked_quant_status_test()) {
++        return 1;
++    }
++
+     // suppress llama log warnings during test (e.g. tensor type fallback messages)
+     llama_log_set([](enum ggml_log_level, const char *, void *) {}, nullptr);
+ 

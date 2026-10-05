@@ -1,0 +1,1287 @@
+diff --git a/src/llama-adapter.cpp b/src/llama-adapter.cpp
+index 080d5ba..198ac32 100644
+--- a/src/llama-adapter.cpp
++++ b/src/llama-adapter.cpp
+@@ -182,6 +182,10 @@ static bool llama_adapter_lora_init_impl(llama_model & model, FILE * file, llama
+ 
+     // must come after gguf_init_from_file_ptr, the llama_file constructor moves the file position
+     llama_file gguf_file(file);
++    if (gguf_file.failed()) {
++        return llama_adapter_lora_fail(__func__, format("invalid LoRA file handle: %s",
++                gguf_file.error_message().c_str()));
++    }
+ 
+     // check metadata
+     {
+@@ -426,7 +430,15 @@ static bool llama_adapter_lora_init_impl(llama_model & model, FILE * file, llama
+             }
+             read_buf.resize(size);
+             gguf_file.seek(offs, SEEK_SET);
++            if (gguf_file.failed()) {
++                return llama_adapter_lora_fail(__func__, format("failed to seek in LoRA file: %s",
++                        gguf_file.error_message().c_str()));
++            }
+             gguf_file.read_raw(read_buf.data(), size);
++            if (gguf_file.failed()) {
++                return llama_adapter_lora_fail(__func__, format("failed to read LoRA tensor: %s",
++                        gguf_file.error_message().c_str()));
++            }
+             ggml_backend_tensor_set(dev, read_buf.data(), 0, size);
+             return true;
+         };
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 2700f01..fd1113a 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -2890,7 +2890,16 @@ public:
+     llama_io_write_file(llama_file * f) : file(f) {}
+ 
+     void write(const void * src, size_t size) override {
++        if (failed()) {
++            return;
++        }
+         file->write_raw(src, size);
++        if (file->failed()) {
++            fail(file->error_message().c_str());
++#if defined(__NAGI__)
++            return;
++#endif
++        }
+         size_written += size;
+     }
+ 
+@@ -2915,13 +2924,31 @@ public:
+     llama_io_read_file(llama_file * f) : file(f) {}
+ 
+     void read(void * dst, size_t size) override {
++        if (failed()) {
++            if (dst != nullptr && size != 0) {
++                std::memset(dst, 0, size);
++            }
++            return;
++        }
+         file->read_raw(dst, size);
++        if (file->failed()) {
++            fail(file->error_message().c_str());
++#if defined(__NAGI__)
++            if (dst != nullptr && size != 0) {
++                std::memset(dst, 0, size);
++            }
++            return;
++#endif
++        }
+         size_read += size;
+     }
+ 
+     void read_tensor(ggml_tensor * tensor, size_t offset, size_t size) override {
+         temp_buffer.resize(size);
+         read(temp_buffer.data(), size);
++        if (failed()) {
++            return;
++        }
+         ggml_backend_tensor_set(tensor, temp_buffer.data(), offset, size);
+     }
+ 
+@@ -3473,11 +3500,19 @@ bool llama_context::state_load_file(const char * filepath, llama_token * tokens_
+     }
+ 
+     llama_file file(filepath, "rb");
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to open session file: %s\n", __func__, file.error_message().c_str());
++        return false;
++    }
+ 
+     // sanity checks
+     {
+         const uint32_t magic   = file.read_u32();
+         const uint32_t version = file.read_u32();
++        if (file.failed()) {
++            LLAMA_LOG_ERROR("%s: failed to read session header: %s\n", __func__, file.error_message().c_str());
++            return false;
++        }
+ 
+         if (magic != LLAMA_SESSION_MAGIC || version != LLAMA_SESSION_VERSION) {
+             LLAMA_LOG_ERROR("%s: unknown (magic, version) for session file: %08x, %08x\n", __func__, magic, version);
+@@ -3488,6 +3523,10 @@ bool llama_context::state_load_file(const char * filepath, llama_token * tokens_
+     // load the prompt
+     {
+         const uint32_t n_token_count = file.read_u32();
++        if (file.failed()) {
++            LLAMA_LOG_ERROR("%s: failed to read session token count: %s\n", __func__, file.error_message().c_str());
++            return false;
++        }
+ 
+         if (n_token_count > n_token_capacity) {
+             LLAMA_LOG_ERROR("%s: token count in session file exceeded capacity! %u > %zu\n", __func__, n_token_count, n_token_capacity);
+@@ -3506,7 +3545,9 @@ bool llama_context::state_load_file(const char * filepath, llama_token * tokens_
+ #endif
+ 
+         const size_t token_bytes = (size_t) n_token_count * sizeof(llama_token);
+-        if (token_bytes > file.size() - file.tell()) {
++        const size_t token_offset = file.tell();
++        const size_t file_size = file.size();
++        if (file.failed() || token_offset > file_size || token_bytes > file_size - token_offset) {
+             LLAMA_LOG_ERROR("%s: token data exceeds the session file size\n", __func__);
+             return false;
+         }
+@@ -3514,12 +3555,21 @@ bool llama_context::state_load_file(const char * filepath, llama_token * tokens_
+         std::vector<llama_token> tokens_tmp(n_token_count);
+         if (token_bytes != 0) {
+             file.read_raw(tokens_tmp.data(), token_bytes);
++            if (file.failed()) {
++                LLAMA_LOG_ERROR("%s: failed to read session tokens: %s\n", __func__, file.error_message().c_str());
++                return false;
++            }
+         }
+ 
+-        const size_t n_state_size_cur = file.size() - file.tell();
++        const size_t state_offset = file.tell();
++        if (file.failed() || state_offset > file_size) {
++            LLAMA_LOG_ERROR("%s: invalid session state offset\n", __func__);
++            return false;
++        }
++        const size_t n_state_size_cur = file_size - state_offset;
+         llama_io_read_file io(&file);
+         const size_t n_read = state_read_data(io);
+-        if (io.failed() || n_read == 0 || n_read != n_state_size_cur) {
++        if (io.failed() || file.failed() || n_read == 0 || n_read != n_state_size_cur) {
+             io.discard();
+             LLAMA_LOG_ERROR("%s: failed to restore the complete session state (size %zu, got %zu)\n",
+                     __func__, n_state_size_cur, n_read);
+@@ -3549,19 +3599,35 @@ bool llama_context::state_save_file(const char * filepath, const llama_token * t
+ #endif
+ 
+     llama_file file(filepath, "wb");
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to open session output: %s\n", __func__, file.error_message().c_str());
++        return false;
++    }
+ 
+     file.write_u32(LLAMA_SESSION_MAGIC);
+     file.write_u32(LLAMA_SESSION_VERSION);
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to write session header: %s\n", __func__, file.error_message().c_str());
++        return false;
++    }
+ 
+     // save the prompt
+     file.write_u32((uint32_t) n_token_count);
+     if (n_token_count != 0) {
+         file.write_raw(tokens, sizeof(llama_token) * n_token_count);
+     }
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to write session tokens: %s\n", __func__, file.error_message().c_str());
++        return false;
++    }
+ 
+     // save the context state using stream saving
+     llama_io_write_file io(&file);
+     state_write_data(io);
++    if (io.failed() || file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to write session state\n", __func__);
++        return false;
++    }
+ 
+     return true;
+ }
+@@ -3577,11 +3643,19 @@ size_t llama_context::state_seq_load_file(llama_seq_id seq_id, const char * file
+     }
+ 
+     llama_file file(filepath, "rb");
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to open sequence state file: %s\n", __func__, file.error_message().c_str());
++        return 0;
++    }
+ 
+     // version checks
+     {
+         const uint32_t magic   = file.read_u32();
+         const uint32_t version = file.read_u32();
++        if (file.failed()) {
++            LLAMA_LOG_ERROR("%s: failed to read sequence state header: %s\n", __func__, file.error_message().c_str());
++            return 0;
++        }
+ 
+         if (magic != LLAMA_STATE_SEQ_MAGIC || version != LLAMA_STATE_SEQ_VERSION) {
+             LLAMA_LOG_ERROR("%s: unknown (magic, version) for sequence state file: %08x, %08x\n", __func__, magic, version);
+@@ -3592,6 +3666,10 @@ size_t llama_context::state_seq_load_file(llama_seq_id seq_id, const char * file
+     // load the prompt
+     {
+         const uint32_t n_token_count = file.read_u32();
++        if (file.failed()) {
++            LLAMA_LOG_ERROR("%s: failed to read sequence token count: %s\n", __func__, file.error_message().c_str());
++            return 0;
++        }
+ 
+         if (tokens_out == nullptr) {
+ #if SIZE_MAX < UINT64_MAX
+@@ -3600,13 +3678,20 @@ size_t llama_context::state_seq_load_file(llama_seq_id seq_id, const char * file
+                 return 0;
+             }
+ #endif
+-            if ((uint64_t) n_token_count * sizeof(llama_token) > file.size() - file.tell()) {
++            const size_t token_offset = file.tell();
++            const size_t file_size = file.size();
++            if (file.failed() || token_offset > file_size ||
++                    (uint64_t) n_token_count * sizeof(llama_token) > file_size - token_offset) {
+                 LLAMA_LOG_ERROR("%s: token count in sequence state file exceeds the file size! %u\n", __func__, n_token_count);
+                 return 0;
+             }
+ 
++            if (file.failed()) {
++                LLAMA_LOG_ERROR("%s: failed to read sequence state position\n", __func__);
++                return 0;
++            }
+             *n_token_count_out = n_token_count;
+-            return file.tell();
++            return token_offset;
+         }
+ 
+         if (n_token_count > n_token_capacity) {
+@@ -3626,38 +3711,57 @@ size_t llama_context::state_seq_load_file(llama_seq_id seq_id, const char * file
+ #endif
+ 
+         const size_t token_bytes = (size_t) n_token_count * sizeof(llama_token);
+-        if (token_bytes > file.size() - file.tell()) {
++        const size_t token_offset = file.tell();
++        const size_t file_size = file.size();
++        if (file.failed() || token_offset > file_size || token_bytes > file_size - token_offset) {
+             LLAMA_LOG_ERROR("%s: token data exceeds the sequence state file size\n", __func__);
+             return 0;
+         }
+         std::vector<llama_token> tokens_tmp(n_token_count);
+         if (token_bytes != 0) {
+             file.read_raw(tokens_tmp.data(), token_bytes);
++            if (file.failed()) {
++                LLAMA_LOG_ERROR("%s: failed to read sequence tokens: %s\n", __func__, file.error_message().c_str());
++                return 0;
++            }
+         }
+ 
+-        const size_t state_size = file.size() - file.tell();
++        const size_t state_offset = file.tell();
++        if (file.failed() || state_offset > file_size) {
++            LLAMA_LOG_ERROR("%s: invalid sequence state offset\n", __func__);
++            return 0;
++        }
++        const size_t state_size = file_size - state_offset;
+         llama_io_read_file io(&file);
+         const size_t nread = state_seq_read_data(io, seq_id, 0);
+-        if (io.failed() || nread == 0 || nread > state_size) {
++        if (io.failed() || file.failed() || nread == 0 || nread > state_size) {
+             io.discard();
+             LLAMA_LOG_ERROR("%s: failed to restore sequence state\n", __func__);
+             return 0;
+         }
+ 
+         const size_t expected_tell = sizeof(uint32_t) * 3 + token_bytes + nread;
+-        if (expected_tell != file.tell()) {
++        const size_t actual_tell = file.tell();
++        if (file.failed() || expected_tell != actual_tell) {
+             io.discard();
+             LLAMA_LOG_ERROR("%s: sequence state reader consumed an inconsistent byte count\n", __func__);
+             return 0;
+         }
++        const size_t result = file.tell();
++        if (file.failed()) {
++            io.discard();
++            LLAMA_LOG_ERROR("%s: failed to read sequence state result position\n", __func__);
++            return 0;
++        }
+ 
+         if (token_bytes != 0) {
+             memcpy(tokens_out, tokens_tmp.data(), token_bytes);
+         }
+         *n_token_count_out = n_token_count;
++        return result;
+     }
+ 
+-    return file.tell();
++    return 0;
+ }
+ 
+ size_t llama_context::state_seq_save_file(llama_seq_id seq_id, const char * filepath, const llama_token * tokens, size_t n_token_count) {
+@@ -3678,21 +3782,41 @@ size_t llama_context::state_seq_save_file(llama_seq_id seq_id, const char * file
+ #endif
+ 
+     llama_file file(filepath, "wb");
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to open sequence state output: %s\n", __func__, file.error_message().c_str());
++        return 0;
++    }
+ 
+     file.write_u32(LLAMA_STATE_SEQ_MAGIC);
+     file.write_u32(LLAMA_STATE_SEQ_VERSION);
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to write sequence state header: %s\n", __func__, file.error_message().c_str());
++        return 0;
++    }
+ 
+     // save the prompt
+     file.write_u32((uint32_t) n_token_count);
+     if (n_token_count != 0) {
+         file.write_raw(tokens, sizeof(llama_token) * n_token_count);
+     }
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to write sequence tokens: %s\n", __func__, file.error_message().c_str());
++        return 0;
++    }
+ 
+     // save the context state using stream saving
+     llama_io_write_file io(&file);
+     state_seq_write_data(io, seq_id, 0);
++    if (io.failed() || file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to write sequence state\n", __func__);
++        return 0;
++    }
+ 
+     const size_t res = file.tell();
++    if (file.failed()) {
++        LLAMA_LOG_ERROR("%s: failed to read sequence output position\n", __func__);
++        return 0;
++    }
+     GGML_ASSERT(res == sizeof(uint32_t) * 3 + sizeof(llama_token) * n_token_count + io.n_bytes());
+ 
+     return res;
+diff --git a/src/llama-mmap.cpp b/src/llama-mmap.cpp
+index 2d64edc..b83911a 100644
+--- a/src/llama-mmap.cpp
++++ b/src/llama-mmap.cpp
+@@ -11,6 +11,12 @@
+ #include <cerrno>
+ #include <algorithm>
+ 
++#if defined(__NAGI__)
++#define LLAMA_FILE_FAIL_RETURN(message, result) do { this->set_failure(message); return result; } while (0)
++#else
++#define LLAMA_FILE_FAIL_RETURN(message, result) do { throw std::runtime_error(message); } while (0)
++#endif
++
+ #ifdef __has_include
+     #if __has_include(<unistd.h>)
+         #include <unistd.h>
+@@ -68,7 +74,7 @@ static std::string llama_format_win_err(DWORD err) {
+ 
+ struct llama_file::impl {
+ #if defined(_WIN32)
+-    HANDLE fp_win32;
++    HANDLE fp_win32 = nullptr;
+     std::string GetErrorMessageWin32(DWORD error_code) const {
+         std::string ret;
+         LPSTR lpMsgBuf = NULL;
+@@ -87,7 +93,7 @@ struct llama_file::impl {
+     impl(const char * fname, const char * mode, [[maybe_unused]] const bool use_direct_io = false) {
+         fp = ggml_fopen(fname, mode);
+         if (fp == NULL) {
+-            throw std::runtime_error(format("failed to open %s: %s", fname, strerror(errno)));
++            LLAMA_FILE_FAIL_RETURN(format("failed to open %s: %s", fname, strerror(errno)), );
+         }
+         fp_win32 = (HANDLE) _get_osfhandle(_fileno(fp));
+         seek(0, SEEK_END);
+@@ -96,6 +102,9 @@ struct llama_file::impl {
+     }
+ 
+     impl(FILE * file) : owns_fp(false) {
++        if (file == nullptr) {
++            LLAMA_FILE_FAIL_RETURN("null file handle", );
++        }
+         fp = file;
+         fp_win32 = (HANDLE) _get_osfhandle(_fileno(fp));
+         seek(0, SEEK_END);
+@@ -104,17 +113,23 @@ struct llama_file::impl {
+     }
+ 
+     size_t tell() const {
++        if (failed) {
++            return 0;
++        }
+         LARGE_INTEGER li;
+         li.QuadPart = 0;
+         BOOL ret = SetFilePointerEx(fp_win32, li, &li, FILE_CURRENT);
+         if (!ret) {
+-            throw std::runtime_error(format("read error: %s", GetErrorMessageWin32(GetLastError()).c_str()));
++            LLAMA_FILE_FAIL_RETURN(format("read error: %s", GetErrorMessageWin32(GetLastError()).c_str()), 0);
+         }
+ 
+         return li.QuadPart;
+     }
+ 
+     void seek(size_t offset, int whence) const {
++        if (failed) {
++            return;
++        }
+         static_assert(SEEK_SET == FILE_BEGIN, "SEEK_SET != FILE_BEGIN");
+         static_assert(SEEK_CUR == FILE_CURRENT, "SEEK_CUR != FILE_CURRENT");
+         static_assert(SEEK_END == FILE_END, "SEEK_END != FILE_END");
+@@ -123,21 +138,27 @@ struct llama_file::impl {
+         li.QuadPart = offset;
+         BOOL ret = SetFilePointerEx(fp_win32, li, NULL, whence);
+         if (!ret) {
+-            throw std::runtime_error(format("read error: %s", GetErrorMessageWin32(GetLastError()).c_str()));
++            LLAMA_FILE_FAIL_RETURN(format("read error: %s", GetErrorMessageWin32(GetLastError()).c_str()), );
+         }
+     }
+ 
+     void read_raw(void * ptr, size_t len) {
++        if (failed) {
++            return;
++        }
++        if (len != 0 && ptr == nullptr) {
++            LLAMA_FILE_FAIL_RETURN("null read destination", );
++        }
+         size_t bytes_read = 0;
+         while (bytes_read < len) {
+             size_t chunk_size = std::min<size_t>(len - bytes_read, 64*1024*1024);
+             DWORD chunk_read = 0;
+             BOOL result = ReadFile(fp_win32, reinterpret_cast<char*>(ptr) + bytes_read, chunk_size, &chunk_read, NULL);
+             if (!result) {
+-                throw std::runtime_error(format("read error: %s", GetErrorMessageWin32(GetLastError()).c_str()));
++                LLAMA_FILE_FAIL_RETURN(format("read error: %s", GetErrorMessageWin32(GetLastError()).c_str()), );
+             }
+             if (chunk_read < chunk_size || chunk_read == 0) {
+-                throw std::runtime_error("unexpectedly reached end of file");
++                LLAMA_FILE_FAIL_RETURN("unexpectedly reached end of file", );
+             }
+ 
+             bytes_read += chunk_read;
+@@ -145,22 +166,28 @@ struct llama_file::impl {
+     }
+ 
+     uint32_t read_u32() {
+-        uint32_t val;
++        uint32_t val = 0;
+         read_raw(&val, sizeof(val));
+-        return val;
++        return failed ? 0 : val;
+     }
+ 
+     void write_raw(const void * ptr, size_t len) const {
++        if (failed) {
++            return;
++        }
++        if (len != 0 && ptr == nullptr) {
++            LLAMA_FILE_FAIL_RETURN("null write source", );
++        }
+         size_t bytes_written = 0;
+         while (bytes_written < len) {
+             size_t chunk_size = std::min<size_t>(len - bytes_written, 64*1024*1024);
+             DWORD chunk_written = 0;
+             BOOL result = WriteFile(fp_win32, reinterpret_cast<char const*>(ptr) + bytes_written, chunk_size, &chunk_written, NULL);
+             if (!result) {
+-                throw std::runtime_error(format("write error: %s", GetErrorMessageWin32(GetLastError()).c_str()));
++                LLAMA_FILE_FAIL_RETURN(format("write error: %s", GetErrorMessageWin32(GetLastError()).c_str()), );
+             }
+             if (chunk_written < chunk_size || chunk_written == 0) {
+-                throw std::runtime_error("unexpectedly failed to write bytes");
++                LLAMA_FILE_FAIL_RETURN("unexpectedly failed to write bytes", );
+             }
+ 
+             bytes_written += chunk_written;
+@@ -188,6 +215,9 @@ struct llama_file::impl {
+             if (init_fd()) {
+                 return;
+             }
++            if (failed) {
++                return;
++            }
+             LLAMA_LOG_WARN("Failed to open file '%s' with error: %s. Falling back to buffered I/O",
+                            fname, strerror(errno));
+         }
+@@ -201,14 +231,27 @@ struct llama_file::impl {
+ 
+         if (fd != -1) {
+             struct stat file_stats{};
+-            fstat(fd, &file_stats);
++            if (fstat(fd, &file_stats) != 0) {
++                const std::string message = format("failed to read file metadata for %s: %s",
++                        fname.c_str(), strerror(errno));
++                close(fd);
++                fd = -1;
++                LLAMA_FILE_FAIL_RETURN(message, false);
++            }
++            if (file_stats.st_size < 0 || file_stats.st_blksize <= 0 ||
++                    (file_stats.st_blksize & (file_stats.st_blksize - 1)) != 0) {
++                const std::string message = format("invalid direct-I/O file metadata for %s", fname.c_str());
++                close(fd);
++                fd = -1;
++                LLAMA_FILE_FAIL_RETURN(message, false);
++            }
+ 
+             size = file_stats.st_size;
+             alignment = file_stats.st_blksize;
+ 
+             off_t ret = lseek(fd, 0, SEEK_SET);
+             if (ret == -1) {
+-                throw std::runtime_error(format("seek error: %s", strerror(errno)));
++                LLAMA_FILE_FAIL_RETURN(format("seek error: %s", strerror(errno)), false);
+             }
+             return true;
+         }
+@@ -217,27 +260,48 @@ struct llama_file::impl {
+ #endif
+ 
+     void init_fp(const char * mode) {
++        if (failed) {
++            return;
++        }
+         fp = ggml_fopen(fname.c_str(), mode);
+         if (fp == NULL) {
+-            throw std::runtime_error(format("failed to open %s: %s", fname.c_str(), strerror(errno)));
++            LLAMA_FILE_FAIL_RETURN(format("failed to open %s: %s", fname.c_str(), strerror(errno)), );
+         }
+         seek(0, SEEK_END);
++        if (failed) {
++            return;
++        }
+         size = tell();
++        if (failed) {
++            return;
++        }
+         seek(0, SEEK_SET);
+     }
+ 
+     impl(FILE * file) : fname("(file*)"), owns_fp(false) {
++        if (file == nullptr) {
++            LLAMA_FILE_FAIL_RETURN("null file handle", );
++        }
+         fp = file;
+         seek(0, SEEK_END);
++        if (failed) {
++            return;
++        }
+         size = tell();
++        if (failed) {
++            return;
++        }
+         seek(0, SEEK_SET);
+     }
+ 
+     size_t tell() const {
++        if (failed) {
++            return 0;
++        }
+         if (fd == -1) {
+             off_t ret = llama_mmap_ftell(fp);
+             if (ret == -1) {
+-                throw std::runtime_error(format("ftell error: %s", strerror(errno)));
++                LLAMA_FILE_FAIL_RETURN(format("ftell error: %s", strerror(errno)), 0);
+             }
+ 
+             return (size_t) ret;
+@@ -245,12 +309,15 @@ struct llama_file::impl {
+ 
+         off_t pos = lseek(fd, 0, SEEK_CUR);
+         if (pos == -1) {
+-            throw std::runtime_error(format("lseek error: %s", strerror(errno)));
++            LLAMA_FILE_FAIL_RETURN(format("lseek error: %s", strerror(errno)), 0);
+         }
+         return (size_t) pos;
+     }
+ 
+     void seek(size_t offset, int whence) const {
++        if (failed) {
++            return;
++        }
+         off_t ret = 0;
+         if (fd == -1) {
+             ret = llama_mmap_fseek(fp, offset, whence);
+@@ -258,25 +325,36 @@ struct llama_file::impl {
+             ret = lseek(fd, offset, whence);
+         }
+         if (ret == -1) {
+-            throw std::runtime_error(format("seek error: %s", strerror(errno)));
++            LLAMA_FILE_FAIL_RETURN(format("seek error: %s", strerror(errno)), );
+         }
+     }
+ 
+     void read_raw_unsafe(void * ptr, size_t len) {
++        if (failed) {
++            return;
++        }
+         if (len == 0) {
+             return;
+         }
++        if (ptr == nullptr) {
++            LLAMA_FILE_FAIL_RETURN("null read destination", );
++        }
+         errno = 0;
+         if (fd == -1) {
+             const size_t curr_off = tell();
+-            const size_t to_read = std::min(len, size - curr_off);
++            if (failed) {
++                return;
++            }
++            if (curr_off > size || len > size - curr_off) {
++                LLAMA_FILE_FAIL_RETURN("unexpectedly reached end of file", );
++            }
+ 
+-            std::size_t ret = std::fread(ptr, to_read, 1, fp);
++            std::size_t ret = std::fread(ptr, len, 1, fp);
+             if (ferror(fp)) {
+-                throw std::runtime_error(format("read error: %s", strerror(errno)));
++                LLAMA_FILE_FAIL_RETURN(format("read error: %s", strerror(errno)), );
+             }
+-            if (to_read > 0 && ret != 1) {
+-                throw std::runtime_error("unexpectedly reached end of file");
++            if (ret != 1) {
++                LLAMA_FILE_FAIL_RETURN("unexpectedly reached end of file", );
+             }
+         } else {
+             size_t bytes_read = 0;
+@@ -292,24 +370,33 @@ struct llama_file::impl {
+                     if (errno == EFAULT || errno == EINVAL) {
+                         LLAMA_LOG_WARN("%s: Falling back to buffered IO due to %s\n", __func__, strerror(errno));
+                         auto curr_off = tell();
++                        if (failed) {
++                            return;
++                        }
+                         close(fd);
+                         fd = -1;
+                         alignment = 1;
+                         init_fp("rb");
++                        if (failed) {
++                            return;
++                        }
+                         seek(curr_off, SEEK_SET);
++                        if (failed) {
++                            return;
++                        }
+                         read_raw_unsafe(ptr, len);
+                         return;
+                     }
+-                    throw std::runtime_error(format("read error: %s", strerror(errno)));
++                    LLAMA_FILE_FAIL_RETURN(format("read error: %s", strerror(errno)), );
+                 }
+                 if (ret == 0) {
+                     // EOF: allow if this read was only pulling alignment padding past file end
+                     off_t pos = lseek(fd, 0, SEEK_CUR);
+-                    if (pos != -1 && (size_t) pos == size) {
++                    if (pos != -1 && (size_t) pos == size && alignment > 0 && len - bytes_read < alignment) {
+                         std::memset(reinterpret_cast<char *>(ptr) + bytes_read, 0, len - bytes_read);
+                         return;
+                     }
+-                    throw std::runtime_error("unexpectedly reached end of file");
++                    LLAMA_FILE_FAIL_RETURN("unexpectedly reached end of file", );
+                 }
+ 
+                 bytes_read += (size_t) ret;
+@@ -318,7 +405,19 @@ struct llama_file::impl {
+     }
+ 
+     void read_aligned_chunk(void * dest, size_t size) {
++        if (failed) {
++            return;
++        }
++        if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
++            LLAMA_FILE_FAIL_RETURN("invalid direct-I/O alignment", );
++        }
+         size_t offset = tell();
++        if (failed) {
++            return;
++        }
++        if (offset > this->size || size > this->size - offset) {
++            LLAMA_FILE_FAIL_RETURN("unexpectedly reached end of file", );
++        }
+         off_t aligned_offset = offset & ~(alignment - 1);
+         off_t offset_from_alignment = offset - aligned_offset;
+         size_t bytes_to_read = (offset_from_alignment + size + alignment - 1) & ~(alignment - 1);
+@@ -326,7 +425,7 @@ struct llama_file::impl {
+         void * raw_buffer = nullptr;
+         int ret = posix_memalign(&raw_buffer, alignment, bytes_to_read);
+         if (ret != 0) {
+-            throw std::runtime_error(format("posix_memalign failed with error %d", ret));
++            LLAMA_FILE_FAIL_RETURN(format("posix_memalign failed with error %d", ret), );
+         }
+ 
+         struct aligned_buffer_deleter {
+@@ -335,13 +434,22 @@ struct llama_file::impl {
+         std::unique_ptr<void, aligned_buffer_deleter> buffer(raw_buffer);
+ 
+         seek(aligned_offset, SEEK_SET);
++        if (failed) {
++            return;
++        }
+         read_raw_unsafe(buffer.get(), bytes_to_read);
++        if (failed) {
++            return;
++        }
+ 
+         uintptr_t actual_data = reinterpret_cast<uintptr_t>(buffer.get()) + offset_from_alignment;
+         memcpy(dest, reinterpret_cast<void *>(actual_data), size);
+     }
+ 
+     void read_raw(void * ptr, size_t len) {
++        if (failed) {
++            return;
++        }
+         if (has_direct_io()) {
+             read_aligned_chunk(ptr, len);
+         } else {
+@@ -350,19 +458,25 @@ struct llama_file::impl {
+     }
+ 
+     uint32_t read_u32() {
+-        uint32_t ret;
++        uint32_t ret = 0;
+         read_raw(&ret, sizeof(ret));
+-        return ret;
++        return failed ? 0 : ret;
+     }
+ 
+     void write_raw(const void * ptr, size_t len) const {
++        if (failed) {
++            return;
++        }
+         if (len == 0) {
+             return;
+         }
++        if (ptr == nullptr) {
++            LLAMA_FILE_FAIL_RETURN("null write source", );
++        }
+         errno = 0;
+         size_t ret = std::fwrite(ptr, len, 1, fp);
+         if (ret != 1) {
+-            throw std::runtime_error(format("write error: %s", strerror(errno)));
++            LLAMA_FILE_FAIL_RETURN(format("write error: %s", strerror(errno)), );
+         }
+     }
+ 
+@@ -385,6 +499,17 @@ struct llama_file::impl {
+     std::string fname;
+ #endif
+ 
++    void set_failure(const std::string & message) const {
++        if (!failed) {
++            failed = true;
++            error = message;
++            LLAMA_LOG_ERROR("%s: %s\n", __func__, error.c_str());
++        }
++    }
++
++    mutable bool failed = false;
++    mutable std::string error;
++
+     size_t read_alignment() const {
+         return alignment;
+     }
+@@ -408,8 +533,13 @@ size_t llama_file::size() const { return pimpl->size; }
+ 
+ size_t llama_file::read_alignment() const { return pimpl->read_alignment(); }
+ bool llama_file::has_direct_io() const { return pimpl->has_direct_io(); }
++bool llama_file::failed() const { return pimpl->failed; }
++const std::string & llama_file::error_message() const { return pimpl->error; }
+ 
+ int llama_file::file_id() const {
++    if (failed()) {
++        return -1;
++    }
+ #ifdef _WIN32
+     return _fileno(pimpl->fp);
+ #else
+@@ -425,11 +555,21 @@ int llama_file::file_id() const {
+ }
+ 
+ void llama_file::seek(size_t offset, int whence) const { pimpl->seek(offset, whence); }
+-void llama_file::read_raw(void * ptr, size_t len) { pimpl->read_raw(ptr, len); }
++void llama_file::read_raw(void * ptr, size_t len) {
++    pimpl->read_raw(ptr, len);
++    if (failed() && ptr != nullptr && len != 0) {
++        std::memset(ptr, 0, len);
++    }
++}
+ #ifdef _WIN32
+-void llama_file::read_raw_unsafe(void * ptr, size_t len) { pimpl->read_raw(ptr, len); }
++void llama_file::read_raw_unsafe(void * ptr, size_t len) { read_raw(ptr, len); }
+ #else
+-void llama_file::read_raw_unsafe(void * ptr, size_t len) { pimpl->read_raw_unsafe(ptr, len); }
++void llama_file::read_raw_unsafe(void * ptr, size_t len) {
++    pimpl->read_raw_unsafe(ptr, len);
++    if (failed() && ptr != nullptr && len != 0) {
++        std::memset(ptr, 0, len);
++    }
++}
+ #endif
+ 
+ uint32_t llama_file::read_u32() { return pimpl->read_u32(); }
+@@ -467,8 +607,14 @@ struct llama_mmap::impl {
+     std::vector<std::pair<size_t, size_t>> mapped_fragments;
+ 
+     impl(struct llama_file * file, size_t prefetch, bool numa, const llama_mmap::ranges & lazy_ranges) {
++        if (file == nullptr || file->failed()) {
++            LLAMA_FILE_FAIL_RETURN(file == nullptr ? "null file for mmap" : file->error_message(), );
++        }
+         size = file->size();
+         int fd = file->file_id();
++        if (fd < 0) {
++            LLAMA_FILE_FAIL_RETURN("invalid file descriptor for mmap", );
++        }
+         int flags = MAP_SHARED;
+         if (numa) { prefetch = 0; }
+ #ifdef __linux__
+@@ -481,7 +627,9 @@ struct llama_mmap::impl {
+ #endif
+         addr = mmap(NULL, file->size(), PROT_READ, flags, fd, 0);
+         if (addr == MAP_FAILED) {
+-            throw std::runtime_error(format("mmap failed: %s", strerror(errno)));
++            const std::string message = format("mmap failed: %s", strerror(errno));
++            addr = nullptr;
++            LLAMA_FILE_FAIL_RETURN(message, );
+         }
+ 
+         // page-aligned madvise over [beg, end), clamped to the file
+@@ -528,6 +676,9 @@ struct llama_mmap::impl {
+     }
+ 
+     void unmap_fragment(size_t first, size_t last) {
++        if (failed) {
++            return;
++        }
+         int page_size = sysconf(_SC_PAGESIZE);
+         align_range(&first, &last, page_size);
+         size_t len = last - first;
+@@ -564,6 +715,9 @@ struct llama_mmap::impl {
+     }
+ 
+     ~impl() {
++        if (failed) {
++            return;
++        }
+         for (const auto & frag : mapped_fragments) {
+             if (munmap((char *) addr + frag.first, frag.second - frag.first)) {
+                 LLAMA_LOG_WARN("warning: munmap failed: %s\n", strerror(errno));
+@@ -576,15 +730,25 @@ struct llama_mmap::impl {
+     impl(struct llama_file * file, size_t prefetch, bool numa, const llama_mmap::ranges & lazy_ranges) {
+         GGML_UNUSED(numa);
+ 
++        if (file == nullptr || file->failed()) {
++            LLAMA_FILE_FAIL_RETURN(file == nullptr ? "null file for mmap" : file->error_message(), );
++        }
+         size = file->size();
+ 
+-        HANDLE hFile = (HANDLE) _get_osfhandle(file->file_id());
++        const int file_id = file->file_id();
++        if (file_id < 0) {
++            LLAMA_FILE_FAIL_RETURN("invalid file descriptor for mmap", );
++        }
++        HANDLE hFile = (HANDLE) _get_osfhandle(file_id);
++        if (hFile == INVALID_HANDLE_VALUE || hFile == nullptr) {
++            LLAMA_FILE_FAIL_RETURN(format("_get_osfhandle failed: %s", strerror(errno)), );
++        }
+ 
+         hMapping = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+ 
+         if (hMapping == NULL) {
+             DWORD error = GetLastError();
+-            throw std::runtime_error(format("CreateFileMappingA failed: %s", llama_format_win_err(error).c_str()));
++            LLAMA_FILE_FAIL_RETURN(format("CreateFileMappingA failed: %s", llama_format_win_err(error).c_str()), );
+         }
+ 
+         addr = MapViewOfFile(hMapping, FILE_MAP_READ, 0, 0, 0);
+@@ -592,7 +756,8 @@ struct llama_mmap::impl {
+ 
+         if (addr == NULL) {
+             CloseHandle(hMapping);
+-            throw std::runtime_error(format("MapViewOfFile failed: %s", llama_format_win_err(error).c_str()));
++            hMapping = nullptr;
++            LLAMA_FILE_FAIL_RETURN(format("MapViewOfFile failed: %s", llama_format_win_err(error).c_str()), );
+         }
+ 
+         if (prefetch > 0) {
+@@ -648,31 +813,43 @@ struct llama_mmap::impl {
+         GGML_UNUSED(numa);
+         GGML_UNUSED(lazy_ranges);
+ 
+-        throw std::runtime_error("mmap not supported");
++        LLAMA_FILE_FAIL_RETURN("mmap not supported", );
+     }
+ 
+     void unmap_fragment(size_t first, size_t last) {
+         GGML_UNUSED(first);
+         GGML_UNUSED(last);
+ 
+-        throw std::runtime_error("mmap not supported");
++        LLAMA_FILE_FAIL_RETURN("mmap not supported", );
+     }
+ #endif
+ 
+-    void * addr;
+-    size_t size;
++    void set_failure(const std::string & message) const {
++        if (!failed) {
++            failed = true;
++            error = message;
++            LLAMA_LOG_ERROR("%s: %s\n", __func__, error.c_str());
++        }
++    }
++
++    mutable bool failed = false;
++    mutable std::string error;
++    void * addr = nullptr;
++    size_t size = 0;
+ };
+ 
+ llama_mmap::llama_mmap(struct llama_file * file, size_t prefetch, bool numa,
+         const ranges & lazy_ranges) : pimpl(std::make_unique<impl>(file, prefetch, numa, lazy_ranges)) {}
+ llama_mmap::~llama_mmap() = default;
+ 
+-size_t llama_mmap::size() const { return pimpl->size; }
+-void * llama_mmap::addr() const { return pimpl->addr; }
++size_t llama_mmap::size() const { return pimpl->failed ? 0 : pimpl->size; }
++void * llama_mmap::addr() const { return pimpl->failed ? nullptr : pimpl->addr; }
++bool llama_mmap::failed() const { return pimpl->failed; }
++const std::string & llama_mmap::error_message() const { return pimpl->error; }
+ 
+ void llama_mmap::unmap_fragment(size_t first, size_t last) { pimpl->unmap_fragment(first, last); }
+ 
+-#if defined(_POSIX_MEMLOCK_RANGE) || defined(_WIN32)
++#if defined(_POSIX_MAPPED_FILES) || defined(_WIN32)
+ const bool llama_mmap::SUPPORTED  = true;
+ #else
+ const bool llama_mmap::SUPPORTED  = false;
+diff --git a/src/llama-mmap.h b/src/llama-mmap.h
+index cc28c8a..e5c0ebe 100644
+--- a/src/llama-mmap.h
++++ b/src/llama-mmap.h
+@@ -5,6 +5,7 @@
+ #include <utility>
+ #include <vector>
+ #include <cstdio>
++#include <string>
+ 
+ struct llama_file;
+ struct llama_mmap;
+@@ -36,6 +37,8 @@ struct llama_file {
+ 
+     size_t read_alignment() const;
+     bool has_direct_io() const;
++    bool failed() const;
++    const std::string & error_message() const;
+ private:
+     struct impl;
+     std::unique_ptr<impl> pimpl;
+@@ -52,6 +55,8 @@ struct llama_mmap {
+ 
+     size_t size() const;
+     void * addr() const;
++    bool failed() const;
++    const std::string & error_message() const;
+ 
+     void unmap_fragment(size_t first, size_t last);
+ 
+diff --git a/src/llama-model-loader.cpp b/src/llama-model-loader.cpp
+index 5b9a998..fb3b87e 100644
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -724,6 +724,10 @@ llama_model_loader::llama_model_loader(
+         llm_kv = LLM_KV(llm_arch_from_string(arch_name));
+ 
+         files.emplace_back(new llama_file(fname.c_str(), "rb", use_direct_io));
++        if (files.back()->failed()) {
++            LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: failed to open model file: %s", __func__,
++                    files.back()->error_message().c_str()));
++        }
+         contexts.emplace_back(ctx);
+ 
+         // Save tensors data offset of the main file.
+@@ -802,6 +806,10 @@ llama_model_loader::llama_model_loader(
+                 }
+ 
+                 files.emplace_back(new llama_file(fname_split, "rb", use_direct_io));
++                if (files.back()->failed()) {
++                    LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: failed to open model split: %s", __func__,
++                            files.back()->error_message().c_str()));
++                }
+                 contexts.emplace_back(ctx);
+ 
+                 // Save tensors data offset info of the shard.
+@@ -854,6 +862,10 @@ llama_model_loader::llama_model_loader(
+         llm_kv = LLM_KV(llm_arch_from_string(arch_name));
+ 
+         files.emplace_back(new llama_file(file));
++        if (files.back()->failed()) {
++            LLAMA_MODEL_LOADER_FAIL_AND_RETURN(format("%s: invalid model file handle: %s", __func__,
++                    files.back()->error_message().c_str()));
++        }
+         contexts.emplace_back(ctx);
+ 
+         // Save tensors data offset info of the main file.
+@@ -1601,7 +1613,7 @@ void llama_model_loader::done_getting_tensors(bool partial) {
+     }
+ }
+ 
+-void llama_model_loader::init_mappings(bool prefetch, llama_mlocks * mlock_mmaps) {
++bool llama_model_loader::init_mappings(bool prefetch, llama_mlocks * mlock_mmaps) {
+     // note: read_lazy also requires mmap; this condition make sure it's usable even when --load-mode is not set to mmap
+     if (use_mmap || lazy.any()) {
+         mappings.reserve(files.size());
+@@ -1624,6 +1636,10 @@ void llama_model_loader::init_mappings(bool prefetch, llama_mlocks * mlock_mmaps
+ 
+             std::unique_ptr<llama_mmap> mapping = std::make_unique<llama_mmap>(file.get(), prefetch_size, is_numa,
+                     lazy.for_file(idx));
++            if (mapping->failed()) {
++                LLAMA_MODEL_LOADER_FAIL_BOOL(format("failed to map model file %u: %s", idx,
++                        mapping->error_message().c_str()));
++            }
+             mmaps_used.emplace_back(mapping->size(), 0);
+             if (mlock_mmaps) {
+                 std::unique_ptr<llama_mlock> mlock_mmap(new llama_mlock());
+@@ -1638,6 +1654,7 @@ void llama_model_loader::init_mappings(bool prefetch, llama_mlocks * mlock_mmaps
+     for (const auto & it : weights_map) {
+         size_data += ggml_nbytes(it.second.tensor);
+     }
++    return loader_valid;
+ }
+ 
+ void llama_model_loader::get_mapping_range(size_t * first, size_t * last, void ** addr, int idx, ggml_context * ctx) const {
+@@ -1668,13 +1685,26 @@ const void * llama_model_loader::load_data_range(const llama_tensor_weight & w,
+     const void * data = buf;
+ 
+     if (use_mmap) {
+-        data = (const uint8_t *) mappings.at(w.idx)->addr() + w.offs + offs;
++        const auto & mapping = mappings.at(w.idx);
++        if (mapping->failed() || mapping->addr() == nullptr) {
++            LLAMA_MODEL_LOADER_FAIL_POINTER(format("failed to access model mapping: %s",
++                    mapping->error_message().c_str()));
++        }
++        data = (const uint8_t *) mapping->addr() + w.offs + offs;
+     } else {
+         GGML_ASSERT(buf != nullptr);
+         GGML_ASSERT(w.idx < files.size());
+         const auto & file = files.at(w.idx);
+         file->seek(w.offs + offs, SEEK_SET);
++        if (file->failed()) {
++            LLAMA_MODEL_LOADER_FAIL_POINTER(format("failed to seek in model file: %s",
++                    file->error_message().c_str()));
++        }
+         file->read_raw(buf, size);
++        if (file->failed()) {
++            LLAMA_MODEL_LOADER_FAIL_POINTER(format("failed to read model tensor data: %s",
++                    file->error_message().c_str()));
++        }
+     }
+ 
+     if (check_tensors && !ggml_validate_row_data(w.tensor->type, data, size)) {
+@@ -1817,6 +1847,7 @@ bool llama_model_loader::load_all_data(
+         });
+     }
+ 
++    bool file_io_failed = false;
+     for (struct ggml_tensor * cur : tensors) {
+         const auto * weight = get_weight(ggml_get_name(cur));
+         if (weight == nullptr) {
+@@ -1836,6 +1867,10 @@ bool llama_model_loader::load_all_data(
+ 
+         if (from_mapping) {
+             const auto & mapping = mappings.at(weight->idx);
++            if (mapping->failed() || mapping->addr() == nullptr) {
++                file_io_failed = true;
++                break;
++            }
+             ggml_backend_buffer_t buf_mmap = nullptr;
+             if (bufs.count(weight->idx)) {
+                 buf_mmap = bufs.at(weight->idx);
+@@ -1869,7 +1904,15 @@ bool llama_model_loader::load_all_data(
+ 
+             if (ggml_backend_buffer_is_host(cur->buffer)) {
+                 file->seek(weight->offs, SEEK_SET);
++                if (file->failed()) {
++                    file_io_failed = true;
++                    break;
++                }
+                 file->read_raw(cur->data, n_size);
++                if (file->failed()) {
++                    file_io_failed = true;
++                    break;
++                }
+                 if (check_tensors) {
+                     validation_result.emplace_back(std::async(std::launch::async, [cur, n_size] {
+                         return std::make_pair(cur, ggml_validate_row_data(cur->type, cur->data, n_size));
+@@ -1883,6 +1926,10 @@ bool llama_model_loader::load_all_data(
+                     size_t aligned_offset = offset & ~(alignment - 1);
+                     size_t offset_from_alignment = offset - aligned_offset;
+                     file->seek(aligned_offset, SEEK_SET);
++                    if (file->failed()) {
++                        file_io_failed = true;
++                        break;
++                    }
+ 
+                     // Calculate aligned read boundaries
+                     size_t read_start = aligned_offset;
+@@ -1902,6 +1949,10 @@ bool llama_model_loader::load_all_data(
+ 
+                         // Read aligned chunk from file
+                         file->read_raw_unsafe(reinterpret_cast<void *>(ptr_dest_aligned), read_size);
++                        if (file->failed()) {
++                            file_io_failed = true;
++                            break;
++                        }
+ 
+                         // Calculate actual data portion (excluding alignment padding)
+                         uintptr_t ptr_data = ptr_dest_aligned;
+@@ -1929,11 +1980,22 @@ bool llama_model_loader::load_all_data(
+                         ++buffer_idx;
+                         buffer_idx %= n_buffers;
+                     }
++                    if (file_io_failed) {
++                        break;
++                    }
+                 } else {
+                     // scoped to one tensor so only one staging buffer is alive at a time
+                     std::vector<no_init<uint8_t>> read_buf(n_size);
+                     file->seek(weight->offs, SEEK_SET);
++                    if (file->failed()) {
++                        file_io_failed = true;
++                        break;
++                    }
+                     file->read_raw(read_buf.data(), n_size);
++                    if (file->failed()) {
++                        file_io_failed = true;
++                        break;
++                    }
+                     ggml_backend_tensor_set(cur, read_buf.data(), 0, n_size);
+                     if (check_tensors && !ggml_validate_row_data(cur->type, read_buf.data(), n_size)) {
+                         LLAMA_LOG_ERROR("%s: tensor '%s' has invalid data\n", __func__, ggml_get_name(cur));
+@@ -1943,6 +2005,9 @@ bool llama_model_loader::load_all_data(
+             }
+         }
+ 
++        if (file_io_failed) {
++            break;
++        }
+         size_done += n_size;
+     }
+ 
+@@ -1956,6 +2021,10 @@ bool llama_model_loader::load_all_data(
+     }
+     ggml_backend_free(upload_backend);
+ 
++    if (file_io_failed) {
++        LLAMA_MODEL_LOADER_FAIL_BOOL("failed to read model tensor data");
++    }
++
+     // check validation results
+     for (auto & future : validation_result) {
+         auto result = future.get();
+diff --git a/src/llama-model-loader.h b/src/llama-model-loader.h
+index 5245a7a..271a4bc 100644
+--- a/src/llama-model-loader.h
++++ b/src/llama-model-loader.h
+@@ -290,7 +290,7 @@ struct llama_model_loader {
+ 
+     void done_getting_tensors(bool partial = false);
+ 
+-    void init_mappings(bool prefetch = true, llama_mlocks * mlock_mmaps = nullptr);
++    bool init_mappings(bool prefetch = true, llama_mlocks * mlock_mmaps = nullptr);
+ 
+     void get_mapping_range(size_t * first, size_t * last, void ** addr, int idx, ggml_context * ctx) const;
+ 
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index a188612..d4ca7a0 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1895,7 +1895,9 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
+         return false;
+     }
+ 
+-    ml.init_mappings(true, use_mlock ? &pimpl->mlock_mmaps : nullptr);
++    if (!ml.init_mappings(true, use_mlock ? &pimpl->mlock_mmaps : nullptr)) {
++        return false;
++    }
+     pimpl->mappings.reserve(ml.mappings.size());
+ 
+     // create the backend buffers
+diff --git a/src/llama-quant.cpp b/src/llama-quant.cpp
+index 78b9ea9..9becd8b 100644
+--- a/src/llama-quant.cpp
++++ b/src/llama-quant.cpp
+@@ -936,7 +936,9 @@ static bool llama_model_quantize_impl(const std::string & fname_inp, const std::
+     std::vector<std::string> splits = {};
+     llama_model_loader ml(/*metadata*/ nullptr, /*set_tensor_data*/ nullptr, /*set_tensor_data_ud*/ nullptr,
+         fname_inp, splits, /*file*/ nullptr, /*load_mode*/ load_mode, /*check_tensors*/ true, /*no_alloc*/ false, /*load_mtp*/ true, kv_overrides, nullptr);
+-    ml.init_mappings(false); // no prefetching
++    if (!ml.init_mappings(false)) { // no prefetching
++        return false;
++    }
+ 
+     auto mparams = llama_model_default_params();
+     std::unique_ptr<llama_model> model_ptr(llama_model_create(ml, mparams));
+diff --git a/tests/test-model-loader-bounds.cpp b/tests/test-model-loader-bounds.cpp
+index 691ca6f..f49e0dc 100644
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -653,8 +653,74 @@ static bool invalid_tensor_data_status() {
+     return range_failed_closed && failed_closed;
+ }
+ 
++static bool llama_file_io_short_read_returns_failure() {
++    FILE * file = std::tmpfile();
++    if (file == nullptr) {
++        std::fprintf(stderr, "cannot create short-read file fixture\n");
++        return false;
++    }
++
++    const uint8_t payload[] = { 0x11, 0x22, 0x33 };
++    if (std::fwrite(payload, 1, sizeof(payload), file) != sizeof(payload) || std::fseek(file, 0, SEEK_SET) != 0) {
++        std::fprintf(stderr, "cannot initialize short-read file fixture\n");
++        std::fclose(file);
++        return false;
++    }
++
++    bool valid = false;
++    {
++        llama_file input(file);
++        uint32_t value = 0x5a5a5a5a;
++#ifdef __NAGI__
++        input.read_raw(&value, sizeof(value));
++        valid = input.failed() && value == 0;
++#else
++        try {
++            input.read_raw(&value, sizeof(value));
++        } catch (const std::runtime_error &) {
++            valid = true;
++        }
++#endif
++    }
++    std::fclose(file);
++    if (!valid) {
++        std::fprintf(stderr, "short model-file read did not return failure status\n");
++    }
++    return valid;
++}
++
++static bool llama_mmap_empty_file_returns_failure() {
++    FILE * file = std::tmpfile();
++    if (file == nullptr) {
++        std::fprintf(stderr, "cannot create empty mmap fixture\n");
++        return false;
++    }
++
++    bool valid = false;
++    {
++        llama_file input(file);
++#ifdef __NAGI__
++        llama_mmap mapping(&input, 0, false);
++        valid = mapping.failed() && mapping.addr() == nullptr && mapping.size() == 0;
++#else
++        try {
++            llama_mmap mapping(&input, 0, false);
++        } catch (const std::runtime_error &) {
++            valid = true;
++        }
++#endif
++    }
++    std::fclose(file);
++    if (!valid) {
++        std::fprintf(stderr, "empty-file mmap did not return failure status\n");
++    }
++    return valid;
++}
++
+ int main() {
+-    if (!state_io_short_string_returns_failure() || !llama_load_mode_status() || !invalid_context_parameters_return_null()) {
++    if (!state_io_short_string_returns_failure() || !llama_file_io_short_read_returns_failure() ||
++            !llama_mmap_empty_file_returns_failure() || !llama_load_mode_status() ||
++            !invalid_context_parameters_return_null()) {
+         return 1;
+     }
+ 

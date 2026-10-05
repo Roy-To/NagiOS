@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod boot;
+pub mod launch;
 pub mod security;
 pub mod service;
 pub mod storage;
@@ -10,17 +11,27 @@ use core::mem::MaybeUninit;
 use core::ptr;
 
 pub use nagi_abi::{
-    DisplayInfo, InputEvent, MemoryInfo, ProcessInfo, BLOCK_SECTOR_SIZE, INPUT_EVENT_ABS,
-    INPUT_EVENT_KEY, INPUT_EVENT_REL, INPUT_KEY_LEFT, INPUT_REL_X, INPUT_REL_Y, MAX_AUDIO_BUFFER,
+    is_valid_bootstrap_user_thread_stack_size, round_bootstrap_user_thread_stack_size,
+    ChannelEndpoints, ChannelHandleTransfer, ChannelReceiveResult, ChannelSendRequest, DisplayInfo,
+    InputEvent, MemoryInfo, ProcessExitStatus, ProcessInfo, BLOCK_SECTOR_SIZE,
+    BOOTSTRAP_USER_THREAD_COUNT, BOOTSTRAP_USER_THREAD_STACK_DEFAULT_SIZE,
+    BOOTSTRAP_USER_THREAD_STACK_MAX_SIZE, BOOTSTRAP_USER_THREAD_STACK_MIN_SIZE,
+    BOOTSTRAP_USER_THREAD_STACK_PAGE_SIZE, INPUT_BUTTON_PRIMARY, INPUT_EVENT_ABS, INPUT_EVENT_KEY,
+    INPUT_EVENT_REL, INPUT_KEY_DOWN, INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_LEFT,
+    INPUT_KEY_SPACE, INPUT_KEY_TAB, INPUT_KEY_UP, INPUT_REL_X, INPUT_REL_Y, MAX_AUDIO_BUFFER,
+    MAX_CHANNEL_INLINE_PAYLOAD, MAX_CHANNEL_QUEUE_MESSAGES, MAX_CHANNEL_TRANSFER_HANDLES,
     MAX_CONSOLE_READ, MAX_CONSOLE_WRITE, MAX_LOG_READ, MAX_NET_FRAME_SIZE, MAX_PROCESS_NAME,
-    MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888, PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE,
-    SURFACE_BYTES, SURFACE_HEIGHT, SURFACE_WIDTH, SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY,
-    SYS_BLOCK_FLUSH, SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE,
-    SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_INPUT_READ, SYS_LOG_READ, SYS_MEMORY_INFO,
-    SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP, SYS_NET_RECEIVE,
-    SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET, SYS_THREAD_CREATE,
-    SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF, SYS_THREAD_SLEEP, SYS_TIME_READ,
-    SYS_TIME_REALTIME,
+    MAX_RANDOM_BYTES, PIXEL_FORMAT_RGBA8888, PROCESS_EXIT_KIND_EXITED, PROCESS_EXIT_KIND_FAULTED,
+    PROT_EXEC, PROT_NONE, PROT_READ, PROT_WRITE, RIGHT_CONTROL, RIGHT_DUPLICATE, RIGHT_EXECUTE,
+    RIGHT_MAP, RIGHT_READ, RIGHT_SIGNAL, RIGHT_TRANSFER, RIGHT_WAIT, RIGHT_WRITE, SURFACE_BYTES,
+    SURFACE_HEIGHT, SURFACE_WIDTH, SYS_AUDIO_CAPTURE, SYS_AUDIO_PLAY, SYS_BLOCK_FLUSH,
+    SYS_BLOCK_READ, SYS_BLOCK_WRITE, SYS_BOOT_READY, SYS_CHANNEL_CREATE, SYS_CHANNEL_SEND,
+    SYS_CHANNEL_TRY_RECEIVE, SYS_CHANNEL_WAIT_READABLE, SYS_CONSOLE_READ, SYS_CONSOLE_WRITE,
+    SYS_DISPLAY_INFO, SYS_DISPLAY_PRESENT, SYS_HANDLE_CLOSE, SYS_INPUT_READ, SYS_LOG_READ,
+    SYS_MEMORY_INFO, SYS_MEMORY_MAP, SYS_MEMORY_MAP_AT, SYS_MEMORY_PROTECT, SYS_MEMORY_UNMAP,
+    SYS_NET_RECEIVE, SYS_NET_SEND, SYS_PROCESS_EXIT, SYS_PROCESS_INFO, SYS_RANDOM_GET,
+    SYS_THREAD_CREATE, SYS_THREAD_DETACH, SYS_THREAD_EXIT, SYS_THREAD_JOIN, SYS_THREAD_SELF,
+    SYS_THREAD_SLEEP, SYS_TIME_READ, SYS_TIME_REALTIME, THREAD_CREATE_DETACHED,
 };
 
 #[cfg(target_os = "nagi")]
@@ -258,6 +269,195 @@ pub fn display_present(capability: u64) -> bool {
     result != u64::MAX
 }
 
+/// Notify the kernel that Nagi's initial desktop surface has been presented.
+/// On an ordinary confirmed boot this is a successful no-op. For an A/B trial
+/// the kernel records the candidate coordinates supplied by the loader.
+#[inline]
+pub fn report_boot_ready() -> bool {
+    let mut result = SYS_BOOT_READY;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
+}
+
+/// Create a kernel-owned pair of bootstrap Channel endpoints.
+#[inline]
+pub fn channel_create_pair() -> Option<ChannelEndpoints> {
+    let mut endpoints = ChannelEndpoints::default();
+    let mut result = SYS_CHANNEL_CREATE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") &mut endpoints as *mut ChannelEndpoints,
+            in("rsi") core::mem::size_of::<ChannelEndpoints>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    (result == 0).then_some(endpoints)
+}
+
+/// Send a bounded Channel message, moving any listed handles with attenuated
+/// rights. The kernel supplies sender identity independently of the payload.
+#[inline]
+pub fn channel_send(endpoint: u64, request: &ChannelSendRequest) -> bool {
+    let mut result = SYS_CHANNEL_SEND;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") endpoint,
+            in("rsi") request as *const ChannelSendRequest,
+            in("rdx") core::mem::size_of::<ChannelSendRequest>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
+}
+
+/// Try to receive one message without blocking. Returns `Some(false)` when the
+/// queue is empty and `None` when the handle or output buffer is invalid.
+#[inline]
+pub fn channel_try_receive(
+    endpoint: u64,
+    result_buffer: &mut ChannelReceiveResult,
+) -> Option<bool> {
+    let mut result = SYS_CHANNEL_TRY_RECEIVE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") endpoint,
+            in("rsi") result_buffer as *mut ChannelReceiveResult,
+            in("rdx") core::mem::size_of::<ChannelReceiveResult>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    match result {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+/// Wait for a Channel endpoint to become readable. A successful wake is a
+/// readiness hint; another receiver may consume the message before this
+/// thread runs, so callers should retry nonblocking receive.
+#[inline]
+pub fn channel_wait_readable(endpoint: u64) -> bool {
+    let mut result = SYS_CHANNEL_WAIT_READABLE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") endpoint,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
+}
+
+/// Receive the next message, blocking on Channel readability when the queue is
+/// empty. Returns `None` for an invalid or non-waitable endpoint, or when no
+/// bootstrap thread can make progress to produce the requested message.
+#[inline]
+pub fn channel_receive(endpoint: u64, result_buffer: &mut ChannelReceiveResult) -> Option<()> {
+    loop {
+        match channel_try_receive(endpoint, result_buffer) {
+            Some(true) => return Some(()),
+            Some(false) if channel_wait_readable(endpoint) => {}
+            Some(false) | None => return None,
+        }
+    }
+}
+
+/// Spawn the isolated child process from `image` (a static ELF) and move
+/// `endpoint` into it with `rights`. Only the Supervisor (init) may spawn;
+/// returns the child's kernel Process ID.
+#[inline]
+pub fn process_spawn(image: &[u8], endpoint: u64, rights: u32) -> Option<u32> {
+    let request = nagi_abi::ProcessSpawnRequest {
+        image_address: image.as_ptr() as u64,
+        image_len: image.len() as u64,
+        endpoint,
+        endpoint_rights: rights,
+        reserved: 0,
+    };
+    let mut result = nagi_abi::SYS_PROCESS_SPAWN;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") &request as *const nagi_abi::ProcessSpawnRequest,
+            in("rsi") core::mem::size_of::<nagi_abi::ProcessSpawnRequest>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    u32::try_from(result).ok()
+}
+
+/// Wait for the isolated process `process_id` (spawned by this Supervisor)
+/// to exit and consume its exit status. Returns `None` for an unknown or
+/// already-consumed Process ID, or when no thread can make progress.
+#[inline]
+pub fn process_wait(process_id: u32) -> Option<nagi_abi::ProcessExitStatus> {
+    let mut status = nagi_abi::ProcessExitStatus::default();
+    loop {
+        let mut result = nagi_abi::SYS_PROCESS_WAIT;
+        unsafe {
+            asm!(
+                "syscall",
+                inlateout("rax") result,
+                in("rdi") u64::from(process_id),
+                in("rsi") &mut status as *mut nagi_abi::ProcessExitStatus,
+                in("rdx") core::mem::size_of::<nagi_abi::ProcessExitStatus>(),
+                lateout("rcx") _,
+                lateout("r11") _,
+                options(nostack),
+            );
+        }
+        match result {
+            0 => return Some(status),
+            nagi_abi::PROCESS_WAIT_RETRY => continue,
+            _ => return None,
+        }
+    }
+}
+
+/// Close a handle returned by the bootstrap Channel ABI or a Channel transfer.
+#[inline]
+pub fn handle_close(handle: u64) -> bool {
+    let mut result = SYS_HANDLE_CLOSE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") handle,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
+}
+
 #[inline]
 pub fn input_read(capability: u64, event: &mut InputEvent) -> bool {
     let mut result = SYS_INPUT_READ;
@@ -447,11 +647,10 @@ pub fn random_fill(bytes: &mut [u8]) -> bool {
     true
 }
 
-/// Rust std's Nagi random backend calls this stable C ABI to seed
-/// `RandomState` from the guest VirtIO RNG syscall.
+/// Fill a buffer from Nagi's guest VirtIO RNG syscall through a stable C ABI.
 #[cfg(target_os = "nagi")]
 #[no_mangle]
-pub unsafe extern "C" fn __nagi_std_random_fill(destination: *mut u8, length: usize) -> i32 {
+pub unsafe extern "C" fn __nagi_random_fill(destination: *mut u8, length: usize) -> i32 {
     if length == 0 {
         return 0;
     }
@@ -464,6 +663,14 @@ pub unsafe extern "C" fn __nagi_std_random_fill(destination: *mut u8, length: us
     } else {
         -1
     }
+}
+
+/// Rust std's Nagi random backend calls this compatibility entry point to seed
+/// `RandomState` from the guest VirtIO RNG syscall.
+#[cfg(target_os = "nagi")]
+#[no_mangle]
+pub unsafe extern "C" fn __nagi_std_random_fill(destination: *mut u8, length: usize) -> i32 {
+    unsafe { __nagi_random_fill(destination, length) }
 }
 
 #[cfg(target_os = "nagi")]
@@ -530,6 +737,11 @@ pub fn sleep_ns(duration: u64) -> bool {
         );
     }
     result == 0
+}
+
+#[inline]
+pub fn thread_yield() -> bool {
+    sleep_ns(0)
 }
 
 #[inline]
@@ -602,15 +814,36 @@ pub fn mprotect(address: *mut u8, length: usize, protection: u64) -> bool {
     result == 0
 }
 
-/// Create the single bounded native child thread supported by the bootstrap
-/// process bridge. The entry point and stack remain inside the caller's
-/// already-mapped Nagi address space; no host thread or host callback is used.
+/// Create a bounded native child thread in the current Nagi process. The
+/// entry point and stack remain inside its mapped address space; creation
+/// enqueues the child without yielding to a host thread or runtime.
 #[inline]
 pub fn thread_create(
     entry: usize,
     argument: usize,
     stack: *mut u8,
     stack_size: usize,
+) -> Option<u64> {
+    thread_create_with_flags(entry, argument, stack, stack_size, 0)
+}
+
+#[inline]
+pub fn thread_create_detached(
+    entry: usize,
+    argument: usize,
+    stack: *mut u8,
+    stack_size: usize,
+) -> Option<u64> {
+    thread_create_with_flags(entry, argument, stack, stack_size, THREAD_CREATE_DETACHED)
+}
+
+#[inline]
+fn thread_create_with_flags(
+    entry: usize,
+    argument: usize,
+    stack: *mut u8,
+    stack_size: usize,
+    flags: u64,
 ) -> Option<u64> {
     let mut result = SYS_THREAD_CREATE;
     unsafe {
@@ -621,6 +854,7 @@ pub fn thread_create(
             in("rsi") argument as u64,
             in("rdx") stack as u64,
             in("r10") stack_size as u64,
+            in("r8") flags,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
@@ -631,7 +865,25 @@ pub fn thread_create(
 
 #[inline]
 pub fn thread_join(thread: u64) -> Option<u64> {
+    let mut exit_code = 0_u64;
     let mut result = SYS_THREAD_JOIN;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") thread,
+            in("rsi") core::ptr::addr_of_mut!(exit_code),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    (result == 0).then_some(exit_code)
+}
+
+#[inline]
+pub fn thread_detach(thread: u64) -> bool {
+    let mut result = SYS_THREAD_DETACH;
     unsafe {
         asm!(
             "syscall",
@@ -642,7 +894,7 @@ pub fn thread_join(thread: u64) -> Option<u64> {
             options(nostack),
         );
     }
-    (result != u64::MAX).then_some(result)
+    result == 0
 }
 
 #[inline]
@@ -727,6 +979,20 @@ mod tests {
         assert_eq!(SYS_THREAD_JOIN, 21);
         assert_eq!(SYS_THREAD_EXIT, 22);
         assert_eq!(SYS_THREAD_SELF, 23);
+        assert_eq!(SYS_THREAD_DETACH, 29);
+        assert_eq!(SYS_CHANNEL_CREATE, 31);
+        assert_eq!(SYS_CHANNEL_SEND, 32);
+        assert_eq!(SYS_CHANNEL_TRY_RECEIVE, 33);
+        assert_eq!(SYS_HANDLE_CLOSE, 34);
+        assert_eq!(nagi_abi::SYS_PROCESS_SPAWN, 36);
+        assert_eq!(nagi_abi::SYS_PROCESS_WAIT, 37);
+        assert_eq!(core::mem::size_of::<nagi_abi::ProcessExitStatus>(), 24);
+        assert_eq!(core::mem::size_of::<nagi_abi::ProcessSpawnRequest>(), 32);
+        assert_eq!(THREAD_CREATE_DETACHED, 1);
+        #[cfg(feature = "m18-browser-threads")]
+        assert_eq!(BOOTSTRAP_USER_THREAD_COUNT, 64);
+        #[cfg(not(feature = "m18-browser-threads"))]
+        assert_eq!(BOOTSTRAP_USER_THREAD_COUNT, 32);
         assert_eq!(nagi_abi::SYS_AUDIO_PLAY, 24);
         assert_eq!(nagi_abi::SYS_AUDIO_CAPTURE, 25);
         assert_eq!(SYS_RANDOM_GET, 26);

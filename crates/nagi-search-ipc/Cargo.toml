@@ -1,0 +1,14 @@
+[package]
+name = "nagi-search-ipc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Allocation-free `search@1` Channel wire format shared by the init-hosted
+# SearchService and isolated client processes (ADR 0044).
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-abi = { path = "../nagi-abi" }

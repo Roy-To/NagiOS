@@ -18,7 +18,7 @@ was present at the inspected base revision.
 
 ## Implemented
 
-- Added `crates/nagi-localization` with canonical locale parsing, distinct
+- Added `crates/nagi-i18n` with canonical locale parsing, distinct
   presentation-language/region inputs, stable `MessageId`, deterministic
   lookup/fallback, named interpolation, structured diagnostics, catalog
   metadata, formatting APIs, and pseudo-localization.
@@ -34,16 +34,16 @@ was present at the inspected base revision.
 
 Host checks:
 
-- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test -p nagi-localization --locked` — PASS, 26 tests.
-- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy -p nagi-localization --all-targets --locked -- -D warnings` — PASS.
-- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path crates/nagi-localization/Cargo.toml -- --check` — PASS.
-- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo run --locked -p nagi-localization --bin localization-check` — PASS, 2 locales and 14 messages.
+- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo test -p nagi-i18n --locked` — PASS, 26 tests.
+- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo clippy -p nagi-i18n --all-targets --locked -- -D warnings` — PASS.
+- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo fmt --manifest-path crates/nagi-i18n/Cargo.toml -- --check` — PASS.
+- `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH cargo run --locked -p nagi-i18n --bin localization-check` — PASS, 2 locales and 14 messages.
 - `./nagi fetch` with the pinned nightly on `PATH` — PASS; pinned repository dependencies were materialized in this isolated worktree to satisfy workspace Cargo path patches.
 
 Target compile:
 
 - With the repository's patched Rust source prepared at `out/rust-src`,
-  `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH __CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/.codex/worktrees/nagi-localization-i18n/out/rust-src/library cargo check -p nagi-localization --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort` — PASS.
+  `PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH __CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/.codex/worktrees/nagi-localization-i18n/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort` — PASS.
 - This is a target compile only; no QEMU/runtime test was run. The crate is not
   wired into a Nagi user process because that integration belongs to another
   owner's UI/App SDK workstream.

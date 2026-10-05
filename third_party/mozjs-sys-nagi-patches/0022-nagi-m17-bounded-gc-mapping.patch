@@ -1,0 +1,20 @@
+diff --git a/mozjs/js/src/gc/Memory.cpp b/mozjs/js/src/gc/Memory.cpp
+--- a/mozjs/js/src/gc/Memory.cpp
++++ b/mozjs/js/src/gc/Memory.cpp
+@@ -167,7 +167,11 @@
+ bool UsingScattershotAllocator() {
+-#ifdef JS_64BIT
+-  return numAddressBits >= MinAddressBitsForRandomAlloc;
+-#else
+-  return false;
+-#endif
++#if defined(__NAGI__)
++  // Nagi's bounded first-fit arena ignores address hints.
++  // Avoid the upstream scattershot retry loop for this target.
++  return false;
++#elif defined(JS_64BIT)
++  return numAddressBits >= MinAddressBitsForRandomAlloc;
++#else
++  return false;
++#endif
+ }

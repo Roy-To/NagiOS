@@ -1,0 +1,949 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4c049f3..b657541 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -103,6 +103,11 @@ option(WHISPER_SANITIZE_UNDEFINED "whisper: enable undefined sanitizer" OFF)
+ option(WHISPER_BUILD_TESTS    "whisper: build tests"          ${WHISPER_STANDALONE})
+ option(WHISPER_BUILD_EXAMPLES "whisper: build examples"       ${WHISPER_STANDALONE})
+ option(WHISPER_BUILD_SERVER   "whisper: build server example" ${WHISPER_STANDALONE})
++option(WHISPER_NAGI_GGUF_TESTS "whisper: build Nagi GGUF bounds and write-failure tests" OFF)
++
++if (WHISPER_NAGI_GGUF_TESTS AND NOT WHISPER_BUILD_TESTS)
++    message(FATAL_ERROR "WHISPER_NAGI_GGUF_TESTS requires WHISPER_BUILD_TESTS=ON")
++endif()
+ 
+ # 3rd party libs
+ option(WHISPER_CURL "whisper: use libcurl to download model from an URL" OFF)
+diff --git a/ggml/src/CMakeLists.txt b/ggml/src/CMakeLists.txt
+index 9477320..29fd188 100644
+--- a/ggml/src/CMakeLists.txt
++++ b/ggml/src/CMakeLists.txt
+@@ -208,6 +208,11 @@ add_library(ggml-base
+             ggml-quants.h
+             gguf.cpp)
+ 
++if (WHISPER_NAGI_GGUF_TESTS)
++    set_source_files_properties(gguf.cpp PROPERTIES
++        COMPILE_DEFINITIONS "__NAGI__;GGUF_MAX_METADATA_BYTES=4096")
++endif()
++
+ set_target_properties(ggml-base PROPERTIES
+     VERSION ${GGML_VERSION}
+     SOVERSION ${GGML_VERSION_MAJOR}
+diff --git a/ggml/src/ggml-backend-dl.cpp b/ggml/src/ggml-backend-dl.cpp
+index a65cf00..c91a005 100644
+--- a/ggml/src/ggml-backend-dl.cpp
++++ b/ggml/src/ggml-backend-dl.cpp
+@@ -1,5 +1,24 @@
+ #include "ggml-backend-dl.h"
+ 
++#if defined(__NAGI__)
++
++dl_handle * dl_load_library(const fs::path & path) {
++    (void) path;
++    return nullptr;
++}
++
++void * dl_get_sym(dl_handle * handle, const char * name) {
++    (void) handle;
++    (void) name;
++    return nullptr;
++}
++
++const char * dl_error() {
++    return "dynamic backend loading is unavailable on Nagi";
++}
++
++#else
++
+ #ifdef _WIN32
+ 
+ dl_handle * dl_load_library(const fs::path & path) {
+@@ -46,3 +65,5 @@ const char * dl_error() {
+ }
+ 
+ #endif
++
++#endif
+diff --git a/ggml/src/ggml-backend-dl.h b/ggml/src/ggml-backend-dl.h
+index f74b7c9..c6cd2f7 100644
+--- a/ggml/src/ggml-backend-dl.h
++++ b/ggml/src/ggml-backend-dl.h
+@@ -8,9 +8,11 @@
+ #   include <windows.h>
+ #   include <winevt.h>
+ #else
++#if !defined(__NAGI__)
+ #    include <dlfcn.h>
+ #    include <unistd.h>
+ #endif
++#endif
+ #include <filesystem>
+ 
+ namespace fs = std::filesystem;
+@@ -30,9 +32,13 @@ struct dl_handle_deleter {
+ using dl_handle = void;
+ 
+ struct dl_handle_deleter {
++#if defined(__NAGI__)
++    void operator()(void *) {}
++#else
+     void operator()(void * handle) {
+         dlclose(handle);
+     }
++#endif
+ };
+ 
+ #endif
+@@ -42,4 +48,3 @@ using dl_handle_ptr = std::unique_ptr<dl_handle, dl_handle_deleter>;
+ dl_handle * dl_load_library(const fs::path & path);
+ void * dl_get_sym(dl_handle * handle, const char * name);
+ const char * dl_error();
+-
+diff --git a/ggml/src/ggml-backend-reg.cpp b/ggml/src/ggml-backend-reg.cpp
+index 1c18b82..2d1bf13 100644
+--- a/ggml/src/ggml-backend-reg.cpp
++++ b/ggml/src/ggml-backend-reg.cpp
+@@ -93,6 +93,10 @@
+ namespace fs = std::filesystem;
+ 
+ static std::string path_str(const fs::path & path) {
++#if defined(__NAGI__)
++    (void) path;
++    return {};
++#else
+     try {
+ #if defined(__cpp_lib_char8_t)
+         // C++20 and later: u8string() returns std::u8string
+@@ -105,6 +109,7 @@ static std::string path_str(const fs::path & path) {
+     } catch (...) {
+         return std::string();
+     }
++#endif
+ }
+ 
+ struct ggml_backend_reg_entry {
+@@ -218,6 +223,11 @@ struct ggml_backend_registry {
+     }
+ 
+     ggml_backend_reg_t load_backend(const fs::path & path, bool silent) {
++#if defined(__NAGI__)
++        (void) path;
++        (void) silent;
++        return nullptr;
++#else
+         dl_handle_ptr handle { dl_load_library(path) };
+         if (!handle) {
+             if (!silent) {
+@@ -261,9 +271,14 @@ struct ggml_backend_registry {
+         register_backend(reg, std::move(handle));
+ 
+         return reg;
++#endif
+     }
+ 
+     void unload_backend(ggml_backend_reg_t reg, bool silent) {
++#if defined(__NAGI__)
++        (void) reg;
++        (void) silent;
++#else
+         auto it = std::find_if(backends.begin(), backends.end(),
+                                [reg](const ggml_backend_reg_entry & entry) { return entry.reg == reg; });
+ 
+@@ -286,6 +301,7 @@ struct ggml_backend_registry {
+ 
+         // remove backend
+         backends.erase(it);
++#endif
+     }
+ };
+ 
+@@ -391,13 +407,23 @@ ggml_backend_t ggml_backend_init_best(void) {
+ 
+ // Dynamic loading
+ ggml_backend_reg_t ggml_backend_load(const char * path) {
++#if defined(__NAGI__)
++    (void) path;
++    return nullptr;
++#else
+     return get_reg().load_backend(path, false);
++#endif
+ }
+ 
+ void ggml_backend_unload(ggml_backend_reg_t reg) {
++#if defined(__NAGI__)
++    (void) reg;
++#else
+     get_reg().unload_backend(reg, true);
++#endif
+ }
+ 
++#if !defined(__NAGI__)
+ static fs::path get_executable_path() {
+ #if defined(__APPLE__)
+     // get executable path
+@@ -603,3 +629,10 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
+         ggml_backend_load(backend_path);
+     }
+ }
++#else
++void ggml_backend_load_all() {}
++
++void ggml_backend_load_all_from_path(const char * dir_path) {
++    (void) dir_path;
++}
++#endif
+diff --git a/ggml/src/gguf.cpp b/ggml/src/gguf.cpp
+index 6c7b581..9e9a913 100644
+--- a/ggml/src/gguf.cpp
++++ b/ggml/src/gguf.cpp
+@@ -15,8 +15,19 @@
+ #include <string>
+ #include <vector>
+ 
++#if defined(__NAGI__)
++// Bound untrusted metadata before the exception-free target parser allocates.
++#define GGUF_MAX_STRING_LENGTH  (1024*1024)
++#define GGUF_MAX_ARRAY_ELEMENTS (1024*1024)
++#define GGUF_MAX_TENSOR_COUNT   (32*1024)
++#define GGUF_MAX_KV_COUNT       (4*1024)
++#ifndef GGUF_MAX_METADATA_BYTES
++#define GGUF_MAX_METADATA_BYTES (64ull*1024*1024)
++#endif
++#else
+ #define GGUF_MAX_STRING_LENGTH  (1024*1024*1024)
+ #define GGUF_MAX_ARRAY_ELEMENTS (1024*1024*1024)
++#endif
+ 
+ #ifdef _WIN32
+ #    define gguf_ftell _ftelli64
+@@ -238,6 +249,7 @@ struct gguf_reader {
+           userdata(userdata),
+           max_chunk_read(max_chunk_read),
+           data_offset(data_offset),
++          start_offset(data_offset),
+           nbytes_remain(nbytes_remain) {
+         GGML_ASSERT(max_chunk_read > 0);
+     }
+@@ -277,6 +289,11 @@ struct gguf_reader {
+         if (n > GGUF_MAX_ARRAY_ELEMENTS) {
+             return false;
+         }
++#if defined(__NAGI__)
++        if (n > dst.max_size()) {
++            return false;
++        }
++#endif
+         if constexpr (std::is_same<T, std::string>::value) {
+             // strings are prefixed with their length, so we need to account for that
+             if (n > SIZE_MAX / sizeof(uint64_t)) {
+@@ -350,6 +367,11 @@ struct gguf_reader {
+             GGML_LOG_ERROR("%s: string length %" PRIu64 " exceeds remaining file size %" PRIu64 " bytes\n", __func__, size, nbytes_remain);
+             return false;
+         }
++#if defined(__NAGI__)
++        if (size > static_cast<uint64_t>(SIZE_MAX) || static_cast<size_t>(size) > dst.max_size()) {
++            return false;
++        }
++#endif
+         dst.resize(static_cast<size_t>(size));
+         return read_raw(dst.data(), static_cast<size_t>(size)) == size;
+     }
+@@ -365,6 +387,12 @@ struct gguf_reader {
+         return data_offset;
+     }
+ 
++    void allow_tensor_data_reads() const {
++#if defined(__NAGI__)
++        metadata_reading = false;
++#endif
++    }
++
+     bool seek(uint64_t absolute_offset) const {
+         const uint64_t end_offset = uint64_t(data_offset) + nbytes_remain;
+         if (absolute_offset > end_offset) {
+@@ -382,6 +410,18 @@ private:
+         if (callback == nullptr || size == 0) {
+             return 0;
+         }
++#if defined(__NAGI__)
++        if (metadata_reading) {
++            if (data_offset < start_offset) {
++                return 0;
++            }
++            const uint64_t metadata_bytes = data_offset - start_offset;
++            if (metadata_bytes > GGUF_MAX_METADATA_BYTES ||
++                size > GGUF_MAX_METADATA_BYTES - metadata_bytes) {
++                return 0;
++            }
++        }
++#endif
+ 
+         uint8_t * data = static_cast<uint8_t *>(dst);
+         size_t total_nread = 0;
+@@ -415,7 +455,11 @@ private:
+     void * userdata = nullptr;
+     size_t max_chunk_read = 0;
+     mutable uint64_t data_offset = 0;
++    mutable uint64_t start_offset = 0;
+     mutable uint64_t nbytes_remain = 0;
++#if defined(__NAGI__)
++    mutable bool metadata_reading = true;
++#endif
+ };
+ 
+ struct gguf_context * gguf_init_empty(void) {
+@@ -426,6 +470,12 @@ template<typename T>
+ bool gguf_read_emplace_helper(const struct gguf_reader & gr, std::vector<struct gguf_kv> & kv, const std::string & key, const bool is_array, const size_t n) {
+     if (is_array) {
+         std::vector<T> value;
++#if defined(__NAGI__)
++        if (!gr.read(value, n)) {
++            GGML_LOG_ERROR("%s: failed to read bounded array value for key '%s'\n", __func__, key.c_str());
++            return false;
++        }
++#else
+         try {
+             if (!gr.read(value, n)) {
+                 return false;
+@@ -437,6 +487,7 @@ bool gguf_read_emplace_helper(const struct gguf_reader & gr, std::vector<struct
+             GGML_LOG_ERROR("%s: encountered bad_alloc error while reading value for key '%s'\n", __func__, key.c_str());
+             return false;
+         }
++#endif
+         kv.emplace_back(key, value);
+     } else {
+         T value;
+@@ -519,6 +570,13 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
+                 __func__, n_tensors, SIZE_MAX/sizeof(gguf_tensor_info));
+             ok = false;
+         }
++#if defined(__NAGI__)
++        if (n_tensors > GGUF_MAX_TENSOR_COUNT) {
++            GGML_LOG_ERROR("%s: number of tensors is %" PRIi64 " and exceeds the Nagi limit %d\n",
++                __func__, n_tensors, GGUF_MAX_TENSOR_COUNT);
++            ok = false;
++        }
++#endif
+     } else {
+         ok = false;
+     }
+@@ -530,6 +588,13 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
+                     __func__, n_kv, SIZE_MAX/sizeof(gguf_kv));
+             ok = false;
+         }
++#if defined(__NAGI__)
++        if (n_kv > GGUF_MAX_KV_COUNT) {
++            GGML_LOG_ERROR("%s: number of key value pairs is %" PRIi64 " and exceeds the Nagi limit %d\n",
++                __func__, n_kv, GGUF_MAX_KV_COUNT);
++            ok = false;
++        }
++#endif
+     } else {
+         ok = false;
+     }
+@@ -548,6 +613,9 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
+             bool        is_array = false;
+             uint64_t    n        = 1;
+ 
++#if defined(__NAGI__)
++            ok = ok && gr.read(key);
++#else
+             try {
+                 ok = ok && gr.read(key);
+             } catch (std::length_error &) {
+@@ -557,6 +625,7 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
+                 GGML_LOG_ERROR("%s: encountered bad_alloc error while reading key %" PRIi64 "\n", __func__, i);
+                 ok = false;
+             }
++#endif
+             if (ok && key.empty()) {
+                 GGML_LOG_ERROR("%s: key %" PRIi64 " is empty\n", __func__, i);
+                 ok = false;
+@@ -634,6 +703,9 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
+         // tensor name
+         {
+             std::string name;
++#if defined(__NAGI__)
++            ok = ok && gr.read(name);
++#else
+             try {
+                 ok = ok && gr.read(name);
+             } catch (std::length_error &) {
+@@ -643,6 +715,7 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
+                 GGML_LOG_ERROR("%s: encountered bad_alloc error while reading tensor name %" PRIi64 "\n", __func__, i);
+                 ok = false;
+             }
++#endif
+             if (name.length() >= GGML_MAX_NAME) {
+                 GGML_LOG_ERROR("%s: tensor name %" PRIi64 " is too long: %zu >= %d\n", __func__, i, name.length(), GGML_MAX_NAME);
+                 ok = false;
+@@ -770,6 +843,7 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
+ 
+     // store the current file offset - this is where the data section starts
+     ctx->offset = gr.tell();
++    gr.allow_tensor_data_reads();
+ 
+     // compute the total size of the data section, taking into account the alignment
+     {
+@@ -1439,6 +1513,9 @@ struct gguf_writer_base {
+     virtual void write(int8_t val) = 0;
+     virtual void write(const std::vector<int8_t> & val) = 0;
+     virtual void write_tensor_data(const struct gguf_tensor_info & info, size_t offset_data, size_t alignment) = 0;
++    virtual bool is_ok() const {
++        return true;
++    }
+ 
+     template <typename T>
+     void write(const T & val) {
+@@ -1529,7 +1606,7 @@ struct gguf_writer_base {
+     }
+ 
+     void pad(const size_t alignment) {
+-        while (written_bytes % alignment != 0) {
++        while (is_ok() && written_bytes % alignment != 0) {
+             const int8_t zero = 0;
+             write(zero);
+         }
+@@ -1576,45 +1653,70 @@ struct gguf_writer_buf final : public gguf_writer_base {
+ 
+ // file based writer
+ struct gguf_writer_file final : public gguf_writer_base {
++    static constexpr size_t chunk_capacity = 8 * 1024;
++
+     FILE * file;
++    bool success = true;
+ 
+     gguf_writer_file(FILE* file) : file(file) {}
+ 
+     using gguf_writer_base::write;
+ 
++    bool is_ok() const override {
++        return success;
++    }
++
+     void write(const int8_t val) override {
++        if (!success) {
++            return;
++        }
+         const auto real_val = static_cast<uint8_t>(val);
+-        const auto ret = fputc(real_val, file);
+-        written_bytes++;
+-        if (ret != real_val) {
+-            throw std::runtime_error("unexpected fputc result '" + std::to_string(ret) + "' instead of '" + std::to_string((int)real_val) + "'");
++        if (fputc(real_val, file) == EOF) {
++            success = false;
++            return;
+         }
++        written_bytes++;
+     }
+ 
+     void write(const std::vector<int8_t> & val) override {
++        if (!success) {
++            return;
++        }
+         const auto ret = fwrite(val.data(), 1, val.size(), file);
+-        written_bytes += val.size();
++        written_bytes += ret;
+         if (ret != val.size()) {
+-            throw std::runtime_error("unexpected fwrite number of bytes written, '" + std::to_string(ret) + "' instead of '" + std::to_string(val.size()) + "'");
++            success = false;
+         }
+     }
+ 
+     void write_tensor_data(const struct gguf_tensor_info & info, const size_t offset_data, const size_t alignment) override {
++        if (!success) {
++            return;
++        }
+         GGML_ASSERT(written_bytes - offset_data == info.offset);
+-
+         GGML_ASSERT(ggml_is_contiguous(&info.t));
+         const size_t nbytes = ggml_nbytes(&info.t);
+ 
+-        std::vector<int8_t> buf(nbytes);
+-        if (info.t.buffer) {
+-            ggml_backend_tensor_get(&info.t, buf.data(), 0, nbytes);
+-        } else {
+-            GGML_ASSERT(info.t.data);
+-            memcpy(buf.data(), info.t.data, nbytes);
++        uint8_t buffer[chunk_capacity];
++        size_t offset = 0;
++        while (offset < nbytes && success) {
++            const size_t chunk_size = std::min(chunk_capacity, nbytes - offset);
++            if (info.t.buffer) {
++                ggml_backend_tensor_get(&info.t, buffer, offset, chunk_size);
++            } else {
++                GGML_ASSERT(info.t.data);
++                memcpy(buffer, static_cast<const uint8_t *>(info.t.data) + offset, chunk_size);
++            }
++            const size_t written = fwrite(buffer, 1, chunk_size, file);
++            written_bytes += written;
++            offset += written;
++            if (written != chunk_size) {
++                success = false;
++            }
++        }
++        if (success) {
++            pad(alignment);
+         }
+-        write(buf);
+-
+-        pad(alignment);
+     }
+ };
+ 
+@@ -1665,11 +1767,14 @@ void gguf_write_to_buf(const struct gguf_context * ctx, std::vector<int8_t> & bu
+ bool gguf_write_to_file_ptr(const struct gguf_context * ctx, FILE * file, bool only_meta) {
+     GGML_ASSERT(file);
+ 
+-    try {
+-        gguf_writer_file gw(file);
+-        gguf_write_out(ctx, gw, only_meta);
+-    } catch (const std::runtime_error& ex) {
+-        GGML_LOG_ERROR("%s: failed to write GGUF data: %s\n", __func__, ex.what());
++    gguf_writer_file gw(file);
++    gguf_write_out(ctx, gw, only_meta);
++    if (!gw.is_ok()) {
++        GGML_LOG_ERROR("%s: failed to write GGUF data: output stream error\n", __func__);
++        return false;
++    }
++    if (fflush(file) != 0) {
++        GGML_LOG_ERROR("%s: failed to flush GGUF data: output stream error\n", __func__);
+         return false;
+     }
+     return true;
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 66130cf..c1c117c 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -1359,7 +1359,12 @@ static std::vector<ggml_backend_t> whisper_backend_init(const whisper_context_pa
+ 
+     ggml_backend_t backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
+     if (backend_cpu == nullptr) {
++#if defined(__NAGI__)
++        WHISPER_LOG_ERROR("%s: failed to initialize CPU backend\n", __func__);
++        return {};
++#else
+         throw std::runtime_error("failed to initialize CPU backend");
++#endif
+     }
+     result.push_back(backend_cpu);
+ 
+@@ -1432,7 +1437,12 @@ static bool weight_buft_supported(const whisper_hparams & hparams, ggml_tensor *
+ 
+                 ggml_context_ptr ctx_ptr { ggml_init(params) };
+                 if (!ctx_ptr) {
++#if defined(__NAGI__)
++                    WHISPER_LOG_ERROR("%s: failed to create ggml context while checking backend support\n", __func__);
++                    return false;
++#else
+                     throw std::runtime_error("failed to create ggml context");
++#endif
+                 }
+                 ggml_context * ctx = ctx_ptr.get();
+ 
+@@ -1693,6 +1703,9 @@ static bool whisper_model_load(struct whisper_model_loader * loader, whisper_con
+     const size_t n_tensors = 10 /* input */ + 15 + 15*n_audio_layer + 24*n_text_layer;
+ 
+     std::map<ggml_backend_buffer_type_t, ggml_context *> ctx_map;
++#if defined(__NAGI__)
++    bool model_load_failed = false;
++#endif
+     auto get_ctx = [&](ggml_backend_buffer_type_t buft) -> ggml_context * {
+         auto it = ctx_map.find(buft);
+         if (it == ctx_map.end()) {
+@@ -1704,7 +1717,13 @@ static bool whisper_model_load(struct whisper_model_loader * loader, whisper_con
+ 
+             ggml_context * ctx = ggml_init(params);
+             if (!ctx) {
++#if defined(__NAGI__)
++                WHISPER_LOG_ERROR("%s: failed to create ggml context\n", __func__);
++                model_load_failed = true;
++                return nullptr;
++#else
+                 throw std::runtime_error("failed to create ggml context");
++#endif
+             }
+ 
+             ctx_map[buft] = ctx;
+@@ -1723,10 +1742,19 @@ static bool whisper_model_load(struct whisper_model_loader * loader, whisper_con
+         ggml_op op = ASR_TENSOR_INFO.at(type);
+         ggml_backend_buffer_type_t buft = select_weight_buft(hparams, meta, op, buft_list);
+         if (!buft) {
++#if defined(__NAGI__)
++            WHISPER_LOG_ERROR("%s: failed to find a compatible buffer type for tensor %s\n", __func__, ASR_TENSOR_NAMES.at(system).at(type));
++            model_load_failed = true;
++            return nullptr;
++#else
+             throw std::runtime_error(format("failed to find a compatible buffer type for tensor %s", ASR_TENSOR_NAMES.at(system).at(type)));
++#endif
+         }
+ 
+         ggml_context * ctx = get_ctx(buft);
++        if (!ctx) {
++            return nullptr;
++        }
+         ggml_tensor * tensor = ggml_dup_tensor(ctx, meta);
+ 
+         model.tensors[format(ASR_TENSOR_NAMES.at(system).at(type), layer)] = tensor;
+@@ -1744,6 +1772,10 @@ static bool whisper_model_load(struct whisper_model_loader * loader, whisper_con
+         };
+ 
+         ggml_context * ctx = ggml_init(params);
++        if (!ctx) {
++            WHISPER_LOG_ERROR("%s: failed to create tensor metadata context\n", __func__);
++            return false;
++        }
+ 
+         const auto & hparams = model.hparams;
+ 
+@@ -1853,6 +1885,13 @@ static bool whisper_model_load(struct whisper_model_loader * loader, whisper_con
+         ggml_free(ctx);
+     }
+ 
++#if defined(__NAGI__)
++    if (model_load_failed) {
++        WHISPER_LOG_ERROR("%s: failed to create model tensors\n", __func__);
++        return false;
++    }
++#endif
++
+     // allocate tensors in the backend buffers
+     for (auto & p : ctx_map) {
+         ggml_backend_buffer_type_t buft = p.first;
+@@ -3809,6 +3848,9 @@ struct whisper_context * whisper_init_with_params_no_state(struct whisper_model_
+     // device/buffer allocation), so funnel any throw into the existing
+     // NULL-return failure path instead of letting it cross the C ABI.
+     bool model_loaded = false;
++#if defined(__NAGI__)
++    model_loaded = whisper_model_load(loader, *ctx);
++#else
+     try {
+         model_loaded = whisper_model_load(loader, *ctx);
+     } catch (const std::exception & e) {
+@@ -3816,6 +3858,7 @@ struct whisper_context * whisper_init_with_params_no_state(struct whisper_model_
+     } catch (...) {
+         WHISPER_LOG_ERROR("%s: unknown exception during model load\n", __func__);
+     }
++#endif
+ 
+     if (!model_loaded) {
+         loader->close(loader->context);
+@@ -3822,5 +3865,9 @@ struct whisper_context * whisper_init_with_params_no_state(struct whisper_model_
+         WHISPER_LOG_ERROR("%s: failed to load model\n", __func__);
+-        delete ctx;
++#if defined(__NAGI__)
++        whisper_free(ctx);
++#else
++        delete ctx;
++#endif
+         return nullptr;
+     }
+ 
+@@ -4589,7 +4632,12 @@ static bool weight_buft_supported(const whisper_vad_hparams & hparams, ggml_tens
+ 
+                 ggml_context_ptr ctx_ptr { ggml_init(params) };
+                 if (!ctx_ptr) {
++#if defined(__NAGI__)
++                    WHISPER_LOG_ERROR("%s: failed to create ggml context while checking VAD backend support\n", __func__);
++                    return false;
++#else
+                     throw std::runtime_error("failed to create ggml context");
++#endif
+                 }
+                 ggml_context * ctx = ctx_ptr.get();
+ 
+@@ -4952,6 +5000,9 @@ struct whisper_vad_context * whisper_vad_init_with_params(
+     const size_t n_tensors = hparams.n_encoder_layers * 2 + 4 + 2 + 1;
+ 
+     std::map<ggml_backend_buffer_type_t, ggml_context *> ctx_map;
++#if defined(__NAGI__)
++    bool tensor_load_failed = false;
++#endif
+     auto get_ctx = [&](ggml_backend_buffer_type_t buft) -> ggml_context * {
+         auto it = ctx_map.find(buft);
+         if (it == ctx_map.end()) {
+@@ -4963,7 +5014,13 @@ struct whisper_vad_context * whisper_vad_init_with_params(
+ 
+             ggml_context * ctx = ggml_init(params);
+             if (!ctx) {
++#if defined(__NAGI__)
++                WHISPER_LOG_ERROR("%s: failed to create VAD ggml context\n", __func__);
++                tensor_load_failed = true;
++                return nullptr;
++#else
+                 throw std::runtime_error("failed to create ggml context");
++#endif
+             }
+ 
+             ctx_map[buft] = ctx;
+@@ -4984,9 +5041,18 @@ struct whisper_vad_context * whisper_vad_init_with_params(
+         ggml_op op = VAD_TENSOR_OPS.at(type);
+         ggml_backend_buffer_type_t buft = select_weight_buft(hparams, meta, op, buft_list);
+         if (!buft) {
++#if defined(__NAGI__)
++            WHISPER_LOG_ERROR("%s: failed to find a compatible buffer type for VAD tensor %s\n", __func__, VAD_TENSOR_NAMES.at(type));
++            tensor_load_failed = true;
++            return nullptr;
++#else
+             throw std::runtime_error(format("failed to find a compatible buffer type for tensor %s", VAD_TENSOR_NAMES.at(type)));
++#endif
+         }
+         ggml_context * ctx = get_ctx(buft);
++        if (!ctx) {
++            return nullptr;
++        }
+         ggml_tensor * tensor = ggml_dup_tensor(ctx, meta);
+         model.tensors[VAD_TENSOR_NAMES.at(type)] = tensor;
+ 
+@@ -5002,6 +5068,11 @@ struct whisper_vad_context * whisper_vad_init_with_params(
+         };
+ 
+         ggml_context * ctx = ggml_init(params);
++        if (!ctx) {
++            WHISPER_LOG_ERROR("%s: failed to create VAD tensor metadata context\n", __func__);
++            whisper_vad_free(vctx);
++            return nullptr;
++        }
+         const auto & hparams = model.hparams;
+ 
+         // SFTF precomputed basis matrix
+@@ -5088,6 +5159,14 @@ struct whisper_vad_context * whisper_vad_init_with_params(
+         ggml_free(ctx);
+     }
+ 
++#if defined(__NAGI__)
++    if (tensor_load_failed) {
++        WHISPER_LOG_ERROR("%s: failed to create VAD model tensors\n", __func__);
++        whisper_vad_free(vctx);
++        return nullptr;
++    }
++#endif
++
+     // allocate tensors in the backend buffers
+     for (auto & p : ctx_map) {
+         ggml_backend_buffer_type_t buft = p.first;
+@@ -5487,12 +5566,16 @@ struct whisper_vad_segments * whisper_vad_segments_from_probs(
+     // Allocate final segments
+     std::vector<whisper_vad_segment> segments;
+     if (speeches.size() > 0) {
++#if defined(__NAGI__)
++        segments.resize(speeches.size());
++#else
+         try {
+             segments.resize(speeches.size());
+         } catch (const std::bad_alloc &) {
+             WHISPER_LOG_ERROR("%s: failed to allocate memory for final segments\n", __func__);
+             return nullptr;
+         }
++#endif
+     }
+ 
+     // Apply padding to segments and copy to final segments
+@@ -6823,6 +6906,9 @@ static bool whisper_vad(
+         WHISPER_LOG_INFO("%s: total duration of speech segments: %.2f seconds\n",
+                         __func__, (float)filtered_n_samples / WHISPER_SAMPLE_RATE);
+ 
++#if defined(__NAGI__)
++        filtered_samples.resize(total_samples_needed);
++#else
+         try {
+             filtered_samples.resize(total_samples_needed);
+         } catch (const std::bad_alloc & /* e */) {
+@@ -6830,6 +6916,7 @@ static bool whisper_vad(
+             whisper_vad_free_segments(vad_segments);
+             return false;
+         }
++#endif
+ 
+         int offset = 0;
+         for (int i = 0; i < (int)vad_segments->data.size(); i++) {
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 57bfb51..28b9eaf 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -136,6 +136,14 @@ target_compile_definitions(${VAD_TEST} PRIVATE
+ add_test(NAME ${VAD_TEST} COMMAND ${VAD_TEST})
+ set_tests_properties(${VAD_TEST} PROPERTIES LABELS "base;en")
+ 
++if (WHISPER_NAGI_GGUF_TESTS)
++    add_executable(test-gguf-nagi test-gguf-nagi.cpp)
++    target_include_directories(test-gguf-nagi PRIVATE ../ggml/include)
++    target_link_libraries(test-gguf-nagi PRIVATE ggml-base)
++    add_test(NAME test-gguf-nagi COMMAND test-gguf-nagi)
++    set_tests_properties(test-gguf-nagi PROPERTIES LABELS "unit;nagi")
++endif()
++
+ # Parakeet model loading test
+ set(PARAKEET_TEST test-parakeet)
+ add_executable(${PARAKEET_TEST} ${PARAKEET_TEST}.cpp)
+diff --git a/tests/test-gguf-nagi.cpp b/tests/test-gguf-nagi.cpp
+new file mode 100644
+index 0000000..02c018f
+--- /dev/null
++++ b/tests/test-gguf-nagi.cpp
+@@ -0,0 +1,164 @@
++#include "gguf.h"
++
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <iostream>
++#include <vector>
++
++#if !defined(_WIN32)
++#    include <csignal>
++#    include <sys/resource.h>
++#    include <sys/wait.h>
++#    include <unistd.h>
++#endif
++
++namespace {
++
++void check(bool condition, const char * message) {
++    if (!condition) {
++        std::cerr << "FAIL Nagi GGUF test: " << message << '\n';
++        std::abort();
++    }
++}
++
++struct fixture_reader {
++    const std::vector<uint8_t> * bytes;
++};
++
++size_t read_fixture(void * userdata, void * output, uint64_t offset, size_t size) {
++    const auto * reader = static_cast<const fixture_reader *>(userdata);
++    if (offset >= reader->bytes->size()) {
++        return 0;
++    }
++    const size_t available = reader->bytes->size() - static_cast<size_t>(offset);
++    const size_t copied = size < available ? size : available;
++    std::memcpy(output, reader->bytes->data() + offset, copied);
++    return copied;
++}
++
++void append_u32(std::vector<uint8_t> & bytes, uint32_t value) {
++    for (size_t i = 0; i < sizeof(value); ++i) {
++        bytes.push_back(static_cast<uint8_t>(value >> (i * 8)));
++    }
++}
++
++void append_u64(std::vector<uint8_t> & bytes, uint64_t value) {
++    for (size_t i = 0; i < sizeof(value); ++i) {
++        bytes.push_back(static_cast<uint8_t>(value >> (i * 8)));
++    }
++}
++
++void append_string(std::vector<uint8_t> & bytes, const char * value) {
++    const size_t size = std::strlen(value);
++    append_u64(bytes, size);
++    bytes.insert(bytes.end(), value, value + size);
++}
++
++std::vector<uint8_t> header(uint64_t n_tensors, uint64_t n_kv) {
++    std::vector<uint8_t> bytes{'G', 'G', 'U', 'F'};
++    append_u32(bytes, GGUF_VERSION);
++    append_u64(bytes, n_tensors);
++    append_u64(bytes, n_kv);
++    return bytes;
++}
++
++struct gguf_context * parse(const std::vector<uint8_t> & bytes) {
++    fixture_reader reader{&bytes};
++    gguf_init_params params{};
++    params.no_alloc = true;
++    return gguf_init_from_callback(read_fixture, &reader, 4096, bytes.size(), params);
++}
++
++void test_header_count_limits() {
++    auto too_many_tensors = header(32 * 1024 + 1, 0);
++    check(parse(too_many_tensors) == nullptr, "reject tensor count above Nagi limit");
++
++    auto too_many_keys = header(0, 4 * 1024 + 1);
++    check(parse(too_many_keys) == nullptr, "reject key count above Nagi limit");
++}
++
++void test_string_array_and_total_metadata_limits() {
++    auto oversized_string = header(0, 1);
++    append_string(oversized_string, "key");
++    append_u32(oversized_string, GGUF_TYPE_STRING);
++    append_u64(oversized_string, 1024 * 1024 + 1);
++    check(parse(oversized_string) == nullptr, "reject string above Nagi limit");
++
++    auto oversized_array = header(0, 1);
++    append_string(oversized_array, "key");
++    append_u32(oversized_array, GGUF_TYPE_ARRAY);
++    append_u32(oversized_array, GGUF_TYPE_UINT8);
++    append_u64(oversized_array, 1024 * 1024 + 1);
++    check(parse(oversized_array) == nullptr, "reject array above Nagi limit");
++
++    auto oversized_metadata = header(0, 1);
++    append_string(oversized_metadata, "key");
++    append_u32(oversized_metadata, GGUF_TYPE_ARRAY);
++    append_u32(oversized_metadata, GGUF_TYPE_UINT8);
++    append_u64(oversized_metadata, 4096);
++    oversized_metadata.resize(oversized_metadata.size() + 4096, 0);
++    check(parse(oversized_metadata) == nullptr, "reject metadata above configured byte limit");
++}
++
++void test_valid_parse_and_write_failure() {
++    auto bytes = header(0, 1);
++    append_string(bytes, "nagi.test");
++    append_u32(bytes, GGUF_TYPE_UINT32);
++    append_u32(bytes, 42);
++    gguf_context * parsed = parse(bytes);
++    check(parsed != nullptr, "parse valid bounded metadata");
++    check(gguf_get_n_kv(parsed) == 1, "preserve valid key count");
++    check(gguf_get_val_u32(parsed, 0) == 42, "preserve valid scalar value");
++    gguf_free(parsed);
++
++    gguf_context * ctx = gguf_init_empty();
++    check(ctx != nullptr, "create writer context");
++    gguf_set_val_str(ctx, "nagi.test", "bounded writer");
++
++#if !defined(_WIN32)
++    char path[] = "/tmp/nagi-gguf-write-failure-XXXXXX";
++    const int fd = mkstemp(path);
++    check(fd >= 0, "create failing output file");
++    close(fd);
++
++    const pid_t child = fork();
++    check(child >= 0, "create writer failure test process");
++    if (child == 0) {
++        struct rlimit file_limit {};
++        if (getrlimit(RLIMIT_FSIZE, &file_limit) != 0) {
++            _exit(2);
++        }
++        file_limit.rlim_cur = 0;
++        if (setrlimit(RLIMIT_FSIZE, &file_limit) != 0 || std::signal(SIGXFSZ, SIG_IGN) == SIG_ERR) {
++            _exit(3);
++        }
++        FILE * file = std::fopen(path, "wb");
++        if (!file) {
++            _exit(4);
++        }
++        std::setvbuf(file, nullptr, _IONBF, 0);
++        const bool write_ok = gguf_write_to_file_ptr(ctx, file, true);
++        std::fclose(file);
++        _exit(write_ok ? 5 : 0);
++    }
++
++    int status = 0;
++    check(waitpid(child, &status, 0) == child, "wait for writer failure test process");
++    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, "return failure for short output writes");
++    std::remove(path);
++#endif
++
++    gguf_free(ctx);
++}
++
++} // namespace
++
++int main() {
++    test_header_count_limits();
++    test_string_array_and_total_metadata_limits();
++    test_valid_parse_and_write_failure();
++    std::cout << "PASS Nagi GGUF metadata bounds and writer failure handling\n";
++    return 0;
++}

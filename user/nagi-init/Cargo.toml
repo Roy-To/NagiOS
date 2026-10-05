@@ -17,6 +17,49 @@ m14-audio = ["m13-posix"]
 m15-history = ["m14-audio"]
 m16-package = ["m15-history"]
 m17-servo = ["m16-package", "m13-posix", "m13-std", "dep:nagi-albert"]
+m18-acceptance = [
+    "m17-servo",
+    "nagi-albert/m18-acceptance",
+    "libnagi/m18-browser-threads",
+    "nagi-posix/browser-storage",
+]
+m19-search = [
+    "m13-posix",
+    "dep:nagi-ai",
+    "dep:nagi-model-manager",
+    "dep:nagi-search",
+]
+# ADR 0044: serve M19 Search to isolated clients named by
+# NAGI_M19_SEARCH_CLIENT_ELF, authorized by kernel-stamped caller identity.
+m19-search-ipc = ["m19-search", "dep:nagi-search-ipc"]
+# ADR 0045: M21/M22 actions requested by isolated clients named by
+# NAGI_ACTION_CLIENT_ELF, authorized by kernel-stamped caller identity.
+m21-action-ipc = ["m19-search-ipc", "dep:nagi-action-ipc"]
+m20-model-store-acceptance = ["m19-search"]
+m20-fixture-acceptance = ["m20-model-store-acceptance"]
+m20-granite-artifact-acceptance = ["m20-model-store-acceptance"]
+m20-llama-link-smoke = ["m13-posix"]
+m20-llama-inference-acceptance = [
+    "m20-model-store-acceptance",
+    "nagi-posix/m20-llama-memory",
+]
+m22-history = ["m19-search"]
+# ADR 0043: spawn the isolated app ELF named by NAGI_ISOLATED_APP_ELF and
+# verify kernel-stamped caller identity and address-space isolation.
+isolated-process-acceptance = []
+m27-ro-vfs-check = []
+m27-recovery = []
+m27-recovery-undo-acceptance = ["m27-recovery"]
+m29-settings-acceptance = ["m10-desktop"]
+m25-voice-acceptance = []
+m25-whisper-artifact-acceptance = ["m20-model-store-acceptance"]
+m25-whisper-inference-acceptance = [
+    "m25-whisper-artifact-acceptance",
+    "m25-voice-acceptance",
+    "nagi-posix/m25-whisper-memory",
+]
+m26-qwen-artifact-acceptance = ["m20-model-store-acceptance"]
+m26-gemma-artifact-acceptance = ["m20-model-store-acceptance"]
 
 [[bin]]
 name = "nagi-init"
@@ -28,15 +71,22 @@ bench = false
 libnagi = { path = "../libnagi" }
 nagi-audio = { path = "../nagi-audio" }
 nagi-history = { path = "../nagi-history" }
+nagi-model = { path = "../../crates/nagi-model" }
+nagi-model-manager = { path = "../nagi-model-manager", optional = true }
+nagi-localization = { path = "../nagi-localization" }
 nagi-package = { path = "../nagi-package" }
 nagi-sdk = { path = "../../sdk/rust" }
 nagi-ui = { path = "../nagi-ui" }
 nagi-net = { path = "../nagi-net" }
 nagi-pal = { path = "../nagi-pal" }
 nagi-posix = { path = "../nagi-posix" }
+nagi-search = { path = "../nagi-search", optional = true }
+nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
+nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 nagi-albert = { path = "../nagi-albert", optional = true }
+nagi-ai = { path = "../../services/nagi-ai", optional = true }
 relibc = { path = "../../third_party/relibc", default-features = false }
 
 [lints.rust]

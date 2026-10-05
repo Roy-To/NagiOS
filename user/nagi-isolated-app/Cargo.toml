@@ -1,0 +1,41 @@
+[package]
+name = "nagi-isolated-app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Minimal applications launched by the Supervisor into their own address
+# spaces (ADR 0043–0047). They use raw Nagi syscalls only: no allocator,
+# no TLS, and no device capabilities.
+
+[[bin]]
+name = "nagi-isolated-app"
+path = "src/main.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "nagi-m19-search-client"
+path = "src/bin/search_client.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "nagi-action-client"
+path = "src/bin/action_client.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "nagi-faulting-app"
+path = "src/bin/faulting_app.rs"
+test = false
+bench = false
+
+[dependencies]
+nagi-action-ipc = { path = "../../crates/nagi-action-ipc" }
+nagi-abi = { path = "../../crates/nagi-abi" }
+nagi-search-ipc = { path = "../../crates/nagi-search-ipc" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

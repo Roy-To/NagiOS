@@ -1,0 +1,193 @@
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -1097,7 +1097,11 @@
+     };
+     ggml_context_ptr ctx_ptr { ggml_init(params) };
+     if (!ctx_ptr) {
++#ifdef __NAGI__
++        return false;
++#else
+         throw std::runtime_error(format("failed to create ggml context"));
++#endif
+     }
+     ggml_context * ctx = ctx_ptr.get();
+ 
+@@ -1239,7 +1243,11 @@
+ ggml_backend_buffer_type_t llama_model_loader::lazy_read::buft() {
+     auto * cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+     if (!cpu_dev) {
++#ifdef __NAGI__
++        return nullptr;
++#else
+         throw std::runtime_error("no CPU backend found");
++#endif
+     }
+     return ggml_backend_dev_buffer_type(cpu_dev);
+ }
+@@ -1300,7 +1308,7 @@
+ 
+             ggml_context * ctx = ggml_init(params);
+             if (!ctx) {
+-                throw std::runtime_error(format("failed to create ggml context"));
++                LLAMA_MODEL_LOADER_FAIL_POINTER(format("failed to create ggml context"));
+             }
+ 
+             ctx_map.emplace(key, ctx);
+@@ -1315,7 +1323,7 @@
+             if (flags & TENSOR_NOT_REQUIRED) {
+                 return nullptr;
+             }
+-            throw std::runtime_error(format("missing tensor '%s'", tn.str().c_str()));
++            LLAMA_MODEL_LOADER_FAIL_POINTER(format("missing tensor '%s'", tn.str().c_str()));
+         }
+ 
+         // some models use the token embedding tensor as the output, but since these are used in different layers and with different ops
+@@ -1326,12 +1334,22 @@
+             tn_tensor = LLM_TENSOR_OUTPUT;
+         }
+ 
+-        llm_tensor_info info;
++        const llm_tensor_info * info_ptr = nullptr;
++#ifdef __NAGI__
++        info_ptr = llm_tensor_info_find(tn_tensor);
++        if (!info_ptr) {
++            LLAMA_MODEL_LOADER_FAIL_POINTER(format("missing tensor info mapping for %s", tn.str().c_str()));
++        }
++#else
++        llm_tensor_info info_value;
+         try {
+-            info = llm_tensor_info_for(tn_tensor);
++            info_value = llm_tensor_info_for(tn_tensor);
+         } catch (const std::out_of_range & e) {
+             throw std::runtime_error(format("missing tensor info mapping for %s", tn.str().c_str()));
+         }
++        info_ptr = &info_value;
++#endif
++        const llm_tensor_info & info = *info_ptr;
+ 
+         // skip unused tensors
+         if (info.op == GGML_OP_NONE || (flags & TENSOR_SKIP)) {
+@@ -1368,7 +1386,11 @@
+         }
+ 
+         if (is_lazy) {
+-            return lazy_read::buft();
++            const ggml_backend_buffer_type_t buft = lazy_read::buft();
++            if (buft == nullptr) {
++                LLAMA_MODEL_LOADER_FAIL_POINTER("no CPU backend found");
++            }
++            return buft;
+         }
+ 
+         // select the buffer type for this tensor
+@@ -1421,7 +1443,7 @@
+         if (!buft) {
+             buft = select_weight_buft(hparams, t_meta, op, buft_list);
+             if (!buft) {
+-                throw std::runtime_error(format("failed to find a compatible buffer type for tensor %s", tn.str().c_str()));
++                LLAMA_MODEL_LOADER_FAIL_POINTER(format("failed to find a compatible buffer type for tensor %s", tn.str().c_str()));
+             }
+         }
+ 
+@@ -1430,7 +1452,7 @@
+         if (use_mmap && buft_dev && buft == ggml_backend_dev_host_buffer_type(buft_dev)) {
+             auto * cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+             if (!cpu_dev) {
+-                throw std::runtime_error("no CPU backend found");
++                LLAMA_MODEL_LOADER_FAIL_POINTER("no CPU backend found");
+             }
+             buft = ggml_backend_dev_buffer_type(cpu_dev);
+         }
+@@ -1485,8 +1507,14 @@
+         ggml_set_name(&t_meta, tn.str().c_str());
+ 
+         ggml_backend_buffer_type_t buft = buft_for_tensor(&t_meta);
++        if (buft == nullptr && !loader_valid) {
++            return nullptr;
++        }
+         GGML_ASSERT(buft != nullptr);
+         ggml_context * ctx = ctx_for_buft(buft);
++        if (ctx == nullptr) {
++            return nullptr;
++        }
+         ggml_tensor * ret = ggml_dup_tensor(ctx, &t_meta);
+         ggml_set_name(ret, tn.str().c_str());
+         return ret;
+@@ -1529,6 +1557,9 @@
+     }
+ 
+     ggml_context * ctx = ctx_for_buft(buft);
++    if (ctx == nullptr) {
++        return nullptr;
++    }
+ 
+     // if duplicated, check if the original tensor was allocated in the same buffer type context and avoid creating a new one
+     if (flags & TENSOR_DUPLICATED) {
+--- a/src/llama-arch.cpp
++++ b/src/llama-arch.cpp
+@@ -1060,6 +1060,11 @@
+     return LLM_TENSOR_INFOS.at(tensor);
+ }
+ 
++const llm_tensor_info * llm_tensor_info_find(llm_tensor tensor) {
++    const auto it = LLM_TENSOR_INFOS.find(tensor);
++    return it == LLM_TENSOR_INFOS.end() ? nullptr : &it->second;
++}
++
+ bool llm_arch_is_recurrent(const llm_arch & arch) {
+     switch (arch) {
+         case LLM_ARCH_MAMBA:
+--- a/src/llama-arch.h
++++ b/src/llama-arch.h
+@@ -791,6 +791,7 @@
+ llm_arch llm_arch_from_string(const std::string & name);
+ 
+ const llm_tensor_info & llm_tensor_info_for(llm_tensor tensor);
++const llm_tensor_info * llm_tensor_info_find(llm_tensor tensor);
+ 
+ bool llm_arch_is_recurrent      (const llm_arch & arch);
+ bool llm_arch_is_hybrid         (const llm_arch & arch);
+--- a/tests/test-model-loader-bounds.cpp
++++ b/tests/test-model-loader-bounds.cpp
+@@ -2,10 +2,31 @@
+ 
+ #include <cstdio>
+ #include <limits>
++#include <stdexcept>
+ #include <string>
+ #include <vector>
+ 
+ using tensor_weight = llama_model_loader::llama_tensor_weight;
++
++static bool missing_tensor_info_lookup_returns_null() {
++    const llm_tensor unknown_tensor = static_cast<llm_tensor>(-1);
++    if (llm_tensor_info_find(unknown_tensor) != nullptr) {
++        std::fprintf(stderr, "unknown tensor info lookup returned a mapping\n");
++        return false;
++    }
++
++    bool legacy_lookup_threw = false;
++    try {
++        (void) llm_tensor_info_for(unknown_tensor);
++    } catch (const std::out_of_range &) {
++        legacy_lookup_threw = true;
++    }
++    if (!legacy_lookup_threw) {
++        std::fprintf(stderr, "legacy tensor info lookup changed its exception contract\n");
++        return false;
++    }
++    return true;
++}
+ 
+ static bool expect_rejected(int tensor_idx, size_t file_size, size_t data_offset,
+         size_t tensor_offset, size_t tensor_size, const char * label) {
+@@ -383,7 +404,8 @@
+ }
+ 
+ int main() {
+-    if (!metadata_key_read_status(false, false, true, "missing optional") ||
++    if (!missing_tensor_info_lookup_returns_null() ||
++            !metadata_key_read_status(false, false, true, "missing optional") ||
+             !metadata_key_read_status(true, false, false, "wrong-typed optional") ||
+             !metadata_key_read_status(true, true, false, "wrong-typed required") ||
+             !invalid_gguf_constructor_status() ||

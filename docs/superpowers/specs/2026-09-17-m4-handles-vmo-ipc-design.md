@@ -84,8 +84,12 @@ space in the bounded wake budget; if no safe wake slot remains, wait_many
 rejects the new wait instead of creating an unwakeable BLOCKED waiter.
 Signal/expiry scans the registry, queues one wake record per matching waiter,
 and `Waiter::sync` marks it RUNNABLE exactly once. This is the M4 kernel wait
-protocol; M5 later
-connects the state transition to a real process thread block.
+protocol. The bootstrap Channel ABI now connects a single READABLE wait to the
+M17 cooperative user-thread scheduler. It publishes the blocked scheduler state
+while holding the same bootstrap IPC lock used for registration; notification
+then returns waiter IDs to the syscall layer, which marks those threads runnable
+after releasing the lock. M5 process isolation and general Event/Timer syscalls
+remain separate work.
 
 ### Guest acceptance
 

@@ -10,6 +10,7 @@
   "version": "4.2",
   "variant": "3b",
   "runtime_api_version": "nagi.ai/1",
+  "runtime_class": "generative_llm",
   "execution": "local",
   "artifact": {
     "format": "gguf",
@@ -17,22 +18,26 @@
       "kind": "model_store",
       "artifact_id": "ibm.granite-4.2-3b"
     },
-    "size_bytes": null,
-    "integrity": null
+    "size_bytes": 2244011552,
+    "integrity": {
+      "algorithm": "sha256",
+      "digest": "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5"
+    }
   },
-  "capabilities": ["text.generate", "structured.generate"],
+  "capabilities": ["text.generate", "text.stream", "structured.generate"],
   "modalities": ["text"],
   "context": {
     "max_input_tokens": 4096,
     "max_output_tokens": 1024
   },
   "resources": {
-    "minimum_ram_bytes": 2147483648,
+    "minimum_ram_bytes": 3221225472,
     "recommended_ram_bytes": 4294967296,
-    "minimum_storage_bytes": 2147483648,
+    "minimum_storage_bytes": 2684354560,
     "minimum_cpu_cores": 1,
     "gpu_required": false
   },
+  "resource_class": "standard",
   "supported_backends": ["llama_cpp"],
   "roles": ["standard", "default_standard_candidate"],
   "compatibility": {
@@ -40,16 +45,20 @@
     "minimum_os_version": null
   },
   "license": {
-    "identifier": "provider-terms:ibm-granite",
-    "terms_reference": "provider-terms:ibm.granite",
-    "acknowledgement_required": false,
+    "identifier": "Apache-2.0",
+    "terms_reference": "https://huggingface.co/ibm-granite/granite-4.2-3b",
+    "acknowledgement_required": true,
     "notices": [
       {
-        "notice_id": "model-notice",
-        "reference": "provider-notice:ibm.granite",
+        "notice_id": "apache-2.0",
+        "reference": "https://www.apache.org/licenses/LICENSE-2.0",
         "required": true
       }
     ]
   },
-  "source": null
+  "source": {
+    "uri": "https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF",
+    "revision": "c40945d71cd90f249a56985e8155551a9188dc30",
+    "file_name": "granite-4.2-3b-Q4_K_M.gguf"
+  }
 }
