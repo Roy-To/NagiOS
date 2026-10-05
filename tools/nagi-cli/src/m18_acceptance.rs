@@ -30,6 +30,13 @@ const UPLOAD_LINES: [&str; 3] = [
     "Nagi M18 upload picker READY",
     "Nagi M18 upload PASS",
 ];
+/// Download evidence after the upload: a script click without activation
+/// is ignored, then a real click saves the link.
+const DOWNLOAD_LINES: [&str; 3] = [
+    "Nagi M18 download unactivated click IGNORED",
+    "Nagi M18 download page READY",
+    "Nagi M18 download PASS",
+];
 
 /// Validate the evidence emitted by the real M18 guest browser acceptance run.
 pub(crate) fn validate_serial_log(serial: &str) -> Result<(), String> {
@@ -216,6 +223,7 @@ fn validate_clipboard_evidence(
         .chain(CLIPBOARD_LINES.iter().copied())
         .chain(IME_LINES.iter().copied())
         .chain(UPLOAD_LINES.iter().copied())
+        .chain(DOWNLOAD_LINES.iter().copied())
     {
         let mut found = None;
         for (line_number, line) in serial.lines().enumerate() {
@@ -286,6 +294,7 @@ mod tests {
         lines.extend(CLIPBOARD_LINES.iter().map(|line| (*line).to_owned()));
         lines.extend(IME_LINES.iter().map(|line| (*line).to_owned()));
         lines.extend(UPLOAD_LINES.iter().map(|line| (*line).to_owned()));
+        lines.extend(DOWNLOAD_LINES.iter().map(|line| (*line).to_owned()));
         lines.push(SUMMARY_LINE.to_owned());
         lines.join("\n")
     }
@@ -324,6 +333,16 @@ mod tests {
         assert!(validate_serial_log(&missing)
             .unwrap_err()
             .contains("missing clipboard or IME evidence"));
+    }
+
+    #[test]
+    fn requires_download_evidence_after_the_upload() {
+        for line in DOWNLOAD_LINES {
+            let missing = valid_serial().replace(&format!("{line}\n"), "");
+            assert!(validate_serial_log(&missing)
+                .unwrap_err()
+                .contains("missing clipboard or IME evidence"));
+        }
     }
 
     #[test]

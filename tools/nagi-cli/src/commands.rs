@@ -176,6 +176,16 @@ const M18_UPLOAD_CHOOSE_EVENTS: [&str; 1] = [r#"{
         ]}
     }"#];
 
+/// Download step: click the page's download link where the upload input was
+/// (page y=28); the pointer is already there.
+const M18_DOWNLOAD_CLICK_EVENTS: [&str; 1] = [r#"{
+        "execute":"input-send-event",
+        "arguments":{"events":[
+            {"type":"btn","data":{"button":"left","down":true}},
+            {"type":"btn","data":{"button":"left","down":false}}
+        ]}
+    }"#];
+
 const M18_INPUT_EVENTS: [&str; 2] = [
     r#"{
         "execute":"input-send-event",
@@ -7335,6 +7345,10 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                     marker: "Nagi M18 upload picker READY",
                     events: &M18_UPLOAD_CHOOSE_EVENTS,
                 },
+                QmpEventStage {
+                    marker: "Nagi M18 download page READY",
+                    events: &M18_DOWNLOAD_CLICK_EVENTS,
+                },
             ],
             "Nagi M18 browser FAIL",
             &screenshot_path,
@@ -7383,7 +7397,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; gesture-bound clipboard copy/paste, Japanese IME composition, and trusted-picker upload passed (exit {}; log {}; screenshot {})",
+            "PASS M18 Albert: three verified HTTPS pages rendered to Nagi Surface and QEMU; gesture-bound clipboard copy/paste, Japanese IME composition, trusted-picker upload, and user-activated download passed (exit {}; log {}; screenshot {})",
             outcome.exit_status,
             log_path.display(),
             screenshot_path.display(),
