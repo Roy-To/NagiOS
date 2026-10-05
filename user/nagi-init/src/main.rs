@@ -1060,7 +1060,26 @@ pub extern "C" fn _start(
                 libnagi::console_write(b"Nagi M18 browser FAIL Servo profile directory\r\n");
                 libnagi::exit(1);
             }
-            return run_m18_https_acceptance(display_capability, input_capability);
+            // Init owns the user-space clipboard service and registers
+            // Albert as a READ/WRITE client. Gesture windows are in Nagi
+            // timer ticks (about 10 ms): a paste shortcut authorizes one
+            // read for 5 s; other input permits writes for 10 s.
+            let clipboard_service =
+                nagi_clipboard::ClipboardServiceOwner::new(nagi_clipboard::ClipboardPolicy {
+                    paste_grant_ticks: 500,
+                    activation_ticks: 1_000,
+                });
+            let Ok(albert_clipboard) =
+                clipboard_service.register_client(nagi_clipboard::ClipboardRights::READ_WRITE)
+            else {
+                libnagi::console_write(b"Nagi M18 browser FAIL clipboard service\r\n");
+                libnagi::exit(1);
+            };
+            return run_m18_https_acceptance(
+                display_capability,
+                input_capability,
+                albert_clipboard,
+            );
         }
         #[cfg(not(feature = "m18-acceptance"))]
         return run_first_web_pixel(display_capability);

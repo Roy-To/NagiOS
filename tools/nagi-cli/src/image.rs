@@ -1892,6 +1892,7 @@ pub fn run_qemu_gui_with_events_and_screenshot(
         config,
         ready_marker,
         events,
+        &[],
         None,
         GuiQemuMode {
             boot_disk_read_only: false,
@@ -1910,12 +1911,21 @@ pub fn run_qemu_gui_with_events_and_screenshot(
     Ok(outcome)
 }
 
+/// QMP input sent once the guest prints `marker`, after all earlier stages.
+#[derive(Clone, Copy, Debug)]
+pub struct QmpEventStage<'a> {
+    pub marker: &'a str,
+    pub events: &'a [&'a str],
+}
+
 /// Run a read-only boot-disk GUI acceptance and save its accepted display
-/// through QMP without replacing an existing screenshot.
-pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_screenshot(
+/// through QMP without replacing an existing screenshot. `events` are sent at
+/// `ready_marker`; each later stage waits for its own guest marker.
+pub fn run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot(
     config: &QemuConfig<'_>,
     ready_marker: &str,
     events: &[&str],
+    later_stages: &[QmpEventStage<'_>],
     failure_marker: &str,
     screenshot_path: &Path,
 ) -> Result<QemuGuiOutcome, String> {
@@ -1924,6 +1934,7 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_s
         config,
         ready_marker,
         events,
+        later_stages,
         Some(failure_marker),
         GuiQemuMode {
             boot_disk_read_only: true,
@@ -1937,6 +1948,21 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_events_and_failure_marker_and_s
         validate_png_screenshot(screenshot_path)?;
     }
     Ok(outcome)
+}
+
+fn send_qmp_events(
+    qmp_stream: &mut TcpStream,
+    events: &[&str],
+    inter_event_delay: Duration,
+    deadline: Instant,
+) -> Result<(), String> {
+    for (index, event) in events.iter().enumerate() {
+        qmp_exchange(qmp_stream, event, deadline)?;
+        if index + 1 < events.len() && !inter_event_delay.is_zero() {
+            thread::sleep(inter_event_delay);
+        }
+    }
+    Ok(())
 }
 
 fn ensure_new_screenshot_path(screenshot_path: &Path) -> Result<(), String> {
@@ -2135,6 +2161,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
         config,
         ready_marker,
         events,
+        &[],
         failure_marker,
         mode,
         serial_input,
@@ -2143,10 +2170,12 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot(
     .map(|outcome| outcome.exit_status)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
     config: &QemuConfig<'_>,
     ready_marker: &str,
     events: &[&str],
+    later_stages: &[QmpEventStage<'_>],
     failure_marker: Option<&str>,
     mode: GuiQemuMode,
     serial_input: Option<(&str, &[u8])>,
@@ -2267,6 +2296,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
     let marker = config.acceptance_marker.as_bytes();
     let mut buffer = [0_u8; 4096];
     let mut events_sent = false;
+    let mut next_stage = 0;
     let mut serial_input_sent = false;
     let mut ready_after = None;
     loop {
@@ -2289,16 +2319,31 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                     ready_after = Some(qemu_started_at.elapsed());
                 }
                 if !events_sent && guest_ready {
-                    for (index, event) in events.iter().enumerate() {
-                        if let Err(error) = qmp_exchange(&mut qmp_stream, event, deadline) {
-                            terminate_qemu(&mut child, config.serial_log, &serial);
-                            return Err(error);
-                        }
-                        if index + 1 < events.len() && !mode.inter_event_delay.is_zero() {
-                            thread::sleep(mode.inter_event_delay);
-                        }
+                    if let Err(error) =
+                        send_qmp_events(&mut qmp_stream, events, mode.inter_event_delay, deadline)
+                    {
+                        terminate_qemu(&mut child, config.serial_log, &serial);
+                        return Err(error);
                     }
                     events_sent = true;
+                }
+                // Later stages are sent strictly in order, each only after
+                // the previous stage was delivered and its own guest marker
+                // appeared.
+                while let Some(stage) = later_stages.get(next_stage) {
+                    if !events_sent || !bytes_contain(&serial, stage.marker.as_bytes()) {
+                        break;
+                    }
+                    if let Err(error) = send_qmp_events(
+                        &mut qmp_stream,
+                        stage.events,
+                        mode.inter_event_delay,
+                        deadline,
+                    ) {
+                        terminate_qemu(&mut child, config.serial_log, &serial);
+                        return Err(error);
+                    }
+                    next_stage += 1;
                 }
                 if !serial_input_sent {
                     if let Some((input_marker, input)) = serial_input {
@@ -2318,6 +2363,13 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                     return Err(format!("GUI QEMU guest printed failure marker `{marker}`"));
                 }
                 if bytes_contain(&serial, marker) {
+                    if let Some(stage) = later_stages.get(next_stage) {
+                        terminate_qemu(&mut child, config.serial_log, &serial);
+                        return Err(format!(
+                            "GUI QEMU guest printed acceptance marker before staged input marker `{}`",
+                            stage.marker
+                        ));
+                    }
                     let Some(ready_after) = ready_after else {
                         terminate_qemu(&mut child, config.serial_log, &serial);
                         return Err(format!(
@@ -2970,6 +3022,7 @@ fn guest_reached_failure(serial: &[u8], failure_marker: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::time::{Duration, Instant};
 
     use super::{
         append_qmp_timeout_diagnostics, build_fat12_ab_image, build_fat12_image,
@@ -2983,6 +3036,7 @@ mod tests {
         M17_IMAGE_SIZE, M17_SECTORS_PER_CLUSTER, PERSISTENT_DISK_SIZE, QMP_MAX_LINE_BYTES,
         REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
     };
+    use super::{send_qmp_events, QmpEventStage};
 
     #[test]
     fn m20_fixture_filename_uses_the_model_manager_artifact_id_contract() {
@@ -3091,6 +3145,50 @@ mod tests {
         assert!(diagnostics[0].contains(r#""status":"running""#));
         assert!(diagnostics[1].contains("RIP=0x1234"));
         assert!(diagnostics[2].contains("mov %rax,%rbx"));
+    }
+
+    #[test]
+    fn staged_qmp_events_are_sent_in_order_and_each_acknowledged() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind QMP fixture");
+        let address = listener.local_addr().expect("QMP fixture address");
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept QMP fixture");
+            let mut reader = BufReader::new(stream);
+            let mut received = Vec::new();
+            for _ in 0..2 {
+                let mut command = String::new();
+                reader.read_line(&mut command).expect("read staged event");
+                received.push(command.trim().to_owned());
+                reader
+                    .get_mut()
+                    .write_all(b"{\"return\":{}}\r\n")
+                    .expect("acknowledge staged event");
+            }
+            received
+        });
+
+        let mut qmp = TcpStream::connect(address).expect("connect QMP fixture");
+        qmp.set_read_timeout(Some(Duration::from_millis(100)))
+            .expect("set QMP read timeout");
+        let stage = QmpEventStage {
+            marker: "guest stage READY",
+            events: &[r#"{"execute":"first"}"#, r#"{"execute":"second"}"#],
+        };
+        send_qmp_events(
+            &mut qmp,
+            stage.events,
+            Duration::ZERO,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .expect("send staged events");
+        let received = server.join().expect("QMP fixture thread");
+        assert_eq!(
+            received,
+            [r#"{"execute":"first"}"#, r#"{"execute":"second"}"#]
+        );
     }
 
     #[test]

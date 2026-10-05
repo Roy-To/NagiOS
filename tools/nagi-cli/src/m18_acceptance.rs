@@ -4,6 +4,13 @@ const CHROME_PRESENTED_PREFIX: &str = "Nagi M18 browser chrome PRESENTED ";
 const PAGE_RENDERED_PREFIX: &str = "Nagi M18 HTTPS page RENDERED ";
 const INPUT_NAVIGATION_LINE: &str = "Nagi M18 browser input navigation PASS host=example.com";
 const SUMMARY_LINE: &str = "Nagi M18 browser scenario complete pages=3";
+/// Clipboard evidence, required in this order after the HTTPS pages and
+/// before the summary.
+const CLIPBOARD_LINES: [&str; 3] = [
+    "Nagi M18 clipboard page READY",
+    "Nagi M18 clipboard ungestured read DENIED reason=no-user-gesture",
+    "Nagi M18 clipboard copy/paste PASS",
+];
 
 /// Validate the evidence emitted by the real M18 guest browser acceptance run.
 pub(crate) fn validate_serial_log(serial: &str) -> Result<(), String> {
@@ -147,11 +154,52 @@ pub(crate) fn validate_serial_log(serial: &str) -> Result<(), String> {
         }
     }
 
-    match (last_page_line, summary_line) {
-        (Some(last_page), Some(summary)) if summary > last_page => Ok(()),
-        (_, None) => Err(format!("missing {SUMMARY_LINE}")),
-        _ => Err("M18 acceptance summary appeared before the page evidence".to_owned()),
+    let (last_page, summary) = match (last_page_line, summary_line) {
+        (Some(last_page), Some(summary)) if summary > last_page => (last_page, summary),
+        (_, None) => return Err(format!("missing {SUMMARY_LINE}")),
+        _ => {
+            return Err("M18 acceptance summary appeared before the page evidence".to_owned());
+        }
+    };
+    validate_clipboard_evidence(serial, last_page, summary)
+}
+
+fn validate_clipboard_evidence(
+    serial: &str,
+    last_page: usize,
+    summary: usize,
+) -> Result<(), String> {
+    let mut previous = last_page;
+    for expected in CLIPBOARD_LINES {
+        let mut found = None;
+        for (line_number, line) in serial.lines().enumerate() {
+            if line == expected && found.replace(line_number).is_some() {
+                return Err(format!("duplicate clipboard evidence `{expected}`"));
+            }
+        }
+        let line_number =
+            found.ok_or_else(|| format!("missing clipboard evidence `{expected}`"))?;
+        if line_number <= previous || line_number >= summary {
+            return Err(format!(
+                "clipboard evidence `{expected}` appeared out of order on line {}",
+                line_number + 1
+            ));
+        }
+        previous = line_number;
     }
+    // A trusted paste must never be refused; only the deliberate
+    // ungestured probe may be denied.
+    if let Some((line_number, line)) = serial.lines().enumerate().find(|(_, line)| {
+        line.starts_with("Nagi M18 clipboard ")
+            && line.contains(" DENIED")
+            && *line != CLIPBOARD_LINES[1]
+    }) {
+        return Err(format!(
+            "clipboard service denied a user operation on line {}: {line}",
+            line_number + 1
+        ));
+    }
+    Ok(())
 }
 
 fn expected_host_index(host: &str, line_number: usize) -> Result<usize, String> {
@@ -187,8 +235,44 @@ mod tests {
                 index + 1
             ));
         }
+        lines.extend(CLIPBOARD_LINES.iter().map(|line| (*line).to_owned()));
         lines.push(SUMMARY_LINE.to_owned());
         lines.join("\n")
+    }
+
+    #[test]
+    fn requires_clipboard_copy_paste_and_ungestured_denial_evidence() {
+        for line in CLIPBOARD_LINES {
+            let missing = valid_serial().replace(&format!("{line}\n"), "");
+            assert!(
+                validate_serial_log(&missing)
+                    .unwrap_err()
+                    .contains("missing clipboard evidence"),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_out_of_order_or_denied_clipboard_evidence() {
+        let swapped = valid_serial()
+            .replace(CLIPBOARD_LINES[1], "SWAP")
+            .replace(CLIPBOARD_LINES[2], CLIPBOARD_LINES[1])
+            .replace("SWAP", CLIPBOARD_LINES[2]);
+        assert!(validate_serial_log(&swapped)
+            .unwrap_err()
+            .contains("out of order"));
+
+        let denied = valid_serial().replace(
+            CLIPBOARD_LINES[2],
+            &format!(
+                "Nagi M18 clipboard read DENIED reason=no-user-gesture\n{}",
+                CLIPBOARD_LINES[2]
+            ),
+        );
+        assert!(validate_serial_log(&denied)
+            .unwrap_err()
+            .contains("denied a user operation"));
     }
 
     #[test]

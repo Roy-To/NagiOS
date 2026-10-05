@@ -16,6 +16,7 @@ members = [
     "user/nagi-package",
     "user/nagi-model-manager",
     "user/nagi-localization",
+    "user/nagi-clipboard",
     "user/nagi-search",
     "services/nagi-ai",
     "user/nagi-servo",

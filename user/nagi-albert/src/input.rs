@@ -118,9 +118,48 @@ pub const fn is_escape_key(code: u16) -> bool {
     code == 1
 }
 
+pub const fn is_control_key(code: u16) -> bool {
+    matches!(code, 29 | 97)
+}
+
+/// Clipboard shortcut named by a key press while Control is held.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClipboardShortcut {
+    Copy,
+    Cut,
+    Paste,
+}
+
+/// Classify evdev `code` pressed with Control held (US layout).
+pub const fn clipboard_shortcut(code: u16, control: bool) -> Option<ClipboardShortcut> {
+    if !control {
+        return None;
+    }
+    match code {
+        46 => Some(ClipboardShortcut::Copy),
+        45 => Some(ClipboardShortcut::Cut),
+        47 => Some(ClipboardShortcut::Paste),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{chrome_action_at, evdev_character, BrowserChromeAction, CHROME_HEIGHT};
+    use super::{
+        chrome_action_at, clipboard_shortcut, evdev_character, is_control_key, BrowserChromeAction,
+        ClipboardShortcut, CHROME_HEIGHT,
+    };
+
+    #[test]
+    fn clipboard_shortcuts_require_control() {
+        assert!(is_control_key(29) && is_control_key(97));
+        assert!(!is_control_key(42));
+        assert_eq!(clipboard_shortcut(46, true), Some(ClipboardShortcut::Copy));
+        assert_eq!(clipboard_shortcut(45, true), Some(ClipboardShortcut::Cut));
+        assert_eq!(clipboard_shortcut(47, true), Some(ClipboardShortcut::Paste));
+        assert_eq!(clipboard_shortcut(47, false), None);
+        assert_eq!(clipboard_shortcut(30, true), None);
+    }
     use crate::browser_state::BrowserState;
     use crate::tabs::TabId;
     use crate::ui::{self, BrowserChromeOutcome};
