@@ -97,14 +97,17 @@ mod guest {
 
     use super::{tls_verified, Ordering, HTTPS_PAGES, SERVO_CONFIG_DIR, VERIFIED_HOST_MASK};
     use crate::browser_state::{BrowserState, NavigationEventResult};
+    use crate::chrome_surface::{FilePickerView, PAGE_TOP};
     use crate::clipboard::{
         single_line_paste, tab_gesture_scope, BrowserClipboard, ClipboardContext,
         NagiClipboardRuntime,
     };
+    use crate::file_picker::{
+        picker_title, FilePickerState, PickerEntry, PickerKey, PickerOutcome, PICKER_DIRECTORY,
+    };
     use crate::input::{
         chrome_action_at, clipboard_shortcut, evdev_character, ime_key, is_backspace_key,
         is_control_key, is_enter_key, is_escape_key, is_shift_key, ClipboardShortcut,
-        CHROME_HEIGHT,
     };
     use crate::nagi_storage::GuestBrowserStorage;
     use crate::permission_prompt::{
@@ -122,6 +125,8 @@ mod guest {
 
     const WIDTH: u32 = 320;
     const HEIGHT: u32 = 200;
+    /// Servo's viewport sits below Albert's chrome and status strip.
+    const PAGE_HEIGHT: u32 = HEIGHT - PAGE_TOP;
     const PAGE_TIMEOUT_TICKS: u64 = 3_000;
     /// Up to ~3 s for the frame that shows a just-observed DOM change.
     const SETTLE_FRAME_TICKS: u64 = 300;
@@ -163,6 +168,11 @@ mod guest {
         permission_locale: Locale,
         /// Servo's input-method request for the focused text field, if any.
         ime_target: Cell<Option<EmbedderControlId>>,
+        /// Latest URL Servo reported for this tab, not yet applied to the
+        /// browser state.
+        reported_url: RefCell<Option<Url>>,
+        /// A page file input waiting for Albert's trusted picker.
+        pending_file_picker: RefCell<Option<servo::FilePicker>>,
     }
 
     impl AcceptanceDelegate {
@@ -176,6 +186,8 @@ mod guest {
                 pending_permission: RefCell::new(None),
                 permission_locale,
                 ime_target: Cell::new(None),
+                reported_url: RefCell::new(None),
+                pending_file_picker: RefCell::new(None),
             }
         }
 
@@ -489,6 +501,7 @@ mod guest {
 
         fn notify_url_changed(&self, _webview: WebView, url: Url) {
             report_url(b"Nagi M18 browser URL changed to=", &url);
+            self.reported_url.replace(Some(url.clone()));
             self.signal.wake();
         }
 
@@ -553,8 +566,14 @@ mod guest {
         fn show_embedder_control(&self, _webview: WebView, control: EmbedderControl) {
             match control {
                 EmbedderControl::FilePicker(file_picker) => {
-                    file_picker.dismiss();
-                    let _ = libnagi::console_write(b"Nagi M18 upload service unavailable\r\n");
+                    // One picker at a time; a second request is dismissed.
+                    if self.pending_file_picker.borrow().is_some() {
+                        file_picker.dismiss();
+                    } else {
+                        self.pending_file_picker.replace(Some(file_picker));
+                        let _ = libnagi::console_write(b"Nagi M18 upload picker requested\r\n");
+                    }
+                    self.signal.wake();
                 }
                 EmbedderControl::InputMethod(input_method) => {
                     self.ime_target.set(Some(input_method.id()));
@@ -565,6 +584,16 @@ mod guest {
         }
 
         fn hide_embedder_control(&self, _webview: WebView, control_id: EmbedderControlId) {
+            let stale_picker = self
+                .pending_file_picker
+                .borrow()
+                .as_ref()
+                .is_some_and(|picker| picker.id() == control_id);
+            if stale_picker {
+                if let Some(picker) = self.pending_file_picker.take() {
+                    picker.dismiss();
+                }
+            }
             if self.ime_target.get() == Some(control_id) {
                 self.ime_target.set(None);
                 let _ = libnagi::console_write(b"Nagi M18 IME target INACTIVE\r\n");
@@ -595,7 +624,14 @@ mod guest {
         runtime: &TabRuntime,
     ) -> bool {
         settle_frames(servo, signal, runtime);
-        present_browser_surface(context, &runtime.webview, surface, browser_state, None)
+        present_browser_surface(
+            context,
+            &runtime.webview,
+            surface,
+            browser_state,
+            None,
+            None,
+        )
     }
 
     /// Consume frames until Servo stops producing new ones (bounded).
@@ -616,7 +652,7 @@ mod guest {
     fn frame_rectangle() -> DeviceIntRect {
         DeviceIntRect::from_origin_and_size(
             DeviceIntPoint::zero(),
-            DeviceIntSize::new(WIDTH as i32, HEIGHT as i32),
+            DeviceIntSize::new(WIDTH as i32, PAGE_HEIGHT as i32),
         )
     }
 
@@ -812,6 +848,26 @@ mod guest {
         )))
     }
 
+    /// Apply URL changes Servo reported for navigations Albert did not
+    /// request (links, scripts, embedder-loaded content) to the chrome and
+    /// history. Albert-requested navigations are owned by their own events.
+    fn apply_content_navigation(browser_state: &mut BrowserState, runtimes: &[TabRuntime]) {
+        for runtime in runtimes {
+            let Some(url) = runtime.delegate.reported_url.take() else {
+                continue;
+            };
+            let title = runtime.webview.page_title().unwrap_or_default();
+            if let Ok(NavigationEventResult::Applied) = browser_state.content_navigated(
+                runtime.id,
+                url.as_str(),
+                &title,
+                libnagi::time_ticks(),
+            ) {
+                report_url(b"Nagi M18 browser content navigation recorded url=", &url);
+            }
+        }
+    }
+
     fn route_guest_input(
         input_capability: u64,
         bridge: &mut InputBridge,
@@ -824,18 +880,19 @@ mod guest {
         permission_locale: Locale,
         services: &InputServices,
     ) -> Option<crate::navigation::NavigationRequest> {
+        apply_content_navigation(browser_state, runtimes);
         let mut event = libnagi::InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
             return None;
         }
         match bridge.translate(event)? {
             BrowserInput::MouseMove { x, y } => {
-                if y >= CHROME_HEIGHT {
+                if y >= PAGE_TOP {
                     if let Some(runtime) = active_runtime(browser_state, runtimes) {
                         runtime
                             .webview
                             .notify_input_event(ServoInputEvent::MouseMove(MouseMoveEvent::new(
-                                servo_point(x, y),
+                                servo_point(x, y - PAGE_TOP),
                             )));
                     }
                 }
@@ -843,7 +900,9 @@ mod guest {
             }
             BrowserInput::MouseButton { button: 0, pressed } => {
                 let (x, y) = bridge.position();
-                if y < CHROME_HEIGHT {
+                // Toolbar clicks dispatch chrome actions; the status strip
+                // between the toolbar and the page is inert.
+                if y < PAGE_TOP {
                     if pressed {
                         if let Some(action) =
                             chrome_action_at(&ui::view(browser_state), WIDTH, x, y)
@@ -884,7 +943,7 @@ mod guest {
                                 MouseButtonAction::Up
                             },
                             MouseButton::Primary,
-                            servo_point(x, y),
+                            servo_point(x, y - PAGE_TOP),
                         )));
                 }
                 None
@@ -1174,12 +1233,25 @@ mod guest {
         surface: &mut NagiSurface,
         browser_state: &BrowserState,
         prompt: Option<(&str, PermissionKind, Locale)>,
+        picker: Option<&crate::chrome_surface::FilePickerView<'_>>,
     ) -> bool {
         webview.paint();
         let Some(image) = context.read_to_image(frame_rectangle()) else {
             return false;
         };
-        let mut frame = image.as_raw().to_vec();
+        let mut frame = vec![0_u8; WIDTH as usize * HEIGHT as usize * 4];
+        if crate::chrome_surface::place_page(
+            &mut frame,
+            WIDTH,
+            HEIGHT,
+            WIDTH as usize * 4,
+            image.as_raw(),
+            PAGE_HEIGHT,
+        )
+        .is_err()
+        {
+            return false;
+        }
         let chrome = ui::view(browser_state);
         if crate::chrome_surface::render_chrome(
             &mut frame,
@@ -1206,6 +1278,19 @@ mod guest {
                 HEIGHT,
                 WIDTH as usize * 4,
                 &view,
+            )
+            .is_err()
+            {
+                return false;
+            }
+        }
+        if let Some(view) = picker {
+            if crate::chrome_surface::render_file_picker(
+                &mut frame,
+                WIDTH,
+                HEIGHT,
+                WIDTH as usize * 4,
+                view,
             )
             .is_err()
             {
@@ -1319,6 +1404,7 @@ mod guest {
                         surface,
                         browser_state,
                         Some((&origin, kind, delegate.permission_locale)),
+                        None,
                     ) {
                         delegate.resolve_permission(UserDecision::Deny);
                         let _ = libnagi::console_write(
@@ -1349,7 +1435,14 @@ mod guest {
                     route_permission_prompt_input(input_capability, input_bridge, delegate);
                 }
             } else if visible_permission.take().is_some()
-                && !present_browser_surface(context, &runtime.webview, surface, browser_state, None)
+                && !present_browser_surface(
+                    context,
+                    &runtime.webview,
+                    surface,
+                    browser_state,
+                    None,
+                    None,
+                )
             {
                 fail(b"Albert surface restore after permission prompt failed");
             }
@@ -1432,7 +1525,19 @@ mod guest {
         if frame_checksum == 0 {
             fail(b"Servo frame checksum was zero");
         }
-        let mut composed_frame = frame.to_vec();
+        let mut composed_frame = vec![0_u8; WIDTH as usize * HEIGHT as usize * 4];
+        if crate::chrome_surface::place_page(
+            &mut composed_frame,
+            WIDTH,
+            HEIGHT,
+            WIDTH as usize * 4,
+            frame,
+            PAGE_HEIGHT,
+        )
+        .is_err()
+        {
+            fail(b"Albert page composition failed");
+        }
         let chrome = crate::ui::view(browser_state);
         if crate::chrome_surface::render_chrome(
             &mut composed_frame,
@@ -1460,7 +1565,7 @@ mod guest {
         // Count non-background pixels in Servo's own frame (before chrome is
         // composed) so a page that painted only its background is visible
         // in the evidence and rejected by the host validator.
-        let ink = crate::frame_analysis::ink_pixels(frame, WIDTH, HEIGHT, INK_THRESHOLD);
+        let ink = crate::frame_analysis::ink_pixels(frame, WIDTH, PAGE_HEIGHT, INK_THRESHOLD);
         if !report_page(host, frame_checksum, ink) {
             fail(b"serial page evidence write failed");
         }
@@ -1487,7 +1592,10 @@ mod guest {
     /// the guest can observe the paste without evaluating page script.
     const CLIPBOARD_TOKEN: &str = "nagi-clip-7f3a";
     const CLIPBOARD_READY_TITLE: &str = "nagi-clip:ready";
-    const CLIPBOARD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20id%3Ds%20value%3Dnagi-clip-7f3a%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A60px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cinput%20id%3Dd%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A120px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cscript%3Evar%20s%3Ddocument.getElementById%28%27s%27%29%2Cd%3Ddocument.getElementById%28%27d%27%29%3Bd.addEventListener%28%27focus%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3Afocus%3Ad%27%3B%7D%29%3Bd.addEventListener%28%27input%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3A%27%2Bd.value%3B%7D%29%3Bd.addEventListener%28%27compositionend%27%2Cfunction%28e%29%7BsetTimeout%28function%28%29%7Bdocument.title%3D%27nagi-ime%3A%27%2Be.data%2B%27%7C%27%2Bd.value%3B%7D%2C0%29%3B%7D%29%3Bdocument.addEventListener%28%27keydown%27%2Cfunction%28e%29%7Bvar%20a%3Ddocument.activeElement%3Bdocument.title%3D%27nagi-clip%3Akey%3A%27%2Be.key%2B%27%3A%27%2B%28e.ctrlKey%3F1%3A0%29%2B%27%3A%27%2B%28a%26%26a.id%3Fa.id%3A%27none%27%29%2B%27%3A%27%2B%28a%26%26a.selectionStart%21%3Dnull%3Fa.selectionStart%2B%27-%27%2Ba.selectionEnd%3A%27na%27%29%3B%7D%29%3Bs.focus%28%29%3Bs.select%28%29%3Bdocument.title%3D%27nagi-clip%3Aready%27%3B%3C%2Fscript%3E";
+    const CLIPBOARD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20id%3Ds%20value%3Dnagi-clip-7f3a%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A8px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cinput%20id%3Dd%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A58px%3Bwidth%3A280px%3Bheight%3A24px%22%3E%3Cscript%3Evar%20s%3Ddocument.getElementById%28%27s%27%29%2Cd%3Ddocument.getElementById%28%27d%27%29%3Bd.addEventListener%28%27focus%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3Afocus%3Ad%27%3B%7D%29%3Bd.addEventListener%28%27input%27%2Cfunction%28%29%7Bdocument.title%3D%27nagi-clip%3A%27%2Bd.value%3B%7D%29%3Bd.addEventListener%28%27compositionend%27%2Cfunction%28e%29%7BsetTimeout%28function%28%29%7Bdocument.title%3D%27nagi-ime%3A%27%2Be.data%2B%27%7C%27%2Bd.value%3B%7D%2C0%29%3B%7D%29%3Bdocument.addEventListener%28%27keydown%27%2Cfunction%28e%29%7Bvar%20a%3Ddocument.activeElement%3Bdocument.title%3D%27nagi-clip%3Akey%3A%27%2Be.key%2B%27%3A%27%2B%28e.ctrlKey%3F1%3A0%29%2B%27%3A%27%2B%28a%26%26a.id%3Fa.id%3A%27none%27%29%2B%27%3A%27%2B%28a%26%26a.selectionStart%21%3Dnull%3Fa.selectionStart%2B%27-%27%2Ba.selectionEnd%3A%27na%27%29%3B%7D%29%3Bs.focus%28%29%3Bs.select%28%29%3Bdocument.title%3D%27nagi-clip%3Aready%27%3B%3C%2Fscript%3E";
+    /// Page with one `.txt` file input; it reports the chosen file's name,
+    /// size, and contents through its title.
+    const UPLOAD_PAGE: &str = "data:text/html,%3C%21doctype%20html%3E%3Cmeta%20charset%3Dutf-8%3E%3Cbody%20style%3D%22margin%3A0%3Bfont%3A16px%20sans-serif%22%3E%3Cinput%20type%3Dfile%20id%3Df%20accept%3D.txt%20style%3D%22position%3Aabsolute%3Bleft%3A8px%3Btop%3A8px%3Bwidth%3A280px%3Bheight%3A40px%22%3E%3Cscript%3Evar%20f%3Ddocument.getElementById%28%27f%27%29%3Bf.addEventListener%28%27change%27%2Cfunction%28%29%7Bvar%20file%3Df.files%5B0%5D%3Bif%28%21file%29%7Breturn%3B%7Dvar%20reader%3Dnew%20FileReader%28%29%3Breader.onload%3Dfunction%28%29%7Bdocument.title%3D%27nagi-upload%3A%27%2Bfile.name%2B%27%3A%27%2Bfile.size%2B%27%3A%27%2Breader.result%3B%7D%3Breader.readAsText%28file%29%3B%7D%29%3Bdocument.title%3D%27nagi-upload%3Aready%27%3B%3C%2Fscript%3E";
     /// Hiragana for the romaji `nihongo` that the M18 harness types.
     const IME_EXPECTED_COMMIT: &str = "にほんご";
 
@@ -1537,7 +1645,34 @@ mod guest {
             if counters.reads.get() != 0 || counters.denied_reads.get() != 0 {
                 fail(b"clipboard was read before any user paste gesture");
             }
-            if !present_browser_surface(context, &runtime.webview, surface, browser_state, None) {
+        }
+        // The fixture is embedder-loaded content; record it so the chrome
+        // shows its URL instead of the previous HTTPS page.
+        apply_content_navigation(browser_state, runtimes);
+        if browser_state
+            .active_tab()
+            .and_then(|tab| tab.navigation().current_url())
+            .is_none_or(|url| !url.starts_with("data:text/html"))
+        {
+            fail(b"chrome did not record the content-loaded fixture URL");
+        }
+        if libnagi::console_write(b"Nagi M18 browser content navigation PASS\r\n")
+            != b"Nagi M18 browser content navigation PASS\r\n".len()
+        {
+            fail(b"serial content-navigation evidence write failed");
+        }
+        {
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"clipboard acceptance tab has no Servo WebView");
+            };
+            if !present_browser_surface(
+                context,
+                &runtime.webview,
+                surface,
+                browser_state,
+                None,
+                None,
+            ) {
                 fail(b"clipboard page presentation failed");
             }
         }
@@ -1740,6 +1875,249 @@ mod guest {
         }
     }
 
+    const UPLOAD_FILE_NAME: &str = "nagi-upload.txt";
+    const UPLOAD_FILE_CONTENT: &str = "nagi-upload-ok";
+    const UPLOAD_READY_TITLE: &str = "nagi-upload:ready";
+
+    /// List regular files in the picker's Documents folder.
+    fn picker_candidates() -> Vec<PickerEntry> {
+        let Ok(directory) = std::fs::read_dir(PICKER_DIRECTORY) else {
+            return Vec::new();
+        };
+        directory
+            .flatten()
+            .filter_map(|entry| {
+                let metadata = entry.metadata().ok()?;
+                metadata.is_file().then(|| PickerEntry {
+                    name: entry.file_name().to_string_lossy().into_owned(),
+                    size: metadata.len(),
+                })
+            })
+            .collect()
+    }
+
+    fn picker_key(code: u16) -> Option<PickerKey> {
+        match code {
+            103 => Some(PickerKey::Up),
+            108 => Some(PickerKey::Down),
+            28 => Some(PickerKey::Enter),
+            1 => Some(PickerKey::Escape),
+            _ => None,
+        }
+    }
+
+    /// Choose a file for a page file input with Albert's trusted picker and
+    /// confirm that the page received exactly that file.
+    fn run_upload_acceptance(
+        servo: &Servo,
+        context: &Rc<SoftwareRenderingContext>,
+        signal: &Arc<EventLoopSignal>,
+        surface: &mut NagiSurface,
+        browser_state: &mut BrowserState,
+        runtimes: &mut Vec<TabRuntime>,
+        input_capability: u64,
+        input_bridge: &mut InputBridge,
+        modifiers: &mut KeyModifiers,
+        permission_locale: Locale,
+        services: &InputServices,
+    ) {
+        if std::fs::create_dir_all(PICKER_DIRECTORY).is_err()
+            || std::fs::write(
+                format!("{PICKER_DIRECTORY}/{UPLOAD_FILE_NAME}"),
+                UPLOAD_FILE_CONTENT,
+            )
+            .is_err()
+        {
+            fail(b"upload fixture file could not be written");
+        }
+        let Some(tab_id) = browser_state.active_tab_id() else {
+            fail(b"upload acceptance has no active tab");
+        };
+        {
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"upload acceptance tab has no Servo WebView");
+            };
+            runtime.delegate.reset();
+            runtime
+                .webview
+                .load(Url::parse(UPLOAD_PAGE).expect("the bundled upload page is valid"));
+            let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+            loop {
+                servo.spin_event_loop();
+                if runtime.webview.load_status() == LoadStatus::Complete
+                    && runtime.delegate.has_frame()
+                    && runtime.webview.page_title().as_deref() == Some(UPLOAD_READY_TITLE)
+                {
+                    break;
+                }
+                if libnagi::time_ticks() >= deadline {
+                    fail(b"upload page load timed out");
+                }
+                yield_guest_workers(signal);
+            }
+        }
+        apply_content_navigation(browser_state, runtimes);
+        {
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"upload acceptance tab closed");
+            };
+            if !present_settled_frame(servo, context, signal, surface, browser_state, runtime) {
+                fail(b"upload page presentation failed");
+            }
+        }
+        if libnagi::console_write(b"Nagi M18 upload page READY\r\n")
+            != b"Nagi M18 upload page READY\r\n".len()
+        {
+            fail(b"serial upload-ready marker write failed");
+        }
+
+        let expected_title = format!(
+            "nagi-upload:{UPLOAD_FILE_NAME}:{}:{UPLOAD_FILE_CONTENT}",
+            UPLOAD_FILE_CONTENT.len()
+        );
+        let mut picker: Option<FilePickerState> = None;
+        let mut chosen = false;
+        let deadline = libnagi::time_ticks().saturating_add(PAGE_TIMEOUT_TICKS);
+        loop {
+            servo.spin_event_loop();
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"upload acceptance tab closed");
+            };
+            pump_frame(runtime);
+            let request_pending = runtime.delegate.pending_file_picker.borrow().is_some();
+            if request_pending && picker.is_none() {
+                let filters: Vec<String> = runtime
+                    .delegate
+                    .pending_file_picker
+                    .borrow()
+                    .as_ref()
+                    .map(|request| {
+                        request
+                            .filter_patterns()
+                            .iter()
+                            .map(|pattern| pattern.0.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let state = FilePickerState::new(picker_candidates(), &filters);
+                let view = FilePickerView {
+                    title: picker_title(permission_locale),
+                    entries: state.entries(),
+                    selected: state.selected(),
+                };
+                if !present_browser_surface(
+                    context,
+                    &runtime.webview,
+                    surface,
+                    browser_state,
+                    None,
+                    Some(&view),
+                ) {
+                    fail(b"file picker presentation failed");
+                }
+                picker = Some(state);
+                let _ = libnagi::console_write(b"Nagi M18 upload picker READY\r\n");
+            }
+            if let Some(state) = picker.as_mut() {
+                // While the picker is open, device input belongs to it.
+                let mut event = libnagi::InputEvent::default();
+                let outcome = if libnagi::input_read(input_capability, &mut event) {
+                    match input_bridge.translate(event) {
+                        Some(BrowserInput::Key {
+                            code,
+                            pressed: true,
+                        }) => picker_key(code).map(|key| state.handle_key(key)),
+                        Some(BrowserInput::MouseButton {
+                            button: 0,
+                            pressed: true,
+                        }) => {
+                            let (x, y) = input_bridge.position();
+                            crate::file_picker::PickerLayout::new(WIDTH, HEIGHT)
+                                .and_then(|layout| layout.row_at(x, y))
+                                .map(|row| state.choose(row))
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                match outcome {
+                    Some(PickerOutcome::Chosen(path)) => {
+                        if let Some(mut request) = runtime.delegate.pending_file_picker.take() {
+                            request.select(&[std::path::PathBuf::from(&path)]);
+                            request.submit();
+                            chosen = true;
+                            report_url(
+                                b"Nagi M18 upload file chosen path=",
+                                &Url::parse(&format!("file://{path}"))
+                                    .expect("picker paths are absolute"),
+                            );
+                        }
+                        picker = None;
+                    }
+                    Some(PickerOutcome::Canceled) => {
+                        if let Some(request) = runtime.delegate.pending_file_picker.take() {
+                            request.dismiss();
+                        }
+                        picker = None;
+                        fail(b"upload picker was canceled");
+                    }
+                    Some(PickerOutcome::Pending) => {
+                        let view = FilePickerView {
+                            title: picker_title(permission_locale),
+                            entries: state.entries(),
+                            selected: state.selected(),
+                        };
+                        let _ = present_browser_surface(
+                            context,
+                            &runtime.webview,
+                            surface,
+                            browser_state,
+                            None,
+                            Some(&view),
+                        );
+                    }
+                    None => {}
+                }
+            } else if route_guest_input(
+                input_capability,
+                input_bridge,
+                browser_state,
+                servo,
+                context,
+                signal,
+                runtimes,
+                modifiers,
+                permission_locale,
+                services,
+            )
+            .is_some()
+            {
+                fail(b"upload input unexpectedly started a navigation");
+            }
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"upload acceptance tab closed");
+            };
+            if chosen && runtime.webview.page_title().as_deref() == Some(expected_title.as_str()) {
+                break;
+            }
+            if libnagi::time_ticks() >= deadline {
+                fail(b"upload input timed out");
+            }
+            yield_guest_workers(signal);
+        }
+        let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+            fail(b"upload acceptance tab closed");
+        };
+        if !present_settled_frame(servo, context, signal, surface, browser_state, runtime) {
+            fail(b"upload result presentation failed");
+        }
+        if libnagi::console_write(b"Nagi M18 upload PASS\r\n") != b"Nagi M18 upload PASS\r\n".len()
+        {
+            fail(b"serial upload evidence write failed");
+        }
+    }
+
     pub fn run(
         display_capability: u64,
         input_capability: u64,
@@ -1770,7 +2148,7 @@ mod guest {
         let Some(mut surface) = NagiSurface::acquire(display_capability) else {
             fail(b"display Surface unavailable");
         };
-        let context = match SoftwareRenderingContext::new(PhysicalSize::new(WIDTH, HEIGHT)) {
+        let context = match SoftwareRenderingContext::new(PhysicalSize::new(WIDTH, PAGE_HEIGHT)) {
             Ok(context) => Rc::new(context),
             Err(_) => fail(b"Servo rendering context creation failed"),
         };
@@ -1922,6 +2300,19 @@ mod guest {
             &services,
         );
         run_ime_acceptance(
+            &servo,
+            &context,
+            &signal,
+            &mut surface,
+            &mut browser_state,
+            &mut runtimes,
+            input_capability,
+            &mut input_bridge,
+            &mut modifiers,
+            permission_locale,
+            &services,
+        );
+        run_upload_acceptance(
             &servo,
             &context,
             &signal,

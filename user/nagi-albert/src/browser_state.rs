@@ -365,6 +365,61 @@ impl BrowserState {
         Ok(NavigationEventResult::Applied)
     }
 
+    /// Record a navigation Servo reports for `tab_id` that Albert did not
+    /// request. While an Albert-requested navigation is pending, its own
+    /// redirect/complete events own the URL and this is ignored, as is a
+    /// report of the URL already shown.
+    ///
+    /// HTTP(S) destinations become history entries like any other visit.
+    /// Other schemes (for example `data:`) update the tab's displayed URL and
+    /// title only, so they are neither persisted nor offered for traversal.
+    pub fn content_navigated(
+        &mut self,
+        tab_id: TabId,
+        url: &str,
+        title: &str,
+        visited_at: u64,
+    ) -> Result<NavigationEventResult, BrowserStateError> {
+        let tab = self
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == tab_id)
+            .ok_or(BrowserStateError::TabNotFound)?;
+        if tab.pending.is_some() || tab.navigation.current_url() == Some(url) {
+            return Ok(NavigationEventResult::IgnoredStale);
+        }
+        let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+        if lower.starts_with("https://") || lower.starts_with("http://") {
+            let Ok(normalized) = normalize_address(url) else {
+                return Ok(NavigationEventResult::IgnoredStale);
+            };
+            // Keep an address the user is editing.
+            let editing = self
+                .address_bar
+                .is_focused()
+                .then(|| self.address_bar.text());
+            let request = self.begin_navigation(
+                tab_id,
+                normalized,
+                NavigationReason::Content,
+                PendingKind::NewEntry,
+            )?;
+            let result = self.complete_navigation(tab_id, request.id, title, visited_at);
+            if let Some(text) = editing {
+                let _ = self.address_bar.set_text(text);
+            }
+            return result;
+        }
+        let shown = bounded_text(url, crate::ime::MAX_TEXT_BYTES);
+        tab.navigation.begin(shown);
+        tab.navigation
+            .complete(bounded_text(title, MAX_HISTORY_TITLE_BYTES));
+        if self.active_tab_id == Some(tab_id) && !self.address_bar.is_focused() {
+            self.refresh_address_bar();
+        }
+        Ok(NavigationEventResult::Applied)
+    }
+
     pub fn fail_navigation(
         &mut self,
         tab_id: TabId,
@@ -682,6 +737,82 @@ mod tests {
         complete(&mut browser, active, "New", 2);
         assert_eq!(browser.history().len(), 1);
         assert_eq!(browser.history()[0].url, "https://new.example/");
+    }
+
+    #[test]
+    fn content_navigation_to_https_adds_history_and_updates_the_address_bar() {
+        let mut browser = BrowserState::new();
+        let tab = browser.active_tab_id().unwrap();
+        let first = browser.navigate(tab, "https://one.example/").unwrap();
+        browser
+            .complete_navigation(tab, first.id, "One", 1)
+            .unwrap();
+        assert_eq!(
+            browser
+                .content_navigated(tab, "https://two.example/next", "Two", 2)
+                .unwrap(),
+            NavigationEventResult::Applied
+        );
+        assert_eq!(browser.address_bar().text(), "https://two.example/next");
+        assert_eq!(browser.history().last().unwrap().title, "Two");
+        assert!(browser.can_go_back(tab));
+        // A repeated report of the shown URL is ignored.
+        assert_eq!(
+            browser
+                .content_navigated(tab, "https://two.example/next", "Two", 3)
+                .unwrap(),
+            NavigationEventResult::IgnoredStale
+        );
+        assert_eq!(browser.history().len(), 2);
+    }
+
+    #[test]
+    fn content_navigation_defers_to_a_pending_albert_navigation() {
+        let mut browser = BrowserState::new();
+        let tab = browser.active_tab_id().unwrap();
+        browser.navigate(tab, "https://one.example/").unwrap();
+        assert_eq!(
+            browser
+                .content_navigated(tab, "https://one.example/", "One", 1)
+                .unwrap(),
+            NavigationEventResult::IgnoredStale
+        );
+        assert!(browser.history().is_empty());
+    }
+
+    #[test]
+    fn non_http_content_is_shown_but_not_recorded() {
+        let mut browser = BrowserState::new();
+        let tab = browser.active_tab_id().unwrap();
+        assert_eq!(
+            browser
+                .content_navigated(tab, "data:text/html,hi", "Fixture", 1)
+                .unwrap(),
+            NavigationEventResult::Applied
+        );
+        assert_eq!(browser.address_bar().text(), "data:text/html,hi");
+        assert_eq!(
+            browser.active_tab().unwrap().navigation().title(),
+            "Fixture"
+        );
+        assert!(browser.history().is_empty());
+    }
+
+    #[test]
+    fn content_navigation_does_not_overwrite_an_address_being_edited() {
+        let mut browser = BrowserState::new();
+        let tab = browser.active_tab_id().unwrap();
+        browser.address_bar_mut().focus();
+        browser.address_bar_mut().set_text("typing").unwrap();
+        browser
+            .content_navigated(tab, "data:text/html,x", "X", 1)
+            .unwrap();
+        assert_eq!(browser.address_bar().text(), "typing");
+        browser
+            .content_navigated(tab, "https://link.example/", "Link", 2)
+            .unwrap();
+        assert_eq!(browser.address_bar().text(), "typing");
+        assert!(browser.address_bar().is_focused());
     }
 
     #[test]

@@ -94,7 +94,7 @@ or establish binary redistribution permission.
 ## Bundled system fonts
 
 `third_party/fonts.lock` pins the fonts compiled into the Servo-enabled Nagi
-init image and published read-only under `/system/fonts/` (ADR 0045).
+init image and published read-only under `/system/fonts/` (ADR 0055).
 `./nagi fetch` downloads them into the ignored `out/cache/fonts/` cache and
 rejects any file whose size or SHA-256 differs from the lock. The OFL license
 texts are pinned the same way and shipped beside the fonts in the image.

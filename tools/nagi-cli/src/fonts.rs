@@ -1,4 +1,4 @@
-//! Pinned system fonts (ADR 0045).
+//! Pinned system fonts (ADR 0055).
 //!
 //! `third_party/fonts.lock` pins each bundled font and license file by URL at
 //! an immutable repository revision, byte size, and SHA-256. `./nagi fetch`

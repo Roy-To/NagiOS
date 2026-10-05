@@ -1167,19 +1167,27 @@ pub unsafe extern "C" fn nagi_posix_utimes(path: *const c_char, times: *const c_
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nagi_posix_opendir(path: *const c_char) -> *mut c_void {
-    match is_root_path(path) {
-        Ok(true) => {}
-        Ok(false) => {
-            set_errno(ENOTSUP);
-            return ptr::null_mut();
-        }
+    let root = match is_root_path(path) {
+        Ok(root) => root,
         Err(error) => {
             set_errno(error);
             return ptr::null_mut();
         }
-    }
+    };
     let mut entries = [DirectoryEntry::empty(); MAX_DIRECTORY_ENTRIES];
-    let count = match crate::runtime::list_root(&mut entries) {
+    let listing = if root {
+        crate::runtime::list_root(&mut entries)
+    } else {
+        let mut bytes = [0_u8; PATH_BUFFER_CAPACITY];
+        match c_path(path, &mut bytes) {
+            Ok(name) => crate::runtime::list_directory(name, &mut entries),
+            Err(error) => {
+                set_errno(error);
+                return ptr::null_mut();
+            }
+        }
+    };
+    let count = match listing {
         Ok(count) => count,
         Err(error) => {
             set_errno(crate::runtime::map_error(error));

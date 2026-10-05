@@ -1,4 +1,4 @@
-# ADR 0044: M18 Japanese IME without kanji conversion in Nagi 0.1
+# ADR 0054: M18 Japanese IME without kanji conversion in Nagi 0.1
 
 Status: accepted for M18 (user decision, 2026-10-05)
 Date: 2026-10-05

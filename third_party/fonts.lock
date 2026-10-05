@@ -1,6 +1,6 @@
 format_version = 1
 
-# Exact system-font pins for Nagi 0.1 (ADR 0045). `./nagi fetch` downloads
+# Exact system-font pins for Nagi 0.1 (ADR 0055). `./nagi fetch` downloads
 # each file into the ignored `out/cache/fonts/` cache and refuses any byte
 # that does not match `size_bytes` and `sha256`. Files with `guest_path` are
 # compiled into the Servo-enabled init image and published read-only at that
