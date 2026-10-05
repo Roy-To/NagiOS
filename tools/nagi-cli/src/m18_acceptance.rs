@@ -9,6 +9,9 @@ const SUMMARY_LINE: &str = "Nagi M18 browser scenario complete pages=3";
 const MIN_INK_PIXELS: u32 = 200;
 /// Clipboard evidence, required in this order after the HTTPS pages and
 /// before the summary.
+/// The embedder-loaded fixture must reach the chrome as content navigation
+/// before the clipboard steps.
+const CONTENT_NAVIGATION_LINE: &str = "Nagi M18 browser content navigation PASS";
 const CLIPBOARD_UNGESTURED_DENIAL: &str =
     "Nagi M18 clipboard ungestured read DENIED reason=no-user-gesture";
 const CLIPBOARD_LINES: [&str; 5] = [
@@ -187,7 +190,10 @@ fn validate_clipboard_evidence(
     summary: usize,
 ) -> Result<(), String> {
     let mut previous = last_page;
-    for expected in CLIPBOARD_LINES.iter().chain(IME_LINES.iter()).copied() {
+    for expected in std::iter::once(CONTENT_NAVIGATION_LINE)
+        .chain(CLIPBOARD_LINES.iter().copied())
+        .chain(IME_LINES.iter().copied())
+    {
         let mut found = None;
         for (line_number, line) in serial.lines().enumerate() {
             if line == expected && found.replace(line_number).is_some() {
@@ -252,6 +258,7 @@ mod tests {
                 index + 1
             ));
         }
+        lines.push(CONTENT_NAVIGATION_LINE.to_owned());
         lines.extend(CLIPBOARD_LINES.iter().map(|line| (*line).to_owned()));
         lines.extend(IME_LINES.iter().map(|line| (*line).to_owned()));
         lines.push(SUMMARY_LINE.to_owned());
@@ -269,6 +276,14 @@ mod tests {
                 "{line}"
             );
         }
+    }
+
+    #[test]
+    fn requires_content_navigation_before_clipboard_evidence() {
+        let missing = valid_serial().replace(&format!("{CONTENT_NAVIGATION_LINE}\n"), "");
+        assert!(validate_serial_log(&missing)
+            .unwrap_err()
+            .contains("missing clipboard or IME evidence"));
     }
 
     #[test]

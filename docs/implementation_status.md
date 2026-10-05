@@ -9273,9 +9273,37 @@ the evidence frame is read. Post-merge run `1791185927312101000` passed with
 `ink_pixels=6283` per site; evidence under
 `out/evidence/m29-browser-1791185927312101000/`.
 
-Still open: Albert's 48 px chrome is drawn over the top of the page instead
-of offsetting the viewport, and the chrome keeps the last HTTPS title/URL
-while the fixture page is shown.
+## M18 chrome layout and content navigation (2026-10-05)
+
+- **Layout:** Servo's viewport had covered the whole 320x200 surface, with
+  Albert's 48 px toolbar and an unbackgrounded status line drawn over the
+  top of the page. The status strip is now part of the chrome (opaque
+  background, `PAGE_TOP` = 62 px), Servo renders a 320x138 viewport placed
+  below it, page input coordinates are offset to match, and clicks on the
+  strip are inert.
+- **Content navigation:** Albert's browser state only knew navigations it
+  requested, so link, script, or embedder-loaded navigations left the tab
+  title, address bar, and history stale. `BrowserState::content_navigated`
+  records URLs Servo reports outside a pending Albert navigation: HTTP(S)
+  destinations become history entries; other schemes (such as `data:`) update
+  the display only and are never persisted. An address the user is editing is
+  preserved. The M18 fixture now reaches the chrome this way, and the
+  validator requires `Nagi M18 browser content navigation PASS` before the
+  clipboard steps.
+- **Chrome glyphs:** the address-bar bitmap font gained the remaining URL
+  characters (`, ; ! @ ~ ' ( ) [ ] * $`); a test now covers every
+  URL-permitted ASCII character.
+
+Local `./nagi m18` run `1791195781053517000` passed (HTTPS `ink_pixels=4051`
+per site, content navigation, clipboard, IME); the screenshot shows the
+fixture URL and title in the chrome and the page below it. Evidence under
+`out/evidence/m29-browser-1791195781053517000/`. `nagi-albert` 79 tests,
+`nagi-cli` 255 tests, warning-denied Clippy.
+
+Still open for M18: download/upload destinations, the production
+authenticated permission policy/IPC provider, and interactive QEMU
+permission-prompt acceptance. Later title-only changes (for example a page
+updating `document.title`) are not yet reflected in the tab title.
 
 ## Nagi 0.2 integration-line checkpoints (merged 2026-10-05)
 

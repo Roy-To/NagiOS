@@ -165,6 +165,9 @@ mod guest {
         permission_locale: Locale,
         /// Servo's input-method request for the focused text field, if any.
         ime_target: Cell<Option<EmbedderControlId>>,
+        /// Latest URL Servo reported for this tab, not yet applied to the
+        /// browser state.
+        reported_url: RefCell<Option<Url>>,
     }
 
     impl AcceptanceDelegate {
@@ -178,6 +181,7 @@ mod guest {
                 pending_permission: RefCell::new(None),
                 permission_locale,
                 ime_target: Cell::new(None),
+                reported_url: RefCell::new(None),
             }
         }
 
@@ -491,6 +495,7 @@ mod guest {
 
         fn notify_url_changed(&self, _webview: WebView, url: Url) {
             report_url(b"Nagi M18 browser URL changed to=", &url);
+            self.reported_url.replace(Some(url.clone()));
             self.signal.wake();
         }
 
@@ -814,6 +819,26 @@ mod guest {
         )))
     }
 
+    /// Apply URL changes Servo reported for navigations Albert did not
+    /// request (links, scripts, embedder-loaded content) to the chrome and
+    /// history. Albert-requested navigations are owned by their own events.
+    fn apply_content_navigation(browser_state: &mut BrowserState, runtimes: &[TabRuntime]) {
+        for runtime in runtimes {
+            let Some(url) = runtime.delegate.reported_url.take() else {
+                continue;
+            };
+            let title = runtime.webview.page_title().unwrap_or_default();
+            if let Ok(NavigationEventResult::Applied) = browser_state.content_navigated(
+                runtime.id,
+                url.as_str(),
+                &title,
+                libnagi::time_ticks(),
+            ) {
+                report_url(b"Nagi M18 browser content navigation recorded url=", &url);
+            }
+        }
+    }
+
     fn route_guest_input(
         input_capability: u64,
         bridge: &mut InputBridge,
@@ -826,6 +851,7 @@ mod guest {
         permission_locale: Locale,
         services: &InputServices,
     ) -> Option<crate::navigation::NavigationRequest> {
+        apply_content_navigation(browser_state, runtimes);
         let mut event = libnagi::InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
             return None;
@@ -1565,6 +1591,26 @@ mod guest {
             if counters.reads.get() != 0 || counters.denied_reads.get() != 0 {
                 fail(b"clipboard was read before any user paste gesture");
             }
+        }
+        // The fixture is embedder-loaded content; record it so the chrome
+        // shows its URL instead of the previous HTTPS page.
+        apply_content_navigation(browser_state, runtimes);
+        if browser_state
+            .active_tab()
+            .and_then(|tab| tab.navigation().current_url())
+            .is_none_or(|url| !url.starts_with("data:text/html"))
+        {
+            fail(b"chrome did not record the content-loaded fixture URL");
+        }
+        if libnagi::console_write(b"Nagi M18 browser content navigation PASS\r\n")
+            != b"Nagi M18 browser content navigation PASS\r\n".len()
+        {
+            fail(b"serial content-navigation evidence write failed");
+        }
+        {
+            let Some(runtime) = runtime_for_tab(runtimes, tab_id) else {
+                fail(b"clipboard acceptance tab has no Servo WebView");
+            };
             if !present_browser_surface(context, &runtime.webview, surface, browser_state, None) {
                 fail(b"clipboard page presentation failed");
             }

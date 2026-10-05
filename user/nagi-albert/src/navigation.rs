@@ -13,6 +13,9 @@ pub enum NavigationReason {
     Reload,
     Bookmark,
     Restore,
+    /// The page navigated itself (link, form, script) or the embedder loaded
+    /// content directly; Albert learns of it from Servo.
+    Content,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
