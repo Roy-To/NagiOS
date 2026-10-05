@@ -82,7 +82,9 @@ complete and this evidence does not assert release readiness.
 - [x] Exercise GPT System B selection, Recovery, retry preservation, rollback,
   and readiness-based promotion using the persistent M27 boot-control policy.
 - [ ] Produce and install an authenticated GPT update with authenticated slot
-  manifests.
+  manifests. Authenticated slot manifests are verified by the loader for
+  System A, System B and Recovery (ADR 0054, 2026-10-06); the in-guest
+  installer and staging request remain.
 - [x] Run release preflight, assembly, and verification from a clean committed
   revision. Boot a byte-identical disposable qcow2 copy twice, then verify the
   untouched assembled package checksums and qcow2 structure.

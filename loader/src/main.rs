@@ -635,9 +635,8 @@ fn verify_slot_manifest(
     selection: BootImageSelection,
     boot_control: &BootControlInfo,
 ) -> Result<nagi_slot_manifest::SlotManifest, &'static str> {
-    let manifest = read_slot_manifest(selection).map_err(|reason| {
-        reject_slot_manifest(selection, reason)
-    })?;
+    let manifest =
+        read_slot_manifest(selection).map_err(|reason| reject_slot_manifest(selection, reason))?;
     if boot_control.attempt != 0 {
         let confirmed = match selection {
             BootImageSelection::SystemB => BootImageSelection::SystemA,
@@ -680,22 +679,16 @@ fn read_slot_manifest(
     };
     let mut bytes = [0; MAX_SLOT_MANIFEST_BYTES];
     let length = read_bounded_regular_file(
-        &mut file,
-        &mut bytes,
-        "size",
-        "size",
-        "read",
-        "read",
-        "read",
+        &mut file, &mut bytes, "size", "size", "read", "read", "read",
     )
     .map_err(|_| "size")?;
-    SlotManifest::verify(&bytes[..length], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY).map_err(
-        |error| match error {
+    SlotManifest::verify(&bytes[..length], &TRUSTED_SLOT_SIGNING_PUBLIC_KEY).map_err(|error| {
+        match error {
             ManifestError::InvalidLength => "size",
             ManifestError::Signature => "signature",
             ManifestError::Malformed => "malformed",
-        },
-    )
+        }
+    })
 }
 
 #[cfg(feature = "m27-ab-slot-boot-control")]
@@ -706,20 +699,17 @@ fn check_slot_payload(
     bytes: &[u8],
 ) -> Result<(), &'static str> {
     use nagi_slot_manifest::{PayloadError, PayloadKind};
-    manifest
-        .payload(kind)
-        .check(bytes)
-        .map_err(|error| {
-            reject_slot_manifest(
-                selection,
-                match (kind, error) {
-                    (PayloadKind::Kernel, PayloadError::Size) => "kernel-size",
-                    (PayloadKind::Kernel, PayloadError::Digest) => "kernel-digest",
-                    (PayloadKind::Init, PayloadError::Size) => "init-size",
-                    (PayloadKind::Init, PayloadError::Digest) => "init-digest",
-                },
-            )
-        })
+    manifest.payload(kind).check(bytes).map_err(|error| {
+        reject_slot_manifest(
+            selection,
+            match (kind, error) {
+                (PayloadKind::Kernel, PayloadError::Size) => "kernel-size",
+                (PayloadKind::Kernel, PayloadError::Digest) => "kernel-digest",
+                (PayloadKind::Init, PayloadError::Size) => "init-size",
+                (PayloadKind::Init, PayloadError::Digest) => "init-digest",
+            },
+        )
+    })
 }
 
 #[cfg(feature = "m27-ab-slot-boot-control")]

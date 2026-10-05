@@ -11,6 +11,40 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**Authenticated slot manifests (ADR 0054), 2026-10-06:** The loader now
+verifies a signed `SLOT.MAN` for System A, System B and Recovery before it
+trusts any payload.
+
+- **Format and checks.** The manifest is Ed25519-signed with a domain
+  separator and pins the SHA-256 and size of `KERNEL.ELF` and `INIT.ELF`.
+  A trial slot must not lower the confirmed slot's rollback index. These
+  checks live in the `no_std` `crates/nagi-slot-manifest`, which has five
+  host tests.
+- **Rejection path.** A rejection prints `Nagi slot manifest REJECTED
+  slot=<S> reason=<…>` and consumes an M27 trial attempt.
+- **M27 GPT fixture.** System B now has a bootable ELF, but its manifest is
+  signed by an untrusted key.
+- **Soft-float build.** The UEFI target uses curve25519-dalek's `serial`
+  backend because it is soft-float.
+- **Result.** On the arm64 macOS host, `./nagi m27` passed (evidence
+  `out/evidence/m27-ab-rollback-1791241326571375000`):
+  - three trials printed `reason=signature`, then Recovery ran, then the
+    boot rolled back to System A;
+  - the healthy B verified and was promoted;
+  - the FAT12 malformed B is still refused as `invalid ELF`.
+- **M30.** `./nagi m30` passed from a clean worktree of the commit (run
+  `m30-release-1791241538355805000`): System A and Recovery printed
+  `Nagi slot manifest verified … rollback-index=1 PASS`.
+- **Host checks.** 855 workspace host tests and the loader library tests
+  pass.
+
+Still open for the M30 update item:
+
+- an in-guest installer that writes a signed update into the inactive slot,
+  reads it back, and verifies it;
+- a loader-consumed staging request;
+- production key provisioning.
+
 **User consent for manifest grants (ADR 0051), 2026-10-03:** A signed
 manifest's `grant=` line is now only a request.
 
