@@ -3762,7 +3762,8 @@ fn run_m30_update(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, Str
     let update_init = build_and_read(
         root,
         "M30 update payload init",
-        &m30_update_init_args("m10-desktop"),
+        // ADR 0063: the updated system is confirmed only after sign-in.
+        &m30_update_init_args("desktop-login"),
         &init_path,
     )?;
     let kernel = build_and_read(
@@ -3913,7 +3914,32 @@ fn run_m30_update(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, Str
             ],
             &[],
         )?;
-        let trial = boot("trial", "Nagi M10 desktop READY", true)?;
+        // The updated system reports readiness only after the owner signs
+        // in; create the owner through the OS-owned login screen.
+        let trial_log = evidence.join(format!("{label}-trial.log"));
+        let trial_config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &image_path,
+            vars_copy: &vars,
+            serial_log: &trial_log,
+            acceptance_marker: "Nagi M27 readiness persisted slot=B attempt=1",
+            timeout: Duration::from_secs(180),
+        };
+        let mut sign_in = qmp_typed_keys("owner", "ret");
+        sign_in.extend(qmp_typed_keys("nagi1", "ret"));
+        sign_in.extend(qmp_typed_keys("nagi1", "ret"));
+        let sign_in: Vec<&str> = sign_in.iter().map(String::as_str).collect();
+        run_qemu_gui_reusing_ovmf_vars_with_events(
+            &trial_config,
+            "Nagi login READY mode=create",
+            &sign_in,
+        )
+        .map_err(|error| format!("{label} trial boot: {error} (log {})", trial_log.display()))?;
+        let trial = fs::read_to_string(&trial_log)
+            .map_err(|error| format!("read {}: {error}", trial_log.display()))?;
         require(
             "trial",
             &trial,
@@ -3922,10 +3948,17 @@ fn run_m30_update(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, Str
                 "Nagi M27 persistence decision: trial attempt=1 slot=B",
                 "Nagi M30 GPT partition boot: System B PASS",
                 "Nagi slot manifest verified slot=B rollback-index=2 PASS",
+                "Nagi login owner created PASS name=owner",
                 "Nagi M27 readiness persisted slot=B attempt=1",
             ],
             &["Nagi update slot claimed"],
         )?;
+        if !m27_readiness_persisted_after_sign_in(&trial) {
+            return Err(format!(
+                "{label} trial persisted readiness before the owner signed in (log {})",
+                trial_log.display()
+            ));
+        }
         let confirmed = boot("confirmed", "Nagi M10 desktop READY", true)?;
         require(
             "confirmed",

@@ -37,8 +37,10 @@ desktop first shows an OS-owned login screen.
 
 Still open:
 
-- the legacy FAT12 M27 fixtures, the M10/M29 desktops and the
-  `m30-update` payload do not enable `desktop-login` yet;
+- the legacy FAT12 M27 fixtures and the M10/M29 desktops do not enable
+  `desktop-login` yet. The `m30-update` payload now does: its System B
+  trial creates the owner and persists readiness only after sign-in
+  (`./nagi m30-update` run `1791260698907877000`);
 - more accounts, password change, and rate limiting.
 
 **Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
