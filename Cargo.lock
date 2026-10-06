@@ -2999,6 +2999,7 @@ dependencies = [
  "getrandom 0.4.3",
  "nagi-abi",
  "nagi-model",
+ "sha2",
 ]
 
 [[package]]

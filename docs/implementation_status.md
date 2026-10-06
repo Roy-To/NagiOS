@@ -11,6 +11,78 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**Desktop owner login (ADR 0063), 2026-10-06:** With `desktop-login`, the
+desktop first shows an OS-owned login screen.
+
+- **First run** creates the owner account. Only a salted PBKDF2-HMAC-SHA256
+  credential in a checksummed `owner-account` record reaches User Data.
+- **Later boots** unlock it.
+- **Readiness** is reported only after sign-in.
+- **Host tests.** `libnagi::credential` (checked against the PBKDF2 vectors)
+  and `libnagi::login` are host-tested. The workspace has 872 host tests,
+  and warning-denied Clippy is clean.
+- **Result.** `./nagi login` passed (evidence
+  `out/evidence/login-1791243371662416000`): QMP typed the owner name and
+  password to create the account; after a restart a wrong password was
+  `REJECTED` and the right one signed in. `./nagi m29` and
+  `./nagi consent` still pass.
+
+- **Follow-up.**
+  - **Consent.** The consent dialog now records for the signed-in owner,
+    after sign-in, and `./nagi consent` signs in first.
+  - **M27.** The M27 GPT healthy-B trial creates the owner through QMP and
+    must persist readiness only after `Nagi login unlocked PASS`. This is
+    account-authenticated readiness; `./nagi m27` passed (evidence
+    `out/evidence/m27-ab-rollback-1791243852197747000`).
+
+Still open:
+
+- the legacy FAT12 M27 fixtures, the M10/M29 desktops and the
+  `m30-update` payload do not enable `desktop-login` yet;
+- more accounts, password change, and rate limiting.
+
+**Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
+grant is now asked through an OS-owned dialog, and the answer survives a
+restart.
+
+- **Prompt.** The Supervisor queues a prompt, and init's desktop shows a
+  modal Deny / Allow once / Allow dialog in en-US or ja-JP. Its input rules
+  are host-tested in `libnagi::consent`:
+  - input counts only after the dialog is presented, as a press plus its
+    release;
+  - focus starts on Deny;
+  - Escape decides nothing.
+- **Persistence.** `Allow`/`Deny` are written to User Data
+  `consent-decisions`, which has a versioned header and an FNV-1a checksum.
+  `AllowOnce` is never written. Restoring is all-or-nothing and fails
+  closed.
+- **Result.** `./nagi consent` passed on this arm64 macOS host (run
+  `1791239242422379000`, `OVMF_HOME=/opt/homebrew/share/qemu`):
+  - **First boot.** The signed faulting app's
+    `acceptance.consent-probe` request opened the dialog, captured before
+    input in `out/evidence/consent-dialog-1791239242422379000/`. A pointer
+    press on Deny released off-button decided nothing. Tab, Tab, then Enter
+    (press and release) allowed, and the decision was persisted.
+  - **Restart.** The same disk restored one decision, and the grant was
+    `Granted` with no prompt.
+- **Regressions.** `./nagi m29` and `./nagi isolated-process` still pass.
+  The workspace has 863 host tests (x86_64-apple-darwin) and
+  warning-denied Clippy is clean.
+- **Frame check.** The desktop's frame-change check now hashes every pixel,
+  because a moved pointer could miss every sampled pixel.
+- **Unrelated failure.** `./nagi desktop` fails on `main` as well. Its
+  required list includes the M29-only keyboard marker, which an
+  `m10-desktop` build never prints; this predates this change.
+- **Flake.** One temporary ja-JP rendering run timed out in OVMF on the
+  restart boot before the kernel started. The identical rerun passed.
+
+Still open:
+
+- the signed-in user is still the fixture account (no desktop login UI);
+- only the acceptance queues prompts; production services do not yet;
+- foreground/background and selected-file consent;
+- a settings UI to review or withdraw persisted decisions.
+
 **In-guest system update installer (ADR 0062), 2026-10-06:** A running
 System A now installs a signed update into System B, the loader re-verifies
 and trials it, and B is confirmed after readiness.
@@ -90,8 +162,8 @@ manifest's `grant=` line is now only a request.
 Still open:
 
 - the trusted consent dialog (acceptance decisions come from a fixture
-  account);
-- persisting decisions;
+  account) — addressed by ADR 0060;
+- persisting decisions — addressed by ADR 0060;
 - foreground/background distinctions.
 
 **Concurrent isolated processes (ADR 0050), 2026-10-03:** The kernel now

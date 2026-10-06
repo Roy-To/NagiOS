@@ -2110,6 +2110,37 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marke
     Ok(outcome)
 }
 
+/// Run a writable GUI acceptance: `events` are sent at `ready_marker`, each
+/// later stage waits for its own guest marker, and the accepted display is
+/// saved through QMP.
+pub fn run_qemu_gui_with_staged_events_and_screenshot(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    later_stages: &[QmpEventStage<'_>],
+    screenshot_path: &Path,
+) -> Result<QemuGuiOutcome, String> {
+    ensure_new_screenshot_path(screenshot_path)?;
+    let outcome = run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
+        config,
+        ready_marker,
+        events,
+        later_stages,
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: false,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::from_millis(100),
+        },
+        None,
+        Some(screenshot_path),
+    )?;
+    if outcome.acceptance_reached {
+        validate_png_screenshot(screenshot_path)?;
+    }
+    Ok(outcome)
+}
+
 fn send_qmp_events(
     qmp_stream: &mut TcpStream,
     events: &[&str],
@@ -3086,6 +3117,26 @@ fn qmp_exchange_response(
         }
         return Ok(response);
     }
+}
+
+/// A QMP `screendump` command that writes a PNG to `path`. Placed in an
+/// acceptance event list, it captures the guest before later input.
+pub fn qmp_screendump_command(path: &Path) -> Result<String, String> {
+    let path = path.to_str().ok_or_else(|| {
+        format!(
+            "QEMU screenshot path is not valid UTF-8: {}",
+            path.display()
+        )
+    })?;
+    let filename = qmp_json_quote(&external_path(Path::new(path)));
+    Ok(format!(
+        r#"{{"execute":"screendump","arguments":{{"filename":{filename},"format":"png"}}}}"#
+    ))
+}
+
+/// Check that `path` holds a PNG screenshot QEMU wrote.
+pub fn validate_screenshot(path: &Path) -> Result<(), String> {
+    validate_png_screenshot(path)
 }
 
 fn qmp_json_quote(value: &str) -> String {

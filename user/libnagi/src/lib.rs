@@ -1,7 +1,10 @@
 #![no_std]
 
 pub mod boot;
+pub mod consent;
+pub mod credential;
 pub mod launch;
+pub mod login;
 pub mod security;
 pub mod service;
 pub mod storage;

@@ -52,6 +52,13 @@ m27-ro-vfs-check = []
 m27-recovery = []
 m27-recovery-undo-acceptance = ["m27-recovery"]
 m29-settings-acceptance = ["m10-desktop"]
+# ADR 0060: the desktop's OS-owned consent dialog answers a signed
+# acceptance application's grant request; needs NAGI_ACCEPTANCE_PACKAGES.
+consent-dialog-acceptance = ["m10-desktop"]
+# ADR 0063: first-run owner account and lock-screen sign-in before the
+# desktop and its readiness report.
+desktop-login = ["m10-desktop"]
+desktop-login-acceptance = ["desktop-login"]
 # ADR 0062: install a signed system update into the inactive slot and stage
 # it for a trial on the next boot.
 m30-update-install = ["dep:nagi-fat32", "dep:nagi-slot-manifest"]
