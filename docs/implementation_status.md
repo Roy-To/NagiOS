@@ -11,6 +11,20 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**Consent settings view (ADR 0065), 2026-10-06:** The owner can now review
+and withdraw recorded decisions.
+
+- **View.** With consent enabled, Settings has a Permissions view that
+  lists recorded decisions (application, capability, decision).
+- **Withdrawing.** Enter withdraws the focused decision to `Ask`,
+  persists it, and makes the next use prompt again.
+- **Result.** `./nagi consent` passed (evidence
+  `out/evidence/consent-dialog-1791292190602639000`): after the restart
+  restored the Allow, QMP opened Settings → Permissions, withdrew it, and
+  the live grant was `ConsentRequired` again. `./nagi m29` and
+  `./nagi login` still pass. The workspace has 892 host tests, and Clippy
+  is clean.
+
 **Sign-in throttling (ADR 0064), 2026-10-06:** The lock screen now limits
 failed sign-in attempts.
 

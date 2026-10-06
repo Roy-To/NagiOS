@@ -239,6 +239,14 @@ pub fn encode_decisions(output: &mut [u8; MAX_ENCODED_DECISIONS]) -> usize {
     with_registry(|registry| registry.encode_decisions(output)).unwrap_or(0)
 }
 
+/// The recorded decisions, for the settings view (ADR 0065).
+#[cfg(feature = "consent-dialog-acceptance")]
+pub fn list_decisions(
+    output: &mut [Option<libnagi::launch::DecisionView>; libnagi::launch::MAX_CONSENT_DECISIONS],
+) -> usize {
+    with_registry(|registry| registry.decisions(output)).unwrap_or(0)
+}
+
 /// Apply decisions persisted in the user's User Data.
 #[cfg(feature = "consent-dialog-acceptance")]
 pub fn restore_decisions(user: &Session, bytes: &[u8]) -> Result<usize, DecisionStoreError> {

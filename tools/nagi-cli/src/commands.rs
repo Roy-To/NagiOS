@@ -96,6 +96,8 @@ struct DesktopAcceptanceConfig {
     ready_screenshot_name: Option<&'static str>,
     /// QMP input for the restart boot (for example, signing in).
     restart_events: Vec<String>,
+    /// Restart input sent only after a guest marker: `(marker, events)`.
+    restart_stages: Vec<(&'static str, Vec<String>)>,
     /// Input sent only after a guest marker: `(marker, events)`.
     later_stages: Vec<(&'static str, Vec<String>)>,
     /// Capture `ready_screenshot_name` at the start of the stage with this
@@ -5040,6 +5042,7 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             acceptance_packages: false,
             ready_screenshot_name: None,
             restart_events: Vec::new(),
+            restart_stages: Vec::new(),
             later_stages: Vec::new(),
             ready_screenshot_stage: None,
         },
@@ -5073,6 +5076,7 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             acceptance_packages: false,
             ready_screenshot_name: None,
             restart_events: Vec::new(),
+            restart_stages: Vec::new(),
             later_stages: Vec::new(),
             ready_screenshot_stage: None,
         },
@@ -5103,13 +5107,31 @@ fn execute_consent(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             screenshot_name: "nagi-consent-dialog-answered.png",
             acceptance_marker: "Nagi consent dialog acceptance PASS",
             required_markers: CONSENT_DIALOG_REQUIRED_MARKERS,
-            restart_marker: Some("Nagi consent decision restored PASS decision=allow"),
+            restart_marker: Some("Nagi consent withdrawn grant asks again PASS"),
             restart_log_name: Some("consent-dialog-restart.log"),
-            restart_summary: "the persisted Allow decision was restored without a prompt",
+            restart_summary: "the persisted Allow was restored without a prompt, then withdrawn in Settings so the grant asks again",
             unique_run_artifacts: true,
             acceptance_packages: true,
             ready_screenshot_name: Some("nagi-consent-dialog-shown.png"),
             restart_events: qmp_typed_keys(CONSENT_OWNER_PASSWORD, "ret"),
+            // ADR 0065: after the restored Allow, withdraw it in Settings:
+            // focus Settings, open it, move to Permissions, open the view,
+            // and withdraw the focused decision.
+            restart_stages: vec![
+                (
+                    "Nagi consent decision restored PASS decision=allow",
+                    ["tab", "ret", "tab", "tab", "ret"]
+                        .iter()
+                        .flat_map(|key| qmp_typed_keys("", key))
+                        .collect(),
+                ),
+                (
+                    "Nagi consent settings OPEN decisions=1",
+                    std::iter::once(format!("{SCREENSHOT_EVENT_PREFIX}permissions-list.png"))
+                        .chain(qmp_typed_keys("", "ret"))
+                        .collect(),
+                ),
+            ],
             // Answer the dialog, and capture it, only once it is shown.
             later_stages: vec![(
                 "Nagi consent dialog SHOWN",
@@ -5384,6 +5406,20 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
     Ok(lines)
 }
 
+/// An acceptance event `@screenshot:<name>` captures the guest display to
+/// `<name>` in the run's evidence directory at that point in the input.
+const SCREENSHOT_EVENT_PREFIX: &str = "@screenshot:";
+
+fn expand_screenshot_events(events: &[String], directory: &Path) -> Result<Vec<String>, String> {
+    events
+        .iter()
+        .map(|event| match event.strip_prefix(SCREENSHOT_EVENT_PREFIX) {
+            Some(name) => qmp_screendump_command(&directory.join(name)),
+            None => Ok(event.clone()),
+        })
+        .collect()
+}
+
 fn execute_desktop_acceptance(
     root: &Path,
     probe: &dyn HostProbe,
@@ -5637,13 +5673,44 @@ fn execute_desktop_acceptance(
                 .iter()
                 .map(String::as_str)
                 .collect();
+            let restart_stage_commands: Vec<Vec<String>> = match acceptance
+                .restart_stages
+                .iter()
+                .map(|(_, events)| expand_screenshot_events(events, &screenshot_directory))
+                .collect::<Result<Vec<_>, String>>()
+            {
+                Ok(commands) => commands,
+                Err(error) => {
+                    return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label))
+                }
+            };
+            let restart_stage_events: Vec<Vec<&str>> = restart_stage_commands
+                .iter()
+                .map(|events| events.iter().map(String::as_str).collect())
+                .collect();
+            let restart_stages: Vec<QmpEventStage<'_>> = acceptance
+                .restart_stages
+                .iter()
+                .zip(&restart_stage_events)
+                .map(|((marker, _), events)| QmpEventStage { marker, events })
+                .collect();
+            let restart_screenshot = screenshot_directory.join("restart.png");
             let restarted = if restart_commands.is_empty() {
                 run_qemu(&restart_config).map(|_| ())
-            } else {
+            } else if restart_stages.is_empty() {
                 run_qemu_gui_with_events(
                     &restart_config,
                     "Nagi M10 desktop READY",
                     &restart_commands,
+                )
+                .map(|_| ())
+            } else {
+                run_qemu_gui_with_staged_events_and_screenshot(
+                    &restart_config,
+                    "Nagi M10 desktop READY",
+                    &restart_commands,
+                    &restart_stages,
+                    &restart_screenshot,
                 )
                 .map(|_| ())
             };

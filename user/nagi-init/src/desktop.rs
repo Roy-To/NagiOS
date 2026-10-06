@@ -28,6 +28,9 @@ const SETTINGS_BUTTON: Rect = Rect::new(252, 1, 66, 18);
 const SETTINGS_PANEL: Rect = Rect::new(34, 34, 252, 132);
 const ENGLISH_OPTION: Rect = Rect::new(48, 83, 224, 25);
 const JAPANESE_OPTION: Rect = Rect::new(48, 116, 224, 25);
+/// Opens the permissions view (ADR 0065); shown only with consent.
+#[cfg(feature = "consent-dialog-acceptance")]
+const PERMISSIONS_OPTION: Rect = Rect::new(48, 146, 224, 16);
 
 #[no_mangle]
 static NAGI_M10_READY: [u8; b"Nagi M10 desktop READY\r\n".len()] = *b"Nagi M10 desktop READY\r\n";
@@ -125,6 +128,8 @@ enum SettingsFocus {
     Button,
     English,
     Japanese,
+    #[cfg(feature = "consent-dialog-acceptance")]
+    Permissions,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -149,6 +154,8 @@ pub struct Desktop {
     consent: Option<crate::consent_dialog::ConsentDialog>,
     #[cfg(feature = "consent-dialog-acceptance")]
     consent_answered: bool,
+    #[cfg(feature = "consent-dialog-acceptance")]
+    permissions: Option<crate::consent_settings::PermissionsPanel>,
     /// The OS-owned login screen, shown until the owner signs in.
     #[cfg(feature = "desktop-login")]
     login: Option<crate::login_screen::LoginScreen>,
@@ -179,6 +186,8 @@ impl Desktop {
             consent: None,
             #[cfg(feature = "consent-dialog-acceptance")]
             consent_answered: false,
+            #[cfg(feature = "consent-dialog-acceptance")]
+            permissions: None,
             #[cfg(feature = "desktop-login")]
             login: None,
             #[cfg(feature = "desktop-login")]
@@ -249,6 +258,10 @@ impl Desktop {
             self.render_settings(&mut painter);
         }
         #[cfg(feature = "consent-dialog-acceptance")]
+        if let Some(panel) = &self.permissions {
+            panel.render(&mut painter, self.locale);
+        }
+        #[cfg(feature = "consent-dialog-acceptance")]
         if let Some(dialog) = &self.consent {
             dialog.render(&mut painter, self.locale);
         }
@@ -309,6 +322,10 @@ impl Desktop {
         #[cfg(feature = "consent-dialog-acceptance")]
         if self.consent.is_some() {
             return self.handle_consent_event(event, volume);
+        }
+        #[cfg(feature = "consent-dialog-acceptance")]
+        if self.permissions.is_some() {
+            return self.handle_permissions_event(event, volume);
         }
         if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 {
             if event.code == libnagi::INPUT_KEY_TAB {
@@ -444,6 +461,30 @@ impl Desktop {
         print(b"\r\n");
     }
 
+    #[cfg(feature = "consent-dialog-acceptance")]
+    fn handle_permissions_event(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> bool {
+        use crate::consent_settings::PermissionsOutcome;
+        let user = self.signed_in_user();
+        let Some(panel) = &mut self.permissions else {
+            return false;
+        };
+        match panel.handle_event(event, user.as_ref(), volume) {
+            PermissionsOutcome::Ignored => false,
+            PermissionsOutcome::Changed => true,
+            PermissionsOutcome::Closed => {
+                self.permissions = None;
+                true
+            }
+            PermissionsOutcome::Withdrawn => {
+                if crate::consent_dialog::acceptance::asks_again() {
+                    print(b"Nagi consent withdrawn grant asks again PASS\r\n");
+                    self.consent_answered = true;
+                }
+                true
+            }
+        }
+    }
+
     /// The user whose decisions the consent dialog records: the signed-in
     /// owner with `desktop-login`, otherwise the acceptance fixture.
     #[cfg(feature = "consent-dialog-acceptance")]
@@ -452,11 +493,6 @@ impl Desktop {
         return self.session;
         #[cfg(not(feature = "desktop-login"))]
         crate::supervisor::acceptance_user()
-    }
-
-    #[cfg(feature = "consent-dialog-acceptance")]
-    pub fn finish_consent_acceptance(&mut self) {
-        self.consent_answered = true;
     }
 
     #[cfg(feature = "consent-dialog-acceptance")]
@@ -549,6 +585,27 @@ impl Desktop {
             "desktop.settings.option.ja-JP",
             SettingsFocus::Japanese,
         );
+        #[cfg(feature = "consent-dialog-acceptance")]
+        {
+            painter.fill(
+                PERMISSIONS_OPTION,
+                color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+            );
+            painter.frame(
+                PERMISSIONS_OPTION,
+                if self.settings_focus == Some(SettingsFocus::Permissions) {
+                    FOCUS
+                } else {
+                    BORDER
+                },
+            );
+            painter.text(
+                PERMISSIONS_OPTION.x + 8,
+                PERMISSIONS_OPTION.y + 5,
+                nagi_localization::text(self.locale, "settings.permissions.title").as_bytes(),
+                TEXT,
+            );
+        }
     }
 
     fn render_locale_option(
@@ -610,7 +667,12 @@ impl Desktop {
         self.settings_focus = Some(if self.settings_open {
             match self.settings_focus {
                 Some(SettingsFocus::English) => SettingsFocus::Japanese,
+                #[cfg(feature = "consent-dialog-acceptance")]
+                Some(SettingsFocus::Japanese) => SettingsFocus::Permissions,
+                #[cfg(not(feature = "consent-dialog-acceptance"))]
                 Some(SettingsFocus::Japanese) => SettingsFocus::English,
+                #[cfg(feature = "consent-dialog-acceptance")]
+                Some(SettingsFocus::Permissions) => SettingsFocus::English,
                 Some(SettingsFocus::Button) | None => SettingsFocus::English,
             }
         } else {
@@ -667,6 +729,14 @@ impl Desktop {
             return false;
         }
         self.settings_focus = Some(match (self.settings_focus, down) {
+            #[cfg(feature = "consent-dialog-acceptance")]
+            (Some(SettingsFocus::Japanese), true) => SettingsFocus::Permissions,
+            #[cfg(feature = "consent-dialog-acceptance")]
+            (Some(SettingsFocus::Permissions), true) => SettingsFocus::English,
+            #[cfg(feature = "consent-dialog-acceptance")]
+            (Some(SettingsFocus::English), false) => SettingsFocus::Permissions,
+            #[cfg(feature = "consent-dialog-acceptance")]
+            (Some(SettingsFocus::Permissions), false) => SettingsFocus::Japanese,
             (Some(SettingsFocus::English), _) => SettingsFocus::Japanese,
             (Some(SettingsFocus::Japanese), _) => SettingsFocus::English,
             (Some(SettingsFocus::Button) | None, true) => SettingsFocus::English,
@@ -687,6 +757,11 @@ impl Desktop {
             }
             Some(SettingsFocus::Japanese) if self.settings_open => {
                 self.select_locale(volume, nagi_localization::Locale::JaJp, keyboard)
+            }
+            #[cfg(feature = "consent-dialog-acceptance")]
+            Some(SettingsFocus::Permissions) if self.settings_open => {
+                self.permissions = Some(crate::consent_settings::PermissionsPanel::open());
+                true
             }
             _ => false,
         }
@@ -875,6 +950,10 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
             // frame is on screen.
             #[cfg(feature = "consent-dialog-acceptance")]
             desktop.arm_consent();
+            #[cfg(feature = "consent-dialog-acceptance")]
+            if let Some(panel) = &mut desktop.permissions {
+                panel.announce();
+            }
             if frame_hash(surface) == initial_frame {
                 print(message!(NAGI_M10_FAIL, 26));
                 libnagi::exit(1);
@@ -949,8 +1028,8 @@ fn report_consent_start(desktop: &mut Desktop, start: ConsentStart) {
         Ok(None) if desktop.consent.is_some() => {}
         Ok(None) => print(b"Nagi consent dialog acceptance FAIL dialog\r\n"),
         Ok(Some(GrantCheck::Granted)) => {
+            // The restart then withdraws it in Settings (ADR 0065).
             print(b"Nagi consent decision restored PASS decision=allow\r\n");
-            desktop.finish_consent_acceptance();
         }
         Ok(Some(_)) => print(b"Nagi consent dialog acceptance FAIL restored decision\r\n"),
         Err(reason) => {

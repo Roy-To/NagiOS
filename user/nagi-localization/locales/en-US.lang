@@ -50,3 +50,4 @@ login.error.mismatch=Mismatch
 login.error.name=Name: a-z 0-9
 login.language.title=Language
 login.error.wait=Please wait
+settings.permissions.title=Permissions

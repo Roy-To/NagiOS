@@ -289,6 +289,27 @@ impl ConsentRequest {
     }
 }
 
+/// A recorded decision, for the OS-owned settings view (ADR 0065). The
+/// identifier is the signed manifest's when that application is
+/// registered this boot; otherwise only the `AppId` is known.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DecisionView {
+    pub app_id: AppId,
+    identifier: Option<Name<MAX_APP_IDENTIFIER>>,
+    capability: Name<MAX_GRANT_NAME>,
+    pub decision: GrantDecision,
+}
+
+impl DecisionView {
+    pub fn identifier(&self) -> Option<&[u8]> {
+        self.identifier.as_ref().map(Name::as_bytes)
+    }
+
+    pub fn capability(&self) -> &[u8] {
+        self.capability.as_bytes()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Consent {
     app_id: AppId,
@@ -437,6 +458,27 @@ impl LaunchRegistry {
             .flatten()
             .find(|consent| consent.app_id == app_id && consent.capability.as_bytes() == capability)
             .map(|consent| consent.decision)
+    }
+
+    /// The recorded decisions, in table order, written into `output`.
+    /// Returns how many were written.
+    pub fn decisions(&self, output: &mut [Option<DecisionView>; MAX_CONSENT_DECISIONS]) -> usize {
+        let mut count = 0;
+        for consent in self.consents.iter().flatten() {
+            output[count] = Some(DecisionView {
+                app_id: consent.app_id,
+                identifier: self
+                    .manifest(consent.app_id)
+                    .map(|manifest| manifest.identifier),
+                capability: consent.capability,
+                decision: consent.decision,
+            });
+            count += 1;
+        }
+        for slot in &mut output[count..] {
+            *slot = None;
+        }
+        count
     }
 
     /// Record `user`'s decision for `app_id`'s use of `capability`. Only an
@@ -1347,5 +1389,32 @@ mod tests {
             restored.restore_decisions(&user(), &encoded[..length]),
             Ok(MAX_CONSENT_DECISIONS)
         );
+    }
+
+    #[test]
+    fn decisions_are_listed_with_known_identifiers() {
+        let (mut registry, app) = live_registry();
+        let other = AppId::from_identifier(b"org.nagi.unregistered");
+        registry
+            .record_decision(&user(), app, b"files.search", GrantDecision::Allow)
+            .expect("allow");
+        registry
+            .record_decision(&user(), other, b"files.copy", GrantDecision::Deny)
+            .expect("deny");
+        let mut views = [None; MAX_CONSENT_DECISIONS];
+        assert_eq!(registry.decisions(&mut views), 2);
+        let first = views[0].expect("first");
+        assert_eq!(first.identifier(), Some(&b"org.nagi.example"[..]));
+        assert_eq!(first.capability(), b"files.search");
+        assert_eq!(first.decision, GrantDecision::Allow);
+        let second = views[1].expect("second");
+        assert_eq!(second.identifier(), None);
+        assert_eq!(second.app_id, other);
+        // Withdrawing removes it from the list.
+        registry
+            .record_decision(&user(), app, b"files.search", GrantDecision::Ask)
+            .expect("withdraw");
+        assert_eq!(registry.decisions(&mut views), 1);
+        assert_eq!(views[1], None);
     }
 }
