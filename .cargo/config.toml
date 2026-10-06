@@ -4,6 +4,12 @@ rustflags = ["-C", "link-arg=-Tkernel/linker.ld"]
 [target.x86_64-unknown-nagi-user]
 rustflags = ["-C", "link-arg=-Tuser/nagi-init/linker.ld", "--cfg", "getrandom_backend=\"custom\""]
 
+# The UEFI target is soft-float (no SSE/AVX), so curve25519-dalek's SIMD
+# backend cannot be lowered; the loader's slot-manifest signature check
+# (ADR 0061) uses the portable serial backend.
+[target.x86_64-unknown-uefi]
+rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]
+
 [env]
 # Keep cc-rs target C helpers on the same Nagi freestanding ABI as Mesa and
 # relibc.  The value is resolved relative to this repository's .cargo file.
