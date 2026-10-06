@@ -225,7 +225,7 @@ pub fn restore_decisions(volume: &mut UserDataVolume, user: &Session) -> Restore
     }
 }
 
-fn persist_decisions(volume: &mut UserDataVolume) -> bool {
+pub fn persist_decisions(volume: &mut UserDataVolume) -> bool {
     let mut encoded = [0; libnagi::launch::MAX_ENCODED_DECISIONS];
     let length = supervisor::encode_decisions(&mut encoded);
     let handle = match volume.open_path(DECISIONS_PATH) {
@@ -260,6 +260,13 @@ pub mod acceptance {
         node_id: NodeId(0x4e41_4749_0053_0002),
         workspace_id: None,
     };
+
+    /// Whether the acceptance application's live session must be asked
+    /// again (after its decision was withdrawn in Settings).
+    pub fn asks_again() -> bool {
+        supervisor::check_grant(FAULTING_APP, PLACEMENT.app_session_id, CAPABILITY)
+            == GrantCheck::ConsentRequired
+    }
 
     pub enum Start {
         /// The grant needs the user's answer; show the dialog.

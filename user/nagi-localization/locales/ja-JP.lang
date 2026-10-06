@@ -50,3 +50,4 @@ login.error.mismatch=不一致
 login.error.name=名前: a-z 0-9
 login.language.title=言語
 login.error.wait=待機中
+settings.permissions.title=権限

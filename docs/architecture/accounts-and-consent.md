@@ -82,6 +82,10 @@ It is modal, localized, and drawn by init over every application.
 **Recording.** The answer is recorded with the signed-in owner's
 `Session`.
 
+**Review and withdraw.** Settings → Permissions lists the recorded
+decisions. Withdrawing one records `Ask` and persists it, so the next use
+prompts again ([ADR 0065](../decisions/0065-consent-settings-view.md)).
+
 **Persistence.** `Allow` and `Deny` are written to User Data
 `consent-decisions`:
 
@@ -103,4 +107,3 @@ It is modal, localized, and drawn by init over every application.
 - Production services that queue prompts. Today the acceptance application
   does.
 - Foreground/background and selected-file consent.
-- A settings view to review or withdraw decisions.

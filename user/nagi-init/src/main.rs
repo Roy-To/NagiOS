@@ -103,6 +103,8 @@ mod action_ipc;
 mod boot;
 #[cfg(all(target_os = "nagi", feature = "consent-dialog-acceptance"))]
 mod consent_dialog;
+#[cfg(all(target_os = "nagi", feature = "consent-dialog-acceptance"))]
+mod consent_settings;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod desktop;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
