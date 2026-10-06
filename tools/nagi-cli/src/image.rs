@@ -48,7 +48,7 @@ const REFERENCE_DISK_SECTORS: u64 = REFERENCE_DISK_SIZE_BYTES / 512;
 const MIB_SECTORS: u64 = 1024 * 1024 / 512;
 const GIB_SECTORS: u64 = 1024 * MIB_SECTORS;
 const QMP_MAX_LINE_BYTES: usize = 64 * 1024;
-const QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(3);
+const QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Fat12Geometry {
@@ -3048,21 +3048,47 @@ fn read_qmp_line(stream: &mut TcpStream, deadline: Instant) -> Result<String, St
     }
 }
 
+/// QMP queries captured when a guest misses its marker. The registers and
+/// the ACPI PM timer (port 0x608 on q35) are sampled twice, one second apart,
+/// so a stalled polling loop can be told apart from a slow one; the code
+/// before RIP shows what the loop waits for (the recurring pre-kernel OVMF
+/// stall at RIP 0x7eb84171 polls a counter).
+const QMP_TIMEOUT_QUERIES: [(&str, &str); 7] = [
+    ("QMP query-status", r#"{"execute":"query-status"}"#),
+    (
+        "QMP CPU registers",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
+    ),
+    (
+        "QMP ACPI PM timer",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"i/w 0x608"}}"#,
+    ),
+    (
+        "QMP CPU instruction window",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"x/12i $rip"}}"#,
+    ),
+    (
+        "QMP CPU code before RIP",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"x/32i $pc - 0x60"}}"#,
+    ),
+    (
+        "QMP CPU registers after 1s",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
+    ),
+    (
+        "QMP ACPI PM timer after 1s",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"i/w 0x608"}}"#,
+    ),
+];
+
 fn capture_qmp_timeout_diagnostics(stream: &mut TcpStream) -> Vec<String> {
-    let queries = [
-        ("QMP query-status", r#"{"execute":"query-status"}"#),
-        (
-            "QMP CPU registers",
-            r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
-        ),
-        (
-            "QMP CPU instruction window",
-            r#"{"execute":"human-monitor-command","arguments":{"command-line":"x/12i $rip"}}"#,
-        ),
-    ];
+    let queries = QMP_TIMEOUT_QUERIES;
     let deadline = Instant::now() + QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT;
     let mut diagnostics = Vec::with_capacity(queries.len());
     for (label, command) in queries {
+        if label.ends_with("after 1s") && label.starts_with("QMP CPU registers") {
+            thread::sleep(Duration::from_secs(1));
+        }
         if Instant::now() >= deadline {
             diagnostics.push(format!("{label} skipped: diagnostic time budget exhausted"));
             break;
@@ -3307,43 +3333,40 @@ mod tests {
             let (stream, _) = listener.accept().expect("accept QMP fixture");
             let mut reader = BufReader::new(stream);
 
-            let mut command = String::new();
-            reader.read_line(&mut command).expect("read query-status");
-            assert_eq!(command.trim(), r#"{"execute":"query-status"}"#);
-            reader
-                .get_mut()
-                .write_all(br#"{"return":{"status":"running","running":true}}"#)
-                .expect("write status response");
-            reader
-                .get_mut()
-                .write_all(b"\r\n")
-                .expect("terminate status response");
-
-            command.clear();
-            reader.read_line(&mut command).expect("read info registers");
-            assert!(command.contains("info registers"));
-            reader
-                .get_mut()
-                .write_all(br#"{"return":"CPU#0: RIP=0x1234\nRAX=0x5678"}"#)
-                .expect("write register response");
-            reader
-                .get_mut()
-                .write_all(b"\r\n")
-                .expect("terminate register response");
-
-            command.clear();
-            reader
-                .read_line(&mut command)
-                .expect("read instruction window");
-            assert!(command.contains(r#"x/12i $rip"#));
-            reader
-                .get_mut()
-                .write_all(br#"{"return":"=> 0x1234:  mov %rax,%rbx\n   0x1237:  jmp 0x1234"}"#)
-                .expect("write instruction response");
-            reader
-                .get_mut()
-                .write_all(b"\r\n")
-                .expect("terminate instruction response");
+            let exchanges: [(&str, &[u8]); 7] = [
+                (
+                    r#"query-status"#,
+                    br#"{"return":{"status":"running","running":true}}"#,
+                ),
+                (
+                    "info registers",
+                    br#"{"return":"CPU#0: RIP=0x1234\nRAX=0x5678"}"#,
+                ),
+                ("i/w 0x608", br#"{"return":"portl[0x0608] = 0x00000010"}"#),
+                (
+                    r#"x/12i $rip"#,
+                    br#"{"return":"=> 0x1234:  mov %rax,%rbx\n   0x1237:  jmp 0x1234"}"#,
+                ),
+                ("$pc - 0x60", br#"{"return":"0x11d4:  pause"}"#),
+                (
+                    "info registers",
+                    br#"{"return":"CPU#0: RIP=0x1234\nRAX=0x5679"}"#,
+                ),
+                ("i/w 0x608", br#"{"return":"portl[0x0608] = 0x00000010"}"#),
+            ];
+            for (expected, response) in exchanges {
+                let mut command = String::new();
+                reader.read_line(&mut command).expect("read query");
+                assert!(command.contains(expected), "{command} lacks {expected}");
+                reader
+                    .get_mut()
+                    .write_all(response)
+                    .expect("write response");
+                reader
+                    .get_mut()
+                    .write_all(b"\r\n")
+                    .expect("terminate response");
+            }
         });
 
         let mut qmp = TcpStream::connect(address).expect("connect QMP fixture");
@@ -3352,10 +3375,14 @@ mod tests {
         let diagnostics = capture_qmp_timeout_diagnostics(&mut qmp);
         server.join().expect("QMP fixture thread");
 
-        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics.len(), 7, "{diagnostics:?}");
         assert!(diagnostics[0].contains(r#""status":"running""#));
         assert!(diagnostics[1].contains("RIP=0x1234"));
-        assert!(diagnostics[2].contains("mov %rax,%rbx"));
+        assert!(diagnostics[2].contains("portl[0x0608]"));
+        assert!(diagnostics[3].contains("mov %rax,%rbx"));
+        assert!(diagnostics[4].contains("pause"));
+        assert!(diagnostics[5].starts_with("QMP CPU registers after 1s"));
+        assert!(diagnostics[6].starts_with("QMP ACPI PM timer after 1s"));
     }
 
     #[test]
@@ -3400,6 +3427,24 @@ mod tests {
             received,
             [r#"{"execute":"first"}"#, r#"{"execute":"second"}"#]
         );
+    }
+
+    #[test]
+    fn timeout_diagnostics_sample_registers_and_the_pm_timer_twice() {
+        use super::QMP_TIMEOUT_QUERIES;
+        let count = |needle: &str| {
+            QMP_TIMEOUT_QUERIES
+                .iter()
+                .filter(|(_, command)| command.contains(needle))
+                .count()
+        };
+        assert_eq!(count("info registers"), 2);
+        assert_eq!(count("i/w 0x608"), 2);
+        assert_eq!(count("$pc - 0x60"), 1);
+        // The second register sample is the one labelled for the delay.
+        assert!(QMP_TIMEOUT_QUERIES
+            .iter()
+            .any(|(label, _)| *label == "QMP CPU registers after 1s"));
     }
 
     #[test]

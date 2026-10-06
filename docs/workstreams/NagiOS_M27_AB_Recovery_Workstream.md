@@ -798,3 +798,46 @@ pass, while `qemu-img check` is unsupported for raw. The root cause of the
 intermittent firmware loop remains unknown. M27 stays `PARTIAL` for
 authenticated update/readiness authority, authenticated slot manifests, full
 session readiness, and remaining Recovery features.
+
+## Pre-kernel OVMF stall: analysis and diagnostics (2026-10-06)
+
+The intermittent pre-kernel stall recurred four times locally on the arm64
+macOS host (QEMU 11.1.1 TCG, Homebrew edk2):
+
+- the ja-JP login restart boot;
+- an M29 GUI run;
+- the consent first-boot;
+- one `./nagi consent` first boot.
+
+**What QMP showed.** Each time, QMP showed CPU0 running at the same OVMF
+loop, RIP `0x7eb84171`. That loop's jump target is `0x7eb84150`, and it
+compares a polled 24-bit value against a target:
+
+| Register | Value |
+| --- | --- |
+| `RBX` | `0x9a5b61` (target) |
+| `RDX` | `0x9a5765` (polled) |
+| `RAX` | `0x3fc` (difference, about 0.3 ms) |
+| `RCX` | `0x608` (the q35 ACPI PM timer port) |
+| `R12` | `0` (outer count) |
+
+**Hypothesis.** OVMF is in an ACPI-PM-timer delay (edk2 `AcpiTimerLib`
+`InternalAcpiDelay`) whose timer reads stop advancing. This is not
+confirmed: the previous diagnostics sampled the registers only once.
+
+**Reproduction attempts.** A standalone script (`ovmf_stall_probe.py`,
+kept outside the repository) booted the same images until the kernel
+started:
+
+- 40 boots with fresh OVMF variables;
+- 25 × 3 boots with reused variables;
+- 60 boots with the acceptance-style second virtio-blk data disk and
+  `isa-debug-exit`.
+
+None stalled, so the trigger is specific to `./nagi` runs. Host load right
+after image builds is one candidate.
+
+**Diagnostics change.** QEMU timeout diagnostics now sample the registers
+and the PM timer (`i/w 0x608`) twice, one second apart, and disassemble
+the code before RIP (`x/32i $pc - 0x60`). The next stall, local or CI,
+therefore shows directly whether the PM timer is frozen.
