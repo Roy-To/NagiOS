@@ -76,6 +76,69 @@ Still open:
 - foreground/background and selected-file consent;
 - a settings UI to review or withdraw persisted decisions.
 
+**In-guest system update installer (ADR 0062), 2026-10-06:** A running
+System A now installs a signed update into System B, the loader re-verifies
+and trials it, and B is confirmed after readiness.
+
+- **Boot context and capability.** BootInfo v5 marks confirmed boots as
+  update-stageable. On those boots the kernel exposes only the inactive
+  slot as a one-shot, init-only capability (`SYS_UPDATE_SLOT_CLAIM`).
+- **Staging request.** `SYS_UPDATE_SLOT_STAGE` writes a CRC-protected
+  `NagiBootStage` variable. The loader honors it only when the generation
+  matches, nothing is pending, the manifest verifies, and the rollback
+  index is not lowered.
+- **Installer.** The installer (`m30-update-install`) verifies the bundle
+  before writing, then formats the slot as FAT32 (`crates/nagi-fat32`),
+  flushes it, re-verifies a read-back, and stages.
+- **Result.** `./nagi m30-update` passed (evidence
+  `out/evidence/m30-update-1791242245330653000`):
+  - signed bundle: install, then trial `slot=B rollback-index=2` with
+    readiness persisted, then `confirmed slot=B`;
+  - tampered bundle: refused before any write, and A stayed confirmed.
+- **Regressions.** `./nagi m27` still passes. The workspace has 862 host
+  tests, plus 163 kernel, 16 bootinfo, 7 slot-manifest and 4 FAT32 tests.
+  Warning-denied Clippy is clean.
+
+Still open:
+
+- network delivery of updates;
+- an update UI and user consent;
+- production key provisioning.
+
+**Authenticated slot manifests (ADR 0061), 2026-10-06:** The loader now
+verifies a signed `SLOT.MAN` for System A, System B and Recovery before it
+trusts any payload.
+
+- **Format and checks.** The manifest is Ed25519-signed with a domain
+  separator and pins the SHA-256 and size of `KERNEL.ELF` and `INIT.ELF`.
+  A trial slot must not lower the confirmed slot's rollback index. These
+  checks live in the `no_std` `crates/nagi-slot-manifest`, which has five
+  host tests.
+- **Rejection path.** A rejection prints `Nagi slot manifest REJECTED
+  slot=<S> reason=<…>` and consumes an M27 trial attempt.
+- **M27 GPT fixture.** System B now has a bootable ELF, but its manifest is
+  signed by an untrusted key.
+- **Soft-float build.** The UEFI target uses curve25519-dalek's `serial`
+  backend because it is soft-float.
+- **Result.** On the arm64 macOS host, `./nagi m27` passed (evidence
+  `out/evidence/m27-ab-rollback-1791241326571375000`):
+  - three trials printed `reason=signature`, then Recovery ran, then the
+    boot rolled back to System A;
+  - the healthy B verified and was promoted;
+  - the FAT12 malformed B is still refused as `invalid ELF`.
+- **M30.** `./nagi m30` passed from a clean worktree of the commit (run
+  `m30-release-1791241538355805000`): System A and Recovery printed
+  `Nagi slot manifest verified … rollback-index=1 PASS`.
+- **Host checks.** 855 workspace host tests and the loader library tests
+  pass.
+
+Still open for the M30 update item:
+
+- an in-guest installer that writes a signed update into the inactive slot,
+  reads it back, and verifies it;
+- a loader-consumed staging request;
+- production key provisioning.
+
 **User consent for manifest grants (ADR 0051), 2026-10-03:** A signed
 manifest's `grant=` line is now only a request.
 
