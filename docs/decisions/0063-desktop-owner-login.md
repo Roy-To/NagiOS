@@ -87,14 +87,14 @@ A temporary ja-JP render of the same screens was checked visually.
   This is account-authenticated readiness. `./nagi m27` passed (evidence
   `out/evidence/m27-ab-rollback-1791243852197747000`).
 - **Not yet enabled.**
-  - The legacy FAT12 M27 fixtures, M10/M29 and the `m30-update` payload
-    are unchanged.
+  - The `m30-update` payload enables `desktop-login`. Its System B trial
+    creates the owner, and readiness must follow sign-in.
+  - The legacy FAT12 M27 fixtures and M10/M29 are unchanged.
   - The M30 release image runs the M19/M22 service flows, not the desktop.
 
 ## Bounds and non-goals
 
-- **Rollout.** See above. Moving the `m30-update` payload to
-  `desktop-login` follows once its branch has merged.
+- **Rollout.** See above.
 - **Single account.** There is one owner account. Standard/guest accounts,
   password change, and recovery reset are later work.
 - **Rate limiting.** There is no rate limit beyond the cost of the KDF,
