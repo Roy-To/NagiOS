@@ -10,7 +10,9 @@ use libnagi::credential::{
     AccountRecord, AccountRecordError, Credential, ACCOUNT_RECORD_BYTES, DEFAULT_ITERATIONS,
     SALT_BYTES,
 };
-use libnagi::login::{LoginAction, LoginField, LoginForm, LoginMode, LoginProblem};
+use libnagi::login::{
+    LanguagePicker, LoginAction, LoginField, LoginForm, LoginMode, LoginProblem, PickerAction,
+};
 use libnagi::security::{AccountStore, Role, Session};
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
 use libnagi::InputEvent;
@@ -38,10 +40,18 @@ pub enum LoginStart {
 pub enum LoginOutcome {
     Ignored,
     Changed,
+    /// First run: the user chose the system language (M29 onboarding).
+    LanguageChosen(Locale),
     SignedIn(Session),
 }
 
+/// Languages offered on first run, in display order.
+const LANGUAGES: [Locale; 2] = [Locale::EnUs, Locale::JaJp];
+const LANGUAGE_OPTIONS: [Rect; 2] = [Rect::new(60, 72, 200, 22), Rect::new(60, 102, 200, 22)];
+
 pub struct LoginScreen {
+    /// First run starts with the language step.
+    language: Option<LanguagePicker>,
     form: LoginForm,
     account: Option<AccountRecord>,
     unavailable: bool,
@@ -51,16 +61,19 @@ impl LoginScreen {
     pub fn new(start: LoginStart) -> Self {
         match start {
             LoginStart::Create => Self {
+                language: Some(LanguagePicker::new(LANGUAGES.len(), 0)),
                 form: LoginForm::create(),
                 account: None,
                 unavailable: false,
             },
             LoginStart::Unlock(record) => Self {
+                language: None,
                 form: LoginForm::unlock(),
                 account: Some(record),
                 unavailable: false,
             },
             LoginStart::Unavailable => Self {
+                language: None,
                 form: LoginForm::unlock(),
                 account: None,
                 unavailable: true,
@@ -72,7 +85,20 @@ impl LoginScreen {
         self.form.mode()
     }
 
+    /// Start the language step with `locale` focused.
+    pub fn focus_language(&mut self, locale: Locale) {
+        if let Some(index) = LANGUAGES.iter().position(|offered| *offered == locale) {
+            if self.language.is_some() {
+                self.language = Some(LanguagePicker::new(LANGUAGES.len(), index));
+            }
+        }
+    }
+
     pub fn render(&self, painter: &mut Painter<'_>, locale: Locale) {
+        if let Some(picker) = &self.language {
+            self.render_language(painter, locale, picker);
+            return;
+        }
         let text = color(THEME, ColorRole::TextPrimary).to_pixel();
         let border = color(THEME, ColorRole::BorderStrong).to_pixel();
         let focus = color(THEME, ColorRole::Focus).to_pixel();
@@ -154,9 +180,69 @@ impl LoginScreen {
         }
     }
 
+    fn render_language(&self, painter: &mut Painter<'_>, locale: Locale, picker: &LanguagePicker) {
+        let text = color(THEME, ColorRole::TextPrimary).to_pixel();
+        let border = color(THEME, ColorRole::BorderStrong).to_pixel();
+        painter.fill(
+            Rect::new(0, 0, 320, 200),
+            color(THEME, ColorRole::Canvas).to_pixel(),
+        );
+        painter.fill(PANEL, color(THEME, ColorRole::Surface).to_pixel());
+        painter.frame(PANEL, border);
+        painter.fill(
+            Rect::new(PANEL.x + 1, PANEL.y + 1, PANEL.width - 2, 16),
+            color(THEME, ColorRole::Accent).to_pixel(),
+        );
+        painter.text(
+            PANEL.x + 8,
+            PANEL.y + 5,
+            nagi_localization::text(locale, "login.language.title").as_bytes(),
+            color(THEME, ColorRole::TextOnAccent).to_pixel(),
+        );
+        for (index, (offered, rect)) in LANGUAGES.iter().zip(LANGUAGE_OPTIONS).enumerate() {
+            painter.fill(rect, color(THEME, ColorRole::SurfaceRaised).to_pixel());
+            let focused = picker.focus() == index;
+            painter.frame(
+                rect,
+                if focused {
+                    color(THEME, ColorRole::Focus).to_pixel()
+                } else {
+                    border
+                },
+            );
+            if focused {
+                painter.frame(
+                    Rect::new(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2),
+                    color(THEME, ColorRole::Focus).to_pixel(),
+                );
+            }
+            // Each language is named in itself.
+            let key = match offered {
+                Locale::EnUs => "desktop.settings.option.en-US",
+                Locale::JaJp => "desktop.settings.option.ja-JP",
+            };
+            painter.text(
+                rect.x + 8,
+                rect.y + 8,
+                nagi_localization::text(*offered, key).as_bytes(),
+                text,
+            );
+        }
+    }
+
     pub fn handle_event(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> LoginOutcome {
         if event.event_type != libnagi::INPUT_EVENT_KEY || self.unavailable {
             return LoginOutcome::Ignored;
+        }
+        if let Some(picker) = &mut self.language {
+            return match picker.handle_key(event.code, event.value != 0) {
+                PickerAction::Ignored => LoginOutcome::Ignored,
+                PickerAction::Changed => LoginOutcome::Changed,
+                PickerAction::Chosen(index) => {
+                    self.language = None;
+                    LoginOutcome::LanguageChosen(LANGUAGES[index.min(LANGUAGES.len() - 1)])
+                }
+            };
         }
         match self.form.handle_key(event.code, event.value != 0) {
             LoginAction::Ignored => LoginOutcome::Ignored,

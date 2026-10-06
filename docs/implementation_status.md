@@ -11,6 +11,18 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**First-run language step (M29 onboarding, ADR 0063), 2026-10-06:**
+
+- **Flow.** With `desktop-login`, first run now asks for the system
+  language (English / 日本語) before creating the owner account.
+- **Persistence.** The choice is applied immediately and persisted, so the
+  later unlock screen appears in that language.
+- **Result.** `./nagi login` passed as run `1791264637514157000`. QMP
+  chose 日本語, the account was created, and after the restart the
+  preference was restored before the Japanese unlock screen.
+- **Checks.** `./nagi m29` still passes. The workspace has 886 host tests,
+  and Clippy is clean.
+
 **Desktop owner login (ADR 0063), 2026-10-06:** With `desktop-login`, the
 desktop first shows an OS-owned login screen.
 

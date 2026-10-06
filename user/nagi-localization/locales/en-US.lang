@@ -48,3 +48,4 @@ login.error.wrong=Try again
 login.error.short=Too short
 login.error.mismatch=Mismatch
 login.error.name=Name: a-z 0-9
+login.language.title=Language

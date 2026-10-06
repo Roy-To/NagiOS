@@ -5214,7 +5214,10 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
         ));
     }
 
-    let mut create_events = qmp_typed_keys("owner", "ret");
+    // M29 onboarding: choose 日本語 (second option) before the account.
+    let mut create_events = qmp_typed_keys("", "down");
+    create_events.extend(qmp_typed_keys("", "ret"));
+    create_events.extend(qmp_typed_keys("owner", "ret"));
     create_events.extend(qmp_typed_keys("nagi1", "ret"));
     create_events.extend(qmp_typed_keys("nagi1", "ret"));
     let mut unlock_events = qmp_typed_keys("wrong1", "ret");
@@ -5227,6 +5230,7 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             &[
                 "Nagi M10 desktop READY",
                 "Nagi login READY mode=create",
+                "Nagi onboarding language PASS locale=ja-JP",
                 "Nagi login owner created PASS name=owner",
                 "Nagi login unlocked PASS",
                 "Nagi login acceptance PASS",
@@ -5242,6 +5246,7 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             &[
                 "Nagi M10 desktop READY",
                 "Nagi login READY mode=unlock",
+                "Nagi M29 settings preference restored PASS locale=ja-JP",
                 "Nagi login unlock REJECTED",
                 "Nagi login unlocked PASS",
                 "Nagi login acceptance PASS",

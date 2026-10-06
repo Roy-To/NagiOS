@@ -265,6 +265,19 @@ impl Desktop {
             return match login.handle_event(event, volume) {
                 LoginOutcome::Ignored => false,
                 LoginOutcome::Changed => true,
+                LoginOutcome::LanguageChosen(locale) => {
+                    // M29 onboarding: the first choice becomes the system
+                    // language for this and later boots.
+                    self.locale = locale;
+                    if persist_locale(volume, locale) {
+                        print(b"Nagi onboarding language PASS locale=");
+                        print(locale.code().as_bytes());
+                        print(b"\r\n");
+                    } else {
+                        print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
+                    }
+                    true
+                }
                 LoginOutcome::SignedIn(session) => {
                     self.login = None;
                     self.session = Some(session);
@@ -752,6 +765,8 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
     let login_mode = {
         let screen = crate::login_screen::LoginScreen::new(crate::login_screen::load(&mut volume));
         let mode = screen.mode();
+        let mut screen = screen;
+        screen.focus_language(preference.locale());
         desktop.login = Some(screen);
         mode
     };
@@ -789,7 +804,10 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
     report_consent_start(&mut desktop, consent_start);
     match preference {
         LocalePreference::Restored(nagi_localization::Locale::EnUs)
-            if cfg!(feature = "m29-settings-acceptance") =>
+            if cfg!(any(
+                feature = "m29-settings-acceptance",
+                feature = "desktop-login-acceptance"
+            )) =>
         {
             print(message!(
                 NAGI_M29_ENGLISH_RESTORED,
@@ -797,7 +815,10 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
             ));
         }
         LocalePreference::Restored(nagi_localization::Locale::JaJp)
-            if cfg!(feature = "m29-settings-acceptance") =>
+            if cfg!(any(
+                feature = "m29-settings-acceptance",
+                feature = "desktop-login-acceptance"
+            )) =>
         {
             print(message!(
                 NAGI_M29_JAPANESE_RESTORED,
