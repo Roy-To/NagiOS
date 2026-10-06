@@ -64,6 +64,10 @@ after a successful write.
 - **Attacker model.** The limit is per owner account and local to the
   guest. Someone who can rewrite User Data offline can reset it; disk
   encryption is out of scope for 0.1.
-- **Clock.** The clock is the kernel's coarse tick. A sleep cannot be used
-  in the single-threaded desktop init, because there is no other runnable
-  thread, so the loop polls.
+- **Clock.** The clock is the kernel's coarse 10 ms tick, which keeps
+  advancing while ring 3 runs. The desktop loop polls it while a wait is
+  running. An earlier draft of this ADR said a sleep could not be used in
+  the single-threaded desktop init. That was wrong: `sleep_ns` works there,
+  checked with 300 consecutive 10 ms sleeps after the first frame. The halt
+  observed during development was init exiting on the desktop's
+  frame-change check, not the sleep.
