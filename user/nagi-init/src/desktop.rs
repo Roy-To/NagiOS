@@ -386,6 +386,17 @@ impl Desktop {
         false
     }
 
+    #[cfg(feature = "desktop-login")]
+    pub fn login_waiting(&self) -> bool {
+        self.login.as_ref().is_some_and(|login| login.is_waiting())
+    }
+
+    /// Let the login screen notice that a sign-in wait has ended.
+    #[cfg(feature = "desktop-login")]
+    pub fn tick_login(&mut self) -> bool {
+        self.login.as_mut().is_some_and(|login| login.tick())
+    }
+
     pub fn acceptance_ready(&self) -> bool {
         #[cfg(feature = "desktop-login")]
         if cfg!(feature = "desktop-login-acceptance") {
@@ -767,6 +778,7 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
         let mode = screen.mode();
         let mut screen = screen;
         screen.focus_language(preference.locale());
+        screen.resume_throttle(&mut volume);
         desktop.login = Some(screen);
         mode
     };
@@ -842,6 +854,14 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
     loop {
         let mut event = InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
+            #[cfg(feature = "desktop-login")]
+            if desktop.login_waiting() && desktop.tick_login() {
+                desktop.render(surface);
+                if !libnagi::display_present(display_capability) {
+                    print(message!(NAGI_M10_FAIL, 26));
+                    libnagi::exit(1);
+                }
+            }
             unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
             continue;
         }

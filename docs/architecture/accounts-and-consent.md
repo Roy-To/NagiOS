@@ -31,6 +31,11 @@ User Data. Verification is constant-time.
 **Corruption.** A corrupt record fails closed: nothing can sign in, and
 Recovery is the way out.
 
+**Throttling.** After three failed unlocks, attempts wait 5 s, doubling up to
+60 s. Attempts during the wait are refused without running the key
+derivation, and the failure count survives restarts
+([ADR 0064](../decisions/0064-login-attempt-throttling.md)).
+
 **Readiness.** The desktop reports boot readiness only after sign-in. See
 [boot-trust-and-system-updates.md](boot-trust-and-system-updates.md).
 
@@ -95,7 +100,6 @@ It is modal, localized, and drawn by init over every application.
 ## Open work
 
 - Standard and guest accounts, password change, and Recovery reset.
-- Rate limiting beyond the cost of the KDF.
 - Production services that queue prompts. Today the acceptance application
   does.
 - Foreground/background and selected-file consent.

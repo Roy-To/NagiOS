@@ -37,6 +37,8 @@ pub enum LoginProblem {
     PasswordTooShort,
     PasswordMismatch,
     WrongPassword,
+    /// Too many failures: wait before trying again.
+    TooManyAttempts,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -187,6 +189,72 @@ impl LanguagePicker {
     }
 }
 
+/// Failed unlock attempts allowed back to back before a wait (ADR 0064).
+pub const FREE_ATTEMPTS: u32 = 3;
+const FIRST_WAIT_MS: u64 = 5_000;
+const MAX_WAIT_MS: u64 = 60_000;
+
+/// The wait after `failures` consecutive failures: none for the first
+/// `FREE_ATTEMPTS`, then 5 s doubling to a 60 s cap.
+pub const fn throttle_wait_ms(failures: u32) -> u64 {
+    if failures < FREE_ATTEMPTS {
+        return 0;
+    }
+    let doublings = failures - FREE_ATTEMPTS;
+    if doublings >= 4 {
+        return MAX_WAIT_MS;
+    }
+    let wait = FIRST_WAIT_MS << doublings;
+    if wait > MAX_WAIT_MS {
+        MAX_WAIT_MS
+    } else {
+        wait
+    }
+}
+
+/// Unlock rate limiting. Times are a monotonic clock in milliseconds
+/// supplied by the caller. The failure count is meant to be persisted, so a
+/// restart does not reset it: a throttled count restored at boot waits from
+/// the boot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LoginThrottle {
+    failures: u32,
+    blocked_until_ms: u64,
+}
+
+impl LoginThrottle {
+    /// Resume with `failures` recorded earlier, at time `now_ms`.
+    pub const fn resume(failures: u32, now_ms: u64) -> Self {
+        Self {
+            failures,
+            blocked_until_ms: now_ms.saturating_add(throttle_wait_ms(failures)),
+        }
+    }
+
+    pub const fn failures(&self) -> u32 {
+        self.failures
+    }
+
+    /// Whether an attempt may be checked at `now_ms`.
+    pub const fn allows(&self, now_ms: u64) -> bool {
+        now_ms >= self.blocked_until_ms
+    }
+
+    pub const fn remaining_ms(&self, now_ms: u64) -> u64 {
+        self.blocked_until_ms.saturating_sub(now_ms)
+    }
+
+    pub fn record_failure(&mut self, now_ms: u64) {
+        self.failures = self.failures.saturating_add(1);
+        self.blocked_until_ms = now_ms.saturating_add(throttle_wait_ms(self.failures));
+    }
+
+    pub fn record_success(&mut self) {
+        self.failures = 0;
+        self.blocked_until_ms = 0;
+    }
+}
+
 pub struct LoginForm {
     mode: LoginMode,
     focus: LoginField,
@@ -256,6 +324,21 @@ impl LoginForm {
         self.failures = self.failures.saturating_add(1);
         self.problem = Some(LoginProblem::WrongPassword);
         self.password.clear();
+    }
+
+    /// Refuse an attempt made while throttled: clear the password.
+    pub fn throttled(&mut self) {
+        self.problem = Some(LoginProblem::TooManyAttempts);
+        self.password.clear();
+    }
+
+    /// Clear a throttle notice once attempts are allowed again.
+    pub fn clear_throttle_notice(&mut self) -> bool {
+        if self.problem == Some(LoginProblem::TooManyAttempts) {
+            self.problem = None;
+            return true;
+        }
+        false
     }
 
     /// Forget every secret once the desktop has consumed them.
@@ -543,5 +626,53 @@ mod tests {
             PickerAction::Chosen(1)
         );
         assert_eq!(LanguagePicker::new(2, 9).focus(), 0);
+    }
+
+    #[test]
+    fn throttle_waits_grow_after_the_free_attempts() {
+        assert_eq!(throttle_wait_ms(0), 0);
+        assert_eq!(throttle_wait_ms(2), 0);
+        assert_eq!(throttle_wait_ms(3), 5_000);
+        assert_eq!(throttle_wait_ms(4), 10_000);
+        assert_eq!(throttle_wait_ms(5), 20_000);
+        assert_eq!(throttle_wait_ms(6), 40_000);
+        assert_eq!(throttle_wait_ms(7), 60_000);
+        assert_eq!(throttle_wait_ms(u32::MAX), 60_000);
+    }
+
+    #[test]
+    fn throttle_blocks_until_the_wait_passes_and_resets_on_success() {
+        let mut throttle = LoginThrottle::resume(0, 1_000);
+        for attempt in 0..FREE_ATTEMPTS {
+            assert!(throttle.allows(1_000 + u64::from(attempt)));
+            throttle.record_failure(1_000);
+        }
+        assert!(!throttle.allows(1_000));
+        assert_eq!(throttle.remaining_ms(2_000), 4_000);
+        assert!(throttle.allows(6_000));
+        throttle.record_failure(6_000);
+        assert!(!throttle.allows(15_999) && throttle.allows(16_000));
+        throttle.record_success();
+        assert_eq!(throttle.failures(), 0);
+        assert!(throttle.allows(0));
+    }
+
+    #[test]
+    fn a_restored_failure_count_waits_from_the_restart() {
+        let throttle = LoginThrottle::resume(4, 500);
+        assert!(!throttle.allows(10_499));
+        assert!(throttle.allows(10_500));
+        assert!(LoginThrottle::resume(2, 500).allows(500));
+    }
+
+    #[test]
+    fn throttle_notice_clears_the_password() {
+        let mut form = LoginForm::unlock();
+        type_keys(&mut form, &[A, D]);
+        form.throttled();
+        assert_eq!(form.problem(), Some(LoginProblem::TooManyAttempts));
+        assert_eq!(form.password(), b"");
+        assert!(form.clear_throttle_notice());
+        assert!(!form.clear_throttle_notice());
     }
 }

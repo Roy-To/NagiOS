@@ -23,8 +23,7 @@ use crate::image::{
     run_qemu_gui_reusing_ovmf_vars_with_events,
     run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
     run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
-    run_qemu_gui_with_events, run_qemu_gui_with_events_and_screenshot,
-    run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input,
+    run_qemu_gui_with_events, run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input,
     run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot,
     run_qemu_interactive, run_qemu_reusing_ovmf_vars,
     run_qemu_reusing_ovmf_vars_with_read_only_boot_disk, run_qemu_until_any_acceptance_marker,
@@ -5269,13 +5268,20 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
     create_events.extend(qmp_typed_keys("owner", "ret"));
     create_events.extend(qmp_typed_keys("nagi1", "ret"));
     create_events.extend(qmp_typed_keys("nagi1", "ret"));
-    let mut unlock_events = qmp_typed_keys("wrong1", "ret");
-    unlock_events.extend(qmp_typed_keys("nagi1", "ret"));
+    // ADR 0064: three wrong passwords engage the wait; it survives a restart,
+    // where even the right password is refused until the wait ends.
+    let mut throttle_events = qmp_typed_keys("wrong1", "ret");
+    throttle_events.extend(qmp_typed_keys("wrong2", "ret"));
+    throttle_events.extend(qmp_typed_keys("wrong3", "ret"));
+    let restart_events = qmp_typed_keys("nagi1", "ret");
+    let after_wait = qmp_typed_keys("nagi1", "ret");
     let mut lines = Vec::new();
-    for (phase, events, markers, absent) in [
+    for (phase, events, stage, accepted, markers, absent) in [
         (
             "create",
             create_events,
+            None,
+            "Nagi login acceptance PASS",
             &[
                 "Nagi M10 desktop READY",
                 "Nagi login READY mode=create",
@@ -5290,33 +5296,61 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             ][..],
         ),
         (
-            "unlock",
-            unlock_events,
+            "throttle",
+            throttle_events,
+            None,
+            "Nagi login throttle engaged failures=3",
             &[
                 "Nagi M10 desktop READY",
                 "Nagi login READY mode=unlock",
                 "Nagi M29 settings preference restored PASS locale=ja-JP",
                 "Nagi login unlock REJECTED",
+                "Nagi login unlock REJECTED",
+                "Nagi login unlock REJECTED",
+                "Nagi login throttle engaged failures=3",
+            ][..],
+            &["Nagi login owner created", "Nagi login unlocked PASS"][..],
+        ),
+        (
+            "restart",
+            restart_events,
+            Some(("Nagi login retry allowed", after_wait)),
+            "Nagi login acceptance PASS",
+            &[
+                "Nagi login throttle restored failures=3",
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=unlock",
+                "Nagi login throttled remaining_ms=",
+                "Nagi login retry allowed",
                 "Nagi login unlocked PASS",
                 "Nagi login acceptance PASS",
             ][..],
-            &["Nagi login owner created"][..],
+            &["Nagi login unlock REJECTED"][..],
         ),
     ] {
         let log = evidence.join(format!("{phase}.log"));
-        let screenshot = evidence.join(format!("{phase}-signed-in.png"));
+        let screenshot = evidence.join(format!("{phase}-final.png"));
         let shown = evidence.join(format!("{phase}-login-screen.png"));
         let mut commands = vec![qmp_screendump_command(&shown)?];
         commands.extend(events);
         let commands: Vec<&str> = commands.iter().map(String::as_str).collect();
-        let outcome = run_qemu_gui_with_events_and_screenshot(
-            &login_config(
-                &host,
-                [&image_path, &disk, &vars, &log],
-                "Nagi login acceptance PASS",
-            ),
+        let stage_events: Vec<&str> = stage
+            .as_ref()
+            .map(|(_, events)| events.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        let stages: Vec<QmpEventStage<'_>> = stage
+            .as_ref()
+            .map(|(marker, _)| QmpEventStage {
+                marker,
+                events: &stage_events,
+            })
+            .into_iter()
+            .collect();
+        let outcome = run_qemu_gui_with_staged_events_and_screenshot(
+            &login_config(&host, [&image_path, &disk, &vars, &log], accepted),
             "Nagi M10 desktop READY",
             &commands,
+            &stages,
             &screenshot,
         )?;
         let serial = read(&log)?;
@@ -10357,14 +10391,15 @@ fn m27_bootstrap_markers_present(serial: &str) -> bool {
 }
 
 /// ADR 0063: with `desktop-login`, readiness follows the owner's sign-in.
+/// The kernel prints `readiness persisted` only after a successful write,
+/// and QEMU may stop on this marker before the line's trailing `PASS`.
 fn m27_readiness_persisted_after_sign_in(serial: &str) -> bool {
     let signed_in = serial
         .lines()
         .position(|line| line == "Nagi login unlocked PASS");
-    let readiness = serial.lines().position(|line| {
-        line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 generation=")
-            && line.ends_with(" PASS")
-    });
+    let readiness = serial
+        .lines()
+        .position(|line| line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 "));
     matches!((signed_in, readiness), (Some(signed_in), Some(record)) if signed_in < record)
 }
 
@@ -10967,6 +11002,10 @@ mod tests {
         ));
         assert!(!m27_readiness_persisted_after_sign_in(
             "Nagi M27 readiness persisted slot=B attempt=1 generation=4 PASS\n"
+        ));
+        // QEMU can stop before the line's trailing PASS is written.
+        assert!(m27_readiness_persisted_after_sign_in(
+            "Nagi login unlocked PASS\nNagi M27 readiness persisted slot=B attempt=1 generation="
         ));
     }
 

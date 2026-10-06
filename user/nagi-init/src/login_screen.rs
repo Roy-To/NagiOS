@@ -11,7 +11,8 @@ use libnagi::credential::{
     SALT_BYTES,
 };
 use libnagi::login::{
-    LanguagePicker, LoginAction, LoginField, LoginForm, LoginMode, LoginProblem, PickerAction,
+    LanguagePicker, LoginAction, LoginField, LoginForm, LoginMode, LoginProblem, LoginThrottle,
+    PickerAction, FREE_ATTEMPTS,
 };
 use libnagi::security::{AccountStore, Role, Session};
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
@@ -24,6 +25,14 @@ use crate::ui::{Painter, Rect};
 type UserDataVolume = Vfs<SyscallBlockDevice>;
 
 const ACCOUNT_PATH: &[u8] = b"owner-account";
+/// Consecutive failed unlocks, kept across restarts (ADR 0064).
+const THROTTLE_PATH: &[u8] = b"login-throttle";
+const THROTTLE_MAGIC: &[u8; 4] = b"NLT1";
+
+/// Monotonic milliseconds since boot (10 ms timer ticks).
+fn now_ms() -> u64 {
+    libnagi::time_ticks().saturating_mul(10)
+}
 const THEME: ThemeMode = ThemeMode::Light;
 const PANEL: Rect = Rect::new(40, 30, 240, 140);
 const FIELD_WIDTH: i32 = 200;
@@ -55,6 +64,9 @@ pub struct LoginScreen {
     form: LoginForm,
     account: Option<AccountRecord>,
     unavailable: bool,
+    throttle: LoginThrottle,
+    /// Whether "retry allowed" has been reported for the current wait.
+    retry_announced: bool,
 }
 
 impl LoginScreen {
@@ -65,20 +77,62 @@ impl LoginScreen {
                 form: LoginForm::create(),
                 account: None,
                 unavailable: false,
+                throttle: LoginThrottle::resume(0, 0),
+                retry_announced: true,
             },
             LoginStart::Unlock(record) => Self {
                 language: None,
                 form: LoginForm::unlock(),
                 account: Some(record),
                 unavailable: false,
+                throttle: LoginThrottle::resume(0, 0),
+                retry_announced: true,
             },
             LoginStart::Unavailable => Self {
                 language: None,
                 form: LoginForm::unlock(),
                 account: None,
                 unavailable: true,
+                throttle: LoginThrottle::resume(0, 0),
+                retry_announced: true,
             },
         }
+    }
+
+    /// Restore the persisted failure count. A count past the free attempts
+    /// waits from this boot, so restarting does not skip the wait.
+    pub fn resume_throttle(&mut self, volume: &mut UserDataVolume) {
+        if self.form.mode() != LoginMode::Unlock {
+            return;
+        }
+        let failures = load_failures(volume);
+        self.throttle = LoginThrottle::resume(failures, now_ms());
+        if failures > 0 {
+            say_number(
+                b"Nagi login throttle restored failures=",
+                u64::from(failures),
+            );
+        }
+        // The notice appears only when someone tries during the wait.
+        if !self.throttle.allows(now_ms()) {
+            self.retry_announced = false;
+        }
+    }
+
+    /// Clear the wait notice once attempts are allowed again. Returns
+    /// whether the screen changed.
+    pub fn tick(&mut self) -> bool {
+        if self.retry_announced || !self.throttle.allows(now_ms()) {
+            return false;
+        }
+        self.retry_announced = true;
+        libnagi::console_write(b"Nagi login retry allowed\r\n");
+        self.form.clear_throttle_notice()
+    }
+
+    /// Whether a sign-in wait is running, so the desktop polls `tick`.
+    pub const fn is_waiting(&self) -> bool {
+        !self.retry_announced
     }
 
     pub fn mode(&self) -> LoginMode {
@@ -168,6 +222,7 @@ impl LoginScreen {
                 LoginProblem::PasswordTooShort => "login.error.short",
                 LoginProblem::PasswordMismatch => "login.error.mismatch",
                 LoginProblem::WrongPassword => "login.error.wrong",
+                LoginProblem::TooManyAttempts => "login.error.wait",
             })
         };
         if let Some(key) = problem {
@@ -248,7 +303,7 @@ impl LoginScreen {
             LoginAction::Ignored => LoginOutcome::Ignored,
             LoginAction::Changed => LoginOutcome::Changed,
             LoginAction::Create => self.create(volume),
-            LoginAction::Unlock => self.unlock(),
+            LoginAction::Unlock => self.unlock(volume),
         }
     }
 
@@ -278,11 +333,43 @@ impl LoginScreen {
         self.sign_in(record)
     }
 
-    fn unlock(&mut self) -> LoginOutcome {
-        match self.account {
-            Some(record) => self.sign_in(record),
-            None => LoginOutcome::Ignored,
+    fn unlock(&mut self, volume: &mut UserDataVolume) -> LoginOutcome {
+        let Some(record) = self.account else {
+            return LoginOutcome::Ignored;
+        };
+        let now = now_ms();
+        // While throttled the password is not even checked (ADR 0064).
+        if !self.throttle.allows(now) {
+            self.form.throttled();
+            say_number(
+                b"Nagi login throttled remaining_ms=",
+                self.throttle.remaining_ms(now),
+            );
+            return LoginOutcome::Changed;
         }
+        let outcome = self.sign_in(record);
+        match outcome {
+            LoginOutcome::SignedIn(_) => {
+                self.throttle.record_success();
+                if !store_failures(volume, 0) {
+                    libnagi::console_write(b"Nagi login throttle persistence FAIL\r\n");
+                }
+            }
+            _ => {
+                self.throttle.record_failure(now_ms());
+                if !store_failures(volume, self.throttle.failures()) {
+                    libnagi::console_write(b"Nagi login throttle persistence FAIL\r\n");
+                }
+                if self.throttle.failures() >= FREE_ATTEMPTS {
+                    self.retry_announced = false;
+                    say_number(
+                        b"Nagi login throttle engaged failures=",
+                        u64::from(self.throttle.failures()),
+                    );
+                }
+            }
+        }
+        outcome
     }
 
     /// Authenticate the typed password against the stored credential and
@@ -310,6 +397,59 @@ impl LoginScreen {
             }
         }
     }
+}
+
+fn say_number(prefix: &[u8], value: u64) {
+    let mut digits = [0u8; 20];
+    let mut length = 0;
+    let mut remaining = value;
+    loop {
+        digits[length] = b'0' + (remaining % 10) as u8;
+        length += 1;
+        remaining /= 10;
+        if remaining == 0 {
+            break;
+        }
+    }
+    digits[..length].reverse();
+    libnagi::console_write(prefix);
+    libnagi::console_write(&digits[..length]);
+    libnagi::console_write(b"\r\n");
+}
+
+/// The persisted failure count. A missing file is zero; an unreadable or
+/// corrupt one fails closed to the free-attempt limit (one wait).
+fn load_failures(volume: &mut UserDataVolume) -> u32 {
+    let handle = match volume.open_path(THROTTLE_PATH) {
+        Ok(handle) => handle,
+        Err(StorageError::NotFound) => return 0,
+        Err(_) => return FREE_ATTEMPTS,
+    };
+    let mut bytes = [0; MAX_SMALL_FILE_SIZE];
+    match volume.read(handle, &mut bytes) {
+        Ok(8) if bytes[..4] == *THROTTLE_MAGIC => {
+            u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]])
+        }
+        _ => FREE_ATTEMPTS,
+    }
+}
+
+fn store_failures(volume: &mut UserDataVolume, failures: u32) -> bool {
+    let handle = match volume.open_path(THROTTLE_PATH) {
+        Ok(handle) => handle,
+        Err(StorageError::NotFound) => match volume.create_path(THROTTLE_PATH) {
+            Ok(handle) => handle,
+            Err(_) => return false,
+        },
+        Err(_) => return false,
+    };
+    let mut bytes = [0u8; 8];
+    bytes[..4].copy_from_slice(THROTTLE_MAGIC);
+    bytes[4..].copy_from_slice(&failures.to_le_bytes());
+    volume
+        .write(handle, &bytes)
+        .and_then(|()| volume.flush())
+        .is_ok()
 }
 
 /// Read the owner account from User Data.
