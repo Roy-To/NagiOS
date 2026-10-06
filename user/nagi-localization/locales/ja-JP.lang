@@ -49,3 +49,4 @@ login.error.short=4文字以上
 login.error.mismatch=不一致
 login.error.name=名前: a-z 0-9
 login.language.title=言語
+login.error.wait=待機中

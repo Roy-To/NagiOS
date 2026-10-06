@@ -11,6 +11,19 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**Sign-in throttling (ADR 0064), 2026-10-06:** The lock screen now limits
+failed sign-in attempts.
+
+- **Policy.** After three consecutive failed unlocks, the next attempt
+  waits 5 s, doubling up to 60 s. An attempt during the wait is refused
+  before the key derivation runs.
+- **Persistence.** The failure count persists in User Data, so a restart
+  waits again.
+- **Result.** `./nagi login` passed with create, throttle and restart
+  phases (evidence `out/evidence/login-1791281978301774000`).
+  `./nagi consent`, `m27`, `m29` and `m30-update` still pass. The
+  workspace has 891 host tests, and warning-denied Clippy is clean.
+
 **First-run language step (M29 onboarding, ADR 0063), 2026-10-06:**
 
 - **Flow.** With `desktop-login`, first run now asks for the system
