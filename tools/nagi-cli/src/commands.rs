@@ -3928,9 +3928,7 @@ fn run_m30_update(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, Str
             acceptance_marker: "Nagi M27 readiness persisted slot=B attempt=1",
             timeout: Duration::from_secs(180),
         };
-        let mut sign_in = qmp_typed_keys("owner", "ret");
-        sign_in.extend(qmp_typed_keys("nagi1", "ret"));
-        sign_in.extend(qmp_typed_keys("nagi1", "ret"));
+        let sign_in = qmp_first_run_sign_in("owner", "nagi1");
         let sign_in: Vec<&str> = sign_in.iter().map(String::as_str).collect();
         run_qemu_gui_reusing_ovmf_vars_with_events(
             &trial_config,
@@ -5089,10 +5087,8 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 fn execute_consent(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     // ADR 0063: decisions belong to the signed-in owner. Create the owner
     // first; the dialog appears after sign-in.
-    let mut events = qmp_typed_keys(CONSENT_OWNER_NAME, "ret");
     // `events` signs in; the dialog input is a later stage.
-    events.extend(qmp_typed_keys(CONSENT_OWNER_PASSWORD, "ret"));
-    events.extend(qmp_typed_keys(CONSENT_OWNER_PASSWORD, "ret"));
+    let events = qmp_first_run_sign_in(CONSENT_OWNER_NAME, CONSENT_OWNER_PASSWORD);
     execute_desktop_acceptance(
         root,
         probe,
@@ -5177,6 +5173,26 @@ fn qmp_typed_keys(text: &str, finish: &str) -> Vec<String> {
             )
         })
         .collect()
+}
+
+/// First-run input for the OS-owned login (ADR 0063): keep the offered
+/// default language, then create the owner `name` with `password`.
+fn qmp_first_run_sign_in(name: &str, password: &str) -> Vec<String> {
+    let mut events = qmp_typed_keys("", "ret");
+    events.extend(qmp_typed_keys(name, "ret"));
+    events.extend(qmp_typed_keys(password, "ret"));
+    events.extend(qmp_typed_keys(password, "ret"));
+    events
+}
+
+#[cfg(test)]
+#[test]
+fn first_run_sign_in_answers_the_language_step_first() {
+    let events = qmp_first_run_sign_in("ab", "cd");
+    // Language Enter, then "ab"+Enter, then "cd"+Enter twice.
+    assert_eq!(events.len(), 1 + 3 + 3 + 3);
+    assert!(events[0].contains(r#""data":"ret""#));
+    assert!(events[1].contains(r#""data":"a""#));
 }
 
 /// ADR 0063: first run creates the owner account through the OS-owned
@@ -10210,9 +10226,7 @@ fn execute_m27_gpt_acceptance(
     };
     // The trial reports readiness only after the owner signs in; create the
     // owner through the OS-owned login screen (ADR 0063).
-    let mut sign_in = qmp_typed_keys("owner", "ret");
-    sign_in.extend(qmp_typed_keys("nagi1", "ret"));
-    sign_in.extend(qmp_typed_keys("nagi1", "ret"));
+    let sign_in = qmp_first_run_sign_in("owner", "nagi1");
     let sign_in: Vec<&str> = sign_in.iter().map(String::as_str).collect();
     let status = run_qemu_gui_reusing_ovmf_vars_with_events(
         &trial_config,
