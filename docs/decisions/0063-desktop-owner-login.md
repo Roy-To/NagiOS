@@ -92,6 +92,26 @@ A temporary ja-JP render of the same screens was checked visually.
   - The legacy FAT12 M27 fixtures and M10/M29 are unchanged.
   - The M30 release image runs the M19/M22 service flows, not the desktop.
 
+## Onboarding language step (2026-10-06, follow-up)
+
+**What it does.** First run now starts with a language step before the
+account is created (M29 onboarding).
+- English and 日本語 are offered, each named in its own language.
+- Up, Down and Tab move the focus, and Enter chooses
+  (`libnagi::login::LanguagePicker`, host-tested).
+- The choice becomes the system language immediately and is written to
+  User Data `system-language`. Later boots, including the unlock screen,
+  use it.
+
+**Acceptance.** `./nagi login` now chooses 日本語 on the first run and
+requires these markers:
+- `Nagi onboarding language PASS locale=ja-JP`;
+- after the restart, `Nagi M29 settings preference restored PASS
+  locale=ja-JP` before the unlock.
+
+It passed as run `1791264637514157000`, with screenshots of the language
+step and the Japanese unlock screen.
+
 ## Bounds and non-goals
 
 - **Rollout.** See above.

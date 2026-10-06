@@ -138,6 +138,55 @@ pub const fn key_char(code: u16) -> Option<u8> {
     }
 }
 
+/// First-run language step (M29 onboarding): pick one of the offered
+/// languages before the owner account is created. Up/Down/Tab move the
+/// focus; Enter or Space chooses.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LanguagePicker {
+    focus: usize,
+    count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PickerAction {
+    Ignored,
+    Changed,
+    Chosen(usize),
+}
+
+impl LanguagePicker {
+    /// `count` options, with focus on `initial` (clamped).
+    pub const fn new(count: usize, initial: usize) -> Self {
+        let count = if count == 0 { 1 } else { count };
+        Self {
+            focus: if initial < count { initial } else { 0 },
+            count,
+        }
+    }
+
+    pub const fn focus(&self) -> usize {
+        self.focus
+    }
+
+    pub fn handle_key(&mut self, code: u16, pressed: bool) -> PickerAction {
+        if !pressed {
+            return PickerAction::Ignored;
+        }
+        match code {
+            crate::INPUT_KEY_DOWN | INPUT_KEY_TAB => {
+                self.focus = (self.focus + 1) % self.count;
+                PickerAction::Changed
+            }
+            crate::INPUT_KEY_UP => {
+                self.focus = (self.focus + self.count - 1) % self.count;
+                PickerAction::Changed
+            }
+            INPUT_KEY_ENTER | crate::INPUT_KEY_SPACE => PickerAction::Chosen(self.focus),
+            _ => PickerAction::Ignored,
+        }
+    }
+}
+
 pub struct LoginForm {
     mode: LoginMode,
     focus: LoginField,
@@ -464,5 +513,35 @@ mod tests {
         }
         assert_eq!(form.handle_key(A, true), LoginAction::Ignored);
         assert_eq!(form.length(LoginField::Name), MAX_ACCOUNT_NAME_BYTES);
+    }
+
+    #[test]
+    fn language_picker_moves_and_chooses() {
+        let mut picker = LanguagePicker::new(2, 0);
+        assert_eq!(
+            picker.handle_key(crate::INPUT_KEY_DOWN, true),
+            PickerAction::Changed
+        );
+        assert_eq!(picker.focus(), 1);
+        assert_eq!(
+            picker.handle_key(crate::INPUT_KEY_DOWN, false),
+            PickerAction::Ignored
+        );
+        assert_eq!(
+            picker.handle_key(INPUT_KEY_TAB, true),
+            PickerAction::Changed
+        );
+        assert_eq!(picker.focus(), 0);
+        assert_eq!(
+            picker.handle_key(crate::INPUT_KEY_UP, true),
+            PickerAction::Changed
+        );
+        assert_eq!(picker.focus(), 1);
+        assert_eq!(picker.handle_key(A, true), PickerAction::Ignored);
+        assert_eq!(
+            picker.handle_key(INPUT_KEY_ENTER, true),
+            PickerAction::Chosen(1)
+        );
+        assert_eq!(LanguagePicker::new(2, 9).focus(), 0);
     }
 }
