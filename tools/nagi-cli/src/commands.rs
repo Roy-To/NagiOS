@@ -17,6 +17,7 @@ use crate::diagnostics::{
 use crate::doctor::{
     ovmf_pair_is_allowed, run_doctor_with_requirements, CheckState, DoctorPolicy, HostProbe,
 };
+use crate::image::signed_update_bundle;
 use crate::image::{
     ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui,
     run_qemu_gui_reusing_ovmf_vars_with_events,
@@ -299,6 +300,7 @@ pub enum Command {
     M25,
     M27,
     M30,
+    M30Update,
     IsolatedProcess,
     M20Granite,
     M20GraniteInference,
@@ -513,6 +515,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m25" => Command::M25,
         "m27" => Command::M27,
         "m30" => Command::M30,
+        "m30-update" => Command::M30Update,
         "isolated-process" => Command::IsolatedProcess,
         "m20-granite" => Command::M20Granite,
         "m20-granite-inference" => Command::M20GraniteInference,
@@ -585,6 +588,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M25
         | Command::M27
         | Command::M30
+        | Command::M30Update
         | Command::IsolatedProcess
         | Command::Clean
         | Command::Fmt
@@ -761,6 +765,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
+        Command::M30Update => execute_m30_update(root, probe),
         Command::M20Granite => execute_m20_granite(&args[1..], root, probe),
         Command::M20GraniteInference => execute_m20_granite_inference(&args[1..], root, probe),
         Command::M20LlamaSmoke => execute_m20_llama_smoke(root, probe),
@@ -3659,6 +3664,261 @@ fn write_sha256_manifest(paths: &Path, files: &[(&Path, String)]) -> Result<(), 
         manifest.push_str(&format!("{digest}  {relative_name}\n"));
     }
     fs::write(paths, manifest).map_err(|error| format!("cannot write {}: {error}", paths.display()))
+}
+
+/// ADR 0062: install a signed system update from update media into System B
+/// from a running System A, trial it through the loader's re-verification,
+/// and confirm it after guest readiness. A separate image proves a tampered
+/// bundle is refused before anything is written.
+fn execute_m30_update(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    match run_m30_update(root, probe) {
+        Ok(lines) => CommandResult {
+            exit_code: EXIT_SUCCESS,
+            lines,
+        },
+        Err(error) => failure(EXIT_CONFIG_ERROR, format!("m30-update: {error}")),
+    }
+}
+
+const M30_UPDATE_BUNDLE_NAME: &str = "NAGIUPD.BIN";
+const M30_UPDATE_ROLLBACK_INDEX: u64 = 2;
+
+fn m30_update_init_args(features: &str) -> [&str; 10] {
+    [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ]
+}
+
+fn build_and_read(
+    root: &Path,
+    label: &str,
+    args: &[&str],
+    output: &Path,
+) -> Result<Vec<u8>, String> {
+    let result = run_cargo(root, label, args);
+    if result.exit_code != EXIT_SUCCESS {
+        return Err(format!("{label} build failed: {}", result.lines.join("; ")));
+    }
+    fs::read(output).map_err(|error| format!("read {}: {error}", output.display()))
+}
+
+fn run_m30_update(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, String> {
+    let run_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock: {error}"))?
+        .as_nanos()
+        .to_string();
+    let host = resolve_qemu_host(root, probe, "m30-update")?;
+    let evidence = ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m30-update-{run_id}")),
+    )?;
+    let init_path = root.join("target/x86_64-unknown-nagi-user/release/nagi-init");
+    let kernel_path = root.join("target/x86_64-unknown-nagi/release/nagi-kernel");
+
+    // The update payload: the release kernel and a desktop init that
+    // reports readiness, signed with a higher rollback index.
+    let recovery_init = build_and_read(
+        root,
+        "M30 update Recovery init",
+        &m30_update_init_args("m27-recovery"),
+        &init_path,
+    )?;
+    let update_init = build_and_read(
+        root,
+        "M30 update payload init",
+        &m30_update_init_args("m10-desktop"),
+        &init_path,
+    )?;
+    let kernel = build_and_read(
+        root,
+        "M30 update kernel",
+        &[
+            "build",
+            "-p",
+            "nagi-kernel",
+            "--target",
+            "targets/x86_64-unknown-nagi.json",
+            "-Zbuild-std=core,compiler_builtins",
+            "--release",
+        ],
+        &kernel_path,
+    )?;
+    let bundle = signed_update_bundle(
+        &kernel,
+        &update_init,
+        M30_UPDATE_ROLLBACK_INDEX,
+        &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET,
+    )?;
+    let mut tampered = bundle.clone();
+    let last = tampered.len() - 1;
+    tampered[last] ^= 0x01;
+    let bundle_path = evidence.join("signed-update.bin");
+    let tampered_path = evidence.join("tampered-update.bin");
+    fs::write(&bundle_path, &bundle).map_err(|error| format!("write bundle: {error}"))?;
+    fs::write(&tampered_path, &tampered).map_err(|error| format!("write bundle: {error}"))?;
+
+    let mut lines = Vec::new();
+    for (label, bundle_path, image_name) in [
+        (
+            "signed",
+            bundle_path.as_path(),
+            format!("nagi-0.1-m30-update-signed-{run_id}.qcow2"),
+        ),
+        (
+            "tampered",
+            tampered_path.as_path(),
+            format!("nagi-0.1-m30-update-tampered-{run_id}.qcow2"),
+        ),
+    ] {
+        let init_args = m30_update_init_args("m10-desktop,m30-update-install");
+        let image = execute_image_with_init_build_env_using_writer_and_recovery(
+            root,
+            &init_args,
+            None,
+            ImageBuildRequest {
+                image_name: &image_name,
+                cargo_env: &[],
+                recovery_init: Some(&recovery_init),
+                image_writer: write_reference_disk_qcow2,
+                external_model_store_file: Some((M30_UPDATE_BUNDLE_NAME, bundle_path)),
+                build_features: ImageBuildFeatures {
+                    kernel: &[],
+                    loader: &["m27-ab-slot-boot-control"],
+                },
+            },
+        );
+        if image.exit_code != EXIT_SUCCESS {
+            return Err(format!("build {label} image: {}", image.lines.join("; ")));
+        }
+        let image_path = root.join("out").join("artifacts").join(&image_name);
+        let vars = evidence.join(format!("{label}-OVMF_VARS.fd"));
+        let boot = |name: &str, marker: &'static str, reuse_vars: bool| -> Result<String, String> {
+            let log = evidence.join(format!("{label}-{name}.log"));
+            let config = QemuConfig {
+                qemu: &host.qemu,
+                ovmf_code: &host.ovmf_code,
+                ovmf_vars_template: &host.ovmf_vars,
+                disk_image: &image_path,
+                persistent_disk: &image_path,
+                vars_copy: &vars,
+                serial_log: &log,
+                acceptance_marker: marker,
+                timeout: Duration::from_secs(180),
+            };
+            let status = if reuse_vars {
+                run_qemu_reusing_ovmf_vars(&config)
+            } else {
+                run_qemu(&config)
+            }
+            .map_err(|error| format!("{label} {name} boot: {error} (log {})", log.display()))?;
+            let serial = fs::read_to_string(&log)
+                .map_err(|error| format!("read {}: {error}", log.display()))?;
+            if !serial.contains(marker) {
+                return Err(format!(
+                    "{label} {name} boot did not print `{marker}` (QEMU exit {status}; log {})",
+                    log.display()
+                ));
+            }
+            Ok(serial)
+        };
+        let require = |phase: &str, serial: &str, markers: &[&str], absent: &[&str]| {
+            for marker in markers {
+                if !serial.contains(marker) {
+                    return Err(format!("{label} {phase} did not print `{marker}`"));
+                }
+            }
+            for marker in absent {
+                if serial.contains(marker) {
+                    return Err(format!("{label} {phase} unexpectedly printed `{marker}`"));
+                }
+            }
+            Ok(())
+        };
+
+        let install = boot("install", "Nagi M7 reboot required PASS", false)?;
+        if label == "tampered" {
+            require(
+                "install",
+                &install,
+                &[
+                    "Nagi slot manifest verified slot=A rollback-index=1 PASS",
+                    "Nagi update slot claimed slot=B",
+                    "Nagi update bundle REJECTED",
+                ],
+                &["Nagi update written", "Nagi update stage request persisted"],
+            )?;
+            let next = boot("after-rejection", "Nagi M10 desktop READY", true)?;
+            require(
+                "after-rejection",
+                &next,
+                &[
+                    "Nagi M27 persistence decision: confirmed slot=A",
+                    "Nagi slot manifest verified slot=A rollback-index=1 PASS",
+                ],
+                &["Nagi M27 update stage request accepted"],
+            )?;
+            lines.push(format!(
+                "PASS m30-update: a tampered bundle was refused before any write and System A stayed confirmed (evidence {})",
+                evidence.display()
+            ));
+            continue;
+        }
+        require(
+            "install",
+            &install,
+            &[
+                "Nagi slot manifest verified slot=A rollback-index=1 PASS",
+                "Nagi update slot claimed slot=B",
+                "Nagi update bundle verified PASS",
+                "Nagi update written slot=B PASS",
+                "Nagi update readback verified slot=B PASS",
+                "Nagi update stage request persisted slot=B",
+                "Nagi update install PASS slot=B",
+            ],
+            &[],
+        )?;
+        let trial = boot("trial", "Nagi M10 desktop READY", true)?;
+        require(
+            "trial",
+            &trial,
+            &[
+                "Nagi M27 update stage request accepted slot=B PASS",
+                "Nagi M27 persistence decision: trial attempt=1 slot=B",
+                "Nagi M30 GPT partition boot: System B PASS",
+                "Nagi slot manifest verified slot=B rollback-index=2 PASS",
+                "Nagi M27 readiness persisted slot=B attempt=1",
+            ],
+            &["Nagi update slot claimed"],
+        )?;
+        let confirmed = boot("confirmed", "Nagi M10 desktop READY", true)?;
+        require(
+            "confirmed",
+            &confirmed,
+            &[
+                "Nagi M27 readiness record consumed slot=B PASS",
+                "Nagi M27 persistence decision: confirmed slot=B",
+                "Nagi slot manifest verified slot=B rollback-index=2 PASS",
+            ],
+            &[],
+        )?;
+        lines.push(format!(
+            "PASS m30-update: System A installed a signed update into System B, the loader re-verified and trialled it, and System B was confirmed after readiness (evidence {})",
+            evidence.display()
+        ));
+    }
+    Ok(lines)
 }
 
 fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -9359,6 +9619,7 @@ fn execute_m27_gpt_acceptance(
         &[
             "Nagi M27 manual selection: confirmed slot=A",
             "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi slot manifest verified slot=A rollback-index=1 PASS",
             "Nagi M7 ext2 format PASS",
             "Nagi M7 persistent write PASS",
             "Nagi M7 reboot required PASS",
@@ -9375,7 +9636,7 @@ fn execute_m27_gpt_acceptance(
             persistent_disk: &broken_image_path,
             vars_copy: &broken_vars,
             serial_log: &log,
-            acceptance_marker: "Nagi Loader: invalid ELF",
+            acceptance_marker: "Nagi Loader: slot manifest rejected",
             timeout: Duration::from_secs(120),
         };
         let status = run_m27_headless_with_pre_guest_retry(&config, false)
@@ -9385,16 +9646,16 @@ fn execute_m27_gpt_acceptance(
         let expected_decision =
             format!("Nagi M27 persistence decision: trial attempt={attempt} slot=B");
         require_m27_gpt_markers(
-            "GPT malformed System B trial",
+            "GPT untrusted System B trial",
             status,
             &log,
             &serial,
             &[
                 &expected_decision,
                 "Nagi M27 UEFI variable journal persistence PASS",
-                "Nagi M30 GPT partition boot: System B PASS",
+                "Nagi slot manifest REJECTED slot=B reason=signature",
                 "Nagi M27 trial payload rejected slot=B",
-                "Nagi Loader: invalid ELF",
+                "Nagi Loader: slot manifest rejected",
             ],
         )?;
         if !m27_trial_failure_observed(&serial) {
@@ -9436,6 +9697,7 @@ fn execute_m27_gpt_acceptance(
         &[
             "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
             "Nagi M30 GPT partition boot: Recovery PASS",
+            "Nagi slot manifest verified slot=Recovery rollback-index=1 PASS",
             "Nagi M27 Recovery VFS check PASS files=",
             "Nagi M27 Recovery current-boot log PASS",
             "Nagi M27 Recovery files PASS",
@@ -9543,6 +9805,7 @@ fn execute_m27_gpt_acceptance(
             "Nagi M27 persistence decision: trial attempt=1 slot=B",
             "Nagi M27 UEFI variable journal persistence PASS",
             "Nagi M30 GPT partition boot: System B PASS",
+            "Nagi slot manifest verified slot=B rollback-index=1 PASS",
             "Nagi M7 persistent read PASS",
             "Nagi M27 readiness persisted slot=B attempt=1 generation=",
             "Nagi M10 desktop READY",
@@ -9642,7 +9905,8 @@ fn require_m27_gpt_markers(
 
 fn m27_trial_failure_observed(serial: &str) -> bool {
     serial.contains("Nagi M27 trial payload rejected slot=B")
-        && serial.contains("Nagi Loader: invalid ELF")
+        && (serial.contains("Nagi Loader: invalid ELF")
+            || serial.contains("Nagi Loader: slot manifest rejected"))
         && !serial.contains("Nagi Kernel started")
         && !serial.contains("Nagi M27 readiness persisted")
 }
@@ -9677,7 +9941,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, m30-update, isolated-process, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }
@@ -10213,6 +10477,9 @@ mod tests {
     fn m27_trial_acceptance_waits_for_loader_failure_after_rejection() {
         assert!(m27_trial_failure_observed(
             "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\n"
+        ));
+        assert!(m27_trial_failure_observed(
+            "Nagi slot manifest REJECTED slot=B reason=signature\nNagi M27 trial payload rejected slot=B\nNagi Loader: slot manifest rejected\n"
         ));
         assert!(!m27_trial_failure_observed(
             "Nagi M27 trial payload rejected slot=B\n"
