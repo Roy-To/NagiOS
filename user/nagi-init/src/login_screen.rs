@@ -11,8 +11,8 @@ use libnagi::credential::{
     SALT_BYTES,
 };
 use libnagi::login::{
-    LanguagePicker, LoginAction, LoginField, LoginForm, LoginMode, LoginProblem, LoginThrottle,
-    PickerAction, FREE_ATTEMPTS,
+    ChangeAction, ChangeField, ChangeProblem, LanguagePicker, LoginAction, LoginField, LoginForm,
+    LoginMode, LoginProblem, LoginThrottle, PasswordChangeForm, PickerAction, FREE_ATTEMPTS,
 };
 use libnagi::security::{AccountStore, Role, Session};
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
@@ -25,6 +25,9 @@ use crate::ui::{Painter, Rect};
 type UserDataVolume = Vfs<SyscallBlockDevice>;
 
 const ACCOUNT_PATH: &[u8] = b"owner-account";
+/// A changed account record is written here first, then swapped in with one
+/// directory update (ADR 0066).
+const ACCOUNT_NEXT_PATH: &[u8] = b"owner-account-next";
 /// Consecutive failed unlocks, kept across restarts (ADR 0064).
 const THROTTLE_PATH: &[u8] = b"login-throttle";
 const THROTTLE_MAGIC: &[u8; 4] = b"NLT1";
@@ -487,4 +490,187 @@ fn persist(volume: &mut UserDataVolume, record: &AccountRecord) -> bool {
         .write(handle, &record.encode())
         .and_then(|()| volume.flush())
         .is_ok()
+}
+
+/// Replace the stored owner record without a window in which it is missing
+/// or half-written: write `owner-account-next`, flush, then swap it in with
+/// `Vfs::replace`, which updates the directory in one block write (ADR 0066).
+fn persist_replacing(volume: &mut UserDataVolume, record: &AccountRecord) -> bool {
+    let handle = match volume.open_path(ACCOUNT_NEXT_PATH) {
+        Ok(handle) => handle,
+        Err(StorageError::NotFound) => match volume.create_path(ACCOUNT_NEXT_PATH) {
+            Ok(handle) => handle,
+            Err(_) => return false,
+        },
+        Err(_) => return false,
+    };
+    if volume
+        .write(handle, &record.encode())
+        .and_then(|()| volume.flush())
+        .is_err()
+    {
+        return false;
+    }
+    volume
+        .replace(ACCOUNT_NEXT_PATH, ACCOUNT_PATH)
+        .and_then(|_| volume.flush())
+        .is_ok()
+}
+
+pub enum ChangeOutcome {
+    Ignored,
+    Changed,
+    /// The form was closed: cancelled, or the password was changed.
+    Closed,
+}
+
+/// The modal "change password" screen, opened from Settings by a signed-in
+/// owner (ADR 0066). The current password is checked against the stored
+/// credential before anything is written, and wrong attempts count toward
+/// the same persisted throttle as the lock screen (ADR 0064).
+pub struct PasswordChangeScreen {
+    form: PasswordChangeForm,
+    account: AccountRecord,
+    throttle: LoginThrottle,
+}
+
+impl PasswordChangeScreen {
+    /// Open the form for the stored owner. `None` when the account record
+    /// cannot be read, so nothing is offered to change.
+    pub fn open(volume: &mut UserDataVolume) -> Option<Self> {
+        let LoginStart::Unlock(account) = load(volume) else {
+            return None;
+        };
+        let failures = load_failures(volume);
+        Some(Self {
+            form: PasswordChangeForm::new(),
+            account,
+            throttle: LoginThrottle::resume(failures, now_ms()),
+        })
+    }
+
+    pub fn render(&self, painter: &mut Painter<'_>, locale: Locale) {
+        let text = color(THEME, ColorRole::TextPrimary).to_pixel();
+        let border = color(THEME, ColorRole::BorderStrong).to_pixel();
+        let focus = color(THEME, ColorRole::Focus).to_pixel();
+        painter.fill(PANEL, color(THEME, ColorRole::Surface).to_pixel());
+        painter.frame(PANEL, border);
+        painter.fill(
+            Rect::new(PANEL.x + 1, PANEL.y + 1, PANEL.width - 2, 16),
+            color(THEME, ColorRole::Accent).to_pixel(),
+        );
+        painter.text(
+            PANEL.x + 8,
+            PANEL.y + 5,
+            nagi_localization::text(locale, "settings.password.title").as_bytes(),
+            color(THEME, ColorRole::TextOnAccent).to_pixel(),
+        );
+        let fields = [
+            (ChangeField::Current, "settings.password.current"),
+            (ChangeField::New, "settings.password.new"),
+            (ChangeField::Confirm, "login.confirm"),
+        ];
+        let mut y = PANEL.y + 22;
+        for (field, label) in fields {
+            painter.text(
+                PANEL.x + 20,
+                y,
+                nagi_localization::text(locale, label).as_bytes(),
+                text,
+            );
+            let rect = Rect::new(PANEL.x + 20, y + 9, FIELD_WIDTH, FIELD_HEIGHT);
+            painter.fill(rect, color(THEME, ColorRole::SurfaceRaised).to_pixel());
+            painter.frame(
+                rect,
+                if self.form.focus() == field {
+                    focus
+                } else {
+                    border
+                },
+            );
+            let length = self.form.length(field).min(26);
+            painter.text(rect.x + 4, rect.y + 5, &[b'*'; 26][..length], text);
+            y += 30;
+        }
+        if let Some(problem) = self.form.problem() {
+            let key = match problem {
+                ChangeProblem::WrongCurrent => "login.error.wrong",
+                ChangeProblem::PasswordTooShort => "login.error.short",
+                ChangeProblem::PasswordMismatch => "login.error.mismatch",
+                ChangeProblem::SameAsCurrent => "settings.password.error.same",
+                ChangeProblem::TooManyAttempts => "login.error.wait",
+                ChangeProblem::NotSaved => "settings.password.error.save",
+            };
+            painter.text(
+                PANEL.x + 20,
+                PANEL.y + PANEL.height - 12,
+                nagi_localization::text(locale, key).as_bytes(),
+                color(THEME, ColorRole::Danger).to_pixel(),
+            );
+        }
+    }
+
+    pub fn handle_event(
+        &mut self,
+        event: InputEvent,
+        volume: &mut UserDataVolume,
+    ) -> ChangeOutcome {
+        if event.event_type != libnagi::INPUT_EVENT_KEY {
+            return ChangeOutcome::Ignored;
+        }
+        match self.form.handle_key(event.code, event.value != 0) {
+            ChangeAction::Ignored => ChangeOutcome::Ignored,
+            ChangeAction::Changed => ChangeOutcome::Changed,
+            ChangeAction::Cancel => {
+                libnagi::console_write(b"Nagi password change cancelled\r\n");
+                ChangeOutcome::Closed
+            }
+            ChangeAction::Submit => self.submit(volume),
+        }
+    }
+
+    fn submit(&mut self, volume: &mut UserDataVolume) -> ChangeOutcome {
+        let now = now_ms();
+        // While throttled the current password is not even checked.
+        if !self.throttle.allows(now) {
+            self.form.throttled();
+            say_number(
+                b"Nagi password change throttled remaining_ms=",
+                self.throttle.remaining_ms(now),
+            );
+            return ChangeOutcome::Changed;
+        }
+        if !self.account.credential.verify(self.form.current()) {
+            self.throttle.record_failure(now_ms());
+            if !store_failures(volume, self.throttle.failures()) {
+                libnagi::console_write(b"Nagi login throttle persistence FAIL\r\n");
+            }
+            self.form.reject_current();
+            libnagi::console_write(b"Nagi password change REJECTED current\r\n");
+            return ChangeOutcome::Changed;
+        }
+        self.throttle.record_success();
+        if !store_failures(volume, 0) {
+            libnagi::console_write(b"Nagi login throttle persistence FAIL\r\n");
+        }
+        let mut salt = [0; SALT_BYTES];
+        let record = libnagi::random_fill(&mut salt)
+            .then(|| Credential::derive(self.form.new_password(), salt, DEFAULT_ITERATIONS))
+            .flatten()
+            .and_then(|credential| AccountRecord::new(self.account.name(), credential).ok());
+        let Some(record) = record else {
+            self.form.not_saved();
+            libnagi::console_write(b"Nagi password change FAIL credential\r\n");
+            return ChangeOutcome::Changed;
+        };
+        if !persist_replacing(volume, &record) {
+            self.form.not_saved();
+            libnagi::console_write(b"Nagi password change FAIL storage\r\n");
+            return ChangeOutcome::Changed;
+        }
+        self.form.clear_secrets();
+        self.account = record;
+        libnagi::console_write(b"Nagi password change PASS\r\n");
+        ChangeOutcome::Closed
+    }
 }

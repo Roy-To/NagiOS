@@ -129,7 +129,30 @@ Still open:
   persists readiness only after sign-in (`./nagi m30-update` run
   `1791260698907877000`). The M10/M29 desktops now sign in first (see the
   2026-10-07 entry above; target acceptance pending);
-- more accounts, password change, and rate limiting.
+- more accounts and Recovery reset. Rate limiting is done (ADR 0064), and
+  password change is implemented but not yet accepted in the guest (see the
+  2026-10-07 password change entry below).
+
+**Owner password change (ADR 0066), 2026-10-07:** A signed-in owner can
+change the password from Settings. Status: **PARTIAL** (implemented and
+type-checked; guest acceptance not run).
+
+- **Form.** `libnagi::login::PasswordChangeForm` (current, new, confirm;
+  Escape cancels) is host-tested: a valid change, too-short, mismatch and
+  same-as-current refusals, secret clearing, and cancel.
+- **Desktop.** init's Settings lists "Change password" under the language
+  options with `desktop-login`. The current password is verified before
+  anything is written. Wrong attempts use the persisted ADR 0064 throttle.
+  The new record (fresh salt) is written to `owner-account-next` and swapped
+  in with `Vfs::replace`.
+- **Verified.** The 17 `login`/`credential` host tests pass (built in a
+  scratch crate on arm64 Linux, because `libnagi` does not build for the
+  aarch64 host). `nagi-init` type-checks for the x86_64 Nagi user target
+  with `desktop-login`, with and without `consent-dialog-acceptance`, and
+  fmt and `nagi-localization` tests pass.
+- **Not verified.** No guest run: `./nagi login` does not yet drive the
+  change-password screen, and the arm64 Linux sandbox cannot boot the guest.
+  The ja-JP wording is limited to existing font glyphs.
 
 **Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
 grant is now asked through an OS-owned dialog, and the answer survives a

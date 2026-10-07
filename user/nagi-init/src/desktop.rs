@@ -25,12 +25,22 @@ const TEXT: u32 = color(PREVIEW_THEME, ColorRole::TextPrimary).to_pixel();
 const TITLE_TEXT: u32 = color(PREVIEW_THEME, ColorRole::TextOnAccent).to_pixel();
 const FOCUS: u32 = color(PREVIEW_THEME, ColorRole::Focus).to_pixel();
 const SETTINGS_BUTTON: Rect = Rect::new(252, 1, 66, 18);
+/// Taller with both extra rows (permissions and password) so neither
+/// overlaps the language options.
+#[cfg(all(feature = "desktop-login", feature = "consent-dialog-acceptance"))]
+const SETTINGS_PANEL: Rect = Rect::new(34, 34, 252, 150);
+#[cfg(not(all(feature = "desktop-login", feature = "consent-dialog-acceptance")))]
 const SETTINGS_PANEL: Rect = Rect::new(34, 34, 252, 132);
 const ENGLISH_OPTION: Rect = Rect::new(48, 83, 224, 25);
 const JAPANESE_OPTION: Rect = Rect::new(48, 116, 224, 25);
 /// Opens the permissions view (ADR 0065); shown only with consent.
 #[cfg(feature = "consent-dialog-acceptance")]
 const PERMISSIONS_OPTION: Rect = Rect::new(48, 146, 224, 16);
+/// Opens the change-password form (ADR 0066); shown only with sign-in.
+#[cfg(all(feature = "desktop-login", feature = "consent-dialog-acceptance"))]
+const PASSWORD_OPTION: Rect = Rect::new(48, 164, 224, 16);
+#[cfg(all(feature = "desktop-login", not(feature = "consent-dialog-acceptance")))]
+const PASSWORD_OPTION: Rect = Rect::new(48, 146, 224, 16);
 
 #[no_mangle]
 static NAGI_M10_READY: [u8; b"Nagi M10 desktop READY\r\n".len()] = *b"Nagi M10 desktop READY\r\n";
@@ -130,12 +140,39 @@ enum SettingsFocus {
     Japanese,
     #[cfg(feature = "consent-dialog-acceptance")]
     Permissions,
+    #[cfg(feature = "desktop-login")]
+    Password,
 }
+
+/// The settings controls in focus order, for Tab and Up/Down.
+const SETTINGS_ORDER: &[SettingsFocus] = &[
+    SettingsFocus::English,
+    SettingsFocus::Japanese,
+    #[cfg(feature = "consent-dialog-acceptance")]
+    SettingsFocus::Permissions,
+    #[cfg(feature = "desktop-login")]
+    SettingsFocus::Password,
+];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DesktopFocus {
     SettingsButton,
     Application(usize),
+}
+
+/// The control after (`forward`) or before `current` in [`SETTINGS_ORDER`],
+/// wrapping. From the Settings button, forward starts at the first control
+/// and backward at the last.
+fn settings_neighbor(current: Option<SettingsFocus>, forward: bool) -> SettingsFocus {
+    let last = SETTINGS_ORDER.len() - 1;
+    let position = current.and_then(|focus| SETTINGS_ORDER.iter().position(|item| *item == focus));
+    let index = match (position, forward) {
+        (None, true) => 0,
+        (None, false) => last,
+        (Some(index), true) => (index + 1) % SETTINGS_ORDER.len(),
+        (Some(index), false) => (index + last) % SETTINGS_ORDER.len(),
+    };
+    SETTINGS_ORDER[index]
 }
 
 pub struct Desktop {
@@ -161,6 +198,9 @@ pub struct Desktop {
     login: Option<crate::login_screen::LoginScreen>,
     #[cfg(feature = "desktop-login")]
     session: Option<libnagi::security::Session>,
+    /// The modal change-password form (ADR 0066).
+    #[cfg(feature = "desktop-login")]
+    password_change: Option<crate::login_screen::PasswordChangeScreen>,
 }
 
 impl Desktop {
@@ -192,6 +232,8 @@ impl Desktop {
             login: None,
             #[cfg(feature = "desktop-login")]
             session: None,
+            #[cfg(feature = "desktop-login")]
+            password_change: None,
         }
     }
 
@@ -265,6 +307,10 @@ impl Desktop {
         if let Some(dialog) = &self.consent {
             dialog.render(&mut painter, self.locale);
         }
+        #[cfg(feature = "desktop-login")]
+        if let Some(screen) = &self.password_change {
+            screen.render(&mut painter, self.locale);
+        }
         painter.fill(
             Rect::new(self.pointer_x - 1, self.pointer_y - 1, 3, 3),
             color(PREVIEW_THEME, ColorRole::Focus).to_pixel(),
@@ -321,6 +367,10 @@ impl Desktop {
                 return event.value != 0;
             }
         }
+        #[cfg(feature = "desktop-login")]
+        if self.password_change.is_some() {
+            return self.handle_password_change_event(event, volume);
+        }
         #[cfg(feature = "consent-dialog-acceptance")]
         if self.consent.is_some() {
             return self.handle_consent_event(event, volume);
@@ -367,6 +417,11 @@ impl Desktop {
                     }
                     if JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y) {
                         return self.select_locale(volume, nagi_localization::Locale::JaJp, false);
+                    }
+                    #[cfg(feature = "desktop-login")]
+                    if PASSWORD_OPTION.contains(self.pointer_x, self.pointer_y) {
+                        self.settings_focus = Some(SettingsFocus::Password);
+                        return self.open_password_change(volume);
                     }
                     if !SETTINGS_PANEL.contains(self.pointer_x, self.pointer_y) {
                         self.settings_open = false;
@@ -461,6 +516,26 @@ impl Desktop {
         print(b" capability=");
         print(request.capability());
         print(b"\r\n");
+    }
+
+    #[cfg(feature = "desktop-login")]
+    fn handle_password_change_event(
+        &mut self,
+        event: InputEvent,
+        volume: &mut UserDataVolume,
+    ) -> bool {
+        use crate::login_screen::ChangeOutcome;
+        let Some(screen) = &mut self.password_change else {
+            return false;
+        };
+        match screen.handle_event(event, volume) {
+            ChangeOutcome::Ignored => false,
+            ChangeOutcome::Changed => true,
+            ChangeOutcome::Closed => {
+                self.password_change = None;
+                true
+            }
+        }
     }
 
     #[cfg(feature = "consent-dialog-acceptance")]
@@ -608,6 +683,27 @@ impl Desktop {
                 TEXT,
             );
         }
+        #[cfg(feature = "desktop-login")]
+        {
+            painter.fill(
+                PASSWORD_OPTION,
+                color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+            );
+            painter.frame(
+                PASSWORD_OPTION,
+                if self.settings_focus == Some(SettingsFocus::Password) {
+                    FOCUS
+                } else {
+                    BORDER
+                },
+            );
+            painter.text(
+                PASSWORD_OPTION.x + 8,
+                PASSWORD_OPTION.y + 5,
+                nagi_localization::text(self.locale, "settings.password.title").as_bytes(),
+                TEXT,
+            );
+        }
     }
 
     fn render_locale_option(
@@ -667,16 +763,7 @@ impl Desktop {
 
     fn focus_next_settings_control(&mut self) {
         self.settings_focus = Some(if self.settings_open {
-            match self.settings_focus {
-                Some(SettingsFocus::English) => SettingsFocus::Japanese,
-                #[cfg(feature = "consent-dialog-acceptance")]
-                Some(SettingsFocus::Japanese) => SettingsFocus::Permissions,
-                #[cfg(not(feature = "consent-dialog-acceptance"))]
-                Some(SettingsFocus::Japanese) => SettingsFocus::English,
-                #[cfg(feature = "consent-dialog-acceptance")]
-                Some(SettingsFocus::Permissions) => SettingsFocus::English,
-                Some(SettingsFocus::Button) | None => SettingsFocus::English,
-            }
+            settings_neighbor(self.settings_focus, true)
         } else {
             SettingsFocus::Button
         });
@@ -730,20 +817,7 @@ impl Desktop {
         if !self.settings_open {
             return false;
         }
-        self.settings_focus = Some(match (self.settings_focus, down) {
-            #[cfg(feature = "consent-dialog-acceptance")]
-            (Some(SettingsFocus::Japanese), true) => SettingsFocus::Permissions,
-            #[cfg(feature = "consent-dialog-acceptance")]
-            (Some(SettingsFocus::Permissions), true) => SettingsFocus::English,
-            #[cfg(feature = "consent-dialog-acceptance")]
-            (Some(SettingsFocus::English), false) => SettingsFocus::Permissions,
-            #[cfg(feature = "consent-dialog-acceptance")]
-            (Some(SettingsFocus::Permissions), false) => SettingsFocus::Japanese,
-            (Some(SettingsFocus::English), _) => SettingsFocus::Japanese,
-            (Some(SettingsFocus::Japanese), _) => SettingsFocus::English,
-            (Some(SettingsFocus::Button) | None, true) => SettingsFocus::English,
-            (Some(SettingsFocus::Button) | None, false) => SettingsFocus::Japanese,
-        });
+        self.settings_focus = Some(settings_neighbor(self.settings_focus, down));
         true
     }
 
@@ -765,7 +839,30 @@ impl Desktop {
                 self.permissions = Some(crate::consent_settings::PermissionsPanel::open());
                 true
             }
+            #[cfg(feature = "desktop-login")]
+            Some(SettingsFocus::Password) if self.settings_open => {
+                self.open_password_change(volume)
+            }
             _ => false,
+        }
+    }
+
+    /// Open the change-password form for the signed-in owner.
+    #[cfg(feature = "desktop-login")]
+    fn open_password_change(&mut self, volume: &mut UserDataVolume) -> bool {
+        if self.session.is_none() {
+            return false;
+        }
+        match crate::login_screen::PasswordChangeScreen::open(volume) {
+            Some(screen) => {
+                self.password_change = Some(screen);
+                print(b"Nagi password change READY\r\n");
+                true
+            }
+            None => {
+                print(b"Nagi password change FAIL account\r\n");
+                false
+            }
         }
     }
 

@@ -431,6 +431,226 @@ impl LoginForm {
     }
 }
 
+/// Fields of the password-change form (ADR 0066).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChangeField {
+    Current,
+    New,
+    Confirm,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChangeProblem {
+    /// The current password did not match.
+    WrongCurrent,
+    PasswordTooShort,
+    PasswordMismatch,
+    /// The new password equals the current one.
+    SameAsCurrent,
+    /// Too many wrong current passwords: wait before trying again.
+    TooManyAttempts,
+    /// The new credential could not be derived or stored.
+    NotSaved,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChangeAction {
+    Ignored,
+    Changed,
+    /// The three fields are filled and the new password is valid and
+    /// confirmed. The caller checks the current password and stores the
+    /// new credential.
+    Submit,
+    /// Escape: close the form without changing anything.
+    Cancel,
+}
+
+/// Change the owner's password while signed in (ADR 0066). Like
+/// [`LoginForm`], this is the input state machine only; the desktop
+/// verifies the current password against the stored credential and writes
+/// the new one.
+///
+/// Tab moves between fields, Enter advances or submits, Backspace edits,
+/// Escape cancels. Every secret is cleared whenever a problem is shown.
+pub struct PasswordChangeForm {
+    focus: ChangeField,
+    current: Text<MAX_PASSWORD_BYTES>,
+    new: Text<MAX_PASSWORD_BYTES>,
+    confirm: Text<MAX_PASSWORD_BYTES>,
+    problem: Option<ChangeProblem>,
+}
+
+impl PasswordChangeForm {
+    pub const fn new() -> Self {
+        Self {
+            focus: ChangeField::Current,
+            current: Text::new(),
+            new: Text::new(),
+            confirm: Text::new(),
+            problem: None,
+        }
+    }
+
+    pub const fn focus(&self) -> ChangeField {
+        self.focus
+    }
+
+    pub const fn problem(&self) -> Option<ChangeProblem> {
+        self.problem
+    }
+
+    pub fn current(&self) -> &[u8] {
+        self.current.as_bytes()
+    }
+
+    pub fn new_password(&self) -> &[u8] {
+        self.new.as_bytes()
+    }
+
+    /// Characters entered in `field`, for masked rendering.
+    pub fn length(&self, field: ChangeField) -> usize {
+        match field {
+            ChangeField::Current => self.current.length,
+            ChangeField::New => self.new.length,
+            ChangeField::Confirm => self.confirm.length,
+        }
+    }
+
+    /// Forget every secret once the desktop has consumed them.
+    pub fn clear_secrets(&mut self) {
+        self.current.clear();
+        self.new.clear();
+        self.confirm.clear();
+    }
+
+    /// The current password was wrong: start over from that field.
+    pub fn reject_current(&mut self) {
+        self.show(ChangeProblem::WrongCurrent, ChangeField::Current);
+    }
+
+    /// Refuse an attempt made while throttled, without having checked it.
+    pub fn throttled(&mut self) {
+        self.show(ChangeProblem::TooManyAttempts, ChangeField::Current);
+    }
+
+    /// The new credential could not be derived or stored.
+    pub fn not_saved(&mut self) {
+        self.show(ChangeProblem::NotSaved, ChangeField::Current);
+    }
+
+    /// Clear a throttle notice once attempts are allowed again.
+    pub fn clear_throttle_notice(&mut self) -> bool {
+        if self.problem == Some(ChangeProblem::TooManyAttempts) {
+            self.problem = None;
+            return true;
+        }
+        false
+    }
+
+    fn show(&mut self, problem: ChangeProblem, focus: ChangeField) {
+        self.clear_secrets();
+        self.problem = Some(problem);
+        self.focus = focus;
+    }
+
+    pub fn handle_key(&mut self, code: u16, pressed: bool) -> ChangeAction {
+        if !pressed {
+            return ChangeAction::Ignored;
+        }
+        match code {
+            crate::INPUT_KEY_ESCAPE => {
+                self.clear_secrets();
+                ChangeAction::Cancel
+            }
+            INPUT_KEY_TAB => {
+                self.focus = self.next_field();
+                ChangeAction::Changed
+            }
+            INPUT_KEY_BACKSPACE => {
+                if self.field_mut().pop() {
+                    ChangeAction::Changed
+                } else {
+                    ChangeAction::Ignored
+                }
+            }
+            INPUT_KEY_ENTER => self.enter(),
+            _ => match key_char(code) {
+                Some(byte) if self.field_mut().push(byte) => {
+                    self.problem = None;
+                    ChangeAction::Changed
+                }
+                _ => ChangeAction::Ignored,
+            },
+        }
+    }
+
+    const fn next_field(&self) -> ChangeField {
+        match self.focus {
+            ChangeField::Current => ChangeField::New,
+            ChangeField::New => ChangeField::Confirm,
+            ChangeField::Confirm => ChangeField::Current,
+        }
+    }
+
+    fn field_mut(&mut self) -> &mut dyn TextField {
+        match self.focus {
+            ChangeField::Current => &mut self.current,
+            ChangeField::New => &mut self.new,
+            ChangeField::Confirm => &mut self.confirm,
+        }
+    }
+
+    fn enter(&mut self) -> ChangeAction {
+        match self.focus {
+            ChangeField::Current => {
+                if self.current.length == 0 {
+                    return ChangeAction::Ignored;
+                }
+                self.focus = ChangeField::New;
+                ChangeAction::Changed
+            }
+            ChangeField::New => {
+                self.focus = ChangeField::Confirm;
+                ChangeAction::Changed
+            }
+            ChangeField::Confirm => {
+                let problem = if self.current.length == 0 {
+                    Some((ChangeProblem::WrongCurrent, ChangeField::Current))
+                } else if self.new.length < MIN_PASSWORD_BYTES {
+                    Some((ChangeProblem::PasswordTooShort, ChangeField::New))
+                } else if self.new.as_bytes() != self.confirm.as_bytes() {
+                    Some((ChangeProblem::PasswordMismatch, ChangeField::New))
+                } else if self.new.as_bytes() == self.current.as_bytes() {
+                    Some((ChangeProblem::SameAsCurrent, ChangeField::New))
+                } else {
+                    None
+                };
+                match problem {
+                    Some((problem, focus)) => {
+                        if focus == ChangeField::Current {
+                            self.show(problem, focus);
+                        } else {
+                            // The current password stays; only the new one is retyped.
+                            self.new.clear();
+                            self.confirm.clear();
+                            self.problem = Some(problem);
+                            self.focus = focus;
+                        }
+                        ChangeAction::Changed
+                    }
+                    None => ChangeAction::Submit,
+                }
+            }
+        }
+    }
+}
+
+impl Default for PasswordChangeForm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 trait TextField {
     fn push(&mut self, byte: u8) -> bool;
     fn pop(&mut self) -> bool;
@@ -674,5 +894,109 @@ mod tests {
         assert_eq!(form.password(), b"");
         assert!(form.clear_throttle_notice());
         assert!(!form.clear_throttle_notice());
+    }
+
+    fn change_keys(form: &mut PasswordChangeForm, keys: &[u16]) -> ChangeAction {
+        let mut last = ChangeAction::Ignored;
+        for key in keys {
+            last = form.handle_key(*key, true);
+            form.handle_key(*key, false);
+        }
+        last
+    }
+
+    const ENTER: u16 = INPUT_KEY_ENTER;
+
+    #[test]
+    fn a_valid_change_submits_all_three_passwords() {
+        let mut form = PasswordChangeForm::new();
+        assert_eq!(form.focus(), ChangeField::Current);
+        // Enter on an empty current password does nothing.
+        assert_eq!(change_keys(&mut form, &[ENTER]), ChangeAction::Ignored);
+        change_keys(&mut form, &[N, A, M, I, ONE, ENTER]);
+        assert_eq!(form.focus(), ChangeField::New);
+        change_keys(&mut form, &[D, A, M, I, ONE, ENTER]);
+        assert_eq!(form.focus(), ChangeField::Confirm);
+        assert_eq!(
+            change_keys(&mut form, &[D, A, M, I, ONE, ENTER]),
+            ChangeAction::Submit
+        );
+        assert_eq!(form.current(), b"nami1");
+        assert_eq!(form.new_password(), b"dami1");
+        form.clear_secrets();
+        assert_eq!(form.current(), b"");
+        assert_eq!(form.new_password(), b"");
+        assert_eq!(form.length(ChangeField::Confirm), 0);
+    }
+
+    #[test]
+    fn change_problems_keep_the_current_password_when_it_is_not_at_fault() {
+        let mut form = PasswordChangeForm::new();
+        change_keys(&mut form, &[N, A, M, I, ONE, ENTER, A, A, ENTER, A, A]);
+        assert_eq!(change_keys(&mut form, &[ENTER]), ChangeAction::Changed);
+        assert_eq!(form.problem(), Some(ChangeProblem::PasswordTooShort));
+        assert_eq!(form.focus(), ChangeField::New);
+        assert_eq!(form.current(), b"nami1");
+        assert_eq!(form.length(ChangeField::New), 0);
+        assert_eq!(form.length(ChangeField::Confirm), 0);
+
+        let mut form = PasswordChangeForm::new();
+        change_keys(&mut form, &[N, A, M, I, ONE, ENTER]);
+        change_keys(&mut form, &[D, A, M, I, ONE, ENTER, D, A, M, I, D, ENTER]);
+        assert_eq!(form.problem(), Some(ChangeProblem::PasswordMismatch));
+        assert_eq!(form.focus(), ChangeField::New);
+
+        let mut form = PasswordChangeForm::new();
+        change_keys(&mut form, &[N, A, M, I, ONE, ENTER]);
+        change_keys(&mut form, &[N, A, M, I, ONE, ENTER, N, A, M, I, ONE, ENTER]);
+        assert_eq!(form.problem(), Some(ChangeProblem::SameAsCurrent));
+        assert_eq!(form.focus(), ChangeField::New);
+        assert_eq!(form.current(), b"nami1");
+    }
+
+    #[test]
+    fn a_wrong_or_throttled_current_password_clears_every_secret() {
+        let mut form = PasswordChangeForm::new();
+        change_keys(&mut form, &[N, A, M, I, ONE, ENTER, D, A, M, I, ONE]);
+        form.reject_current();
+        assert_eq!(form.problem(), Some(ChangeProblem::WrongCurrent));
+        assert_eq!(form.focus(), ChangeField::Current);
+        for field in [ChangeField::Current, ChangeField::New, ChangeField::Confirm] {
+            assert_eq!(form.length(field), 0);
+        }
+        change_keys(&mut form, &[A]);
+        assert_eq!(form.problem(), None);
+
+        form.throttled();
+        assert_eq!(form.problem(), Some(ChangeProblem::TooManyAttempts));
+        assert_eq!(form.length(ChangeField::Current), 0);
+        assert!(form.clear_throttle_notice());
+        assert!(!form.clear_throttle_notice());
+
+        form.not_saved();
+        assert_eq!(form.problem(), Some(ChangeProblem::NotSaved));
+        assert!(!form.clear_throttle_notice());
+    }
+
+    #[test]
+    fn escape_cancels_and_forgets_the_secrets() {
+        let mut form = PasswordChangeForm::new();
+        change_keys(&mut form, &[N, A, M, I, ONE]);
+        assert_eq!(
+            change_keys(&mut form, &[crate::INPUT_KEY_ESCAPE]),
+            ChangeAction::Cancel
+        );
+        assert_eq!(form.current(), b"");
+        // Releases never act; Tab cycles; Backspace edits.
+        assert_eq!(form.handle_key(ENTER, false), ChangeAction::Ignored);
+        change_keys(&mut form, &[A, A]);
+        change_keys(&mut form, &[INPUT_KEY_BACKSPACE]);
+        assert_eq!(form.current(), b"a");
+        change_keys(&mut form, &[INPUT_KEY_TAB, INPUT_KEY_TAB, INPUT_KEY_TAB]);
+        assert_eq!(form.focus(), ChangeField::Current);
+        assert_eq!(
+            change_keys(&mut form, &[INPUT_KEY_BACKSPACE, INPUT_KEY_BACKSPACE]),
+            ChangeAction::Ignored
+        );
     }
 }
