@@ -21,6 +21,10 @@ const GRANITE_ARTIFACT_ID: &str = "ibm.granite-4.2-3b";
 const GRANITE_MODEL_BYTES: u64 = 2_244_011_552;
 const GRANITE_CONTEXT_TOKENS: u32 = 4096;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+/// Bootstrap user threads are cooperative (no preemption), and ggml's
+/// thread-pool barrier spins without yielding, so a second compute thread
+/// would deadlock the first. Use one until user threads are preemptive.
+const GRANITE_COMPUTE_THREADS: i32 = 1;
 const STRING_ANSWER_SCHEMA: &[u8] = br#"{"type":"object","properties":{"answer":{"type":"string","minLength":1,"maxLength":256}},"required":["answer"],"additionalProperties":false}"#;
 const STRING_ANSWER_CANONICAL_SCHEMA: &str = "{\"additionalProperties\":false,\"properties\":{\"answer\":{\"maxLength\":256,\"minLength\":1,\"type\":\"string\"}},\"required\":[\"answer\"],\"type\":\"object\"}";
 const STRING_ANSWER_GRAMMAR: &[u8] = b"root ::= \"{\\\"answer\\\":\" json-string \"}\"\njson-string ::= \"\\\"\" json-char{1,256} \"\\\"\"\njson-char ::= [^\"\\\\\\x7F\\x00-\\x1F] | \"\\\\\" ([\"\\\\bfnrt] | \"u\" [0-9a-fA-F]{4})\n\0";
@@ -169,7 +173,9 @@ impl ModelBackend for LlamaCppBackend {
             )
         }
         .map_err(|_| RuntimeError::ArtifactUnavailable)?;
-        let handle = unsafe { nagi_m20_llama_load_from_fd(fd, GRANITE_CONTEXT_TOKENS, 2) };
+        let handle = unsafe {
+            nagi_m20_llama_load_from_fd(fd, GRANITE_CONTEXT_TOKENS, GRANITE_COMPUTE_THREADS)
+        };
         if handle.is_null() || reader.failed {
             if !handle.is_null() {
                 unsafe { nagi_m20_llama_free(handle) };
