@@ -2890,7 +2890,7 @@ mod tests {
 
         // Renaming must leave a free directory record for a later create.
         volume
-            .create_path(b"/files/created-after-rename")
+            .create(b"created-after-rename")
             .expect("create after rename");
     }
 
@@ -2916,6 +2916,10 @@ mod tests {
         let mut bytes = [0; 16];
         let length = volume.read(reopened, &mut bytes).expect("read");
         assert_eq!(&bytes[..length], b"rename me");
+
+        volume
+            .create_path(b"/files/created-after-rename")
+            .expect("create after nested rename");
     }
 
     #[test]
