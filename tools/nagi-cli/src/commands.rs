@@ -5349,8 +5349,14 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
     throttle_events.extend(qmp_typed_keys("wrong3", "ret"));
     let restart_events = qmp_typed_keys("nagi1", "ret");
     let after_wait = qmp_typed_keys("nagi1", "ret");
+    let mut files_ui_search = Vec::new();
+    for key in ["tab", "tab", "tab", "tab", "ret"] {
+        files_ui_search.extend(qmp_typed_keys("", key));
+    }
+    files_ui_search.extend(qmp_typed_keys("runtime", "ret"));
     let mut open_password_change = Vec::new();
-    for key in ["tab", "ret", "tab", "tab", "ret"] {
+    open_password_change.push("@screenshot:files-search.png".to_owned());
+    for key in ["tab", "tab", "ret", "tab", "tab", "ret"] {
         open_password_change.extend(qmp_typed_keys("", key));
     }
     // Submit a syntactically valid password change with the wrong current
@@ -5405,7 +5411,11 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             restart_events,
             vec![
                 ("Nagi login retry allowed".to_owned(), after_wait),
-                ("Nagi login unlocked PASS".to_owned(), open_password_change),
+                ("Nagi login unlocked PASS".to_owned(), files_ui_search),
+                (
+                    "Nagi M19 signed-in desktop Files UI Search PASS".to_owned(),
+                    open_password_change,
+                ),
                 (
                     "Nagi password change READY".to_owned(),
                     std::iter::once("@screenshot:password-change-form.png".to_owned())
@@ -5432,6 +5442,7 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi M19 signed-in desktop Files rename identity PASS",
                 "Nagi M19 signed-in desktop Files delete identity PASS",
                 "Nagi M19 signed-in desktop SearchService ready PASS",
+                "Nagi M19 signed-in desktop Files UI Search PASS",
                 "Nagi password change READY",
                 "Nagi password change REJECTED current",
                 "Nagi password change PASS",
@@ -5519,6 +5530,7 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
         }
         validate_screenshot(&shown)?;
         if phase == "password-change" {
+            validate_screenshot(&evidence.join("files-search.png"))?;
             validate_screenshot(&evidence.join("password-change-form.png"))?;
         }
         lines.push(format!(

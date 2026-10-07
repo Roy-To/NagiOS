@@ -346,6 +346,23 @@ also creates a file after the rename. The earlier direct-VFS and fixed-record
 size experiments remain in `out/evidence/login-1791408726578251000/` and
 `out/evidence/login-1791408588752599000/`.
 
-The ordinary desktop Files UI does not yet call these runtime operations.
-Production app-facing `search@1`, Files UI integration and trash restore, and
-normal Browser History producer updates remain open; M19 stays `PARTIAL`.
+## Completion Sweep — signed-in Files Search UI (2026-10-08)
+
+The signed-in Files panel now accepts a bounded filename query and displays
+localized search status, result count, and the first matching title. Search
+uses the owner Files workspace and the existing visibility-filtered
+SearchService; the panel does not read file contents. Submitting a query first
+reconciles the Files producer metadata, then searches the persisted index.
+
+`./nagi login` passed all four GUI phases on QEMU run
+`1791413203412953000`. The QMP scenario opened Files, submitted `runtime`,
+verified `.nagi-m19-runtime-search.txt` in the result, and saved
+`out/evidence/login-1791413203412953000/files-search.png`. The phase logs and
+other screenshots are preserved in the same evidence directory. This checks
+the owner desktop runtime path; it does not establish a cross-process production
+Search service endpoint.
+
+The signed-in Files UI still has no create, rename, move-to-trash, or restore
+controls. Production app-facing `search@1`, nested-path indexing, trash
+restore, and normal Browser History producer updates remain open; M19 stays
+`PARTIAL`.

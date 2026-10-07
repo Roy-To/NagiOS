@@ -417,6 +417,31 @@ impl Runtime {
         )
     }
 
+    /// Return bounded owner-visible titles for the Files panel. Search still
+    /// applies the same private Files workspace and visibility policy as the
+    /// ObjectId-facing API; the UI never reads file contents.
+    pub(super) fn search_file_titles(&self, query: &str) -> Option<Vec<String>> {
+        let response = self
+            .service
+            .search(
+                FILES_ACCESS,
+                &nagi_search::SearchQuery {
+                    text: Some(String::from(query)),
+                    kind: Some(ObjectKind::File),
+                    workspace: Some(FILES_WORKSPACE_ID),
+                    ..nagi_search::SearchQuery::default()
+                },
+            )
+            .ok()?;
+        Some(
+            response
+                .objects
+                .into_iter()
+                .map(|hit| hit.record.title)
+                .collect(),
+        )
+    }
+
     #[cfg(feature = "desktop-login-acceptance")]
     pub(super) fn acceptance_query(&self, query: &str) -> Option<ObjectId> {
         let expected = self.acceptance_object_id?;

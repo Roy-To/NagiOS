@@ -1,5 +1,6 @@
 const COMMANDS: &str = include_str!("commands.rs");
 const DESKTOP: &str = include_str!("../../../user/nagi-init/src/desktop.rs");
+const M19_RUNTIME: &str = include_str!("../../../user/nagi-init/src/m19_runtime.rs");
 const LOGIN_SCREEN: &str = include_str!("../../../user/nagi-init/src/login_screen.rs");
 const INIT_CARGO: &str = include_str!("../../../user/nagi-init/Cargo.toml");
 
@@ -58,6 +59,7 @@ fn login_acceptance_changes_the_password_and_checks_it_after_restart() {
         "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
         "Nagi M19 signed-in desktop Files ObjectId initial persist PASS",
         "Nagi M19 signed-in desktop SearchService ready PASS",
+        "Nagi M19 signed-in desktop Files UI Search PASS",
     ] {
         assert!(
             change_phase.contains(&compact(marker)),
@@ -78,6 +80,14 @@ fn login_acceptance_changes_the_password_and_checks_it_after_restart() {
             "password verification boot must verify `{marker}`"
         );
     }
+
+    assert!(login.contains("qmp_typed_keys(\"runtime\",\"ret\")"));
+    assert!(login.contains("@screenshot:files-search.png"));
+    let ui_search = compact(DESKTOP);
+    assert!(ui_search.contains("fnhandle_files_search_key("));
+    assert!(ui_search.contains("fntake_files_search_request("));
+    assert!(ui_search.contains("desktop.files.search.label"));
+    assert!(compact(M19_RUNTIME).contains("fnsearch_file_titles("));
 }
 
 #[test]
