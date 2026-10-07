@@ -394,6 +394,10 @@ jobs:
         env:
           NAGI_CXX_HEADERS: /usr/include/c++/v1
         run: ./nagi m19
+      - name: M19 signed-in Files lifecycle acceptance
+        env:
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
+        run: ./nagi login
       - name: M22 NH16 grouped Undo acceptance
         run: ./nagi m22
       - name: M27 broken-slot rollback acceptance

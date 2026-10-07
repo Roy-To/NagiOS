@@ -51,16 +51,17 @@ vector, and LLM retrieval are out of scope.
   now starts a bounded SearchService after owner sign-in. It scans only
   `/home/owner/files`, indexes filename and VFS inode/generation/mtime
   metadata, persists producer records under `/var/lib/nagi-search`, and
-  restores the same producer ObjectId after reboot. The initial and restored
-  QEMU login boots also search the acceptance file from the signed-in desktop;
-  their ordered markers are in
-  `out/evidence/login-1791387522725149000/password-change.log` and
-  `out/evidence/login-1791387522725149000/verify-password.log`. This is the
-  local runtime path, not a production cross-process Search endpoint. The
-  acceptance checks the specific fixture's restored ObjectId and verifies a
-  non-UTF-8 filename does not disable Search. Files CRUD events, nested
-  directories, tombstone/reuse checks through this runtime, and Browser History
-  lifecycle publication remain open.
+  restores the same producer ObjectId after reboot. The signed-in desktop QEMU
+  run `1791409942835920000` also verified direct-child create/query, rename with
+  stable ObjectId, delete/tombstone, inode-generation reuse with a new
+  ObjectId, and post-restart restoration through the signed-in runtime. Its
+  ordered markers are in
+  `out/evidence/login-1791409942835920000/password-change.log` and
+  `out/evidence/login-1791409942835920000/verify-password.log`. This is still
+  not a production cross-process Search endpoint: the login acceptance invokes
+  runtime methods directly, while a normal Files UI/service is not wired to
+  publish CRUD changes. Nested directories, trash restore, and Browser History
+  lifecycle publication outside the M19/M18 acceptance path remain open.
 
 ## Authenticated IPC prerequisite audit — 2026-09-30
 
@@ -223,17 +224,16 @@ Verification with `nightly-2025-08-01-aarch64-apple-darwin`:
 
 ## Remaining acceptance blockers
 
-1. Expose a production `search@1` endpoint from the normal runtime, using a
-   capability-scoped storage handle and the production consent/launch registry.
-   The current isolated `search@1` callers and kernel-stamped launch records
-   are verified only in the M19 acceptance image; the fixture consent table and
-   `M19AcceptanceVisibility` are not production authority providers.
-2. Connect production Files and Page lifecycle changes to producer updates,
-   including rename, deletion, and restoration. The desktop runtime currently
-   reconciles the flat owner Files directory after input events, while the
-   Files and Browser UI do not yet call its producer hooks. The existing M19
-   fixture proves rename, tombstone/inode-reuse and Browser History identity
-   separately, not through those production lifecycles.
+1. Expose a production `search@1` endpoint from the normal signed-in runtime,
+   using the capability-scoped launch registry and owner consent decisions.
+   Kernel-stamped clients and grants are verified in the M19 acceptance image,
+   but that image still uses its fixture visibility policy and consent setup;
+   normal apps cannot query the desktop's persistent Search runtime yet.
+2. Connect actual Files and Browser operations to producer updates. The signed-in
+   runtime methods now reconcile direct-child create, rename, and delete, but
+   the Files UI/service does not call them, nested paths and trash restore are
+   not covered, and ordinary Browser History changes are not published outside
+   the M19/M18 acceptance scenario.
 
 These missing integrations keep M19 `PARTIAL`. They do not justify a host
 fallback, an allow-all filter, or a claim that a production app-facing Search
