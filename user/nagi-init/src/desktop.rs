@@ -1085,7 +1085,7 @@ pub fn run(
             if desktop.session.is_some() {
                 if search_runtime.is_none() {
                     match crate::m19_runtime::Runtime::open(block_capability, &mut volume) {
-                        Ok(runtime) => {
+                        Ok(mut runtime) => {
                             #[cfg(feature = "desktop-login-acceptance")]
                             {
                                 if runtime
@@ -1118,6 +1118,13 @@ pub fn run(
                                         b"Nagi M19 signed-in desktop Files ObjectId initial persist PASS\r\n",
                                     );
                                 }
+                                if !runtime.acceptance_verify_rename(&mut volume) {
+                                    print(
+                                        b"Nagi M19 signed-in desktop Files rename identity FAIL\r\n",
+                                    );
+                                    libnagi::exit(1);
+                                }
+                                print(b"Nagi M19 signed-in desktop Files rename identity PASS\r\n");
                             }
                             print(b"Nagi M19 signed-in desktop SearchService ready PASS\r\n");
                             search_runtime = Some(runtime);

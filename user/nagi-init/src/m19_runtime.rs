@@ -40,6 +40,8 @@ const GENERATION_ATTRIBUTE: &str = "nagi.files.vfs_generation";
 #[cfg(feature = "desktop-login-acceptance")]
 const ACCEPTANCE_FILE: &[u8] = b"/home/owner/files/.nagi-m19-runtime-search.txt";
 #[cfg(feature = "desktop-login-acceptance")]
+const ACCEPTANCE_RENAMED_FILE: &[u8] = b".nagi-m19-runtime-renamed.txt";
+#[cfg(feature = "desktop-login-acceptance")]
 const ACCEPTANCE_CONTENT: &[u8] = b"Nagi M19 authenticated desktop Search fixture";
 #[cfg(feature = "desktop-login-acceptance")]
 const NON_UTF8_NAME_FIXTURE: &[u8] = b"/home/owner/files/\xff";
@@ -305,6 +307,47 @@ impl Runtime {
         self.search_files(query)?
             .into_iter()
             .find(|object_id| *object_id == expected)
+    }
+
+    #[cfg(feature = "desktop-login-acceptance")]
+    pub(super) fn acceptance_verify_rename(&mut self, volume: &mut UserDataVolume) -> bool {
+        let Some(expected) = self.acceptance_object_id else {
+            return false;
+        };
+        if volume
+            .rename_child(
+                FILES_ROOT,
+                b".nagi-m19-runtime-search.txt",
+                ACCEPTANCE_RENAMED_FILE,
+            )
+            .and_then(|_| volume.flush())
+            .is_err()
+        {
+            return false;
+        }
+        let synced_after_rename = self.sync_files(volume).is_ok();
+        let renamed_matches = synced_after_rename
+            && self
+                .search_files("nagi-m19-runtime-renamed.txt")
+                .is_some_and(|ids| ids.len() == 1 && ids[0] == expected);
+        let old_name_hidden = synced_after_rename
+            && self
+                .search_files(".nagi-m19-runtime-search.txt")
+                .is_some_and(|ids| ids.is_empty());
+
+        let restored = volume
+            .rename_child(
+                FILES_ROOT,
+                ACCEPTANCE_RENAMED_FILE,
+                b".nagi-m19-runtime-search.txt",
+            )
+            .and_then(|_| volume.flush())
+            .is_ok()
+            && self.sync_files(volume).is_ok();
+        renamed_matches
+            && old_name_hidden
+            && restored
+            && self.acceptance_query(".nagi-m19-runtime-search.txt") == Some(expected)
     }
 
     #[cfg(feature = "desktop-login-acceptance")]

@@ -316,3 +316,27 @@ Plan/Validate/Execute fixture. Pre-run fixed-path artifacts are preserved under
 OVMF vars, guest log, invocation log, and manifest are under
 `out/evidence/m19-regression-20261003/`. This remains fixture evidence: there
 is no authenticated production Search service caller.
+
+## Completion Sweep — signed-in Files rename identity (2026-10-08)
+
+`Vfs::rename_child` now renames entries inside an existing directory while
+preserving the inode and generation. It repacks the directory's single block
+so a longer replacement name can use free space elsewhere in the block, and
+keeps the existing root-level `rename` API on the same implementation. An
+added focused VFS regression covers a longer nested-directory rename and
+verifies the open handle, inode, generation, and file contents remain
+unchanged.
+
+The signed-in desktop Search runtime acceptance now renames its owner Files
+fixture to a longer name, reconciles producer metadata, confirms the renamed
+file returns the same ObjectId and the old name returns no result, then
+restores the original name and verifies the ObjectId again. `./nagi login`
+passed all four GUI phases on QEMU run `1791408726578251000`; the new marker is
+in `out/evidence/login-1791408726578251000/password-change.log` and
+`verify-password.log`. The attempt that exposed the original fixed-record-size
+failure is preserved in `out/evidence/login-1791408588752599000/`.
+
+This verifies the real signed-in Search runtime against a VFS rename, while the
+acceptance still requests reconciliation explicitly. A production app-facing
+`search@1` endpoint, Files create/delete/restore notifications, and normal
+Browser History producer updates remain open; M19 stays `PARTIAL`.
