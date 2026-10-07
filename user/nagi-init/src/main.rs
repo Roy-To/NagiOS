@@ -537,13 +537,36 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
     #[cfg(feature = "m20-llama-inference-acceptance")]
     {
-        let mut probe = [0_u8; libnagi::BLOCK_SECTOR_SIZE];
-        if libnagi::storage::ReadOnlyBlockDevice::read_sector(&mut device, 2, &mut probe).is_err()
-            || libnagi::storage::ReadOnlyBlockDevice::read_sector(&mut device, 3, &mut probe)
-                .is_err()
-        {
-            libnagi::console_write(b"Nagi M20 User Data read probe FAIL\r\n");
-            return None;
+        for (sector, pass, read_fail, write_fail) in [
+            (
+                2,
+                b"Nagi M20 User Data write probe PASS sector=2\r\n" as &'static [u8],
+                b"Nagi M20 User Data read probe FAIL sector=2\r\n" as &'static [u8],
+                b"Nagi M20 User Data write probe FAIL sector=2\r\n" as &'static [u8],
+            ),
+            (
+                3,
+                b"Nagi M20 User Data write probe PASS sector=3\r\n" as &'static [u8],
+                b"Nagi M20 User Data read probe FAIL sector=3\r\n" as &'static [u8],
+                b"Nagi M20 User Data write probe FAIL sector=3\r\n" as &'static [u8],
+            ),
+        ] {
+            let mut probe = [0_u8; libnagi::BLOCK_SECTOR_SIZE];
+            if libnagi::storage::ReadOnlyBlockDevice::read_sector(
+                &mut device,
+                sector,
+                &mut probe,
+            )
+            .is_err()
+            {
+                libnagi::console_write(read_fail);
+                return None;
+            }
+            if libnagi::storage::BlockDevice::write_sector(&mut device, sector, &probe).is_err() {
+                libnagi::console_write(write_fail);
+                return None;
+            }
+            libnagi::console_write(pass);
         }
     }
     let (mut volume, formatted) = match libnagi::storage::Vfs::mount_or_format(device) {
