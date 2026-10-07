@@ -89,8 +89,32 @@ A temporary ja-JP render of the same screens was checked visually.
 - **Not yet enabled.**
   - The `m30-update` payload enables `desktop-login`. Its System B trial
     creates the owner, and readiness must follow sign-in.
-  - The legacy FAT12 M27 fixtures and M10/M29 are unchanged.
+  - The legacy FAT12 M27 fixtures are unchanged. M10/M29 now sign in
+    first; see the follow-up below.
   - The M30 release image runs the M19/M22 service flows, not the desktop.
+
+## M10/M29 desktops (2026-10-07, follow-up)
+
+- **Images.** `./nagi desktop` (M10) and `./nagi m29` build init with
+  `desktop-login`.
+- **First run.** QMP keeps the offered language (English), creates the
+  owner, and sends the desktop input only after the guest prints
+  `Nagi login readiness reported PASS`. The desktop prints this line when
+  `report_boot_ready` succeeds after sign-in, so readiness follows sign-in
+  even on images without an M27 trial.
+- **Markers.** Both acceptances require, in order, `login READY
+  mode=create`, `onboarding language PASS locale=en-US`, `owner created`,
+  `unlocked`, and `readiness reported` before the first M10 focus marker.
+- **M29 restart.** The restart shows the unlock screen, restores ja-JP,
+  then QMP types the password. It requires `login READY mode=unlock`,
+  `M29 settings preference restored PASS locale=ja-JP`, `login unlocked
+  PASS`, then `login readiness reported PASS`.
+- **M10.** Each run uses its own User Data disk and log, because an
+  existing owner would turn the first-run screen into the unlock screen.
+  The M10 marker list no longer asks for `M29 keyboard locale selection`,
+  which only `m29-settings-acceptance` prints. `./nagi desktop` failed on
+  `main` for that reason, as noted in the ADR 0060 entry.
+- **Still unchanged.** The legacy FAT12 M27 fixtures.
 
 ## Onboarding language step (2026-10-06, follow-up)
 

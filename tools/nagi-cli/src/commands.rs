@@ -87,6 +87,9 @@ struct DesktopAcceptanceConfig {
     required_markers: &'static [&'static str],
     restart_marker: Option<&'static str>,
     restart_log_name: Option<&'static str>,
+    /// Restart markers required in order after the desktop READY marker and
+    /// before `restart_marker` (for example, the unlock screen).
+    restart_required_markers: &'static [&'static str],
     /// What the restart marker proves, for the PASS summary.
     restart_summary: &'static str,
     unique_run_artifacts: bool,
@@ -4849,6 +4852,14 @@ const CONSENT_DIALOG_EVENTS: [&str; 7] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
 ];
 
+/// ADR 0063: the M10/M29 desktops sign in as this owner before any desktop
+/// input, so their acceptance drives a signed-in desktop.
+const DESKTOP_OWNER_NAME: &str = "owner";
+const DESKTOP_OWNER_PASSWORD: &str = "nagi1";
+/// Desktop input waits for this marker: the owner is signed in and
+/// readiness has been reported (ADR 0063).
+const DESKTOP_SIGNED_IN_MARKER: &str = "Nagi login readiness reported PASS";
+
 const CONSENT_OWNER_NAME: &str = "owner";
 const CONSENT_OWNER_PASSWORD: &str = "nagi1";
 
@@ -4876,12 +4887,16 @@ const M10_DESKTOP_REQUIRED_MARKERS: &[&str] = &[
     "Nagi boot lock checksum=",
     "Nagi M10 desktop READY",
     "Nagi M10 surface checksum=",
+    "Nagi login READY mode=create",
+    "Nagi onboarding language PASS locale=en-US",
+    "Nagi login owner created PASS name=owner",
+    "Nagi login unlocked PASS",
+    "Nagi login readiness reported PASS",
     "Nagi M10 Calculator focus PASS",
     "Nagi M10 Notes focus PASS",
     "Nagi M10 Japanese input PASS",
     "Nagi M10 Files focus PASS",
     "Nagi M10 GUI Terminal focus PASS",
-    "Nagi M29 keyboard locale selection PASS locale=ja-JP",
     "Nagi M10 acceptance PASS",
 ];
 
@@ -4897,6 +4912,11 @@ const M29_SETTINGS_REQUIRED_MARKERS: &[&str] = &[
     "Nagi boot lock checksum=",
     "Nagi M10 desktop READY",
     "Nagi M10 surface checksum=",
+    "Nagi login READY mode=create",
+    "Nagi onboarding language PASS locale=en-US",
+    "Nagi login owner created PASS name=owner",
+    "Nagi login unlocked PASS",
+    "Nagi login readiness reported PASS",
     "Nagi M10 Calculator focus PASS",
     "Nagi M10 Notes focus PASS",
     "Nagi M10 Japanese input PASS",
@@ -5020,14 +5040,17 @@ fn execute_gui(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    // ADR 0063: create the owner first; the desktop input follows sign-in.
+    let events = qmp_first_run_sign_in(DESKTOP_OWNER_NAME, DESKTOP_OWNER_PASSWORD);
     execute_desktop_acceptance(
         root,
         probe,
         DesktopAcceptanceConfig {
             label: "desktop",
-            features: "m10-desktop",
+            features: "m10-desktop,desktop-login",
             image_name: "nagi-0.1-m10-desktop.img",
-            persistent_disk_name: "nagi-0.1-user-data.img",
+            // A fresh User Data disk per run: first run creates the owner.
+            persistent_disk_name: "nagi-0.1-m10-desktop-user-data.img",
             vars_name: "nagi-0.1-m10-desktop-vars.fd",
             first_log_name: "m10-first-boot.log",
             run_log_name: "m10-desktop.log",
@@ -5037,20 +5060,29 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             required_markers: M10_DESKTOP_REQUIRED_MARKERS,
             restart_marker: None,
             restart_log_name: None,
+            restart_required_markers: &[],
             restart_summary: "",
-            unique_run_artifacts: false,
+            unique_run_artifacts: true,
             acceptance_packages: false,
             ready_screenshot_name: None,
             restart_events: Vec::new(),
             restart_stages: Vec::new(),
-            later_stages: Vec::new(),
+            later_stages: vec![(
+                DESKTOP_SIGNED_IN_MARKER,
+                M10_DESKTOP_EVENTS
+                    .iter()
+                    .map(|event| (*event).to_owned())
+                    .collect(),
+            )],
             ready_screenshot_stage: None,
         },
-        &M10_DESKTOP_EVENTS,
+        &events.iter().map(String::as_str).collect::<Vec<_>>(),
     )
 }
 
 fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    // ADR 0063: create the owner first; the desktop input follows sign-in.
+    let sign_in = qmp_first_run_sign_in(DESKTOP_OWNER_NAME, DESKTOP_OWNER_PASSWORD);
     let mut events = M29_DESKTOP_FOCUS_EVENTS.to_vec();
     events.extend_from_slice(&M10_DESKTOP_EVENTS);
     events.extend_from_slice(&M29_SETTINGS_EVENTS);
@@ -5059,7 +5091,7 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         probe,
         DesktopAcceptanceConfig {
             label: "m29",
-            features: "m10-desktop,m29-settings-acceptance",
+            features: "m10-desktop,m29-settings-acceptance,desktop-login",
             image_name: "nagi-0.1-m29-settings-persistent.img",
             persistent_disk_name: "nagi-0.1-m29-settings-persistent-user-data.img",
             vars_name: "nagi-0.1-m29-settings-persistent-vars.fd",
@@ -5069,18 +5101,28 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             screenshot_name: "nagi-m29-settings-ja-jp.png",
             acceptance_marker: "Nagi M29 settings acceptance PASS",
             required_markers: M29_SETTINGS_REQUIRED_MARKERS,
-            restart_marker: Some("Nagi M29 settings preference restored PASS locale=ja-JP"),
+            // The restart restores ja-JP on the unlock screen, then the
+            // owner unlocks and only then is readiness reported.
+            restart_marker: Some(DESKTOP_SIGNED_IN_MARKER),
             restart_log_name: Some("m29-settings-persistent-restart.log"),
-            restart_summary: "the selected system language was restored",
+            restart_required_markers: &[
+                "Nagi login READY mode=unlock",
+                "Nagi M29 settings preference restored PASS locale=ja-JP",
+                "Nagi login unlocked PASS",
+            ],
+            restart_summary: "the selected system language was restored before the owner unlocked",
             unique_run_artifacts: true,
             acceptance_packages: false,
             ready_screenshot_name: None,
-            restart_events: Vec::new(),
+            restart_events: qmp_typed_keys(DESKTOP_OWNER_PASSWORD, "ret"),
             restart_stages: Vec::new(),
-            later_stages: Vec::new(),
+            later_stages: vec![(
+                DESKTOP_SIGNED_IN_MARKER,
+                events.iter().map(|event| (*event).to_owned()).collect(),
+            )],
             ready_screenshot_stage: None,
         },
-        &events,
+        &sign_in.iter().map(String::as_str).collect::<Vec<_>>(),
     )
 }
 
@@ -5109,6 +5151,7 @@ fn execute_consent(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             required_markers: CONSENT_DIALOG_REQUIRED_MARKERS,
             restart_marker: Some("Nagi consent withdrawn grant asks again PASS"),
             restart_log_name: Some("consent-dialog-restart.log"),
+            restart_required_markers: &[],
             restart_summary: "the persisted Allow was restored without a prompt, then withdrawn in Settings so the grant asks again",
             unique_run_artifacts: true,
             acceptance_packages: true,
@@ -5734,7 +5777,10 @@ fn execute_desktop_acceptance(
                 }
             };
             let mut marker_end = 0;
-            for marker in ["Nagi M10 desktop READY", restart_marker] {
+            let restart_markers = std::iter::once("Nagi M10 desktop READY")
+                .chain(acceptance.restart_required_markers.iter().copied())
+                .chain(std::iter::once(restart_marker));
+            for marker in restart_markers {
                 let Some(relative) = restart_serial[marker_end..].find(marker) else {
                     return failure(
                         EXIT_CONFIG_ERROR,

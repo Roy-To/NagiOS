@@ -11,6 +11,29 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**M10/M29 desktops sign in first (ADR 0063), 2026-10-07:** `./nagi desktop`
+(M10) and `./nagi m29` now build init with `desktop-login`.
+
+- **Flow.** QMP keeps the offered language, creates the owner, and sends
+  the desktop input only after `Nagi login readiness reported PASS`. The
+  desktop prints that line when `report_boot_ready` succeeds after
+  sign-in, so readiness follows sign-in even without an M27 trial.
+- **M29 restart.** The unlock screen restores ja-JP, then QMP unlocks; the
+  restart requires `login READY mode=unlock`, the restored locale,
+  `login unlocked PASS`, then `login readiness reported PASS`.
+- **M10.** Each run has its own User Data disk and log. The M10 list no
+  longer requires the M29-only `keyboard locale selection` marker, which
+  had made `./nagi desktop` fail on `main`.
+- **Checks.** `cargo test -p nagi-cli` (263 unit + 29 CLI tests), warning-
+  denied Clippy for `nagi-cli`, and `cargo fmt --check` pass on an arm64
+  Linux host. Host Clippy/tests for `nagi-init` need an x86_64 host
+  (libnagi uses x86_64 `asm!`) and are left to CI.
+- **Target acceptance.** Not run locally: the arm64 sandbox restarted twice
+  during the `./nagi m29` guest build under QEMU TCG. Left to the PR's
+  target CI.
+- **Status.** M10 and M29 stay as recorded; this change is `PARTIAL`
+  until `./nagi m29` and `./nagi desktop` pass with sign-in.
+
 **Consent settings view (ADR 0065), 2026-10-06:** The owner can now review
 and withdraw recorded decisions.
 
@@ -76,10 +99,11 @@ desktop first shows an OS-owned login screen.
 
 Still open:
 
-- the legacy FAT12 M27 fixtures and the M10/M29 desktops do not enable
-  `desktop-login` yet. The `m30-update` payload now does: its System B
-  trial creates the owner and persists readiness only after sign-in
-  (`./nagi m30-update` run `1791260698907877000`);
+- the legacy FAT12 M27 fixtures do not enable `desktop-login` yet. The
+  `m30-update` payload does: its System B trial creates the owner and
+  persists readiness only after sign-in (`./nagi m30-update` run
+  `1791260698907877000`). The M10/M29 desktops now sign in first (see the
+  2026-10-07 entry above; target acceptance pending);
 - more accounts, password change, and rate limiting.
 
 **Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
