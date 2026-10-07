@@ -89,8 +89,8 @@ A temporary ja-JP render of the same screens was checked visually.
 - **Not yet enabled.**
   - The `m30-update` payload enables `desktop-login`. Its System B trial
     creates the owner, and readiness must follow sign-in.
-  - The legacy FAT12 M27 fixtures are unchanged. M10/M29 now sign in
-    first; see the follow-up below.
+  - The legacy FAT12 M27 fixtures and M10/M29 now sign in first; see the
+    follow-ups below.
   - The M30 release image runs the M19/M22 service flows, not the desktop.
 
 ## M10/M29 desktops (2026-10-07, follow-up)
@@ -114,7 +114,28 @@ A temporary ja-JP render of the same screens was checked visually.
   The M10 marker list no longer asks for `M29 keyboard locale selection`,
   which only `m29-settings-acceptance` prints. `./nagi desktop` failed on
   `main` for that reason, as noted in the ADR 0060 entry.
-- **Still unchanged.** The legacy FAT12 M27 fixtures.
+- **Still unchanged.** The legacy FAT12 M27 fixtures (now changed; see
+  the next entry).
+
+## Legacy FAT12 M27 fixtures (2026-10-07, follow-up)
+
+- **Images.** The FAT12 System A/B images of `./nagi m27` (malformed B,
+  healthy B, and the Recovery image's normal system) build init with
+  `m10-desktop,m27-ro-vfs-check,desktop-login`. The Recovery init and the
+  Recovery-Undo fixture are unchanged.
+- **Healthy B trial.** QMP keeps the offered language and creates the
+  owner on `Nagi login READY mode=create`. The boot stops on `Nagi login
+  readiness reported PASS` and requires, in order, `login unlocked PASS`,
+  then `M27 readiness persisted slot=B attempt=1`, then `login readiness
+  reported PASS`. The old check that readiness was persisted before
+  `M10 desktop READY` is gone: with sign-in, readiness comes after it.
+- **Promotion and confirmed boots.** The owner persists on User Data, so
+  these boots stop on `Nagi login READY mode=unlock`. They still check
+  that the loader consumed the readiness record before promoting B. They
+  send no input.
+- **System A boots.** Rollback/confirmed System A boots stop on `Nagi M7
+  acceptance PASS`, which precedes the desktop, so they need no sign-in.
+  The malformed B trials never reach the kernel.
 
 ## Onboarding language step (2026-10-06, follow-up)
 
