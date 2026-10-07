@@ -1363,7 +1363,10 @@ PR #29 CI run `37698139641` reached `Nagi M20 Model Store capability PASS`, then
 at `Nagi M20 User Data write probe FAIL sector=2`; it never initialized llama.cpp
 or loaded Granite. The runner stopped on `Nagi M5 process exit FAIL`, so the CLI's
 `QEMU exit 0` text is a generic missing-acceptance report, not a timeout. The
-configured acceptance timeout is six hours.
+configured acceptance timeout is six hours. Follow-up run `37701354596` passed
+Ubuntu host checks but skipped `nagi-m20-inference`: the `m20` path filter did
+not include the edited kernel syscall file. The M20 filter now includes
+`kernel/src/syscall.rs` so a diagnostic change in that path reruns this acceptance.
 
 The preceding sector-2 read succeeds with the same buffer, while the write syscall
 collapses capability, range, user-buffer, and VirtIO failures to one status. The
