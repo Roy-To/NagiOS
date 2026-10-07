@@ -34,6 +34,7 @@ m19-search = [
 # desktop. The acceptance harness adds its separate fixtures and IPC clients.
 m19-runtime = [
     "dep:nagi-search",
+    "dep:nagi-search-ipc",
 ]
 # ADR 0044: serve M19 Search to isolated clients named by
 # NAGI_M19_SEARCH_CLIENT_ELF, authorized by kernel-stamped caller identity.

@@ -41,7 +41,7 @@ pub enum ResultStatus {
     InvalidRequest = 2,
     /// The service failed to evaluate a valid request.
     Unavailable = 3,
-    /// The caller's live launch holds no `search.query` grant.
+    /// The caller's live launch holds no required global or source grant.
     Denied = 4,
 }
 

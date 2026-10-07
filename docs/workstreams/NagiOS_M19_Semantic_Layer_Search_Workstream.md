@@ -387,3 +387,27 @@ also verifies password change and restart on the same User Data disk.
 M19 remains `PARTIAL`: production app-facing Search with live grants, Files
 create/rename/trash/restore controls, and normal Browser History producer
 updates still need integration.
+
+## Files `search@1` service boundary — 2026-10-08
+
+Added a Files-only request handler for the signed-in owner Search runtime. It
+resolves the kernel-stamped Channel sender PID through Supervisor, requires
+both live `search.query` and `files.search` grants, rejects transferred handles
+and malformed envelopes, and delegates only to `Runtime::search_files`, which
+retains the owner Files producer/workspace visibility filter. The existing
+isolated-client acceptance evaluator now uses the same grant gate for File
+queries and asserts that a query-only client is denied and a separately
+authorized app session remains filtered. Nagi-target `cargo check` passes for
+both ordinary `desktop-login` and `m19-search-ipc` feature sets; the
+`nagi-search-ipc` crate's three unit tests pass.
+
+The handler is not yet reachable from a normal app. `Supervisor::launch` is
+currently called only by acceptance flows and creates a private per-child
+Channel pair; no production package registry/launcher routes a client to a
+resident service endpoint, and the signed-in desktop loop has no endpoint to
+poll. `./nagi m19` could not reach the guest acceptance build on this host:
+building the host `nagi-pkg` tool failed because the installed Xcode
+`xcrun` lacks the architecture required by the active build. This work adds no
+M19 QEMU acceptance result and does not establish production IPC; M19 remains
+`PARTIAL` pending normal signed app launch, consent, and service-endpoint
+routing.

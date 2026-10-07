@@ -139,6 +139,8 @@ mod m19_runtime;
 #[cfg(all(target_os = "nagi", feature = "m19-search"))]
 mod m19_search;
 #[cfg(all(target_os = "nagi", feature = "m19-runtime"))]
+mod m19_search_service;
+#[cfg(all(target_os = "nagi", feature = "m19-runtime"))]
 mod m19_storage;
 #[cfg(all(target_os = "nagi", feature = "m20-llama-inference-acceptance"))]
 mod m20_granite;
@@ -176,6 +178,7 @@ mod shell;
     any(
         feature = "isolated-process-acceptance",
         feature = "m19-search-ipc",
+        feature = "m19-runtime",
         feature = "consent-dialog-acceptance"
     )
 ))]

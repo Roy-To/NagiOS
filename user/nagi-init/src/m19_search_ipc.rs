@@ -41,6 +41,22 @@ fn evaluate(
     launch: Option<LaunchRecord>,
     payload: &[u8],
 ) -> SearchResults {
+    if payload.first() == Some(&(KindFilter::File as u8)) {
+        return crate::m19_search_service::evaluate_files(launch, payload, |access, text| {
+            let query = SearchQuery {
+                text: Some(text.to_string()),
+                kind: Some(ObjectKind::File),
+                ..SearchQuery::default()
+            };
+            service.search(access, &query).ok().map(|response| {
+                response
+                    .objects
+                    .into_iter()
+                    .map(|hit| hit.record.object_id)
+                    .collect()
+            })
+        });
+    }
     let Some(launch) = launch else {
         return SearchResults::status_only(ResultStatus::UnknownCaller);
     };
@@ -178,15 +194,16 @@ pub fn run(
         }
     }
 
-    // The same two queries, launched as a different declared application
-    // with `search.query`, must reveal neither application's private records.
+    // A different declared application has `search.query` only, so its Files
+    // query is denied before the Search index is read. Page queries still run
+    // through the fixture's caller-specific visibility policy.
     let Some([foreign_files, foreign_pages, foreign_browser_history]) =
         run_client(service, FOREIGN_APP, FOREIGN_SESSION_ID)
     else {
         console_write(b"Nagi M19 Search IPC FAIL foreign client\r\n");
         return false;
     };
-    if foreign_files.status != ResultStatus::Ok
+    if foreign_files.status != ResultStatus::Denied
         || foreign_files.count != 0
         || foreign_files.visible_total != 0
     {
@@ -208,6 +225,21 @@ pub fn run(
         return false;
     }
     console_write(b"Nagi M19 Search IPC foreign isolated client hidden PASS\r\n");
+
+    // The authorized manifest and grants with a different live app session
+    // still cannot cross the Search visibility filter for Files metadata.
+    let Some([other_session_files, _, _]) = run_client(service, APP_ID, FOREIGN_SESSION_ID) else {
+        console_write(b"Nagi M19 Search IPC FAIL other-session client\r\n");
+        return false;
+    };
+    if other_session_files.status != ResultStatus::Ok
+        || other_session_files.count != 0
+        || other_session_files.visible_total != 0
+    {
+        console_write(b"Nagi M19 Search IPC FAIL Files visibility filter\r\n");
+        return false;
+    }
+    console_write(b"Nagi M19 Search IPC Files visibility filter PASS\r\n");
 
     // A sender without a launch record is refused before the index is read,
     // and so is a reaped launch whose grant was revoked with its exit.

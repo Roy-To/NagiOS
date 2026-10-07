@@ -3344,12 +3344,20 @@ authorization filtering, and Search restart across QEMU boots. The signed-in
 desktop also starts a persistent owner-Files runtime; QEMU run
 `1791409942835920000` verified create/query, rename with stable ObjectId,
 delete/tombstone, inode-generation reuse, and restored identity after restart
-through that runtime. The login fixture calls these runtime methods directly:
-normal apps still lack a production `search@1` endpoint, Files UI operations
-and ordinary Browser History changes do not publish producer updates, and the
-runtime currently covers direct children without trash restore. Guest VFS
-files remain limited to 1 KiB, so the snapshot is bounded at 4 KiB. M19 remains
-`PARTIAL` until the production service and producer lifecycles are integrated.
+through that runtime. A later login run, `1791414261520793000`, verified
+bounded nested-path publication and search. The login fixture calls these
+runtime methods directly. Normal apps still cannot reach the production
+`search@1` Files handler. That handler resolves the kernel-stamped PID through
+Supervisor, requires both live `search.query` and `files.search` grants, and
+delegates to the runtime's
+visibility-filtered Files query; Nagi-target checks pass for both the normal
+desktop and isolated-search feature sets. No ordinary app launch path routes a
+client to the handler yet. Files UI operations and ordinary Browser History
+changes also do not publish producer updates, and trash/restore is not
+implemented. The runtime now covers bounded nested paths. Guest VFS files
+remain limited to 1 KiB, so the snapshot is bounded at 4 KiB. M19 remains
+`PARTIAL` until the service is reachable through normal signed app launch and
+the producer lifecycles are integrated.
 
 See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md` for the
 focused evidence and remaining production acceptance criteria.
