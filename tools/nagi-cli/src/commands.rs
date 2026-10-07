@@ -22,6 +22,7 @@ use crate::image::{
     ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui,
     run_qemu_gui_reusing_ovmf_vars_with_events,
     run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
+    run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events,
     run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
     run_qemu_gui_with_events, run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input,
     run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot,
@@ -9354,7 +9355,9 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "-p",
         "nagi-init",
         "--features",
-        "m10-desktop,m27-ro-vfs-check",
+        // ADR 0063: the legacy FAT12 System A/B also sign in, so a healthy
+        // trial is confirmed only by a signed-in desktop.
+        "m10-desktop,m27-ro-vfs-check,desktop-login",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -9990,6 +9993,9 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             format!("m27: initialize readiness OVMF variables: {error}"),
         );
     }
+    // ADR 0063: the trial creates the owner through QMP and persists
+    // readiness only after sign-in. Later boots find that owner and show the
+    // unlock screen; their loader decisions need no further input.
     let readiness_boots = [
         (
             "trial-boot.log",
@@ -10007,6 +10013,8 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             false,
         ),
     ];
+    let sign_in = qmp_first_run_sign_in(DESKTOP_OWNER_NAME, DESKTOP_OWNER_PASSWORD);
+    let sign_in: Vec<&str> = sign_in.iter().map(String::as_str).collect();
     // Confirmation and post-promotion boots can exceed 90 seconds under
     // repeated TCG load. Keep the exact readiness and desktop markers.
     let readiness_timeout = Duration::from_secs(180);
@@ -10014,6 +10022,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         readiness_boots.iter().enumerate()
     {
         let log_path = readiness_evidence.join(log_name);
+        let is_trial_boot = index == 0;
         let config = QemuConfig {
             qemu: &host.qemu,
             ovmf_code: &host.ovmf_code,
@@ -10022,10 +10031,26 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             persistent_disk: &persistent_disk,
             vars_copy: &readiness_vars,
             serial_log: &log_path,
-            acceptance_marker: "Nagi M10 desktop READY",
+            acceptance_marker: if is_trial_boot {
+                // The desktop prints this after report_boot_ready returned,
+                // so the kernel's readiness line is complete by then.
+                DESKTOP_SIGNED_IN_MARKER
+            } else {
+                // The owner created on the trial boot persists in User Data.
+                "Nagi login READY mode=unlock"
+            },
             timeout: readiness_timeout,
         };
-        let status = match run_m27_headless_with_pre_guest_retry(&config, true) {
+        let run = if is_trial_boot {
+            run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events(
+                &config,
+                "Nagi login READY mode=create",
+                &sign_in,
+            )
+        } else {
+            run_m27_headless_with_pre_guest_retry(&config, true)
+        };
+        let status = match run {
             Ok(status) => status,
             Err(error) => {
                 return failure(
@@ -10043,7 +10068,24 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         };
-        for marker in [*expected_decision, "Nagi M10 desktop READY"] {
+        let required: &[&str] = if is_trial_boot {
+            &[
+                *expected_decision,
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=create",
+                "Nagi login owner created PASS name=owner",
+                "Nagi login unlocked PASS",
+                M27_TRIAL_READINESS_MARKER,
+                DESKTOP_SIGNED_IN_MARKER,
+            ]
+        } else {
+            &[
+                *expected_decision,
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=unlock",
+            ]
+        };
+        for marker in required {
             if !serial.contains(marker) {
                 return failure(
                     EXIT_CONFIG_ERROR,
@@ -10055,11 +10097,14 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         }
-        if index == 0 && !m27_readiness_persisted_before_desktop(&serial) {
+        if is_trial_boot
+            && !(m27_readiness_persisted_after_sign_in(&serial)
+                && m27_readiness_reported_after_persisted(&serial))
+        {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m27: healthy trial did not persist readiness before desktop readiness (QEMU exit {status}; log {})",
+                    "m27: healthy trial persisted readiness before the owner signed in (QEMU exit {status}; log {})",
                     log_path.display()
                 ),
             );
@@ -10093,7 +10138,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             format!(
-                "PASS M27 A/B and Recovery: three malformed System B trials rolled back to persistent System A; a healthy System B trial was promoted after guest readiness; Recovery boot left the journal unchanged and undid a committed M22 file.move group across restart (evidence {})",
+                "PASS M27 A/B and Recovery: three malformed System B trials rolled back to persistent System A; a healthy System B trial was promoted after the owner signed in and the guest reported readiness; Recovery boot left the journal unchanged and undid a committed M22 file.move group across restart (evidence {})",
                 evidence.display()
             ),
             format!("Final serial log: {}", final_log.display()),
@@ -10503,6 +10548,10 @@ fn m27_bootstrap_markers_present(serial: &str) -> bool {
     serial.contains(NAGI_WRITE_MARKER) && serial.contains(M27_BOOTSTRAP_COMPLETION_MARKER)
 }
 
+/// The kernel prints this prefix only after it persisted the trial's
+/// readiness record; QEMU may stop before the line's trailing generation.
+const M27_TRIAL_READINESS_MARKER: &str = "Nagi M27 readiness persisted slot=B attempt=1";
+
 /// ADR 0063: with `desktop-login`, readiness follows the owner's sign-in.
 /// The kernel prints `readiness persisted` only after a successful write,
 /// and QEMU may stop on this marker before the line's trailing `PASS`.
@@ -10516,15 +10565,16 @@ fn m27_readiness_persisted_after_sign_in(serial: &str) -> bool {
     matches!((signed_in, readiness), (Some(signed_in), Some(record)) if signed_in < record)
 }
 
-fn m27_readiness_persisted_before_desktop(serial: &str) -> bool {
-    let readiness_line = serial.lines().position(|line| {
-        line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 generation=")
-            && line.ends_with(" PASS")
-    });
-    let desktop_ready_line = serial
+/// The desktop reports readiness only after the kernel persisted the
+/// trial's readiness record (ADR 0063).
+fn m27_readiness_reported_after_persisted(serial: &str) -> bool {
+    let record = serial
         .lines()
-        .position(|line| line == "Nagi M10 desktop READY");
-    matches!((readiness_line, desktop_ready_line), (Some(record), Some(desktop)) if record < desktop)
+        .position(|line| line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 "));
+    let reported = serial
+        .lines()
+        .position(|line| line.trim_end() == DESKTOP_SIGNED_IN_MARKER);
+    matches!((record, reported), (Some(record), Some(reported)) if record < reported)
 }
 
 fn m27_readiness_consumed_before_promotion(serial: &str) -> bool {
@@ -10561,7 +10611,7 @@ mod tests {
         append_nagi_target_archive_tools, has_pre_guest_firmware_timeout_signature,
         last_serial_lines, m17_trace_excerpt, m27_bootstrap_markers_present,
         m27_readiness_consumed_before_promotion, m27_readiness_persisted_after_sign_in,
-        m27_readiness_persisted_before_desktop, m27_trial_failure_observed,
+        m27_readiness_reported_after_persisted, m27_trial_failure_observed,
         m30_image_build_info_matches, parse_command, path_with_suffix, pinned_granite_manifest,
         run_headless_with_pre_guest_retry_using, scoped_artifact_name, verify_external_artifact,
         Command, QemuConfig, NAGI_WRITE_MARKER,
@@ -11123,15 +11173,15 @@ mod tests {
     }
 
     #[test]
-    fn m27_readiness_must_be_persisted_before_desktop_ready() {
-        assert!(m27_readiness_persisted_before_desktop(
-            "Nagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\nNagi M10 desktop READY\r\n"
+    fn m27_readiness_is_reported_after_the_record_is_persisted() {
+        assert!(m27_readiness_reported_after_persisted(
+            "Nagi login unlocked PASS\r\nNagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\nNagi login readiness reported PASS\r\n"
         ));
-        assert!(!m27_readiness_persisted_before_desktop(
-            "Nagi M10 desktop READY\r\nNagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\n"
+        assert!(!m27_readiness_reported_after_persisted(
+            "Nagi login readiness reported PASS\r\nNagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\n"
         ));
-        assert!(!m27_readiness_persisted_before_desktop(
-            "Nagi M27 readiness persisted slot=B attempt=1 generation=3 FAIL\r\nNagi M10 desktop READY\r\n"
+        assert!(!m27_readiness_reported_after_persisted(
+            "Nagi login readiness reported PASS\r\n"
         ));
     }
 
