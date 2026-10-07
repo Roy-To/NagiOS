@@ -43,9 +43,27 @@ confirming writable disks are unchanged and restoring the OVMF baseline.
 `./nagi m19` also passed run
 `1791386170641690000` across its Browser/Search restart flow. `./nagi test`
 and package-scoped rustfmt checks pass. The ordinary
-desktop still has no app-facing production `search@1` endpoint, Files CRUD
-producer hooks, or general Browser History producer lifecycle; M19 stays
+desktop still has no app-facing production `search@1` endpoint, Files UI
+integration, or general Browser History producer lifecycle; M19 stays
 `PARTIAL`.
+**M19 signed-in Files create/delete identity, 2026-10-08:** the owner runtime
+now exposes bounded create, rename, and delete operations for direct children
+of `/home/owner/files`. Each operation reconciles the private Files Workspace
+and persists Search metadata before returning. The QEMU `./nagi login` run
+`1791409942835920000` passed all four GUI phases. The password-change phase
+verified creation and query, tombstoning and search exclusion on delete, then
+inode reuse with a newer VFS generation and a different ObjectId; it deleted
+the recreated fixture afterward. The restart phase restored the original
+fixture ObjectId and repeated rename and deletion checks. Evidence is in
+`out/evidence/login-1791409942835920000/password-change.log` and
+`verify-password.log`. The same run exposed that nested rename consumed all
+free directory space; the VFS compactor now preserves a reusable free record,
+and a focused storage regression test covers creation after rename. The
+arm64 macOS host cannot compile `libnagi`'s x86-64 syscall assembly tests; the
+guest acceptance passed locally and the PR's x86 Ubuntu host job will run the
+unit regression. Files UI wiring, app-facing production `search@1`, trash
+restore, and normal Browser History producer lifecycle remain open, so M19 is
+still `PARTIAL`.
 **0.1 / 0.2 line merge, 2026-10-05:** `main` (0.1 release line) and
 `codex/integration-next-phase` (0.2 workstreams) were merged on
 `claude/integrate-main-0.2`; conflict decisions are recorded in

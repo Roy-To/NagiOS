@@ -5430,13 +5430,18 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
                 "Nagi M19 signed-in desktop Files ObjectId initial persist PASS",
                 "Nagi M19 signed-in desktop Files rename identity PASS",
+                "Nagi M19 signed-in desktop Files delete identity PASS",
                 "Nagi M19 signed-in desktop SearchService ready PASS",
                 "Nagi password change READY",
                 "Nagi password change REJECTED current",
                 "Nagi password change PASS",
                 "Nagi login acceptance PASS",
             ][..],
-            &["Nagi login unlock REJECTED", "Nagi password change FAIL"][..],
+            &[
+                "Nagi login unlock REJECTED",
+                "Nagi password change FAIL",
+                "Nagi M19 signed-in desktop Files delete identity FAIL",
+            ][..],
         ),
         (
             "verify-password",
@@ -5457,9 +5462,13 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
                 "Nagi M19 signed-in desktop Files ObjectId restore PASS",
                 "Nagi M19 signed-in desktop Files rename identity PASS",
+                "Nagi M19 signed-in desktop Files delete identity PASS",
                 "Nagi M19 signed-in desktop SearchService ready PASS",
             ][..],
-            &["Nagi login acceptance PASS"][..],
+            &[
+                "Nagi login acceptance PASS",
+                "Nagi M19 signed-in desktop Files delete identity FAIL",
+            ][..],
         ),
     ] {
         let log = evidence.join(format!("{phase}.log"));

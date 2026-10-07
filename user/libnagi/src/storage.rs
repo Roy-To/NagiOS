@@ -578,6 +578,11 @@ impl<D: BlockDevice> Vfs<D> {
         let mut source_offset = 0;
         let mut destination_offset = 0;
         let mut remaining_entries = live_entries;
+        // Keep a reusable free record at the end when it can hold even the
+        // shortest valid filename. Otherwise the final live record owns the
+        // small tail so the directory remains well-formed.
+        let trailing_bytes = BLOCK_SIZE - required_bytes;
+        let preserve_free_record = trailing_bytes >= align4(8 + 1);
         while source_offset < BLOCK_SIZE {
             let inode = read_u32(&entries, source_offset);
             let record_length = usize::from(read_u16(&entries, source_offset + 4));
@@ -587,7 +592,7 @@ impl<D: BlockDevice> Vfs<D> {
                 let is_target = names_equal(&entries, source_offset + 8, name_length, old_name);
                 let output_name = if is_target { new_name } else { source_name };
                 let minimum_length = align4(8 + output_name.len());
-                let output_record_length = if remaining_entries == 1 {
+                let output_record_length = if remaining_entries == 1 && !preserve_free_record {
                     BLOCK_SIZE - destination_offset
                 } else {
                     minimum_length
@@ -608,6 +613,18 @@ impl<D: BlockDevice> Vfs<D> {
                 remaining_entries -= 1;
             }
             source_offset += record_length;
+        }
+        if preserve_free_record {
+            let free_length = BLOCK_SIZE - destination_offset;
+            write_directory_record(
+                &mut compacted,
+                destination_offset,
+                0,
+                free_length as u16,
+                0,
+                0,
+                b"",
+            );
         }
         self.write_block(directory.direct_block, &compacted)?;
         let inode = self
@@ -2870,6 +2887,11 @@ mod tests {
         let mut bytes = [0; 16];
         let length = volume.read(reopened, &mut bytes).expect("read");
         assert_eq!(&bytes[..length], b"rename me");
+
+        // Renaming must leave a free directory record for a later create.
+        volume
+            .create_path(b"/files/created-after-rename")
+            .expect("create after rename");
     }
 
     #[test]

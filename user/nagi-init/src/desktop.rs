@@ -1125,6 +1125,13 @@ pub fn run(
                                     libnagi::exit(1);
                                 }
                                 print(b"Nagi M19 signed-in desktop Files rename identity PASS\r\n");
+                                if !runtime.acceptance_verify_file_lifecycle(&mut volume) {
+                                    print(
+                                        b"Nagi M19 signed-in desktop Files delete identity FAIL\r\n",
+                                    );
+                                    libnagi::exit(1);
+                                }
+                                print(b"Nagi M19 signed-in desktop Files delete identity PASS\r\n");
                             }
                             print(b"Nagi M19 signed-in desktop SearchService ready PASS\r\n");
                             search_runtime = Some(runtime);

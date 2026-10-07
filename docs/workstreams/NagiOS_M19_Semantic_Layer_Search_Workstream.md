@@ -327,20 +327,25 @@ added focused VFS regression covers a longer nested-directory rename and
 verifies the open handle, inode, generation, and file contents remain
 unchanged.
 
-The signed-in desktop Search runtime now exposes `Runtime::rename_file`, which
-renames a direct child of `/home/owner/files`, flushes the VFS, and reconciles
-Search metadata before returning success. Its acceptance uses that same
-runtime method to rename the fixture to a longer name, confirms the renamed
-file returns the same ObjectId and the old name returns no result, then
-restores the original name and verifies the ObjectId again. `./nagi login`
-passed all four GUI phases on QEMU run `1791408995044933000`; the marker is in
-`out/evidence/login-1791408995044933000/password-change.log` and
-`verify-password.log`. The first direct-VFS experiment and the attempt that
-exposed the original fixed-record-size failure remain preserved in
-`out/evidence/login-1791408726578251000/` and
+The signed-in desktop Search runtime now exposes direct-child create, rename,
+and delete operations for `/home/owner/files`, and reconciles persistent
+Search metadata before returning. `./nagi login` passed all four GUI phases
+on QEMU run `1791409942835920000`. Acceptance verifies that a longer rename
+preserves the ObjectId, deletion tombstones and hides the ObjectId, reusing
+the inode advances its VFS generation and allocates a new ObjectId, and the
+recreated fixture is removed. The restart phase restores the original fixture
+ObjectId and repeats rename and deletion checks. Logs are in
+`out/evidence/login-1791409942835920000/password-change.log` and
+`verify-password.log`.
+
+The new acceptance exposed and fixed a VFS compaction bug: renaming the last
+live entry had consumed the directory's trailing free space, preventing later
+file creation. The compactor now preserves a reusable free record when the
+remaining space can hold a valid name; the nested VFS rename regression test
+also creates a file after the rename. The earlier direct-VFS and fixed-record
+size experiments remain in `out/evidence/login-1791408726578251000/` and
 `out/evidence/login-1791408588752599000/`.
 
-The ordinary desktop Files UI still has no CRUD actions wired to the runtime
-method. A production app-facing `search@1` endpoint, Files create/delete/
-restore hooks, and normal Browser History producer updates remain open; M19
-stays `PARTIAL`.
+The ordinary desktop Files UI does not yet call these runtime operations.
+Production app-facing `search@1`, Files UI integration and trash restore, and
+normal Browser History producer updates remain open; M19 stays `PARTIAL`.

@@ -10,9 +10,9 @@ use alloc::{
 };
 
 use crate::m19_storage::{self, VfsSnapshotFiles};
-use libnagi::storage::{DirectoryEntry, SyscallBlockDevice, Vfs};
 #[cfg(feature = "desktop-login-acceptance")]
-use libnagi::storage::{StorageError, MAX_SMALL_FILE_SIZE};
+use libnagi::storage::MAX_SMALL_FILE_SIZE;
+use libnagi::storage::{DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, MAX_NAME_LENGTH};
 use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
 use nagi_search::{
     adapters::{
@@ -87,6 +87,7 @@ pub(super) enum RuntimeError {
     SearchUnavailable,
     TooManyFiles,
     InvalidMetadata,
+    InvalidName,
 }
 
 /// Persistent Search service active during the signed-in owner desktop.
@@ -295,6 +296,105 @@ impl Runtime {
         Ok(())
     }
 
+    /// Create an empty direct child in the owner Files directory, then publish
+    /// its metadata before returning the stable Search ObjectId.
+    pub(super) fn create_file(
+        &mut self,
+        volume: &mut UserDataVolume,
+        name: &[u8],
+    ) -> Result<ObjectId, RuntimeError> {
+        let path = owner_file_path(name)?;
+        let mut entries = [DirectoryEntry::empty(); MAX_DIRECTORY_ENTRIES];
+        let count = volume
+            .list_directory_path(FILES_ROOT, &mut entries)
+            .map_err(|_| {
+                trace_acceptance_failure(
+                    b"Nagi M19 lifecycle trace: Files directory listing failed\r\n",
+                );
+                RuntimeError::Storage
+            })?;
+        let regular_files = entries[..count]
+            .iter()
+            .filter(|entry| entry.file_type == 1)
+            .count();
+        if regular_files >= MAX_FILES {
+            trace_acceptance_failure(b"Nagi M19 lifecycle trace: file capacity reached\r\n");
+            return Err(RuntimeError::TooManyFiles);
+        }
+
+        volume.create_path(&path).map_err(|error| {
+            let message: &[u8] = match error {
+                StorageError::AlreadyExists => {
+                    b"Nagi M19 lifecycle trace: VFS file already exists\r\n"
+                }
+                StorageError::Capacity => b"Nagi M19 lifecycle trace: VFS inode/block capacity\r\n",
+                StorageError::DirectoryFull => {
+                    #[cfg(feature = "desktop-login-acceptance")]
+                    {
+                        trace_acceptance_failure(
+                            b"Nagi M19 lifecycle trace: existing Files entries:\r\n",
+                        );
+                        for entry in &entries[..count] {
+                            libnagi::console_write(entry.name());
+                            trace_acceptance_failure(b"\r\n");
+                        }
+                    }
+                    b"Nagi M19 lifecycle trace: VFS directory full\r\n"
+                }
+                StorageError::NameTooLong => b"Nagi M19 lifecycle trace: VFS name too long\r\n",
+                StorageError::InvalidName => b"Nagi M19 lifecycle trace: VFS invalid name\r\n",
+                _ => b"Nagi M19 lifecycle trace: VFS create I/O or metadata error\r\n",
+            };
+            trace_acceptance_failure(message);
+            RuntimeError::Storage
+        })?;
+        volume.flush().map_err(|_| {
+            trace_acceptance_failure(
+                b"Nagi M19 lifecycle trace: VFS flush after create failed\r\n",
+            );
+            RuntimeError::Storage
+        })?;
+        self.sync_files(volume).map_err(|error| {
+            trace_acceptance_failure(
+                b"Nagi M19 lifecycle trace: Search sync after create failed\r\n",
+            );
+            error
+        })?;
+        self.file_object_id(volume, &path)
+    }
+
+    /// Permanently remove a direct child and tombstone its Search record before
+    /// reporting success. A restore creates a new file identity if the VFS
+    /// inode was reused in the meantime.
+    pub(super) fn delete_file(
+        &mut self,
+        volume: &mut UserDataVolume,
+        name: &[u8],
+    ) -> Result<ObjectId, RuntimeError> {
+        let path = owner_file_path(name)?;
+        let object_id = self.file_object_id(volume, &path)?;
+        volume
+            .remove_path(&path)
+            .map_err(|_| RuntimeError::Storage)?;
+        volume.flush().map_err(|_| RuntimeError::Storage)?;
+        self.sync_files(volume)?;
+        Ok(object_id)
+    }
+
+    fn file_object_id(
+        &self,
+        volume: &mut UserDataVolume,
+        path: &[u8],
+    ) -> Result<ObjectId, RuntimeError> {
+        let metadata = volume
+            .metadata_path(path)
+            .map_err(|_| RuntimeError::Storage)?;
+        let key = alloc::format!("{}:{}", metadata.inode, metadata.generation);
+        self.service
+            .producer_object_id(FILES_PRODUCER_ID, &key, FILES_APP_ID, FILES_SESSION_ID)
+            .ok_or(RuntimeError::SearchUnavailable)
+    }
+
     pub(super) fn search_files(&self, query: &str) -> Option<Vec<ObjectId>> {
         let response = self
             .service
@@ -361,9 +461,108 @@ impl Runtime {
     }
 
     #[cfg(feature = "desktop-login-acceptance")]
+    pub(super) fn acceptance_verify_file_lifecycle(&mut self, volume: &mut UserDataVolume) -> bool {
+        use libnagi::console_write;
+
+        const NAME: &[u8] = b".nagi-m19-lifecycle.txt";
+        const QUERY: &str = ".nagi-m19-lifecycle.txt";
+        let Ok(path) = owner_file_path(NAME) else {
+            return false;
+        };
+        // Clean up a fixture left by an interrupted earlier acceptance run.
+        if volume.metadata_path(&path).is_ok() && self.delete_file(volume, NAME).is_err() {
+            console_write(b"Nagi M19 lifecycle trace: stale fixture cleanup failed\r\n");
+            return false;
+        }
+
+        let result: Result<(), &'static [u8]> = (|| {
+            let first_id = self
+                .create_file(volume, NAME)
+                .map_err(|_| &b"Nagi M19 lifecycle trace: first create failed\r\n"[..])?;
+            let first_metadata = volume
+                .metadata_path(&path)
+                .map_err(|_| &b"Nagi M19 lifecycle trace: first metadata failed\r\n"[..])?;
+            let first_visible = self
+                .search_files(QUERY)
+                .is_some_and(|ids| ids.len() == 1 && ids[0] == first_id);
+            if !first_visible {
+                return Err(&b"Nagi M19 lifecycle trace: first query mismatch\r\n"[..]);
+            }
+            if self.delete_file(volume, NAME) != Ok(first_id) {
+                return Err(&b"Nagi M19 lifecycle trace: first delete failed\r\n"[..]);
+            }
+            if !self.search_files(QUERY).is_some_and(|ids| ids.is_empty()) {
+                return Err(&b"Nagi M19 lifecycle trace: deleted file still searchable\r\n"[..]);
+            }
+
+            let second_id = self
+                .create_file(volume, NAME)
+                .map_err(|_| &b"Nagi M19 lifecycle trace: second create failed\r\n"[..])?;
+            let second_metadata = volume
+                .metadata_path(&path)
+                .map_err(|_| &b"Nagi M19 lifecycle trace: second metadata failed\r\n"[..])?;
+            let reused_inode_with_new_generation = first_metadata.inode == second_metadata.inode
+                && first_metadata.generation != second_metadata.generation;
+            let new_identity = first_id != second_id
+                && self
+                    .search_files(QUERY)
+                    .is_some_and(|ids| ids.len() == 1 && ids[0] == second_id);
+            if !reused_inode_with_new_generation {
+                return Err(&b"Nagi M19 lifecycle trace: generation did not advance\r\n"[..]);
+            }
+            if !new_identity {
+                return Err(&b"Nagi M19 lifecycle trace: ObjectId did not change\r\n"[..]);
+            }
+            if self.delete_file(volume, NAME) != Ok(second_id) {
+                return Err(&b"Nagi M19 lifecycle trace: second delete failed\r\n"[..]);
+            }
+            let hidden_after_delete = self.search_files(QUERY).is_some_and(|ids| ids.is_empty());
+            if !hidden_after_delete {
+                return Err(&b"Nagi M19 lifecycle trace: second deletion still searchable\r\n"[..]);
+            }
+            Ok(())
+        })();
+
+        // Keep the fixture out of the owner's real Files namespace if a check
+        // failed midway; the failure marker still makes acceptance fail.
+        if volume.metadata_path(&path).is_ok() {
+            let _ = self.delete_file(volume, NAME);
+        }
+        if let Err(message) = result {
+            console_write(message);
+            return false;
+        }
+        true
+    }
+
+    #[cfg(feature = "desktop-login-acceptance")]
     pub(super) const fn acceptance_record_restored(&self) -> bool {
         self.acceptance_record_restored
     }
+}
+
+fn owner_file_path(name: &[u8]) -> Result<Vec<u8>, RuntimeError> {
+    if name.is_empty()
+        || name.len() > MAX_NAME_LENGTH
+        || name == b"."
+        || name == b".."
+        || name.iter().any(|byte| *byte == 0 || *byte == b'/')
+        || core::str::from_utf8(name).is_err()
+    {
+        return Err(RuntimeError::InvalidName);
+    }
+    let mut path = Vec::with_capacity(FILES_ROOT.len() + 1 + name.len());
+    path.extend_from_slice(FILES_ROOT);
+    path.push(b'/');
+    path.extend_from_slice(name);
+    Ok(path)
+}
+
+fn trace_acceptance_failure(message: &[u8]) {
+    #[cfg(feature = "desktop-login-acceptance")]
+    libnagi::console_write(message);
+    #[cfg(not(feature = "desktop-login-acceptance"))]
+    let _ = message;
 }
 
 #[cfg(feature = "desktop-login-acceptance")]
