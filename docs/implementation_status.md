@@ -131,7 +131,7 @@ Still open:
   2026-10-07 entry above; target acceptance pending);
 - more accounts and Recovery reset. Rate limiting is done (ADR 0064), and
   password change is implemented but not yet accepted in the guest (see the
-  2026-10-07 password change entry below);
+  2026-10-07 password change entry below).
 
 **Owner password change (ADR 0066), 2026-10-07:** A signed-in owner can
 change the password from Settings. Status: **PARTIAL** (implemented and
