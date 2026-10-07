@@ -47,16 +47,26 @@ fn m29_acceptance_reboots_the_same_user_data_volume_and_checks_the_restored_loca
         .map(|offset| m29_start + offset)
         .expect("shared Desktop acceptance runner");
     let m29 = &commands[m29_start..acceptance_start];
-    assert!(
-        m29.contains("restart_marker:Some(\"NagiM29settingspreferencerestoredPASSlocale=ja-JP\")")
-    );
+    // ADR 0063: the restart restores ja-JP on the unlock screen, before the
+    // owner unlocks; readiness then follows the sign-in.
+    assert!(m29.contains("features:\"m10-desktop,m29-settings-acceptance,desktop-login\""));
+    assert!(m29.contains("restart_marker:Some(DESKTOP_SIGNED_IN_MARKER)"));
+    assert!(m29.contains(
+        "restart_required_markers:&[\"NagiloginREADYmode=unlock\",\"NagiM29settingspreferencerestoredPASSlocale=ja-JP\",\"NagiloginunlockedPASS\",]"
+    ));
+    assert!(m29.contains("restart_events:qmp_typed_keys(DESKTOP_OWNER_PASSWORD,\"ret\")"));
     assert!(m29.contains("restart_log_name:Some(\"m29-settings-persistent-restart.log\")"));
     assert!(m29.contains("unique_run_artifacts:true"));
+    assert!(
+        commands.contains("constDESKTOP_SIGNED_IN_MARKER:&str=\"NagiloginreadinessreportedPASS\";")
+    );
 
     let restart = &commands[acceptance_start..];
-    assert!(restart.contains("run_qemu(&restart_config)"));
+    assert!(restart.contains("run_qemu_gui_with_events(&restart_config,"));
     assert!(restart.contains("persistent_disk:&persistent_disk"));
-    assert!(restart.contains("[\"NagiM10desktopREADY\",restart_marker]"));
+    assert!(restart.contains(
+        "std::iter::once(\"NagiM10desktopREADY\").chain(acceptance.restart_required_markers.iter().copied()).chain(std::iter::once(restart_marker))"
+    ));
     assert!(commands.contains("\"NagiM29settingslocalepersistedPASSlocale=ja-JP\""));
 }
 

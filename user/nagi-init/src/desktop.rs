@@ -302,7 +302,9 @@ impl Desktop {
                         report_consent_start(self, start);
                     }
                     // Readiness means a signed-in desktop (ADR 0063).
-                    if !libnagi::report_boot_ready() {
+                    if libnagi::report_boot_ready() {
+                        print(b"Nagi login readiness reported PASS\r\n");
+                    } else {
                         print(b"Nagi login readiness report FAIL\r\n");
                     }
                     true
