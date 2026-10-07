@@ -11,6 +11,30 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**Legacy FAT12 M27 fixtures sign in first (ADR 0063), 2026-10-07:** the
+FAT12 System A/B images of `./nagi m27` now build init with
+`m10-desktop,m27-ro-vfs-check,desktop-login`.
+
+- **Healthy B trial.** QMP keeps the offered language and creates the
+  owner. The boot waits for `Nagi login readiness reported PASS` and
+  requires, in order, `login unlocked PASS`, `M27 readiness persisted
+  slot=B attempt=1`, then `login readiness reported PASS`. The old
+  "readiness before `M10 desktop READY`" check is removed, since readiness
+  now follows sign-in.
+- **Later boots.** The promotion and confirmed B boots stop on `Nagi login
+  READY mode=unlock` (the owner persisted) and still require the loader to
+  consume the readiness record before promoting B. System A boots stop on
+  `Nagi M7 acceptance PASS`, before the desktop, and need no input.
+- **Checks.** `cargo test -p nagi-cli` (264 unit + 29 CLI tests, including
+  a new source-contract test), warning-denied Clippy for `nagi-cli`, and
+  `cargo fmt --check` pass on an arm64 Linux host. The FAT12 slot images
+  with `desktop-login` built for the target.
+- **Not verified.** `./nagi m27` did not reach the changed boots on this
+  host. Twice, the bootstrap boot (default init, unchanged by this work)
+  stopped at `Nagi M7 VirtIO Block FAIL` under QEMU 10.0.13 TCG on arm64
+  Linux (evidence `out/evidence/m27-ab-rollback-1791343607110865900`). M27
+  stays `PARTIAL`; the target run is pending on an x86_64 or macOS host.
+
 **M10/M29 desktops sign in first (ADR 0063), 2026-10-07:** `./nagi desktop`
 (M10) and `./nagi m29` now build init with `desktop-login`.
 
@@ -99,8 +123,9 @@ desktop first shows an OS-owned login screen.
 
 Still open:
 
-- the legacy FAT12 M27 fixtures do not enable `desktop-login` yet. The
-  `m30-update` payload does: its System B trial creates the owner and
+- the legacy FAT12 M27 fixtures now enable `desktop-login` (see the
+  2026-10-07 entry above; target acceptance pending). The
+  `m30-update` payload does too: its System B trial creates the owner and
   persists readiness only after sign-in (`./nagi m30-update` run
   `1791260698907877000`). The M10/M29 desktops now sign in first (see the
   2026-10-07 entry above; target acceptance pending);
