@@ -5,8 +5,7 @@ use alloc::{
 };
 use core::sync::atomic::{AtomicU64, Ordering};
 use libnagi::storage::{
-    BlockDevice, DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
-    MAX_SMALL_FILE_SIZE,
+    DirectoryEntry, FileHandle, StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE,
 };
 use libnagi::{
     ChannelHandleTransfer, ChannelReceiveResult, ChannelSendRequest, ProcessInfo,
@@ -27,16 +26,15 @@ use nagi_search::{
     },
     AccessContext, Embedding, EmbeddingProvider, EmbeddingPurpose, EmbeddingSpaceId,
     GuestSnapshotBackend, IndexedChunk, MetadataRecord, ObjectKind, PersistentVectorIndex,
-    SearchQuery, SearchService, SemanticError, SnapshotFile, SnapshotFileStore, SnapshotSlot,
-    VectorIndex, VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession, GUEST_FILE_BYTES,
+    SearchQuery, SearchService, SemanticError, VectorIndex, VisibilityFilter, VisibilityScope,
+    Workspace, WorkspaceSession,
 };
 
 #[cfg(feature = "m19-search-ipc")]
 #[path = "m19_search_ipc.rs"]
 mod search_ipc;
+use crate::m19_storage::{SnapshotNamespace, VfsSnapshotFiles};
 
-const STORE_ROOT: &[u8] = b"/var/lib/nagi-search";
-const SEMANTIC_STORE_ROOT: &[u8] = b"/var/lib/nagi-search-semantic";
 const OBJECT_ID: ObjectId = ObjectId(0x4e41_4749_4d19_0001);
 const WORKSPACE_ID: WorkspaceId = WorkspaceId(0x4e41_4749_4d19_0002);
 const PAGE_OBJECT_ID: ObjectId = ObjectId(0x4e41_4749_4d19_0003);
@@ -104,165 +102,6 @@ pub struct M19SearchActivity {
     pub user_intent: &'static str,
     pub plan_summary: &'static str,
     pub object_id: ObjectId,
-}
-
-const _: [(); BLOCK_SIZE] = [(); GUEST_FILE_BYTES];
-
-struct VfsSnapshotFiles<D: BlockDevice> {
-    volume: Vfs<D>,
-    namespace: SnapshotNamespace,
-}
-
-#[derive(Clone, Copy)]
-enum SnapshotNamespace {
-    Metadata,
-    Semantic,
-}
-
-impl<D: BlockDevice> VfsSnapshotFiles<D> {
-    fn new(
-        mut volume: Vfs<D>,
-        namespace: SnapshotNamespace,
-    ) -> Result<Self, nagi_search::BackendError> {
-        let root = match namespace {
-            SnapshotNamespace::Metadata => STORE_ROOT,
-            SnapshotNamespace::Semantic => SEMANTIC_STORE_ROOT,
-        };
-        volume
-            .ensure_directory_path(b"/var")
-            .and_then(|()| volume.ensure_directory_path(b"/var/lib"))
-            .and_then(|()| volume.ensure_directory_path(root))
-            .map_err(|_| nagi_search::BackendError::Io)?;
-        Ok(Self { volume, namespace })
-    }
-
-    fn path(&self, slot: SnapshotSlot, file: SnapshotFile) -> Option<&'static [u8]> {
-        match (self.namespace, slot, file) {
-            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Manifest) => {
-                Some(b"/var/lib/nagi-search/am")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Chunk(0)) => {
-                Some(b"/var/lib/nagi-search/a0")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Chunk(1)) => {
-                Some(b"/var/lib/nagi-search/a1")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Chunk(2)) => {
-                Some(b"/var/lib/nagi-search/a2")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::A, SnapshotFile::Chunk(3)) => {
-                Some(b"/var/lib/nagi-search/a3")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Manifest) => {
-                Some(b"/var/lib/nagi-search/bm")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Chunk(0)) => {
-                Some(b"/var/lib/nagi-search/b0")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Chunk(1)) => {
-                Some(b"/var/lib/nagi-search/b1")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Chunk(2)) => {
-                Some(b"/var/lib/nagi-search/b2")
-            }
-            (SnapshotNamespace::Metadata, SnapshotSlot::B, SnapshotFile::Chunk(3)) => {
-                Some(b"/var/lib/nagi-search/b3")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Manifest) => {
-                Some(b"/var/lib/nagi-search-semantic/am")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Chunk(0)) => {
-                Some(b"/var/lib/nagi-search-semantic/a0")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Chunk(1)) => {
-                Some(b"/var/lib/nagi-search-semantic/a1")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Chunk(2)) => {
-                Some(b"/var/lib/nagi-search-semantic/a2")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::A, SnapshotFile::Chunk(3)) => {
-                Some(b"/var/lib/nagi-search-semantic/a3")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Manifest) => {
-                Some(b"/var/lib/nagi-search-semantic/bm")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Chunk(0)) => {
-                Some(b"/var/lib/nagi-search-semantic/b0")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Chunk(1)) => {
-                Some(b"/var/lib/nagi-search-semantic/b1")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Chunk(2)) => {
-                Some(b"/var/lib/nagi-search-semantic/b2")
-            }
-            (SnapshotNamespace::Semantic, SnapshotSlot::B, SnapshotFile::Chunk(3)) => {
-                Some(b"/var/lib/nagi-search-semantic/b3")
-            }
-            (_, _, SnapshotFile::Chunk(_)) => None,
-        }
-    }
-}
-
-impl<D: BlockDevice> SnapshotFileStore for VfsSnapshotFiles<D> {
-    fn read_file(
-        &mut self,
-        slot: SnapshotSlot,
-        file: SnapshotFile,
-        buffer: &mut [u8; GUEST_FILE_BYTES],
-    ) -> Result<Option<usize>, nagi_search::BackendError> {
-        let path = self.path(slot, file).ok_or(nagi_search::BackendError::Io)?;
-        let handle = match self.volume.open_path(path) {
-            Ok(handle) => handle,
-            Err(StorageError::NotFound) => return Ok(None),
-            Err(_) => return Err(nagi_search::BackendError::Io),
-        };
-        let length = self
-            .volume
-            .read(handle, buffer)
-            .map_err(|_| nagi_search::BackendError::Io)?;
-        Ok(Some(length))
-    }
-
-    fn write_file(
-        &mut self,
-        slot: SnapshotSlot,
-        file: SnapshotFile,
-        bytes: &[u8],
-    ) -> Result<(), nagi_search::BackendError> {
-        let path = self.path(slot, file).ok_or(nagi_search::BackendError::Io)?;
-        let handle = match self.volume.open_path(path) {
-            Ok(handle) => handle,
-            Err(StorageError::NotFound) => self
-                .volume
-                .create_path(path)
-                .map_err(|_| nagi_search::BackendError::Io)?,
-            Err(_) => return Err(nagi_search::BackendError::Io),
-        };
-        self.volume
-            .write(handle, bytes)
-            .map_err(|error| match error {
-                StorageError::FileTooLarge => nagi_search::BackendError::SnapshotTooLarge,
-                _ => nagi_search::BackendError::Io,
-            })
-    }
-
-    fn remove_file(
-        &mut self,
-        slot: SnapshotSlot,
-        file: SnapshotFile,
-    ) -> Result<(), nagi_search::BackendError> {
-        let path = self.path(slot, file).ok_or(nagi_search::BackendError::Io)?;
-        match self.volume.remove_path(path) {
-            Ok(()) | Err(StorageError::NotFound) => Ok(()),
-            Err(_) => Err(nagi_search::BackendError::Io),
-        }
-    }
-
-    fn flush(&mut self) -> Result<(), nagi_search::BackendError> {
-        self.volume
-            .flush()
-            .map_err(|_| nagi_search::BackendError::Io)
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -659,11 +498,7 @@ fn open_volume(block_capability: u64) -> Result<Vfs<SyscallBlockDevice>, Storage
 }
 
 fn open_search(block_capability: u64) -> Result<M19SearchService, nagi_search::MetadataStoreError> {
-    let volume = open_volume(block_capability)
-        .map_err(|_| nagi_search::MetadataStoreError::Backend(nagi_search::BackendError::Io))?;
-    let files = VfsSnapshotFiles::new(volume, SnapshotNamespace::Metadata)
-        .map_err(nagi_search::MetadataStoreError::Backend)?;
-    nagi_search::SearchService::open(GuestSnapshotBackend::new(files), M19AcceptanceVisibility)
+    crate::m19_storage::open_search_with_visibility(block_capability, M19AcceptanceVisibility)
 }
 
 fn open_semantic_index(

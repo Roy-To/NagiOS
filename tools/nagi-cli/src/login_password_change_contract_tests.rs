@@ -53,9 +53,31 @@ fn login_acceptance_changes_the_password_and_checks_it_after_restart() {
     let change_phase = &login[change..verify];
     assert!(change_phase.contains("NagipasswordchangeREJECTEDcurrent"));
     assert!(change_phase.contains("NagipasswordchangePASS"));
+    for marker in [
+        "Nagi M19 signed-in desktop Files query PASS",
+        "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
+        "Nagi M19 signed-in desktop Files ObjectId initial persist PASS",
+        "Nagi M19 signed-in desktop SearchService ready PASS",
+    ] {
+        assert!(
+            change_phase.contains(&compact(marker)),
+            "password-change boot must verify `{marker}`"
+        );
+    }
     let verify_phase = &login[verify..];
     assert!(verify_phase.contains("NagiloginunlockREJECTED"));
     assert!(verify_phase.contains("NagiloginunlockedPASS"));
+    for marker in [
+        "Nagi M19 signed-in desktop Files query PASS",
+        "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
+        "Nagi M19 signed-in desktop Files ObjectId restore PASS",
+        "Nagi M19 signed-in desktop SearchService ready PASS",
+    ] {
+        assert!(
+            verify_phase.contains(&compact(marker)),
+            "password verification boot must verify `{marker}`"
+        );
+    }
 }
 
 #[test]

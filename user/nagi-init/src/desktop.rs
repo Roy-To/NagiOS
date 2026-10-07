@@ -948,7 +948,14 @@ impl Desktop {
     }
 }
 
-pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataVolume) -> ! {
+pub fn run(
+    block_capability: u64,
+    display_capability: u64,
+    input_capability: u64,
+    mut volume: UserDataVolume,
+) -> ! {
+    #[cfg(not(all(feature = "m19-runtime", feature = "desktop-login")))]
+    let _ = block_capability;
     let mut info = DisplayInfo::default();
     if !libnagi::display_info(&mut info)
         || info.surface_bytes as usize != libnagi::SURFACE_BYTES
@@ -976,6 +983,20 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
         desktop.login = Some(screen);
         mode
     };
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    let mut search_runtime: Option<crate::m19_runtime::Runtime> = None;
+    #[cfg(all(
+        feature = "m19-runtime",
+        feature = "desktop-login",
+        not(feature = "desktop-login-acceptance")
+    ))]
+    let mut search_sync_failure_reported = false;
+    #[cfg(all(
+        feature = "m19-runtime",
+        feature = "desktop-login",
+        not(feature = "desktop-login-acceptance")
+    ))]
+    let mut search_startup_failure_reported = false;
     #[cfg(all(feature = "consent-dialog-acceptance", not(feature = "desktop-login")))]
     let consent_start = match crate::supervisor::acceptance_user() {
         Some(user) => start_consent_acceptance(&mut desktop, &mut volume, &user),
@@ -1060,6 +1081,86 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
             continue;
         }
         if desktop.handle_event(event, &mut volume) {
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            if desktop.session.is_some() {
+                if search_runtime.is_none() {
+                    match crate::m19_runtime::Runtime::open(block_capability, &mut volume) {
+                        Ok(runtime) => {
+                            #[cfg(feature = "desktop-login-acceptance")]
+                            {
+                                if runtime
+                                    .acceptance_query(".nagi-m19-runtime-search.txt")
+                                    .is_none()
+                                {
+                                    print(b"Nagi M19 signed-in desktop Files query FAIL\r\n");
+                                    libnagi::exit(1);
+                                }
+                                print(b"Nagi M19 signed-in desktop Files query PASS\r\n");
+                                if runtime
+                                    .search_files("\u{fffd}")
+                                    .is_some_and(|object_ids| object_ids.is_empty())
+                                {
+                                    print(
+                                        b"Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS\r\n",
+                                    );
+                                } else {
+                                    print(
+                                        b"Nagi M19 signed-in desktop non-UTF-8 filename isolation FAIL\r\n",
+                                    );
+                                    libnagi::exit(1);
+                                }
+                                if runtime.acceptance_record_restored() {
+                                    print(
+                                        b"Nagi M19 signed-in desktop Files ObjectId restore PASS\r\n",
+                                    );
+                                } else {
+                                    print(
+                                        b"Nagi M19 signed-in desktop Files ObjectId initial persist PASS\r\n",
+                                    );
+                                }
+                            }
+                            print(b"Nagi M19 signed-in desktop SearchService ready PASS\r\n");
+                            search_runtime = Some(runtime);
+                            #[cfg(not(feature = "desktop-login-acceptance"))]
+                            {
+                                search_startup_failure_reported = false;
+                                search_sync_failure_reported = false;
+                            }
+                        }
+                        Err(_) => {
+                            #[cfg(feature = "desktop-login-acceptance")]
+                            {
+                                print(b"Nagi M19 signed-in desktop SearchService unavailable\r\n");
+                                libnagi::exit(1);
+                            }
+                            #[cfg(not(feature = "desktop-login-acceptance"))]
+                            if !search_startup_failure_reported {
+                                print(b"Nagi M19 signed-in desktop SearchService unavailable\r\n");
+                                search_startup_failure_reported = true;
+                            }
+                        }
+                    }
+                } else if let Some(runtime) = search_runtime.as_mut() {
+                    match runtime.sync_files(&mut volume) {
+                        #[cfg(not(feature = "desktop-login-acceptance"))]
+                        Ok(_) => search_sync_failure_reported = false,
+                        #[cfg(feature = "desktop-login-acceptance")]
+                        Ok(_) => {}
+                        #[cfg(feature = "desktop-login-acceptance")]
+                        Err(_) => {
+                            print(b"Nagi M19 signed-in desktop Files sync FAIL\r\n");
+                            libnagi::exit(1);
+                        }
+                        #[cfg(not(feature = "desktop-login-acceptance"))]
+                        Err(_) if !search_sync_failure_reported => {
+                            print(b"Nagi M19 signed-in desktop Files sync unavailable\r\n");
+                            search_sync_failure_reported = true;
+                        }
+                        #[cfg(not(feature = "desktop-login-acceptance"))]
+                        Err(_) => {}
+                    }
+                }
+            }
             desktop.render(surface);
             if !libnagi::display_present(display_capability) {
                 print(message!(NAGI_M10_FAIL, 26));

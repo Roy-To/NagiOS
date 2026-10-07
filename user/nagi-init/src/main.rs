@@ -4,7 +4,7 @@
 
 #[cfg(any(
     feature = "m16-package",
-    feature = "m19-search",
+    feature = "m19-runtime",
     feature = "m27-recovery",
     feature = "m25-whisper-inference-acceptance"
 ))]
@@ -15,7 +15,7 @@ extern crate alloc;
     not(feature = "m17-servo"),
     any(
         feature = "m16-package",
-        feature = "m19-search",
+        feature = "m19-runtime",
         feature = "m20-llama-inference-acceptance",
         feature = "m27-recovery",
         feature = "m25-whisper-inference-acceptance"
@@ -28,7 +28,7 @@ struct GuestAllocator;
     not(feature = "m17-servo"),
     any(
         feature = "m16-package",
-        feature = "m19-search",
+        feature = "m19-runtime",
         feature = "m20-llama-inference-acceptance",
         feature = "m27-recovery",
         feature = "m25-whisper-inference-acceptance"
@@ -57,7 +57,7 @@ unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
     not(feature = "m17-servo"),
     any(
         feature = "m16-package",
-        feature = "m19-search",
+        feature = "m19-runtime",
         feature = "m27-recovery",
         feature = "m25-whisper-inference-acceptance"
     )
@@ -129,8 +129,17 @@ mod m14_audio;
 mod m15_history;
 #[cfg(all(target_os = "nagi", feature = "m16-package"))]
 mod m16_package;
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m19-runtime",
+    feature = "m10-desktop",
+    feature = "desktop-login"
+))]
+mod m19_runtime;
 #[cfg(all(target_os = "nagi", feature = "m19-search"))]
 mod m19_search;
+#[cfg(all(target_os = "nagi", feature = "m19-runtime"))]
+mod m19_storage;
 #[cfg(all(target_os = "nagi", feature = "m20-llama-inference-acceptance"))]
 mod m20_granite;
 #[cfg(feature = "m20-fixture-acceptance")]
@@ -1436,7 +1445,12 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi M10 User Data handoff FAIL\r\n");
             libnagi::exit(1);
         };
-        desktop::run(display_capability, input_capability, volume);
+        desktop::run(
+            block_capability,
+            display_capability,
+            input_capability,
+            volume,
+        );
     }
     #[cfg(all(
         feature = "m9-window",

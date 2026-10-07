@@ -26,8 +26,13 @@ m18-acceptance = [
 ]
 m19-search = [
     "m13-posix",
+    "m19-runtime",
     "dep:nagi-ai",
     "dep:nagi-model-manager",
+]
+# Persistent, owner-scoped Search runtime used by the ordinary signed-in
+# desktop. The acceptance harness adds its separate fixtures and IPC clients.
+m19-runtime = [
     "dep:nagi-search",
 ]
 # ADR 0044: serve M19 Search to isolated clients named by
@@ -60,7 +65,7 @@ m29-settings-acceptance = ["m10-desktop"]
 consent-dialog-acceptance = ["m10-desktop"]
 # ADR 0063: first-run owner account and lock-screen sign-in before the
 # desktop and its readiness report.
-desktop-login = ["m10-desktop"]
+desktop-login = ["m10-desktop", "m19-runtime"]
 desktop-login-acceptance = ["desktop-login"]
 # ADR 0066: keep the login acceptance input loop active until a password
 # change is saved, so the host can verify the persisted credential on reboot.

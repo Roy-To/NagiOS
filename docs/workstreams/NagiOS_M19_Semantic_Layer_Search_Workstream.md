@@ -47,6 +47,20 @@ vector, and LLM retrieval are out of scope.
   returns only the fixture file's visible ObjectId. Its caller/capability
   policy denies a foreign fixture caller but is private test authority, not
   production authority.
+- **Signed-in desktop Files runtime — 2026-10-08 (ADR 0068):** `desktop-login`
+  now starts a bounded SearchService after owner sign-in. It scans only
+  `/home/owner/files`, indexes filename and VFS inode/generation/mtime
+  metadata, persists producer records under `/var/lib/nagi-search`, and
+  restores the same producer ObjectId after reboot. The initial and restored
+  QEMU login boots also search the acceptance file from the signed-in desktop;
+  their ordered markers are in
+  `out/evidence/login-1791387522725149000/password-change.log` and
+  `out/evidence/login-1791387522725149000/verify-password.log`. This is the
+  local runtime path, not a production cross-process Search endpoint. The
+  acceptance checks the specific fixture's restored ObjectId and verifies a
+  non-UTF-8 filename does not disable Search. Files CRUD events, nested
+  directories, tombstone/reuse checks through this runtime, and Browser History
+  lifecycle publication remain open.
 
 ## Authenticated IPC prerequisite audit — 2026-09-30
 
@@ -183,6 +197,23 @@ Verification with `nightly-2025-08-01-aarch64-apple-darwin`:
   -A unknown-lints` — PASS. The pinned Clippy predates an existing lint name
   in `tools/nagi-cli/src/image.rs`; only that unknown-lint warning was allowed.
 - Changed-file `rustfmt --check` — PASS.
+- `./nagi test` — PASS for the host-compatible workspace package set on arm64
+  macOS, including the updated login/M19 serial-marker contract and the M29
+  desktop entry-point contract.
+- `cargo test --locked --offline -p nagi-search --all-targets --target
+  aarch64-apple-darwin` — PASS, 30 tests.
+- `./nagi login` — PASS on QEMU run `1791387522725149000`; all four GUI phases
+  passed, and the owner desktop persisted and restored the Files producer
+  ObjectId across the shared User Data disk. The login QEMU runner guards
+  against the diagnosed pre-guest firmware timeout; host tests cover the
+  guarded retry helper.
+- `./nagi desktop` — PASS on QEMU run `1791386752947213000`; ordinary
+  signed-in desktop startup printed `Nagi M19 signed-in desktop SearchService
+  ready PASS`.
+- `./nagi m29` — PASS on QEMU run `1791386772707383000`; ja-JP settings and
+  the existing pre-unlock language restoration still pass with the runtime.
+- `./nagi m19` — PASS on QEMU run `1791386170641690000`, including Browser
+  History/Search restart, isolated query grants, and VFS identity regression.
 - `cargo -Z build-std=core,alloc,compiler_builtins check --locked --offline
   -p nagi-init --features m19-search --target
   targets/x86_64-unknown-nagi-user.json` — PASS.
@@ -192,19 +223,21 @@ Verification with `nightly-2025-08-01-aarch64-apple-darwin`:
 
 ## Remaining acceptance blockers
 
-1. Start a resident Search endpoint in the normal system runtime, using a
+1. Expose a production `search@1` endpoint from the normal runtime, using a
    capability-scoped storage handle and the production consent/launch registry.
    The current isolated `search@1` callers and kernel-stamped launch records
    are verified only in the M19 acceptance image; the fixture consent table and
    `M19AcceptanceVisibility` are not production authority providers.
 2. Connect production Files and Page lifecycle changes to producer updates,
-   including rename, deletion, and restoration. The acceptance paths prove
-   stable IDs for the exercised VFS inode-generation and Browser HistoryEntry
-   cases, but do not yet keep the index synchronized during ordinary use.
+   including rename, deletion, and restoration. The desktop runtime currently
+   reconciles the flat owner Files directory after input events, while the
+   Files and Browser UI do not yet call its producer hooks. The existing M19
+   fixture proves rename, tombstone/inode-reuse and Browser History identity
+   separately, not through those production lifecycles.
 
 These missing integrations keep M19 `PARTIAL`. They do not justify a host
-fallback, an allow-all filter, or a claim that the production Search Service
-is active.
+fallback, an allow-all filter, or a claim that a production app-facing Search
+endpoint is available.
 
 ## Default-init regression repair — 2026-09-30
 

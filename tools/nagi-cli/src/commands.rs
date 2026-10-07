@@ -5318,7 +5318,7 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             vars_copy: vars,
             serial_log: log,
             acceptance_marker: marker,
-            timeout: Duration::from_secs(60),
+            timeout: Duration::from_secs(180),
         }
     }
     let format_log = evidence.join("format.log");
@@ -5426,6 +5426,10 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi login retry allowed",
                 "Nagi login unlocked PASS",
                 "Nagi login readiness reported PASS",
+                "Nagi M19 signed-in desktop Files query PASS",
+                "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
+                "Nagi M19 signed-in desktop Files ObjectId initial persist PASS",
+                "Nagi M19 signed-in desktop SearchService ready PASS",
                 "Nagi password change READY",
                 "Nagi password change REJECTED current",
                 "Nagi password change PASS",
@@ -5440,7 +5444,7 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 ("Nagi login READY mode=unlock".to_owned(), old_password),
                 ("Nagi login unlock REJECTED".to_owned(), new_password),
             ],
-            DESKTOP_SIGNED_IN_MARKER,
+            "Nagi M19 signed-in desktop SearchService ready PASS",
             &[
                 "Nagi M10 desktop READY",
                 "Nagi login READY mode=unlock",
@@ -5448,6 +5452,10 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi login unlock REJECTED",
                 "Nagi login unlocked PASS",
                 "Nagi login readiness reported PASS",
+                "Nagi M19 signed-in desktop Files query PASS",
+                "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
+                "Nagi M19 signed-in desktop Files ObjectId restore PASS",
+                "Nagi M19 signed-in desktop SearchService ready PASS",
             ][..],
             &["Nagi login acceptance PASS"][..],
         ),
@@ -5471,7 +5479,7 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             .zip(&stage_events)
             .map(|((marker, _), events)| QmpEventStage { marker, events })
             .collect();
-        let outcome = run_qemu_gui_with_staged_events_and_screenshot(
+        let outcome = run_login_gui_with_pre_guest_retry(
             &login_config(&host, [&image_path, &disk, &vars, &log], accepted),
             "Nagi M10 desktop READY",
             &commands,
@@ -9166,6 +9174,38 @@ fn run_headless_with_pre_guest_retry_using(
             first_vars.display()
         )),
     }
+}
+
+fn run_login_gui_with_pre_guest_retry(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    later_stages: &[QmpEventStage<'_>],
+    screenshot_path: &Path,
+) -> Result<QemuGuiOutcome, String> {
+    // GUI boots initialize from the same OVMF template on each invocation.
+    // Capture that exact baseline before the guarded retry checks it.
+    initialize_ovmf_vars(config.ovmf_vars_template, config.vars_copy)?;
+    let mut accepted_outcome = None;
+    run_headless_with_pre_guest_retry_using(config, false, "login", |config| {
+        let outcome = run_qemu_gui_with_staged_events_and_screenshot(
+            config,
+            ready_marker,
+            events,
+            later_stages,
+            screenshot_path,
+        )?;
+        if !outcome.acceptance_reached {
+            return Err(format!(
+                "QEMU exited before login acceptance with status {}",
+                outcome.exit_status
+            ));
+        }
+        accepted_outcome = Some(outcome);
+        Ok(outcome.exit_status)
+    })?;
+    accepted_outcome
+        .ok_or_else(|| "login QEMU returned success without a GUI acceptance outcome".to_owned())
 }
 
 fn run_m27_m13_fixture_with_pre_guest_retry(
