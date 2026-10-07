@@ -36,6 +36,11 @@ Recovery is the way out.
 derivation, and the failure count survives restarts
 ([ADR 0064](../decisions/0064-login-attempt-throttling.md)).
 
+**Password change.** A signed-in owner can change the password in Settings.
+The current password is checked first, against the same persisted throttle,
+and the new record replaces the old one atomically
+([ADR 0066](../decisions/0066-owner-password-change.md)).
+
 **Readiness.** The desktop reports boot readiness only after sign-in. See
 [boot-trust-and-system-updates.md](boot-trust-and-system-updates.md).
 
@@ -103,7 +108,8 @@ prompts again ([ADR 0065](../decisions/0065-consent-settings-view.md)).
 
 ## Open work
 
-- Standard and guest accounts, password change, and Recovery reset.
+- Standard and guest accounts, and Recovery reset. (Password change is in
+  Settings, ADR 0066; its guest acceptance is pending.)
 - Production services that queue prompts. Today the acceptance application
   does.
 - Foreground/background and selected-file consent.
