@@ -552,12 +552,8 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
             ),
         ] {
             let mut probe = [0_u8; libnagi::BLOCK_SECTOR_SIZE];
-            if libnagi::storage::ReadOnlyBlockDevice::read_sector(
-                &mut device,
-                sector,
-                &mut probe,
-            )
-            .is_err()
+            if libnagi::storage::ReadOnlyBlockDevice::read_sector(&mut device, sector, &mut probe)
+                .is_err()
             {
                 libnagi::console_write(read_fail);
                 return None;
