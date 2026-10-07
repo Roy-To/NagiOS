@@ -1355,3 +1355,25 @@ must not accept it a second time or constrained grammar state advances twice.
 The source fix and dedicated x86 GitHub Actions acceptance are in commit
 `0d66495`, PR #29. Its CI run is pending; the local milestone acceptance above
 has passed.
+
+
+## Completion Sweep — CI User Data write probe diagnosis (2026-10-08)
+
+PR #29 CI run `37698139641` reached `Nagi M20 Model Store capability PASS`, then failed
+at `Nagi M20 User Data write probe FAIL sector=2`; it never initialized llama.cpp
+or loaded Granite. The runner stopped on `Nagi M5 process exit FAIL`, so the CLI's
+`QEMU exit 0` text is a generic missing-acceptance report, not a timeout. The
+configured acceptance timeout is six hours.
+
+The preceding sector-2 read succeeds with the same buffer, while the write syscall
+collapses capability, range, user-buffer, and VirtIO failures to one status. The
+M20 kernel build now prints a failure-only reason for each branch, including the
+VirtIO `BlockError`. This diagnostic is guarded by the M20 kernel feature and does
+not change the syscall result or write policy.
+
+`./nagi fmt` passed. The focused Nagi kernel target build passed with
+`m20-llama-memory`, and `git diff --check` passed. Local QEMU run
+`1791414006180674000` passes the User Data probes and loads Granite, but its live
+generation has not yet emitted a response marker. That local run does not replace
+the failed Linux CI evidence. M20 remains `PARTIAL` pending the CI cause and a
+passing target acceptance on that runner.

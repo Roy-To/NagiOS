@@ -1729,20 +1729,66 @@ fn block_read(capability: u64, sector: u64, address: u64) -> u64 {
 
 #[cfg(not(test))]
 fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
-    if !nagi_kernel::virtio::capability_matches(capability)
-        || !nagi_kernel::virtio::capacity_sectors().is_some_and(|capacity| sector < capacity)
-        || !nagi_kernel::user_process::is_user_writable_range_mapped(address, BLOCK_SECTOR_SIZE)
-    {
+    if !nagi_kernel::virtio::capability_matches(capability) {
+        #[cfg(feature = "m20-llama-memory")]
+        report_m20_block_write_failure(b"capability", sector);
+        return u64::MAX;
+    }
+    let Some(capacity) = nagi_kernel::virtio::capacity_sectors() else {
+        #[cfg(feature = "m20-llama-memory")]
+        report_m20_block_write_failure(b"device unavailable", sector);
+        return u64::MAX;
+    };
+    if sector >= capacity {
+        #[cfg(feature = "m20-llama-memory")]
+        report_m20_block_write_failure(b"sector out of range", sector);
+        return u64::MAX;
+    }
+    if !nagi_kernel::user_process::is_user_writable_range_mapped(address, BLOCK_SECTOR_SIZE) {
+        #[cfg(feature = "m20-llama-memory")]
+        report_m20_block_write_failure(b"user buffer", sector);
         return u64::MAX;
     }
     let mut buffer = [0_u8; BLOCK_SECTOR_SIZE];
     for (index, byte) in buffer.iter_mut().enumerate() {
         *byte = unsafe { (address as *const u8).add(index).read_volatile() };
     }
-    if nagi_kernel::virtio::write_sector(sector, &buffer).is_err() {
+    if let Err(error) = nagi_kernel::virtio::write_sector(sector, &buffer) {
+        #[cfg(feature = "m20-llama-memory")]
+        report_m20_block_write_failure(block_write_error_name(error), sector);
         return u64::MAX;
     }
     BLOCK_SECTOR_SIZE as u64
+}
+
+#[cfg(all(not(test), feature = "m20-llama-memory"))]
+fn report_m20_block_write_failure(reason: &[u8], sector: u64) {
+    serial_write(b"Nagi M20 block write failure reason=");
+    serial_write(reason);
+    serial_write(b" sector=");
+    serial_write_decimal(usize::try_from(sector).unwrap_or(usize::MAX));
+    serial_write(b"\r\n");
+}
+
+#[cfg(all(not(test), feature = "m20-llama-memory"))]
+fn block_write_error_name(error: nagi_kernel::virtio::BlockError) -> &'static [u8] {
+    use nagi_kernel::virtio::BlockError;
+    match error {
+        BlockError::NotInitialized => b"not initialized",
+        BlockError::PciUnavailable => b"PCI unavailable",
+        BlockError::InvalidBar => b"invalid BAR",
+        BlockError::UnsupportedQueue => b"unsupported queue",
+        BlockError::AddressOutOfRange => b"address out of range",
+        BlockError::DeviceFailure => b"device failure",
+        BlockError::RequestTimeout => b"request timeout",
+        BlockError::QueueCorrupt => b"queue corrupt",
+        BlockError::SectorOutOfRange => b"sector out of range",
+        BlockError::InvalidPartitionTable => b"invalid partition table",
+        BlockError::UserDataPartitionTooSmall => b"User Data partition too small",
+        BlockError::InvalidCapability => b"invalid capability",
+        BlockError::Busy => b"queue busy",
+        BlockError::UnsupportedFeature => b"unsupported feature",
+    }
 }
 
 #[cfg(not(test))]
