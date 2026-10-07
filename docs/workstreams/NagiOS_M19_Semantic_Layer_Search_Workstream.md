@@ -327,16 +327,20 @@ added focused VFS regression covers a longer nested-directory rename and
 verifies the open handle, inode, generation, and file contents remain
 unchanged.
 
-The signed-in desktop Search runtime acceptance now renames its owner Files
-fixture to a longer name, reconciles producer metadata, confirms the renamed
+The signed-in desktop Search runtime now exposes `Runtime::rename_file`, which
+renames a direct child of `/home/owner/files`, flushes the VFS, and reconciles
+Search metadata before returning success. Its acceptance uses that same
+runtime method to rename the fixture to a longer name, confirms the renamed
 file returns the same ObjectId and the old name returns no result, then
 restores the original name and verifies the ObjectId again. `./nagi login`
-passed all four GUI phases on QEMU run `1791408726578251000`; the new marker is
-in `out/evidence/login-1791408726578251000/password-change.log` and
-`verify-password.log`. The attempt that exposed the original fixed-record-size
-failure is preserved in `out/evidence/login-1791408588752599000/`.
+passed all four GUI phases on QEMU run `1791408995044933000`; the marker is in
+`out/evidence/login-1791408995044933000/password-change.log` and
+`verify-password.log`. The first direct-VFS experiment and the attempt that
+exposed the original fixed-record-size failure remain preserved in
+`out/evidence/login-1791408726578251000/` and
+`out/evidence/login-1791408588752599000/`.
 
-This verifies the real signed-in Search runtime against a VFS rename, while the
-acceptance still requests reconciliation explicitly. A production app-facing
-`search@1` endpoint, Files create/delete/restore notifications, and normal
-Browser History producer updates remain open; M19 stays `PARTIAL`.
+The ordinary desktop Files UI still has no CRUD actions wired to the runtime
+method. A production app-facing `search@1` endpoint, Files create/delete/
+restore hooks, and normal Browser History producer updates remain open; M19
+stays `PARTIAL`.

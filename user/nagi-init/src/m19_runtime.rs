@@ -279,6 +279,22 @@ impl Runtime {
         Ok((present_ids.len(), restored_records))
     }
 
+    /// Rename a direct child of the owner Files directory and reconcile its
+    /// searchable metadata before reporting success to the caller.
+    pub(super) fn rename_file(
+        &mut self,
+        volume: &mut UserDataVolume,
+        old_name: &[u8],
+        new_name: &[u8],
+    ) -> Result<(), RuntimeError> {
+        volume
+            .rename_child(FILES_ROOT, old_name, new_name)
+            .and_then(|_| volume.flush())
+            .map_err(|_| RuntimeError::Storage)?;
+        self.sync_files(volume)?;
+        Ok(())
+    }
+
     pub(super) fn search_files(&self, query: &str) -> Option<Vec<ObjectId>> {
         let response = self
             .service
@@ -314,40 +330,34 @@ impl Runtime {
         let Some(expected) = self.acceptance_object_id else {
             return false;
         };
-        if volume
-            .rename_child(
-                FILES_ROOT,
+        if self
+            .rename_file(
+                volume,
                 b".nagi-m19-runtime-search.txt",
                 ACCEPTANCE_RENAMED_FILE,
             )
-            .and_then(|_| volume.flush())
             .is_err()
         {
             return false;
         }
-        let synced_after_rename = self.sync_files(volume).is_ok();
-        let renamed_matches = synced_after_rename
-            && self
-                .search_files("nagi-m19-runtime-renamed.txt")
-                .is_some_and(|ids| ids.len() == 1 && ids[0] == expected);
-        let old_name_hidden = synced_after_rename
-            && self
-                .search_files(".nagi-m19-runtime-search.txt")
-                .is_some_and(|ids| ids.is_empty());
+        let renamed_matches = self
+            .search_files("nagi-m19-runtime-renamed.txt")
+            .is_some_and(|ids| ids.len() == 1 && ids[0] == expected);
+        let old_name_hidden = self
+            .search_files(".nagi-m19-runtime-search.txt")
+            .is_some_and(|ids| ids.is_empty());
 
-        let restored = volume
-            .rename_child(
-                FILES_ROOT,
+        let restored = self
+            .rename_file(
+                volume,
                 ACCEPTANCE_RENAMED_FILE,
                 b".nagi-m19-runtime-search.txt",
             )
-            .and_then(|_| volume.flush())
             .is_ok()
-            && self.sync_files(volume).is_ok();
-        renamed_matches
-            && old_name_hidden
-            && restored
-            && self.acceptance_query(".nagi-m19-runtime-search.txt") == Some(expected)
+            && self
+                .acceptance_query(".nagi-m19-runtime-search.txt")
+                .is_some_and(|object_id| object_id == expected);
+        renamed_matches && old_name_hidden && restored
     }
 
     #[cfg(feature = "desktop-login-acceptance")]
