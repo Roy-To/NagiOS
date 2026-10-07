@@ -1318,6 +1318,16 @@ pub fn run(
                                     libnagi::exit(1);
                                 }
                                 print(b"Nagi M19 signed-in desktop Files query PASS\r\n");
+                                if runtime.acceptance_verify_nested_search(&mut volume) {
+                                    print(
+                                        b"Nagi M19 signed-in desktop nested Files Search PASS\r\n",
+                                    );
+                                } else {
+                                    print(
+                                        b"Nagi M19 signed-in desktop nested Files Search FAIL\r\n",
+                                    );
+                                    libnagi::exit(1);
+                                }
                                 if runtime
                                     .search_files("\u{fffd}")
                                     .is_some_and(|object_ids| object_ids.is_empty())
@@ -1414,15 +1424,29 @@ pub fn run(
                             if let Some(titles) = runtime.search_file_titles(&query) {
                                 desktop.set_files_search_results(&titles);
                                 #[cfg(feature = "desktop-login-acceptance")]
-                                if query == "runtime"
-                                    && titles.first().is_some_and(|title| {
-                                        title == ".nagi-m19-runtime-search.txt"
-                                    })
                                 {
-                                    print(b"Nagi M19 signed-in desktop Files UI Search PASS\r\n");
-                                } else {
-                                    print(b"Nagi M19 signed-in desktop Files UI Search FAIL\r\n");
-                                    libnagi::exit(1);
+                                    let expected = match query.as_str() {
+                                        "runtime" => Some((
+                                            ".nagi-m19-runtime-search.txt",
+                                            "Nagi M19 signed-in desktop Files UI Search PASS\r\n",
+                                        )),
+                                        "nested" => Some((
+                                            ".nagi-m19-nested-search.txt",
+                                            "Nagi M19 signed-in desktop Files nested UI Search PASS\r\n",
+                                        )),
+                                        _ => None,
+                                    };
+                                    if let Some((expected_title, marker)) = expected {
+                                        if titles
+                                            .first()
+                                            .is_some_and(|title| title == expected_title)
+                                        {
+                                            print(marker.as_bytes());
+                                        } else {
+                                            print(b"Nagi M19 signed-in desktop Files UI Search FAIL\r\n");
+                                            libnagi::exit(1);
+                                        }
+                                    }
                                 }
                             } else {
                                 #[cfg(feature = "desktop-login-acceptance")]

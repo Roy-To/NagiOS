@@ -12,7 +12,9 @@ use alloc::{
 use crate::m19_storage::{self, VfsSnapshotFiles};
 #[cfg(feature = "desktop-login-acceptance")]
 use libnagi::storage::MAX_SMALL_FILE_SIZE;
-use libnagi::storage::{DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, MAX_NAME_LENGTH};
+use libnagi::storage::{
+    DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, MAX_NAME_LENGTH, MAX_PATH_LENGTH,
+};
 use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
 use nagi_search::{
     adapters::{
@@ -34,7 +36,9 @@ const FILES_WORKSPACE_ID: WorkspaceId = WorkspaceId(0x4e41_4749_4649_0001);
 const FILES_PRODUCER_ID: &str = "org.nagi.files.user-files";
 const FILES_ACCESS: AccessContext = AccessContext::for_application(FILES_APP_ID, FILES_SESSION_ID);
 const MAX_FILES: usize = 8;
-const MAX_DIRECTORY_ENTRIES: usize = 64;
+const MAX_DIRECTORIES: usize = 16;
+const MAX_DIRECTORY_DEPTH: usize = 4;
+const DIRECTORY_ENTRY_BUFFER_CAPACITY: usize = 64;
 const INODE_ATTRIBUTE: &str = "nagi.files.vfs_inode";
 const GENERATION_ATTRIBUTE: &str = "nagi.files.vfs_generation";
 #[cfg(feature = "desktop-login-acceptance")]
@@ -43,6 +47,11 @@ const ACCEPTANCE_FILE: &[u8] = b"/home/owner/files/.nagi-m19-runtime-search.txt"
 const ACCEPTANCE_RENAMED_FILE: &[u8] = b".nagi-m19-runtime-renamed.txt";
 #[cfg(feature = "desktop-login-acceptance")]
 const ACCEPTANCE_CONTENT: &[u8] = b"Nagi M19 authenticated desktop Search fixture";
+#[cfg(feature = "desktop-login-acceptance")]
+const ACCEPTANCE_NESTED_FILE: &[u8] =
+    b"/home/owner/files/.nagi-m19-folder/.nagi-m19-nested-search.txt";
+#[cfg(feature = "desktop-login-acceptance")]
+const ACCEPTANCE_NESTED_QUERY: &str = ".nagi-m19-nested-search.txt";
 #[cfg(feature = "desktop-login-acceptance")]
 const NON_UTF8_NAME_FIXTURE: &[u8] = b"/home/owner/files/\xff";
 
@@ -86,6 +95,7 @@ pub(super) enum RuntimeError {
     Storage,
     SearchUnavailable,
     TooManyFiles,
+    TooManyDirectories,
     InvalidMetadata,
     InvalidName,
 }
@@ -112,6 +122,7 @@ impl Runtime {
         #[cfg(feature = "desktop-login-acceptance")]
         {
             ensure_acceptance_file(volume)?;
+            ensure_nested_acceptance_file(volume)?;
             ensure_non_utf8_name_fixture(volume)?;
         }
         let mut runtime = Self {
@@ -154,23 +165,13 @@ impl Runtime {
         &mut self,
         volume: &mut UserDataVolume,
     ) -> Result<(usize, usize), RuntimeError> {
-        let mut entries = [DirectoryEntry::empty(); MAX_DIRECTORY_ENTRIES];
-        let count = volume
-            .list_directory_path(FILES_ROOT, &mut entries)
-            .map_err(|_| RuntimeError::Storage)?;
-        let mut regular_files = 0;
-        for entry in &entries[..count] {
-            if entry.file_type == 1 {
-                regular_files += 1;
-            }
-        }
-        if regular_files > MAX_FILES {
-            return Err(RuntimeError::TooManyFiles);
-        }
-
         let mut present_keys = BTreeSet::new();
         let mut present_ids = Vec::new();
         let mut restored_records = 0;
+        let mut pending_directories = Vec::new();
+        pending_directories.push((String::from("/home/owner/files"), 0usize));
+        let mut directory_count = 1usize;
+        let mut regular_file_count = 0usize;
         let mut workspace = WorkspaceProducerAdapter
             .create(
                 FILES_WORKSPACE_ID,
@@ -184,69 +185,88 @@ impl Runtime {
             session_id: FILES_SESSION_ID,
         });
 
-        for entry in &entries[..count] {
-            if entry.file_type != 1 {
-                continue;
-            }
-            // Search metadata is UTF-8. Keep an arbitrary POSIX filename from
-            // taking down the whole owner Search runtime; it has no searchable
-            // text representation in the current metadata contract.
-            let Ok(name) = core::str::from_utf8(entry.name()) else {
-                continue;
-            };
-            let mut path = String::from("/home/owner/files/");
-            path.push_str(name);
-            let metadata = volume
-                .metadata_path(path.as_bytes())
+        while let Some((directory_path, depth)) = pending_directories.pop() {
+            let mut entries = [DirectoryEntry::empty(); DIRECTORY_ENTRY_BUFFER_CAPACITY];
+            let count = volume
+                .list_directory_path(directory_path.as_bytes(), &mut entries)
                 .map_err(|_| RuntimeError::Storage)?;
-            if metadata.inode != entry.inode {
-                return Err(RuntimeError::InvalidMetadata);
-            }
-            let key = alloc::format!("{}:{}", metadata.inode, metadata.generation);
-            present_keys.insert(key.clone());
-            let restored_id = self.service.producer_object_id(
-                FILES_PRODUCER_ID,
-                &key,
-                FILES_APP_ID,
-                FILES_SESSION_ID,
-            );
-            let object_id = match restored_id {
-                Some(object_id) => {
-                    restored_records += 1;
-                    object_id
+            for entry in &entries[..count] {
+                // Search metadata is UTF-8. Keep arbitrary POSIX names out of
+                // the text index without failing the owner's whole runtime.
+                let Ok(name) = core::str::from_utf8(entry.name()) else {
+                    continue;
+                };
+                let path = child_path(&directory_path, name)?;
+                if entry.file_type == 2 {
+                    if depth >= MAX_DIRECTORY_DEPTH {
+                        return Err(RuntimeError::TooManyDirectories);
+                    }
+                    directory_count += 1;
+                    if directory_count > MAX_DIRECTORIES {
+                        return Err(RuntimeError::TooManyDirectories);
+                    }
+                    pending_directories.push((path, depth + 1));
+                    continue;
                 }
-                None => self
-                    .service
-                    .next_object_id()
-                    .ok_or(RuntimeError::SearchUnavailable)?,
-            };
+                if entry.file_type != 1 {
+                    continue;
+                }
+                regular_file_count += 1;
+                if regular_file_count > MAX_FILES {
+                    return Err(RuntimeError::TooManyFiles);
+                }
+                let metadata = volume
+                    .metadata_path(path.as_bytes())
+                    .map_err(|_| RuntimeError::Storage)?;
+                if metadata.inode != entry.inode {
+                    return Err(RuntimeError::InvalidMetadata);
+                }
+                let key = alloc::format!("{}:{}", metadata.inode, metadata.generation);
+                present_keys.insert(key.clone());
+                let restored_id = self.service.producer_object_id(
+                    FILES_PRODUCER_ID,
+                    &key,
+                    FILES_APP_ID,
+                    FILES_SESSION_ID,
+                );
+                let object_id = match restored_id {
+                    Some(object_id) => {
+                        restored_records += 1;
+                        object_id
+                    }
+                    None => self
+                        .service
+                        .next_object_id()
+                        .ok_or(RuntimeError::SearchUnavailable)?,
+                };
 
-            let mut attributes = alloc::collections::BTreeMap::new();
-            attributes.insert(PRODUCER_ID_ATTRIBUTE.into(), FILES_PRODUCER_ID.into());
-            attributes.insert(PRODUCER_KEY_ATTRIBUTE.into(), key);
-            attributes.insert(INODE_ATTRIBUTE.into(), metadata.inode.to_string());
-            attributes.insert(GENERATION_ATTRIBUTE.into(), metadata.generation.to_string());
-            let record = FilesProducerAdapter
-                .to_record(ProducerObject {
-                    object_id,
-                    title: String::from(name),
-                    location: Some(path),
-                    source_app: Some(FILES_APP_ID),
-                    source_session: Some(FILES_SESSION_ID),
-                    created_at: None,
-                    modified_at: Some(i64::from(metadata.mtime)),
-                    observed_at: None,
-                    tags: Vec::new(),
-                    attributes,
-                    visibility: VisibilityScope::Private,
-                })
-                .map_err(|_| RuntimeError::InvalidMetadata)?;
-            if self.service.get_object(FILES_ACCESS, object_id).as_ref() != Some(&record) {
-                self.service
-                    .upsert_record(record)
-                    .map_err(|_| RuntimeError::SearchUnavailable)?;
+                let mut attributes = alloc::collections::BTreeMap::new();
+                attributes.insert(PRODUCER_ID_ATTRIBUTE.into(), FILES_PRODUCER_ID.into());
+                attributes.insert(PRODUCER_KEY_ATTRIBUTE.into(), key);
+                attributes.insert(INODE_ATTRIBUTE.into(), metadata.inode.to_string());
+                attributes.insert(GENERATION_ATTRIBUTE.into(), metadata.generation.to_string());
+                let record = FilesProducerAdapter
+                    .to_record(ProducerObject {
+                        object_id,
+                        title: String::from(name),
+                        location: Some(path),
+                        source_app: Some(FILES_APP_ID),
+                        source_session: Some(FILES_SESSION_ID),
+                        created_at: None,
+                        modified_at: Some(i64::from(metadata.mtime)),
+                        observed_at: None,
+                        tags: Vec::new(),
+                        attributes,
+                        visibility: VisibilityScope::Private,
+                    })
+                    .map_err(|_| RuntimeError::InvalidMetadata)?;
+                if self.service.get_object(FILES_ACCESS, object_id).as_ref() != Some(&record) {
+                    self.service
+                        .upsert_record(record)
+                        .map_err(|_| RuntimeError::SearchUnavailable)?;
+                }
+                present_ids.push(object_id);
             }
-            present_ids.push(object_id);
         }
 
         workspace.objects = present_ids.clone();
@@ -304,7 +324,7 @@ impl Runtime {
         name: &[u8],
     ) -> Result<ObjectId, RuntimeError> {
         let path = owner_file_path(name)?;
-        let mut entries = [DirectoryEntry::empty(); MAX_DIRECTORY_ENTRIES];
+        let mut entries = [DirectoryEntry::empty(); DIRECTORY_ENTRY_BUFFER_CAPACITY];
         let count = volume
             .list_directory_path(FILES_ROOT, &mut entries)
             .map_err(|_| {
@@ -561,6 +581,33 @@ impl Runtime {
     }
 
     #[cfg(feature = "desktop-login-acceptance")]
+    pub(super) fn acceptance_verify_nested_search(&self, volume: &mut UserDataVolume) -> bool {
+        let Ok(metadata) = volume.metadata_path(ACCEPTANCE_NESTED_FILE) else {
+            return false;
+        };
+        let key = alloc::format!("{}:{}", metadata.inode, metadata.generation);
+        let Some(object_id) = self.service.producer_object_id(
+            FILES_PRODUCER_ID,
+            &key,
+            FILES_APP_ID,
+            FILES_SESSION_ID,
+        ) else {
+            return false;
+        };
+        let expected_path = core::str::from_utf8(ACCEPTANCE_NESTED_FILE).ok();
+        self.search_files(ACCEPTANCE_NESTED_QUERY)
+            .is_some_and(|ids| ids.len() == 1 && ids[0] == object_id)
+            && self
+                .service
+                .get_object(FILES_ACCESS, object_id)
+                .is_some_and(|record| record.location.as_deref() == expected_path)
+            && self
+                .service
+                .get_workspace(FILES_ACCESS, FILES_WORKSPACE_ID)
+                .is_some_and(|workspace| workspace.objects.contains(&object_id))
+    }
+
+    #[cfg(feature = "desktop-login-acceptance")]
     pub(super) const fn acceptance_record_restored(&self) -> bool {
         self.acceptance_record_restored
     }
@@ -580,6 +627,20 @@ fn owner_file_path(name: &[u8]) -> Result<Vec<u8>, RuntimeError> {
     path.extend_from_slice(FILES_ROOT);
     path.push(b'/');
     path.extend_from_slice(name);
+    Ok(path)
+}
+
+fn child_path(parent: &str, name: &str) -> Result<String, RuntimeError> {
+    let length = parent.len().saturating_add(1).saturating_add(name.len());
+    if length > MAX_PATH_LENGTH || name.is_empty() || name == "." || name == ".." {
+        return Err(RuntimeError::InvalidName);
+    }
+    let mut path = String::with_capacity(length);
+    path.push_str(parent);
+    if !parent.ends_with('/') {
+        path.push('/');
+    }
+    path.push_str(name);
     Ok(path)
 }
 
@@ -613,6 +674,21 @@ fn ensure_acceptance_file(volume: &mut UserDataVolume) -> Result<(), RuntimeErro
                 .and_then(|()| volume.flush())
                 .map_err(|_| RuntimeError::Storage)
         }
+        Err(_) => Err(RuntimeError::Storage),
+    }
+}
+
+#[cfg(feature = "desktop-login-acceptance")]
+fn ensure_nested_acceptance_file(volume: &mut UserDataVolume) -> Result<(), RuntimeError> {
+    volume
+        .ensure_directory_path(b"/home/owner/files/.nagi-m19-folder")
+        .map_err(|_| RuntimeError::Storage)?;
+    match volume.open_path(ACCEPTANCE_NESTED_FILE) {
+        Ok(_) => Ok(()),
+        Err(StorageError::NotFound) => volume
+            .create_path(ACCEPTANCE_NESTED_FILE)
+            .and_then(|_| volume.flush())
+            .map_err(|_| RuntimeError::Storage),
         Err(_) => Err(RuntimeError::Storage),
     }
 }

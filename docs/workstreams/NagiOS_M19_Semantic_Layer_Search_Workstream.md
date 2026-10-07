@@ -366,3 +366,24 @@ The signed-in Files UI still has no create, rename, move-to-trash, or restore
 controls. Production app-facing `search@1`, nested-path indexing, trash
 restore, and normal Browser History producer updates remain open; M19 stays
 `PARTIAL`.
+
+## Completion Sweep — bounded nested Files search (2026-10-08)
+
+The signed-in owner runtime now traverses Files directories with explicit
+limits: 8 regular files, 16 directories, and four nested directory levels.
+It publishes each searchable file's relative location, title, VFS inode and
+generation into the same private Files Workspace. Object IDs remain keyed to
+inode plus generation across restart and rename; directory contents are never
+read. Unsupported non-UTF-8 names remain outside the text index.
+
+`./nagi login` run `1791414261520793000` passed all four GUI phases on QEMU.
+It verified the nested fixture's stable ObjectId and Workspace membership, then
+opened the normal Files panel and searched both `runtime` and `nested`. The
+result screenshots and phase logs are under
+`out/evidence/login-1791414261520793000/` (`files-search-runtime.png`,
+`files-search-nested.png`, and `password-change.log`). The acceptance command
+also verifies password change and restart on the same User Data disk.
+
+M19 remains `PARTIAL`: production app-facing Search with live grants, Files
+create/rename/trash/restore controls, and normal Browser History producer
+updates still need integration.

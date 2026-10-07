@@ -60,6 +60,8 @@ fn login_acceptance_changes_the_password_and_checks_it_after_restart() {
         "Nagi M19 signed-in desktop Files ObjectId initial persist PASS",
         "Nagi M19 signed-in desktop SearchService ready PASS",
         "Nagi M19 signed-in desktop Files UI Search PASS",
+        "Nagi M19 signed-in desktop nested Files Search PASS",
+        "Nagi M19 signed-in desktop Files nested UI Search PASS",
     ] {
         assert!(
             change_phase.contains(&compact(marker)),
@@ -82,6 +84,7 @@ fn login_acceptance_changes_the_password_and_checks_it_after_restart() {
     }
 
     assert!(login.contains("qmp_typed_keys(\"runtime\",\"ret\")"));
+    assert!(login.contains("qmp_typed_keys(\"nested\",\"ret\")"));
     assert!(login.contains("@screenshot:files-search.png"));
     let ui_search = compact(DESKTOP);
     assert!(ui_search.contains("fnhandle_files_search_key("));

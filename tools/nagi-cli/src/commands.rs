@@ -5354,6 +5354,10 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
         files_ui_search.extend(qmp_typed_keys("", key));
     }
     files_ui_search.extend(qmp_typed_keys("runtime", "ret"));
+    files_ui_search.push("@screenshot:files-search-runtime.png".to_owned());
+    let mut files_nested_ui_search = qmp_typed_keys("", "esc");
+    files_nested_ui_search.extend(qmp_typed_keys("nested", "ret"));
+    files_nested_ui_search.push("@screenshot:files-search-nested.png".to_owned());
     let mut open_password_change = Vec::new();
     open_password_change.push("@screenshot:files-search.png".to_owned());
     for key in ["tab", "tab", "ret", "tab", "tab", "ret"] {
@@ -5414,6 +5418,10 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 ("Nagi login unlocked PASS".to_owned(), files_ui_search),
                 (
                     "Nagi M19 signed-in desktop Files UI Search PASS".to_owned(),
+                    files_nested_ui_search,
+                ),
+                (
+                    "Nagi M19 signed-in desktop Files nested UI Search PASS".to_owned(),
                     open_password_change,
                 ),
                 (
@@ -5437,12 +5445,14 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi login unlocked PASS",
                 "Nagi login readiness reported PASS",
                 "Nagi M19 signed-in desktop Files query PASS",
+                "Nagi M19 signed-in desktop nested Files Search PASS",
                 "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
                 "Nagi M19 signed-in desktop Files ObjectId initial persist PASS",
                 "Nagi M19 signed-in desktop Files rename identity PASS",
                 "Nagi M19 signed-in desktop Files delete identity PASS",
                 "Nagi M19 signed-in desktop SearchService ready PASS",
                 "Nagi M19 signed-in desktop Files UI Search PASS",
+                "Nagi M19 signed-in desktop Files nested UI Search PASS",
                 "Nagi password change READY",
                 "Nagi password change REJECTED current",
                 "Nagi password change PASS",
@@ -5531,6 +5541,8 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
         validate_screenshot(&shown)?;
         if phase == "password-change" {
             validate_screenshot(&evidence.join("files-search.png"))?;
+            validate_screenshot(&evidence.join("files-search-runtime.png"))?;
+            validate_screenshot(&evidence.join("files-search-nested.png"))?;
             validate_screenshot(&evidence.join("password-change-form.png"))?;
         }
         lines.push(format!(
