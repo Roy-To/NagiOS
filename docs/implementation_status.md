@@ -3034,7 +3034,7 @@ Object IDs remain M19 blockers.
 See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md` for the
 focused evidence and remaining production acceptance criteria.
 
-# M20 - AI Runtime / Granite (`PASS`)
+# M20 - AI Runtime / Granite (`PARTIAL`)
 
 The pinned Granite 4.2 3B GGUF was loaded through the read-only Model Store
 capability into the target llama.cpp CPU backend. `ModelRuntime` verified the
@@ -3070,6 +3070,19 @@ PASS; PR CI and automatic merge are still in progress.
 
 Earlier target-link blockers and their preserved diagnostics are recorded in
 `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
+
+**M20 hosted QEMU write timeout, 2026-10-08:** the local Granite response
+acceptance above passed, but GitHub run `37702418216` failed before model load.
+Ubuntu 24.04 installed QEMU `8.2.2`; its guest log reports
+`Nagi M20 block write failure reason=request timeout sector=2` on the first
+User Data write in the sparse 64 GiB QCOW2 image. The local QEMU 11.1.1 run
+`1791414006180674000` passed sectors 2/3, M7 persistence, and Granite
+inference. As a bounded latency hypothesis, `MAX_REQUEST_SPINS` was raised
+from 5 million to 100 million in local commit `4e62dcd`. The x86-64 Nagi
+kernel release build with `m20-llama-memory` and kernel formatting passed;
+host kernel unit tests cannot run on this arm64 macOS host because the kernel
+uses x86-specific inline assembly. The fix still needs the same hosted QEMU
+acceptance; M20 remains `PARTIAL`.
 
 # M21 - Planner / Validator / Executor (`PARTIAL`)
 

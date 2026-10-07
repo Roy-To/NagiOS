@@ -1,6 +1,6 @@
 # Nagi OS M20 — AI Runtime / Granite
 
-**Status: PASS**
+**Status: PARTIAL**
 
 ## Provenance and scope
 
@@ -1357,26 +1357,28 @@ The source fix and dedicated x86 GitHub Actions acceptance are in commit
 has passed.
 
 
-## Completion Sweep — CI User Data write probe diagnosis (2026-10-08)
+## Completion Sweep — CI User Data write timeout (2026-10-08)
 
-PR #29 CI run `37698139641` reached `Nagi M20 Model Store capability PASS`, then failed
-at `Nagi M20 User Data write probe FAIL sector=2`; it never initialized llama.cpp
-or loaded Granite. The runner stopped on `Nagi M5 process exit FAIL`, so the CLI's
-`QEMU exit 0` text is a generic missing-acceptance report, not a timeout. The
-configured acceptance timeout is six hours. Follow-up run `37701354596` passed
-Ubuntu host checks but skipped `nagi-m20-inference`: the `m20` path filter did
-not include the edited kernel syscall file. The M20 filter now includes
-`kernel/src/syscall.rs` so a diagnostic change in that path reruns this acceptance.
+GitHub run `37702418216` downloaded and verified the pinned model and built the
+target archives, then failed before llama.cpp loaded Granite. The QEMU serial log
+reports `Nagi M20 block write failure reason=request timeout sector=2`, followed
+by `Nagi M20 User Data write probe FAIL sector=2` and `Nagi M7 storage FAIL`.
+Ubuntu 24.04 installed QEMU `8.2.2`. The M20 acceptance image is a sparse 64 GiB
+QCOW2 with User Data beginning at LBA 17,827,840; logical sector 2 therefore
+targets physical LBA 17,827,842. The sector-2 read succeeds, while the first
+write's used-ring index does not advance before the kernel's 5-million-iteration
+poll limit.
 
-The preceding sector-2 read succeeds with the same buffer, while the write syscall
-collapses capability, range, user-buffer, and VirtIO failures to one status. The
-M20 kernel build now prints a failure-only reason for each branch, including the
-VirtIO `BlockError`. This diagnostic is guarded by the M20 kernel feature and does
-not change the syscall result or write policy.
+Local QEMU run `1791414006180674000` on QEMU 11.1.1 records both User Data write
+probes, M7 persistence, the structured Granite response, and
+`Nagi M20 Granite structured inference PASS`. The difference points to a
+host-QEMU/QCOW2 latency issue, but does not prove it. The kernel now allows up to
+100 million bounded poll iterations for a request; this change is local commit
+`4e62dcd`. `cargo fmt --manifest-path kernel/Cargo.toml -- --check`,
+`git diff --check`, and the release build of `nagi-kernel` for
+`x86_64-unknown-nagi` with `m20-llama-memory` pass. Host kernel tests cannot run
+on this arm64 macOS host because the kernel uses x86-specific inline assembly.
 
-`./nagi fmt` passed. The focused Nagi kernel target build passed with
-`m20-llama-memory`, and `git diff --check` passed. Local QEMU run
-`1791414006180674000` passes the User Data probes and loads Granite, but its live
-generation has not yet emitted a response marker. That local run does not replace
-the failed Linux CI evidence. M20 remains `PARTIAL` pending the CI cause and a
-passing target acceptance on that runner.
+The code fix has not yet been pushed or run in hosted QEMU. M20 remains
+`PARTIAL` until the hosted inference run passes; guest-side Model Store install
+and normal lazy model-service integration also remain open.
