@@ -75,8 +75,14 @@ use core::panic::PanicInfo;
     not(feature = "m18-acceptance")
 ))]
 use nagi_albert::run_first_web_pixel;
-#[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m18-acceptance",
+    not(feature = "m19-browser-search-acceptance")
+))]
 use nagi_albert::run_m18_https_acceptance;
+#[cfg(all(target_os = "nagi", feature = "m19-browser-search-acceptance"))]
+use nagi_albert::run_m18_https_acceptance_with_callback;
 
 /// Pinned system fonts embedded by build.rs (ADR 0062).
 #[cfg(all(target_os = "nagi", feature = "m17-servo"))]
@@ -1129,11 +1135,31 @@ pub extern "C" fn _start(
                 libnagi::console_write(b"Nagi M18 browser FAIL clipboard service\r\n");
                 libnagi::exit(1);
             };
-            return run_m18_https_acceptance(
-                display_capability,
-                input_capability,
-                albert_clipboard,
-            );
+            #[cfg(feature = "m19-browser-search-acceptance")]
+            {
+                run_m18_https_acceptance_with_callback(
+                    display_capability,
+                    input_capability,
+                    albert_clipboard,
+                    |browser_state| {
+                        let Some(activity) =
+                            m19_search::run_with_browser_state(block_capability, browser_state)
+                        else {
+                            libnagi::console_write(b"Nagi M19 Browser/Search integration FAIL\r\n");
+                            return false;
+                        };
+                        #[cfg(feature = "m22-history")]
+                        if !m22_history::run(block_capability, activity) {
+                            libnagi::console_write(b"Nagi M22 history integration FAIL\r\n");
+                            return false;
+                        }
+                        libnagi::console_write(b"Nagi M19 Browser/Search acceptance PASS\r\n");
+                        true
+                    },
+                );
+            }
+            #[cfg(not(feature = "m19-browser-search-acceptance"))]
+            run_m18_https_acceptance(display_capability, input_capability, albert_clipboard);
         }
         #[cfg(not(feature = "m18-acceptance"))]
         return run_first_web_pixel(display_capability);

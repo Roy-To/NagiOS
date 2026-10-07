@@ -6,8 +6,8 @@
 
 This continuation is based on `44155ea04f0f5b3c34eb9804ca2029fef6094194`,
 where M17 first-web-pixel and M18 three-site HTTPS/QEMU acceptance passed.
-M18 remains PARTIAL for unrelated browser providers, as recorded in
-`docs/implementation_status.md`.
+M18's documented acceptance closure has since passed authoritative target CI;
+its remaining browser-provider limitations do not change this M19 workstream.
 
 The search foundation from `codex/m19prep-semantic-search` was selectively
 reused as commit `f7b6a0b`; the prep branch itself remains unchanged. The
@@ -82,12 +82,47 @@ The M21 `file.search` caller identity is still the fixture policy.
 
 The host acceptance uses the explicitly host-only `HostFileBackend` and a
 fixture visibility policy. It proves the provider-neutral contract and
-reference snapshot restart behavior. The QEMU acceptance separately proves
-bounded guest VFS persistence for its private fixture; it does **not** claim
-authenticated capability enforcement, live file/page producer integration, or
-a production IPC Search Service.
+reference snapshot restart behavior. QEMU now also publishes bounded metadata
+from Albert's real persisted Browser history and exercises launch-record
+authentication for isolated Search clients. These paths still run only in the
+M19 acceptance image; they do **not** establish a resident Search endpoint in
+the normal system runtime or continuous production Files/page synchronization.
 
 ## Regressions
+
+- **Page and Workspace guest acceptance — 2026-10-07:** the M19 fixture now
+  maps a page through `PageProducerAdapter`, creates its Workspace through
+  `WorkspaceProducerAdapter`, and persists both stable IDs in the real guest
+  SearchService snapshot. A kind- and Workspace-scoped query returns the page
+  and its Workspace group. `./nagi m19` now requires that marker on both
+  boots and a separate marker proving the page and membership were present
+  before the QEMU restart. `out/logs/m19-vfs-objectid-initial.log` and
+  `out/logs/m19-vfs-objectid-restart.log` contain the passing evidence. This
+  is still an acceptance fixture; resident production Search startup and
+  continuous producer synchronization remain open, so M19 stays `PARTIAL`.
+- **Page search over isolated `search@1` IPC — 2026-10-07:** extended the
+  version-1 kind filter with `Page` while preserving its one-byte kind field
+  and existing `Any`/`File` values. The isolated client now submits a file and
+  page query in sequence; `./nagi m19` requires the authorized app to receive
+  the expected file and page IDs and the foreign app to see neither. The
+  request still contains no caller identity; the Supervisor resolves the
+  kernel-stamped PID as before. The QEMU log includes
+  `Nagi M19 Search IPC page authorized isolated client PASS`.
+
+- **Browser History producer and authenticated Search restart — 2026-10-07:**
+  `./nagi m19` passed the M18 HTTPS scenario and M19 search on two QEMU boots
+  sharing one User Data disk. The guest published the original committed
+  `example.com` HistoryEntry as a Page, retained its Search ObjectId and profile
+  Workspace across reboot, returned that exact ObjectId to the authorized
+  isolated client, and exposed no private records to the foreign client. The
+  same run passed real VFS rename/restart, inode-reuse identity, Page/Workspace,
+  and M21 `file.search` checks. Evidence is under
+  `out/evidence/m19-browser-search-1791383118314933000/` (`initial.log`,
+  `restart.log`, screenshots, bootstrap logs, disk image, and OVMF variables).
+  Running Search from the M18 browser callback avoids destroying Servo before
+  the guest exits; an earlier attempt hung during Servo teardown and is kept
+  separately in the evidence directory. Production service startup and
+  continuous Files/page producer synchronization remain unverified.
 
 - M17 was rebuilt and passed `./nagi m17` on this continuation worktree. QEMU
   printed `PASS M17 first web pixel`; the trace records a nonzero Servo/Mesa
@@ -157,13 +192,15 @@ Verification with `nightly-2025-08-01-aarch64-apple-darwin`:
 
 ## Remaining acceptance blockers
 
-1. Activate Search as a production user-space service with a capability-scoped
-   storage handle and authenticated caller context. `AccessContext` is
-   descriptive; the fixture filter is not an authority provider.
-2. Synchronize records from production Files/page providers and define
-   identity across delete/recreate and inode reuse. The target VFS currently
-   reports inode generation 1, so this single-file fixture does not establish
-   general identity guarantees. Search also lacks authenticated IPC exposure.
+1. Start a resident Search endpoint in the normal system runtime, using a
+   capability-scoped storage handle and the production consent/launch registry.
+   The current isolated `search@1` callers and kernel-stamped launch records
+   are verified only in the M19 acceptance image; the fixture consent table and
+   `M19AcceptanceVisibility` are not production authority providers.
+2. Connect production Files and Page lifecycle changes to producer updates,
+   including rename, deletion, and restoration. The acceptance paths prove
+   stable IDs for the exercised VFS inode-generation and Browser HistoryEntry
+   cases, but do not yet keep the index synchronized during ordinary use.
 
 These missing integrations keep M19 `PARTIAL`. They do not justify a host
 fallback, an allow-all filter, or a claim that the production Search Service

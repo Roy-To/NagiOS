@@ -21,7 +21,10 @@ use nagi_history::ActivityContext;
 use nagi_model::{AppId, AppSessionId, NodeId, ObjectId, WorkspaceId};
 use nagi_model_manager::CapabilityId;
 use nagi_search::{
-    adapters::{FilesProducerAdapter, ProducerObject},
+    adapters::{
+        FilesProducerAdapter, PageProducerAdapter, ProducerObject, WorkspaceProducerAdapter,
+        PRODUCER_ID_ATTRIBUTE, PRODUCER_KEY_ATTRIBUTE,
+    },
     AccessContext, Embedding, EmbeddingProvider, EmbeddingPurpose, EmbeddingSpaceId,
     GuestSnapshotBackend, IndexedChunk, MetadataRecord, ObjectKind, PersistentVectorIndex,
     SearchQuery, SearchService, SemanticError, SnapshotFile, SnapshotFileStore, SnapshotSlot,
@@ -36,6 +39,7 @@ const STORE_ROOT: &[u8] = b"/var/lib/nagi-search";
 const SEMANTIC_STORE_ROOT: &[u8] = b"/var/lib/nagi-search-semantic";
 const OBJECT_ID: ObjectId = ObjectId(0x4e41_4749_4d19_0001);
 const WORKSPACE_ID: WorkspaceId = WorkspaceId(0x4e41_4749_4d19_0002);
+const PAGE_OBJECT_ID: ObjectId = ObjectId(0x4e41_4749_4d19_0003);
 /// Declared by `manifests/org.nagi.acceptance.m19-search.manifest`.
 const APP_ID: AppId = AppId::from_identifier(b"org.nagi.acceptance.m19-search");
 const SESSION_ID: AppSessionId = AppSessionId(0x4e41_4749_4d19_0004);
@@ -48,6 +52,14 @@ const FILE_INODE_ATTRIBUTE: &str = "nagi.files.vfs_inode";
 /// it and are read as generation 1, matching their original handles.
 const FILE_GENERATION_ATTRIBUTE: &str = "nagi.files.vfs_generation";
 const FILE_INDEXER_ID: &str = "m19-vfs-files-fixture";
+const ALBERT_APP_ID: AppId = AppId::from_identifier(b"org.nagi.albert");
+const ALBERT_HISTORY_PRODUCER_ID: &str = "org.nagi.albert.history";
+const ALBERT_HISTORY_WORKSPACE_PRODUCER_ATTRIBUTE: &str = "nagi.albert.history.producer";
+const ALBERT_HISTORY_PROFILE_ATTRIBUTE: &str = "nagi.albert.history.profile_id";
+const FILES_SEARCH_GRANT: &[u8] = b"files.search";
+const ALBERT_HISTORY_SEARCH_GRANT: &[u8] = b"albert.history.search";
+const MAX_RECENT_BROWSER_HISTORY: usize = 3;
+const MAX_PUBLISHED_BROWSER_HISTORY: usize = 4;
 const LIVE_FILE_SOURCE: &[u8] = b"nagi-m19-live-source.txt";
 const LIVE_FILE_RENAMED: &[u8] = b"nagi-m19-live-file.txt";
 const LIVE_FILE_CONTENT: &[u8] = b"A real guest VFS file indexed by Nagi Search.\n";
@@ -62,6 +74,28 @@ const FILE_SEARCH_PLAN_SUMMARY: &str = "query=nagi-m19-live-file.txt";
 const CHANNEL_WAIT_PENDING: u64 = u64::MAX;
 const CHANNEL_WAIT_RESULT: u64 = 0x4e41_4749_0019_0001;
 static CHANNEL_WAIT_WORKER_RESULT: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BrowserHistoryEntrySnapshot {
+    id: u64,
+    url: String,
+    title: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BrowserHistorySnapshot {
+    profile_id: u64,
+    stable_entry_id: u64,
+    published_entries: Vec<BrowserHistoryEntrySnapshot>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct BrowserHistorySync {
+    profile_id: u64,
+    workspace_id: WorkspaceId,
+    example_domain_object_id: Option<ObjectId>,
+    restored_mapping: bool,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct M19SearchActivity {
@@ -236,21 +270,59 @@ struct M19AcceptanceVisibility;
 
 impl VisibilityFilter for M19AcceptanceVisibility {
     fn can_read_object(&self, access: AccessContext, record: &MetadataRecord) -> bool {
-        access.app_id == Some(APP_ID)
-            && access.app_session_id == Some(SESSION_ID)
-            && record.visibility == VisibilityScope::Private
+        if record.visibility != VisibilityScope::Private {
+            return false;
+        }
+        let fixture_caller =
+            access.app_id == Some(APP_ID) && access.app_session_id == Some(SESSION_ID);
+        if fixture_caller
             && (record.object_id == OBJECT_ID
+                || record.object_id == PAGE_OBJECT_ID
                 || record
                     .attributes
                     .get(FILE_INDEXER_ATTRIBUTE)
                     .is_some_and(|indexer| indexer == FILE_INDEXER_ID))
+        {
+            return true;
+        }
+        if record.kind == ObjectKind::File
+            && record
+                .attributes
+                .get(FILE_INDEXER_ATTRIBUTE)
+                .is_some_and(|indexer| indexer == FILE_INDEXER_ID)
+        {
+            return Self::has_live_grant(access, FILES_SEARCH_GRANT);
+        }
+        if record.kind == ObjectKind::Page
+            && record
+                .attributes
+                .get(PRODUCER_ID_ATTRIBUTE)
+                .is_some_and(|producer| producer == ALBERT_HISTORY_PRODUCER_ID)
+            && record.source_app == Some(ALBERT_APP_ID)
+        {
+            let source_caller = access.app_id == record.source_app
+                && access.app_session_id == record.source_session;
+            return source_caller || Self::has_live_grant(access, ALBERT_HISTORY_SEARCH_GRANT);
+        }
+        false
     }
 
     fn can_read_workspace(&self, access: AccessContext, workspace: &Workspace) -> bool {
-        access.app_id == Some(APP_ID)
+        let fixture_caller = access.app_id == Some(APP_ID)
             && access.app_session_id == Some(SESSION_ID)
-            && workspace.workspace_id == WORKSPACE_ID
-            && workspace.visibility == VisibilityScope::Private
+            && workspace.workspace_id == WORKSPACE_ID;
+        if workspace.visibility != VisibilityScope::Private {
+            return false;
+        }
+        if fixture_caller {
+            return true;
+        }
+        let Some(profile_id) = Self::browser_workspace_profile(workspace) else {
+            return false;
+        };
+        let source_caller = access.app_id == Some(ALBERT_APP_ID)
+            && access.app_session_id == Some(AppSessionId(profile_id));
+        source_caller || Self::has_live_grant(access, ALBERT_HISTORY_SEARCH_GRANT)
     }
 
     fn can_read_workspace_session(
@@ -259,9 +331,47 @@ impl VisibilityFilter for M19AcceptanceVisibility {
         workspace: &Workspace,
         session: WorkspaceSession,
     ) -> bool {
-        self.can_read_workspace(access, workspace)
-            && access.app_id == Some(session.app_id)
-            && access.app_session_id == Some(session.session_id)
+        if !self.can_read_workspace(access, workspace) {
+            return false;
+        }
+        if workspace.workspace_id == WORKSPACE_ID {
+            return access.app_id == Some(session.app_id)
+                && access.app_session_id == Some(session.session_id);
+        }
+        Self::browser_workspace_profile(workspace).is_some_and(|profile_id| {
+            session.app_id == ALBERT_APP_ID
+                && session.session_id == AppSessionId(profile_id)
+                && (access.app_id == Some(ALBERT_APP_ID)
+                    && access.app_session_id == Some(AppSessionId(profile_id))
+                    || Self::has_live_grant(access, ALBERT_HISTORY_SEARCH_GRANT))
+        })
+    }
+}
+
+impl M19AcceptanceVisibility {
+    fn has_live_grant(access: AccessContext, capability: &[u8]) -> bool {
+        #[cfg(feature = "m19-search-ipc")]
+        if let (Some(app_id), Some(session_id)) = (access.app_id, access.app_session_id) {
+            return crate::supervisor::has_grant(app_id, session_id, capability);
+        }
+        let _ = (access, capability);
+        false
+    }
+
+    fn browser_workspace_profile(workspace: &Workspace) -> Option<u64> {
+        if workspace.owner_app != Some(ALBERT_APP_ID)
+            || workspace
+                .attributes
+                .get(ALBERT_HISTORY_WORKSPACE_PRODUCER_ATTRIBUTE)
+                .is_none_or(|producer| producer != ALBERT_HISTORY_PRODUCER_ID)
+        {
+            return None;
+        }
+        workspace
+            .attributes
+            .get(ALBERT_HISTORY_PROFILE_ATTRIBUTE)?
+            .parse()
+            .ok()
     }
 }
 
@@ -1099,11 +1209,175 @@ fn blocking_channel_wait_acceptance() -> bool {
         && endpoints_closed
 }
 
-/// Exercises the real guest VFS persistence adapter with a test-only private
-/// fixture and indexes a real file entry from that VFS. The search API is not
-/// registered as a production IPC service here; caller authority remains a
-/// separate M19 integration requirement.
+#[cfg(feature = "m19-browser-search-acceptance")]
+pub fn run_with_browser_state(
+    block_capability: u64,
+    browser: &nagi_albert::browser_state::BrowserState,
+) -> Option<M19SearchActivity> {
+    if browser.history_namespace_id() == 0 {
+        libnagi::console_write(b"Nagi M19 Browser history identity unavailable FAIL\r\n");
+        return None;
+    }
+    let Some(stable_entry) = browser
+        .history()
+        .iter()
+        .find(|entry| entry.url.starts_with("https://example.com/"))
+    else {
+        libnagi::console_write(
+            b"Nagi M19 Browser history Example Domain entry unavailable FAIL\r\n",
+        );
+        return None;
+    };
+    let stable_entry_id = stable_entry.id.0;
+    let mut published_entries: Vec<BrowserHistoryEntrySnapshot> = browser
+        .history()
+        .iter()
+        .rev()
+        .filter(|entry| {
+            (entry.url.starts_with("https://") || entry.url.starts_with("http://"))
+                && !entry.title.trim().is_empty()
+        })
+        .take(MAX_RECENT_BROWSER_HISTORY)
+        .map(|entry| BrowserHistoryEntrySnapshot {
+            id: entry.id.0,
+            url: entry.url.clone(),
+            title: entry.title.clone(),
+        })
+        .collect();
+    if !published_entries
+        .iter()
+        .any(|entry| entry.id == stable_entry_id)
+    {
+        published_entries.push(BrowserHistoryEntrySnapshot {
+            id: stable_entry_id,
+            url: stable_entry.url.clone(),
+            title: stable_entry.title.clone(),
+        });
+    }
+    run_inner(
+        block_capability,
+        Some(BrowserHistorySnapshot {
+            profile_id: browser.history_namespace_id(),
+            stable_entry_id,
+            published_entries,
+        }),
+    )
+}
+
+/// Exercises the guest VFS persistence adapter with private acceptance
+/// fixtures and an actual VFS file. Production Search lifecycle is tracked
+/// separately from this bounded acceptance service.
 pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
+    run_inner(block_capability, None)
+}
+
+fn sync_browser_history(
+    service: &mut M19SearchService,
+    snapshot: &BrowserHistorySnapshot,
+) -> Option<BrowserHistorySync> {
+    if snapshot.profile_id == 0 || snapshot.profile_id == WORKSPACE_ID.0 {
+        return None;
+    }
+    if snapshot.published_entries.is_empty()
+        || snapshot.published_entries.len() > MAX_PUBLISHED_BROWSER_HISTORY
+    {
+        return None;
+    }
+    let source_session = AppSessionId(snapshot.profile_id);
+    let workspace_id = WorkspaceId(snapshot.profile_id);
+    let stable_entry_key = snapshot.stable_entry_id.to_string();
+    let restored_mapping = service
+        .producer_object_id(
+            ALBERT_HISTORY_PRODUCER_ID,
+            &stable_entry_key,
+            ALBERT_APP_ID,
+            source_session,
+        )
+        .is_some();
+    let mut active_ids = Vec::with_capacity(snapshot.published_entries.len());
+    let mut example_domain_object_id = None;
+    for entry in &snapshot.published_entries {
+        let producer_key = entry.id.to_string();
+        let object_id = service
+            .producer_object_id(
+                ALBERT_HISTORY_PRODUCER_ID,
+                &producer_key,
+                ALBERT_APP_ID,
+                source_session,
+            )
+            .or_else(|| service.next_object_id())?;
+        let mut attributes = BTreeMap::new();
+        attributes.insert(
+            String::from(PRODUCER_ID_ATTRIBUTE),
+            String::from(ALBERT_HISTORY_PRODUCER_ID),
+        );
+        attributes.insert(String::from(PRODUCER_KEY_ATTRIBUTE), producer_key);
+        let record = PageProducerAdapter
+            .to_record(ProducerObject {
+                object_id,
+                title: entry.title.clone(),
+                location: Some(entry.url.clone()),
+                source_app: Some(ALBERT_APP_ID),
+                source_session: Some(source_session),
+                created_at: None,
+                modified_at: None,
+                observed_at: None,
+                tags: Vec::new(),
+                attributes,
+                visibility: VisibilityScope::Private,
+            })
+            .ok()?;
+        service.upsert_record(record).ok()?;
+        active_ids.push(object_id);
+        if entry.id == snapshot.stable_entry_id {
+            example_domain_object_id = Some(object_id);
+        }
+    }
+
+    for record in
+        service.producer_records(ALBERT_HISTORY_PRODUCER_ID, ALBERT_APP_ID, source_session)
+    {
+        if record.tombstoned_at.is_none() && !active_ids.contains(&record.object_id) {
+            // Browser history uses monotonic runtime ticks, not Unix time.
+            // Zero records that a deletion time is unavailable.
+            service.remove_record(record.object_id, 0).ok()?;
+        }
+    }
+
+    let mut workspace = WorkspaceProducerAdapter
+        .create(
+            workspace_id,
+            "Albert Browser History",
+            Some(ALBERT_APP_ID),
+            VisibilityScope::Private,
+        )
+        .ok()?;
+    workspace.sessions.push(WorkspaceSession {
+        app_id: ALBERT_APP_ID,
+        session_id: source_session,
+    });
+    workspace.objects = active_ids;
+    workspace.attributes.insert(
+        String::from(ALBERT_HISTORY_WORKSPACE_PRODUCER_ATTRIBUTE),
+        String::from(ALBERT_HISTORY_PRODUCER_ID),
+    );
+    workspace.attributes.insert(
+        String::from(ALBERT_HISTORY_PROFILE_ATTRIBUTE),
+        snapshot.profile_id.to_string(),
+    );
+    service.upsert_workspace(workspace).ok()?;
+    Some(BrowserHistorySync {
+        profile_id: snapshot.profile_id,
+        workspace_id,
+        example_domain_object_id,
+        restored_mapping,
+    })
+}
+
+fn run_inner(
+    block_capability: u64,
+    browser_history: Option<BrowserHistorySnapshot>,
+) -> Option<M19SearchActivity> {
     libnagi::console_write(b"Nagi M19 trace start\r\n");
     if !bootstrap_channel_abi_acceptance() {
         return None;
@@ -1115,18 +1389,34 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
         libnagi::console_write(b"Nagi Supervisor acceptance consent FAIL\r\n");
         return None;
     }
-    let was_persisted = {
+    let (was_persisted, page_was_persisted, browser_history_sync) = {
         let Ok(mut service) = open_search(block_capability) else {
             return None;
         };
+        let browser_history_sync = match browser_history.as_ref() {
+            Some(snapshot) => Some(sync_browser_history(&mut service, snapshot)?),
+            None => None,
+        };
         let previous_record = service.get_object(ACCESS, OBJECT_ID);
+        let previous_page = service.get_object(ACCESS, PAGE_OBJECT_ID);
         let previous_workspace = service.get_workspace(ACCESS, WORKSPACE_ID);
         let was_persisted = previous_record.is_some() && previous_workspace.is_some();
+        let page_was_persisted = previous_page.is_some();
         if previous_record.is_some() != previous_workspace.is_some()
+            || (page_was_persisted && !was_persisted)
             || previous_record.is_some_and(|record| record.title != "M19 persisted object")
-            || previous_workspace
-                .as_ref()
-                .is_some_and(|workspace| workspace.objects != [OBJECT_ID])
+            || previous_workspace.as_ref().is_some_and(|workspace| {
+                if page_was_persisted {
+                    workspace.objects != [OBJECT_ID, PAGE_OBJECT_ID]
+                } else {
+                    workspace.objects != [OBJECT_ID]
+                }
+            })
+            || previous_page.as_ref().is_some_and(|record| {
+                record.kind != ObjectKind::Page
+                    || record.title != "M19 persisted page"
+                    || record.location.as_deref() != Some("page://history/77")
+            })
         {
             return None;
         }
@@ -1142,18 +1432,43 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
             return None;
         }
 
-        let mut workspace = Workspace::new(WORKSPACE_ID, "M19 persisted workspace");
-        workspace.owner_app = Some(APP_ID);
-        workspace.visibility = VisibilityScope::Private;
+        let page = PageProducerAdapter
+            .to_record(ProducerObject {
+                object_id: PAGE_OBJECT_ID,
+                title: String::from("M19 persisted page"),
+                location: Some(String::from("page://history/77")),
+                source_app: Some(APP_ID),
+                source_session: Some(SESSION_ID),
+                created_at: Some(1),
+                modified_at: Some(2),
+                observed_at: Some(3),
+                tags: Vec::new(),
+                attributes: BTreeMap::new(),
+                visibility: VisibilityScope::Private,
+            })
+            .ok()?;
+        if service.upsert_record(page).is_err() {
+            return None;
+        }
+
+        let mut workspace = WorkspaceProducerAdapter
+            .create(
+                WORKSPACE_ID,
+                "M19 persisted workspace",
+                Some(APP_ID),
+                VisibilityScope::Private,
+            )
+            .ok()?;
         workspace.sessions.push(WorkspaceSession {
             app_id: APP_ID,
             session_id: SESSION_ID,
         });
         workspace.objects.push(OBJECT_ID);
+        workspace.objects.push(PAGE_OBJECT_ID);
         if service.upsert_workspace(workspace).is_err() {
             return None;
         }
-        was_persisted
+        (was_persisted, page_was_persisted, browser_history_sync)
     };
     libnagi::console_write(b"Nagi M19 trace snapshot fixture persisted\r\n");
 
@@ -1259,8 +1574,63 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
                 .get(FILE_INODE_ATTRIBUTE)
                 == Some(&file_metadata.inode.to_string())
     });
+    let page_query = SearchQuery {
+        text: Some(String::from("persisted page")),
+        kind: Some(ObjectKind::Page),
+        workspace: Some(WORKSPACE_ID),
+        ..SearchQuery::default()
+    };
+    let page_response = service.search(ACCESS, &page_query);
+    let page_passed = page_response.is_ok_and(|response| {
+        response.objects.len() == 1
+            && response.objects[0].record.object_id == PAGE_OBJECT_ID
+            && response.objects[0].record.location.as_deref() == Some("page://history/77")
+            && response.workspace_groups.len() == 1
+            && response.workspace_groups[0].workspace_id == WORKSPACE_ID
+            && response.workspace_groups[0].object_ids == [PAGE_OBJECT_ID]
+    });
+    let browser_history_page_id = browser_history_sync
+        .as_ref()
+        .and_then(|sync| sync.example_domain_object_id);
+    let browser_history_passed = match browser_history_sync.as_ref() {
+        Some(sync) => {
+            let query = SearchQuery {
+                text: Some(String::from("Example Domain")),
+                kind: Some(ObjectKind::Page),
+                workspace: Some(sync.workspace_id),
+                ..SearchQuery::default()
+            };
+            let access =
+                AccessContext::for_application(ALBERT_APP_ID, AppSessionId(sync.profile_id));
+            service.search(access, &query).is_ok_and(|response| {
+                let Some(expected_id) = sync.example_domain_object_id else {
+                    return false;
+                };
+                response.objects.iter().any(|object| {
+                    object.record.object_id == expected_id
+                        && object.record.kind == ObjectKind::Page
+                        && object.record.title == "Example Domain"
+                        && object
+                            .record
+                            .location
+                            .as_deref()
+                            .is_some_and(|url| url.starts_with("https://example.com/"))
+                }) && response.workspace_groups.len() == 1
+                    && response.workspace_groups[0].workspace_id == sync.workspace_id
+                    && response.workspace_groups[0]
+                        .object_ids
+                        .contains(&expected_id)
+            })
+        }
+        None => true,
+    };
     #[cfg(feature = "m19-search-ipc")]
-    let ipc_passed = search_ipc::run(&service, object_id_after_rename);
+    let ipc_passed = search_ipc::run(
+        &service,
+        object_id_after_rename,
+        PAGE_OBJECT_ID,
+        browser_history_page_id,
+    );
     #[cfg(not(feature = "m19-search-ipc"))]
     let ipc_passed = true;
     let semantic_passed =
@@ -1278,12 +1648,26 @@ pub fn run(block_capability: u64) -> Option<M19SearchActivity> {
         && ipc_passed
         && semantic_passed
         && file_passed
+        && page_passed
+        && browser_history_passed
         && object_id_before_rename == object_id_after_restart
         && response.objects.len() == 1
         && response.objects[0].record.object_id == OBJECT_ID
         && response.workspace_groups.len() == 1
         && response.workspace_groups[0].object_ids == [OBJECT_ID]
-        && workspace.is_some_and(|workspace| workspace.objects == [OBJECT_ID]);
+        && workspace.is_some_and(|workspace| workspace.objects == [OBJECT_ID, PAGE_OBJECT_ID]);
+    if page_passed {
+        libnagi::console_write(b"Nagi M19 PageProducerAdapter and Workspace search PASS\r\n");
+        if page_was_persisted {
+            libnagi::console_write(b"Nagi M19 Page/Workspace persistence PASS\r\n");
+        }
+    }
+    if browser_history_passed && browser_history_sync.is_some() {
+        libnagi::console_write(b"Nagi M19 Browser history Page and Workspace search PASS\r\n");
+        if browser_history_sync.is_some_and(|sync| sync.restored_mapping) {
+            libnagi::console_write(b"Nagi M19 Browser history ObjectId persistence PASS\r\n");
+        }
+    }
     if !passed {
         libnagi::console_write(b"Nagi M19 trace final query assertion failed\r\n");
     }

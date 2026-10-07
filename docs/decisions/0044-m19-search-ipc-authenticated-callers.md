@@ -18,7 +18,9 @@ from that process carries its kernel-stamped Process ID.
 
 1. **Wire format.** Add `crates/nagi-search-ipc`, an allocation-free
    `search@1` codec:
-   - **Request:** a kind filter plus a UTF-8 query of at most 126 bytes.
+   - **Request:** an `Any`, `File`, or `Page` kind filter plus a UTF-8 query
+     of at most 126 bytes. Adding a kind keeps the existing version-1 request
+     layout; previously valid filter values keep their meanings.
    - **Response:** a status, a visible-match total, and up to 15 Object IDs.
    - **Single message:** each direction fits one inline Channel message.
    - **No identity field:** a request cannot claim an identity at all.
@@ -34,10 +36,12 @@ from that process carries its kernel-stamped Process ID.
    `user/nagi-isolated-app`. It uses only raw Channel syscalls and the
    `search@1` codec, and it has no device capability.
 4. **Acceptance.** The `m19-search-ipc` init feature, now used by
-   `./nagi m19`, launches the same client ELF twice with the same query:
+   `./nagi m19`, launches the same client ELF twice. Each client sends both a
+   file query and a page query:
    - launched as the M19 application session, it must receive exactly the
-     live VFS file's stable Object ID;
-   - launched as a foreign application, it must receive zero visible matches;
+     live VFS file's and persisted page's stable Object IDs;
+   - launched as a foreign application, it must receive zero visible matches
+     for both queries;
    - a sender without a launch record must get `UnknownCaller`.
 
 ## Bounds and non-goals
@@ -53,10 +57,16 @@ from that process carries its kernel-stamped Process ID.
 ## Verification
 
 - `cargo test -p nagi-search-ipc` covers the codec round trip and rejection
-  cases.
+  cases, including the `Page` filter's existing-layout round trip.
 - `./nagi m19` passed locally on QEMU/OVMF with a fresh User Data disk on
   2026-10-03. Bootstrap, initial, and restart boots all ran. Both boots
   printed:
   - `Nagi M19 Search IPC authorized isolated client PASS`
   - `Nagi M19 Search IPC foreign isolated client hidden PASS`
   - `Nagi M19 Search IPC authenticated caller PASS`
+- On 2026-10-07, `./nagi m19` passed with a fresh User Data disk. The initial
+  and restart boots both passed the authorized File and Page queries, hid
+  both from the foreign app, and printed
+  `Nagi M19 Search IPC page authorized isolated client PASS`; the logs are
+  `out/logs/m19-vfs-objectid-initial.log` and
+  `out/logs/m19-vfs-objectid-restart.log`.

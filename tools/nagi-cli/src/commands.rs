@@ -35,7 +35,8 @@ use crate::image::{
     write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
     write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
     write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
-    ImageLayout, QemuConfig, QmpEventStage, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    ImageLayout, QemuConfig, QemuGuiOutcome, QmpEventStage, GUEST_ACCEPTANCE_MARKER,
+    NAGI_WRITE_MARKER,
 };
 use crate::image::{
     qmp_screendump_command, run_qemu_gui_with_staged_events_and_screenshot, validate_screenshot,
@@ -1587,13 +1588,16 @@ fn execute_image_with_init_build_env(
     )
 }
 
-/// Whether `init_args` build the Servo-enabled init (M17/M18 features).
+/// Whether `init_args` build the Servo-enabled init (M17/M18/M19 features).
 fn servo_enabled_init(init_args: &[&str]) -> bool {
     init_args.windows(2).any(|pair| {
         pair[0] == "--features"
-            && pair[1]
-                .split(',')
-                .any(|feature| matches!(feature.trim(), "m17-servo" | "m18-acceptance"))
+            && pair[1].split(',').any(|feature| {
+                matches!(
+                    feature.trim(),
+                    "m17-servo" | "m18-acceptance" | "m19-browser-search-acceptance"
+                )
+            })
     })
 }
 
@@ -5260,9 +5264,9 @@ fn first_run_sign_in_answers_the_language_step_first() {
     assert!(events[1].contains(r#""data":"a""#));
 }
 
-/// ADR 0063: first run creates the owner account through the OS-owned
-/// login screen; after a restart a wrong password is refused and the right
-/// one signs in. Readiness and the desktop follow only a sign-in.
+/// ADRs 0063 and 0066: create and unlock the owner through the OS-owned login,
+/// reject a wrong current password in Settings, save a new one, then verify
+/// across a restart that only the new password signs in.
 fn execute_login(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     match run_login_acceptance(root, probe) {
         Ok(lines) => CommandResult {
@@ -5280,7 +5284,11 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
         .as_nanos()
         .to_string();
     let image_name = format!("nagi-0.1-login-{run_id}.img");
-    let image = execute_image_with_features(root, Some("desktop-login-acceptance"), &image_name);
+    let image = execute_image_with_features(
+        root,
+        Some("desktop-password-change-acceptance"),
+        &image_name,
+    );
     if image.exit_code != EXIT_SUCCESS {
         return Err(image.lines.join("; "));
     }
@@ -5341,30 +5349,45 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
     throttle_events.extend(qmp_typed_keys("wrong3", "ret"));
     let restart_events = qmp_typed_keys("nagi1", "ret");
     let after_wait = qmp_typed_keys("nagi1", "ret");
+    let mut open_password_change = Vec::new();
+    for key in ["tab", "ret", "tab", "tab", "ret"] {
+        open_password_change.extend(qmp_typed_keys("", key));
+    }
+    // Submit a syntactically valid password change with the wrong current
+    // password first. ADR 0066 requires the form to reject it before writing.
+    let mut wrong_current = qmp_typed_keys("wrong1", "tab");
+    wrong_current.extend(qmp_typed_keys("nagi2", "tab"));
+    wrong_current.extend(qmp_typed_keys("nagi2", "ret"));
+    let mut correct_change = qmp_typed_keys("nagi1", "tab");
+    correct_change.extend(qmp_typed_keys("nagi2", "tab"));
+    correct_change.extend(qmp_typed_keys("nagi2", "ret"));
+    let old_password = qmp_typed_keys("nagi1", "ret");
+    let new_password = qmp_typed_keys("nagi2", "ret");
     let mut lines = Vec::new();
     for (phase, events, stage, accepted, markers, absent) in [
         (
             "create",
             create_events,
-            None,
-            "Nagi login acceptance PASS",
+            Vec::new(),
+            DESKTOP_SIGNED_IN_MARKER,
             &[
                 "Nagi M10 desktop READY",
                 "Nagi login READY mode=create",
                 "Nagi onboarding language PASS locale=ja-JP",
                 "Nagi login owner created PASS name=owner",
                 "Nagi login unlocked PASS",
-                "Nagi login acceptance PASS",
+                "Nagi login readiness reported PASS",
             ][..],
             &[
                 "Nagi login unlock REJECTED",
                 "Nagi M27 readiness persistence FAIL",
+                "Nagi login acceptance PASS",
             ][..],
         ),
         (
             "throttle",
             throttle_events,
-            None,
+            Vec::new(),
             "Nagi login throttle engaged failures=3",
             &[
                 "Nagi M10 desktop READY",
@@ -5378,9 +5401,22 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             &["Nagi login owner created", "Nagi login unlocked PASS"][..],
         ),
         (
-            "restart",
+            "password-change",
             restart_events,
-            Some(("Nagi login retry allowed", after_wait)),
+            vec![
+                ("Nagi login retry allowed".to_owned(), after_wait),
+                ("Nagi login unlocked PASS".to_owned(), open_password_change),
+                (
+                    "Nagi password change READY".to_owned(),
+                    std::iter::once("@screenshot:password-change-form.png".to_owned())
+                        .chain(wrong_current)
+                        .collect(),
+                ),
+                (
+                    "Nagi password change REJECTED current".to_owned(),
+                    correct_change,
+                ),
+            ],
             "Nagi login acceptance PASS",
             &[
                 "Nagi login throttle restored failures=3",
@@ -5389,9 +5425,31 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi login throttled remaining_ms=",
                 "Nagi login retry allowed",
                 "Nagi login unlocked PASS",
+                "Nagi login readiness reported PASS",
+                "Nagi password change READY",
+                "Nagi password change REJECTED current",
+                "Nagi password change PASS",
                 "Nagi login acceptance PASS",
             ][..],
-            &["Nagi login unlock REJECTED"][..],
+            &["Nagi login unlock REJECTED", "Nagi password change FAIL"][..],
+        ),
+        (
+            "verify-password",
+            Vec::new(),
+            vec![
+                ("Nagi login READY mode=unlock".to_owned(), old_password),
+                ("Nagi login unlock REJECTED".to_owned(), new_password),
+            ],
+            DESKTOP_SIGNED_IN_MARKER,
+            &[
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=unlock",
+                "Nagi M29 settings preference restored PASS locale=ja-JP",
+                "Nagi login unlock REJECTED",
+                "Nagi login unlocked PASS",
+                "Nagi login readiness reported PASS",
+            ][..],
+            &["Nagi login acceptance PASS"][..],
         ),
     ] {
         let log = evidence.join(format!("{phase}.log"));
@@ -5400,17 +5458,18 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
         let mut commands = vec![qmp_screendump_command(&shown)?];
         commands.extend(events);
         let commands: Vec<&str> = commands.iter().map(String::as_str).collect();
-        let stage_events: Vec<&str> = stage
-            .as_ref()
-            .map(|(_, events)| events.iter().map(String::as_str).collect())
-            .unwrap_or_default();
+        let stage_commands: Vec<Vec<String>> = stage
+            .iter()
+            .map(|(_, events)| expand_screenshot_events(events, &evidence))
+            .collect::<Result<_, _>>()?;
+        let stage_events: Vec<Vec<&str>> = stage_commands
+            .iter()
+            .map(|events| events.iter().map(String::as_str).collect())
+            .collect();
         let stages: Vec<QmpEventStage<'_>> = stage
-            .as_ref()
-            .map(|(marker, _)| QmpEventStage {
-                marker,
-                events: &stage_events,
-            })
-            .into_iter()
+            .iter()
+            .zip(&stage_events)
+            .map(|((marker, _), events)| QmpEventStage { marker, events })
             .collect();
         let outcome = run_qemu_gui_with_staged_events_and_screenshot(
             &login_config(&host, [&image_path, &disk, &vars, &log], accepted),
@@ -5440,6 +5499,9 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             }
         }
         validate_screenshot(&shown)?;
+        if phase == "password-change" {
+            validate_screenshot(&evidence.join("password-change-form.png"))?;
+        }
         lines.push(format!(
             "PASS login: {phase} (log {}; screenshots {}, {})",
             log.display(),
@@ -7991,6 +8053,53 @@ fn append_nagi_target_archive_tools<'a>(cargo_env: &mut Vec<(&'a str, &'a Path)>
     }
 }
 
+fn run_m18_staged_acceptance(
+    config: &QemuConfig<'_>,
+    screenshot_path: &Path,
+) -> Result<QemuGuiOutcome, String> {
+    run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot(
+        config,
+        "Nagi M18 browser READY",
+        &M18_INPUT_EVENTS,
+        &[
+            QmpEventStage {
+                marker: "Nagi M18 permission prompt READY",
+                events: &M18_PERMISSION_ALLOW_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 clipboard page READY",
+                events: &M18_CLIPBOARD_COPY_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 clipboard copy observed",
+                events: &M18_CLIPBOARD_FOCUS_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 clipboard destination focused",
+                events: &M18_CLIPBOARD_PASTE_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 IME page READY",
+                events: &M18_IME_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 upload page READY",
+                events: &M18_UPLOAD_CLICK_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 upload picker READY",
+                events: &M18_UPLOAD_CHOOSE_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 download page READY",
+                events: &M18_DOWNLOAD_CLICK_EVENTS,
+            },
+        ],
+        "Nagi M18 browser FAIL",
+        screenshot_path,
+    )
+}
+
 fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let cxx_headers = match resolve_m17_cxx_headers() {
         Ok(path) => path,
@@ -8177,60 +8286,19 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         acceptance_marker: "Nagi M18 browser scenario complete pages=3",
         timeout,
     };
-    let outcome =
-        match run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot(
-            &config,
-            "Nagi M18 browser READY",
-            &M18_INPUT_EVENTS,
-            &[
-                QmpEventStage {
-                    marker: "Nagi M18 permission prompt READY",
-                    events: &M18_PERMISSION_ALLOW_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 clipboard page READY",
-                    events: &M18_CLIPBOARD_COPY_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 clipboard copy observed",
-                    events: &M18_CLIPBOARD_FOCUS_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 clipboard destination focused",
-                    events: &M18_CLIPBOARD_PASTE_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 IME page READY",
-                    events: &M18_IME_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 upload page READY",
-                    events: &M18_UPLOAD_CLICK_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 upload picker READY",
-                    events: &M18_UPLOAD_CHOOSE_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 download page READY",
-                    events: &M18_DOWNLOAD_CLICK_EVENTS,
-                },
-            ],
-            "Nagi M18 browser FAIL",
-            &screenshot_path,
-        ) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                return failure(
-                    EXIT_CONFIG_ERROR,
-                    format!(
-                        "m18: QEMU: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
-                        serial_log_m17_trace_excerpt(&log_path, 256),
-                        serial_log_tail(&log_path, 64),
-                    ),
-                );
-            }
-        };
+    let outcome = match run_m18_staged_acceptance(&config, &screenshot_path) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: QEMU: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
+                    serial_log_m17_trace_excerpt(&log_path, 256),
+                    serial_log_tail(&log_path, 64),
+                ),
+            );
+        }
+    };
     let serial = match fs::read_to_string(&log_path) {
         Ok(serial) => serial,
         Err(error) => {
@@ -8554,22 +8622,108 @@ fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
 }
 
 fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let mut fixture = match start_m13_http_fixture(root) {
-        Ok(child) => child,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    execute_m19_inner(root, probe)
+}
+
+fn execute_m19_browser_image(root: &Path, image_name: &str) -> CommandResult {
+    let cxx_headers = match resolve_m17_cxx_headers() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: C++ headers: {error}")),
     };
-    let result = execute_m19_inner(root, probe);
-    let _ = fixture.kill();
-    let _ = fixture.wait();
-    result
+    let fetch = execute_fetch(root);
+    if fetch.exit_code != EXIT_SUCCESS {
+        return fetch;
+    }
+    let sample = execute_m16_sample_build(root);
+    if sample.exit_code != EXIT_SUCCESS {
+        return sample;
+    }
+    let rust_std_source = match prepare_nagi_rust_std_source(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: rust std: {error}")),
+    };
+    let mesa_build = ProcessCommand::new("bash")
+        .args(["tools/mesa/build.sh"])
+        .current_dir(root)
+        .output();
+    match mesa_build {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m19: Mesa/Softpipe build failed: {}",
+                    command_output(&output)
+                ),
+            );
+        }
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m19: cannot start tools/mesa/build.sh through bash: {error}"),
+            );
+        }
+    }
+    let packages = match build_isolated_apps(root) {
+        Ok(path) => path,
+        Err(result) => return result,
+    };
+    let package_path = root.join("out").join("artifacts").join("hello-nagi.xapp");
+    let mesa_build_path = root.join("out").join("m17-mesa").join("mesa-build");
+    let font_cache_path = root.join("out").join("cache").join("fonts");
+    let target_compiler_wrapper = root.join("tools").join("nagi-target-cc.sh");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m19-browser-search-acceptance,m21-action-ipc",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=std,panic_abort",
+        "--release",
+        "--locked",
+        "--offline",
+    ];
+    let mut init_build_env = vec![
+        ("NAGI_M16_PACKAGE", package_path.as_path()),
+        ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
+        ("NAGI_FONT_DIR", font_cache_path.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        ("NAGI_ACCEPTANCE_PACKAGES", packages.as_path()),
+        ("HOST_CC", Path::new("cc")),
+        ("HOST_CXX", Path::new("c++")),
+        (
+            "CC_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+        (
+            "CXX_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+    ];
+    append_nagi_target_archive_tools(&mut init_build_env, std::env::consts::OS);
+    execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        Some(&rust_std_source),
+        image_name,
+        &init_build_env,
+        write_m17_fat12_image,
+        ImageBuildFeatures {
+            kernel: &["m18-browser-memory"],
+            loader: &[],
+        },
+    )
 }
 
 fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let image_result = execute_image_with_isolated_clients(
-        root,
-        "m21-action-ipc",
-        "nagi-0.1-m19-vfs-objectid.img",
-    );
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: system clock: {error}")),
+    };
+    let image_name = format!("nagi-0.1-m19-browser-search-{run_id}.img");
+    let image_result = execute_m19_browser_image(root, &image_name);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -8581,16 +8735,30 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
     };
-    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m19-browser-search-{run_id}")),
+    ) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m19: evidence directory: {error}"),
+            )
+        }
     };
-    let image_path = artifacts.join("nagi-0.1-m19-vfs-objectid.img");
-    let persistent_disk = artifacts.join("nagi-0.1-m19-vfs-objectid-user-data.img");
-    let vars_copy = artifacts.join("nagi-0.1-m19-vfs-objectid-vars.fd");
-    let bootstrap_log = logs.join("m19-vfs-objectid-bootstrap.log");
-    let initial_log = logs.join("m19-vfs-objectid-initial.log");
-    let restart_log = logs.join("m19-vfs-objectid-restart.log");
+    let image_path = artifacts.join(&image_name);
+    let persistent_disk = artifacts.join(format!(
+        "nagi-0.1-m19-browser-search-{run_id}-user-data.img"
+    ));
+    let vars_copy = artifacts.join(format!("nagi-0.1-m19-browser-search-{run_id}-vars.fd"));
+    let bootstrap_log = evidence.join("bootstrap.log");
+    let initial_log = evidence.join("initial.log");
+    let restart_log = evidence.join("restart.log");
+    let initial_screenshot = evidence.join("initial.png");
+    let restart_screenshot = evidence.join("restart.png");
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
@@ -8598,7 +8766,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     // Repeated TCG integration boots have stalled in firmware past 90 seconds
     // before the guest emits serial output. Keep the same guest marker gates
     // while allowing a slow firmware start to finish.
-    let timeout = Duration::from_secs(180);
+    let timeout = Duration::from_secs(1_200);
 
     if !had_persistent_disk {
         let config = QemuConfig {
@@ -8612,7 +8780,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             acceptance_marker: NAGI_WRITE_MARKER,
             timeout,
         };
-        if let Err(error) = run_qemu(&config) {
+        if let Err(error) = run_qemu_with_read_only_boot_disk(&config) {
             return failure(EXIT_CONFIG_ERROR, format!("m19: bootstrap boot: {error}"));
         }
         let bootstrap = match fs::read_to_string(&bootstrap_log) {
@@ -8640,6 +8808,11 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         } else {
             &restart_log
         };
+        let screenshot_path = if boot_index == 0 {
+            &initial_screenshot
+        } else {
+            &restart_screenshot
+        };
         let config = QemuConfig {
             qemu: &host.qemu,
             ovmf_code: &host.ovmf_code,
@@ -8648,13 +8821,32 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             persistent_disk: &persistent_disk,
             vars_copy: &vars_copy,
             serial_log: log_path,
-            acceptance_marker: "Nagi M13 acceptance PASS",
+            acceptance_marker: "Nagi M19 Browser/Search acceptance PASS",
             timeout,
         };
-        let final_status = match run_qemu(&config) {
-            Ok(status) => status,
-            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: guest boot: {error}")),
+        let outcome = match run_m18_staged_acceptance(&config, screenshot_path) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m19: combined M18/M19 QEMU acceptance failed: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
+                        serial_log_m17_trace_excerpt(log_path, 256),
+                        serial_log_tail(log_path, 64),
+                    ),
+                );
+            }
         };
+        if !outcome.acceptance_reached {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m19: guest did not reach combined Browser/Search acceptance (QEMU exit {}; log {})",
+                    outcome.exit_status,
+                    log_path.display()
+                ),
+            );
+        }
         final_log = log_path;
         let serial = match fs::read_to_string(log_path) {
             Ok(serial) => serial,
@@ -8665,32 +8857,46 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         };
+        if let Err(error) = crate::m18_acceptance::validate_serial_log(&serial) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m19: Browser acceptance validation failed: {error} (log {})",
+                    log_path.display()
+                ),
+            );
+        }
         for marker in [
             "Nagi Kernel started",
             "Nagi M3 CPU scheduler fairness PASS",
             "Nagi M3 acceptance PASS",
             "Nagi M7 VirtIO Block PASS",
-            "Nagi M13 Rust PAL PASS",
-            "Nagi M13 C POSIX PASS",
+            "Nagi M18 browser scenario complete pages=3",
+            "Nagi M18 browser history identity persisted PASS",
             "Nagi bootstrap Channel ABI PASS",
             "Nagi bootstrap Channel wait/wake PASS",
             "Nagi M24 semantic index ready PASS",
             "Nagi M19 Search IPC authorized isolated client PASS",
+            "Nagi M19 Search IPC page authorized isolated client PASS",
+            "Nagi M19 Browser history authenticated Search IPC PASS",
             "Nagi M19 Search IPC foreign isolated client hidden PASS",
             "Nagi M19 Search IPC authenticated caller PASS",
             "Nagi M21 foreign isolated caller denied PASS",
             "Nagi M21 file.search isolated caller PASS",
             "Nagi M19 trace inode reuse assigned a new ObjectId",
+            "Nagi M19 PageProducerAdapter and Workspace search PASS",
+            "Nagi M19 Browser history Page and Workspace search PASS",
             "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M19 acceptance PASS",
-            "Nagi M13 acceptance PASS",
+            "Nagi M19 Browser/Search acceptance PASS",
         ] {
             if !serial.contains(marker) {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!(
-                        "m19: guest did not print `{marker}` (QEMU exit {final_status}; log {})",
+                        "m19: guest did not print `{marker}` (QEMU exit {}; log {})",
+                        outcome.exit_status,
                         log_path.display()
                     ),
                 );
@@ -8698,7 +8904,15 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
         let metadata_restored = serial.contains("Nagi M19 previous-boot snapshot PASS");
         let semantic_restored = serial.contains("Nagi M24 semantic index persistence PASS");
-        if metadata_restored && semantic_restored {
+        let page_restored = serial.contains("Nagi M19 Page/Workspace persistence PASS");
+        let history_restored =
+            serial.contains("Nagi M19 Browser history ObjectId persistence PASS");
+        if outcome.acceptance_reached
+            && metadata_restored
+            && semantic_restored
+            && page_restored
+            && history_restored
+        {
             verified_restart = true;
             break;
         }
@@ -8707,11 +8921,12 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         {
             continue;
         }
-        if !metadata_restored || !semantic_restored {
+        if !metadata_restored || !semantic_restored || !page_restored || !history_restored {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m19: guest did not verify M19 metadata and M24 semantic-index persistence after QEMU restart (QEMU exit {final_status}; log {})",
+                    "m19: guest did not verify M19 metadata, Browser history IDs, Page/Workspace, and M24 semantic-index persistence after QEMU restart (QEMU exit {}; log {})",
+                    outcome.exit_status,
                     log_path.display()
                 ),
             );
@@ -8730,8 +8945,8 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M19 guest Search: live VFS file metadata and stable ObjectId survived rename, remount, and QEMU restart (acceptance marker reached; log {})",
-            final_log.display()
+            "PASS M19 guest Browser/Search: HTTPS visit metadata, stable ObjectIds, Workspace membership, live VFS file identity, and isolated grant checks passed across QEMU restart (log {}; screenshots {} and {})",
+            final_log.display(), initial_screenshot.display(), restart_screenshot.display()
         )],
     }
 }
@@ -11304,6 +11519,10 @@ mod tests {
         assert!(super::servo_enabled_init(&["--features", "m18-acceptance"]));
         assert!(super::servo_enabled_init(&[
             "--features",
+            "m19-browser-search-acceptance,m21-action-ipc"
+        ]));
+        assert!(super::servo_enabled_init(&[
+            "--features",
             "m13-posix,m17-servo"
         ]));
         assert!(!super::servo_enabled_init(&["--features", "m19-search"]));
@@ -11313,14 +11532,22 @@ mod tests {
     #[test]
     fn m18_browser_boot_keeps_the_esp_read_only_for_storage_selection() {
         let commands = include_str!("commands.rs");
+        let helper_start = commands
+            .find("fn run_m18_staged_acceptance(")
+            .expect("shared M18 QMP helper");
+        let helper_end = commands[helper_start..]
+            .find("fn execute_m18(")
+            .map(|offset| helper_start + offset)
+            .expect("M18 command after helper");
+        assert!(commands[helper_start..helper_end].contains(
+            "run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot("
+        ));
         let m18_start = commands.find("fn execute_m18(").expect("M18 command");
         let m18_end = commands[m18_start..]
             .find("fn help() -> CommandResult")
             .map(|offset| m18_start + offset)
             .expect("next command helper");
-        assert!(commands[m18_start..m18_end].contains(
-            "run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot("
-        ));
+        assert!(commands[m18_start..m18_end].contains("run_m18_staged_acceptance(&config"));
         assert!(commands[m18_start..m18_end].contains("m29-browser-{evidence_run_id}"));
 
         let image = include_str!("image.rs");
@@ -11334,6 +11561,26 @@ mod tests {
         assert!(compact_image.contains(
             "boot_disk_read_only:true,reuse_ovmf_vars:false,inter_event_delay:Duration::from_millis(100),"
         ));
+    }
+
+    #[test]
+    fn m19_search_runs_before_the_browser_acceptance_exits_servo() {
+        let init = include_str!("../../../user/nagi-init/src/main.rs");
+        assert!(init.contains("run_m18_https_acceptance_with_callback("));
+        assert!(init.contains("m19_search::run_with_browser_state("));
+
+        let acceptance = include_str!("../../../user/nagi-albert/src/m18_acceptance.rs");
+        let scenario_complete = acceptance
+            .find("Nagi M18 browser scenario complete pages=3")
+            .expect("M18 scenario completion marker");
+        let callback = acceptance
+            .find("if !after_scenario(&browser_state)")
+            .expect("Search callback before process exit");
+        let guest_exit = acceptance[callback..]
+            .find("libnagi::exit(0)")
+            .map(|offset| callback + offset)
+            .expect("guest exits after the callback");
+        assert!(scenario_complete < callback && callback < guest_exit);
     }
 
     #[test]

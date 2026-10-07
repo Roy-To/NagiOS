@@ -201,6 +201,9 @@ pub struct Desktop {
     /// The modal change-password form (ADR 0066).
     #[cfg(feature = "desktop-login")]
     password_change: Option<crate::login_screen::PasswordChangeScreen>,
+    /// The ADR 0066 acceptance ends only after a successful saved change.
+    #[cfg(feature = "desktop-password-change-acceptance")]
+    password_change_succeeded: bool,
 }
 
 impl Desktop {
@@ -234,6 +237,8 @@ impl Desktop {
             session: None,
             #[cfg(feature = "desktop-login")]
             password_change: None,
+            #[cfg(feature = "desktop-password-change-acceptance")]
+            password_change_succeeded: false,
         }
     }
 
@@ -472,24 +477,31 @@ impl Desktop {
     }
 
     pub fn acceptance_ready(&self) -> bool {
-        #[cfg(feature = "desktop-login")]
-        if cfg!(feature = "desktop-login-acceptance") {
-            return self.session.is_some();
+        #[cfg(feature = "desktop-password-change-acceptance")]
+        {
+            return self.session.is_some() && self.password_change_succeeded;
         }
-        #[cfg(feature = "consent-dialog-acceptance")]
-        if self.consent_answered {
-            return true;
-        }
-        let desktop_ready = self.focused.iter().all(|focused| *focused) && self.notes_has_input;
-        if cfg!(feature = "consent-dialog-acceptance") {
-            false
-        } else if cfg!(feature = "m29-settings-acceptance") {
-            desktop_ready
-                && self.settings_open
-                && self.locale == nagi_localization::Locale::JaJp
-                && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
-        } else {
-            desktop_ready
+        #[cfg(not(feature = "desktop-password-change-acceptance"))]
+        {
+            #[cfg(feature = "desktop-login-acceptance")]
+            if cfg!(feature = "desktop-login-acceptance") {
+                return self.session.is_some();
+            }
+            #[cfg(feature = "consent-dialog-acceptance")]
+            if self.consent_answered {
+                return true;
+            }
+            let desktop_ready = self.focused.iter().all(|focused| *focused) && self.notes_has_input;
+            if cfg!(feature = "consent-dialog-acceptance") {
+                false
+            } else if cfg!(feature = "m29-settings-acceptance") {
+                desktop_ready
+                    && self.settings_open
+                    && self.locale == nagi_localization::Locale::JaJp
+                    && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
+            } else {
+                desktop_ready
+            }
         }
     }
 
@@ -531,8 +543,16 @@ impl Desktop {
         match screen.handle_event(event, volume) {
             ChangeOutcome::Ignored => false,
             ChangeOutcome::Changed => true,
-            ChangeOutcome::Closed => {
+            ChangeOutcome::Cancelled => {
                 self.password_change = None;
+                true
+            }
+            ChangeOutcome::PasswordChanged => {
+                self.password_change = None;
+                #[cfg(feature = "desktop-password-change-acceptance")]
+                {
+                    self.password_change_succeeded = true;
+                }
                 true
             }
         }

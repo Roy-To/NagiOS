@@ -6,7 +6,7 @@ use alloc::{
 };
 use core::cmp::Ordering;
 
-use nagi_model::{ObjectId, WorkspaceId};
+use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
 
 use crate::semantic::{
     chunk_text, EmbeddingProvider, EmbeddingPurpose, IndexedChunk, SemanticError, SemanticHit,
@@ -55,6 +55,61 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
 
     pub fn upsert_record(&mut self, record: MetadataRecord) -> Result<(), MetadataStoreError> {
         self.store.upsert_record(record)
+    }
+
+    /// Find metadata previously published by a trusted producer. This API is
+    /// for the in-process producer adapter only; user-facing callers must use
+    /// `search` or `get_object`, which apply the configured visibility policy.
+    pub fn producer_records(
+        &self,
+        producer_id: &str,
+        source_app: AppId,
+        source_session: AppSessionId,
+    ) -> Vec<MetadataRecord> {
+        self.store
+            .records()
+            .filter(|record| {
+                record.source_app == Some(source_app)
+                    && record.source_session == Some(source_session)
+                    && record
+                        .attributes
+                        .get(crate::adapters::PRODUCER_ID_ATTRIBUTE)
+                        .is_some_and(|value| value == producer_id)
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Resolve a producer-owned key to its durable Search ObjectId, including
+    /// tombstoned records so a restored source entry retains its identity.
+    pub fn producer_object_id(
+        &self,
+        producer_id: &str,
+        producer_key: &str,
+        source_app: AppId,
+        source_session: AppSessionId,
+    ) -> Option<ObjectId> {
+        self.producer_records(producer_id, source_app, source_session)
+            .into_iter()
+            .find(|record| {
+                record
+                    .attributes
+                    .get(crate::adapters::PRODUCER_KEY_ATTRIBUTE)
+                    .is_some_and(|value| value == producer_key)
+            })
+            .map(|record| record.object_id)
+    }
+
+    /// Allocate an ID above every persisted record, including tombstones.
+    /// The caller persists it immediately in the producer record.
+    pub fn next_object_id(&self) -> Option<ObjectId> {
+        self.store
+            .records()
+            .map(|record| record.object_id.0)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .map(ObjectId)
     }
 
     pub fn remove_record(

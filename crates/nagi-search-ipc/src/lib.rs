@@ -23,6 +23,7 @@ pub const MAX_RESULT_IDS: usize = (MAX_CHANNEL_INLINE_PAYLOAD - 4) / 8;
 pub enum KindFilter {
     Any = 0,
     File = 1,
+    Page = 2,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,6 +117,7 @@ pub fn decode_request(payload: &[u8]) -> Result<SearchRequest<'_>, WireError> {
     let kind = match payload[0] {
         0 => KindFilter::Any,
         1 => KindFilter::File,
+        2 => KindFilter::Page,
         _ => return Err(WireError::InvalidKind),
     };
     let length = usize::from(payload[1]);
@@ -233,6 +235,18 @@ mod tests {
             ),
             Err(WireError::TooLong)
         );
+    }
+
+    #[test]
+    fn page_kind_filter_round_trips_using_the_existing_request_layout() {
+        let mut buffer = [0_u8; MAX_CHANNEL_INLINE_PAYLOAD];
+        let request = SearchRequest {
+            kind: KindFilter::Page,
+            text: "M19 persisted page",
+        };
+        let length = encode_request(request, &mut buffer).expect("encode page query");
+        assert_eq!(buffer[0], 2);
+        assert_eq!(decode_request(&buffer[..length]), Ok(request));
     }
 
     #[test]

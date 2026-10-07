@@ -272,9 +272,10 @@ pub fn acceptance_user() -> Option<Session> {
 /// manifests do not request stay ineffective regardless.
 #[cfg(feature = "m19-search-ipc")]
 pub fn record_acceptance_consents() -> bool {
-    const DECISIONS: [(&[u8], &[u8]); 5] = [
+    const DECISIONS: [(&[u8], &[u8]); 6] = [
         (b"org.nagi.acceptance.m19-search", b"search.query"),
         (b"org.nagi.acceptance.m19-search", b"files.search"),
+        (b"org.nagi.acceptance.m19-search", b"albert.history.search"),
         (b"org.nagi.acceptance.foreign-client", b"search.query"),
         (b"org.nagi.acceptance.m22-files", b"files.move"),
         (b"org.nagi.acceptance.m22-files", b"files.copy"),

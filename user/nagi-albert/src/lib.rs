@@ -327,6 +327,8 @@ pub use guest::run_first_web_pixel;
 #[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
 pub use m18_acceptance::run_m18_https_acceptance;
 #[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
+pub use m18_acceptance::run_m18_https_acceptance_with_callback;
+#[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
 pub use m18_acceptance::run_m18_https_acceptance_with_locale;
 
 /// FFI callback used by the pinned Servo verifier after chain and hostname
