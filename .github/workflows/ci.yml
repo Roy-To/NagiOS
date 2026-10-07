@@ -391,6 +391,8 @@ jobs:
       - name: ADR 0043 isolated process identity acceptance
         run: ./nagi isolated-process
       - name: M19 live VFS Search acceptance
+        env:
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
         run: ./nagi m19
       - name: M22 NH16 grouped Undo acceptance
         run: ./nagi m22
