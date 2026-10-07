@@ -1,6 +1,6 @@
 # Model Runtime / Model Store Foundation Workstream
 
-Status: `PARTIAL` (host contract foundation; M20 inference acceptance pending)
+Status: `PARTIAL` (provider-neutral contract foundation; production model discovery/install lifecycle remains; M20 inference acceptance is recorded in the Granite workstream)
 
 ## Goal and boundaries
 
@@ -8,9 +8,11 @@ Implement a typed, user-space foundation for model manifests, discovery,
 compatibility, selection, provider invocation contracts, and local Model Store
 metadata. The workstream does not fetch model weights or implement the
 production inference engine. M17, Servo, Capability policy, App SDK, Activity,
-Wayback, and other concurrent workstreams remain separately owned. On the M18
-continuation branch, M20 is `PARTIAL`: the contract is reused and target-compiled,
-but acceptance still requires a real local Granite response inside Nagi.
+Wayback, and other concurrent workstreams remain separately owned. The M20
+target integration now passes real local Granite inference inside Nagi. This
+contract-only workstream remains `PARTIAL` because it does not provide a
+production model discovery, installation, or service lifecycle. See
+`NagiOS_M20_AI_Runtime_Granite_Workstream.md` for the acceptance evidence.
 
 The accepted generative/decision architecture remains authoritative:
 
@@ -166,3 +168,14 @@ before backend load. The pinned llama.cpp commit
 `nagi fetch`. Target C++ integration, a guest store capable of supplying a
 2.24 GB artifact, and real Granite inference remain unimplemented; M20 remains
 `PARTIAL`.
+
+### 2026-10-08 Granite inference acceptance update
+
+The separate M20 target runtime now passed `./nagi m20-granite-inference` in
+QEMU run `1791393002742512000`. It loaded the locked Granite artifact through
+the read-only Model Store, generated a structured Japanese response inside
+Nagi, and passed the `ModelRuntime` schema check. This closes the M20
+acceptance criterion; the provider-neutral foundation described by this
+document remains partial for production discovery and installation lifecycle.
+Full logs and checksums are under
+`out/evidence/m20-granite-inference-1791393002742512000/`.

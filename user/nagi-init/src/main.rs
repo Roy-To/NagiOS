@@ -534,8 +534,32 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
         }
         libnagi::console_write(b"Nagi M27 read-only VFS check PASS\r\n");
     }
-    let device = libnagi::storage::SyscallBlockDevice::new(block_capability);
-    let (mut volume, formatted) = libnagi::storage::Vfs::mount_or_format(device).ok()?;
+    let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
+    #[cfg(feature = "m20-llama-inference-acceptance")]
+    {
+        let mut probe = [0_u8; libnagi::BLOCK_SECTOR_SIZE];
+        if libnagi::storage::ReadOnlyBlockDevice::read_sector(&mut device, 2, &mut probe).is_err()
+            || libnagi::storage::ReadOnlyBlockDevice::read_sector(&mut device, 3, &mut probe)
+                .is_err()
+        {
+            libnagi::console_write(b"Nagi M20 User Data read probe FAIL\r\n");
+            return None;
+        }
+    }
+    let (mut volume, formatted) = match libnagi::storage::Vfs::mount_or_format(device) {
+        Ok(mounted) => mounted,
+        Err(error) => {
+            let detail: &[u8] = match error {
+                libnagi::storage::StorageError::Block => b"block I/O",
+                libnagi::storage::StorageError::Corrupt => b"corrupt volume metadata",
+                _ => b"other storage error",
+            };
+            libnagi::console_write(b"Nagi M20 User Data mount-or-format FAIL: ");
+            libnagi::console_write(detail);
+            libnagi::console_write(b"\r\n");
+            return None;
+        }
+    };
 
     if formatted {
         libnagi::console_write(static_message!(

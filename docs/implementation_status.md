@@ -3004,7 +3004,7 @@ Use only these statuses:
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. Local real-QEMU regressions passed on 2026-09-29 and 2026-10-03. The 2026-10-03 rerun uses an explicit `/tmp/nagi-m17-servo` fixture storage root; its nonzero frame checksum and PASS marker are preserved under `out/evidence/m17-first-web-pixel-20261003/`. The immediately preceding failure was caused by a reused User Data VFS with all 64 inodes allocated to prior Servo temporary roots; that failed disk and trace are preserved under `out/evidence/m17-storage-init-abort-20261003/`. |
 | M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. A 2026-10-03 rerun also passed: QEMU verified TLS chains and hostnames for `example.com`, `example.org`, and `example.net`, rendered all three through Nagi Surface, and passed browser temporary-storage cleanup. Current evidence is under `out/evidence/m18-completion-sweep-20261003/`, with the prior fixed-path image, User Data, vars, and logs preserved under `out/evidence/m18-pre-sweep-20261003/`. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. On 2026-10-03, the generated Servo cache was archived and regenerated from the pinned checkout and patches. Added an opt-in M18 acceptance delegate with a localized opaque site-permission modal; it holds the real Servo request pending until a fresh Allow/Deny click or Escape Cancel and denies on input/render/timeout failure. Sixty `nagi-albert` acceptance-feature tests pass. The 2026-10-03 `./nagi m18` rerun passed the three HTTPS pages, but none requests a permission; exact image, User Data, OVMF vars, serial log, screenshot, and verified SHA256 manifest are under `out/evidence/m29-browser-1790978167816192000/`. **Clipboard (2026-10-05):** new user-space `nagi-clipboard` service (ADR 0053) with attenuable READ/WRITE endpoints and per-tab one-shot paste gestures recorded only by Albert's trusted input path; Albert now focuses the active WebView and moves keyboard focus to the page after address submission or a page click. Local `./nagi m18` run `1791179851416415000` passed the three HTTPS pages plus QMP-driven Ctrl+C / click / Ctrl+V between page fields (pasted value observed through the page), followed by an ungestured read denied with `no-user-gesture`; serial log, command log, screenshot, and SHA256SUMS are under `out/evidence/m29-browser-1791179851416415000/`. The service is in-process with Albert, not yet behind authenticated Channel IPC. **IME (2026-10-05):** new user-space `nagi-ime` (ADR 0054) composes hiragana from romaji with katakana/hiragana candidates; Nagi 0.1 has no kanji conversion by user decision. Albert routes page keys through it only while Servo reports a focused text field and sends composition start/update/end events. Local `./nagi m18` run `1791180856033701000` passed the HTTPS pages, clipboard, and a QMP-typed Ctrl+Space `nihongo` Enter committed as `にほんご` into the page field (DOM value observed through the page); evidence under `out/evidence/m29-browser-1791180856033701000/`. **Text rendering (2026-10-05):** the M18 HTTPS acceptance had been passing pages that painted no text — Nagi's Servo font registry was empty, so all three sites produced the same background-only frame (`0x5a9955c5`). Bundled Noto Sans/Noto Sans JP (ADR 0055, Servo patch 0026) are published read-only under `/system/fonts/`; file-backed `mmap`/`munmap` now accept non-page-multiple lengths as POSIX requires (the failing step found by diagnostic patch 0027). Each page now reports `ink_pixels` and the validator requires at least 200. Local `./nagi m18` run `1791185005598104000` passed with `ink_pixels=5632` per site and a screenshot showing the pasted token and committed `にほんご`; evidence under `out/evidence/m29-browser-1791185005598104000/`. Production authenticated policy/IPC, interactive QEMU permission acceptance, and download/upload destinations remain. |
 | M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Twenty-nine Search tests, warnings-denied Clippy, format, Nagi target compile, and QEMU persistence/rename acceptance pass. Guest executes bounded M21 `file.search` through ContextResolver, Validator, Action Registry, and Executor; the M22 fixture records its executed result in NAL1 with `transaction_id=None`. Caller policy remains fixture-only. Real Files/page producer synchronization and authenticated production IPC remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
-| M20 | AI Runtime / Granite | PARTIAL | `third_party/models.lock` pins IBM Granite 4.2 3B and its exact artifact metadata; a separate disposable QEMU disk passed full guest-visible digest verification through the read-only Model Store, but no model has been loaded for inference and the regular M30 image remains empty. The tracked Nagi llama.cpp patch stack runs through 0034, adding checked failures across model/context/state/file/mmap/vocabulary/memory, DSV4, sampler, and quantization paths plus a Nagi-only static backend initialization path while preserving upstream behavior elsewhere. Host and Nagi-macro loader-bounds builds pass; focused CTests pass 1/1 in both, and `nagi-cli` passed 196 unit + 21 integration tests. The no-exceptions syntax sweep passes 32/32 top-level `src/*.cpp` files, and the full LLVM 19/libc++ Nagi target build linked `libllama.a` (42/42 steps, 6.4 MiB; log `out/logs/m20-loader-status-0033-noexceptions-target-build-llvm19.log`). QEMU run `1790962398371656000` links the static llama/ggml CPU archives into `nagi-init` and passes `llama_backend_init()`, CPU registration, and target C++/ctype/math smoke checks; its image, target ELFs, archives, serial log, disks, variables, and SHA-256 manifest are under `out/evidence/m20-llama-link-smoke-1790962398371656000/`. The 2026-10-03 inference integration attempt adds a seekable read-only Model Store callback descriptor, a guest ModelBackend adapter, structured-output grammar, memory sizing, and a reproducible CLI acceptance command. The target archives and provider adapter compile. The first final link reported 142 unresolved symbols; after explicitly linking relibc and adding Nagi stdio/ctype/wchar providers, a fresh official CLI attempt still fails before image creation with 88 unresolved target C++ standard-library symbols (streams, strings, locale, filesystem, regex, random device, shared ownership, exceptions, and thread/future). The exact updated log and attempt record are under `out/evidence/m20-granite-inference-1790985332307332000/`; the initial link log remains under `out/evidence/m20-granite-inference-1790984128856579000/`. No guest inference or QEMU acceptance is claimed. Linking a host libc++ archive is not valid for Nagi. The required target-owned C++ runtime/provider set remains open. On 2026-10-03, the prior ignored generated llama and Servo caches were preserved before `./nagi fetch` regenerated and validated fresh checkouts from their pinned revisions and patches. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
+| M20 | AI Runtime / Granite | PASS | `./nagi m20-granite-inference` QEMU run `1791393002742512000` passed real Granite 4.2 3B inference inside Nagi using the exact 2,244,011,552-byte Q4_K_M artifact and locked SHA-256 `e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`. `ModelRuntime` accepted the schema-constrained Japanese response `{"answer":"Hello in Japanese is こんにちは (Konnichiwa)."}`. `qemu-img check` passed and all five evidence manifest entries verify under `out/evidence/m20-granite-inference-1791393002742512000/`. The standard M30 image remains free of the model artifact. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
 | M21 | Planner / Validator / Executor | PARTIAL | `services/nagi-ai` supplies the authoritative NagiPlan@1 schema to model requests and independently validates provider output at the generic adapter boundary; deterministic parsing and Validator checks remain in force. Bounded guest `file.search`, fixture-scoped `file.move` and `file.copy` run through ContextResolver, Validator, Action Registry, capability/object checks, and Executor against real VFS state; executed search results flow into M22 NAL1. Executor reacquires grants for each step; a new two-step regression revokes the second capability after step one and verifies `Partial/CapabilityDenied` with no second handler call. All 25 AI tests, Clippy, and formatting pass. Policies, handlers, and caller identity remain fixture-only; production IPC/authenticated caller authority, model service integration, and general first-party actions remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`.
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh three-boot QEMU runs preserve digest-bearing grouped Move, bounded Copy, NAL1/NH16 persistence, Undo, and restart restoration; standalone run `1790999599873700000` and both repetitions in `out/evidence/m28-run-20261003T035340Z-63277/` passed. The M22 bootstrap and all three numbered guest boots now share one guarded pre-guest retry: it requires the running-CPU/QMP firmware-timeout signature and unchanged writable boot/User Data SHA-256 values, with per-boot evidence sidecars archived by M28. The current M22 runs did not need this retry; unit tests cover restoration, disk-change suppression, and three-boot sidecar isolation. Fixture caller/policy, real inference, authenticated production authority, general production actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
@@ -3034,66 +3034,42 @@ Object IDs remain M19 blockers.
 See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md` for the
 focused evidence and remaining production acceptance criteria.
 
-# M20 - AI Runtime / Granite (`PARTIAL`)
+# M20 - AI Runtime / Granite (`PASS`)
 
-The `nagi-model-manager` package streams artifact bytes through a fixed 8 KiB
-buffer and checks their SHA-256 before any backend load. Its Granite profile
-identifies IBM's Q4_K_M GGUF snapshot, upstream byte count/digest, and
-Apache-2.0 notice. The exact pinned artifact is retained in ignored local
-cache and is not bundled. The exact llama.cpp revision is in
-`third_party/sources.lock`.
+The pinned Granite 4.2 3B GGUF was loaded through the read-only Model Store
+capability into the target llama.cpp CPU backend. `ModelRuntime` verified the
+artifact digest and validated the generated structured response. Host inference
+was not used, and the standard M30 release image remains without model bytes.
 
-Nagi's numbered llama.cpp patch stack now runs from `0001` through `0022`.
-It bounds GGUF metadata and tensor reads, reports parser/loader/model/adapter
-failures through checked status under `__NAGI__`, and preserves ordinary host
-exceptions. Patches 0021–0022 cover model architecture metadata, model-load
-failure propagation, and early expert-count validation; the fresh generated
-checkout and verified manifests are under
-`out/evidence/m20-loader-status-0022-20261002/`.
+## Completion Sweep — real local Granite inference (2026-10-08)
 
-The fresh-cache host and Nagi-macro `llama` targets and loader-bounds targets
-build, and their focused CTests pass 1/1. All 185 CLI library tests,
-`./nagi test`, `./nagi fmt`, `./nagi lint`, and `./nagi build` pass. The full
-no-exceptions Nagi `llama` build advances past the 0021–0022 model failures and
-currently stops in unity 1–4 with 44 reported throw diagnostics across 19
-remaining model files. See
-`out/logs/m20-loader-status-0022-noexceptions-target-build-fresh.log`.
-Unfiltered CTest requires many unrelated binaries that are not built by these
-focused configurations; the explicit loader-bounds CTest passes in both host
-and Nagi-macro configurations. Broader CMake `all` attempts also hit unrelated
-auxiliary targets lacking `mtmd.h`, `build-info.h`, and `arg.h`. STL allocator
-OOM recovery remains unsupported under the no-unwinder ABI.
+`./nagi m20-granite-inference` passed QEMU run
+`1791393002742512000`. The guest printed
+`Nagi M20 Granite structured response: {"answer":"Hello in Japanese is こんにちは (Konnichiwa)."}`
+and `Nagi M20 Granite structured inference PASS`. It read the complete
+2,244,011,552-byte artifact and verified SHA-256
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5` before
+loading. The target libc++ and llama.cpp archives built; `qemu-img check`
+reported no image errors, and `shasum -a 256 -c SHA256SUMS` verified all five
+manifest entries.
 
-M20 remains `PARTIAL`: there is no complete Nagi-compatible llama.cpp target
-backend, trusted guest installer/catalog, active lazy-loading model service,
-or in-guest Granite response/QEMU inference acceptance. The disposable
-acceptance image verifies storage and digest only.
+The preserved image, serial log, build logs, OVMF variables, README, and
+checksum manifest are under
+`out/evidence/m20-granite-inference-1791393002742512000/`; the qcow2 is
+`out/artifacts/nagi-0.1-m20-granite-inference-1791393002742512000.qcow2`.
+The Apple Silicon host's x86 QEMU emulation took about 3 hours 51 minutes in
+SIMD execution, then completed successfully.
 
-The 2026-10-03 Completion Sweep added a read-only seekable callback descriptor
-to the Nagi POSIX runtime and a `LlamaCppBackend` path that feeds the pinned
-Model Store artifact through `fdopen`/`llama_model_load_from_file_ptr` with
-`mmap` disabled. The target adapter constrains one structured JSON response
-with llama.cpp grammar and leaves final schema validation to `ModelRuntime`.
-`./nagi m20-granite-inference <artifact.gguf>` builds pinned target archives,
-assembles the disposable Model Store image, and requests guest inference.
-The callback helper's three focused tests and all 200 `nagi-cli` library tests
-pass; `./nagi fmt` passes. The first target integration link failed with 142 unresolved symbols. After
-explicitly linking relibc and adding Nagi stdio/ctype/wchar providers, a fresh
-official CLI attempt still fails before image creation with 88 unresolved
-target C++ standard-library symbols. The earlier `fdopen` and other C/POSIX
-providers no longer appear in the link failures. The updated link log is
-`out/evidence/m20-granite-inference-1790985332307332000/target-link-after-relibc-providers.log`
-(SHA-256
-`19442fbc322d5fc5168717d5567f81890e4735ad96c774610038b5b8ffb90927`); its
-attempt README and target archive build log are in the same directory. The
-initial 142-symbol link log and README remain under
-`out/evidence/m20-granite-inference-1790984128856579000/`. No guest model load,
-inference, unload/restart, or inference QEMU acceptance is claimed. M20 remains
-`PARTIAL`; a target-owned C++ runtime with thread, locale, and filesystem ABI
-integration is required.
+The adapter no longer calls `llama_sampler_accept` after
+`llama_sampler_sample`, which already accepts its selected token internally;
+this prevents constrained grammar state from advancing twice. The guest uses
+one ggml compute thread while bootstrap user threads are cooperative. These
+fixes and a dedicated x86 CI acceptance job are committed as `0d66495` in PR
+[#29](https://github.com/RT-NISH/NagiOS/pull/29). The local milestone gate is
+PASS; PR CI and automatic merge are still in progress.
 
-See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md` for exact
-commands, provenance, and the concrete runtime acceptance gap.
+Earlier target-link blockers and their preserved diagnostics are recorded in
+`docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
 
 # M21 - Planner / Validator / Executor (`PARTIAL`)
 
