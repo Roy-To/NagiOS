@@ -25,6 +25,6 @@
   "required_next_evidence": [
     "Approve exact registration row, owner branch, owned paths including optional tests, dependency seams and host-only activation",
     "Starting base candidate 80ea6246dd394deb5158c44aa7f0012d76a9c409 must be re-fetched and reconfirmed before implementation",
-    "Owner creates its own state/branch only after approval; no implementation SHA or acceptance PASS exists yet"
+    "Owner creates its own state/branch only after explicit approval; no implementation SHA or acceptance PASS exists yet"
   ]
 }

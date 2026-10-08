@@ -8,7 +8,8 @@
     "Dedicated branch ownership exception or explicit separate integration stream registration",
     "Source adoption at reviewed BP/SBOM SHAs, preserving owner State verbatim",
     "Registry patch; shared CLI/manifest/lock edits; host-only CI classification/tests",
-    "App registration and explicit host activation only after dedicated MDs are supplied"
+    "App registration and explicit host activation after the three reviewed dedicated MD contracts, branches and paths are explicitly accepted",
+    "Writer/Sheets exact Claude branch exceptions or approved owner branch renames; schemas/parser compatibility tests required for an exception."
   ],
   "candidate_edit_paths": [
     ".dev/workstreams.json",
@@ -28,7 +29,8 @@
     ".github/workflows/ci.yml",
     "tools/legal/**",
     "docs/legal/**",
-    "docs/0.2/BUILD_PROVENANCE_ARTIFACT_FINGERPRINT.md"
+    "docs/0.2/BUILD_PROVENANCE_ARTIFACT_FINGERPRINT.md",
+    ".dev/schemas/workstreams.schema.json (only if exact Claude branch policy is approved)"
   ],
   "runtime_activation": false,
   "merge_to_main": false

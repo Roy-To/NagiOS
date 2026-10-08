@@ -84,7 +84,7 @@
     },
     {
       "name": "Candidate registration validation",
-      "outcome": "PASS for BP/SBOM/Calendar; expected rejection for Writer claude/ branch",
+      "outcome": "PASS for BP/SBOM/Calendar; expected rejection for Writer and Sheets claude/ branches",
       "evidence": "validation-evidence.json"
     },
     {
@@ -189,12 +189,11 @@
   ],
   "blockers": [
     "Explicit dedicated shared Integration Owner checkpoint absent",
-    "Sheets dedicated MD missing",
-    "Writer owner branch fails both registry schema and CLI verifier",
+    "Writer and Sheets owner branches fail both registry schema and CLI verifier",
     "App row dependencies/optional tests/host activation require approval",
     "Shared CLI/lock/Windows host CI integration unimplemented until checkpoint approval"
   ],
-  "next_action": "Approve the exact checkpoint scope and registration drafts; resolve Writer branch/schema policy; provide Sheets MD. Re-fetch refs, adopt reviewed source deltas on the approved branch and run shared host/Windows compatibility CI. Calendar owner can start only after explicit host activation.",
+  "next_action": "Approve the exact checkpoint scope and registration drafts; resolve Writer/Sheets branch/schema policy and approve all three explicit host activations. Re-fetch refs, adopt reviewed source deltas on the approved branch and run shared host/Windows compatibility CI. Calendar owner can start only after explicit host activation.",
   "spdx_byte_identical": true,
   "attachments": [
     {
@@ -221,5 +220,27 @@
       "bytes": 12068,
       "read_completely": true
     }
-  ]
+  ],
+  "later_repository_evidence": {
+    "branch": "docs/add-nagi-0.2-parallel-workstreams",
+    "sha": "cd88de5eba57fc3a294dfd740b122fdfda20a6ec",
+    "discovered_at_final_fetch": true,
+    "workstream_mds": [
+      {
+        "path": "docs/workstreams/NagiOS_0.2_Calendar_Core_Workstream.md",
+        "sha256": "d4bdc96ac7ba7c3475b6bc7a6e77af2af91c263683e0445eedaec38244eb0f8b",
+        "read_completely": true
+      },
+      {
+        "path": "docs/workstreams/NagiOS_0.2_Writer_Document_Core_Workstream.md",
+        "sha256": "42130ef7230f8656380e9ac7a12e10355e41e10f3625235c2893206a82f1e4f3",
+        "read_completely": true
+      },
+      {
+        "path": "docs/workstreams/NagiOS_0.2_Sheets_Calculation_Core_Workstream.md",
+        "sha256": "3ffbf337fdf3ea51b16172605d4b17154670560ba0503e379aa8253b3f7c8a81",
+        "read_completely": true
+      }
+    ]
+  }
 }

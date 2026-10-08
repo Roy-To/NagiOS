@@ -21,14 +21,21 @@
       "errors": [
         "'claude/0.2-writer-core-01' does not match '^codex/[a-z0-9][a-z0-9./-]*$'"
       ]
+    },
+    {
+      "name": "sheets-calc-01 registration schema",
+      "valid": false,
+      "errors": [
+        "'claude/0.2-sheets-calc-01' does not match '^codex/[a-z0-9][a-z0-9./-]*$'"
+      ]
     }
   ],
   "candidate_ids_branches_states_unique": true,
   "candidate_dependencies_exist": true,
   "shared_patches_apply_check_only": true,
   "schema_or_shared_source_modified": false,
-  "writer_exception_schema_sketch": {
-    "exact_writer_and_legacy_codex_valid": true,
+  "claude_exception_schema_sketch": {
+    "exact_sheets_writer_and_legacy_codex_valid": true,
     "other_claude_and_malformed_branches_rejected": true,
     "live_schema_changed": false,
     "rust_parser_sketch_compiled": false

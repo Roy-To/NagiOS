@@ -3,21 +3,34 @@
   "proposal_status": "BLOCKED",
   "registered": false,
   "host_activation_authorized": false,
-  "owner": null,
-  "owner_branch": null,
-  "allowed_paths": null,
-  "dependencies": null,
-  "gate": null,
-  "state_file": null,
+  "owner": "Claude ①",
+  "owner_branch": "claude/0.2-sheets-calc-01",
+  "allowed_paths": [
+    "crates/nagi-sheets-core/**",
+    "tests/sheets-core/**",
+    "docs/workstreams/NagiOS_0.2_Sheets_Calculation_Core_Workstream.md",
+    ".dev/workstreams/sheets-calc-01/**"
+  ],
+  "dependencies": [
+    "development-foundation",
+    "app-sdk-contract"
+  ],
+  "gate": "PROPOSED: standalone host-only core after explicit Integration Owner registry/path/activation checkpoint and versioned adapter contract review. No guest/runtime/UI/provider integration; Nagi 0.1 M30 PASS plus explicit release boundary required for runtime activation.",
+  "state_file": ".dev/workstreams/sheets-calc-01/state.json",
   "blockers": [
-    "Sheets dedicated MD is absent: supplied files are Calendar Core, Writer Document Core, and duplicate Build Provenance/SBOM Integration.",
-    "Owner branch, allowed paths, dependency IDs and gate cannot be approved from the master Sheets roadmap alone.",
-    "No approved Integration Owner checkpoint."
+    "No approved Integration Owner checkpoint; registration does not itself activate implementation.",
+    "Proposed development-foundation/app-sdk-contract dependencies and optional tests paths require explicit approval; the owner MD does not name registry dependency IDs.",
+    "claude/ owner branch is rejected by both live registry schema and development.rs verifier. Approve a codex/ branch with Claude owner, or a coordinated schema/parser/test migration; do not silently rename it."
   ],
   "required_next_evidence": [
-    "Exact dedicated MD path/ref or attachment",
-    "Exact owner branch and immutable starting SHA",
-    "Versioned dependency contracts and host-only acceptance",
-    "Explicit Integration Owner registration/activation checkpoint; runtime remains gated on 0.1 M30 PASS plus release boundary"
-  ]
+    "Approve exact registration row, owner branch, owned paths including optional tests, dependency seams and host-only activation",
+    "Starting base candidate 80ea6246dd394deb5158c44aa7f0012d76a9c409 must be re-fetched and reconfirmed before implementation",
+    "Owner creates its own state/branch only after explicit approval; no implementation SHA or acceptance PASS exists yet"
+  ],
+  "source": {
+    "ref": "docs/add-nagi-0.2-parallel-workstreams",
+    "sha": "cd88de5eba57fc3a294dfd740b122fdfda20a6ec",
+    "path": "docs/workstreams/NagiOS_0.2_Sheets_Calculation_Core_Workstream.md",
+    "read_completely": true
+  }
 }

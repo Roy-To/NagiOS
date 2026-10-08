@@ -89,24 +89,28 @@ sources are referenced at their owner SHAs rather than copied into the proposal.
 
 The uploaded Calendar and Writer MDs were read completely and compared with
 first-party §61 / §57 and current contracts. The third added attachment is
-byte-identical to the original integration MD; it is not a Sheets MD.
+byte-identical to the original integration MD. At final fetch, the new
+`docs/add-nagi-0.2-parallel-workstreams` branch at
+`cd88de5eba57fc3a294dfd740b122fdfda20a6ec` supplied all three dedicated MDs,
+including Sheets. Sheets was then read completely and compared with §58.
+This later unmerged docs branch supplies proposal details, not activation.
 
 | Stream | Proposed owner branch / paths | Registration and start condition |
 | --- | --- | --- |
 | `calendar-core-01` | Codex ②; `codex/0.2-calendar-core-01`; `crates/nagi-calendar-core/**`, owned State/spec; optional `tests/calendar-core/**` | Draft row schema-valid; approve row, optional tests, dependency seams, and explicit host activation; then C1–C5 / CAL-H01–12 |
 | `writer-core-01` | Claude ②; `claude/0.2-writer-core-01`; `crates/nagi-writer-core/**`, owned State/spec; optional `tests/writer-core/**` | Draft row fails current `codex/` schema and Rust verifier; approve branch rename retaining Claude ownership OR a coordinated schema/parser/compatibility-test migration; then approve host activation for W1–W5 / WRITER-H01–12 |
-| `sheets-calc-01` | Unknown: dedicated MD not supplied | Supply MD and review owner branch, paths, dependencies, and gate before producing an approvable registry row |
+| `sheets-calc-01` | Claude ①; `claude/0.2-sheets-calc-01`; `crates/nagi-sheets-core/**`, owned State/spec; optional `tests/sheets-core/**` | Draft row also fails the codex-only schema/verifier; resolve branch policy and approve explicit host activation for S1–S5 / SHEETS-H01–12 |
 
-The Calendar/Writer dependency lists (`development-foundation`,
+The three proposed app dependency lists (`development-foundation`,
 `app-sdk-contract`) are **proposed** integration choices, not claims that their
 MDs declare these registry IDs. Confirm contract/fixture versions before start.
 Jobs, Notifications, Identity, Search and Wayback runtime are optional adapter
 consumers, not permission to start those services or fake their results.
 
-`writer-branch-exception.sketch.patch` shows the second Writer branch option:
-permit only the exact proposed Claude branch in schema and Rust validation,
+`claude-branch-exceptions.sketch.patch` shows the second branch-policy option:
+permit only the exact proposed Writer/Sheets Claude branches in schema and Rust validation,
 preserving existing codex rules. It is unapplied and uncompiled. Approval must
-also cover positive Writer, legacy codex, malformed-branch and other-Claude
+also cover positive Writer/Sheets, legacy codex, malformed-branch and other-Claude
 negative compatibility tests; checking patch applicability is insufficient.
 
 Calendar must keep its domain Event identity distinct from
@@ -118,6 +122,13 @@ blocks, history RevisionId/Wayback contracts and SDK semantics. No separate
 canonical Object/Activity/Revision authority is approved. Track Changes is not
 the OS ledger. Event/Document cores were not found at the proposed paths on
 any fetched branch's docs/State inventory; no owner branch currently exists.
+
+Sheets has no existing Workbook/Cell/Formula engine on the integration base.
+Reuse model Object/Workspace IDs and SDK Action seams; do not create new
+permission or Activity services. Its Clock/date serial policy must be explicit,
+not inferred from host timezone or Calendar internals. Incremental dependency
+recalculation and bounded parser/cycle rejection are domain-owned tests;
+XLSX/CSV, UI, persistence, Search/Wayback runtime and AI remain deferred.
 
 The broad integration owner paths overlap both proposed cores; the dedicated
 core paths do not overlap each other. No Notes, History, Search, Jobs, Identity,
@@ -175,6 +186,6 @@ ignored `out/host-integration-audit/`; compact reproducible evidence is in
 
 Approve the dedicated host checkpoint and exact shared edit scope; approve BP
 and Legal registration/adoption and host CI policy; approve Calendar row and
-host activation; resolve Writer branch/schema policy and approve its row/host
-activation; supply the Sheets MD. M30 PASS plus an explicit release boundary
+host activation; resolve Writer/Sheets branch/schema policy and approve their
+rows and host activations. M30 PASS plus an explicit release boundary
 remains mandatory for all future 0.2 runtime work.
