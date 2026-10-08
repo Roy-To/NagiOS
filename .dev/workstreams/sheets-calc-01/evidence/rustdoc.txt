@@ -1,0 +1,6 @@
+source_commit=8682a4ba4b8e0b32e77e357b2bed0086637874d4
+command=cargo doc --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline --no-deps
+ Documenting nagi-sheets-core v0.1.0 (/workspace/NagiOS-sheets-calc-01/crates/nagi-sheets-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
+   Generated /tmp/nagi-sheets-tools/target/doc/nagi_sheets_core/index.html
+exit_code=0

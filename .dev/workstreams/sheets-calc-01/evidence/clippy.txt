@@ -1,0 +1,4 @@
+source_commit=8682a4ba4b8e0b32e77e357b2bed0086637874d4
+command=cargo clippy --manifest-path crates/nagi-sheets-core/Cargo.toml --all-targets --locked --offline -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.00s
+exit_code=0

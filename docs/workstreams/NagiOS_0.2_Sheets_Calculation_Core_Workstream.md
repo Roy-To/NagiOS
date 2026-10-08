@@ -1,10 +1,10 @@
 # Nagi OS 0.2 — Sheets Calculation Core Host Foundation
 **Document ID:** NAGI-0.2-PARALLEL-SHEETS-CALC-20261008\
-**担当:** Claude ①\
+**担当:** Codex（ユーザー指示による代行。RegistryのClaude ①とowner branchは維持）\
 **対象:** `RT-NISH/NagiOS`\
 **作業区分:** Phase 2 Sheetsの **UI非依存・Host-only** 計算基盤\
 **対象仕様:** `docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md` §58、0.2 Master §27.1/§38\
-**実行状態:** 新規Workstream提案。Ownerの登録・host-only activation checkpointを確認した範囲のみ実装する。
+**実行状態:** BP-SBOM-HOST-20261008で登録・host-only activation承認済み。実装状況とimmutable SHAの証拠は専用Stateを参照。
 
 > **目標：** Nagi標準表計算「Sheets」に必要なWorkbook/Sheet/Cell/Formulaのコアを、Nagi本体UI・Kernel・Storageから独立したテスト可能なRustライブラリとして作る。AI抜きでも計算できる設計にする。
 
@@ -134,3 +134,42 @@ git diff --check
 - UI/grid rendering、macOS/Windows native app、Nagi target app起動。
 - Model inferenceや自然言語Agentの実行。
 - shared Platform APIsの独断変更、外部データ取得、root workspace/CI変更。
+
+## 9. Implemented host contract (2026-10-08)
+
+`crates/nagi-sheets-core` is an independent workspace using only the existing
+local `nagi-model` dependency. The v1 behavior, resource bounds, coercions,
+cycle policy, numeric rules and snapshot/facade boundary are documented in
+`crates/nagi-sheets-core/README.md`. Source does not access OS storage/network,
+UI, clock, model inference or production permissions.
+
+- S1: sparse typed Workbook/Sheet/Cell, supplied ObjectIds, stable/retired SheetIds,
+  rename/delete, exact UTF-8 names and all eight value kinds.
+- S2: bounded flat AST, precedence, unary signs, comparison, A1/absolute/range/
+  sheet references and English canonical function registry.
+- S3: required functions plus IFERROR and LEFT/RIGHT/MID/LEN/TRIM/CONCAT; lazy
+  conditionals; finite numbers and explicit coercion/date boundaries.
+- S4: forward/reverse edges, transactional validation, deterministic iterative
+  topology, transitive affected formulas only, static circular detection/recovery.
+- S5: version-1 typed in-memory snapshot/load rebuilding the graph, range/value/
+  formula facade and payload-free ChangeEvent seam. Byte encoding, durable storage
+  and actual shared-service integration remain deferred.
+
+The 19 tests under `tests/sheets-core/acceptance.rs` cover SHEETS-H01–H10 plus
+snapshot validation, identity retirement, graph-bound atomicity, observable
+formula failures, incremental-vs-rebuilt equivalence and malformed input on a
+small stack. SHEETS-H11 is checked from the exact base-to-source path diff;
+SHEETS-H12 requires immutable commit evidence, owner-branch push and clean tree.
+The owning State records the authoritative acceptance status and CI runs.
+
+Measurement is reproducible with the `measure` release example. The candidate
+Linux host observation inserted 100,000 sparse values in 56.080 ms, built a
+10,000-cell chain in 17.308 ms and recalculated its 9,999 formulas in 9.997 ms;
+an unrelated edit recalculated zero formulas. Python child-process rusage
+reported 41,784 KiB peak RSS. These are observations, not portable latency
+thresholds or target/runtime performance claims. Raw evidence is under
+`.dev/workstreams/sheets-calc-01/evidence/`.
+
+The existing `.github/workflows/0.2-host-integration.yml` already discovers
+`nagi-sheets-core` and runs fmt, warnings-denied Clippy and locked offline tests
+on Ubuntu and Windows. This workstream does not edit shared CI.

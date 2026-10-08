@@ -1,0 +1,124 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "sheets-calc-01",
+  "current_milestone": "Sheets Calculation Core Host Foundation S1-S5 / SHEETS-H01-H12",
+  "current_checkpoint": "BP-SBOM-HOST-20261008;S1-S5-and-H01-H11-host-pass;push-CI-pending",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "8682a4ba4b8e0b32e77e357b2bed0086637874d4",
+    "verified_at": "2026-10-08T13:45:08.498741Z",
+    "normal_state": "Codex implementation on the original assigned branch. S1-S5 and SHEETS-H01-H11 pass on immutable implementation commit 8682a4ba4b8e0b32e77e357b2bed0086637874d4. All 19 host tests, fmt, warning-denied Clippy, rustdoc and dev verifier pass. Only registered ownership paths changed. Typed in-memory snapshots are not durable storage. H12 remains pending push/clean tree/CI evidence. No guest/runtime or SHEETS-001-028 product acceptance claimed.",
+    "commands": [
+      "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml --all -- --check",
+      "cargo clippy --manifest-path crates/nagi-sheets-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline",
+      "cargo doc --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline --no-deps",
+      "./nagi dev verify",
+      "git diff --name-only cd871f905bd06ef406ccaa9f80c484f19158209f 8682a4ba4b8e0b32e77e357b2bed0086637874d4"
+    ],
+    "tests": [
+      {
+        "name": "format",
+        "command": "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml --all -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Full stdout/stderr and source SHA: evidence/format.txt"
+      },
+      {
+        "name": "clippy",
+        "command": "cargo clippy --manifest-path crates/nagi-sheets-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Full stdout/stderr and source SHA: evidence/clippy.txt"
+      },
+      {
+        "name": "host-tests",
+        "command": "cargo test --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Full stdout/stderr and source SHA: evidence/host-tests.txt"
+      },
+      {
+        "name": "rustdoc",
+        "command": "cargo doc --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline --no-deps",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Full stdout/stderr and source SHA: evidence/rustdoc.txt"
+      },
+      {
+        "name": "dev-verify",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Full stdout/stderr and source SHA: evidence/dev-verify.txt"
+      },
+      {
+        "name": "SHEETS-H11 ownership",
+        "command": "git diff --name-only cd871f905bd06ef406ccaa9f80c484f19158209f 8682a4ba4b8e0b32e77e357b2bed0086637874d4",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "evidence/ownership.json confirms only the four allowed path groups, with source SHA-256 digests."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": ".dev/workstreams.json; docs/0.2/WORKSTREAMS.md; BP-SBOM-HOST-20261008",
+    "last_checked_at": "2026-10-08T13:43:06.059057Z",
+    "activation_requirement": "Registered standalone host-only paths and tests are authorized before M30. Guest/runtime/UI/provider/shared SDK/workspace integration requires M30 PASS and explicit release/integration checkpoint."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": "Initial host lacked Cargo: installed pinned nightly in /tmp/nagi-sheets-tools. First test compile failed E0502 in snapshot test; split cloned duplicate from mutable push and reran successfully. Initial dev commands detected absent State; create this owned State then rerun. /usr/bin/time absent: use Python resource.getrusage around release measurement. Initial implementation commit log had a trailing empty line flagged by git diff --check; preserve full raw output and append an exit_code marker to verification logs.",
+    "attempted_fixes": [
+      "Install exact nightly-2025-08-01 with rustfmt/Clippy in task temporary directory.",
+      "Fix the test borrow without changing assertions.",
+      "Create registered owned State; no registry changes.",
+      "Measure release executable via Python resource and monotonic clock."
+    ],
+    "do_not_try": [
+      "Do not modify root Cargo, CI, Registry, kernel or other owners State.",
+      "Do not integrate guest/runtime/UI/providers or claim full SHEETS-001-028."
+    ]
+  },
+  "next_action": "Commit verified State/evidence, push claude/0.2-sheets-calc-01, wait for exact-SHA Ubuntu/Windows host CI, then record H12 and CI in State.",
+  "acceptance_criteria": [
+    "S1-S5 standalone typed sparse model, bounded AST, canonical functions, incremental graph/cycles/errors, typed snapshot and facade/event seam.",
+    "SHEETS-H01: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H02: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H03: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H04: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H05: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H06: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H07: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H08: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H09: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H10: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H11: acceptance as defined by the dedicated workstream specification.",
+    "SHEETS-H12: acceptance as defined by the dedicated workstream specification."
+  ],
+  "deferred": [
+    "Guest/runtime/UI/provider/permission wiring; root workspace and shared CI changes.",
+    "Full XLSX/CSV, charts, copy/fill relocation, named ranges, dynamic dependencies, iterative circular calculation.",
+    "Durable persistence/byte encoding, Activity/Wayback/Search delivery, agent edits.",
+    "Clock/date functions and full Excel/locale grammar compatibility."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "Registered ownership, durable state and dev verifier",
+      "version": "1",
+      "status": "Registration approved by BP-SBOM-HOST-20261008; verify owned State locally."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Existing nagi-model ObjectId and future sheets Action/session/revision adapter seam; no shared ABI edits",
+      "version": "0.1.0",
+      "status": "Use model ObjectId via path dependency; production Action adapter deferred."
+    }
+  ]
+}
