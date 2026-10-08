@@ -217,6 +217,7 @@ jobs:
               - 'third_party/llama-cpp-patches/**'
               - 'third_party/relibc/**'
               - 'kernel/src/syscall.rs'
+              - 'kernel/src/virtio.rs'
               - 'tools/libcxx/**'
               - 'tools/llama/**'
               - 'tools/nagi-cli/src/commands.rs'
