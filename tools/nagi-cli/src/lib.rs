@@ -13,6 +13,7 @@ pub(crate) mod hyper_util_servo;
 pub mod image;
 pub(crate) mod libc_servo;
 pub(crate) mod llama_cpp;
+pub(crate) mod llvm_libcxx;
 #[cfg(test)]
 mod m17_storage_contract_tests;
 pub(crate) mod m18_acceptance;

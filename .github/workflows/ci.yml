@@ -16,6 +16,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_m20:
+        description: Run the pinned Granite inference acceptance in Nagi/QEMU
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -163,6 +168,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       target_sensitive: ${{ steps.filter.outputs.target }}
+      m20_inference: ${{ steps.filter.outputs.m20 }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -205,6 +211,20 @@ jobs:
               - 'tests/acceptance/registry.tsv'
               - 'tests/acceptance/**'
               - 'docs/Nagi_OS_0.1_Codex_Implementation_Spec.md'
+            m20:
+              - 'third_party/models.lock'
+              - 'third_party/sources.lock'
+              - 'third_party/llama-cpp-patches/**'
+              - 'third_party/relibc/**'
+              - 'kernel/src/syscall.rs'
+              - 'kernel/src/virtio.rs'
+              - 'tools/libcxx/**'
+              - 'tools/llama/**'
+              - 'tools/nagi-cli/src/commands.rs'
+              - 'tools/nagi-cli/src/llama_cpp.rs'
+              - 'tools/nagi-cli/src/llvm_libcxx.rs'
+              - 'user/nagi-init/src/m20_granite.rs'
+              - 'user/nagi-model-manager/**'
   nagi-target:
     needs: [ubuntu-host, windows-launcher, target_classification]
     if: ${{ needs.target_classification.outputs.target_sensitive == 'true' || (github.event_name == 'workflow_dispatch' && inputs.run_target) }}
@@ -433,3 +453,54 @@ jobs:
             out/logs/m17-undefined-symbols.txt
             out/logs/m17-servo.log
           if-no-files-found: ignore
+
+  nagi-m20-inference:
+    needs: [ubuntu-host, windows-launcher, target_classification]
+    if: ${{ needs.target_classification.outputs.m20_inference == 'true' || (github.event_name == 'workflow_dispatch' && inputs.run_m20) }}
+    concurrency:
+      group: nagi-ci-m20-inference-${{ github.ref }}
+      cancel-in-progress: false
+    timeout-minutes: 360
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install M20 target and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm libc++-19-dev qemu-system-x86 qemu-utils ovmf cmake ninja-build python3 flex bison build-essential
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 190
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 190
+          sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-19 190
+      - name: Install pinned Rust toolchain and cbindgen
+        run: |
+          rustup toolchain install nightly-2025-08-01 --profile minimal --component rust-src
+          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
+          cargo install cbindgen --version 0.28.0 --locked
+      - name: Bootstrap pinned Servo source dependencies
+        run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked
+      - name: Download and verify pinned Granite artifact
+        run: |
+          mkdir -p out/cache/models
+          model_artifact=out/cache/models/granite-4.2-3b-Q4_K_M.gguf
+          curl --fail --location --retry 5 --retry-all-errors --continue-at - \
+            --output "$model_artifact" \
+            'https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/c40945d71cd90f249a56985e8155551a9188dc30/granite-4.2-3b-Q4_K_M.gguf?download=true'
+          echo 'e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5  out/cache/models/granite-4.2-3b-Q4_K_M.gguf' | sha256sum --check
+      - name: M20 real Granite inference in Nagi/QEMU
+        env:
+          NAGI_TARGET_CLANG: clang-19
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
+        run: ./nagi m20-granite-inference out/cache/models/granite-4.2-3b-Q4_K_M.gguf
+      - name: Upload M20 inference evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m20-granite-inference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            out/evidence/m20-granite-inference-*/
+            out/evidence/m20-granite-inference-target-*/
+            out/artifacts/nagi-0.1-m20-granite-inference-*.qcow2
+          if-no-files-found: ignore
+          compression-level: 0

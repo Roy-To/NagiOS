@@ -256,7 +256,8 @@ int nagi_m20_llama_generate(
             status = 5;
             break;
         }
-        llama_sampler_accept(sampler, token);
+        // llama_sampler_sample() accepts its selected token internally. A
+        // second accept advances constrained grammar state twice.
         *output_tokens = static_cast<uint32_t>(generated + 1);
         llama_token token_for_decode = token;
         llama_batch batch = llama_batch_get_one(&token_for_decode, 1);

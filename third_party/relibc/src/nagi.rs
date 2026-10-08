@@ -66,6 +66,9 @@ fabsl:
 "#
 );
 
+#[path = "nagi_locale.rs"]
+mod locale;
+
 unsafe extern "C" {
     fn nagi_posix_malloc(size: usize) -> *mut u8;
     fn nagi_posix_malloc_usable_size(pointer: *mut u8) -> usize;

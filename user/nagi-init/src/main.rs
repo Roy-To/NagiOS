@@ -551,8 +551,51 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
         }
         libnagi::console_write(b"Nagi M27 read-only VFS check PASS\r\n");
     }
-    let device = libnagi::storage::SyscallBlockDevice::new(block_capability);
-    let (mut volume, formatted) = libnagi::storage::Vfs::mount_or_format(device).ok()?;
+    let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
+    #[cfg(feature = "m20-llama-inference-acceptance")]
+    {
+        for (sector, pass, read_fail, write_fail) in [
+            (
+                2,
+                b"Nagi M20 User Data write probe PASS sector=2\r\n" as &'static [u8],
+                b"Nagi M20 User Data read probe FAIL sector=2\r\n" as &'static [u8],
+                b"Nagi M20 User Data write probe FAIL sector=2\r\n" as &'static [u8],
+            ),
+            (
+                3,
+                b"Nagi M20 User Data write probe PASS sector=3\r\n" as &'static [u8],
+                b"Nagi M20 User Data read probe FAIL sector=3\r\n" as &'static [u8],
+                b"Nagi M20 User Data write probe FAIL sector=3\r\n" as &'static [u8],
+            ),
+        ] {
+            let mut probe = [0_u8; libnagi::BLOCK_SECTOR_SIZE];
+            if libnagi::storage::ReadOnlyBlockDevice::read_sector(&mut device, sector, &mut probe)
+                .is_err()
+            {
+                libnagi::console_write(read_fail);
+                return None;
+            }
+            if libnagi::storage::BlockDevice::write_sector(&mut device, sector, &probe).is_err() {
+                libnagi::console_write(write_fail);
+                return None;
+            }
+            libnagi::console_write(pass);
+        }
+    }
+    let (mut volume, formatted) = match libnagi::storage::Vfs::mount_or_format(device) {
+        Ok(mounted) => mounted,
+        Err(error) => {
+            let detail: &[u8] = match error {
+                libnagi::storage::StorageError::Block => b"block I/O",
+                libnagi::storage::StorageError::Corrupt => b"corrupt volume metadata",
+                _ => b"other storage error",
+            };
+            libnagi::console_write(b"Nagi M20 User Data mount-or-format FAIL: ");
+            libnagi::console_write(detail);
+            libnagi::console_write(b"\r\n");
+            return None;
+        }
+    };
 
     if formatted {
         libnagi::console_write(static_message!(
@@ -1221,7 +1264,14 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi M20 relibc link FAIL\r\n");
             libnagi::exit(1);
         }
-        if exit_code != 0 || !m20_granite::run(model_store_capability) {
+        // M20 boots once on a fresh data disk: storage acceptance then
+        // formats, writes, and maps its file and returns 2 (reboot to verify
+        // persistence). Inference needs a working volume, not a second boot.
+        let storage_ready = exit_code == 0 || exit_code == 2;
+        if !storage_ready {
+            libnagi::console_write(b"Nagi M20 Granite stage FAIL: storage acceptance\r\n");
+        }
+        if !storage_ready || !m20_granite::run(model_store_capability) {
             libnagi::console_write(b"Nagi M20 Granite structured inference FAIL\r\n");
             libnagi::exit(1);
         }

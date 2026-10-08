@@ -1936,24 +1936,6 @@ fn execute_m20_granite_inference(
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
     };
-    let cxx_headers = match resolve_m20_cxx_headers(&target_clang) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
-    };
-    let relibc_headers = std::env::var_os("NAGI_RELIBC_HEADERS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            root.join("out/m17-mesa/relibc-target/x86_64-unknown-nagi-user/include")
-        });
-    if !relibc_headers.join("pthread.h").is_file() {
-        return failure(
-            EXIT_CONFIG_ERROR,
-            format!(
-                "m20-granite-inference: generated Nagi relibc headers are missing at {}; complete the target header generation first",
-                relibc_headers.display()
-            ),
-        );
-    }
     let llvm_bin = target_clang.parent().unwrap_or_else(|| Path::new("."));
     let llvm_ar = match resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin) {
         Ok(path) => path,
@@ -1963,6 +1945,60 @@ fn execute_m20_granite_inference(
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
     };
+
+    // ADR 0058: llama.cpp is compiled against, and linked with, the libc++
+    // built here from the pinned LLVM source and this tree's relibc headers.
+    let libcxx_source = match crate::llvm_libcxx::ensure_libcxx_source(root) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite-inference: pinned libc++ source: {error}"),
+            )
+        }
+    };
+    let libcxx_out = root.join("out/m20-libcxx");
+    let libcxx_log = target_evidence.join("libcxx-build.log");
+    let libcxx_output = ProcessCommand::new("bash")
+        .args(["tools/libcxx/build-nagi-target.sh"])
+        .current_dir(root)
+        .env("NAGI_LIBCXX_SOURCE", &libcxx_source)
+        .env("NAGI_LIBCXX_OUT", &libcxx_out)
+        .env("NAGI_TARGET_CLANG", &target_clang)
+        .env("NAGI_LLVM_AR", &llvm_ar)
+        .env("NAGI_LLVM_RANLIB", &llvm_ranlib)
+        .output();
+    let libcxx_output = match libcxx_output {
+        Ok(output) => output,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite-inference: cannot start the target libc++ build: {error}"),
+            )
+        }
+    };
+    if let Err(error) = fs::write(&libcxx_log, command_output(&libcxx_output)) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: cannot write {}: {error}",
+                libcxx_log.display()
+            ),
+        );
+    }
+    if !libcxx_output.status.success() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: target libc++ build failed ({}); log {}",
+                libcxx_output.status,
+                libcxx_log.display()
+            ),
+        );
+    }
+    let cxx_headers = libcxx_out.join("build/include/c++/v1");
+    let libcxx_archive = libcxx_out.join("build/lib/libc++.a");
+    let relibc_headers = libcxx_out.join("relibc-target/x86_64-unknown-nagi-user/include");
 
     let build_dir = target_evidence.join("target-build");
     let build_log = target_evidence.join("target-build.log");
@@ -2077,10 +2113,11 @@ fn execute_m20_granite_inference(
     if let Err(error) = fs::write(
         target_evidence.join("README.md"),
         format!(
-            "# M20 Granite inference target archives\n\nStatus: PASS\nPinned llama.cpp source: {}\nTarget archive directory: target-build\nTarget compiler: {}\nNagi C++ headers: {}\nNagi relibc headers: {}\nBuild log: target-build.log\nPrior generated target artifacts: pre-run-target-artifacts/\n",
+            "# M20 Granite inference target archives\n\nStatus: PASS\nPinned llama.cpp source: {}\nTarget archive directory: target-build\nTarget compiler: {}\nNagi C++ headers: {}\nNagi libc++ archive: {}\nNagi relibc headers: {}\nlibc++ build log: libcxx-build.log\nBuild log: target-build.log\nPrior generated target artifacts: pre-run-target-artifacts/\n",
             llama_source.display(),
             target_clang.display(),
             cxx_headers.display(),
+            libcxx_archive.display(),
             relibc_headers.display()
         ),
     ) {
@@ -2098,12 +2135,20 @@ fn execute_m20_granite_inference(
         ("NAGI_RELIBC_HEADERS", relibc_headers.as_path()),
         ("NAGI_LLVM_AR", llvm_ar.as_path()),
         ("NAGI_LLVM_RANLIB", llvm_ranlib.as_path()),
+        ("NAGI_LIBCXX_ARCHIVE", libcxx_archive.as_path()),
     ];
-    let evidence_inputs = [ModelStoreEvidenceInput {
-        environment: None,
-        source: &build_log,
-        evidence_name: "llama-target-build.log",
-    }];
+    let evidence_inputs = [
+        ModelStoreEvidenceInput {
+            environment: None,
+            source: &libcxx_log,
+            evidence_name: "libcxx-target-build.log",
+        },
+        ModelStoreEvidenceInput {
+            environment: None,
+            source: &build_log,
+            evidence_name: "llama-target-build.log",
+        },
+    ];
     let required_markers = ["Nagi M20 Granite structured inference PASS"];
     let early_exit_markers = [
         "Nagi M20 Model Store capability FAIL",

@@ -54,6 +54,10 @@ const USER_MMAP_PAGE_TABLES: usize = 256;
 ))]
 const USER_MMAP_PAGE_TABLES: usize = 128;
 pub const USER_MMAP_PAGES: usize = PAGE_TABLE_ENTRIES * USER_MMAP_PAGE_TABLES;
+/// Page directories beyond `pd` that the mmap window's page tables need;
+/// each covers the next 1 GiB PDPT slot after the user image directory.
+const MMAP_EXTRA_PD_COUNT: usize =
+    (((USER_MMAP_BASE >> 21) & 0x1ff) as usize + USER_MMAP_PAGE_TABLES - 1) / PAGE_TABLE_ENTRIES;
 pub const USER_MMAP_LIMIT: u64 = USER_MMAP_BASE + USER_MMAP_PAGES as u64 * PAGE_SIZE;
 pub const USER_SURFACE_LIMIT: u64 = USER_SURFACE_BASE + SURFACE_PAGE_COUNT as u64 * PAGE_SIZE;
 const USER_PML4_INDEX: usize = 128;
@@ -102,6 +106,7 @@ pub enum MmapUserFailureKind {
     NoContiguousRange,
     PageMappingFailure,
     ReservationAccountingFailure,
+    PhysicalMemoryExhausted,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -122,6 +127,7 @@ impl MmapUserFailure {
             MmapUserFailureKind::NoContiguousRange => b"no contiguous range",
             MmapUserFailureKind::PageMappingFailure => b"page mapping failure",
             MmapUserFailureKind::ReservationAccountingFailure => b"reservation accounting failure",
+            MmapUserFailureKind::PhysicalMemoryExhausted => b"physical memory exhausted",
         }
     }
 }
@@ -173,6 +179,9 @@ pub enum PrepareStage {
         page_count: usize,
     },
     UserContextReady,
+    MmapFramePoolReady {
+        frames: usize,
+    },
 }
 
 #[repr(C, align(4096))]
@@ -189,10 +198,7 @@ pub(crate) struct BootstrapStorage {
     pub(crate) pml4: PageTable,
     pdpt: PageTable,
     pd: PageTable,
-    #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
-    mmap_pd_extra: PageTable,
-    #[cfg(feature = "m25-whisper-memory")]
-    mmap_pd_extra2: PageTable,
+    mmap_extra_pds: [PageTable; MMAP_EXTRA_PD_COUNT],
     pub(crate) image_pt: PageTable,
     image_extra_pts: [PageTable; USER_IMAGE_PAGE_TABLE_COUNT - 1],
     pub(crate) stack_pt: PageTable,
@@ -204,7 +210,12 @@ pub(crate) struct BootstrapStorage {
     stack_pages: [PageBytes; USER_STACK_PAGES],
     tls_pages: [PageBytes; USER_TLS_PAGE_COUNT],
     tls_initial_page: PageBytes,
-    mmap_pages: [PageBytes; USER_MMAP_PAGES],
+    /// Physical frame backing each mmap window page (0 = none). Frames come
+    /// from `mmap_free_frames`, which `prepare` fills from the boot page
+    /// allocator, so the window can exceed the kernel's static image.
+    mmap_frames: [u64; USER_MMAP_PAGES],
+    mmap_free_frames: [u64; USER_MMAP_PAGES],
+    mmap_free_frame_count: usize,
     mmap_page_owners: [u8; USER_MMAP_PAGES],
     mmap_reservations: [Option<MmapReservation>; MAX_MMAP_RESERVATIONS],
 }
@@ -215,10 +226,7 @@ impl BootstrapStorage {
             pml4: PageTable::empty(),
             pdpt: PageTable::empty(),
             pd: PageTable::empty(),
-            #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
-            mmap_pd_extra: PageTable::empty(),
-            #[cfg(feature = "m25-whisper-memory")]
-            mmap_pd_extra2: PageTable::empty(),
+            mmap_extra_pds: [const { PageTable::empty() }; MMAP_EXTRA_PD_COUNT],
             image_pt: PageTable::empty(),
             image_extra_pts: [const { PageTable::empty() }; USER_IMAGE_PAGE_TABLE_COUNT - 1],
             stack_pt: PageTable::empty(),
@@ -230,7 +238,9 @@ impl BootstrapStorage {
             stack_pages: [const { PageBytes::zeroed() }; USER_STACK_PAGES],
             tls_pages: [const { PageBytes::zeroed() }; USER_TLS_PAGE_COUNT],
             tls_initial_page: PageBytes::zeroed(),
-            mmap_pages: [const { PageBytes::zeroed() }; USER_MMAP_PAGES],
+            mmap_frames: [0; USER_MMAP_PAGES],
+            mmap_free_frames: [0; USER_MMAP_PAGES],
+            mmap_free_frame_count: 0,
             mmap_page_owners: [0; USER_MMAP_PAGES],
             mmap_reservations: [None; MAX_MMAP_RESERVATIONS],
         }
@@ -240,10 +250,9 @@ impl BootstrapStorage {
         self.pml4.clear();
         self.pdpt.clear();
         self.pd.clear();
-        #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
-        self.mmap_pd_extra.clear();
-        #[cfg(feature = "m25-whisper-memory")]
-        self.mmap_pd_extra2.clear();
+        for table in &mut self.mmap_extra_pds {
+            table.clear();
+        }
         self.image_pt.clear();
         for table in &mut self.image_extra_pts {
             table.clear();
@@ -265,9 +274,8 @@ impl BootstrapStorage {
             page.0.fill(0);
         }
         self.tls_initial_page.0.fill(0);
-        for page in &mut self.mmap_pages {
-            page.0.fill(0);
-        }
+        self.mmap_frames.fill(0);
+        self.mmap_free_frame_count = 0;
         self.mmap_page_owners.fill(0);
         self.mmap_reservations.fill(None);
     }
@@ -358,6 +366,9 @@ pub fn prepare_with_progress(
     };
     if result.is_ok() {
         CURRENT_IMAGE_PAGES.store(image_pages(&plan), Ordering::Release);
+        let storage = unsafe { &mut *BOOTSTRAP_STORAGE.0.get() };
+        let frames = fill_mmap_frame_pool(storage, allocator, active_cr3);
+        progress(PrepareStage::MmapFramePoolReady { frames });
     }
     if result.is_err() {
         BOOTSTRAP_IN_USE.store(false, Ordering::Release);
@@ -377,10 +388,10 @@ pub fn current_image_pages() -> usize {
 }
 
 /// Map a bounded anonymous VMO-backed region into the active bootstrap
-/// address space.  The bootstrap process uses statically owned, page-aligned
-/// backing pages until the general process VM service is introduced; the
-/// page-table and protection semantics are the same capability boundary used
-/// by the native VMO tests.
+/// address space.  The bootstrap process backs it with zeroed physical frames
+/// from the pool `prepare` reserves (ADR 0059) until the general process VM
+/// service is introduced; the page-table and protection semantics are the
+/// same capability boundary used by the native VMO tests.
 pub fn mmap_user(length: u64, protection: u64) -> Option<u64> {
     mmap_user_with_diagnostics(length, protection).ok()
 }
@@ -419,12 +430,18 @@ fn mmap_user_in_storage(
             Some(storage),
         ));
     };
-    for page in start_page..start_page + page_count {
-        storage.mmap_pages[page].0.fill(0);
+    if !assign_mmap_frames(storage, start_page, page_count) {
+        return Err(mmap_user_failure(
+            MmapUserFailureKind::PhysicalMemoryExhausted,
+            length,
+            protection,
+            Some(storage),
+        ));
     }
     if protection != PROT_NONE && !remap_mmap_pages(storage, start_page, page_count, protection) {
         unmap_mmap_pages(storage, start_page, page_count);
         invalidate_mmap_pages(start_page, page_count);
+        release_mmap_frames(storage, start_page, page_count);
         return Err(mmap_user_failure(
             MmapUserFailureKind::PageMappingFailure,
             length,
@@ -441,6 +458,7 @@ fn mmap_user_in_storage(
     ) {
         unmap_mmap_pages(storage, start_page, page_count);
         invalidate_mmap_pages(start_page, page_count);
+        release_mmap_frames(storage, start_page, page_count);
         return Err(mmap_user_failure(
             MmapUserFailureKind::ReservationAccountingFailure,
             length,
@@ -694,7 +712,59 @@ fn munmap_mmap_range(storage: &mut BootstrapStorage, start_page: usize, page_cou
         return false;
     }
     unmap_mmap_pages(storage, start_page, page_count);
+    release_mmap_frames(storage, start_page, page_count);
     true
+}
+
+/// Move physical frames from the boot allocator into the mmap frame pool.
+/// Only frames the active address space identity-maps are accepted, since
+/// the kernel zeroes them through that mapping. The allocator has no other
+/// user after the bootstrap process is prepared.
+fn fill_mmap_frame_pool(
+    storage: &mut BootstrapStorage,
+    allocator: &mut PageAllocator,
+    active_cr3: u64,
+) -> usize {
+    while storage.mmap_free_frame_count < USER_MMAP_PAGES {
+        let Some(frame) = allocator.allocate_page() else {
+            break;
+        };
+        if unsafe { identity_mapped(active_cr3, frame, PAGE_SIZE) } {
+            storage.mmap_free_frames[storage.mmap_free_frame_count] = frame;
+            storage.mmap_free_frame_count += 1;
+        }
+    }
+    storage.mmap_free_frame_count
+}
+
+/// Give every page of a newly reserved range a zeroed frame, or none.
+fn assign_mmap_frames(
+    storage: &mut BootstrapStorage,
+    start_page: usize,
+    page_count: usize,
+) -> bool {
+    if storage.mmap_free_frame_count < page_count {
+        return false;
+    }
+    for page in start_page..start_page + page_count {
+        storage.mmap_free_frame_count -= 1;
+        let frame = storage.mmap_free_frames[storage.mmap_free_frame_count];
+        // Pool frames are identity mapped (checked when the pool is filled).
+        unsafe { ptr::write_bytes(frame as *mut u8, 0, PAGE_SIZE as usize) };
+        storage.mmap_frames[page] = frame;
+    }
+    true
+}
+
+/// Return the frames of released pages to the pool.
+fn release_mmap_frames(storage: &mut BootstrapStorage, start_page: usize, page_count: usize) {
+    for page in start_page..start_page + page_count {
+        let frame = core::mem::replace(&mut storage.mmap_frames[page], 0);
+        if frame != 0 {
+            storage.mmap_free_frames[storage.mmap_free_frame_count] = frame;
+            storage.mmap_free_frame_count += 1;
+        }
+    }
 }
 
 pub const fn user_tls_control_base(thread_id: usize) -> Option<u64> {
@@ -782,9 +852,10 @@ fn remap_mmap_pages(
     protection: u64,
 ) -> bool {
     for page in start_page..start_page + page_count {
-        let Some(physical) = page_address(&storage.mmap_pages[page]).ok() else {
+        let physical = storage.mmap_frames[page];
+        if physical == 0 {
             return false;
-        };
+        }
         let Some(entry) = PageTableEntry::new(physical, mmap_page_flags(protection)) else {
             return false;
         };
@@ -1413,29 +1484,20 @@ fn map_hierarchy(storage: &mut BootstrapStorage) -> Result<(), UserProcessError>
     let hierarchy_flags = PageTableEntry::PRESENT | PageTableEntry::WRITABLE | PageTableEntry::USER;
     let pdpt = table_address(&storage.pdpt)?;
     let pd = table_address(&storage.pd)?;
-    #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
-    let mmap_pd_extra = table_address(&storage.mmap_pd_extra)?;
-    #[cfg(feature = "m25-whisper-memory")]
-    let mmap_pd_extra2 = table_address(&storage.mmap_pd_extra2)?;
     let stack_pt = table_address(&storage.stack_pt)?;
     let tls_pt = table_address(&storage.tls_pt)?;
     let surface_pt = table_address(&storage.surface_pt)?;
     map_leaf(&mut storage.pml4, USER_PML4_INDEX, pdpt, hierarchy_flags)?;
     map_leaf(&mut storage.pdpt, USER_PDPT_INDEX, pd, hierarchy_flags)?;
-    #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
-    map_leaf(
-        &mut storage.pdpt,
-        USER_PDPT_INDEX + 1,
-        mmap_pd_extra,
-        hierarchy_flags,
-    )?;
-    #[cfg(feature = "m25-whisper-memory")]
-    map_leaf(
-        &mut storage.pdpt,
-        USER_PDPT_INDEX + 2,
-        mmap_pd_extra2,
-        hierarchy_flags,
-    )?;
+    for extra in 0..MMAP_EXTRA_PD_COUNT {
+        let extra_pd = table_address(&storage.mmap_extra_pds[extra])?;
+        map_leaf(
+            &mut storage.pdpt,
+            USER_PDPT_INDEX + 1 + extra,
+            extra_pd,
+            hierarchy_flags,
+        )?;
+    }
     for table_index in 0..USER_IMAGE_PAGE_TABLE_COUNT {
         let image_pt = table_address(image_page_table(storage, table_index)?)?;
         map_leaf(
@@ -1468,26 +1530,18 @@ fn map_hierarchy(storage: &mut BootstrapStorage) -> Result<(), UserProcessError>
         let pd_index = user_pd_index(USER_MMAP_BASE) + table_index;
         if pd_index < PAGE_TABLE_ENTRIES {
             map_leaf(&mut storage.pd, pd_index, mmap_pt, hierarchy_flags)?;
-        } else if pd_index < 2 * PAGE_TABLE_ENTRIES {
-            #[cfg(any(feature = "m18-browser-memory", feature = "m25-whisper-memory"))]
-            map_leaf(
-                &mut storage.mmap_pd_extra,
-                pd_index - PAGE_TABLE_ENTRIES,
-                mmap_pt,
-                hierarchy_flags,
-            )?;
-            #[cfg(not(any(feature = "m18-browser-memory", feature = "m25-whisper-memory")))]
-            return Err(UserProcessError::InvalidLoadPlan);
         } else {
-            #[cfg(feature = "m25-whisper-memory")]
+            let extra = pd_index / PAGE_TABLE_ENTRIES - 1;
+            let table = storage
+                .mmap_extra_pds
+                .get_mut(extra)
+                .ok_or(UserProcessError::InvalidLoadPlan)?;
             map_leaf(
-                &mut storage.mmap_pd_extra2,
-                pd_index - 2 * PAGE_TABLE_ENTRIES,
+                table,
+                pd_index % PAGE_TABLE_ENTRIES,
                 mmap_pt,
                 hierarchy_flags,
             )?;
-            #[cfg(not(feature = "m25-whisper-memory"))]
-            return Err(UserProcessError::InvalidLoadPlan);
         }
     }
     Ok(())
@@ -1858,11 +1912,19 @@ mod tests {
         register_mmap_reservation, release_mmap_range_owners, remap_mmap_pages,
         reset_child_tls_pages, user_tls_control_base, validate_mmap_request, BootstrapStorage,
         MmapReservation, MmapUserFailureKind, UserProcessError, MAX_MMAP_RESERVATIONS,
-        USER_MMAP_BASE, USER_MMAP_LIMIT, USER_MMAP_PAGES, USER_MMAP_PAGE_TABLES, USER_PDPT_INDEX,
-        USER_STACK_BASE, USER_STACK_LIMIT, USER_STACK_PAGES, USER_SURFACE_LIMIT, USER_TLS_BASE,
-        USER_TLS_CHILD_CONTROL_BASE, USER_TLS_CONTROL_BASE, USER_TLS_LIMIT, USER_TLS_PAGE_COUNT,
-        USER_TLS_THREAD_SLOT_COUNT,
+        MMAP_EXTRA_PD_COUNT, USER_MMAP_BASE, USER_MMAP_LIMIT, USER_MMAP_PAGES,
+        USER_MMAP_PAGE_TABLES, USER_PDPT_INDEX, USER_STACK_BASE, USER_STACK_LIMIT,
+        USER_STACK_PAGES, USER_SURFACE_LIMIT, USER_TLS_BASE, USER_TLS_CHILD_CONTROL_BASE,
+        USER_TLS_CONTROL_BASE, USER_TLS_LIMIT, USER_TLS_PAGE_COUNT, USER_TLS_THREAD_SLOT_COUNT,
     };
+
+    /// Back mmap pages with distinct, never-dereferenced frame addresses so
+    /// page-table tests can map them.
+    fn give_test_frames(storage: &mut BootstrapStorage, start_page: usize, page_count: usize) {
+        for page in start_page..start_page + page_count {
+            storage.mmap_frames[page] = 0x4000_0000 + page as u64 * PAGE_SIZE;
+        }
+    }
 
     fn boxed_storage() -> Box<BootstrapStorage> {
         let mut allocation = Box::<BootstrapStorage>::new_uninit();
@@ -1923,35 +1985,40 @@ mod tests {
         let first_pd_index = super::user_pd_index(USER_MMAP_BASE);
         let last_pd_index = first_pd_index + USER_MMAP_PAGE_TABLES - 1;
         assert!(storage.pd.raw_entry(first_pd_index).is_some());
-        if cfg!(feature = "m25-whisper-memory") {
-            assert_eq!(last_pd_index, 2 * PAGE_TABLE_ENTRIES + 3);
-            assert!(storage.pd.raw_entry(PAGE_TABLE_ENTRIES - 1).is_some());
-            #[cfg(feature = "m25-whisper-memory")]
-            {
-                assert!(storage.pdpt.raw_entry(USER_PDPT_INDEX + 1).is_some());
-                assert!(storage.pdpt.raw_entry(USER_PDPT_INDEX + 2).is_some());
-                assert!(storage.mmap_pd_extra.raw_entry(0).is_some());
-                assert!(storage
-                    .mmap_pd_extra
-                    .raw_entry(PAGE_TABLE_ENTRIES - 1)
-                    .is_some());
-                assert!(storage.mmap_pd_extra2.raw_entry(0).is_some());
-                assert!(storage.mmap_pd_extra2.raw_entry(3).is_some());
-            }
+        assert_eq!(MMAP_EXTRA_PD_COUNT, last_pd_index / PAGE_TABLE_ENTRIES);
+        if cfg!(feature = "m20-llama-memory") {
+            assert_eq!(MMAP_EXTRA_PD_COUNT, 4);
+        } else if cfg!(feature = "m25-whisper-memory") {
+            assert_eq!(MMAP_EXTRA_PD_COUNT, 2);
         } else if cfg!(feature = "m18-browser-memory") {
-            assert_eq!(last_pd_index, PAGE_TABLE_ENTRIES + 3);
-            assert!(storage.pd.raw_entry(PAGE_TABLE_ENTRIES - 1).is_some());
-            #[cfg(feature = "m18-browser-memory")]
-            {
-                assert!(storage.pdpt.raw_entry(USER_PDPT_INDEX + 1).is_some());
-                assert!(storage.mmap_pd_extra.raw_entry(0).is_some());
-                assert!(storage.mmap_pd_extra.raw_entry(3).is_some());
-            }
+            assert_eq!(MMAP_EXTRA_PD_COUNT, 1);
         } else {
-            assert!(last_pd_index < PAGE_TABLE_ENTRIES);
-            assert!(storage.pd.raw_entry(last_pd_index).is_some());
-            assert!(storage.pdpt.raw_entry(USER_PDPT_INDEX + 1).is_none());
+            assert_eq!(MMAP_EXTRA_PD_COUNT, 0);
         }
+        for extra in 0..MMAP_EXTRA_PD_COUNT {
+            assert!(storage
+                .pdpt
+                .raw_entry(USER_PDPT_INDEX + 1 + extra)
+                .is_some());
+        }
+        assert!(storage
+            .pdpt
+            .raw_entry(USER_PDPT_INDEX + 1 + MMAP_EXTRA_PD_COUNT)
+            .is_none());
+        let last_pd = if last_pd_index < PAGE_TABLE_ENTRIES {
+            &storage.pd
+        } else {
+            &storage.mmap_extra_pds[last_pd_index / PAGE_TABLE_ENTRIES - 1]
+        };
+        assert!(last_pd
+            .raw_entry(last_pd_index % PAGE_TABLE_ENTRIES)
+            .is_some());
+        assert!(
+            last_pd_index % PAGE_TABLE_ENTRIES == PAGE_TABLE_ENTRIES - 1
+                || last_pd
+                    .raw_entry(last_pd_index % PAGE_TABLE_ENTRIES + 1)
+                    .is_none()
+        );
     }
 
     #[test]
@@ -1984,7 +2051,7 @@ mod tests {
 
     #[test]
     fn mmap_first_fit_uses_free_page_ownership() {
-        let mut page_owners = [0; USER_MMAP_PAGES];
+        let mut page_owners = Box::new([0; USER_MMAP_PAGES]);
         page_owners[0..4].fill(1);
         page_owners[8..12].fill(2);
 
@@ -2051,7 +2118,7 @@ mod tests {
 
     #[test]
     fn mmap_partial_unmap_keeps_exact_live_fragments_and_reuses_reservation_slot() {
-        let mut page_owners = [0; USER_MMAP_PAGES];
+        let mut page_owners = Box::new([0; USER_MMAP_PAGES]);
         let mut reservations = [None; MAX_MMAP_RESERVATIONS];
         assert!(register_mmap_reservation(
             &mut page_owners,
@@ -2141,7 +2208,7 @@ mod tests {
 
     #[test]
     fn mmap_ranges_span_adjacent_reservations_and_reject_holes_atomically() {
-        let mut page_owners = [0; USER_MMAP_PAGES];
+        let mut page_owners = Box::new([0; USER_MMAP_PAGES]);
         let mut reservations = [None; MAX_MMAP_RESERVATIONS];
         assert!(register_mmap_reservation(
             &mut page_owners,
@@ -2172,7 +2239,7 @@ mod tests {
             "exact remap may not combine adjacent reservation identities"
         );
 
-        let owners_before = page_owners;
+        let owners_before = page_owners.clone();
         let reservations_before = reservations;
         assert!(!release_mmap_range_owners(
             &mut page_owners,
@@ -2196,7 +2263,7 @@ mod tests {
 
     #[test]
     fn mmap_ownership_is_independent_of_present_pte_state() {
-        let mut page_owners = [0; USER_MMAP_PAGES];
+        let mut page_owners = Box::new([0; USER_MMAP_PAGES]);
         let mut reservations = [None; MAX_MMAP_RESERVATIONS];
         assert!(register_mmap_reservation(
             &mut page_owners,
@@ -2231,6 +2298,7 @@ mod tests {
             122,
             2,
         ));
+        give_test_frames(&mut storage, 120, 4);
         assert!(remap_mmap_pages(
             &mut storage,
             120,
@@ -2288,6 +2356,7 @@ mod tests {
             130,
             2,
         ));
+        give_test_frames(&mut storage, 128, 4);
         assert!(remap_mmap_pages(
             &mut storage,
             128,

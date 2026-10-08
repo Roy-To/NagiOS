@@ -21,7 +21,10 @@ const LEGACY_GUEST_FEATURES: u16 = 0x04;
 const QUEUE_SIZE: usize = 256;
 const QUEUE_USED_RING_OFFSET: usize = 8192;
 const QUEUE_AVAILABLE_END: usize = 4614;
-const MAX_REQUEST_SPINS: usize = 5_000_000;
+// The first User Data write in M20 allocates QCOW2 metadata for a sparse,
+// high-LBA extent. Older QEMU TCG may need longer to complete that request;
+// keep polling bounded while allowing the reference VM to finish it.
+const MAX_REQUEST_SPINS: usize = 100_000_000;
 const STATUS_ACKNOWLEDGE: u8 = 1;
 const STATUS_DRIVER: u8 = 2;
 const STATUS_DRIVER_OK: u8 = 4;
