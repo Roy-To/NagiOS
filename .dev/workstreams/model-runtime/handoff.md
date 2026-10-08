@@ -166,3 +166,18 @@ this delegated thread. Main merge remains prohibited. The historical
 automatic-review denials above are preserved as evidence, but no longer
 represent the current authorization. Publication proceeds through the already
 connected RT-NISH account without changing credentials or privileges.
+
+### Published draft and cooperative-reader follow-up
+
+Draft PR: https://github.com/RT-NISH/NagiOS/pull/37. Initial remote commit
+`b64bbd49cf3563eb6d880c904464e4f9ec5fc120` has exactly the verified local tree.
+The cloud command environment and remote draft were rechecked after a
+disconnection notice: commands succeeded, worktree clean, PR open/draft and
+mergeable. Main remains unmerged.
+
+The production-only sector reader now yields before its first read and after
+at most 128 sectors. This also covers FAT32 directory/cluster-chain walks
+inside a single artifact operation, where the outer request checkpoint cannot
+yield yet. Exact Nagi-target leaf Clippy and init format passed again; guest
+latency remains unmeasured. The existing acceptance reader/backend is unchanged
+by this follow-up.

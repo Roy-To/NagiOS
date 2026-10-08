@@ -27,7 +27,10 @@ const LIMITS: ModelServiceLimits = ModelServiceLimits {
     max_request_millis: 15 * 60 * 1000,
 };
 
-pub struct ReadOnlyModelStore(u64);
+pub struct ReadOnlyModelStore {
+    capability: u64,
+    sectors_until_yield: u8,
+}
 
 impl ModelStoreSectorReader for ReadOnlyModelStore {
     fn read_sector(
@@ -35,7 +38,15 @@ impl ModelStoreSectorReader for ReadOnlyModelStore {
         sector: u64,
         destination: &mut [u8; FAT32_SECTOR_SIZE],
     ) -> Result<(), ArtifactReadError> {
-        libnagi::block_read(self.0, sector, destination)
+        // FAT32 directory and cluster-chain walks can perform many sector
+        // reads inside one artifact operation. Keep those walks cooperative
+        // too, with the same 64 KiB scale as the outer artifact checkpoints.
+        if self.sectors_until_yield == 0 {
+            let _ = libnagi::thread_yield();
+            self.sectors_until_yield = 128;
+        }
+        self.sectors_until_yield -= 1;
+        libnagi::block_read(self.capability, sector, destination)
             .then_some(())
             .ok_or(ArtifactReadError::Unavailable)
     }
@@ -50,7 +61,10 @@ impl ModelArtifactSource for GuestArtifacts {
     fn open(&mut self, manifest: &ModelManifest) -> Result<Self::Reader, RuntimeError> {
         let ArtifactReference::ModelStore { artifact_id } = &manifest.artifact.reference;
         Fat32ArtifactReader::open(
-            ReadOnlyModelStore(self.model_store_capability),
+            ReadOnlyModelStore {
+                capability: self.model_store_capability,
+                sectors_until_yield: 0,
+            },
             MODEL_STORE_SECTORS,
             artifact_id.clone(),
         )

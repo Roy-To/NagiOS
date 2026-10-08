@@ -6,9 +6,9 @@
   "current_checkpoint": "lazy-resident-service-and-session-bound-guest-leaf",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "f66f18d3eb3e873194475c1e4e059f1a6a4a9dd6",
-    "verified_at": "2026-10-08T22:23:44.773544Z",
-    "normal_state": "Nagi 0.1 delegated leaf implementation on codex/0.1-session-model-service, base edad2e7. Added ResidentModelRuntime, LazyModelService and SessionModelService reusing the proven Granite target backend. 102 Model Manager/AI host tests and 3 live Session-binding host tests PASS; Nagi target leaf compile/Clippy and format PASS. Shared normal-startup/feature/linking/Nagi Bar integration remains proposed, not applied. No cached model weights, host inference, new model download, isolated AI process or normal-session guest response is claimed. M20/M23/M26 remain PARTIAL.",
+    "commit_sha": "edcc5bc187b64cc5123845819dd18c79c971caba",
+    "verified_at": "2026-10-08T23:24:11.207804+00:00",
+    "normal_state": "Nagi 0.1 delegated leaf implementation on codex/0.1-session-model-service, base edad2e7. Added ResidentModelRuntime, LazyModelService and SessionModelService reusing the proven Granite target backend. 102 Model Manager/AI host tests and 3 live Session-binding host tests PASS; Nagi target leaf compile/Clippy and format PASS. Shared normal-startup/feature/linking/Nagi Bar integration remains proposed, not applied. No cached model weights, host inference, new model download, isolated AI process or normal-session guest response is claimed. M20/M23/M26 remain PARTIAL. Follow-up: the production-only Model Store reader yields before its first read and at most every 128 sectors, including FAT32 directory/cluster traversal. Exact target leaf Clippy and init format PASS again at edcc5bc187b64cc5123845819dd18c79c971caba. Existing host-test code is unchanged; the 105 host results above remain baseline evidence. Published draft PR #37 at b64bbd49cf3563eb6d880c904464e4f9ec5fc120 has Ubuntu/Windows host PASS; target and existing Granite regression are in progress. Follow-up publication/CI is pending.",
     "commands": [
       "cargo test --locked --offline -p nagi-model-manager -p nagi-ai",
       "cargo clippy --locked --offline -p nagi-model-manager --all-targets -- -D warnings",
@@ -83,9 +83,25 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "29 registered workstreams and 20 state files validated on codex/0.1-session-model-service at f66f18d3eb3e873194475c1e4e059f1a6a4a9dd6. Shared Registry unchanged."
+      },
+      {
+        "name": "cooperative-model-store-reader",
+        "command": "cargo clippy --locked --offline --manifest-path tests/model-session-service/Cargo.toml --features granite-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Follow-up exact production/acceptance leaf compile and init format PASS. Production sector reader now yields before first sector and every 128 reads so FAT32 walks cannot monopolize the cooperative guest worker between artifact callbacks. No guest timing measured. Evidence: .dev/workstreams/model-runtime/evidence/session-service-reader-cooperate.txt"
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 37857723296,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37857723296",
+        "head_sha": "b64bbd49cf3563eb6d880c904464e4f9ec5fc120",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Draft PR #37: Ubuntu host, Windows launcher and target classification PASS. Nagi target and dedicated real Granite inference regression are running. This run precedes the production-only cooperative-sector-reader follow-up."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "Direct user approval in this delegated thread: publish codex/0.1-session-model-service, create draft PR and fix CI; main merge prohibited.",
@@ -116,7 +132,7 @@
       "Do not overwrite another owner branch, merge/main-push/release, reopen Mac work or activate 0.2/0.3."
     ]
   },
-  "next_action": "Publish the exact committed tree to the authorized dedicated branch using the connected RT-NISH account, create a draft PR, inspect CI and fix owned-leaf failures. Return remote links and the exact interface to the parent/shared wiring owner. Do not merge main. Normal-session guest acceptance remains PARTIAL.",
+  "next_action": "Publish the tested production-only cooperative-reader follow-up on existing draft PR #37 and inspect CI, fixing owned-leaf failures. Do not create a duplicate PR or merge main. Shared startup/feature/linking/Nagi Bar wiring and normal-session guest acceptance remain PARTIAL.",
   "acceptance_criteria": [
     "Constructor performs no artifact reads or target library/model load.",
     "Declared capability/role selects the configured Granite model; unsupported manual preference fails.",
