@@ -5456,7 +5456,9 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
     let files_search_after_restart = files_ui_search.clone();
     let mut open_password_change = Vec::new();
     open_password_change.push("@screenshot:files-search.png".to_owned());
-    for key in ["tab", "tab", "ret", "tab", "tab", "ret"] {
+    // The production Files Search build enables consent, so Settings gains a
+    // Permissions entry before Password: one extra tab reaches Password.
+    for key in ["tab", "tab", "ret", "tab", "tab", "tab", "ret"] {
         open_password_change.extend(qmp_typed_keys("", key));
     }
     // Submit a syntactically valid password change with the wrong current
