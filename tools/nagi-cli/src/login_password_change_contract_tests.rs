@@ -20,7 +20,8 @@ fn login_acceptance_changes_the_password_and_checks_it_after_restart() {
         .expect("login acceptance runner end");
     let login = &commands[start..end];
 
-    assert!(login.contains("Some(\"desktop-password-change-acceptance\")"));
+    // ADR 0069: the login image also bundles the signed Files Search client.
+    assert!(login.contains("\"desktop-password-change-acceptance,m19-files-search-production\""));
     assert!(login.contains("\"password-change\""));
     assert!(login.contains("\"verify-password\""));
     for event in [

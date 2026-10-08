@@ -13,6 +13,12 @@ pub const PROTOCOL_ID: u16 = 0x5352;
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const OPCODE_SEARCH: u16 = 1;
 pub const OPCODE_RESULTS: u16 = 2;
+/// First-party one-shot clients relay the decoded result set to init so the
+/// OS can compare it with the service response before presenting ObjectIds.
+pub const OPCODE_RESULT_RELAY: u16 = 3;
+/// Cancel a one-shot client before it receives a query (for example after a
+/// missing or denied live grant).
+pub const OPCODE_ABORT: u16 = 4;
 
 /// Request layout: `[kind u8][text_len u8][text UTF-8 ...]`.
 pub const MAX_QUERY_TEXT: usize = MAX_CHANNEL_INLINE_PAYLOAD - 2;

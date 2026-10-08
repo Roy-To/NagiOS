@@ -63,11 +63,14 @@ m27-recovery-undo-acceptance = ["m27-recovery"]
 m29-settings-acceptance = ["m10-desktop"]
 # ADR 0060: the desktop's OS-owned consent dialog answers a signed
 # acceptance application's grant request; needs NAGI_ACCEPTANCE_PACKAGES.
-consent-dialog-acceptance = ["m10-desktop"]
+consent-dialog = ["m10-desktop"]
+consent-dialog-acceptance = ["consent-dialog"]
 # ADR 0063: first-run owner account and lock-screen sign-in before the
 # desktop and its readiness report.
 desktop-login = ["m10-desktop", "m19-runtime"]
 desktop-login-acceptance = ["desktop-login"]
+# ADR 0069: route normal Files panel searches through one signed product client.
+m19-files-search-production = ["desktop-login", "consent-dialog", "dep:nagi-search-ipc"]
 # ADR 0066: keep the login acceptance input loop active until a password
 # change is saved, so the host can verify the persisted credential on reboot.
 desktop-password-change-acceptance = ["desktop-login-acceptance"]

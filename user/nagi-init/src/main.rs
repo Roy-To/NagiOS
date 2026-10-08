@@ -107,9 +107,9 @@ mod action_ipc;
     ))
 ))]
 mod boot;
-#[cfg(all(target_os = "nagi", feature = "consent-dialog-acceptance"))]
+#[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
 mod consent_dialog;
-#[cfg(all(target_os = "nagi", feature = "consent-dialog-acceptance"))]
+#[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
 mod consent_settings;
 #[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
 mod desktop;
@@ -129,6 +129,8 @@ mod m14_audio;
 mod m15_history;
 #[cfg(all(target_os = "nagi", feature = "m16-package"))]
 mod m16_package;
+#[cfg(all(target_os = "nagi", feature = "m19-files-search-production"))]
+mod m19_files_client;
 #[cfg(all(
     target_os = "nagi",
     feature = "m19-runtime",
@@ -179,12 +181,16 @@ mod shell;
         feature = "isolated-process-acceptance",
         feature = "m19-search-ipc",
         feature = "m19-runtime",
-        feature = "consent-dialog-acceptance"
+        feature = "consent-dialog"
     )
 ))]
 // The consent dialog acceptance uses only the launch and consent paths.
 #[cfg_attr(
-    not(any(feature = "isolated-process-acceptance", feature = "m19-search-ipc")),
+    not(any(
+        feature = "isolated-process-acceptance",
+        feature = "m19-search-ipc",
+        feature = "m19-files-search-production"
+    )),
     allow(dead_code)
 )]
 mod supervisor;

@@ -7,7 +7,7 @@ use libnagi::{DisplayInfo, InputEvent};
 use crate::ui::{Painter, Rect};
 use nagi_ui::{color, ColorRole, ThemeMode};
 
-type UserDataVolume = Vfs<SyscallBlockDevice>;
+pub(super) type UserDataVolume = Vfs<SyscallBlockDevice>;
 
 const SYSTEM_LANGUAGE_PATH: &[u8] = b"system-language";
 
@@ -32,19 +32,19 @@ const FOCUS: u32 = color(PREVIEW_THEME, ColorRole::Focus).to_pixel();
 const SETTINGS_BUTTON: Rect = Rect::new(252, 1, 66, 18);
 /// Taller with both extra rows (permissions and password) so neither
 /// overlaps the language options.
-#[cfg(all(feature = "desktop-login", feature = "consent-dialog-acceptance"))]
+#[cfg(all(feature = "desktop-login", feature = "consent-dialog"))]
 const SETTINGS_PANEL: Rect = Rect::new(34, 34, 252, 150);
-#[cfg(not(all(feature = "desktop-login", feature = "consent-dialog-acceptance")))]
+#[cfg(not(all(feature = "desktop-login", feature = "consent-dialog")))]
 const SETTINGS_PANEL: Rect = Rect::new(34, 34, 252, 132);
 const ENGLISH_OPTION: Rect = Rect::new(48, 83, 224, 25);
 const JAPANESE_OPTION: Rect = Rect::new(48, 116, 224, 25);
 /// Opens the permissions view (ADR 0065); shown only with consent.
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(feature = "consent-dialog")]
 const PERMISSIONS_OPTION: Rect = Rect::new(48, 146, 224, 16);
 /// Opens the change-password form (ADR 0066); shown only with sign-in.
-#[cfg(all(feature = "desktop-login", feature = "consent-dialog-acceptance"))]
+#[cfg(all(feature = "desktop-login", feature = "consent-dialog"))]
 const PASSWORD_OPTION: Rect = Rect::new(48, 164, 224, 16);
-#[cfg(all(feature = "desktop-login", not(feature = "consent-dialog-acceptance")))]
+#[cfg(all(feature = "desktop-login", not(feature = "consent-dialog")))]
 const PASSWORD_OPTION: Rect = Rect::new(48, 146, 224, 16);
 
 #[no_mangle]
@@ -143,7 +143,7 @@ enum SettingsFocus {
     Button,
     English,
     Japanese,
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     Permissions,
     #[cfg(feature = "desktop-login")]
     Password,
@@ -153,7 +153,7 @@ enum SettingsFocus {
 const SETTINGS_ORDER: &[SettingsFocus] = &[
     SettingsFocus::English,
     SettingsFocus::Japanese,
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     SettingsFocus::Permissions,
     #[cfg(feature = "desktop-login")]
     SettingsFocus::Password,
@@ -192,11 +192,13 @@ pub struct Desktop {
     locale: nagi_localization::Locale,
     settings_open: bool,
     settings_focus: Option<SettingsFocus>,
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     consent: Option<crate::consent_dialog::ConsentDialog>,
+    #[cfg(feature = "consent-dialog")]
+    consent_decision: Option<(libnagi::launch::ConsentRequest, libnagi::launch::GrantCheck)>,
     #[cfg(feature = "consent-dialog-acceptance")]
     consent_answered: bool,
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     permissions: Option<crate::consent_settings::PermissionsPanel>,
     /// The OS-owned login screen, shown until the owner signs in.
     #[cfg(feature = "desktop-login")]
@@ -247,11 +249,13 @@ impl Desktop {
             locale,
             settings_open: false,
             settings_focus: None,
-            #[cfg(feature = "consent-dialog-acceptance")]
+            #[cfg(feature = "consent-dialog")]
             consent: None,
+            #[cfg(feature = "consent-dialog")]
+            consent_decision: None,
             #[cfg(feature = "consent-dialog-acceptance")]
             consent_answered: false,
-            #[cfg(feature = "consent-dialog-acceptance")]
+            #[cfg(feature = "consent-dialog")]
             permissions: None,
             #[cfg(feature = "desktop-login")]
             login: None,
@@ -353,11 +357,11 @@ impl Desktop {
         if self.settings_open {
             self.render_settings(&mut painter);
         }
-        #[cfg(feature = "consent-dialog-acceptance")]
+        #[cfg(feature = "consent-dialog")]
         if let Some(panel) = &self.permissions {
             panel.render(&mut painter, self.locale);
         }
-        #[cfg(feature = "consent-dialog-acceptance")]
+        #[cfg(feature = "consent-dialog")]
         if let Some(dialog) = &self.consent {
             dialog.render(&mut painter, self.locale);
         }
@@ -401,6 +405,15 @@ impl Desktop {
                         let start = start_consent_acceptance(self, volume, &session);
                         report_consent_start(self, start);
                     }
+                    #[cfg(all(
+                        feature = "consent-dialog",
+                        not(feature = "consent-dialog-acceptance")
+                    ))]
+                    if crate::consent_dialog::restore_decisions(volume, &session)
+                        == crate::consent_dialog::RestoredDecisions::Invalid
+                    {
+                        print(b"Nagi consent decisions invalid; every grant asks again\r\n");
+                    }
                     // Readiness means a signed-in desktop (ADR 0063).
                     if libnagi::report_boot_ready() {
                         print(b"Nagi login readiness reported PASS\r\n");
@@ -425,11 +438,11 @@ impl Desktop {
         if self.password_change.is_some() {
             return self.handle_password_change_event(event, volume);
         }
-        #[cfg(feature = "consent-dialog-acceptance")]
+        #[cfg(feature = "consent-dialog")]
         if self.consent.is_some() {
             return self.handle_consent_event(event, volume);
         }
-        #[cfg(feature = "consent-dialog-acceptance")]
+        #[cfg(feature = "consent-dialog")]
         if self.permissions.is_some() {
             return self.handle_permissions_event(event, volume);
         }
@@ -536,7 +549,10 @@ impl Desktop {
         }
         #[cfg(not(feature = "desktop-password-change-acceptance"))]
         {
-            #[cfg(feature = "desktop-login-acceptance")]
+            #[cfg(all(
+                feature = "desktop-login-acceptance",
+                not(feature = "m19-files-search-production")
+            ))]
             if cfg!(feature = "desktop-login-acceptance") {
                 return self.session.is_some();
             }
@@ -559,14 +575,14 @@ impl Desktop {
     }
 
     /// Show the OS-owned consent dialog for `dialog`'s request.
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     pub fn open_consent(&mut self, dialog: crate::consent_dialog::ConsentDialog) {
         self.consent = Some(dialog);
     }
 
     /// Accept input in the open dialog once its frame is on screen, and
     /// announce it then, so observers never act on an unpresented dialog.
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     pub fn arm_consent(&mut self) {
         let Some(dialog) = &mut self.consent else {
             return;
@@ -581,6 +597,18 @@ impl Desktop {
         print(b" capability=");
         print(request.capability());
         print(b"\r\n");
+    }
+
+    #[cfg(feature = "consent-dialog")]
+    pub fn take_consent_decision(
+        &mut self,
+    ) -> Option<(libnagi::launch::ConsentRequest, libnagi::launch::GrantCheck)> {
+        self.consent_decision.take()
+    }
+
+    #[cfg(feature = "desktop-login")]
+    pub fn signed_in_session(&self) -> Option<libnagi::security::Session> {
+        self.session
     }
 
     #[cfg(feature = "desktop-login")]
@@ -611,7 +639,7 @@ impl Desktop {
         }
     }
 
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     fn handle_permissions_event(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> bool {
         use crate::consent_settings::PermissionsOutcome;
         let user = self.signed_in_user();
@@ -626,6 +654,7 @@ impl Desktop {
                 true
             }
             PermissionsOutcome::Withdrawn => {
+                #[cfg(feature = "consent-dialog-acceptance")]
                 if crate::consent_dialog::acceptance::asks_again() {
                     print(b"Nagi consent withdrawn grant asks again PASS\r\n");
                     self.consent_answered = true;
@@ -637,7 +666,7 @@ impl Desktop {
 
     /// The user whose decisions the consent dialog records: the signed-in
     /// owner with `desktop-login`, otherwise the acceptance fixture.
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     fn signed_in_user(&self) -> Option<libnagi::security::Session> {
         #[cfg(feature = "desktop-login")]
         return self.session;
@@ -645,7 +674,7 @@ impl Desktop {
         crate::supervisor::acceptance_user()
     }
 
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     fn handle_consent_event(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> bool {
         use crate::consent_dialog::{self, ConsentAnswer, ConsentChoice, PromptOutcome};
         use libnagi::launch::GrantCheck;
@@ -660,6 +689,8 @@ impl Desktop {
         let request = dialog.request();
         self.consent = None;
         let Some(user) = self.signed_in_user() else {
+            self.consent_decision = Some((request, GrantCheck::NotLive));
+            #[cfg(feature = "consent-dialog-acceptance")]
             print(b"Nagi consent dialog acceptance FAIL user\r\n");
             return true;
         };
@@ -670,6 +701,7 @@ impl Desktop {
             ConsentAnswer::Chosen(ConsentChoice::Deny) => GrantCheck::Denied,
             ConsentAnswer::Dismissed => GrantCheck::ConsentRequired,
         };
+        #[cfg(feature = "consent-dialog-acceptance")]
         let label: &[u8] = match answer {
             ConsentAnswer::Chosen(ConsentChoice::Allow) => b"allow",
             ConsentAnswer::Chosen(ConsentChoice::AllowOnce) => b"allow-once",
@@ -678,9 +710,14 @@ impl Desktop {
         };
         match consent_dialog::resolve(volume, &user, &request, answer) {
             Some(check) if check == expected => {
+                self.consent_decision = Some((request, check));
+                #[cfg(feature = "consent-dialog-acceptance")]
                 print(b"Nagi consent dialog decision PASS decision=");
+                #[cfg(feature = "consent-dialog-acceptance")]
                 print(label);
+                #[cfg(feature = "consent-dialog-acceptance")]
                 print(b"\r\n");
+                #[cfg(feature = "consent-dialog-acceptance")]
                 if matches!(
                     answer,
                     ConsentAnswer::Chosen(ConsentChoice::Allow | ConsentChoice::Deny)
@@ -688,11 +725,16 @@ impl Desktop {
                     print(b"Nagi consent decision persisted PASS\r\n");
                 }
                 // The restart half of the acceptance expects a persisted Allow.
+                #[cfg(feature = "consent-dialog-acceptance")]
                 if answer == ConsentAnswer::Chosen(ConsentChoice::Allow) {
                     self.consent_answered = true;
                 }
             }
-            _ => print(b"Nagi consent dialog acceptance FAIL resolve\r\n"),
+            _ => {
+                self.consent_decision = Some((request, GrantCheck::NotLive));
+                #[cfg(feature = "consent-dialog-acceptance")]
+                print(b"Nagi consent dialog acceptance FAIL resolve\r\n");
+            }
         }
         true
     }
@@ -735,7 +777,7 @@ impl Desktop {
             "desktop.settings.option.ja-JP",
             SettingsFocus::Japanese,
         );
-        #[cfg(feature = "consent-dialog-acceptance")]
+        #[cfg(feature = "consent-dialog")]
         {
             painter.fill(
                 PERMISSIONS_OPTION,
@@ -907,7 +949,7 @@ impl Desktop {
             Some(SettingsFocus::Japanese) if self.settings_open => {
                 self.select_locale(volume, nagi_localization::Locale::JaJp, keyboard)
             }
-            #[cfg(feature = "consent-dialog-acceptance")]
+            #[cfg(feature = "consent-dialog")]
             Some(SettingsFocus::Permissions) if self.settings_open => {
                 self.permissions = Some(crate::consent_settings::PermissionsPanel::open());
                 true
@@ -1151,9 +1193,14 @@ impl Desktop {
 
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     fn set_files_search_results(&mut self, titles: &[String]) {
+        self.set_files_search_results_with_count(titles, titles.len());
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn set_files_search_results_with_count(&mut self, titles: &[String], visible_total: usize) {
         self.files_search_complete = true;
         self.files_search_unavailable = false;
-        self.files_search_result_count = titles.len();
+        self.files_search_result_count = visible_total;
         self.files_search_first_title_len = 0;
         if let Some(title) = titles.first() {
             self.files_search_first_title_len =
@@ -1237,7 +1284,7 @@ pub fn run(
         print(message!(NAGI_M10_FAIL, 26));
         libnagi::exit(1);
     }
-    #[cfg(feature = "consent-dialog-acceptance")]
+    #[cfg(feature = "consent-dialog")]
     desktop.arm_consent();
     let initial_checksum = checksum(surface);
     // Compare every pixel: a moved 3x3 pointer can miss the sampled checksum.
@@ -1421,6 +1468,69 @@ pub fn run(
                             }
                         };
                         if synced {
+                            #[cfg(feature = "m19-files-search-production")]
+                            {
+                                let response = crate::m19_files_client::search(
+                                    runtime,
+                                    &query,
+                                    &mut desktop,
+                                    input_capability,
+                                    display_capability,
+                                    surface,
+                                    &mut volume,
+                                );
+                                let mapped = response.and_then(|results| {
+                                    runtime
+                                        .visible_file_titles(results.ids())
+                                        .map(|titles| (results, titles))
+                                });
+                                if let Some((results, titles)) = mapped {
+                                    desktop.set_files_search_results_with_count(
+                                        &titles,
+                                        usize::from(results.visible_total),
+                                    );
+                                    #[cfg(feature = "desktop-login-acceptance")]
+                                    {
+                                        let expected = match query.as_str() {
+                                            "runtime" => Some((
+                                                ".nagi-m19-runtime-search.txt",
+                                                "Nagi M19 signed-in desktop Files UI Search PASS\r\n",
+                                            )),
+                                            "nested" => Some((
+                                                ".nagi-m19-nested-search.txt",
+                                                "Nagi M19 signed-in desktop Files nested UI Search PASS\r\n",
+                                            )),
+                                            _ => None,
+                                        };
+                                        if let Some((expected_title, marker)) = expected {
+                                            if titles
+                                                .first()
+                                                .is_some_and(|title| title == expected_title)
+                                                && results.count > 0
+                                            {
+                                                print(marker.as_bytes());
+                                                crate::m19_files_client::report_visible_object_id(
+                                                    results.ids()[0],
+                                                );
+                                            } else {
+                                                print(b"Nagi M19 signed-in desktop Files UI Search FAIL\r\n");
+                                                libnagi::exit(1);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    #[cfg(feature = "desktop-login-acceptance")]
+                                    {
+                                        print(
+                                            b"Nagi M19 signed-in desktop Files UI Search FAIL\r\n",
+                                        );
+                                        libnagi::exit(1);
+                                    }
+                                    #[cfg(not(feature = "desktop-login-acceptance"))]
+                                    desktop.set_files_search_unavailable();
+                                }
+                            }
+                            #[cfg(not(feature = "m19-files-search-production"))]
                             if let Some(titles) = runtime.search_file_titles(&query) {
                                 desktop.set_files_search_results(&titles);
                                 #[cfg(feature = "desktop-login-acceptance")]
@@ -1476,9 +1586,9 @@ pub fn run(
             }
             // A dialog opened by this event accepts input only now that its
             // frame is on screen.
-            #[cfg(feature = "consent-dialog-acceptance")]
+            #[cfg(feature = "consent-dialog")]
             desktop.arm_consent();
-            #[cfg(feature = "consent-dialog-acceptance")]
+            #[cfg(feature = "consent-dialog")]
             if let Some(panel) = &mut desktop.permissions {
                 panel.announce();
             }
