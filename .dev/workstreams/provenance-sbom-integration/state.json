@@ -1,0 +1,134 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "provenance-sbom-integration",
+  "current_milestone": "BP-SBOM-HOST host integration",
+  "current_checkpoint": "BP-SBOM-HOST-20261008 verified on Ubuntu and Windows",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "62434cd1f3dd0b40967f94ea5f3fe12cd2507d5b",
+    "verified_at": "2026-10-08T12:51:11.468002+00:00",
+    "normal_state": "Host-only PASS including PowerShell launcher JSON and exit preservation. Clean published code source 62434cd1f3dd0b40967f94ea5f3fe12cd2507d5b, tree f5c00b79840a1bb557837845fef1764705f9a8b1. Ubuntu/Windows CI complete. Final State-only publication follows; workflows deliberately ignore State-only changes. App implementations/runtime/release are outside this PASS.",
+    "commands": [
+      "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check",
+      "cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings",
+      "./nagi dev verify",
+      "git diff --check",
+      "Registry and all State JSON schema validation",
+      "Exact Git tree verification before leased dedicated-branch publication"
+    ],
+    "tests": [
+      {
+        "name": "Registry and fingerprint",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib development::",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "39 passed: registry/compatibility 18 and adopted fingerprint 21."
+      },
+      {
+        "name": "Command compatibility",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib commands::tests",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "7 passed, existing static command contracts."
+      },
+      {
+        "name": "Shared CLI compatibility",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --test cli",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "29 passed: existing 26 plus delegated Legal command/error/determinism and binary/library missing-artifact cases."
+      },
+      {
+        "name": "Standalone Legal",
+        "command": "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "30 passed: 13 unit and 17 acceptance; source algorithms unchanged."
+      },
+      {
+        "name": "Immutable CLI artifact evidence",
+        "command": "SOURCE_DATE_EPOCH=1780272000 ./nagi legal scan --json; check; sbom; notice; diff; ./nagi dev fingerprint and compare",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Clean exact source 62434cd1f3dd0b40967f94ea5f3fe12cd2507d5b; fixed SOURCE_DATE_EPOCH=1780272000 gives two equal SPDX files and fingerprints, changed/missing artifact exit 4. Digests {\"fingerprint-a.json\": \"b20927dd2f375e4f93ea6d3bd978e376f081b151d647469e0147af3ba4ca2b48\", \"fingerprint-b.json\": \"b20927dd2f375e4f93ea6d3bd978e376f081b151d647469e0147af3ba4ca2b48\", \"fingerprint-changed.json\": \"716b8c4e01a33c6dcb3ec05d1127aaefd6c7edf0f9c98ab073619fed572680ce\", \"notice.md\": \"50e1febc52bdcd827887ac559a44a055d7e1ea9de119c3ddd81fb43bfffbfdd2\", \"sbom-a.json\": \"7df24f8ff1f1fc74e78f227dddc3b11af6bfc0ff4e1cdd195d1685c4e83cf2bf\", \"scan.stdout\": \"d34f1b89054da85ba86bfa33ade80a53278e365d620f50f4092b8beec1e8d783\"}. Evidence: out/host-integration-audit/integration-current/evidence.json. Earlier 107303a evidence is retained in evidence-107303a.json."
+      },
+      {
+        "name": "Schema and ownership",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 registered streams / 17 States; registry and all State schemas pass; protected path diff empty."
+      },
+      {
+        "name": "PowerShell launcher compatibility",
+        "command": "Windows CI: ./nagi.ps1 legal scan --json; ./nagi.ps1 legal --help; ./nagi.ps1 legal unsupported",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Job 113318849139 in run 37779480846 passed direct JSON parsing, help exit 0 and unsupported exit 2. Only Legal bypasses merged diagnostic capture; legacy launcher behavior unchanged."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 37779480846,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37779480846",
+        "head_sha": "62434cd1f3dd0b40967f94ea5f3fe12cd2507d5b",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Ubuntu 24.04 and Windows 2022 PASS. Includes all 105 focused tests, fmt/Clippy, ownership and dev verify. Windows directly executes nagi.ps1 Legal scan JSON, help and unsupported command (exit 2), preserving stdout/stderr and exit status."
+      },
+      {
+        "run_id": 37778853265,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37778853265",
+        "head_sha": "107303a95ab795ee24a5fab5e4c34314df21a1e9",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Ubuntu 24.04 and Windows 2022 host-foundations jobs PASS: path ownership, pinned toolchain, fmt, warnings-denied Clippy, Legal 30 tests, development/fingerprint 39, commands 7, CLI 29 and dev verify. App implementations absent in this integration checkout are NOT STARTED."
+      },
+      {
+        "run_id": 37777255126,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37777255126",
+        "head_sha": "cd871f905bd06ef406ccaa9f80c484f19158209f",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Registration and app host activation checkpoint passes Ubuntu/Windows."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "origin/main@1118f13dc6badf19b10a628eda244f8a0a635237:docs/implementation_status.md (latest fetched refs; only workstream spec additions since 9e06967)",
+    "last_checked_at": "2026-10-08T12:46:06.404812+00:00",
+    "activation_requirement": "0.1 M30 remains PARTIAL. No 0.2 guest/runtime before M30 PASS and explicit release boundary; this checkpoint authorizes host-only work."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not edit Hark/main, kernel/loader/init, third-party sources or 0.1 acceptance.",
+      "Do not edit other owners State or implement the three app cores here.",
+      "Do not bypass any guest/release gate."
+    ]
+  },
+  "next_action": "Assigned owners continue host-only app work on registered branches. Calendar Codex II branch is already at 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96 with host CI 37778691144 success; feature adoption is a separate reviewed checkpoint. Writer/Sheets starting SHA cd871f905bd06ef406ccaa9f80c484f19158209f. Do not implement/adopt app cores or guest runtime in this checkpoint.",
+  "acceptance_criteria": [
+    "Five feature/app stream registrations and the bounded integration row validate.",
+    "Only two explicitly named Claude branches are accepted; legacy codex and invalid branch compatibility tests pass.",
+    "Existing fingerprint and standalone Legal tests/CLI functionality pass without a second implementation.",
+    "Ubuntu and Windows host CI passes for exact immutable checkpoint source.",
+    "Protected paths unchanged; no runtime or release success claim."
+  ],
+  "deferred": [
+    "Nagi 0.2 guest/runtime and release activation until M30 PASS plus release checkpoint.",
+    "App core implementation belongs to assigned Codex/Claude owners.",
+    "Full root workspace/target-dependent checks: third_party/cc-nagi and third_party/mozjs-sys-nagi/build.rs absent in this host checkout (HOST_ENV); no fetching or edits to protected sources. Dedicated host tests pass.",
+    "License scan reports unknown/manual-review evidence; structural tool check PASS does not establish release/legal approval.",
+    "Calendar implementation adoption into the integration branch is outside this registration checkpoint."
+  ],
+  "cross_workstream_dependencies": []
+}

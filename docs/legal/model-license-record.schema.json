@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nagi:legal:model-license-record:v1",
+  "title": "Nagi model license evidence record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "model_id", "display_name", "provider_id", "version", "variant",
+    "inclusion_status", "artifact_present", "opaque_license_identifier",
+    "terms_reference", "acknowledgement_required", "notices",
+    "declared_license_expression", "review_status", "evidence_source"
+  ],
+  "properties": {
+    "model_id": {"type": "string", "minLength": 1},
+    "display_name": {"type": "string", "minLength": 1},
+    "provider_id": {"type": "string", "minLength": 1},
+    "version": {"type": "string", "minLength": 1},
+    "variant": {"type": "string", "minLength": 1},
+    "inclusion_status": {"enum": ["fixture-only", "planned", "present"]},
+    "artifact_present": {"type": "boolean"},
+    "opaque_license_identifier": {"type": ["string", "null"]},
+    "terms_reference": {"type": ["string", "null"]},
+    "acknowledgement_required": {"type": ["boolean", "null"]},
+    "notices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["notice_id", "reference", "required"],
+        "properties": {
+          "notice_id": {"type": "string", "minLength": 1},
+          "reference": {"type": "string", "minLength": 1},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
+    "declared_license_expression": {"type": ["string", "null"]},
+    "raw_license_metadata": {"type": ["string", "null"], "description": "Preserved invalid claim that the tool did not classify as an SPDX expression."},
+    "review_status": {"enum": ["manual_review_required", "reviewed_by_maintainer"]},
+    "evidence_source": {"type": "string", "minLength": 1}
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "schema_ref": "schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "license-sbom",
+  "current_milestone": "OSS License / SBOM Foundation",
+  "current_checkpoint": "foundation-pass-integration-registry-pending",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "9a2234c0a12d34ba61be506e4663431d6aebc806",
+    "verified_at": "2026-09-28T12:13:19Z",
+    "normal_state": "Foundation implementation is verified on codex/0.2-license-sbom. Code commit 9a2234c0a12d34ba61be506e4663431d6aebc806 passed all 30 legal tests, formatting, warning-denied Clippy, and real repository scan/check/SBOM/NOTICE verification. The branch was pushed at CI head 4caaabb8278127d663f94df956a37acf4454e12c. GitHub Actions run 36419566860 completed with failure in the existing host workspace test step: both OS jobs passed dependency bootstrap, format/lint/build, and 25/26 nagi-cli CLI tests; the remaining existing test requires this branch to be registered in integration-owned .dev/workstreams.json. The exact row is proposed in docs/legal/README.md. Per the workstream instruction, this missing integration-owned registry row is deferred and does not block the owned Foundation Acceptance. The worktree contains no runtime, third-party, or shared integration edits.",
+    "commands": [
+      "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check",
+      "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- scan --root <repository> --output /tmp/nagi-legal-inventory.json",
+      "SOURCE_DATE_EPOCH=1780272000 cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- sbom --root <repository> --output /tmp/nagi-legal.spdx.json",
+      "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- notice --root <repository> --output /tmp/NOTICE.candidate.md",
+      "SOURCE_DATE_EPOCH=1780272000 cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- check --root <repository>",
+      "python3 JSON shape, JSON parsing, and generated-output privacy assertions",
+      "cargo test -p nagi-cli --locked --offline",
+      "git diff --cached --check",
+      "gh run view 36419566860 --json status,conclusion,headSha,url,jobs",
+      "gh run view 36419566860 --job 108918755098 --log-failed",
+      "gh run view 36419566860 --job 108918754926 --log-failed"
+    ],
+    "tests": [
+      {
+        "name": "Rust legal unit and acceptance tests",
+        "command": "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "13 unit tests and 17 acceptance tests passed, including offline fixtures, source/license checks, SPDX shape/determinism, NOTICE candidate, path scrubbing, bounds, and diff."
+      },
+      {
+        "name": "Formatting",
+        "command": "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No formatting changes required."
+      },
+      {
+        "name": "Clippy with warnings denied",
+        "command": "cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All targets checked with no warnings."
+      },
+      {
+        "name": "Repository inventory and structural policy check",
+        "command": "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- check --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Revision 9a2234c0a12d34ba61be506e4663431d6aebc806; 822 components; 806 unknown-license records; 0 structural inventory or SPDX profile errors."
+      },
+      {
+        "name": "SPDX 2.3 generation and output checks",
+        "command": "SOURCE_DATE_EPOCH=1780272000 cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- sbom --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS --output /tmp/nagi-legal.spdx.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "SPDX-2.3; 823 packages; 2888 relationships; licenseListVersion 3.29.0; generated output has no absolute host paths or credential markers."
+      },
+      {
+        "name": "NOTICE candidate generation",
+        "command": "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- notice --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS --output /tmp/NOTICE.candidate.md",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Candidate generated; it records references/review metadata and does not copy the synthetic upstream license-text marker."
+      },
+      {
+        "name": "Legal JSON parsing and privacy validation",
+        "command": "python3 JSON shape, JSON parsing, and generated-output privacy assertions",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 4 docs/legal JSON files parse; inventory/SBOM/NOTICE output contains no /Users or /tmp paths, credential marker, or upstream text marker; nagi-legal does not misclassify src/license.rs as a license file."
+      },
+      {
+        "name": "Existing host tooling tests",
+        "command": "cargo test -p nagi-cli --locked --offline",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Cargo could not read third_party/cc-nagi/Cargo.toml because the pinned source checkout is absent in this local worktree. CI workflow has a pinned Servo source bootstrap step; its result is pending."
+      },
+      {
+        "name": "GitHub Actions existing host workspace checks",
+        "command": "cargo test --workspace --exclude nagi-kernel --locked (CI run 36419566860)",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Both Ubuntu and Windows jobs passed pinned dependency bootstrap, format/lint/build, and 25 of 26 nagi-cli CLI tests. The one failure, dev_status_resume_and_verify_read_the_registered_workstream, reports branch codex/0.2-license-sbom is not registered in .dev/workstreams.json (owned by the integration owner). This is recorded as an integration proposal, not a legal-tool failure."
+      },
+      {
+        "name": "GitHub Actions host prerequisites",
+        "command": "CI run 36419566860: pinned source bootstrap, format, host Clippy, and host workspace build",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Ubuntu and Windows jobs completed the pinned dependency bootstrap and passed format/lint/build before reaching the existing workspace test failure."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36419566860,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36419566860",
+        "head_sha": "4caaabb8278127d663f94df956a37acf4454e12c",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows host workspace jobs fail only at the existing nagi-cli test that requires the unregistered branch row. Pinned bootstrap, format, Clippy, and build pass. The Nagi target job was skipped after host failure."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": ".dev/workstreams.json integration-owned registry and docs/legal/README.md integration proposal",
+    "last_checked_at": "2026-09-28T12:13:19Z",
+    "activation_requirement": "Host-side compliance tooling only. Do not activate Nagi 0.2 runtime work or alter M18. Integration owner must register the workstream and approve CLI/CI wiring on codex/integration-next-phase."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [
+      "CI materialized the pinned third-party dependencies successfully; the local missing-checkout condition is not an acceptance blocker.",
+      "Reviewed both completed CI host logs and confirmed the sole remaining failure is the integration-owned registry lookup for codex/0.2-license-sbom.",
+      "Recorded the exact workstream row proposal in docs/legal/README.md and did not edit the shared registry."
+    ],
+    "do_not_try": [
+      "Do not add the license-sbom row directly to integration-owned .dev/workstreams.json in this workstream.",
+      "Do not edit runtime, kernel, loader, third-party, or other workstream-owned files to bypass the registry test."
+    ]
+  },
+  "next_action": "Integration owner: add the license-sbom registry row proposed in docs/legal/README.md, then rerun the host workspace tests on codex/integration-next-phase. No further Foundation-owned implementation is pending; keep this branch unmerged until that integration checkpoint is approved.",
+  "acceptance_criteria": [
+    "PASS: stable component inventory and model-license schemas exist; all legal JSON files parse.",
+    "PASS: Rust package inventory uses Cargo lockfiles and stable cargo metadata; lock dependency edges are represented and structural identity errors are surfaced.",
+    "PASS: pinned third-party components and bounded license/NOTICE evidence discovery are implemented and fixture-tested.",
+    "PASS: unknown, malformed, and conflicting license metadata stays explicit and requires review; no identifier is inferred from prose.",
+    "PASS: SPDX 2.3 SBOM is generated with deterministic package/relationship ordering, content-derived namespace, and explicit unknown license values.",
+    "PASS: human report, structural check, NOTICE candidate, and inventory diff commands exist and are fixture-tested.",
+    "PASS: offline fixture tests and host-path/credential leakage assertions pass.",
+    "PASS: standalone legal crate formatting and warning-denied Clippy pass.",
+    "DEFERRED TO INTEGRATION: CI host workspace tests expose one existing nagi-cli test failure because codex/0.2-license-sbom is not registered in integration-owned .dev/workstreams.json; the exact row proposal is documented and this registry-only condition does not block Foundation Acceptance.",
+    "PASS: implementation and durable state are committed on codex/0.2-license-sbom and pushed to origin; CI run and workstream-owned verification evidence are recorded."
+  ],
+  "deferred": [
+    "Manual license and notice review remains for 806 unknown-license records; the scanner does not make legal conclusions.",
+    "The planned Granite 4.2 3B, Qwen3 4B, and Gemma 3 1B records are fixture-only metadata; actual artifact terms, notices, and weights must be verified before bundling.",
+    "Use a full independent SPDX 2.3 validator and legal review before using a release SBOM as a compliance assertion; the current validator enforces the documented focused profile.",
+    "Integration proposal: add the license-sbom row after development-foundation in .dev/workstreams.json, then wire the standalone crate into tools/nagi-cli, root Cargo.lock, and .github/workflows/ci.yml after integration-owner approval. The current CI run fails one nagi-cli status test specifically because this row is absent. Exact registry fields and CLI/CI commands are in docs/legal/README.md.",
+    "Do not merge this branch to main; review/integrate at the codex/integration-next-phase boundary."
+  ],
+  "cross_workstream_dependencies": []
+}

@@ -1,0 +1,143 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "build-provenance",
+  "current_milestone": "0.2 Build Provenance / Artifact Fingerprint Foundation",
+  "current_checkpoint": "blocked-on-shared-workstream-registration",
+  "status": "BLOCKED",
+  "last_verified": {
+    "commit_sha": "27b7944b1551a1e3d518c139edb138017f07492c",
+    "verified_at": "2026-09-28T11:01:32Z",
+    "normal_state": "Versioned host-side fingerprint generation and comparison are implemented and pushed on codex/0.2-build-provenance at 27b7944b1551a1e3d518c139edb138017f07492c. Local fingerprint tests, CLI fixture comparisons, Clippy, formatting, state schema validation, and the registered-state verifier pass. In the local tools/nagi-bootstrap suite, 128 tests pass and one existing checkout-dependent MozJS test cannot open third_party/mozjs-sys-nagi/build.rs because this worktree has not run the dependency fetch. GitHub Actions run 36412412685 passed dependency bootstrap, format, parser checks, lint, and build; all platform-available nagi-cli library tests passed (129 on Ubuntu and 125 on Windows). Both CI host jobs then failed the same existing CLI integration test (25/26 pass): dev_status_resume_and_verify_read_the_registered_workstream rejects this dedicated branch because shared .dev/workstreams.json has no branch registration. The registry is explicitly integration-owned by this workstream specification, so the exact registration proposal is included but not applied. The target job was skipped because the host jobs failed.",
+    "commands": [
+      "rustup run nightly-2025-08-01 cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check",
+      "RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustdoc /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib development::fingerprint::tests",
+      "RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustdoc /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib",
+      "RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustdoc /Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib -- --skip mozjs_configure_uses_supported_freestanding_triplet",
+      "PATH=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin:$PATH CARGO_TARGET_DIR=/tmp/nagi-build-provenance-clippy-target RUSTC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustc RUSTDOC=/Users/tozawa/.rustup/toolchains/nightly-2025-08-01-aarch64-apple-darwin/bin/rustdoc cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "./nagi dev fingerprint --help",
+      "./nagi dev fingerprint",
+      "python3 - (temporary-directory CLI e2e: deterministic compare, artifact mismatch, missing artifact)",
+      "./nagi dev verify",
+      "git diff --check",
+      "/tmp/nagi-app-sdk-schema/bin/python - (validate state against Draft 2020-12 schema; validate registration proposal identity)",
+      "cargo test --workspace --exclude nagi-kernel --locked",
+      "gh run view 36412412685 --json status,conclusion,headSha,jobs,url",
+      "gh api --allow-escape-sequences repos/RT-NISH/NagiOS/actions/jobs/108895488319/logs",
+      "gh api --allow-escape-sequences repos/RT-NISH/NagiOS/actions/jobs/108895488410/logs"
+    ],
+    "tests": [
+      {
+        "name": "Focused build fingerprint unit tests",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib development::fingerprint::tests",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All 21 focused tests pass, covering deterministic digesting, timestamp separation, path normalization, source/toolchain/target/features/patch/generated-input mismatches, artifact hashing and comparison, redaction, schema validation, and fail-closed missing artifacts."
+      },
+      {
+        "name": "Fingerprint CLI end-to-end fixtures",
+        "command": "python3 - (temporary-directory CLI e2e: deterministic compare, artifact mismatch, missing artifact)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The actual ./nagi command normalizes the custom target JSON filename, returns MATCH for equal inputs, returns non-zero with artifact_digest when only artifact bytes differ, and fails when a requested artifact is missing."
+      },
+      {
+        "name": "Bootstrap/CLI library tests with checkout-dependent MozJS test filtered",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib -- --skip mozjs_configure_uses_supported_freestanding_triplet",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "128 tests passed; one existing test was explicitly filtered because third_party/mozjs-sys-nagi/build.rs is absent until the normal dependency-fetch step."
+      },
+      {
+        "name": "Complete bootstrap/CLI library test suite",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "128 of 129 tests pass. The sole failure is mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet, which panics opening the unavailable third_party/mozjs-sys-nagi/build.rs (OS error 2). Its required source is supplied by the CI bootstrap fetch; this workstream did not modify third_party."
+      },
+      {
+        "name": "Bootstrap Clippy, all targets, warnings denied",
+        "command": "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Pinned nightly Clippy passed with warnings denied."
+      },
+      {
+        "name": "Formatting, whitespace, and registered development-state verification",
+        "command": "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check; git diff --check; ./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatting and whitespace checks passed; the existing registry validated 18 registered workstreams and 11 registered state files."
+      },
+      {
+        "name": "Durable state schema and registration proposal validation",
+        "command": "/tmp/nagi-app-sdk-schema/bin/python - (validate state against Draft 2020-12 schema; validate registration proposal identity)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The workstream state passes the repository's Draft 2020-12 state schema; the registration proposal parses and matches the state workstream ID/path."
+      },
+      {
+        "name": "Ubuntu host CI for the pushed implementation commit",
+        "command": "cargo test --workspace --exclude nagi-kernel --locked",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Ubuntu CI passed source bootstrap, formatting, parser tests, Clippy, build, and all 129 nagi-cli library tests. Its CLI integration suite passed 25/26 tests; dev_status_resume_and_verify_read_the_registered_workstream failed because branch codex/0.2-build-provenance is absent from shared .dev/workstreams.json."
+      },
+      {
+        "name": "Windows host CI for the pushed implementation commit",
+        "command": "cargo test --workspace --exclude nagi-kernel --locked",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "Windows CI passed source bootstrap, host-compatible build, and all 125 nagi-cli library tests. Its CLI integration suite passed 25/26 tests and failed the same unregistered-branch test. Later Windows launcher and development-state checks were skipped by job failure."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 36412412685,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36412412685",
+        "head_sha": "27b7944b1551a1e3d518c139edb138017f07492c",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu and Windows format/build/lint steps and all nagi-cli library tests passed. Each host job failed one existing CLI integration test because the dedicated branch is not registered in the integration-owned .dev/workstreams.json; the target job was skipped."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/0.2/DEVELOPMENT_ARCHITECTURE.md and Nagi OS 0.2 Build Provenance / Artifact Fingerprint Foundation workstream specification",
+    "last_checked_at": "2026-09-28T11:01:32Z",
+    "activation_requirement": "Host-side provenance only; any artifact reuse or Nagi 0.2 runtime/product integration requires an explicit integration checkpoint, and runtime activation remains gated on Nagi 0.1 M30 PASS."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Host CI is blocked until the dedicated branch is registered in the shared workstream registry. That registry is explicitly integration-owned, so this workstream records a proposed row instead of editing it.",
+    "reproduction_commands": [
+      "cargo test --workspace --exclude nagi-kernel --locked"
+    ],
+    "failure_log_summary": "Ubuntu and Windows each report: branch `codex/0.2-build-provenance` is not registered in `.dev/workstreams.json`; create/assign a workstream before using dev status. The failure is in dev_status_resume_and_verify_read_the_registered_workstream at tools/nagi-cli/tests/cli.rs:206; each CLI integration suite passed 25 tests and failed this one.",
+    "attempted_fixes": [
+      "Verified the unit suites and CLI fingerprint behavior independently; all fingerprint tests pass.",
+      "Added .dev/workstreams/build-provenance/registration-proposal.json with the exact integration row and ownership boundary.",
+      "Kept .dev/workstreams.json and its validator unchanged because the workstream specification assigns the registry to integration ownership."
+    ],
+    "do_not_try": [
+      "Do not modify .dev/workstreams.json or weaken the branch-registration validator in this dedicated workstream.",
+      "Do not fetch, edit, or patch third_party source in this workstream to mask the local checkout-dependent test failure."
+    ]
+  },
+  "next_action": "The integration owner should apply the exact row in .dev/workstreams/build-provenance/registration-proposal.json to the shared registry and rerun host CI. No fingerprint implementation changes are indicated by the failure.",
+  "acceptance_criteria": [
+    "Versioned compatibility fingerprint and provenance document with a deterministic SHA-256 digest.",
+    "Compatibility inputs are separated from timestamp/producer provenance and artifact outputs.",
+    "Source, toolchain, target, features, flags, allowlisted environment, third-party pins/patches, configuration, generated inputs, QEMU, and firmware are captured or explicitly absent.",
+    "Artifact SHA-256 inventory, detailed comparison classes, and non-zero mismatch exit behavior are implemented.",
+    "Secret-like values are redacted and requested missing artifacts fail closed.",
+    "Focused tests, formatting, Clippy, host-side checks, and pushed CI evidence are recorded; root host CI remains blocked until the shared workstream registration is integrated.",
+    "Changes are committed and pushed on the dedicated branch with a clean final worktree and no shared integration or runtime paths modified."
+  ],
+  "deferred": [
+    "Registration in the shared .dev/workstreams.json is blocked on the integration owner; an exact registration proposal is included in this workstream directory.",
+    "Artifact reuse, production CI caching, runtime/product integration, and changes to acceptance gates remain deferred pending explicit integration approval and the existing M30 gate."
+  ],
+  "cross_workstream_dependencies": []
+}

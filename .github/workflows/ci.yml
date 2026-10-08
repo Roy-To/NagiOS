@@ -59,6 +59,11 @@ jobs:
         run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
       - name: Build host-compatible workspace
         run: cargo build --workspace --exclude nagi-kernel --locked
+      - name: Prepare and verify standalone Legal before offline CLI delegation
+        run: |
+          cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
+          cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
       - name: Standalone clipboard core (CLIP-01)
@@ -121,6 +126,15 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           cargo build --workspace --exclude nagi-kernel --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prepare and verify standalone Legal before offline CLI delegation
+        shell: pwsh
+        run: |
+          cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test host-compatible workspace
         shell: pwsh

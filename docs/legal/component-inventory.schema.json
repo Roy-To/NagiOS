@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nagi:legal:component-inventory:v1",
+  "title": "Nagi component license evidence inventory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project", "repository_revision", "components", "model_assets", "findings"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "project": {"$ref": "#/$defs/project"},
+    "repository_revision": {"type": ["string", "null"]},
+    "components": {"type": "array", "items": {"$ref": "#/$defs/component"}},
+    "model_assets": {"type": "array", "items": {"type": "object"}},
+    "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+  },
+  "$defs": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "declared_license_expression"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "declared_license_expression": {"type": ["string", "null"]}
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component_id", "name", "package_type", "version", "revision", "origin",
+        "local_path", "purl", "checksum", "declared_license_expression",
+        "raw_license_metadata", "license_status", "license_file_declared",
+        "detected_license_files", "notice_files", "directness", "scopes",
+        "dependencies", "vendored", "review_status", "review_recorded", "evidence", "conflicts"
+      ],
+      "properties": {
+        "component_id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "package_type": {"type": "string", "minLength": 1},
+        "version": {"type": ["string", "null"]},
+        "revision": {"type": ["string", "null"]},
+        "origin": {"type": ["string", "null"]},
+        "local_path": {"type": ["string", "null"]},
+        "purl": {"type": ["string", "null"]},
+        "checksum": {"type": ["string", "null"]},
+        "declared_license_expression": {"type": ["string", "null"]},
+        "raw_license_metadata": {"type": ["string", "null"]},
+        "license_status": {"enum": ["declared", "unknown", "malformed", "conflict"]},
+        "license_file_declared": {"type": ["string", "null"]},
+        "detected_license_files": {"type": "array", "items": {"type": "string"}},
+        "notice_files": {"type": "array", "items": {"type": "string"}},
+        "directness": {"type": "string", "minLength": 1},
+        "scopes": {"type": "array", "items": {"type": "string"}},
+        "dependencies": {"type": "array", "items": {"type": "string"}},
+        "vendored": {"type": "boolean"},
+        "review_status": {"enum": ["metadata_recorded", "manual_review_required"]},
+        "review_recorded": {"type": "boolean"},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+        "conflicts": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "source", "detail"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "detail": {"type": ["string", "null"]}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "component_id", "message", "evidence"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["error", "review", "info"]},
+        "component_id": {"type": ["string", "null"]},
+        "message": {"type": "string", "minLength": 1},
+        "evidence": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

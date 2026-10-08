@@ -1,0 +1,124 @@
+name: Nagi 0.2 host foundations
+
+on:
+  push:
+    branches:
+      - codex/0.2-integrate-provenance-sbom
+      - codex/0.2-adopt-host-foundations
+      - codex/0.2-adopt-calendar-core
+      - codex/0.2-calendar-core-01
+      - claude/0.2-writer-core-01
+      - claude/0.2-sheets-calc-01
+    paths-ignore:
+      - '.dev/workstreams/**/state.json'
+  pull_request:
+    branches:
+      - main
+      - codex/0.2-integrate-provenance-sbom
+    paths:
+      - .dev/**
+      - tools/nagi-cli/**
+      - tools/nagi-bootstrap/**
+      - tools/legal/**
+      - crates/nagi-calendar-core/**
+      - .github/workflows/0.2-host-integration.yml
+      - nagi
+      - nagi.ps1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nagi-host-foundations-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-foundations:
+    if: contains(fromJSON('["codex/0.2-integrate-provenance-sbom", "codex/0.2-adopt-host-foundations", "codex/0.2-adopt-calendar-core", "codex/0.2-calendar-core-01", "claude/0.2-writer-core-01", "claude/0.2-sheets-calc-01"]'), github.head_ref || github.ref_name)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Enforce the registered host-only path boundary
+        env:
+          HOST_STREAM_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          python - <<'PY'
+          import fnmatch, json, os, subprocess
+          branch = os.environ['HOST_STREAM_BRANCH']
+          registry = json.load(open('.dev/workstreams.json', encoding='utf-8'))
+          row = next((w for w in registry['workstreams'] if w['owner_branch'] == branch), None)
+          if row is None:
+              raise SystemExit('Unregistered branch: host checkpoint must be explicitly registered')
+          if row['id'] in ['host-foundations-adoption', 'calendar-core-adoption']:
+              # Audit the adoption delta against its current release-line base;
+              # unrelated already-main changes are not this checkpoint's edits.
+              baseline = subprocess.check_output(
+                  ['git', 'merge-base', 'origin/main', 'HEAD'], text=True).strip()
+          else:
+              baseline = ('80ea6246dd394deb5158c44aa7f0012d76a9c409'
+                          if row['id'] == 'provenance-sbom-integration'
+                          else 'cd871f905bd06ef406ccaa9f80c484f19158209f')
+          changed = subprocess.check_output(['git', 'diff', '--name-only', baseline, 'HEAD'], text=True).splitlines()
+          protected = ['kernel/**', 'loader/**', 'user/**', 'third_party/**', 'tests/acceptance/**',
+                       'Cargo.toml', 'Cargo.lock', 'docs/implementation_status.md']
+          invalid = [p for p in changed
+                     if any(fnmatch.fnmatchcase(p, g) for g in protected + row['forbidden_paths'])
+                     or not any(fnmatch.fnmatchcase(p, g) for g in row['allowed_paths'])]
+          if invalid:
+              raise SystemExit('Host ownership boundary violation: ' + ', '.join(invalid))
+          print('PASS registered host boundary: ' + row['id'])
+          PY
+      - name: Install pinned host toolchain
+        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy
+      - name: Host CLI format and warnings-denied lint
+        run: |
+          cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check
+          cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Standalone Legal host tests
+        if: hashFiles('tools/legal/Cargo.toml') != ''
+        run: |
+          cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
+          cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
+      - name: Registry, fingerprint, command and legacy CLI compatibility
+        run: |
+          cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib development::
+          cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib commands::tests
+          cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --test cli
+          ./nagi dev verify
+      - name: PowerShell Legal launcher stdout and exit compatibility
+        if: runner.os == 'Windows' && hashFiles('tools/legal/Cargo.toml') != ''
+        shell: pwsh
+        run: |
+          $scan = @(& ./nagi.ps1 legal scan --json)
+          if ($LASTEXITCODE -ne 0) { throw 'Legal scan launcher failed' }
+          $inventory = ($scan -join "`n") | ConvertFrom-Json
+          if ($inventory.components.Count -eq 0) { throw 'Missing JSON components' }
+          & ./nagi.ps1 legal --help
+          if ($LASTEXITCODE -ne 0) { throw 'Legal help launcher failed' }
+          & ./nagi.ps1 legal unsupported
+          if ($LASTEXITCODE -ne 2) { throw 'Legal usage exit was not preserved' }
+          exit 0
+      - name: Owned app host tests when an owner implementation exists
+        run: |
+          for core in calendar writer sheets; do
+            manifest="crates/nagi-${core}-core/Cargo.toml"
+            if test -f "$manifest"; then
+              cargo fmt --manifest-path "$manifest" --all -- --check
+              cargo clippy --manifest-path "$manifest" --all-targets --locked -- -D warnings
+              cargo test --manifest-path "$manifest" --locked --offline
+            else
+              echo "NOT STARTED: ${core} core has no owner implementation in this checkout"
+            fi
+          done

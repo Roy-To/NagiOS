@@ -11,6 +11,25 @@ M30 PASS. Every runtime/product stream stays `NOT_STARTED` until that gate and
 an explicit 0.2 integration checkpoint. A workstream row is a future ownership
 contract, not permission to start implementation.
 
+### Approved host-only checkpoint BP-SBOM-HOST-20261008
+
+The user's explicit instruction approves the bounded Integration Owner checkpoint
+on `codex/0.2-integrate-provenance-sbom`. Authority and edit paths are recorded in
+`docs/0.2/integration-proposals/provenance-sbom/checkpoint-proposal.json` and the
+`provenance-sbom-integration` registry row. It authorizes existing Build
+Provenance/Legal host tooling adoption, shared host CLI/CI wiring, and explicit
+standalone host-core activation for `calendar-core-01` (Codex ②),
+`writer-core-01` (Claude ②) and `sheets-calc-01` (Claude ①).
+
+The three core owners may start only their registered host paths and tests,
+using the dedicated MDs and public contract seams. Optional tests paths are
+approved; root workspace, shared CI, other owners' code/State and real runtime
+providers are outside their boundaries. The exact Writer/Sheets Claude branches
+are narrow schema/parser exceptions, not authorization for other Claude branches.
+Registration does not claim app implementation or host acceptance; each owner
+creates its own State and evidence. M30 PASS plus an explicit release boundary
+remains mandatory for every 0.2 guest/runtime integration.
+
 ## Required workstream record
 
 Each stream entry declares:
