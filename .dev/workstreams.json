@@ -830,7 +830,10 @@
         "docs/0.2/WORKSTREAMS.md",
         "nagi",
         "nagi.ps1",
-        "Cargo.lock"
+        "Cargo.lock",
+        ".dev/workstreams/build-provenance/state.json",
+        ".dev/workstreams/build-provenance/registration-proposal.json",
+        ".dev/workstreams/license-sbom/state.json"
       ],
       "forbidden_paths": [
         "kernel/**",
@@ -844,7 +847,7 @@
         "crates/nagi-writer-core/**",
         "crates/nagi-sheets-core/**"
       ],
-      "activation_gate": "User-approved limited host integration checkpoint BP-SBOM-HOST-20261008. Registration, host-only app activation, source adoption, shared CLI and host CI only; no 0.2 runtime before M30 PASS plus release boundary. Do not edit other owners State.",
+      "activation_gate": "User-approved limited host integration checkpoint BP-SBOM-HOST-20261008. Registration, host-only app activation, source adoption, shared CLI and host CI only; no 0.2 runtime before M30 PASS plus release boundary. Do not edit other owners State. Imported BP/SBOM State snapshots must remain byte-identical to reviewed owner SHAs; status/evidence updates belong only to this checkpoint State.",
       "merge_boundary": "This dedicated checkpoint branch only; no direct push/merge to main, Hark, feature owners or codex/integration-next-phase."
     }
   ]

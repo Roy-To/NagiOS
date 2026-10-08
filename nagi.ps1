@@ -44,7 +44,7 @@ if ([string]::IsNullOrWhiteSpace($cargoPath)) {
     exit 4
 }
 
-$bootstrapMode = $Arguments.Count -gt 0 -and ($Arguments[0] -eq 'fetch' -or $Arguments[0] -eq 'dev')
+$bootstrapMode = $Arguments.Count -gt 0 -and ($Arguments[0] -eq 'fetch' -or $Arguments[0] -eq 'dev' -or $Arguments[0] -eq 'legal')
 $manifestPath = if ($bootstrapMode) {
     Join-Path $repositoryRoot 'tools\nagi-bootstrap\Cargo.toml'
 } else {

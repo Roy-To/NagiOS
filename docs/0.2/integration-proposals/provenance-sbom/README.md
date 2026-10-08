@@ -1,6 +1,13 @@
 # Build Provenance / SBOM host checkpoint proposal
 
-Status: **BLOCKED for shared integration and app activation; existing host tools verified**.
+Current status: **User-approved host integration in progress**. The newer user
+instruction authorizes checkpoint BP-SBOM-HOST-20261008. Five streams are now
+registered and the three app cores have explicit host-only activation. See
+`HOST_INTEGRATION_CHECKPOINT.md` and the owned integration State for current
+source/CI evidence. The original pre-approval proposal below is retained as
+historical audit evidence; its BLOCKED/approval-needed statements are superseded.
+
+## Historical pre-approval audit
 Audit date: 2026-10-08. This is a proposal record, not an approved checkpoint,
 registry entry, owner State, M30 PASS, or release/runtime acceptance.
 The user explicitly confirmed that no separate approved integration checkpoint

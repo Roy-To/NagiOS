@@ -7,7 +7,15 @@ use std::process::Command;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::commands::{CliError, EXIT_CONFIG_ERROR, EXIT_USAGE};
+use crate::commands::{CliError, CommandResult, EXIT_CONFIG_ERROR, EXIT_USAGE};
+
+#[path = "development/fingerprint.rs"]
+mod fingerprint;
+
+/// Run the existing host fingerprint implementation, preserving its exit code.
+pub fn execute_fingerprint_cli(args: &[String], root: &Path) -> CommandResult {
+    fingerprint::execute(args, root)
+}
 
 const REGISTRY_PATH: &str = ".dev/workstreams.json";
 const FAILURE_CLASSES: &[&str] = &[

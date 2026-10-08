@@ -27,7 +27,7 @@ if [ -x "/c/Program Files/LLVM/bin/lld-link.exe" ]; then
     export LIB='C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/lib/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/ucrt/x64'
 fi
 case "${1:-}" in
-fetch|dev)
+fetch|dev|legal)
     exec "$cargo_path" run --locked --manifest-path "$script_dir/tools/nagi-bootstrap/Cargo.toml" -p nagi-bootstrap -- "$@"
     ;;
 esac

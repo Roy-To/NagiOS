@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "model_id": "ibm.granite-4.2-3b",
+      "display_name": "IBM Granite 4.2 3B",
+      "provider_id": "ibm",
+      "version": "4.2",
+      "variant": "3b",
+      "inclusion_status": "fixture-only",
+      "artifact_present": false,
+      "opaque_license_identifier": "provider-terms:ibm-granite",
+      "terms_reference": "provider-terms:ibm.granite",
+      "acknowledgement_required": false,
+      "notices": [
+        {"notice_id": "model-notice", "reference": "provider-notice:ibm.granite", "required": true}
+      ],
+      "declared_license_expression": null,
+      "review_status": "manual_review_required",
+      "evidence_source": "user/nagi-model-manager/tests/fixtures/granite-4.2-3b.json"
+    },
+    {
+      "model_id": "qwen.qwen3-4b",
+      "display_name": "Qwen3 4B",
+      "provider_id": "alibaba",
+      "version": "3",
+      "variant": "4b",
+      "inclusion_status": "fixture-only",
+      "artifact_present": false,
+      "opaque_license_identifier": "provider-terms:qwen3",
+      "terms_reference": "provider-terms:alibaba.qwen3",
+      "acknowledgement_required": false,
+      "notices": [
+        {"notice_id": "model-notice", "reference": "provider-notice:alibaba.qwen3", "required": true}
+      ],
+      "declared_license_expression": null,
+      "review_status": "manual_review_required",
+      "evidence_source": "user/nagi-model-manager/tests/fixtures/qwen3-4b.json"
+    },
+    {
+      "model_id": "google.gemma-3-1b",
+      "display_name": "Google Gemma 3 1B",
+      "provider_id": "google",
+      "version": "3",
+      "variant": "1b",
+      "inclusion_status": "fixture-only",
+      "artifact_present": false,
+      "opaque_license_identifier": "google-gemma-terms",
+      "terms_reference": "provider-terms:google.gemma",
+      "acknowledgement_required": true,
+      "notices": [
+        {"notice_id": "gemma-notice", "reference": "provider-notice:google.gemma", "required": true}
+      ],
+      "declared_license_expression": null,
+      "review_status": "manual_review_required",
+      "evidence_source": "user/nagi-model-manager/tests/fixtures/gemma-3-1b.json"
+    }
+  ]
+}

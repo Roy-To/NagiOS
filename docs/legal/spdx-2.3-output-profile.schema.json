@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nagi:legal:spdx-2.3-output-profile:v1",
+  "title": "Nagi generated SPDX 2.3 structural profile",
+  "description": "Focused structural profile for the SPDX 2.3 fields emitted by nagi-legal. See the SPDX 2.3 specification for full conformance requirements.",
+  "type": "object",
+  "required": [
+    "spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace",
+    "creationInfo", "documentDescribes", "packages", "relationships"
+  ],
+  "properties": {
+    "spdxVersion": {"const": "SPDX-2.3"},
+    "dataLicense": {"const": "CC0-1.0"},
+    "SPDXID": {"const": "SPDXRef-DOCUMENT"},
+    "name": {"type": "string", "minLength": 1},
+    "documentNamespace": {"type": "string", "format": "uri"},
+    "creationInfo": {
+      "type": "object",
+      "required": ["creators", "created", "licenseListVersion"],
+      "properties": {
+        "creators": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "created": {"type": "string", "format": "date-time"},
+        "licenseListVersion": {"const": "3.29.0"}
+      }
+    },
+    "documentDescribes": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name", "SPDXID", "downloadLocation", "filesAnalyzed",
+          "licenseConcluded", "licenseDeclared", "copyrightText"
+        ],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "SPDXID": {"type": "string", "pattern": "^SPDXRef-[A-Za-z0-9.-]+$"},
+          "downloadLocation": {"type": "string", "minLength": 1},
+          "filesAnalyzed": {"type": "boolean"},
+          "licenseConcluded": {"type": "string", "minLength": 1},
+          "licenseDeclared": {"type": "string", "minLength": 1},
+          "copyrightText": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["spdxElementId", "relationshipType", "relatedSpdxElement"],
+        "properties": {
+          "spdxElementId": {"type": "string"},
+          "relationshipType": {"enum": ["DESCRIBES", "DEPENDS_ON"]},
+          "relatedSpdxElement": {"type": "string"}
+        }
+      }
+    }
+  }
+}
