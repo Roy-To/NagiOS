@@ -1,0 +1,45 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "host-foundations-adoption",
+  "current_milestone": "Stage 1 host foundation adoption onto current main",
+  "current_checkpoint": "Explicit two-stage unattended host checkpoint; selective source adoption",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "1118f13dc6badf19b10a628eda244f8a0a635237",
+    "verified_at": "2026-10-08T13:29:04.278544+00:00",
+    "normal_state": "Current main inspected. Source c09572d preserved; selective host delta applied onto current main. Help conflict retains all current 0.1 commands and adds fingerprint/legal. Root Cargo, existing CI, Kernel/Loader/init and third-party sources unchanged. Checks and adoption PR follow.",
+    "commands": [],
+    "tests": [],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "origin/main@1118f13dc6badf19b10a628eda244f8a0a635237:docs/implementation_status.md (latest fetched refs; only workstream spec additions since 9e06967)",
+    "last_checked_at": "2026-10-08T12:46:06.404812+00:00",
+    "activation_requirement": "0.1 M30 remains PARTIAL. No 0.2 guest/runtime before M30 PASS and explicit release boundary; this checkpoint authorizes host-only work."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not edit Hark/main, kernel/loader/init, third-party sources or 0.1 acceptance.",
+      "Do not edit other owners State or implement the three app cores here.",
+      "Do not bypass any guest/release gate."
+    ]
+  },
+  "next_action": "Run focused host and current-main compatibility checks; publish dedicated branch and Stage 1 PR; await all applicable CI before authorized merge. Then Stage 2 Calendar-only adoption.",
+  "acceptance_criteria": [
+    "Selective reviewed host source adoption; preserve all current main functionality and 0.1 acceptance.",
+    "Host format, warnings-denied Clippy, tests, registry/State and Ubuntu/Windows CI pass.",
+    "Separate Stage 1 PR merged only after all applicable checks pass."
+  ],
+  "deferred": [
+    "No 0.2 runtime/guest/release/0.3 activation before documented gates.",
+    "Calendar implementation belongs to Stage 2, tracked separately."
+  ],
+  "cross_workstream_dependencies": []
+}

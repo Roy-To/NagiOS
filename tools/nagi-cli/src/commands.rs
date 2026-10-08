@@ -339,6 +339,7 @@ pub enum Command {
     Fmt,
     Lint,
     Dev,
+    Legal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -555,6 +556,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "fmt" => Command::Fmt,
         "lint" => Command::Lint,
         "dev" => Command::Dev,
+        "legal" => Command::Legal,
         other => {
             return Err(CliError::new(
                 format!("unknown command `{other}`"),
@@ -621,7 +623,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::Clean
         | Command::Fmt
         | Command::Lint => args.len() == 1,
-        Command::Diagnostics | Command::Verify | Command::Smoke => true,
+        Command::Diagnostics | Command::Verify | Command::Smoke | Command::Legal => true,
     };
     if !valid_arity {
         return Err(CliError::new(
@@ -804,16 +806,44 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M25Whisper => execute_m25_whisper(&args[1..], root, probe),
         Command::M25WhisperInference => execute_m25_whisper_inference(&args[1..], root, probe),
         Command::Dev => execute_dev(&args[1..], root),
+        Command::Legal => execute_legal(&args[1..], root),
     }
 }
 
 fn execute_dev(args: &[String], root: &Path) -> CommandResult {
+    if args.first().is_some_and(|arg| arg == "fingerprint") {
+        return crate::development::execute_fingerprint_cli(&args[1..], root);
+    }
     match crate::development::execute(args, root) {
         Ok(lines) => CommandResult {
             exit_code: EXIT_SUCCESS,
             lines,
         },
         Err(error) => failure(error.exit_code(), error.to_string()),
+    }
+}
+
+fn execute_legal(args: &[String], root: &Path) -> CommandResult {
+    // Keep the existing standalone tool and its locked dependency graph intact.
+    // Inherit its stdout/stderr and exact exit status rather than adding a PASS
+    // banner to JSON output or masking an inventory/policy failure.
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    match ProcessCommand::new(cargo)
+        .args(["run", "--quiet", "--locked", "--offline", "--manifest-path"])
+        .arg(root.join("tools/legal/Cargo.toml"))
+        .arg("--")
+        .args(args)
+        .current_dir(root)
+        .status()
+    {
+        Ok(status) => CommandResult {
+            exit_code: status.code().unwrap_or(EXIT_CONFIG_ERROR),
+            lines: Vec::new(),
+        },
+        Err(error) => failure(
+            EXIT_CONFIG_ERROR,
+            format!("legal: cannot start cargo: {error}"),
+        ),
     }
 }
 
@@ -10927,7 +10957,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, m30-update, isolated-process, consent, login, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, m30-update, isolated-process, consent, login, dev status|resume|verify|diagnose|fingerprint, legal scan|check|sbom|notice|diff, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }

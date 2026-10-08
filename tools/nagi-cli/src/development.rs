@@ -7,7 +7,15 @@ use std::process::Command;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::commands::{CliError, EXIT_CONFIG_ERROR, EXIT_USAGE};
+use crate::commands::{CliError, CommandResult, EXIT_CONFIG_ERROR, EXIT_USAGE};
+
+#[path = "development/fingerprint.rs"]
+mod fingerprint;
+
+/// Run the existing host fingerprint implementation, preserving its exit code.
+pub fn execute_fingerprint_cli(args: &[String], root: &Path) -> CommandResult {
+    fingerprint::execute(args, root)
+}
 
 const REGISTRY_PATH: &str = ".dev/workstreams.json";
 const FAILURE_CLASSES: &[&str] = &[
@@ -305,7 +313,14 @@ fn load_registry(root: &Path) -> Result<Vec<Workstream>, CliError> {
                 "{context}: invalid workstream id `{id}`"
             )));
         }
-        let branch_suffix = branch.strip_prefix("codex/").unwrap_or("");
+        let branch_suffix = branch
+            .strip_prefix("codex/")
+            .or(match branch.as_str() {
+                "claude/0.2-writer-core-01" => Some("0.2-writer-core-01"),
+                "claude/0.2-sheets-calc-01" => Some("0.2-sheets-calc-01"),
+                _ => None,
+            })
+            .unwrap_or("");
         if branch_suffix.is_empty()
             || !branch_suffix
                 .chars()
@@ -1532,6 +1547,47 @@ mod tests {
         assert!(resume.iter().any(|line| line.contains("\\u{1b}[2Jclear")));
 
         std::fs::remove_dir_all(root).expect("remove temporary workstream");
+    }
+
+    #[test]
+    fn registry_accepts_only_the_checkpoint_approved_claude_branches() {
+        for (index, branch, accepted) in [
+            ("codex/legacy", true),
+            ("claude/0.2-writer-core-01", true),
+            ("claude/0.2-sheets-calc-01", true),
+            ("claude/unassigned", false),
+            ("claude/0x2-writer-core-01", false),
+            ("claude/0.2-writer-core-01/extra", false),
+            ("codex/Bad", false),
+            ("main", false),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (branch, accepted))| (index, branch, accepted))
+        {
+            let root = std::env::temp_dir().join(format!(
+                "nagi-registry-checkpoint-{}-{index}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(root.join(".dev")).expect("create registry fixture");
+            let registry = json!({
+                "schema_ref": "schemas/workstreams.schema.json",
+                "schema_version": 1,
+                "workstreams": [{
+                    "id": "fixture", "owner": "test owner", "owner_branch": branch,
+                    "recommended_worktree": "../fixture",
+                    "state_file": ".dev/workstreams/fixture/state.json",
+                    "dependencies": [], "allowed_paths": ["docs/**"],
+                    "forbidden_paths": [], "activation_gate": "host fixture",
+                    "merge_boundary": "test only"
+                }]
+            });
+            std::fs::write(root.join(REGISTRY_PATH), registry.to_string())
+                .expect("write registry fixture");
+            let result = load_registry(&root);
+            assert_eq!(result.is_ok(), accepted, "branch {branch}: {result:?}");
+            std::fs::remove_dir_all(root).expect("remove fixture");
+        }
     }
 
     #[test]

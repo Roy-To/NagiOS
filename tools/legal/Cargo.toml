@@ -1,0 +1,22 @@
+[package]
+name = "nagi-legal"
+version = "0.1.0"
+edition = "2021"
+description = "Offline license inventory and SPDX SBOM tooling for Nagi OS"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+toml = "0.8"
+
+[lib]
+name = "nagi_legal"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nagi-legal"
+path = "src/main.rs"
+
+[workspace]

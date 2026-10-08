@@ -136,6 +136,120 @@ fn parses_the_complete_m0_command_surface() {
     );
 }
 
+fn host_cli_output(args: &[&str]) -> std::process::Output {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("repository root");
+    let binary = option_env!("CARGO_BIN_EXE_nagi-bootstrap")
+        .or(option_env!("CARGO_BIN_EXE_nagi"))
+        .expect("host CLI binary");
+    std::process::Command::new(binary)
+        .args(args)
+        .current_dir(root)
+        .env("SOURCE_DATE_EPOCH", "1780272000")
+        .output()
+        .expect("run host CLI")
+}
+
+#[test]
+fn legal_delegation_preserves_json_and_error_exit_status() {
+    assert_eq!(parse_command(&["legal".into()]).unwrap(), Command::Legal);
+    let help = host_cli_output(&["legal", "--help"]);
+    assert!(help.status.success());
+    assert!(String::from_utf8_lossy(&help.stdout).contains("nagi-legal"));
+    let unknown = host_cli_output(&["legal", "unsupported"]);
+    assert_eq!(unknown.status.code(), Some(EXIT_USAGE));
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("unsupported command"));
+    let invalid = host_cli_output(&["legal", "scan", "--format", "invalid"]);
+    assert_eq!(invalid.status.code(), Some(EXIT_USAGE));
+    let missing = host_cli_output(&[
+        "legal",
+        "diff",
+        "--before",
+        "absent.json",
+        "--after",
+        "absent.json",
+    ]);
+    assert!(!missing.status.success());
+    let scan = host_cli_output(&["legal", "scan", "--json"]);
+    assert!(
+        scan.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scan.stderr)
+    );
+    let inventory: serde_json::Value = serde_json::from_slice(&scan.stdout)
+        .expect("delegated stdout is JSON without a PASS prefix");
+    assert!(inventory["components"].is_array());
+}
+
+#[test]
+fn delegated_legal_outputs_are_deterministic_and_notice_remains_a_candidate() {
+    let output_dir = std::env::temp_dir().join(format!("nagi-legal-cli-{}", std::process::id()));
+    fs::create_dir_all(&output_dir).expect("create output directory");
+    let inventory = output_dir.join("inventory.json");
+    let sbom_a = output_dir.join("a.spdx.json");
+    let sbom_b = output_dir.join("b.spdx.json");
+    let notice = output_dir.join("NOTICE.candidate.md");
+    for args in [
+        vec!["legal", "scan", "--output", inventory.to_str().unwrap()],
+        vec!["legal", "check"],
+        vec!["legal", "sbom", "--output", sbom_a.to_str().unwrap()],
+        vec!["legal", "sbom", "--output", sbom_b.to_str().unwrap()],
+        vec!["legal", "notice", "--output", notice.to_str().unwrap()],
+        vec![
+            "legal",
+            "diff",
+            "--before",
+            inventory.to_str().unwrap(),
+            "--after",
+            inventory.to_str().unwrap(),
+        ],
+    ] {
+        let output = host_cli_output(&args);
+        assert!(
+            output.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(fs::read(&sbom_a).unwrap(), fs::read(&sbom_b).unwrap());
+    let spdx: serde_json::Value = serde_json::from_slice(&fs::read(&sbom_a).unwrap()).unwrap();
+    assert_eq!(spdx["spdxVersion"], "SPDX-2.3");
+    assert!(fs::read_to_string(&notice)
+        .unwrap()
+        .to_lowercase()
+        .contains("candidate"));
+    for file in [&sbom_a, &notice] {
+        let content = fs::read_to_string(file).unwrap();
+        assert!(
+            !content.contains(output_dir.to_str().unwrap()),
+            "private output path leaked"
+        );
+    }
+    fs::remove_dir_all(output_dir).expect("remove output fixture");
+}
+
+#[test]
+fn fingerprint_binary_and_library_dispatch_fail_closed_for_missing_artifacts() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .unwrap();
+    let args = [
+        "dev",
+        "fingerprint",
+        "--artifact",
+        "missing=out/host-test-does-not-exist.bin",
+    ];
+    let library = execute(&args.map(str::to_owned), root, &StaticProbe::default());
+    assert_ne!(library.exit_code, EXIT_SUCCESS);
+    assert_eq!(
+        host_cli_output(&args).status.code(),
+        Some(library.exit_code)
+    );
+}
+
 #[test]
 fn acceptance_runner_is_nested_under_the_existing_test_command() {
     assert_eq!(
