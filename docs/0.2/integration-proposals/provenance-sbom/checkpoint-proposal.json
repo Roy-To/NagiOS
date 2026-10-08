@@ -1,0 +1,35 @@
+{
+  "checkpoint_id": "BP-SBOM-HOST-20261008",
+  "status": "PROPOSED_NOT_APPROVED",
+  "branch": "codex/0.2-integrate-provenance-sbom",
+  "base_sha": "80ea6246dd394deb5158c44aa7f0012d76a9c409",
+  "scope": "Host registry / shared CLI / host CI integration only",
+  "approval_required_for": [
+    "Dedicated branch ownership exception or explicit separate integration stream registration",
+    "Source adoption at reviewed BP/SBOM SHAs, preserving owner State verbatim",
+    "Registry patch; shared CLI/manifest/lock edits; host-only CI classification/tests",
+    "App registration and explicit host activation only after dedicated MDs are supplied"
+  ],
+  "candidate_edit_paths": [
+    ".dev/workstreams.json",
+    ".dev/workstreams/provenance-sbom-integration/**",
+    "docs/0.2/integration-proposals/provenance-sbom/**",
+    "tools/nagi-cli/Cargo.toml",
+    "tools/nagi-cli/src/commands.rs",
+    "tools/nagi-cli/src/development.rs",
+    "tools/nagi-cli/src/development/fingerprint.rs",
+    "tools/nagi-cli/src/main.rs",
+    "tools/nagi-cli/tests/cli.rs",
+    "tools/nagi-bootstrap/Cargo.toml",
+    "tools/nagi-bootstrap/Cargo.lock",
+    "Cargo.lock",
+    "nagi",
+    "nagi.ps1",
+    ".github/workflows/ci.yml",
+    "tools/legal/**",
+    "docs/legal/**",
+    "docs/0.2/BUILD_PROVENANCE_ARTIFACT_FINGERPRINT.md"
+  ],
+  "runtime_activation": false,
+  "merge_to_main": false
+}

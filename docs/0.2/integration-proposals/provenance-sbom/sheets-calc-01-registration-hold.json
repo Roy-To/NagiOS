@@ -1,0 +1,23 @@
+{
+  "id": "sheets-calc-01",
+  "proposal_status": "BLOCKED",
+  "registered": false,
+  "host_activation_authorized": false,
+  "owner": null,
+  "owner_branch": null,
+  "allowed_paths": null,
+  "dependencies": null,
+  "gate": null,
+  "state_file": null,
+  "blockers": [
+    "Sheets dedicated MD is absent: supplied files are Calendar Core, Writer Document Core, and duplicate Build Provenance/SBOM Integration.",
+    "Owner branch, allowed paths, dependency IDs and gate cannot be approved from the master Sheets roadmap alone.",
+    "No approved Integration Owner checkpoint."
+  ],
+  "required_next_evidence": [
+    "Exact dedicated MD path/ref or attachment",
+    "Exact owner branch and immutable starting SHA",
+    "Versioned dependency contracts and host-only acceptance",
+    "Explicit Integration Owner registration/activation checkpoint; runtime remains gated on 0.1 M30 PASS plus release boundary"
+  ]
+}

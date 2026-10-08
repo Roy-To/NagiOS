@@ -1,0 +1,30 @@
+{
+  "id": "writer-core-01",
+  "proposal_status": "BLOCKED",
+  "registered": false,
+  "host_activation_authorized": false,
+  "owner": "Claude ②",
+  "owner_branch": "claude/0.2-writer-core-01",
+  "allowed_paths": [
+    "crates/nagi-writer-core/**",
+    "tests/writer-core/**",
+    "docs/workstreams/NagiOS_0.2_Writer_Document_Core_Workstream.md",
+    ".dev/workstreams/writer-core-01/**"
+  ],
+  "dependencies": [
+    "development-foundation",
+    "app-sdk-contract"
+  ],
+  "gate": "PROPOSED: standalone host-only core after explicit Integration Owner registry/path/activation checkpoint and versioned adapter contract review. No guest/runtime/UI/provider integration; Nagi 0.1 M30 PASS plus explicit release boundary required for runtime activation.",
+  "state_file": ".dev/workstreams/writer-core-01/state.json",
+  "blockers": [
+    "No approved Integration Owner checkpoint; registration does not itself activate implementation.",
+    "Proposed development-foundation/app-sdk-contract dependencies and optional tests paths require explicit approval; the owner MD does not name registry dependency IDs.",
+    "claude/ owner branch is rejected by both live registry schema and development.rs verifier. Approve a codex/ branch with Claude owner, or a coordinated schema/parser/test migration; do not silently rename it."
+  ],
+  "required_next_evidence": [
+    "Approve exact registration row, owner branch, owned paths including optional tests, dependency seams and host-only activation",
+    "Starting base candidate 80ea6246dd394deb5158c44aa7f0012d76a9c409 must be re-fetched and reconfirmed before implementation",
+    "Owner creates its own state/branch only after approval; no implementation SHA or acceptance PASS exists yet"
+  ]
+}

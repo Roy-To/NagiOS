@@ -1,0 +1,27 @@
+--- a/.dev/schemas/workstreams.schema.json
++++ b/.dev/schemas/workstreams.schema.json
+@@ -18,7 +18,7 @@
+         "properties": {
+           "id": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"},
+           "owner": {"type": "string", "minLength": 1},
+-          "owner_branch": {"type": "string", "pattern": "^codex/[a-z0-9][a-z0-9./-]*$"},
++          "owner_branch": {"type": "string", "pattern": "^(codex/[a-z0-9][a-z0-9./-]*|claude/0\\.2-writer-core-01)$"},
+           "recommended_worktree": {"type": "string", "minLength": 1},
+           "state_file": {"type": "string", "pattern": "^\\.dev/workstreams/[a-z0-9-]+/state\\.json$"},
+           "dependencies": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+--- a/tools/nagi-cli/src/development.rs
++++ b/tools/nagi-cli/src/development.rs
+@@ -305,7 +305,12 @@
+                 "{context}: invalid workstream id `{id}`"
+             )));
+         }
+-        let branch_suffix = branch.strip_prefix("codex/").unwrap_or("");
++        let branch_suffix = branch
++            .strip_prefix("codex/")
++            .or_else(|| {
++                (branch == "claude/0.2-writer-core-01").then_some("0.2-writer-core-01")
++            })
++            .unwrap_or("");
+         if branch_suffix.is_empty()
+             || !branch_suffix
+                 .chars()

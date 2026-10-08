@@ -1,0 +1,69 @@
+--- a/.dev/workstreams.json
++++ b/.dev/workstreams.json
+@@ -632,6 +632,66 @@
+       ],
+       "activation_gate": "Host provider/index contract, ledger, reference backend, and tests may be prepared on this dedicated branch. Daemon/IPC wiring, guest durable index, production provider registration (Files/Notes/Activity/Wayback/Albert), Home/Search UI, production capability wiring, and semantic/model paths require Nagi 0.1 M30 PASS and an explicit Integration Owner checkpoint naming SEARCH-CORE-01.",
+       "merge_boundary": "Dedicated codex/0.2-search-core-01 branch only; integrate through an explicit checkpoint after the canonical 0.1 nagi-search crate is on the integration base. Never merge directly to main or another workstream branch."
++    },
++    {
++      "id": "build-provenance",
++      "owner": "Codex build provenance foundation workstream",
++      "owner_branch": "codex/0.2-build-provenance",
++      "recommended_worktree": "../NagiOS-0.2-build-provenance",
++      "state_file": ".dev/workstreams/build-provenance/state.json",
++      "dependencies": [],
++      "allowed_paths": [
++        "tools/nagi-cli/**",
++        "docs/0.2/BUILD_PROVENANCE_ARTIFACT_FINGERPRINT.md",
++        ".dev/workstreams/build-provenance/**"
++      ],
++      "forbidden_paths": [
++        "kernel/**",
++        "loader/**",
++        "third_party/**",
++        "user/nagi-init/**",
++        "user/nagi-albert/**",
++        "user/nagi-posix/**",
++        ".dev/workstreams.json",
++        ".dev/schemas/**",
++        "Cargo.toml",
++        "Cargo.lock",
++        ".github/workflows/**",
++        "docs/implementation_status.md",
++        "out/**",
++        "target/**"
++      ],
++      "activation_gate": "Host-side build provenance foundation only. Artifact reuse, Nagi 0.2 runtime/product integration, and changes to existing clean-build or milestone acceptance gates require an explicit integration checkpoint; runtime/product work remains subject to M30 PASS.",
++      "merge_boundary": "Dedicated Nagi 0.2 integration branch only; never merge to main without explicit user direction."
++    },
++    {
++      "id": "license-sbom",
++      "owner": "Codex OSS license and SBOM workstream",
++      "owner_branch": "codex/0.2-license-sbom",
++      "recommended_worktree": "../NagiOS-0.2-license-sbom",
++      "state_file": ".dev/workstreams/license-sbom/state.json",
++      "dependencies": [],
++      "allowed_paths": [
++        "tools/legal/**",
++        "docs/legal/**",
++        ".dev/workstreams/license-sbom/**"
++      ],
++      "forbidden_paths": [
++        ".dev/workstreams.json",
++        ".dev/schemas/**",
++        "Cargo.toml",
++        "Cargo.lock",
++        ".github/workflows/**",
++        "docs/implementation_status.md",
++        "kernel/**",
++        "loader/**",
++        "user/**",
++        "third_party/**",
++        "out/**",
++        "target/**"
++      ],
++      "activation_gate": "Host-side compliance tooling only; do not activate Nagi 0.2 runtime work or change M18 behavior.",
++      "merge_boundary": "Review on codex/integration-next-phase after integration-owned CLI and CI changes are approved; never merge directly to main."
+     }
+   ]
+ }

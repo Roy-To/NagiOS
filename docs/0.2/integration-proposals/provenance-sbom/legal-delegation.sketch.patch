@@ -1,0 +1,60 @@
+--- a/tools/nagi-cli/src/commands.rs
++++ b/tools/nagi-cli/src/commands.rs
+@@ -64,6 +64,7 @@
+     Fmt,
+     Lint,
+     Dev,
++    Legal,
+ }
+
+ #[derive(Debug, Clone, PartialEq, Eq)]
+@@ -262,6 +263,7 @@
+         "fmt" => Command::Fmt,
+         "lint" => Command::Lint,
+         "dev" => Command::Dev,
++        "legal" => Command::Legal,
+         other => {
+             return Err(CliError::new(
+                 format!("unknown command `{other}`"),
+@@ -369,6 +371,10 @@
+
+     match command {
+         Command::Help => help(),
++        Command::Legal => CommandResult {
++            exit_code: nagi_legal::cli::run_from(&args[1..], root),
++            lines: Vec::new(),
++        },
+         Command::Doctor => execute_doctor(&args[1..], root, probe),
+         Command::Diagnostics => execute_diagnostics(&args[1..], root, probe),
+         Command::Verify => execute_verify(&args[1..], root, probe),
+--- a/tools/nagi-cli/Cargo.toml
++++ b/tools/nagi-cli/Cargo.toml
+@@ -6,6 +6,7 @@
+ license = "MIT OR Apache-2.0"
+
+ [dependencies]
++nagi-legal = { path = "../legal" }
+ serde = { version = "1.0", features = ["derive"] }
+ serde_json = "1.0"
+ sha2 = "0.10"
+--- a/tools/nagi-bootstrap/Cargo.toml
++++ b/tools/nagi-bootstrap/Cargo.toml
+@@ -7,6 +7,7 @@
+ publish = false
+
+ [dependencies]
++nagi-legal = { path = "../legal" }
+ serde = { version = "1.0", features = ["derive"] }
+ serde_json = "1.0"
+ sha2 = "0.10"
+--- a/nagi
++++ b/nagi
+@@ -27,7 +27,7 @@
+     export LIB='C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/lib/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64;C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/ucrt/x64'
+ fi
+ case "${1:-}" in
+-fetch|dev)
++fetch|dev|legal)
+     exec "$cargo_path" run --locked --manifest-path "$script_dir/tools/nagi-bootstrap/Cargo.toml" -p nagi-bootstrap -- "$@"
+     ;;
+ esac

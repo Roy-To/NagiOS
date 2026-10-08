@@ -1,0 +1,36 @@
+{
+  "id": "calendar-core-01",
+  "owner": "Codex ②",
+  "owner_branch": "codex/0.2-calendar-core-01",
+  "recommended_worktree": "../NagiOS-calendar-core-01",
+  "state_file": ".dev/workstreams/calendar-core-01/state.json",
+  "dependencies": [
+    "development-foundation",
+    "app-sdk-contract"
+  ],
+  "allowed_paths": [
+    "crates/nagi-calendar-core/**",
+    "tests/calendar-core/**",
+    "docs/workstreams/NagiOS_0.2_Calendar_Core_Workstream.md",
+    ".dev/workstreams/calendar-core-01/**"
+  ],
+  "forbidden_paths": [
+    "kernel/**",
+    "loader/**",
+    "user/nagi-init/**",
+    "third_party/**",
+    ".dev/workstreams.json",
+    ".dev/schemas/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    "idl/**",
+    "schemas/**",
+    "docs/implementation_status.md",
+    "tests/acceptance/**",
+    "out/**",
+    "target/**"
+  ],
+  "activation_gate": "PROPOSED: standalone host-only core after explicit Integration Owner registry/path/activation checkpoint and versioned adapter contract review. No guest/runtime/UI/provider integration; Nagi 0.1 M30 PASS plus explicit release boundary required for runtime activation.",
+  "merge_boundary": "Dedicated owner branch; adoption only at an explicitly approved 0.2 integration checkpoint. No direct main merge."
+}

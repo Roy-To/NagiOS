@@ -1,0 +1,29 @@
+{
+  "id": "license-sbom",
+  "owner": "Codex OSS license and SBOM workstream",
+  "owner_branch": "codex/0.2-license-sbom",
+  "recommended_worktree": "../NagiOS-0.2-license-sbom",
+  "state_file": ".dev/workstreams/license-sbom/state.json",
+  "dependencies": [],
+  "allowed_paths": [
+    "tools/legal/**",
+    "docs/legal/**",
+    ".dev/workstreams/license-sbom/**"
+  ],
+  "forbidden_paths": [
+    ".dev/workstreams.json",
+    ".dev/schemas/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    "docs/implementation_status.md",
+    "kernel/**",
+    "loader/**",
+    "user/**",
+    "third_party/**",
+    "out/**",
+    "target/**"
+  ],
+  "activation_gate": "Host-side compliance tooling only; do not activate Nagi 0.2 runtime work or change M18 behavior.",
+  "merge_boundary": "Review on codex/integration-next-phase after integration-owned CLI and CI changes are approved; never merge directly to main."
+}

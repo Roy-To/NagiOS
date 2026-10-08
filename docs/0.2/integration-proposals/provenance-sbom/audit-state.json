@@ -1,0 +1,225 @@
+{
+  "record_kind": "proposal-audit-not-registered-workstream-state",
+  "status": "BLOCKED",
+  "checkpoint": "BP-SBOM-HOST-20261008-proposed-not-approved",
+  "branch": "codex/0.2-integrate-provenance-sbom",
+  "base_sha": "80ea6246dd394deb5158c44aa7f0012d76a9c409",
+  "source_shas": {
+    "build-provenance": "c7e0ec0d13b467ec91b477b7dfd25ef6daf219c3",
+    "license-sbom": "108b3c50e183f187a0d097206286d2902ba31244",
+    "main": "9e06967640776298dfdcbceb55085eb9d2b717c5"
+  },
+  "authorization": "User explicitly confirmed no approved shared Integration checkpoint; only investigation, source host verification, proposals and dedicated proposal commit/push are executed.",
+  "registered_streams": [],
+  "activated_streams": [],
+  "source_states_modified": false,
+  "shared_files_modified": false,
+  "runtime_activated": false,
+  "tests": [
+    {
+      "name": "fingerprint source tests",
+      "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline development::fingerprint",
+      "source": "build-provenance",
+      "outcome": "PASS",
+      "count": 21
+    },
+    {
+      "name": "fingerprint source fmt/Clippy",
+      "commands": [
+        "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check",
+        "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings"
+      ],
+      "outcome": "PASS"
+    },
+    {
+      "name": "Legal source tests",
+      "command": "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+      "source": "license-sbom",
+      "outcome": "PASS",
+      "unit": 13,
+      "acceptance": 17
+    },
+    {
+      "name": "Legal fmt/Clippy",
+      "commands": [
+        "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check",
+        "cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked --offline -- -D warnings"
+      ],
+      "outcome": "PASS"
+    },
+    {
+      "name": "Base verifier",
+      "command": "./nagi dev verify",
+      "outcome": "PASS",
+      "registered": 21,
+      "states": 14
+    },
+    {
+      "name": "Base bootstrap CLI unit suite",
+      "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+      "outcome": "FAIL",
+      "exit_code": 101,
+      "passed": 107,
+      "failed": 1,
+      "failure_class": "HOST_ENV",
+      "cause": "Missing third_party/mozjs-sys-nagi/build.rs in mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet. No third-party modification or acceptance weakening attempted."
+    },
+    {
+      "name": "Base root CLI tests",
+      "command": "cargo test -p nagi-cli --locked --offline",
+      "outcome": "BLOCKED",
+      "exit_code": 101,
+      "failure_class": "HOST_ENV",
+      "cause": "Missing third_party/cc-nagi/Cargo.toml; no third-party materialization attempted."
+    },
+    {
+      "name": "Proposal status/resume",
+      "commands": [
+        "./nagi dev status",
+        "./nagi dev resume"
+      ],
+      "outcome": "BLOCKED",
+      "exit_code": 4,
+      "cause": "Dedicated proposal branch absent from shared registry; no lookup bypass."
+    },
+    {
+      "name": "Candidate registration validation",
+      "outcome": "PASS for BP/SBOM/Calendar; expected rejection for Writer claude/ branch",
+      "evidence": "validation-evidence.json"
+    },
+    {
+      "name": "Shared patch preflight",
+      "command": "git apply --check <each of registry.patch, fingerprint-wiring.patch, legal-delegation.sketch.patch>",
+      "outcome": "PASS",
+      "applied": false
+    }
+  ],
+  "e2e": [
+    {
+      "name": "bp-left",
+      "exit_code": 0
+    },
+    {
+      "name": "bp-right",
+      "exit_code": 0
+    },
+    {
+      "name": "bp-match",
+      "exit_code": 0
+    },
+    {
+      "name": "bp-changed",
+      "exit_code": 0
+    },
+    {
+      "name": "bp-mismatch",
+      "exit_code": 4
+    },
+    {
+      "name": "bp-missing",
+      "exit_code": 4
+    },
+    {
+      "name": "legal-scan",
+      "exit_code": 0
+    },
+    {
+      "name": "legal-check",
+      "exit_code": 0
+    },
+    {
+      "name": "legal-sbom-1",
+      "exit_code": 0
+    },
+    {
+      "name": "legal-sbom-2",
+      "exit_code": 0
+    },
+    {
+      "name": "legal-notice",
+      "exit_code": 0
+    },
+    {
+      "name": "legal-diff",
+      "exit_code": 0
+    }
+  ],
+  "deterministic_input": {
+    "SOURCE_DATE_EPOCH": "1780272000",
+    "rust_toolchain": "nightly-2025-08-01",
+    "host": "x86_64-unknown-linux-gnu"
+  },
+  "artifact_evidence": [
+    {
+      "logical_path": "bp-left.json",
+      "bytes": 4477,
+      "sha256": "618dc9d7e5fb6d71a0fe59e8c544143d111d38be5fe4086a2882d3ef1041c51a",
+      "source_sha": "c7e0ec0d13b467ec91b477b7dfd25ef6daf219c3"
+    },
+    {
+      "logical_path": "bp-right.json",
+      "bytes": 4477,
+      "sha256": "4fb79480e86a620f6e1bbf6f2ad6f28150c4e9edf360adf35a3da9357e974361",
+      "source_sha": "c7e0ec0d13b467ec91b477b7dfd25ef6daf219c3"
+    },
+    {
+      "logical_path": "bp-changed.json",
+      "bytes": 4477,
+      "sha256": "e9e62d742b497a76bf61ed4bbca7bcefa8a89aa9c85bbea0062400c076061da9",
+      "source_sha": "c7e0ec0d13b467ec91b477b7dfd25ef6daf219c3"
+    },
+    {
+      "logical_path": "sbom-1.json",
+      "bytes": 1187581,
+      "sha256": "5eb9cb25cbd87e3a36550ec28d71ef604cf925ac6d75f6df8f71868a06d6f5f3",
+      "source_sha": "108b3c50e183f187a0d097206286d2902ba31244"
+    },
+    {
+      "logical_path": "sbom-2.json",
+      "bytes": 1187581,
+      "sha256": "5eb9cb25cbd87e3a36550ec28d71ef604cf925ac6d75f6df8f71868a06d6f5f3",
+      "source_sha": "108b3c50e183f187a0d097206286d2902ba31244"
+    },
+    {
+      "logical_path": "NOTICE.candidate.md",
+      "bytes": 332715,
+      "sha256": "c3df4a665336045b8e40298a6cdb17ee661b83426707921abbff492407c3ed23",
+      "source_sha": "108b3c50e183f187a0d097206286d2902ba31244"
+    }
+  ],
+  "blockers": [
+    "Explicit dedicated shared Integration Owner checkpoint absent",
+    "Sheets dedicated MD missing",
+    "Writer owner branch fails both registry schema and CLI verifier",
+    "App row dependencies/optional tests/host activation require approval",
+    "Shared CLI/lock/Windows host CI integration unimplemented until checkpoint approval"
+  ],
+  "next_action": "Approve the exact checkpoint scope and registration drafts; resolve Writer branch/schema policy; provide Sheets MD. Re-fetch refs, adopt reviewed source deltas on the approved branch and run shared host/Windows compatibility CI. Calendar owner can start only after explicit host activation.",
+  "spdx_byte_identical": true,
+  "attachments": [
+    {
+      "name": "Nagi_0.2_Build_Provenance_SBOM_Integration_Workstream.md",
+      "sha256": "159eb0997d12fbbbabfd387e87cdf4ef9f4b047ec7b25b37ae5c64c5e8234910",
+      "bytes": 12068,
+      "read_completely": true
+    },
+    {
+      "name": "Nagi_0.2_Calendar_Core_Workstream.md",
+      "sha256": "d4bdc96ac7ba7c3475b6bc7a6e77af2af91c263683e0445eedaec38244eb0f8b",
+      "bytes": 10546,
+      "read_completely": true
+    },
+    {
+      "name": "Nagi_0.2_Writer_Document_Core_Workstream.md",
+      "sha256": "42130ef7230f8656380e9ac7a12e10355e41e10f3625235c2893206a82f1e4f3",
+      "bytes": 10504,
+      "read_completely": true
+    },
+    {
+      "name": "Nagi_0.2_Build_Provenance_SBOM_Integration_Workstream.md",
+      "sha256": "159eb0997d12fbbbabfd387e87cdf4ef9f4b047ec7b25b37ae5c64c5e8234910",
+      "bytes": 12068,
+      "read_completely": true
+    }
+  ]
+}

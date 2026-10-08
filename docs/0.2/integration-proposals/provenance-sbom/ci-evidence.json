@@ -1,0 +1,154 @@
+{
+  "observed_on": "2026-10-08",
+  "source": "GitHub connector GET runs/jobs and decoded source Ubuntu job logs; exact proposal HEAD CI recorded separately after push",
+  "runs": [
+    {
+      "id": 36969218693,
+      "sha": "150f43623800d2563caece583cae807c8a040f61",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36969218693",
+      "event": "workflow_dispatch",
+      "branch": "codex/integration-next-phase",
+      "jobs": [
+        {
+          "id": 110719482657,
+          "name": "target_classification",
+          "conclusion": "success",
+          "steps": []
+        },
+        {
+          "id": 110719482920,
+          "name": "windows-launcher",
+          "conclusion": "success",
+          "steps": []
+        },
+        {
+          "id": 110719483161,
+          "name": "ubuntu-host",
+          "conclusion": "success",
+          "steps": []
+        },
+        {
+          "id": 110720738769,
+          "name": "nagi-target",
+          "conclusion": "failure",
+          "steps": [
+            "M17 first web pixel acceptance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 36967426363,
+      "sha": "150f43623800d2563caece583cae807c8a040f61",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36967426363",
+      "event": "push",
+      "branch": "codex/integration-next-phase",
+      "jobs": [
+        {
+          "id": 110714092288,
+          "name": "target_classification",
+          "conclusion": "success",
+          "steps": []
+        },
+        {
+          "id": 110714092602,
+          "name": "windows-launcher",
+          "conclusion": "success",
+          "steps": []
+        },
+        {
+          "id": 110714092650,
+          "name": "ubuntu-host",
+          "conclusion": "success",
+          "steps": []
+        },
+        {
+          "id": 110716231742,
+          "name": "nagi-target",
+          "conclusion": "skipped",
+          "steps": []
+        }
+      ]
+    },
+    {
+      "id": 36967341039,
+      "sha": "431f80cf48bfda727625693bc688ceadd61ef6f2",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36967341039",
+      "event": "workflow_dispatch",
+      "branch": "codex/integration-next-phase",
+      "jobs": []
+    },
+    {
+      "id": 36412412685,
+      "sha": "27b7944b1551a1e3d518c139edb138017f07492c",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36412412685",
+      "event": "push",
+      "branch": "codex/0.2-build-provenance",
+      "jobs": [
+        {
+          "id": 108895488319,
+          "name": "ubuntu-host",
+          "conclusion": "failure",
+          "steps": [
+            "Test host-compatible workspace"
+          ]
+        },
+        {
+          "id": 108895488410,
+          "name": "windows-launcher",
+          "conclusion": "failure",
+          "steps": [
+            "Test host-compatible workspace"
+          ]
+        },
+        {
+          "id": 108897148674,
+          "name": "nagi-target",
+          "conclusion": "skipped",
+          "steps": []
+        }
+      ]
+    },
+    {
+      "id": 36419566860,
+      "sha": "4caaabb8278127d663f94df956a37acf4454e12c",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36419566860",
+      "event": "push",
+      "branch": "codex/0.2-license-sbom",
+      "jobs": [
+        {
+          "id": 108918754926,
+          "name": "windows-launcher",
+          "conclusion": "failure",
+          "steps": [
+            "Test host-compatible workspace"
+          ]
+        },
+        {
+          "id": 108918755098,
+          "name": "ubuntu-host",
+          "conclusion": "failure",
+          "steps": [
+            "Test host-compatible workspace"
+          ]
+        },
+        {
+          "id": 108920882673,
+          "name": "nagi-target",
+          "conclusion": "skipped",
+          "steps": []
+        }
+      ]
+    }
+  ]
+}
