@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "sheets-calc-01",
   "current_milestone": "Sheets Calculation Core Host Foundation S1-S5 / SHEETS-H01-H12",
-  "current_checkpoint": "BP-SBOM-HOST-20261008;S1-S5-H01-H12-host-pass;CI-pending",
-  "status": "PASS",
+  "current_checkpoint": "BP-SBOM-HOST-20261008;S1-S5-H01-H12-local-host-pass;Ubuntu-CI-pass;Windows-CI-format-blocked",
+  "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "97d97ec766c52aea9bba59811327527e6ac6f607",
-    "verified_at": "2026-10-08T13:47:28.524932Z",
-    "normal_state": "S1-S5 and SHEETS-H01-H12 host acceptance PASS on published implementation 97d97ec766c52aea9bba59811327527e6ac6f607. 19 tests, fmt, warning-denied Clippy, rustdoc and dev verifier pass after fetching the identical published source tree. Only owned paths changed; owner branch is published and dedicated worktree was clean before this State/evidence update. Host git push was denied because the environment selected RyomaTOZAWA; the authorized RT-NISH GitHub connection published an identical tree via commit/tree/ref tools with a non-forced expected-SHA update. Local verified commits are retained in refs/sheets-calc-01/local-verified. CI on the next evidence checkpoint is pending. No target/runtime/full product acceptance claimed.",
+    "commit_sha": "3cda375cf676b913d1972b3a2c78f3fc41c2ec7e",
+    "verified_at": "2026-10-08T13:53:39.477Z",
+    "normal_state": "Codex implemented the assigned Claude-named branch under BP-SBOM-HOST-20261008. S1-S5 and SHEETS-H01-H12 local host acceptance PASS: 19 tests, typed sparse model, bounded parser/functions, incremental graph/cycles/errors, snapshot/facade, owned path proof and publication/clean tree. CI run 37787276802 on 3cda375cf676b913d1972b3a2c78f3fc41c2ec7e passed Ubuntu including 19 Sheets tests and failed Windows before Sheets Clippy/tests on a protected relibc newline check reached by cargo fmt --all. Source code is identical to locally verified published implementation 97d97ec766c52aea9bba59811327527e6ac6f607; evidence/ownership.json records source digests. Overall PARTIAL truthfully records unresolved Windows CI. Host Git authentication selected RyomaTOZAWA and denied push; RT-NISH connector published the identical tree using non-forced expected-SHA ref updates. Source and dedicated worktree are published and clean; this final owned State-only checkpoint records CI without retriggering it. No guest/runtime or full product acceptance claimed.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml --all -- --check",
       "cargo clippy --manifest-path crates/nagi-sheets-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
@@ -66,9 +66,54 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Published SHA 97d97ec766c52aea9bba59811327527e6ac6f607 fetched; source tree exactly equals local verified tree 028a909c93ad90cf9b392c46cfef99470a497485; dedicated worktree clean before owned evidence update."
+      },
+      {
+        "name": "Ubuntu host CI",
+        "command": "GitHub Actions 0.2-host-integration.yml run 37787276802 job 113345268199",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "https://github.com/RT-NISH/NagiOS/actions/runs/37787276802/job/113345268199 ; owned app stage ran fmt, warnings-denied Clippy and 19 tests (0 failures), with 18 development + 7 command + 26 launcher compatibility tests also PASS."
+      },
+      {
+        "name": "Windows CI app-format",
+        "command": "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml --all -- --check",
+        "outcome": "FAIL",
+        "exit_code": 1,
+        "evidence": "https://github.com/RT-NISH/NagiOS/actions/runs/37787276802/job/113345267877 ; Incorrect newline style in \\\\?\\D:\\a\\NagiOS\\NagiOS\\third_party\\relibc\\build.rs and relibc Rust sources. This is formatter traversal into non-owned root workspace, not a failing calculation assertion. Full logs retained by immutable run/job IDs."
+      },
+      {
+        "name": "Windows Sheets Clippy/tests",
+        "command": "CI owned app host stage after format",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Windows format exited 1 before these commands. Do not claim Windows Sheets test PASS."
+      },
+      {
+        "name": "Bounded format command diagnostic",
+        "command": "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml -- --check --verbose",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Local verbose output verifies only sheets src/{lib,engine,parser,workbook}.rs, examples/measure.rs and tests/sheets-core/acceptance.rs; no root/kernel/third_party target is traversed. Contrast with --all verbose output, which includes root workspace and relibc. This is a concrete unmerged shared-CI command proposal, not a claimed Windows fix."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 37787276802,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37787276802",
+        "head_sha": "3cda375cf676b913d1972b3a2c78f3fc41c2ec7e",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu host-foundations PASS, including Sheets fmt/Clippy and all 19 acceptance tests. Windows host-foundations FAIL before Sheets Clippy/tests: cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml --all -- --check recursively formats the root workspace through the nagi-model path dependency, then rejects CRLF checkout of protected third_party/relibc files configured with newline_style=Unix. Shared CI and third-party edits are prohibited. Proposed owner fix: omit --all for app-core format, retaining every owned source/example/test check."
+      },
+      {
+        "run_id": 37787078335,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37787078335",
+        "head_sha": "97d97ec766c52aea9bba59811327527e6ac6f607",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Superseded source checkpoint: Ubuntu passed; Windows log already showed the same protected relibc newline check. Latest run 37787276802 is the authoritative complete failure."
+      }
+    ]
   },
   "release_line_gate": {
     "source": ".dev/workstreams.json; docs/0.2/WORKSTREAMS.md; BP-SBOM-HOST-20261008",
@@ -76,24 +121,29 @@
     "activation_requirement": "Registered standalone host-only paths and tests are authorized before M30. Guest/runtime/UI/provider/shared SDK/workspace integration requires M30 PASS and explicit release/integration checkpoint."
   },
   "blocker": {
-    "active": false,
-    "class": null,
-    "summary": null,
-    "reproduction_commands": [],
-    "failure_log_summary": "Initial host lacked Cargo: installed pinned nightly in /tmp/nagi-sheets-tools. First test compile failed E0502 in snapshot test; split cloned duplicate from mutable push and reran successfully. Initial dev commands detected absent State; create this owned State then rerun. /usr/bin/time absent: use Python resource.getrusage around release measurement. Initial implementation commit log had a trailing empty line flagged by git diff --check; preserve full raw output and append an exit_code marker to verification logs. Host push returned 403 for RyomaTOZAWA and gh REST read was denied; successfully used authorized RT-NISH GitHub connector, preserved source tree, and reverified the resulting remote SHA.",
+    "active": true,
+    "class": "CI_INFRA",
+    "summary": "Windows host CI app-core cargo fmt --all crosses ownership through the local nagi-model dependency and rejects protected relibc CRLF checkout. Required shared CI edit is outside this workstream and explicitly prohibited.",
+    "reproduction_commands": [
+      "GitHub Actions run 37787276802 / windows-2022 / job 113345267877",
+      "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml --all -- --check --verbose",
+      "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml -- --check --verbose"
+    ],
+    "failure_log_summary": "Initial host lacked Cargo: installed pinned nightly in /tmp/nagi-sheets-tools. First test compile failed E0502 in snapshot test; split cloned duplicate from mutable push and reran successfully. Initial dev commands detected absent State; create this owned State then rerun. /usr/bin/time absent: use Python resource.getrusage around release measurement. Initial implementation commit log had a trailing empty line flagged by git diff --check; preserve full raw output and append an exit_code marker to verification logs. Host push returned 403 for RyomaTOZAWA and gh REST read was denied; successfully used authorized RT-NISH GitHub connector, preserved source tree, and reverified the resulting remote SHA. Latest Windows run failed at app format, exit 1: Incorrect newline style in third_party/relibc/build.rs and its Rust sources. Root .gitattributes permits Windows autocrlf checkout; relibc/rustfmt.toml mandates Unix. --all traverses the root workspace via nagi-model; scoped fmt does not.",
     "attempted_fixes": [
       "Install exact nightly-2025-08-01 with rustfmt/Clippy in task temporary directory.",
       "Fix the test borrow without changing assertions.",
       "Create registered owned State; no registry changes.",
       "Measure release executable via Python resource and monotonic clock.",
-      "Publish identical local tree through RT-NISH GitHub connection; fetch and reverify exact remote SHA."
+      "Publish identical local tree through RT-NISH GitHub connection; fetch and reverify exact remote SHA.",
+      "Inspect complete Windows failure logs and both verbose format target lists; identify that --all is the cross-workspace traversal trigger. Confirm scoped fmt covers every owned target with exit 0. Do not edit shared CI, root attributes, third-party source or duplicate model ID types."
     ],
     "do_not_try": [
       "Do not modify root Cargo, CI, Registry, kernel or other owners State.",
       "Do not integrate guest/runtime/UI/providers or claim full SHEETS-001-028."
     ]
   },
-  "next_action": "Publish owned exact-SHA State/evidence checkpoint via RT-NISH connection and inspect Ubuntu/Windows host CI; record exact run/head SHA without changing shared workflow.",
+  "next_action": "Integration Owner: change only the owned-app format command in .github/workflows/0.2-host-integration.yml from cargo fmt --manifest-path \"$manifest\" --all -- --check to cargo fmt --manifest-path \"$manifest\" -- --check, preserving Clippy and locked offline tests. Rerun Ubuntu/Windows host CI at the approved integration checkpoint, then record exact head SHA and promote overall State to PASS if both pass. Do not activate guest/runtime/UI/provider integration.",
   "acceptance_criteria": [
     "S1-S5 standalone typed sparse model, bounded AST, canonical functions, incremental graph/cycles/errors, typed snapshot and facade/event seam.",
     "SHEETS-H01: acceptance as defined by the dedicated workstream specification.",
@@ -110,6 +160,7 @@
     "SHEETS-H12: acceptance as defined by the dedicated workstream specification."
   ],
   "deferred": [
+    "Windows CI completion: shared formatter traversal fix requires Integration Owner-owned CI edit; Sheets Windows Clippy/tests remain NOT RUN.",
     "Guest/runtime/UI/provider/permission wiring; root workspace and shared CI changes.",
     "Full XLSX/CSV, charts, copy/fill relocation, named ranges, dynamic dependencies, iterative circular calculation.",
     "Durable persistence/byte encoding, Activity/Wayback/Search delivery, agent edits.",
