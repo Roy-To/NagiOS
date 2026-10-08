@@ -1,0 +1,66 @@
+{
+  "proposal_version": 1,
+  "workstream_id": "calendar-core-01",
+  "status": "REGISTERED_OWNER_CHECKPOINT",
+  "observed_at": "2026-10-08T12:06:19.943860+00:00",
+  "observed_refs": {
+    "main": "9e06967640776298dfdcbceb55085eb9d2b717c5",
+    "codex/integration-next-phase": "80ea6246dd394deb5158c44aa7f0012d76a9c409",
+    "codex/0.2-ident-01": "86a15b10ddaef4c759c90b6c441fbfcd0fa2ca0f",
+    "codex/0.2-job-01": "675fa7aa565f0469f06ac2a1600713cd3ad38590",
+    "codex/0.2-build-provenance": "c7e0ec0d13b467ec91b477b7dfd25ef6daf219c3",
+    "hark/desktop-login-m10-m29": "4d9cd884c5b0385ffa59a74f6febf8308e9c6445"
+  },
+  "candidate_base_sha": "80ea6246dd394deb5158c44aa7f0012d76a9c409",
+  "approved_base_sha": "cd871f905bd06ef406ccaa9f80c484f19158209f",
+  "registration_observed": true,
+  "owned_paths_approved": true,
+  "host_checkpoint_observed": true,
+  "registry_entry": {
+    "id": "calendar-core-01",
+    "owner": "Codex ②",
+    "owner_branch": "codex/0.2-calendar-core-01",
+    "recommended_worktree": "../NagiOS-calendar-core-01",
+    "state_file": ".dev/workstreams/calendar-core-01/state.json",
+    "dependencies": [
+      "development-foundation",
+      "app-sdk-contract"
+    ],
+    "allowed_paths": [
+      "crates/nagi-calendar-core/**",
+      "tests/calendar-core/**",
+      "docs/workstreams/NagiOS_0.2_Calendar_Core_Workstream.md",
+      ".dev/workstreams/calendar-core-01/**"
+    ],
+    "forbidden_paths": [
+      "kernel/**",
+      "loader/**",
+      "user/nagi-init/**",
+      "third_party/**",
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      ".github/workflows/**",
+      "idl/**",
+      "schemas/**",
+      "docs/implementation_status.md",
+      "tests/acceptance/**",
+      "out/**",
+      "target/**"
+    ],
+    "activation_gate": "AUTHORIZED by user-approved BP-SBOM-HOST-20261008 checkpoint: standalone host-only core and owned fixtures/tests may start before M30. Use development-foundation/app-sdk-contract seams and existing model IDs; no guest/runtime/UI/provider integration. Nagi 0.1 M30 PASS plus explicit release boundary required for runtime activation.",
+    "merge_boundary": "Dedicated owner branch; adoption only at an explicitly approved 0.2 integration checkpoint. No direct main merge."
+  },
+  "optional_owned_path_request": "tests/calendar-core/** only if explicitly approved; default tests remain inside owned crate.",
+  "required_owner_actions": [],
+  "scope": "C1 local models/CRUD, C2 explicit temporal types and injected timezone, C3 bounded recurrence, C4 availability, C5 adapter contracts only.",
+  "prohibited": "No implementation, official state creation, branch creation/push or registry mutation before the above owner checkpoint. No personal Mac file exploration. No external messages sent.",
+  "attachment_sha256": "d4bdc96ac7ba7c3475b6bc7a6e77af2af91c263683e0445eedaec38244eb0f8b",
+  "nonblocking_integration_followups": [
+    "Owner-reviewed adoption of the Calendar-only feature diff at a 0.2 integration checkpoint.",
+    "Concrete runtime adapters require M30 PASS and separate release boundary."
+  ],
+  "approval_evidence": "Current user instruction: 全部承認するから進めて. Approves the presented registration patch, proposed paths/base and standalone C1-C5 host implementation. No runtime or shared CI/root manifest activation.",
+  "owner_checkpoint": "BP-SBOM-HOST-20261008"
+}

@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "test": "cal_h08_stale_update_and_delete_are_atomic",
+      "mutation": "if old.revision == expected {",
+      "outcome": "CAUGHT",
+      "exit_code": 101
+    },
+    {
+      "test": "cal_h04_fold_requires_choice",
+      "mutation": "ResolveChoice::Reject => Ok(earlier),",
+      "outcome": "CAUGHT",
+      "exit_code": 101
+    },
+    {
+      "test": "recurrence_rejects_exactly_one_occurrence_over_output_limit",
+      "mutation": "if result.len() > limits.max_output {",
+      "outcome": "CAUGHT",
+      "exit_code": 101
+    }
+  ],
+  "restored": true,
+  "initial_gap": "The three-occurrence output-limit test did not catch a one-item-late limit check. Added an exactly-two-occurrences/limit-one regression; it catches the same mutation."
+}

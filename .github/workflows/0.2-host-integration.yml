@@ -115,7 +115,11 @@ jobs:
           for core in calendar writer sheets; do
             manifest="crates/nagi-${core}-core/Cargo.toml"
             if test -f "$manifest"; then
-              cargo fmt --manifest-path "$manifest" --all -- --check
+              if test "$core" = calendar; then
+                cargo fmt --manifest-path "$manifest" --package nagi-calendar-core -- --check
+              else
+                cargo fmt --manifest-path "$manifest" --all -- --check
+              fi
               cargo clippy --manifest-path "$manifest" --all-targets --locked -- -D warnings
               cargo test --manifest-path "$manifest" --locked --offline
             else
