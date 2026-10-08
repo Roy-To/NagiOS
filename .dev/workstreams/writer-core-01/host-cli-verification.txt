@@ -1,0 +1,119 @@
+    Checking typenum v1.20.1
+    Checking serde_core v1.0.229
+    Checking zmij v1.0.23
+    Checking itoa v1.0.18
+    Checking cfg-if v1.0.5
+    Checking memchr v2.8.3
+    Checking cpufeatures v0.2.17
+    Checking generic-array v0.14.7
+    Checking block-buffer v0.10.4
+    Checking crypto-common v0.1.7
+    Checking digest v0.10.7
+    Checking sha2 v0.10.9
+    Checking serde v1.0.229
+    Checking serde_json v1.0.151
+    Checking nagi-bootstrap v0.1.0 (/workspace/NagiOS-writer-core-01/tools/nagi-bootstrap)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.42s
+   Compiling nagi-bootstrap v0.1.0 (/workspace/NagiOS-writer-core-01/tools/nagi-bootstrap)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.40s
+     Running unittests ../nagi-cli/src/lib.rs (tools/nagi-bootstrap/target/debug/deps/nagi_cli-dda8ece47a84eb2b)
+
+running 18 tests
+test development::tests::datetime_validation_accepts_rfc3339_and_rejects_invalid_calendar_values ... ok
+test development::tests::diagnostic_class_suggests_infrastructure_for_runner_loss ... ok
+test development::tests::diagnostic_inventory_keeps_every_link_symbol_and_error ... ok
+test development::tests::diagnostic_console_summary_escapes_terminal_controls ... ok
+test development::tests::diagnostic_console_summary_escapes_terminal_controls_in_output_path ... ok
+test development::tests::later_graphics_timeout_takes_precedence_over_earlier_linker_warnings ... ok
+test development::tests::diagnostics_fail_when_no_requested_log_can_be_read ... ok
+test development::tests::registry_accepts_only_the_checkpoint_approved_claude_branches ... ok
+test development::tests::registry_validation_rejects_duplicate_ids_branches_dependencies_and_unsafe_paths ... ok
+test development::tests::sha256_matches_standard_vector ... ok
+test development::tests::state_loading_rejects_symlinks_that_escape_the_repository ... ok
+test development::tests::diagnostic_report_hashes_logs_and_records_artifact_metadata ... ok
+test development::tests::registry_and_active_workstream_state_validate_from_repository ... ok
+test development::tests::status_displays_the_two_most_recent_ci_runs_first ... ok
+test development::tests::status_keeps_active_ci_runs_visible_ahead_of_newer_completed_runs ... ok
+test development::tests::validator_rejects_unknown_status_and_missing_next_action ... ok
+test development::tests::diagnostic_output_preserves_source_logs_and_never_overwrites_reports ... ok
+test development::tests::status_and_resume_escape_terminal_controls_from_workstream_state ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 91 filtered out; finished in 0.05s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests ../nagi-cli/src/lib.rs (tools/nagi-bootstrap/target/debug/deps/nagi_cli-dda8ece47a84eb2b)
+
+running 7 tests
+test commands::tests::m17_guest_rng_scans_the_transitional_entropy_device_id ... ok
+test commands::tests::m17_init_storage_bootstrap_matches_the_two_boot_acceptance_gate ... ok
+test commands::tests::m17_trace_excerpt_keeps_earlier_egl_events_and_skips_non_trace_lines ... ok
+test commands::tests::m17_trace_excerpt_bounds_long_logs_and_keeps_both_ends ... ok
+test commands::tests::serial_log_excerpt_keeps_the_last_lines_in_order ... ok
+test commands::tests::m17_persistence_and_pixel_boots_keep_the_esp_read_only ... ok
+test commands::tests::m17_rust_std_random_backend_uses_guest_rng_boundary ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.00s
+
+   Compiling nagi-bootstrap v0.1.0 (/workspace/NagiOS-writer-core-01/tools/nagi-bootstrap)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running ../nagi-cli/tests/cli.rs (tools/nagi-bootstrap/target/debug/deps/cli-68ac1e4537972f1a)
+
+running 26 tests
+test acceptance_runner_is_nested_under_the_existing_test_command ... ok
+test allow_missing_probe_report_warns_without_hiding_missing_dependencies ... ok
+test an_incomplete_ovmf_pair_is_not_a_pass ... ok
+test complete_probe_report_passes_and_reports_every_dependency ... ok
+test dev_requires_a_subcommand_and_rejects_unknown_dev_actions ... ok
+test configured_minimums_are_enforced_by_the_doctor ... ok
+test acceptance_list_uses_the_registry_and_rejects_unregistered_milestones ... ok
+test desktop_command_declares_ordered_boot_markers_before_ready ... ok
+test diagnostics_commands_validate_modes_and_options ... ok
+test formal_nagi_logo_asset_matches_the_boot_contract ... ok
+test host_clippy_command_keeps_warning_deny_boundary ... ok
+test host_workspace_commands_exclude_kernel ... ok
+test mismatched_ovmf_families_are_not_a_pass ... ok
+test nonzero_tool_exit_is_not_a_pass ... ok
+test parses_the_complete_m0_command_surface ... ok
+test project_manifest_supplies_the_pinned_host_requirements ... ok
+test diagnostics_bundle_is_local_and_versioned ... ok
+test focused_diagnostics_verification_emits_a_machine_report ... ok
+test rejects_unexpected_arguments_for_every_command ... ok
+test rejects_unknown_commands_with_usage_exit_code ... ok
+test repository_paths_are_not_used_by_probe_contract ... ok
+test strict_probe_report_fails_after_reporting_all_missing_dependencies ... ok
+test wrong_program_output_is_not_a_pass ... ok
+test unreadable_or_non_executable_tool_is_not_a_pass ... ok
+test registered_workstream_validator_reports_verified_state ... ok
+test dev_status_resume_and_verify_read_the_registered_workstream ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `tools/nagi-bootstrap/target/debug/nagi-bootstrap dev status`
+Workstream: writer-core-01 (Claude ②)
+Branch: claude/0.2-writer-core-01
+HEAD: cd871f905bd06ef406ccaa9f80c484f19158209f
+Worktree: DIRTY
+Milestone/checkpoint: W1-W5 standalone Writer host foundation; WRITER-H01-H12 / implementation-host-verification-before-first-commit
+Status: PARTIAL
+Release-line gate: BP-SBOM-HOST-20261008 authorizes only standalone host foundation. M30 PASS plus explicit release boundary and Integration Owner checkpoint are required for production, guest/runtime, shared workspace and provider adoption. Registered base retains M17 BLOCKED, M30 NOT STARTED; no release-line status is modified. (.dev/workstreams.json; docs/0.2/WORKSTREAMS.md; docs/implementation_status.md)
+Last verified commit: cd871f905bd06ef406ccaa9f80c484f19158209f (2026-10-08T13:45:21.733309Z)
+Blocker: none
+Next action: Complete final host gate, DF-01 and ownership audit; commit owned implementation, verify immutable SHA, push owner branch, inspect Ubuntu/Windows host foundation CI and record evidence in a State-only checkpoint.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `tools/nagi-bootstrap/target/debug/nagi-bootstrap dev resume`
+Workstream: writer-core-01 (Claude ②)
+Branch: claude/0.2-writer-core-01
+HEAD: cd871f905bd06ef406ccaa9f80c484f19158209f
+Worktree: DIRTY
+Milestone/checkpoint: W1-W5 standalone Writer host foundation; WRITER-H01-H12 / implementation-host-verification-before-first-commit
+Status: PARTIAL
+Release-line gate: BP-SBOM-HOST-20261008 authorizes only standalone host foundation. M30 PASS plus explicit release boundary and Integration Owner checkpoint are required for production, guest/runtime, shared workspace and provider adoption. Registered base retains M17 BLOCKED, M30 NOT STARTED; no release-line status is modified. (.dev/workstreams.json; docs/0.2/WORKSTREAMS.md; docs/implementation_status.md)
+Last verified commit: cd871f905bd06ef406ccaa9f80c484f19158209f (2026-10-08T13:45:21.733309Z)
+Blocker: none
+Next action: Complete final host gate, DF-01 and ownership audit; commit owned implementation, verify immutable SHA, push owner branch, inspect Ubuntu/Windows host foundation CI and record evidence in a State-only checkpoint.
+Resume: read AGENTS.md, docs/0.2/DEVELOPMENT_ARCHITECTURE.md, then this workstream state and linked evidence.
+Dependencies: development-foundation, app-sdk-contract
+Do not: Do not modify shared Registry, Cargo workspace/lock, CI, Kernel or other workstream.
+Do not: Do not fake CI, Activity, Wayback, persistence or target PASS.
+Do not: Do not bypass network policy.

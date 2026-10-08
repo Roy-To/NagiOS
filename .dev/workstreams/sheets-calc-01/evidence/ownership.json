@@ -1,0 +1,40 @@
+{
+  "base_commit": "cd871f905bd06ef406ccaa9f80c484f19158209f",
+  "source_commit": "97d97ec766c52aea9bba59811327527e6ac6f607",
+  "outcome": "PASS",
+  "changed_paths": [
+    ".dev/workstreams/sheets-calc-01/evidence/clippy.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/dev-resume.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/dev-status.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/dev-verify-initial.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/dev-verify.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/format.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/host-tests.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/ownership.json",
+    ".dev/workstreams/sheets-calc-01/evidence/performance.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/rustdoc.txt",
+    ".dev/workstreams/sheets-calc-01/state.json",
+    "crates/nagi-sheets-core/Cargo.lock",
+    "crates/nagi-sheets-core/Cargo.toml",
+    "crates/nagi-sheets-core/README.md",
+    "crates/nagi-sheets-core/examples/measure.rs",
+    "crates/nagi-sheets-core/src/engine.rs",
+    "crates/nagi-sheets-core/src/lib.rs",
+    "crates/nagi-sheets-core/src/parser.rs",
+    "crates/nagi-sheets-core/src/workbook.rs",
+    "docs/workstreams/NagiOS_0.2_Sheets_Calculation_Core_Workstream.md",
+    "tests/sheets-core/acceptance.rs"
+  ],
+  "protected_files_unchanged": true,
+  "source_digests": {
+    "crates/nagi-sheets-core/Cargo.lock": "559f97a44f0ddb6d66256818a023154a3b3a2ae247045c840868c4f341229ce0",
+    "crates/nagi-sheets-core/Cargo.toml": "8e31d51cfb84b592ce2877a7555c9161dbde42fe3bb23ef5a8230523680bb29e",
+    "crates/nagi-sheets-core/README.md": "0d7bfd7a186c550cba8eec7ad78673f122cd8b676ac80933368560456652ced0",
+    "crates/nagi-sheets-core/examples/measure.rs": "e3785caf75469c62264598926e09829370b8691e22ece1fa5e7513fb4c17dd0e",
+    "crates/nagi-sheets-core/src/engine.rs": "7861f08f21361e67ecead456d38dc5100257d3ac00a9188885fc88a6dcd43401",
+    "crates/nagi-sheets-core/src/lib.rs": "2c34a616fc25e1aaad6401a63f25c6b799ac580985ef6c5a8cf6f7cab6c7dc87",
+    "crates/nagi-sheets-core/src/parser.rs": "ec9cb61860018e75fa86066e7325c574a2231d4585ea02fb564e97a53fa33771",
+    "crates/nagi-sheets-core/src/workbook.rs": "5b96b443131665044e241ce4526ddddf9a6aea7d8804e98bb7910673c634685b",
+    "tests/sheets-core/acceptance.rs": "8dd3b7ec5b33a12ac567246ef6cddb5cb7c26c2e7e639917f80842fd940aefb4"
+  }
+}

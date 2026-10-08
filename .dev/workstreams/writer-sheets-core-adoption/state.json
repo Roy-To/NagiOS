@@ -1,0 +1,180 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "writer-sheets-core-adoption",
+  "current_milestone": "WS-HOST-PREP-20261008: Writer/Sheets host adoption draft publication and CI",
+  "current_checkpoint": "Revalidated latest main after PR #31: local adoption/CLI gates PASS; ready for authorized draft publication",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "9c0a32f9b21a16290e4f60ea343e3022882ea6bc",
+    "verified_at": "2026-10-08T21:52:04.246421+00:00",
+    "normal_state": "Latest main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4 merged into isolated adoption branch without conflicts; all Hark #31 and existing owner source/State retained. No competing open PR/remote adoption branch. Revalidation PASS: Writer original 31, Sheets original 19, Calendar 61 tests, package fmt and warnings-denied all-target Clippy; full CLI 293+32, CLI fmt/Clippy, Legal 18+structural check and Registry 30 streams/23 States. Raw revalidation output in publication-verification.json. Source-owner evidence/algorithms/tests unchanged. User explicitly authorized dedicated push/draft PR/CI at 21:48:44 UTC; no merge authorization or runtime/provider/GUI/0.3/release activation. Remote CI pending; current overall status PARTIAL.",
+    "commands": [
+      "bash tests/writer-core/verify.sh",
+      "cargo fmt --manifest-path crates/nagi-writer-core/Cargo.toml -- --check --verbose",
+      "cargo clippy --manifest-path crates/nagi-writer-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path crates/nagi-writer-core/Cargo.toml --locked --offline",
+      "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml -- --check --verbose",
+      "cargo clippy --manifest-path crates/nagi-sheets-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline",
+      "cargo fmt --manifest-path crates/nagi-calendar-core/Cargo.toml -- --check --verbose",
+      "cargo clippy --manifest-path crates/nagi-calendar-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline",
+      "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib development::",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib commands::tests",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --test cli",
+      "cargo fetch --manifest-path tools/legal/Cargo.toml --locked",
+      "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+      "./nagi legal check",
+      "./nagi dev verify",
+      "python3 .dev/workstreams/writer-sheets-core-adoption/verify_adoption.py",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline"
+    ],
+    "tests": [
+      {
+        "name": "Writer original host suite",
+        "command": "bash tests/writer-core/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "verification.json: original 31 passed, no ignored/filtered/deleted tests; build, format, Clippy and rustdoc PASS."
+      },
+      {
+        "name": "Sheets original host suite",
+        "command": "cargo test --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "verification.json exact-sheets-tests: 19 passed, no ignored/filtered/deleted tests; scoped format and Clippy PASS."
+      },
+      {
+        "name": "Calendar host regression",
+        "command": "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "verification.json: 1 unit + 60 acceptance PASS; current main code/State unchanged."
+      },
+      {
+        "name": "Shared CLI focused compatibility",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib development::; cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib commands::tests; cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --test cli",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "verification.json: 39 development, 35 command, 32 launcher tests; host CLI fmt/all-target Clippy PASS."
+      },
+      {
+        "name": "Legal tooling",
+        "command": "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline; ./nagi legal check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "verification.json: 18 tests + format/Clippy + structural check PASS. Unknown licenses remain explicit; no redistribution approval claim."
+      },
+      {
+        "name": "Canonical ID/source/schema/ownership",
+        "command": "cargo test --manifest-path /tmp/ws-canonical-compat/Cargo.toml --locked --offline; python3 .dev/workstreams/writer-sheets-core-adoption/verify_adoption.py; ./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "verification.json retains compatibility fixture/tree; adoption-audit.json preserves source digests. 30 streams/23 States, original rows and existing main/source-owner evidence unchanged; workflow exact boundary step PASS."
+      },
+      {
+        "name": "Linux CRLF scoped formatter and tests",
+        "command": "git clone --shared --no-checkout; checkout core.autocrlf=true; Writer/Sheets scoped fmt and locked offline tests",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "verification.json crlf-* results: every owned module/example/test included, no parent/third_party traversal, 31+19 tests PASS. Linux simulation only."
+      },
+      {
+        "name": "Broad shared CLI library suite",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "bootstrap-verification.json: after exact existing pinned mozjs bootstrap, 293 library + 32 launcher tests PASS, no ignored/filtered/deleted tests. Prior 292/293 failure and pristine main reproducer remain in verification.json as historical evidence."
+      },
+      {
+        "name": "Native Windows/adoption CI/guest",
+        "command": "Future exact-source Ubuntu/Windows workflow and applicable prepared-runner regression",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Local publication forbidden by task; no new CI dispatched or Windows/guest executed. Historical owner CI belongs to immutable source State only."
+      },
+      {
+        "name": "Bounded pinned mozjs source bootstrap",
+        "command": "Compile temporary harness from exact existing bootstrap modules; CARGO_NET_OFFLINE=true /tmp/ws-mozjs-bootstrap",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "bootstrap-verification.json: archive SHA-256 matches sources.lock; all 10,454 cache files match archive; registered patches applied, generated checkout validated twice. 174 MiB ignored checkout only; no network download, Servo bootstrap, tracked source/test or owner change."
+      },
+      {
+        "name": "Latest-main publication revalidation",
+        "command": "Writer full gate; Sheets/Calendar fmt+Clippy+locked offline tests; full host CLI fmt+Clippy+293+32 tests; Legal tests/check; dev verify; adoption audit",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "publication-verification.json contains exact commands and full logs on merged main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4; no failing or reduced tests."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "main@edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4:docs/implementation_status.md",
+    "last_checked_at": "2026-10-08T21:50:30.224931+00:00",
+    "activation_requirement": "M30 PARTIAL. Guest/runtime/product adoption requires M30 PASS plus explicit release boundary and Integration Owner activation; host preparation authorized by current delegated task."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet (pristine main cb3f9f2 and adoption)"
+    ],
+    "failure_log_summary": "RESOLVED HOST_ENV: initial missing generated mozjs build.rs reproduced on main. Existing component bootstrap reused cached pinned archive and applied registered Nagi patches/marker without any Servo fetch/download/tracked source changes. Full CLI now 293+32 PASS. Historical Legal offline cache failure also resolved by locked package preparation. Native Windows and remote CI are pending external gates, not source failures.",
+    "attempted_fixes": [
+      "Align canonical model/history by path; standalone Writer lock only.",
+      "Scope only Writer/Sheets formatter; retain owned sources, Clippy/tests and Calendar command.",
+      "Prepare Legal locked package graph, then rerun offline gates.",
+      "Reproduce isolated main missing-source failure without touching other owner checkout.",
+      "Validate canonical ID fixture and Linux CRLF checkout without claiming Windows.",
+      "Follow-up authority allows bounded ignored dependency preparation: verified cached mozjs archive and every source file, called exact existing component bootstrap via temporary harness, validated marker and reran unfiltered 293+32 CLI tests successfully; download 0 bytes."
+    ],
+    "do_not_try": [
+      "Do not write main/owner branches, merge, release or enable runtime/providers/GUI/0.3. Dedicated adoption push/draft PR/CI is explicitly authorized.",
+      "Do not edit source owner State, root Cargo, runtime/providers/GUI/0.3 or protected paths."
+    ]
+  },
+  "next_action": "Revalidate fresh current-main tree, publish exact tested adoption tree on dedicated branch, create draft PR, monitor Windows/Linux and all applicable CI; repair only in-scope adoption regressions. Never merge.",
+  "acceptance_criteria": [
+    "Preserve Writer 31 and Sheets 19 original tests and algorithms.",
+    "Use canonical current model/history without root edits.",
+    "Local fmt/lint/tests/Registry and ownership checks PASS.",
+    "Publish reviewed exact tested tree on dedicated branch; draft PR only, latest Windows/Linux and applicable CI required; no merge."
+  ],
+  "deferred": [
+    "Native Windows/exact-source remote CI verification in progress after publication.",
+    "Main merge requires separate authorization; no owner/main branch writes.",
+    "Guest/runtime/provider/GUI/0.3, full app products and release activation remain gated."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "writer-core-01",
+      "contract": "Immutable reviewed Writer source and evidence",
+      "version": "1",
+      "status": "Existing public host seam only; runtime gated."
+    },
+    {
+      "workstream_id": "sheets-calc-01",
+      "contract": "Immutable reviewed Sheets source and PARTIAL Windows evidence",
+      "version": "1",
+      "status": "Existing public host seam only; runtime gated."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Canonical model IDs and adapter contracts",
+      "version": "1",
+      "status": "Existing public host seam only; runtime gated."
+    },
+    {
+      "workstream_id": "calendar-core-adoption",
+      "contract": "Current-main host regression",
+      "version": "1",
+      "status": "Existing public host seam only; runtime gated."
+    }
+  ]
+}

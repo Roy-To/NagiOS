@@ -6,6 +6,7 @@ on:
       - codex/0.2-integrate-provenance-sbom
       - codex/0.2-adopt-host-foundations
       - codex/0.2-adopt-calendar-core
+      - codex/0.2-adopt-writer-sheets-core
       - codex/0.2-calendar-core-01
       - claude/0.2-writer-core-01
       - claude/0.2-sheets-calc-01
@@ -21,6 +22,10 @@ on:
       - tools/nagi-bootstrap/**
       - tools/legal/**
       - crates/nagi-calendar-core/**
+      - crates/nagi-writer-core/**
+      - crates/nagi-sheets-core/**
+      - tests/writer-core/**
+      - tests/sheets-core/**
       - .github/workflows/0.2-host-integration.yml
       - nagi
       - nagi.ps1
@@ -35,7 +40,7 @@ concurrency:
 
 jobs:
   host-foundations:
-    if: contains(fromJSON('["codex/0.2-integrate-provenance-sbom", "codex/0.2-adopt-host-foundations", "codex/0.2-adopt-calendar-core", "codex/0.2-calendar-core-01", "claude/0.2-writer-core-01", "claude/0.2-sheets-calc-01"]'), github.head_ref || github.ref_name)
+    if: contains(fromJSON('["codex/0.2-integrate-provenance-sbom", "codex/0.2-adopt-host-foundations", "codex/0.2-adopt-calendar-core", "codex/0.2-adopt-writer-sheets-core", "codex/0.2-calendar-core-01", "claude/0.2-writer-core-01", "claude/0.2-sheets-calc-01"]'), github.head_ref || github.ref_name)
     strategy:
       fail-fast: false
       matrix:
@@ -60,7 +65,7 @@ jobs:
           row = next((w for w in registry['workstreams'] if w['owner_branch'] == branch), None)
           if row is None:
               raise SystemExit('Unregistered branch: host checkpoint must be explicitly registered')
-          if row['id'] in ['host-foundations-adoption', 'calendar-core-adoption']:
+          if row['id'] in ['host-foundations-adoption', 'calendar-core-adoption', 'writer-sheets-core-adoption']:
               # Audit the adoption delta against its current release-line base;
               # unrelated already-main changes are not this checkpoint's edits.
               baseline = subprocess.check_output(
@@ -118,7 +123,7 @@ jobs:
               if test "$core" = calendar; then
                 cargo fmt --manifest-path "$manifest" --package nagi-calendar-core -- --check
               else
-                cargo fmt --manifest-path "$manifest" --all -- --check
+                cargo fmt --manifest-path "$manifest" -- --check
               fi
               cargo clippy --manifest-path "$manifest" --all-targets --locked -- -D warnings
               cargo test --manifest-path "$manifest" --locked --offline

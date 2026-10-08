@@ -1,0 +1,7 @@
+sparse_populated=100000 sparse_insert_ms=56.080
+chain_build_ms=17.308
+chain_recalculated=9999 chain_recalc_ms=9.997
+unrelated_recalculated=0
+exit_code=0
+wall_seconds=0.09367801100006545
+max_rss_kib=41784

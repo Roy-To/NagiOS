@@ -1,0 +1,6 @@
+source_commit=97d97ec766c52aea9bba59811327527e6ac6f607
+command=./nagi dev verify
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running `/tmp/nagi-sheets-tools/target/debug/nagi-bootstrap dev verify`
+PASS development state: 27 registered workstreams, 16 state files validated; branch claude/0.2-sheets-calc-01 at 97d97ec766c52aea9bba59811327527e6ac6f607
+exit_code=0
