@@ -402,15 +402,14 @@
       }
     ]
   },
-  "authorization": {
-    "assistant_question_at": "2026-10-08T20:48:45Z",
-    "user_ok_at": "2026-10-08T21:48:44Z",
-    "scope": "Dedicated adoption branch push, draft PR, Windows/Linux and applicable CI verification only; no merge/main-owner writes/runtime/provider/release"
-  },
   "duplicate_audit": {
     "open_prs": [],
     "remote_adoption_branch": "ABSENT",
     "owner_heads_unchanged": true
   },
-  "ci_runs": []
+  "ci_runs": [],
+  "checkpoint_scope": {
+    "checkpoint": "WS-HOST-PREP-20261008",
+    "scope": "Dedicated adoption branch push, draft PR, Windows/Linux and applicable CI verification only; no merge/main-owner writes/runtime/provider/release"
+  }
 }

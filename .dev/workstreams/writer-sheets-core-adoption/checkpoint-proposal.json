@@ -1,6 +1,6 @@
 {
   "checkpoint": "WS-HOST-PREP-20261008",
-  "authority": "Explicit user OK at 2026-10-08T21:48:44Z approves dedicated branch push, draft PR and Windows CI verification. Main merge, owner/main branch writes, runtime/provider/GUI/0.3 and releases remain unauthorized.",
+  "authority": "WS-HOST-PREP-20261008 defines the host-only adoption checkpoint: dedicated branch, draft PR and Windows/Linux CI verification. Main merge requires separate project approval; owner/main branch writes, runtime/provider/GUI/0.3 activation and releases are outside this checkpoint.",
   "base_sha": "edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4",
   "sources": {
     "writer": "8cc5c5da04f622be95c79152bf709edb61272c59",
@@ -8,7 +8,7 @@
   },
   "registration": {
     "id": "writer-sheets-core-adoption",
-    "owner": "Codex limited host Integration Owner (user-approved draft publication)",
+    "owner": "Codex host Integration Owner",
     "owner_branch": "codex/0.2-adopt-writer-sheets-core",
     "recommended_worktree": "../NagiOS-adopt-writer-sheets",
     "state_file": ".dev/workstreams/writer-sheets-core-adoption/state.json",
@@ -45,8 +45,8 @@
       "crates/nagi-model/**",
       "crates/nagi-calendar-core/**"
     ],
-    "activation_gate": "WS-HOST-PREP-20261008: host-only adoption preparation and validation before M30; follow-up explicit user OK authorizes dedicated branch publication, draft PR and Windows/Linux CI verification. No runtime/provider/GUI/0.3 activation; source owner States immutable.",
-    "merge_boundary": "Dedicated codex/0.2-adopt-writer-sheets-core only. Current base main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4 after PR #31. User approved push, draft PR and CI at 2026-10-08T21:48:44Z; main/owner branch writes and merge are NOT authorized. Require latest applicable CI/review before any separate merge decision."
+    "activation_gate": "WS-HOST-PREP-20261008: host-only adoption preparation and validation before M30, dedicated draft branch and Windows/Linux CI verification. No runtime/provider/GUI/0.3 activation; source owner States immutable.",
+    "merge_boundary": "Dedicated codex/0.2-adopt-writer-sheets-core only. Base main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4 after PR #31. Main/owner branch writes and merge are outside this checkpoint. Require separate project merge approval and latest applicable CI/review."
   },
   "migration": [
     "Copy only reviewed owned cores, tests, and immutable source-owner evidence. Retain current main registry rows and all other owner State.",
@@ -64,7 +64,7 @@
     "Completed latest-main/PR/remote/Registry duplicate audit; reverify adoption and shared compatibility on new base."
   ],
   "required_before_merge": [
-    "Separate explicit main merge authorization (not granted).",
+    "Separate explicit project approval for main merge.",
     "Latest applicable Ubuntu/Windows dedicated and existing CI PASS; code/dependency/ownership review."
   ],
   "runtime_gate": "M30 remains PARTIAL; M30 PASS plus explicit 0.2 release and Integration Owner activation required.",

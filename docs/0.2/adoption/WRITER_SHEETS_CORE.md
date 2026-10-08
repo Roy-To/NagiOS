@@ -1,10 +1,10 @@
 # Writer / Sheets host adoption preparation
 
 Checkpoint: `WS-HOST-PREP-20261008`, workstream `writer-sheets-core-adoption`.
-The explicit user OK at 2026-10-08 21:48:44 UTC authorizes dedicated branch
-push, draft PR creation and Windows/Linux CI verification. Main merge and
-main/owner branch writes remain unauthorized. This is a bounded host checkpoint;
-no runtime/provider/GUI/0.3 activation, release or product acceptance.
+The checkpoint covers a dedicated draft branch and Windows/Linux CI verification.
+Main merge requires separate project approval; main/owner branch writes are
+outside this bounded host checkpoint. Runtime/provider/GUI/0.3 activation,
+release and product acceptance remain separate gates.
 
 Original preparation base: merged Calendar main
 `cb3f9f29552bdee3e9c99228cb2153d10a1634e9`. Current publication base:
@@ -18,10 +18,9 @@ Reviewed source owner heads:
 - Sheets: `claude/0.2-sheets-calc-01` at
   `b6e6efe13018cae4f3de188bb387e0584994609f`, original 19 tests, S1-S5.
 
-Remote/main/PR/Registry audit found no competing Writer/Sheets adoption;
-the original sole open PR was Hark #31, now merged. Publication re-audit found
-no open PR or remote adoption branch competing with this checkpoint. The owner branches and the existing `work`
-checkout remain untouched. Repository AGENTS, relevant 0.1/0.2 sections,
+Remote/main/PR/Registry audit found no competing Writer/Sheets adoption.
+The owner branches and the existing `work` checkout remain untouched.
+Repository AGENTS, relevant 0.1/0.2 sections,
 workstreams, Registry and owner/adoption State were inspected. No relevant
 `.agents/skills/*/SKILL.md` exists in this cloud checkout or source trees;
 `/workspace/.agents` is empty. Existing workstream MD proposal wording predates
@@ -84,7 +83,7 @@ Windows runtime acceptance.
 2. Recheck current main, source owner heads, open PRs and Registry for competing
    adoption. Rebase/reprepare only this local integration branch if needed;
    rerun affected checks and preserve immutable owner evidence.
-3. Publication authorization is recorded above. Use only the dedicated
+3. Follow the checkpoint scope above. Use only the dedicated
    adoption branch and keep the PR draft; record exact published SHA and CI.
 4. Publish this dedicated branch and create a separate
    host adoption PR. Require its exact latest source to pass dedicated
@@ -97,8 +96,8 @@ M30 remains PARTIAL. Guest persistence, Activity/Wayback/Search providers,
 permission/session enforcement wiring, GUI, PDF/DOCX/XLSX/CSV, agent edits,
 global revision allocation and 0.3 remain separate gates. A missing generated
 mozjs-sys source initially caused one existing broad CLI test to fail.
-The follow-up authorizes bounded dependency preparation: existing component
-bootstrap reused cached mozjs_sys 153.0.0-2, whose archive SHA-256 and all
+Bounded dependency preparation used the existing component bootstrap and cached
+mozjs_sys 153.0.0-2, whose archive SHA-256 and all
 10,454 source files were verified, then applied registered patches and validated
 the generated marker. Additional ignored checkout occupies 174 MiB; download
 was zero and no Servo/bootstrap dependencies were fetched. The exact unmodified
