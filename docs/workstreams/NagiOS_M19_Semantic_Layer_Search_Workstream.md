@@ -411,3 +411,10 @@ building the host `nagi-pkg` tool failed because the installed Xcode
 M19 QEMU acceptance result and does not establish production IPC; M19 remains
 `PARTIAL` pending normal signed app launch, consent, and service-endpoint
 routing.
+
+Follow-up (2026-10-08): CI run 37729381120 failed at `Nagi M19 Search IPC FAIL
+Files visibility filter`, because the acceptance visibility filter still let
+any live session holding `files.search` read the fixture's Files records. The
+fixture Files records are now visible only to the fixture's own app session;
+the grant gate stays in the `search@1` evaluator. Not re-verified locally (no
+guest toolchain on the preparing host); the next CI run is the evidence.

@@ -54,7 +54,6 @@ const ALBERT_APP_ID: AppId = AppId::from_identifier(b"org.nagi.albert");
 const ALBERT_HISTORY_PRODUCER_ID: &str = "org.nagi.albert.history";
 const ALBERT_HISTORY_WORKSPACE_PRODUCER_ATTRIBUTE: &str = "nagi.albert.history.producer";
 const ALBERT_HISTORY_PROFILE_ATTRIBUTE: &str = "nagi.albert.history.profile_id";
-const FILES_SEARCH_GRANT: &[u8] = b"files.search";
 const ALBERT_HISTORY_SEARCH_GRANT: &[u8] = b"albert.history.search";
 const MAX_RECENT_BROWSER_HISTORY: usize = 3;
 const MAX_PUBLISHED_BROWSER_HISTORY: usize = 4;
@@ -124,13 +123,17 @@ impl VisibilityFilter for M19AcceptanceVisibility {
         {
             return true;
         }
+        // Fixture Files metadata is private to the fixture's own app
+        // session. `search@1` already requires live `search.query` and
+        // `files.search` grants before the index is read; holding those grants
+        // in another session must not widen this visibility filter.
         if record.kind == ObjectKind::File
             && record
                 .attributes
                 .get(FILE_INDEXER_ATTRIBUTE)
                 .is_some_and(|indexer| indexer == FILE_INDEXER_ID)
         {
-            return Self::has_live_grant(access, FILES_SEARCH_GRANT);
+            return false;
         }
         if record.kind == ObjectKind::Page
             && record
