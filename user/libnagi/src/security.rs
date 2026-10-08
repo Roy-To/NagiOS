@@ -92,12 +92,30 @@ impl Session {
     }
 }
 
+/// How an account's password is checked. Fixture accounts (M11
+/// acceptance) keep the legacy in-memory digest; persisted accounts use a
+/// salted PBKDF2 credential (ADR 0063).
+#[derive(Clone, Copy)]
+enum Secret {
+    Fixture(u64),
+    Derived(crate::credential::Credential),
+}
+
+impl Secret {
+    fn verify(&self, password: &[u8]) -> bool {
+        match self {
+            Self::Fixture(hash) => *hash == password_hash(password),
+            Self::Derived(credential) => credential.verify(password),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Account {
     name: [u8; MAX_ACCOUNT_NAME],
     name_len: u8,
     role: Role,
-    password_hash: u64,
+    secret: Secret,
 }
 
 impl Account {
@@ -106,7 +124,7 @@ impl Account {
             name: [0; MAX_ACCOUNT_NAME],
             name_len: 0,
             role: Role::Guest,
-            password_hash: 0,
+            secret: Secret::Fixture(0),
         }
     }
 }
@@ -132,6 +150,21 @@ impl AccountStore {
         role: Role,
         password: &[u8],
     ) -> Result<(), LoginError> {
+        self.insert(name, role, Secret::Fixture(password_hash(password)))
+    }
+
+    /// Add a persisted account whose password is checked against its
+    /// salted credential (ADR 0063).
+    pub fn add_account_with_credential(
+        &mut self,
+        name: &[u8],
+        role: Role,
+        credential: crate::credential::Credential,
+    ) -> Result<(), LoginError> {
+        self.insert(name, role, Secret::Derived(credential))
+    }
+
+    fn insert(&mut self, name: &[u8], role: Role, secret: Secret) -> Result<(), LoginError> {
         if name.is_empty() || name.len() > MAX_ACCOUNT_NAME {
             return Err(LoginError::InvalidName);
         }
@@ -151,21 +184,20 @@ impl AccountStore {
         }
         account.name_len = name.len() as u8;
         account.role = role;
-        account.password_hash = password_hash(password);
+        account.secret = secret;
         unsafe { core::ptr::write(self.accounts.as_mut_ptr().add(self.count), account) };
         self.count += 1;
         Ok(())
     }
 
     pub fn authenticate(&mut self, name: &[u8], password: &[u8]) -> Result<Session, LoginError> {
-        let password_hash = password_hash(password);
         let mut index = 0;
         while index < self.count {
             let account = unsafe { core::ptr::read(self.accounts.as_ptr().add(index)) };
             if account.name_len as usize == name.len()
                 && bytes_equal(account.name.as_ptr(), account.name_len as usize, name)
             {
-                if account.password_hash != password_hash {
+                if !account.secret.verify(password) {
                     return Err(LoginError::WrongPassword);
                 }
                 self.next_token = self.next_token.wrapping_add(1);
@@ -188,7 +220,7 @@ impl AccountStore {
         }
         let account =
             unsafe { core::ptr::read(self.accounts.as_ptr().add(session.account_index as usize)) };
-        if account.password_hash != password_hash(password) {
+        if !account.secret.verify(password) {
             return false;
         }
         session.locked = false;
@@ -399,5 +431,25 @@ mod tests {
             ),
             PermissionDecision::Deny(DenyReason::SessionLocked)
         );
+    }
+
+    #[test]
+    fn persisted_credentials_authenticate_and_unlock() {
+        use crate::credential::{Credential, MIN_ITERATIONS, SALT_BYTES};
+        let mut store = AccountStore::new();
+        let credential =
+            Credential::derive(b"nagi-owner", [9; SALT_BYTES], MIN_ITERATIONS).expect("credential");
+        store
+            .add_account_with_credential(b"owner", Role::Owner, credential)
+            .expect("owner");
+        assert_eq!(
+            store.authenticate(b"owner", b"wrong-pass"),
+            Err(LoginError::WrongPassword)
+        );
+        let mut session = store.authenticate(b"owner", b"nagi-owner").expect("login");
+        assert_eq!(session.role(), Role::Owner);
+        session.lock();
+        assert!(!store.unlock(&mut session, b"nope"));
+        assert!(store.unlock(&mut session, b"nagi-owner") && !session.is_locked());
     }
 }

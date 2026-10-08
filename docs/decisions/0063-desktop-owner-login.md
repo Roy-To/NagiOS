@@ -1,0 +1,168 @@
+# ADR 0063: Desktop owner account and lock-screen sign-in
+
+Status: accepted
+Date: 2026-10-06
+Builds on: M11 security, ADR 0060 (trusted consent dialog), ADR-0011 (M27
+readiness)
+
+## Context
+
+M11 proved local login, lock and Developer Mode with fixture accounts in an
+acceptance program. The desktop itself never asked anyone to sign in. As a
+result, two things relied on fixtures or on any boot at all:
+
+- the consent dialog (ADR 0060) records decisions for a fixture user;
+- M27 readiness is reported as soon as the desktop draws its first frame.
+
+The M27 workstream lists "account-authenticated readiness" as open. M29
+lists onboarding as open.
+
+## Decision
+
+1. **Credentials.** `libnagi::credential` stores only a salted
+   PBKDF2-HMAC-SHA256 credential:
+   - a 16-byte random salt from `SYS_RANDOM_GET`;
+   - 20,000 iterations, with records accepted only within 10,000–1,000,000;
+   - a 32-byte output, compared in constant time.
+
+   The implementation is checked against the published PBKDF2-SHA256
+   vectors.
+2. **Owner record.** The owner account record (`owner-account` in User
+   Data) is versioned and carries a SHA-256 of its body. A corrupted or
+   unreadable record is never read as another account. The screen stays
+   locked, and Recovery is the way out.
+3. **Fixture accounts.** `AccountStore` accepts such credentials alongside
+   the M11 fixture accounts. Authentication and unlock check the derived
+   credential, and no password is kept after the check.
+4. **Login screen.** `libnagi::login::LoginForm` is a host-tested input
+   state machine:
+   - **Create mode** (first run): name, password and confirmation, with
+     validation for the name rules, a minimum length of 4, and a matching
+     confirmation.
+   - **Unlock mode**: password only, with a failure count.
+
+   Keys map to lowercase letters, digits and `-`.
+5. **Desktop flow.** With feature `desktop-login`, init's desktop draws the
+   OS-owned login screen as its first frame and routes every key event to
+   it.
+   - It reports boot readiness only after a successful sign-in, so an M27
+     trial is confirmed only by a signed-in desktop.
+   - The signed-in `Session` is kept by the desktop for later
+     authorizations, such as consent.
+6. **Text.** Localized en-US/ja-JP strings (`login.*`) are added, along
+   with the bitmap glyphs they need.
+
+## Acceptance
+
+`./nagi login` passed on the arm64 macOS host (evidence
+`out/evidence/login-1791243371662416000`). It runs on a fresh User Data
+disk.
+
+**First boot.** The `create` login screen is captured, then real QMP keys
+type the name `owner` and the password twice. The log shows:
+- `owner created PASS name=owner`;
+- `unlocked PASS`;
+- acceptance.
+
+**Restart.** The `unlock` screen shows the owner name. A wrong password
+prints `unlock REJECTED`, and the correct one signs in.
+
+A temporary ja-JP render of the same screens was checked visually.
+`./nagi m29` and `./nagi consent` still pass.
+
+## Rollout (2026-10-06, follow-up)
+
+- **Consent.** The consent acceptance now enables `desktop-login`.
+  - Persisted decisions are restored, and the dialog opens only after
+    sign-in.
+  - Decisions are recorded for the signed-in owner's `Session` instead of
+    the fixture account.
+  - The dialog is announced (`SHOWN`) only once its frame is presented and
+    armed.
+  - `./nagi consent` creates the owner, answers the dialog, then unlocks
+    after a restart and sees the restored decision.
+- **M27.** The M27 GPT images enable `desktop-login`. The healthy System B
+  trial creates the owner through QMP input, and the acceptance requires
+  `Nagi M27 readiness persisted slot=B` *after* `Nagi login unlocked PASS`.
+  This is account-authenticated readiness. `./nagi m27` passed (evidence
+  `out/evidence/m27-ab-rollback-1791243852197747000`).
+- **Not yet enabled.**
+  - The `m30-update` payload enables `desktop-login`. Its System B trial
+    creates the owner, and readiness must follow sign-in.
+  - The legacy FAT12 M27 fixtures and M10/M29 now sign in first; see the
+    follow-ups below.
+  - The M30 release image runs the M19/M22 service flows, not the desktop.
+
+## M10/M29 desktops (2026-10-07, follow-up)
+
+- **Images.** `./nagi desktop` (M10) and `./nagi m29` build init with
+  `desktop-login`.
+- **First run.** QMP keeps the offered language (English), creates the
+  owner, and sends the desktop input only after the guest prints
+  `Nagi login readiness reported PASS`. The desktop prints this line when
+  `report_boot_ready` succeeds after sign-in, so readiness follows sign-in
+  even on images without an M27 trial.
+- **Markers.** Both acceptances require, in order, `login READY
+  mode=create`, `onboarding language PASS locale=en-US`, `owner created`,
+  `unlocked`, and `readiness reported` before the first M10 focus marker.
+- **M29 restart.** The restart shows the unlock screen, restores ja-JP,
+  then QMP types the password. It requires `login READY mode=unlock`,
+  `M29 settings preference restored PASS locale=ja-JP`, `login unlocked
+  PASS`, then `login readiness reported PASS`.
+- **M10.** Each run uses its own User Data disk and log, because an
+  existing owner would turn the first-run screen into the unlock screen.
+  The M10 marker list no longer asks for `M29 keyboard locale selection`,
+  which only `m29-settings-acceptance` prints. `./nagi desktop` failed on
+  `main` for that reason, as noted in the ADR 0060 entry.
+- **Still unchanged.** The legacy FAT12 M27 fixtures (now changed; see
+  the next entry).
+
+## Legacy FAT12 M27 fixtures (2026-10-07, follow-up)
+
+- **Images.** The FAT12 System A/B images of `./nagi m27` (malformed B,
+  healthy B, and the Recovery image's normal system) build init with
+  `m10-desktop,m27-ro-vfs-check,desktop-login`. The Recovery init and the
+  Recovery-Undo fixture are unchanged.
+- **Healthy B trial.** QMP keeps the offered language and creates the
+  owner on `Nagi login READY mode=create`. The boot stops on `Nagi login
+  readiness reported PASS` and requires, in order, `login unlocked PASS`,
+  then `M27 readiness persisted slot=B attempt=1`, then `login readiness
+  reported PASS`. The old check that readiness was persisted before
+  `M10 desktop READY` is gone: with sign-in, readiness comes after it.
+- **Promotion and confirmed boots.** The owner persists on User Data, so
+  these boots stop on `Nagi login READY mode=unlock`. They still check
+  that the loader consumed the readiness record before promoting B. They
+  send no input.
+- **System A boots.** Rollback/confirmed System A boots stop on `Nagi M7
+  acceptance PASS`, which precedes the desktop, so they need no sign-in.
+  The malformed B trials never reach the kernel.
+
+## Onboarding language step (2026-10-06, follow-up)
+
+**What it does.** First run now starts with a language step before the
+account is created (M29 onboarding).
+- English and 日本語 are offered, each named in its own language.
+- Up, Down and Tab move the focus, and Enter chooses
+  (`libnagi::login::LanguagePicker`, host-tested).
+- The choice becomes the system language immediately and is written to
+  User Data `system-language`. Later boots, including the unlock screen,
+  use it.
+
+**Acceptance.** `./nagi login` now chooses 日本語 on the first run and
+requires these markers:
+- `Nagi onboarding language PASS locale=ja-JP`;
+- after the restart, `Nagi M29 settings preference restored PASS
+  locale=ja-JP` before the unlock.
+
+It passed as run `1791264637514157000`, with screenshots of the language
+step and the Japanese unlock screen.
+
+## Bounds and non-goals
+
+- **Rollout.** See above.
+- **Single account.** There is one owner account. Standard/guest accounts,
+  password change, and recovery reset are later work.
+- **Rate limiting.** There is no rate limit beyond the cost of the KDF,
+  and failures are only counted.
+- **Keyboard.** The keyboard map is US-layout ASCII. Japanese input
+  methods do not apply to credentials.

@@ -169,7 +169,7 @@ extern "win64" fn nagi_kernel_entry(boot_info: *const nagi_bootinfo::BootInfo) -
             halt_forever();
         }
     };
-    if boot_info.boot_control.is_trial()
+    if (boot_info.boot_control.is_trial() || boot_info.boot_control.is_update_stageable())
         && !unsafe { boot_info.boot_control_writer_is_runtime_code() }
     {
         serial_write(b"Nagi Kernel rejected BootInfo\r\nreason: boot-control-writer\r\n");

@@ -2999,6 +2999,7 @@ dependencies = [
  "getrandom 0.4.3",
  "nagi-abi",
  "nagi-model",
+ "sha2",
 ]
 
 [[package]]
@@ -3450,6 +3451,7 @@ name = "nagi-cli"
 version = "0.1.0"
 dependencies = [
  "nagi-model-manager",
+ "nagi-slot-manifest",
  "serde",
  "serde_json",
  "sha2",
@@ -3458,6 +3460,13 @@ dependencies = [
 [[package]]
 name = "nagi-clipboard"
 version = "0.1.0"
+
+[[package]]
+name = "nagi-fat32"
+version = "0.1.0"
+dependencies = [
+ "nagi-model-manager",
+]
 
 [[package]]
 name = "nagi-history"
@@ -3493,6 +3502,7 @@ dependencies = [
  "nagi-albert",
  "nagi-audio",
  "nagi-clipboard",
+ "nagi-fat32",
  "nagi-history",
  "nagi-localization",
  "nagi-model",
@@ -3504,6 +3514,7 @@ dependencies = [
  "nagi-sdk",
  "nagi-search",
  "nagi-search-ipc",
+ "nagi-slot-manifest",
  "nagi-ui",
  "relibc",
 ]
@@ -3604,6 +3615,14 @@ version = "0.1.0"
 dependencies = [
  "libnagi",
  "nagi-abi",
+]
+
+[[package]]
+name = "nagi-slot-manifest"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "sha2",
 ]
 
 [[package]]

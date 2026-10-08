@@ -1,7 +1,10 @@
 #![no_std]
 
 pub mod boot;
+pub mod consent;
+pub mod credential;
 pub mod launch;
+pub mod login;
 pub mod security;
 pub mod service;
 pub mod storage;
@@ -279,6 +282,41 @@ pub fn report_boot_ready() -> bool {
         asm!(
             "syscall",
             inlateout("rax") result,
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    result == 0
+}
+
+/// Claim the inactive-system-slot update capability (init only, once per
+/// confirmed-slot boot; ADR 0062).
+pub fn update_slot_claim() -> Option<nagi_abi::UpdateSlotInfo> {
+    let mut info = nagi_abi::UpdateSlotInfo::default();
+    let mut result = nagi_abi::SYS_UPDATE_SLOT_CLAIM;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") &mut info as *mut nagi_abi::UpdateSlotInfo,
+            in("rsi") core::mem::size_of::<nagi_abi::UpdateSlotInfo>(),
+            lateout("rcx") _,
+            lateout("r11") _,
+            options(nostack),
+        );
+    }
+    (result == 0 && info.capability != 0).then_some(info)
+}
+
+/// Ask the loader to trial the inactive slot on the next boot.
+pub fn update_slot_stage(capability: u64) -> bool {
+    let mut result = nagi_abi::SYS_UPDATE_SLOT_STAGE;
+    unsafe {
+        asm!(
+            "syscall",
+            inlateout("rax") result,
+            in("rdi") capability,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),

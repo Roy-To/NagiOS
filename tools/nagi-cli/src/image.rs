@@ -48,7 +48,7 @@ const REFERENCE_DISK_SECTORS: u64 = REFERENCE_DISK_SIZE_BYTES / 512;
 const MIB_SECTORS: u64 = 1024 * 1024 / 512;
 const GIB_SECTORS: u64 = 1024 * MIB_SECTORS;
 const QMP_MAX_LINE_BYTES: usize = 64 * 1024;
-const QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(3);
+const QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Fat12Geometry {
@@ -448,7 +448,7 @@ pub fn write_reference_disk_qcow2(
         path,
         bootloader,
         kernel,
-        kernel,
+        SystemBSource::trusted(kernel),
         init,
         recovery_init,
     )
@@ -472,15 +472,16 @@ pub fn write_m20_model_store_fixture_reference_disk_qcow2(
         path,
         bootloader,
         kernel,
-        kernel,
+        SystemBSource::trusted(kernel),
         init,
         recovery_init,
         &files,
     )
 }
 
-/// Build a GPT acceptance image with a deliberately malformed System B
-/// kernel while keeping System A and Recovery bootable.
+/// Build a GPT acceptance image whose System B carries the same valid
+/// kernel and init as System A, but a slot manifest signed by an untrusted
+/// key (ADR 0061). The loader must refuse it although its ELF would boot.
 pub fn write_m27_gpt_broken_system_b_qcow2(
     path: &Path,
     bootloader: &[u8],
@@ -492,7 +493,10 @@ pub fn write_m27_gpt_broken_system_b_qcow2(
         path,
         bootloader,
         kernel,
-        b"invalid System B kernel",
+        SystemBSource {
+            kernel,
+            signer: &UNTRUSTED_SLOT_SIGNING_SECRET,
+        },
         init,
         recovery_init,
     )
@@ -502,7 +506,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel(
     path: &Path,
     bootloader: &[u8],
     kernel: &[u8],
-    system_b_kernel: &[u8],
+    system_b: SystemBSource<'_>,
     init: &[u8],
     recovery_init: Option<&[u8]>,
 ) -> Result<ImageLayout, String> {
@@ -510,7 +514,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel(
         path,
         bootloader,
         kernel,
-        system_b_kernel,
+        system_b,
         init,
         recovery_init,
         &[],
@@ -521,7 +525,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
     path: &Path,
     bootloader: &[u8],
     kernel: &[u8],
-    system_b_kernel: &[u8],
+    system_b: SystemBSource<'_>,
     init: &[u8],
     recovery_init: Option<&[u8]>,
     model_store_files: &[super::fat32::VolumeFile<'_>],
@@ -530,7 +534,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store(
         path,
         bootloader,
         kernel,
-        system_b_kernel,
+        system_b,
         init,
         recovery_init,
         ModelStoreFileSources {
@@ -560,7 +564,7 @@ pub fn write_reference_disk_qcow2_with_external_model_store_file(
         path,
         bootloader,
         kernel,
-        kernel,
+        SystemBSource::trusted(kernel),
         init,
         recovery_init,
         ModelStoreFileSources {
@@ -568,6 +572,75 @@ pub fn write_reference_disk_qcow2_with_external_model_store_file(
             external: &files,
         },
     )
+}
+
+/// System B's kernel and the key that signs its slot manifest.
+#[derive(Clone, Copy)]
+struct SystemBSource<'a> {
+    kernel: &'a [u8],
+    signer: &'a [u8; 32],
+}
+
+impl<'a> SystemBSource<'a> {
+    const fn trusted(kernel: &'a [u8]) -> Self {
+        Self {
+            kernel,
+            signer: &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET,
+        }
+    }
+}
+
+/// Rollback index of slot manifests written by this build (ADR 0061).
+pub const SLOT_ROLLBACK_INDEX: u64 = 1;
+/// A fixed key the loader does not trust, for refusal acceptances.
+const UNTRUSTED_SLOT_SIGNING_SECRET: [u8; 32] = [0x42; 32];
+
+/// The signed `SLOT.MAN` for a slot holding `kernel` and `init`.
+fn signed_slot_manifest(kernel: &[u8], init: &[u8], signer: &[u8; 32]) -> Result<Vec<u8>, String> {
+    use nagi_slot_manifest::{PayloadDigest, SlotManifest, MAX_SLOT_MANIFEST_BYTES};
+    let manifest = SlotManifest::new(
+        env!("CARGO_PKG_VERSION").as_bytes(),
+        SLOT_ROLLBACK_INDEX,
+        PayloadDigest::of(kernel),
+        PayloadDigest::of(init),
+    )
+    .map_err(|error| format!("cannot build slot manifest: {error:?}"))?;
+    let mut file = [0; MAX_SLOT_MANIFEST_BYTES];
+    let length = manifest.encode_signed(signer, &mut file);
+    Ok(file[..length].to_vec())
+}
+
+/// A signed system update bundle (ADR 0062): header, `SLOT.MAN` signed by
+/// `signer` with `rollback_index`, then the kernel and init.
+pub fn signed_update_bundle(
+    kernel: &[u8],
+    init: &[u8],
+    rollback_index: u64,
+    signer: &[u8; 32],
+) -> Result<Vec<u8>, String> {
+    use nagi_slot_manifest::{bundle_header, PayloadDigest, SlotManifest, MAX_SLOT_MANIFEST_BYTES};
+    let manifest = SlotManifest::new(
+        env!("CARGO_PKG_VERSION").as_bytes(),
+        rollback_index,
+        PayloadDigest::of(kernel),
+        PayloadDigest::of(init),
+    )
+    .map_err(|error| format!("cannot build update manifest: {error:?}"))?;
+    let mut file = [0; MAX_SLOT_MANIFEST_BYTES];
+    let manifest_length = manifest.encode_signed(signer, &mut file);
+    let length = |bytes: &[u8]| {
+        u32::try_from(bytes.len()).map_err(|_| "update bundle section exceeds 4 GiB".to_owned())
+    };
+    let mut bundle = bundle_header(
+        length(&file[..manifest_length])?,
+        length(kernel)?,
+        length(init)?,
+    )
+    .to_vec();
+    bundle.extend_from_slice(&file[..manifest_length]);
+    bundle.extend_from_slice(kernel);
+    bundle.extend_from_slice(init);
+    Ok(bundle)
 }
 
 struct ModelStoreFileSources<'files, 'content> {
@@ -579,17 +652,22 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
     path: &Path,
     bootloader: &[u8],
     kernel: &[u8],
-    system_b_kernel: &[u8],
+    system_b: SystemBSource<'_>,
     init: &[u8],
     recovery_init: Option<&[u8]>,
     model_store_files: ModelStoreFileSources<'_, '_>,
 ) -> Result<ImageLayout, String> {
+    let system_b_kernel = system_b.kernel;
     if bootloader.is_empty() || kernel.is_empty() || system_b_kernel.is_empty() || init.is_empty() {
         return Err("GPT image requires non-empty loader, system kernels, and init ELF".to_owned());
     }
     let recovery_init = recovery_init
         .filter(|bytes| !bytes.is_empty())
         .ok_or_else(|| "release image requires the M27 Recovery init ELF".to_owned())?;
+    let trusted = &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET;
+    let system_a_manifest = signed_slot_manifest(kernel, init, trusted)?;
+    let system_b_manifest = signed_slot_manifest(system_b_kernel, init, system_b.signer)?;
+    let recovery_manifest = signed_slot_manifest(kernel, recovery_init, trusted)?;
     match fs::symlink_metadata(path) {
         Ok(_) => {
             return Err(format!(
@@ -641,7 +719,7 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
     super::gpt::write_gpt(&mut raw, REFERENCE_DISK_SECTORS, &partitions)?;
     let esp = &partitions[0];
     let system_a = &partitions[1];
-    let system_b = &partitions[2];
+    let system_b_partition = &partitions[2];
     let user_data = &partitions[3];
     let recovery = &partitions[4];
     let model_store = &partitions[5];
@@ -670,12 +748,16 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
                 path: "INIT.ELF",
                 contents: init,
             },
+            super::fat32::VolumeFile {
+                path: "SLOT.MAN",
+                contents: &system_a_manifest,
+            },
         ],
     )?;
     super::fat32::format_partition(
         &mut raw,
-        system_b.first_lba,
-        partition_sector_count(system_b)?,
+        system_b_partition.first_lba,
+        partition_sector_count(system_b_partition)?,
         "NAGI SYS B",
         &[
             super::fat32::VolumeFile {
@@ -685,6 +767,10 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
             super::fat32::VolumeFile {
                 path: "INIT.ELF",
                 contents: init,
+            },
+            super::fat32::VolumeFile {
+                path: "SLOT.MAN",
+                contents: &system_b_manifest,
             },
         ],
     )?;
@@ -704,6 +790,10 @@ fn write_reference_disk_qcow2_with_system_b_kernel_and_model_store_sources(
             super::fat32::VolumeFile {
                 path: "INIT.ELF",
                 contents: recovery_init,
+            },
+            super::fat32::VolumeFile {
+                path: "SLOT.MAN",
+                contents: &recovery_manifest,
             },
         ],
     )?;
@@ -913,6 +1003,12 @@ fn build_fat12_ab_image(
         .recovery
         .map(|recovery| recovery.init)
         .unwrap_or(system_a_init);
+    // Each slot's signed manifest describes its payload exactly (ADR 0061),
+    // so a malformed payload is still refused by ELF validation.
+    let trusted = &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET;
+    let a_manifest = signed_slot_manifest(system_a_kernel, system_a_init, trusted)?;
+    let b_manifest = signed_slot_manifest(system_b_kernel, system_b_init, trusted)?;
+    let recovery_manifest = signed_slot_manifest(recovery_kernel, recovery_init, trusted)?;
     for (name, contents) in [
         ("UEFI bootloader", bootloader),
         ("System A kernel", system_a_kernel),
@@ -941,6 +1037,9 @@ fn build_fat12_ab_image(
     let b_init_clusters = clusters_for(system_b_init.len(), geometry.cluster_size());
     let recovery_kernel_clusters = clusters_for(recovery_kernel.len(), geometry.cluster_size());
     let recovery_init_clusters = clusters_for(recovery_init.len(), geometry.cluster_size());
+    let a_manifest_clusters = clusters_for(a_manifest.len(), geometry.cluster_size());
+    let b_manifest_clusters = clusters_for(b_manifest.len(), geometry.cluster_size());
+    let recovery_manifest_clusters = clusters_for(recovery_manifest.len(), geometry.cluster_size());
     let required_clusters = [
         6,
         bootloader_clusters,
@@ -950,6 +1049,9 @@ fn build_fat12_ab_image(
         b_init_clusters,
         recovery_kernel_clusters,
         recovery_init_clusters,
+        a_manifest_clusters,
+        b_manifest_clusters,
+        recovery_manifest_clusters,
     ]
     .into_iter()
     .try_fold(0usize, usize::checked_add)
@@ -977,6 +1079,10 @@ fn build_fat12_ab_image(
         allocate_chain_start(&mut next_cluster, recovery_kernel_clusters)?;
     let recovery_init_start_cluster =
         allocate_chain_start(&mut next_cluster, recovery_init_clusters)?;
+    let a_manifest_start_cluster = allocate_chain_start(&mut next_cluster, a_manifest_clusters)?;
+    let b_manifest_start_cluster = allocate_chain_start(&mut next_cluster, b_manifest_clusters)?;
+    let recovery_manifest_start_cluster =
+        allocate_chain_start(&mut next_cluster, recovery_manifest_clusters)?;
     let layout = ImageLayout {
         bootloader_start_cluster,
         bootloader_clusters,
@@ -1007,6 +1113,9 @@ fn build_fat12_ab_image(
         (b_init_start_cluster, b_init_clusters),
         (recovery_kernel_start_cluster, recovery_kernel_clusters),
         (recovery_init_start_cluster, recovery_init_clusters),
+        (a_manifest_start_cluster, a_manifest_clusters),
+        (b_manifest_start_cluster, b_manifest_clusters),
+        (recovery_manifest_start_cluster, recovery_manifest_clusters),
     ] {
         write_chain(&mut image, geometry, start_cluster, cluster_count);
     }
@@ -1064,6 +1173,13 @@ fn build_fat12_ab_image(
                 u32::try_from(recovery_init.len())
                     .map_err(|_| "Recovery init size overflow".to_owned())?,
             ),
+            (
+                short_name("SLOT", "MAN"),
+                0x20,
+                recovery_manifest_start_cluster,
+                u32::try_from(recovery_manifest.len())
+                    .map_err(|_| "slot manifest size overflow".to_owned())?,
+            ),
         ],
     );
     write_directory(
@@ -1086,6 +1202,13 @@ fn build_fat12_ab_image(
                 u32::try_from(system_a_init.len())
                     .map_err(|_| "System A init size overflow".to_owned())?,
             ),
+            (
+                short_name("SLOT", "MAN"),
+                0x20,
+                a_manifest_start_cluster,
+                u32::try_from(a_manifest.len())
+                    .map_err(|_| "slot manifest size overflow".to_owned())?,
+            ),
         ],
     );
     write_directory(
@@ -1107,6 +1230,13 @@ fn build_fat12_ab_image(
                 b_init_start_cluster,
                 u32::try_from(system_b_init.len())
                     .map_err(|_| "System B init size overflow".to_owned())?,
+            ),
+            (
+                short_name("SLOT", "MAN"),
+                0x20,
+                b_manifest_start_cluster,
+                u32::try_from(b_manifest.len())
+                    .map_err(|_| "slot manifest size overflow".to_owned())?,
             ),
         ],
     );
@@ -1141,6 +1271,14 @@ fn build_fat12_ab_image(
         geometry,
         recovery_init_start_cluster,
         recovery_init,
+    );
+    write_file(&mut image, geometry, a_manifest_start_cluster, &a_manifest);
+    write_file(&mut image, geometry, b_manifest_start_cluster, &b_manifest);
+    write_file(
+        &mut image,
+        geometry,
+        recovery_manifest_start_cluster,
+        &recovery_manifest,
     );
     Ok((image, layout))
 }
@@ -1972,6 +2110,37 @@ pub fn run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marke
     Ok(outcome)
 }
 
+/// Run a writable GUI acceptance: `events` are sent at `ready_marker`, each
+/// later stage waits for its own guest marker, and the accepted display is
+/// saved through QMP.
+pub fn run_qemu_gui_with_staged_events_and_screenshot(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    later_stages: &[QmpEventStage<'_>],
+    screenshot_path: &Path,
+) -> Result<QemuGuiOutcome, String> {
+    ensure_new_screenshot_path(screenshot_path)?;
+    let outcome = run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
+        config,
+        ready_marker,
+        events,
+        later_stages,
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: false,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::from_millis(100),
+        },
+        None,
+        Some(screenshot_path),
+    )?;
+    if outcome.acceptance_reached {
+        validate_png_screenshot(screenshot_path)?;
+    }
+    Ok(outcome)
+}
+
 fn send_qmp_events(
     qmp_stream: &mut TcpStream,
     events: &[&str],
@@ -2090,6 +2259,26 @@ pub fn run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input(
             inter_event_delay: Duration::from_millis(100),
         },
         Some((serial_input_marker, serial_input)),
+    )
+}
+
+/// Launch a read-only boot image with the existing OVMF journal state and
+/// send QMP input after `ready_marker` (the legacy FAT12 M27 sign-in).
+pub fn run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+) -> Result<i32, String> {
+    run_qemu_gui_with_events_mode(
+        config,
+        ready_marker,
+        events,
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: true,
+            reuse_ovmf_vars: true,
+            inter_event_delay: Duration::from_millis(100),
+        },
     )
 }
 
@@ -2879,21 +3068,47 @@ fn read_qmp_line(stream: &mut TcpStream, deadline: Instant) -> Result<String, St
     }
 }
 
+/// QMP queries captured when a guest misses its marker. The registers and
+/// the ACPI PM timer (port 0x608 on q35) are sampled twice, one second apart,
+/// so a stalled polling loop can be told apart from a slow one; the code
+/// before RIP shows what the loop waits for (the recurring pre-kernel OVMF
+/// stall at RIP 0x7eb84171 polls a counter).
+const QMP_TIMEOUT_QUERIES: [(&str, &str); 7] = [
+    ("QMP query-status", r#"{"execute":"query-status"}"#),
+    (
+        "QMP CPU registers",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
+    ),
+    (
+        "QMP ACPI PM timer",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"i/w 0x608"}}"#,
+    ),
+    (
+        "QMP CPU instruction window",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"x/12i $rip"}}"#,
+    ),
+    (
+        "QMP CPU code before RIP",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"x/32i $pc - 0x60"}}"#,
+    ),
+    (
+        "QMP CPU registers after 1s",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
+    ),
+    (
+        "QMP ACPI PM timer after 1s",
+        r#"{"execute":"human-monitor-command","arguments":{"command-line":"i/w 0x608"}}"#,
+    ),
+];
+
 fn capture_qmp_timeout_diagnostics(stream: &mut TcpStream) -> Vec<String> {
-    let queries = [
-        ("QMP query-status", r#"{"execute":"query-status"}"#),
-        (
-            "QMP CPU registers",
-            r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
-        ),
-        (
-            "QMP CPU instruction window",
-            r#"{"execute":"human-monitor-command","arguments":{"command-line":"x/12i $rip"}}"#,
-        ),
-    ];
+    let queries = QMP_TIMEOUT_QUERIES;
     let deadline = Instant::now() + QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT;
     let mut diagnostics = Vec::with_capacity(queries.len());
     for (label, command) in queries {
+        if label.ends_with("after 1s") && label.starts_with("QMP CPU registers") {
+            thread::sleep(Duration::from_secs(1));
+        }
         if Instant::now() >= deadline {
             diagnostics.push(format!("{label} skipped: diagnostic time budget exhausted"));
             break;
@@ -2948,6 +3163,26 @@ fn qmp_exchange_response(
         }
         return Ok(response);
     }
+}
+
+/// A QMP `screendump` command that writes a PNG to `path`. Placed in an
+/// acceptance event list, it captures the guest before later input.
+pub fn qmp_screendump_command(path: &Path) -> Result<String, String> {
+    let path = path.to_str().ok_or_else(|| {
+        format!(
+            "QEMU screenshot path is not valid UTF-8: {}",
+            path.display()
+        )
+    })?;
+    let filename = qmp_json_quote(&external_path(Path::new(path)));
+    Ok(format!(
+        r#"{{"execute":"screendump","arguments":{{"filename":{filename},"format":"png"}}}}"#
+    ))
+}
+
+/// Check that `path` holds a PNG screenshot QEMU wrote.
+pub fn validate_screenshot(path: &Path) -> Result<(), String> {
+    validate_png_screenshot(path)
 }
 
 fn qmp_json_quote(value: &str) -> String {
@@ -3118,43 +3353,40 @@ mod tests {
             let (stream, _) = listener.accept().expect("accept QMP fixture");
             let mut reader = BufReader::new(stream);
 
-            let mut command = String::new();
-            reader.read_line(&mut command).expect("read query-status");
-            assert_eq!(command.trim(), r#"{"execute":"query-status"}"#);
-            reader
-                .get_mut()
-                .write_all(br#"{"return":{"status":"running","running":true}}"#)
-                .expect("write status response");
-            reader
-                .get_mut()
-                .write_all(b"\r\n")
-                .expect("terminate status response");
-
-            command.clear();
-            reader.read_line(&mut command).expect("read info registers");
-            assert!(command.contains("info registers"));
-            reader
-                .get_mut()
-                .write_all(br#"{"return":"CPU#0: RIP=0x1234\nRAX=0x5678"}"#)
-                .expect("write register response");
-            reader
-                .get_mut()
-                .write_all(b"\r\n")
-                .expect("terminate register response");
-
-            command.clear();
-            reader
-                .read_line(&mut command)
-                .expect("read instruction window");
-            assert!(command.contains(r#"x/12i $rip"#));
-            reader
-                .get_mut()
-                .write_all(br#"{"return":"=> 0x1234:  mov %rax,%rbx\n   0x1237:  jmp 0x1234"}"#)
-                .expect("write instruction response");
-            reader
-                .get_mut()
-                .write_all(b"\r\n")
-                .expect("terminate instruction response");
+            let exchanges: [(&str, &[u8]); 7] = [
+                (
+                    r#"query-status"#,
+                    br#"{"return":{"status":"running","running":true}}"#,
+                ),
+                (
+                    "info registers",
+                    br#"{"return":"CPU#0: RIP=0x1234\nRAX=0x5678"}"#,
+                ),
+                ("i/w 0x608", br#"{"return":"portl[0x0608] = 0x00000010"}"#),
+                (
+                    r#"x/12i $rip"#,
+                    br#"{"return":"=> 0x1234:  mov %rax,%rbx\n   0x1237:  jmp 0x1234"}"#,
+                ),
+                ("$pc - 0x60", br#"{"return":"0x11d4:  pause"}"#),
+                (
+                    "info registers",
+                    br#"{"return":"CPU#0: RIP=0x1234\nRAX=0x5679"}"#,
+                ),
+                ("i/w 0x608", br#"{"return":"portl[0x0608] = 0x00000010"}"#),
+            ];
+            for (expected, response) in exchanges {
+                let mut command = String::new();
+                reader.read_line(&mut command).expect("read query");
+                assert!(command.contains(expected), "{command} lacks {expected}");
+                reader
+                    .get_mut()
+                    .write_all(response)
+                    .expect("write response");
+                reader
+                    .get_mut()
+                    .write_all(b"\r\n")
+                    .expect("terminate response");
+            }
         });
 
         let mut qmp = TcpStream::connect(address).expect("connect QMP fixture");
@@ -3163,10 +3395,14 @@ mod tests {
         let diagnostics = capture_qmp_timeout_diagnostics(&mut qmp);
         server.join().expect("QMP fixture thread");
 
-        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics.len(), 7, "{diagnostics:?}");
         assert!(diagnostics[0].contains(r#""status":"running""#));
         assert!(diagnostics[1].contains("RIP=0x1234"));
-        assert!(diagnostics[2].contains("mov %rax,%rbx"));
+        assert!(diagnostics[2].contains("portl[0x0608]"));
+        assert!(diagnostics[3].contains("mov %rax,%rbx"));
+        assert!(diagnostics[4].contains("pause"));
+        assert!(diagnostics[5].starts_with("QMP CPU registers after 1s"));
+        assert!(diagnostics[6].starts_with("QMP ACPI PM timer after 1s"));
     }
 
     #[test]
@@ -3211,6 +3447,24 @@ mod tests {
             received,
             [r#"{"execute":"first"}"#, r#"{"execute":"second"}"#]
         );
+    }
+
+    #[test]
+    fn timeout_diagnostics_sample_registers_and_the_pm_timer_twice() {
+        use super::QMP_TIMEOUT_QUERIES;
+        let count = |needle: &str| {
+            QMP_TIMEOUT_QUERIES
+                .iter()
+                .filter(|(_, command)| command.contains(needle))
+                .count()
+        };
+        assert_eq!(count("info registers"), 2);
+        assert_eq!(count("i/w 0x608"), 2);
+        assert_eq!(count("$pc - 0x60"), 1);
+        // The second register sample is the one labelled for the delay.
+        assert!(QMP_TIMEOUT_QUERIES
+            .iter()
+            .any(|(label, _)| *label == "QMP CPU registers after 1s"));
     }
 
     #[test]

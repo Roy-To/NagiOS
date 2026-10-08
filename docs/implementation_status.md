@@ -11,6 +11,254 @@ fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
 
+**Legacy FAT12 M27 fixtures sign in first (ADR 0063), 2026-10-07:** the
+FAT12 System A/B images of `./nagi m27` now build init with
+`m10-desktop,m27-ro-vfs-check,desktop-login`.
+
+- **Healthy B trial.** QMP keeps the offered language and creates the
+  owner. The boot waits for `Nagi login readiness reported PASS` and
+  requires, in order, `login unlocked PASS`, `M27 readiness persisted
+  slot=B attempt=1`, then `login readiness reported PASS`. The old
+  "readiness before `M10 desktop READY`" check is removed, since readiness
+  now follows sign-in.
+- **Later boots.** The promotion and confirmed B boots stop on `Nagi login
+  READY mode=unlock` (the owner persisted) and still require the loader to
+  consume the readiness record before promoting B. System A boots stop on
+  `Nagi M7 acceptance PASS`, before the desktop, and need no input.
+- **Checks.** `cargo test -p nagi-cli` (264 unit + 29 CLI tests, including
+  a new source-contract test), warning-denied Clippy for `nagi-cli`, and
+  `cargo fmt --check` pass on an arm64 Linux host. The FAT12 slot images
+  with `desktop-login` built for the target.
+- **Not verified.** `./nagi m27` did not reach the changed boots on this
+  host. Twice, the bootstrap boot (default init, unchanged by this work)
+  stopped at `Nagi M7 VirtIO Block FAIL` under QEMU 10.0.13 TCG on arm64
+  Linux (evidence `out/evidence/m27-ab-rollback-1791343607110865900`). M27
+  stays `PARTIAL`; the target run is pending on an x86_64 or macOS host.
+
+**M10/M29 desktops sign in first (ADR 0063), 2026-10-07:** `./nagi desktop`
+(M10) and `./nagi m29` now build init with `desktop-login`.
+
+- **Flow.** QMP keeps the offered language, creates the owner, and sends
+  the desktop input only after `Nagi login readiness reported PASS`. The
+  desktop prints that line when `report_boot_ready` succeeds after
+  sign-in, so readiness follows sign-in even without an M27 trial.
+- **M29 restart.** The unlock screen restores ja-JP, then QMP unlocks; the
+  restart requires `login READY mode=unlock`, the restored locale,
+  `login unlocked PASS`, then `login readiness reported PASS`.
+- **M10.** Each run has its own User Data disk and log. The M10 list no
+  longer requires the M29-only `keyboard locale selection` marker, which
+  had made `./nagi desktop` fail on `main`.
+- **Checks.** `cargo test -p nagi-cli` (263 unit + 29 CLI tests), warning-
+  denied Clippy for `nagi-cli`, and `cargo fmt --check` pass on an arm64
+  Linux host. Host Clippy/tests for `nagi-init` need an x86_64 host
+  (libnagi uses x86_64 `asm!`) and are left to CI.
+- **Target acceptance.** Not run locally: the arm64 sandbox restarted twice
+  during the `./nagi m29` guest build under QEMU TCG. Left to the PR's
+  target CI.
+- **Status.** M10 and M29 stay as recorded; this change is `PARTIAL`
+  until `./nagi m29` and `./nagi desktop` pass with sign-in.
+
+**Consent settings view (ADR 0065), 2026-10-06:** The owner can now review
+and withdraw recorded decisions.
+
+- **View.** With consent enabled, Settings has a Permissions view that
+  lists recorded decisions (application, capability, decision).
+- **Withdrawing.** Enter withdraws the focused decision to `Ask`,
+  persists it, and makes the next use prompt again.
+- **Result.** `./nagi consent` passed (evidence
+  `out/evidence/consent-dialog-1791292190602639000`): after the restart
+  restored the Allow, QMP opened Settings → Permissions, withdrew it, and
+  the live grant was `ConsentRequired` again. `./nagi m29` and
+  `./nagi login` still pass. The workspace has 892 host tests, and Clippy
+  is clean.
+
+**Sign-in throttling (ADR 0064), 2026-10-06:** The lock screen now limits
+failed sign-in attempts.
+
+- **Policy.** After three consecutive failed unlocks, the next attempt
+  waits 5 s, doubling up to 60 s. An attempt during the wait is refused
+  before the key derivation runs.
+- **Persistence.** The failure count persists in User Data, so a restart
+  waits again.
+- **Result.** `./nagi login` passed with create, throttle and restart
+  phases (evidence `out/evidence/login-1791281978301774000`).
+  `./nagi consent`, `m27`, `m29` and `m30-update` still pass. The
+  workspace has 891 host tests, and warning-denied Clippy is clean.
+
+**First-run language step (M29 onboarding, ADR 0063), 2026-10-06:**
+
+- **Flow.** With `desktop-login`, first run now asks for the system
+  language (English / 日本語) before creating the owner account.
+- **Persistence.** The choice is applied immediately and persisted, so the
+  later unlock screen appears in that language.
+- **Result.** `./nagi login` passed as run `1791264637514157000`. QMP
+  chose 日本語, the account was created, and after the restart the
+  preference was restored before the Japanese unlock screen.
+- **Checks.** `./nagi m29` still passes. The workspace has 886 host tests,
+  and Clippy is clean.
+
+**Desktop owner login (ADR 0063), 2026-10-06:** With `desktop-login`, the
+desktop first shows an OS-owned login screen.
+
+- **First run** creates the owner account. Only a salted PBKDF2-HMAC-SHA256
+  credential in a checksummed `owner-account` record reaches User Data.
+- **Later boots** unlock it.
+- **Readiness** is reported only after sign-in.
+- **Host tests.** `libnagi::credential` (checked against the PBKDF2 vectors)
+  and `libnagi::login` are host-tested. The workspace has 872 host tests,
+  and warning-denied Clippy is clean.
+- **Result.** `./nagi login` passed (evidence
+  `out/evidence/login-1791243371662416000`): QMP typed the owner name and
+  password to create the account; after a restart a wrong password was
+  `REJECTED` and the right one signed in. `./nagi m29` and
+  `./nagi consent` still pass.
+
+- **Follow-up.**
+  - **Consent.** The consent dialog now records for the signed-in owner,
+    after sign-in, and `./nagi consent` signs in first.
+  - **M27.** The M27 GPT healthy-B trial creates the owner through QMP and
+    must persist readiness only after `Nagi login unlocked PASS`. This is
+    account-authenticated readiness; `./nagi m27` passed (evidence
+    `out/evidence/m27-ab-rollback-1791243852197747000`).
+
+Still open:
+
+- the legacy FAT12 M27 fixtures now enable `desktop-login` (see the
+  2026-10-07 entry above; target acceptance pending). The
+  `m30-update` payload does too: its System B trial creates the owner and
+  persists readiness only after sign-in (`./nagi m30-update` run
+  `1791260698907877000`). The M10/M29 desktops now sign in first (see the
+  2026-10-07 entry above; target acceptance pending);
+- more accounts and Recovery reset. Rate limiting is done (ADR 0064), and
+  password change is implemented but not yet accepted in the guest (see the
+  2026-10-07 password change entry below).
+
+**Owner password change (ADR 0066), 2026-10-07:** A signed-in owner can
+change the password from Settings. Status: **PARTIAL** (implemented and
+type-checked; guest acceptance not run).
+
+- **Form.** `libnagi::login::PasswordChangeForm` (current, new, confirm;
+  Escape cancels) is host-tested: a valid change, too-short, mismatch and
+  same-as-current refusals, secret clearing, and cancel.
+- **Desktop.** init's Settings lists "Change password" under the language
+  options with `desktop-login`. The current password is verified before
+  anything is written. Wrong attempts use the persisted ADR 0064 throttle.
+  The new record (fresh salt) is written to `owner-account-next` and swapped
+  in with `Vfs::replace`.
+- **Verified.** The 17 `login`/`credential` host tests pass (built in a
+  scratch crate on arm64 Linux, because `libnagi` does not build for the
+  aarch64 host). `nagi-init` type-checks for the x86_64 Nagi user target
+  with `desktop-login`, with and without `consent-dialog-acceptance`, and
+  fmt and `nagi-localization` tests pass.
+- **Not verified.** No guest run: `./nagi login` does not yet drive the
+  change-password screen, and the arm64 Linux sandbox cannot boot the guest.
+  The ja-JP wording is limited to existing font glyphs.
+
+**Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
+grant is now asked through an OS-owned dialog, and the answer survives a
+restart.
+
+- **Prompt.** The Supervisor queues a prompt, and init's desktop shows a
+  modal Deny / Allow once / Allow dialog in en-US or ja-JP. Its input rules
+  are host-tested in `libnagi::consent`:
+  - input counts only after the dialog is presented, as a press plus its
+    release;
+  - focus starts on Deny;
+  - Escape decides nothing.
+- **Persistence.** `Allow`/`Deny` are written to User Data
+  `consent-decisions`, which has a versioned header and an FNV-1a checksum.
+  `AllowOnce` is never written. Restoring is all-or-nothing and fails
+  closed.
+- **Result.** `./nagi consent` passed on this arm64 macOS host (run
+  `1791239242422379000`, `OVMF_HOME=/opt/homebrew/share/qemu`):
+  - **First boot.** The signed faulting app's
+    `acceptance.consent-probe` request opened the dialog, captured before
+    input in `out/evidence/consent-dialog-1791239242422379000/`. A pointer
+    press on Deny released off-button decided nothing. Tab, Tab, then Enter
+    (press and release) allowed, and the decision was persisted.
+  - **Restart.** The same disk restored one decision, and the grant was
+    `Granted` with no prompt.
+- **Regressions.** `./nagi m29` and `./nagi isolated-process` still pass.
+  The workspace has 863 host tests (x86_64-apple-darwin) and
+  warning-denied Clippy is clean.
+- **Frame check.** The desktop's frame-change check now hashes every pixel,
+  because a moved pointer could miss every sampled pixel.
+- **Unrelated failure.** `./nagi desktop` fails on `main` as well. Its
+  required list includes the M29-only keyboard marker, which an
+  `m10-desktop` build never prints; this predates this change.
+- **Flake.** One temporary ja-JP rendering run timed out in OVMF on the
+  restart boot before the kernel started. The identical rerun passed.
+
+Still open:
+
+- the signed-in user is still the fixture account (no desktop login UI);
+- only the acceptance queues prompts; production services do not yet;
+- foreground/background and selected-file consent;
+- a settings UI to review or withdraw persisted decisions.
+
+**In-guest system update installer (ADR 0062), 2026-10-06:** A running
+System A now installs a signed update into System B, the loader re-verifies
+and trials it, and B is confirmed after readiness.
+
+- **Boot context and capability.** BootInfo v5 marks confirmed boots as
+  update-stageable. On those boots the kernel exposes only the inactive
+  slot as a one-shot, init-only capability (`SYS_UPDATE_SLOT_CLAIM`).
+- **Staging request.** `SYS_UPDATE_SLOT_STAGE` writes a CRC-protected
+  `NagiBootStage` variable. The loader honors it only when the generation
+  matches, nothing is pending, the manifest verifies, and the rollback
+  index is not lowered.
+- **Installer.** The installer (`m30-update-install`) verifies the bundle
+  before writing, then formats the slot as FAT32 (`crates/nagi-fat32`),
+  flushes it, re-verifies a read-back, and stages.
+- **Result.** `./nagi m30-update` passed (evidence
+  `out/evidence/m30-update-1791242245330653000`):
+  - signed bundle: install, then trial `slot=B rollback-index=2` with
+    readiness persisted, then `confirmed slot=B`;
+  - tampered bundle: refused before any write, and A stayed confirmed.
+- **Regressions.** `./nagi m27` still passes. The workspace has 862 host
+  tests, plus 163 kernel, 16 bootinfo, 7 slot-manifest and 4 FAT32 tests.
+  Warning-denied Clippy is clean.
+
+Still open:
+
+- network delivery of updates;
+- an update UI and user consent;
+- production key provisioning.
+
+**Authenticated slot manifests (ADR 0061), 2026-10-06:** The loader now
+verifies a signed `SLOT.MAN` for System A, System B and Recovery before it
+trusts any payload.
+
+- **Format and checks.** The manifest is Ed25519-signed with a domain
+  separator and pins the SHA-256 and size of `KERNEL.ELF` and `INIT.ELF`.
+  A trial slot must not lower the confirmed slot's rollback index. These
+  checks live in the `no_std` `crates/nagi-slot-manifest`, which has five
+  host tests.
+- **Rejection path.** A rejection prints `Nagi slot manifest REJECTED
+  slot=<S> reason=<…>` and consumes an M27 trial attempt.
+- **M27 GPT fixture.** System B now has a bootable ELF, but its manifest is
+  signed by an untrusted key.
+- **Soft-float build.** The UEFI target uses curve25519-dalek's `serial`
+  backend because it is soft-float.
+- **Result.** On the arm64 macOS host, `./nagi m27` passed (evidence
+  `out/evidence/m27-ab-rollback-1791241326571375000`):
+  - three trials printed `reason=signature`, then Recovery ran, then the
+    boot rolled back to System A;
+  - the healthy B verified and was promoted;
+  - the FAT12 malformed B is still refused as `invalid ELF`.
+- **M30.** `./nagi m30` passed from a clean worktree of the commit (run
+  `m30-release-1791241538355805000`): System A and Recovery printed
+  `Nagi slot manifest verified … rollback-index=1 PASS`.
+- **Host checks.** 855 workspace host tests and the loader library tests
+  pass.
+
+Still open for the M30 update item:
+
+- an in-guest installer that writes a signed update into the inactive slot,
+  reads it back, and verifies it;
+- a loader-consumed staging request;
+- production key provisioning.
+
 **User consent for manifest grants (ADR 0051), 2026-10-03:** A signed
 manifest's `grant=` line is now only a request.
 
@@ -27,8 +275,8 @@ manifest's `grant=` line is now only a request.
 Still open:
 
 - the trusted consent dialog (acceptance decisions come from a fixture
-  account);
-- persisting decisions;
+  account) — addressed by ADR 0060;
+- persisting decisions — addressed by ADR 0060;
 - foreground/background distinctions.
 
 **Concurrent isolated processes (ADR 0050), 2026-10-03:** The kernel now

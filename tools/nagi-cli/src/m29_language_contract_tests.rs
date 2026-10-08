@@ -47,16 +47,26 @@ fn m29_acceptance_reboots_the_same_user_data_volume_and_checks_the_restored_loca
         .map(|offset| m29_start + offset)
         .expect("shared Desktop acceptance runner");
     let m29 = &commands[m29_start..acceptance_start];
-    assert!(
-        m29.contains("restart_marker:Some(\"NagiM29settingspreferencerestoredPASSlocale=ja-JP\")")
-    );
+    // ADR 0063: the restart restores ja-JP on the unlock screen, before the
+    // owner unlocks; readiness then follows the sign-in.
+    assert!(m29.contains("features:\"m10-desktop,m29-settings-acceptance,desktop-login\""));
+    assert!(m29.contains("restart_marker:Some(DESKTOP_SIGNED_IN_MARKER)"));
+    assert!(m29.contains(
+        "restart_required_markers:&[\"NagiloginREADYmode=unlock\",\"NagiM29settingspreferencerestoredPASSlocale=ja-JP\",\"NagiloginunlockedPASS\",]"
+    ));
+    assert!(m29.contains("restart_events:qmp_typed_keys(DESKTOP_OWNER_PASSWORD,\"ret\")"));
     assert!(m29.contains("restart_log_name:Some(\"m29-settings-persistent-restart.log\")"));
     assert!(m29.contains("unique_run_artifacts:true"));
+    assert!(
+        commands.contains("constDESKTOP_SIGNED_IN_MARKER:&str=\"NagiloginreadinessreportedPASS\";")
+    );
 
     let restart = &commands[acceptance_start..];
-    assert!(restart.contains("run_qemu(&restart_config)"));
+    assert!(restart.contains("run_qemu_gui_with_events(&restart_config,"));
     assert!(restart.contains("persistent_disk:&persistent_disk"));
-    assert!(restart.contains("[\"NagiM10desktopREADY\",restart_marker]"));
+    assert!(restart.contains(
+        "std::iter::once(\"NagiM10desktopREADY\").chain(acceptance.restart_required_markers.iter().copied()).chain(std::iter::once(restart_marker))"
+    ));
     assert!(commands.contains("\"NagiM29settingslocalepersistedPASSlocale=ja-JP\""));
 }
 
@@ -133,4 +143,33 @@ fn m29_keyboard_focus_reaches_all_desktop_acceptance_panels() {
     assert!(commands.contains("constM29_DESKTOP_FOCUS_EVENTS:[&str;11]"));
     assert!(commands.contains("letmutevents=M29_DESKTOP_FOCUS_EVENTS.to_vec();events.extend_from_slice(&M10_DESKTOP_EVENTS);"));
     assert!(commands.contains("\"NagiM29desktopkeyboardfocusPASS\""));
+}
+
+#[test]
+fn legacy_fat12_m27_healthy_trial_signs_in_before_readiness() {
+    // ADR 0063: the legacy FAT12 System A/B images build init with
+    // desktop-login, and the healthy System B trial creates the owner through
+    // QMP; readiness must be persisted only after that sign-in.
+    let commands = compact(COMMANDS);
+    let m27_start = commands.find("fnexecute_m27(").expect("M27 command");
+    let m27_end = commands[m27_start..]
+        .find("fnexecute_m27_gpt_acceptance(")
+        .map(|offset| m27_start + offset)
+        .expect("M27 GPT acceptance follows the legacy fixtures");
+    let m27 = &commands[m27_start..m27_end];
+    assert!(m27.contains("\"m10-desktop,m27-ro-vfs-check,desktop-login\""));
+    assert!(m27
+        .contains("letsign_in=qmp_first_run_sign_in(DESKTOP_OWNER_NAME,DESKTOP_OWNER_PASSWORD);"));
+    assert!(m27.contains(
+        "run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events(&config,\"NagiloginREADYmode=create\",&sign_in,)"
+    ));
+    assert!(m27.contains(
+        "ifis_trial_boot&&!(m27_readiness_persisted_after_sign_in(&serial)&&m27_readiness_reported_after_persisted(&serial))"
+    ));
+    assert!(m27.contains("DESKTOP_SIGNED_IN_MARKER}else{"));
+    assert!(m27.contains("\"NagiloginREADYmode=unlock\""));
+    assert!(!m27.contains("m27_readiness_persisted_before_desktop"));
+    assert!(commands.contains(
+        "constM27_TRIAL_READINESS_MARKER:&str=\"NagiM27readinesspersistedslot=Battempt=1\";"
+    ));
 }

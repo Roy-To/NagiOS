@@ -33,3 +33,12 @@ Nagi 0.1 Generative LLM runtime remains the local `llama.cpp` / GGUF path.
 
 The user-space Model Manager and local Store metadata contracts are documented
 in [`model-runtime-and-store-contract.md`](model-runtime-and-store-contract.md).
+
+How the loader decides what boots, how signed slot manifests are verified,
+and how a running system installs a signed update into the inactive slot are
+described in
+[`boot-trust-and-system-updates.md`](boot-trust-and-system-updates.md).
+
+The owner account, sign-in, and the OS-owned consent dialog that turns an
+application's signed grant requests into user decisions are described in
+[`accounts-and-consent.md`](accounts-and-consent.md).

@@ -12,6 +12,8 @@
 //!   the launched session is live, its signed manifest requests it, and an
 //!   authenticated user allowed it (ADR 0051).
 //! - `reap` waits for the kernel exit status and revokes the launch.
+//! - A `ConsentRequired` use is queued with `request_consent`; the desktop's
+//!   OS-owned dialog answers it through `resolve_consent` (ADR 0060).
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -20,6 +22,8 @@ use libnagi::launch::{
     AppManifest, GrantCheck, GrantDecision, LaunchError, LaunchPlacement, LaunchRecord,
     LaunchRegistry,
 };
+#[cfg(feature = "consent-dialog-acceptance")]
+use libnagi::launch::{ConsentRequest, DecisionStoreError, MAX_ENCODED_DECISIONS};
 use libnagi::security::{AccountStore, Role, Session};
 use libnagi::{
     channel_create_pair, channel_send, handle_close, process_spawn, process_wait,
@@ -198,9 +202,63 @@ pub fn record_user_decision(
         .map_err(LaunchFailure::Registry)
 }
 
-/// The acceptance user's authenticated session. The trusted consent dialog
-/// is not wired yet (ADR 0051), so acceptance scenarios record the user's
-/// decisions through `record_user_decision` with this fixture session.
+/// Queue a prompt for the OS-owned consent dialog when `capability` needs
+/// the user's answer. Any other grant state is returned unchanged.
+#[cfg(feature = "consent-dialog-acceptance")]
+pub fn request_consent(
+    app_id: AppId,
+    app_session_id: nagi_model::AppSessionId,
+    capability: &[u8],
+) -> Result<ConsentRequest, GrantCheck> {
+    with_registry(|registry| registry.request_consent(app_id, app_session_id, capability))
+        .unwrap_or(Err(GrantCheck::NotLive))
+}
+
+/// The oldest prompt waiting for the consent dialog.
+#[cfg(feature = "consent-dialog-acceptance")]
+pub fn next_consent_request() -> Option<ConsentRequest> {
+    with_registry(|registry| registry.next_consent_request()).flatten()
+}
+
+/// Close a prompt with the user's answer from the OS-owned dialog. `None`
+/// (dismissed) records nothing.
+#[cfg(feature = "consent-dialog-acceptance")]
+pub fn resolve_consent(
+    user: &Session,
+    request: &ConsentRequest,
+    decision: Option<GrantDecision>,
+) -> Result<(), LaunchFailure> {
+    with_registry(|registry| registry.resolve_consent(user, request, decision))
+        .ok_or(LaunchFailure::ManifestsUnavailable)?
+        .map_err(LaunchFailure::Registry)
+}
+
+/// Encode the decisions that persist across restarts.
+#[cfg(feature = "consent-dialog-acceptance")]
+pub fn encode_decisions(output: &mut [u8; MAX_ENCODED_DECISIONS]) -> usize {
+    with_registry(|registry| registry.encode_decisions(output)).unwrap_or(0)
+}
+
+/// The recorded decisions, for the settings view (ADR 0065).
+#[cfg(feature = "consent-dialog-acceptance")]
+pub fn list_decisions(
+    output: &mut [Option<libnagi::launch::DecisionView>; libnagi::launch::MAX_CONSENT_DECISIONS],
+) -> usize {
+    with_registry(|registry| registry.decisions(output)).unwrap_or(0)
+}
+
+/// Apply decisions persisted in the user's User Data.
+#[cfg(feature = "consent-dialog-acceptance")]
+pub fn restore_decisions(user: &Session, bytes: &[u8]) -> Result<usize, DecisionStoreError> {
+    with_registry(|registry| registry.restore_decisions(user, bytes))
+        .unwrap_or(Err(DecisionStoreError::Malformed))
+}
+
+/// The acceptance user's authenticated session. The desktop has no login
+/// UI yet, so acceptance scenarios use this fixture account as the
+/// signed-in user. Its decisions come either from explicit acceptance
+/// inputs (`record_user_decision`) or, with ADR 0060, from real input on
+/// the OS-owned consent dialog.
 pub fn acceptance_user() -> Option<Session> {
     let mut accounts = AccountStore::new();
     accounts

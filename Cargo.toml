@@ -9,6 +9,8 @@ members = [
     "crates/nagi-i18n",
     "crates/nagi-action-ipc",
     "crates/nagi-search-ipc",
+    "crates/nagi-slot-manifest",
+    "crates/nagi-fat32",
     "kernel",
     "user/libnagi",
     "user/nagi-net",
