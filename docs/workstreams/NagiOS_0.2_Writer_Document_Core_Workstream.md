@@ -1,10 +1,10 @@
 # Nagi OS 0.2 — Writer Document Core Host Foundation
 **Document ID:** NAGI-0.2-PARALLEL-WRITER-20261008\
-**担当:** Claude ②\
+**担当:** Codex（ユーザー明示指示による担当変更。Registry の Claude ② とブランチ名は維持）\
 **対象:** `RT-NISH/NagiOS`\
 **作業区分:** Phase 2 Writerの **Host-only / UI-independent** 文書エンジン\
 **対象仕様:** `docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md` §57、0.2のResource/Document/Object/Revision/Activity/Wayback公共契約\
-**実行状態:** 新規Workstream提案。Owner登録/host-only activation前にproductionへ接続しない。
+**実行状態:** BP-SBOM-HOST-20261008 により登録済み・host-only activation 承認済み。production/runtime 接続は別 gate。
 
 > **目標：** Nagi WriterをAIがなくても通常の文書エディタとして成立させるため、Document/Section/Block/Style/Revisionの共通コアをRustで実装する。将来のAI局所編集とWaybackのために安定Object IDと差分を残すが、AIやゲストUIは実装しない。
 
@@ -31,7 +31,7 @@
 | 設計書 | `docs/workstreams/NagiOS_0.2_Writer_Document_Core_Workstream.md` |
 | State | `.dev/workstreams/writer-core-01/state.json` |
 
-- **全て案であり現時点でregistry登録済みではない。** Integration Ownerへproposal提出、branch/path重複解消、host-only checkpoint明示後に該当作業を開始。
+- **登録済み・host-only 承認済み。** `.dev/workstreams.json` writer-core-01 行と `docs/0.2/WORKSTREAMS.md` の BP-SBOM-HOST-20261008 が現行の所有権・許可範囲。ユーザー指示により Codex が担当し、Registry と owner branch は変更しない。
 - 新規crateをroot Cargo workspaceへ無断登録しない。単独manifestとしてformat/test/Clippyが実行できるようにする。
 - 既存shared `DocumentId`/`ObjectId`/`RevisionId`があるなら共有定義を使う。未完成ならcrate内の可換adapter型を明示し、将来platform移行用compatibility fixtureを用意する。
 - 外部ツール/フォント/マシン固有ファイル/ブラウザを隠れた必須依存にしない。
@@ -154,3 +154,36 @@ git diff --check
 7. 最終報告は、Host PASS/PARTIAL/BLOCKED、実装範囲、未対応Format/UI/Wayback、Tests、SHA、Push先、CI evidence、統合に必要なcheckpoint。
 
 **非目標：** Writer UI、DOCX/PDF engineの本格実装、フォント/レイアウトエンジン、AI自動編集、Wayback target runtime、Nagi Agent、root workspace/CIの無断変更、Hark branchの改修。
+
+## 8. 実装 checkpoint（2026-10-08）
+
+Host foundation W1–W5 を `crates/nagi-writer-core` の独立 workspace に実装。
+外部依存なし（既存 nagi-model / nagi-history への path dependency のみ）。
+契約・制限・移行方針は同 crate の README.md、証拠は owned State と
+`.dev/workstreams/writer-core-01/host-verification.txt` を参照。
+
+| Deliverable | Host 実装と検証 |
+|---|---|
+| W1 / H01–03 | Section/Block 構造、全基本 Block 型、insert/replace/move/delete、正規 ObjectId と tombstone、snapshot reopen、親子循環/重複 ID/不正 index 拒否 |
+| W2 / H04,H10 | 標準・custom Style と継承、cycle 拒否、構造独立 Outline、日本語/英語 fixture、全 byte-range Unicode boundary 検証 |
+| W3 / H05–07 | immutable in-memory Revision、atomic batch、stale Conflict、typed ChangeSet、Actor/Source/Time、Comment/Reply/Resolve、review suggest/preview/accept/reject |
+| W4 / H08–10 | Markdown block subset / Plain Text、実測 roundtrip、未対応要素の literal 保持＋行番号警告、export preview の metadata/structure loss 警告、bounded 入出力 |
+| W5 / H11 | Store/Permission/Activity/Checkpoint trait、content-free Activity 投影、permission-gated Search projection、参照型のみの Albert/Notes/Sheets seam、Unavailable を正しく返す |
+| H12 | 固定 Rust nightly-2025-08-01、offline locked host gate、DF-01 State、commit/push/CI の SHA evidence（最終結果は State） |
+
+`DocumentId(ObjectId)` はこの base に未提供の共有 DocumentId への可換 role
+adapter。ObjectId は nagi-model、RevisionId/Actor/CheckpointId は既存
+nagi-history::activity をそのまま使用する。Revision sequence は DocumentId
+との組で host 文書内にスコープされる。グローバル Revision 割当と durable
+history は platform adoption 時の Integration Owner checkpoint が必要。
+
+Host PASS は WRITER-001〜020 や 0.2-M17/M18/M21/M22 の product/target
+PASS を意味しない。UI、PDF/DOCX、layout、table merge/split、永続 Store、
+実 Activity/Wayback/Search provider、クロスアプリ実接続は未実装。
+restore 成功やゲスト動作を偽称しない。共有 Registry/root Cargo/CI/Kernel/
+他 Workstream は変更していない。
+
+共有 CI の既存 `0.2-host-integration.yml` は owner branch を対象とし、
+manifest がある Writer を Ubuntu/Windows の両方で fmt/Clippy/test する。
+通常 `ci.yml` の skip はこの host-only checkpoint の意図的 routing。
+CI を追加・変更せず、既存の host foundation workflow の結果を記録する。

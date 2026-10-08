@@ -1,0 +1,101 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "writer-core-01",
+  "current_milestone": "W1-W5 standalone Writer host foundation; WRITER-H01-H12",
+  "current_checkpoint": "implementation-host-verification-before-first-commit",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "cd871f905bd06ef406ccaa9f80c484f19158209f",
+    "verified_at": "2026-10-08T13:47:12.386336Z",
+    "normal_state": "User explicitly assigned implementation to Codex while retaining the registered Claude branch and shared Registry unchanged. BP-SBOM-HOST-20261008 authorizes host-only owned paths. Pre-commit working-tree tests have passed; this SHA is the registration base, not the uncommitted Writer implementation. Final immutable implementation SHA verification and push/CI remain to be recorded. W1-W5 code is standalone, no product/runtime/target acceptance is claimed.",
+    "commands": [
+      "bash tests/writer-core/verify.sh",
+      "./nagi dev verify"
+    ],
+    "tests": [
+      {
+        "name": "Pre-commit Writer host gate",
+        "command": "bash tests/writer-core/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "30/30 acceptance tests, offline locked build, fmt, warning-denied Clippy and rustdoc passed on final pre-commit working tree. Raw output: .dev/workstreams/writer-core-01/host-verification.txt. Immutable code SHA will be reverified immediately after commit."
+      },
+      {
+        "name": "Host CLI compatibility",
+        "command": "cargo fmt/clippy --manifest-path tools/nagi-bootstrap/Cargo.toml; cargo test --lib development::; cargo test --lib commands::tests; cargo test --test cli",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Host CLI formatting and warning-denied Clippy; 18 development tests, 7 command tests, 26 CLI integration tests pass. Exact commands and raw output: .dev/workstreams/writer-core-01/host-cli-verification.txt."
+      },
+      {
+        "name": "DF-01 owned State",
+        "command": "./nagi dev verify; ./nagi dev status; ./nagi dev resume",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 registered workstreams and 16 State files validated; branch resolves to writer-core-01. Logs: dev-verification.txt and host-cli-verification.txt."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": ".dev/workstreams.json; docs/0.2/WORKSTREAMS.md; docs/implementation_status.md",
+    "last_checked_at": "2026-10-08T13:45:21.733309Z",
+    "activation_requirement": "BP-SBOM-HOST-20261008 authorizes only standalone host foundation. M30 PASS plus explicit release boundary and Integration Owner checkpoint are required for production, guest/runtime, shared workspace and provider adoption. Registered base retains M17 BLOCKED, M30 NOT STARTED; no release-line status is modified."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": "Initial host had no Cargo (exit 127): installed pinned nightly-2025-08-01 in /tmp. First compile found canonical ObjectId lacks Ord (exit 101): used BTreeSet<u64> tombstones without changing shared type. First acceptance 21/22: review test reused range 0..1 after Japanese replacement; corrected the next review fixture to typed delete. First Clippy found cloned slice and reversed test range: replaced slice with from_ref and constructed reversed Range explicitly, preserving the negative assertion. DF-01 initial verify rejected missing owned State; this State resolves it. GitHub CLI API read returned Forbidden under network policy; use connected GitHub read tools for CI evidence.",
+    "attempted_fixes": [
+      "Pinned Rust install; retain TLS/proxy and root workspace unchanged.",
+      "Canonical ObjectId reuse with raw-value tombstone storage.",
+      "Correct UTF-8 review fixture; retain boundary rejection tests.",
+      "Fix Clippy test patterns without suppressions.",
+      "Create owned DF-01 State."
+    ],
+    "do_not_try": [
+      "Do not modify shared Registry, Cargo workspace/lock, CI, Kernel or other workstream.",
+      "Do not fake CI, Activity, Wayback, persistence or target PASS.",
+      "Do not bypass network policy."
+    ]
+  },
+  "next_action": "Complete final host gate, DF-01 and ownership audit; commit owned implementation, verify immutable SHA, push owner branch, inspect Ubuntu/Windows host foundation CI and record evidence in a State-only checkpoint.",
+  "acceptance_criteria": [
+    "WRITER-H01: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H02: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H03: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H04: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H05: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H06: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H07: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H08: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H09: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H10: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H11: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
+    "WRITER-H12: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs"
+  ],
+  "deferred": [
+    "Guest/native UI, fonts/layout, PDF/DOCX providers, table merge/split and spans.",
+    "Durable Store/Wayback restore, actual Activity/Search providers and IPC.",
+    "Albert/Notes/Sheets runtime adoption, Capability/Permission provider wiring.",
+    "Global platform DocumentId/Revision allocation migration and durable history require reviewed adapter checkpoint; host native snapshots preserve Document fields but reopen starts a new local history window.",
+    "Root workspace/shared CI changes and integration merge remain Integration Owner-owned."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 State/Registry and BP-SBOM-HOST-20261008",
+      "version": "1",
+      "status": "Reuse approved registered owner paths and State schema; no shared edits."
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Platform Object/Document/Revision/Action seam",
+      "version": "1",
+      "status": "Reuse nagi-model ObjectId and nagi-history Actor/RevisionId/CheckpointId; document role adapter and compatibility fixture only; runtime adoption gated."
+    }
+  ]
+}
