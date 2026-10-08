@@ -6,9 +6,9 @@
   "current_checkpoint": "BP-SBOM-HOST-20261008 verified on Ubuntu and Windows",
   "status": "PASS",
   "last_verified": {
-    "commit_sha": "107303a95ab795ee24a5fab5e4c34314df21a1e9",
-    "verified_at": "2026-10-08T12:46:06.404812+00:00",
-    "normal_state": "Host checkpoint PASS only: existing BP/SBOM source adopted, five streams registered and three app host branches activated; shared CLI/library dispatch and both host CI jobs pass. Clean published source tree 5e5f21b6155a00062ee2c4e5b150a9520d4f8ef3. Source owner State snapshots remain immutable. Apps and 0.2 guest/runtime/release are not accepted by this PASS.",
+    "commit_sha": "62434cd1f3dd0b40967f94ea5f3fe12cd2507d5b",
+    "verified_at": "2026-10-08T12:51:11.468002+00:00",
+    "normal_state": "Host-only PASS including PowerShell launcher JSON and exit preservation. Clean published code source 62434cd1f3dd0b40967f94ea5f3fe12cd2507d5b, tree f5c00b79840a1bb557837845fef1764705f9a8b1. Ubuntu/Windows CI complete. Final State-only publication follows; workflows deliberately ignore State-only changes. App implementations/runtime/release are outside this PASS.",
     "commands": [
       "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check",
       "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked -- -D warnings",
@@ -53,7 +53,7 @@
         "command": "SOURCE_DATE_EPOCH=1780272000 ./nagi legal scan --json; check; sbom; notice; diff; ./nagi dev fingerprint and compare",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Clean exact source 107303a95ab795ee24a5fab5e4c34314df21a1e9; two SPDX outputs and two fingerprints byte-identical, changed/missing artifact exit 4. Digests {\"fingerprint-a.json\": \"216223ad24d9b167416a0fe329658bc1972c3440d9598cc9fde0854f11a44dd5\", \"fingerprint-b.json\": \"216223ad24d9b167416a0fe329658bc1972c3440d9598cc9fde0854f11a44dd5\", \"fingerprint-changed.json\": \"7232a4e093bddf7fdf00fbc466e84152892c24a48e7e60709a935646b7452cbe\", \"notice.md\": \"1985a54fabfa9dc82b9536e5e51008ce36e9cc5b823b807dfa1582fb8c91916a\", \"sbom-a.json\": \"e1fe04e124f2b24fa1a1861e230c5a3b337c1e78cf93af1cf858e5399d70e5d0\", \"scan.stdout\": \"fd250fa6742a88494f20f9786c603e6eb875955d4923261577b1b68e163f2f9e\"}. Ignored evidence at out/host-integration-audit/integration-current/evidence.json. Initial audit command mistakenly supplied human scan output to diff; corrected to --json and all checks passed without source change."
+        "evidence": "Clean exact source 62434cd1f3dd0b40967f94ea5f3fe12cd2507d5b; fixed SOURCE_DATE_EPOCH=1780272000 gives two equal SPDX files and fingerprints, changed/missing artifact exit 4. Digests {\"fingerprint-a.json\": \"b20927dd2f375e4f93ea6d3bd978e376f081b151d647469e0147af3ba4ca2b48\", \"fingerprint-b.json\": \"b20927dd2f375e4f93ea6d3bd978e376f081b151d647469e0147af3ba4ca2b48\", \"fingerprint-changed.json\": \"716b8c4e01a33c6dcb3ec05d1127aaefd6c7edf0f9c98ab073619fed572680ce\", \"notice.md\": \"50e1febc52bdcd827887ac559a44a055d7e1ea9de119c3ddd81fb43bfffbfdd2\", \"sbom-a.json\": \"7df24f8ff1f1fc74e78f227dddc3b11af6bfc0ff4e1cdd195d1685c4e83cf2bf\", \"scan.stdout\": \"d34f1b89054da85ba86bfa33ade80a53278e365d620f50f4092b8beec1e8d783\"}. Evidence: out/host-integration-audit/integration-current/evidence.json. Earlier 107303a evidence is retained in evidence-107303a.json."
       },
       {
         "name": "Schema and ownership",
@@ -61,9 +61,24 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "27 registered streams / 17 States; registry and all State schemas pass; protected path diff empty."
+      },
+      {
+        "name": "PowerShell launcher compatibility",
+        "command": "Windows CI: ./nagi.ps1 legal scan --json; ./nagi.ps1 legal --help; ./nagi.ps1 legal unsupported",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Job 113318849139 in run 37779480846 passed direct JSON parsing, help exit 0 and unsupported exit 2. Only Legal bypasses merged diagnostic capture; legacy launcher behavior unchanged."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 37779480846,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37779480846",
+        "head_sha": "62434cd1f3dd0b40967f94ea5f3fe12cd2507d5b",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Ubuntu 24.04 and Windows 2022 PASS. Includes all 105 focused tests, fmt/Clippy, ownership and dev verify. Windows directly executes nagi.ps1 Legal scan JSON, help and unsupported command (exit 2), preserving stdout/stderr and exit status."
+      },
       {
         "run_id": 37778853265,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37778853265",
