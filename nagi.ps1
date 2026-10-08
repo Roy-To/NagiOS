@@ -78,9 +78,14 @@ try {
         }
     }
     $ErrorActionPreference = 'Continue'
-    $cargoOutput = @(& $cargoPath run --locked --manifest-path $manifestPath -p $packageName -- @Arguments 2>&1)
-    $cargoOutput | ForEach-Object { Write-Output ([string] $_) }
-    $childExitCode = $LASTEXITCODE
+    if ($Arguments.Count -gt 0 -and $Arguments[0] -eq 'legal') {
+        & $cargoPath run --quiet --locked --manifest-path $manifestPath -p $packageName -- @Arguments
+        $childExitCode = $LASTEXITCODE
+    } else {
+        $cargoOutput = @(& $cargoPath run --locked --manifest-path $manifestPath -p $packageName -- @Arguments 2>&1)
+        $cargoOutput | ForEach-Object { Write-Output ([string] $_) }
+        $childExitCode = $LASTEXITCODE
+    }
 }
 finally {
     $ErrorActionPreference = 'Stop'

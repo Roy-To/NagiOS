@@ -118,3 +118,10 @@ third-party sources (`cc-nagi`, `mozjs-sys-nagi/build.rs`); host checks do not
 replace these 0.1 gates. Unknown license entries still require manual review.
 App feature adoption and guest/runtime/release integration remain separate
 checkpoints; the guest/runtime gate is closed until M30 PASS.
+
+PowerShell Legal delegation additionally bypasses the pre-existing launcher's
+merged diagnostic capture and uses quiet bootstrap execution. Legal JSON stays
+on stdout, diagnostics stay on stderr, and the child exit is preserved. The
+Windows workflow directly executes `nagi.ps1` scan JSON, help and invalid-command
+cases in addition to the shared binary tests. Legacy launch commands retain
+their existing behavior.

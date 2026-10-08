@@ -76,6 +76,19 @@ jobs:
           cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib commands::tests
           cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --test cli
           ./nagi dev verify
+      - name: PowerShell Legal launcher stdout and exit compatibility
+        if: runner.os == 'Windows' && hashFiles('tools/legal/Cargo.toml') != ''
+        shell: pwsh
+        run: |
+          $scan = @(& ./nagi.ps1 legal scan --json)
+          if ($LASTEXITCODE -ne 0) { throw 'Legal scan launcher failed' }
+          $inventory = ($scan -join "`n") | ConvertFrom-Json
+          if ($inventory.components.Count -eq 0) { throw 'Missing JSON components' }
+          & ./nagi.ps1 legal --help
+          if ($LASTEXITCODE -ne 0) { throw 'Legal help launcher failed' }
+          & ./nagi.ps1 legal unsupported
+          if ($LASTEXITCODE -ne 2) { throw 'Legal usage exit was not preserved' }
+          exit 0
       - name: Owned app host tests when an owner implementation exists
         run: |
           for core in calendar writer sheets; do
