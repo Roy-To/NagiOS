@@ -1,0 +1,47 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "provenance-sbom-integration",
+  "current_milestone": "BP-SBOM-HOST host integration",
+  "current_checkpoint": "user-approved-registry-and-host-activation",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "47642e852d0b10bab19b3f9424d2b1f595674d40",
+    "verified_at": "2026-10-08T12:24:36.954553+00:00",
+    "normal_state": "Latest user instruction approves the previously concrete host integration checkpoint. Registry and explicit app host activation prepared; source adoption and shared CLI/host CI verification follow. No app implementation or runtime PASS claimed.",
+    "commands": [],
+    "tests": [],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "origin/main@9e06967640776298dfdcbceb55085eb9d2b717c5:docs/implementation_status.md and explicit current user restrictions",
+    "last_checked_at": "2026-10-08T12:24:36.954572+00:00",
+    "activation_requirement": "0.1 M30 remains PARTIAL. No 0.2 guest/runtime before M30 PASS and explicit release boundary; this checkpoint authorizes host-only work."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not edit Hark/main, kernel/loader/init, third-party sources or 0.1 acceptance.",
+      "Do not edit other owners State or implement the three app cores here.",
+      "Do not bypass any guest/release gate."
+    ]
+  },
+  "next_action": "Verify registry/schema/branch compatibility, publish the host activation checkpoint and seed assigned app branches. Adopt existing BP/SBOM source deltas and wire minimal host CLI/CI.",
+  "acceptance_criteria": [
+    "Five feature/app stream registrations and the bounded integration row validate.",
+    "Only two explicitly named Claude branches are accepted; legacy codex and invalid branch compatibility tests pass.",
+    "Existing fingerprint and standalone Legal tests/CLI functionality pass without a second implementation.",
+    "Ubuntu and Windows host CI passes for exact immutable checkpoint source.",
+    "Protected paths unchanged; no runtime or release success claim."
+  ],
+  "deferred": [
+    "Nagi 0.2 guest/runtime and release activation until M30 PASS plus release checkpoint.",
+    "App core implementation belongs to assigned Codex/Claude owners."
+  ],
+  "cross_workstream_dependencies": []
+}

@@ -1,0 +1,66 @@
+name: Nagi 0.2 host foundations
+
+on:
+  push:
+    branches:
+      - codex/0.2-integrate-provenance-sbom
+      - codex/0.2-calendar-core-01
+      - claude/0.2-writer-core-01
+      - claude/0.2-sheets-calc-01
+    paths-ignore:
+      - '.dev/workstreams/**/state.json'
+  pull_request:
+    branches:
+      - codex/0.2-integrate-provenance-sbom
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nagi-host-foundations-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-foundations:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned host toolchain
+        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy
+      - name: Host CLI format and warnings-denied lint
+        run: |
+          cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check
+          cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Registry, fingerprint, command and legacy CLI compatibility
+        run: |
+          cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib development::
+          cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib commands::tests
+          cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --test cli
+          ./nagi dev verify
+      - name: Standalone Legal host tests
+        if: hashFiles('tools/legal/Cargo.toml') != ''
+        run: |
+          cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
+          cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
+      - name: Owned app host tests when an owner implementation exists
+        run: |
+          for core in calendar writer sheets; do
+            manifest="crates/nagi-${core}-core/Cargo.toml"
+            if test -f "$manifest"; then
+              cargo fmt --manifest-path "$manifest" --all -- --check
+              cargo clippy --manifest-path "$manifest" --all-targets --locked -- -D warnings
+              cargo test --manifest-path "$manifest" --locked --offline
+            else
+              echo "NOT STARTED: ${core} core has no owner implementation in this checkout"
+            fi
+          done

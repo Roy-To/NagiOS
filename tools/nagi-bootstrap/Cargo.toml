@@ -18,3 +18,7 @@ path = "../nagi-cli/src/lib.rs"
 [[bin]]
 name = "nagi-bootstrap"
 path = "../nagi-cli/src/main.rs"
+
+[[test]]
+name = "cli"
+path = "../nagi-cli/tests/cli.rs"

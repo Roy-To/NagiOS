@@ -1,6 +1,6 @@
 {
   "checkpoint_id": "BP-SBOM-HOST-20261008",
-  "status": "PROPOSED_NOT_APPROVED",
+  "status": "APPROVED_HOST_ONLY",
   "branch": "codex/0.2-integrate-provenance-sbom",
   "base_sha": "80ea6246dd394deb5158c44aa7f0012d76a9c409",
   "scope": "Host registry / shared CLI / host CI integration only",
@@ -33,5 +33,12 @@
     ".dev/schemas/workstreams.schema.json (only if exact Claude branch policy is approved)"
   ],
   "runtime_activation": false,
-  "merge_to_main": false
+  "merge_to_main": false,
+  "approval": {
+    "source": "Current user instruction in this chat",
+    "text": "承認不要で進めてOKとして、なるべく止まらずに進めて",
+    "interpreted_scope": "Approve the concrete previously reported host-only proposals; preserve all original runtime and protected-source boundaries.",
+    "branch_policy": "Keep exact Claude owner branch proposals; accept only these two named branches in schema/parser with compatibility tests.",
+    "app_activation": "Calendar C1-C5, Writer W1-W5, Sheets S1-S5 standalone host core/owned tests authorized; implementation belongs to assigned owners."
+  }
 }

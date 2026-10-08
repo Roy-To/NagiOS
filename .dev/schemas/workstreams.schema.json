@@ -18,7 +18,7 @@
         "properties": {
           "id": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"},
           "owner": {"type": "string", "minLength": 1},
-          "owner_branch": {"type": "string", "pattern": "^codex/[a-z0-9][a-z0-9./-]*$"},
+          "owner_branch": {"type": "string", "pattern": "^(codex/[a-z0-9][a-z0-9./-]*|claude/0\\.2-(writer-core-01|sheets-calc-01))$"},
           "recommended_worktree": {"type": "string", "minLength": 1},
           "state_file": {"type": "string", "pattern": "^\\.dev/workstreams/[a-z0-9-]+/state\\.json$"},
           "dependencies": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
