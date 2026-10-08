@@ -2,13 +2,13 @@
   "schema_ref": "../../schemas/workstream-state.schema.json",
   "schema_version": 1,
   "workstream_id": "writer-sheets-core-adoption",
-  "current_milestone": "WS-HOST-PREP-20261008: Writer/Sheets host adoption draft publication and CI",
-  "current_checkpoint": "Revalidated latest main after PR #31: local adoption/CLI gates PASS; ready for authorized draft publication",
-  "status": "PARTIAL",
+  "current_milestone": "Writer/Sheets host-only adoption Acceptance and draft PR #36; main merge tracked separately",
+  "current_checkpoint": "Writer 31 / Sheets 19 / Calendar 61 native Ubuntu+Windows PASS; existing full host CI PASS; PR #36 remains draft, no merge authorized",
+  "status": "PASS",
   "last_verified": {
-    "commit_sha": "9c0a32f9b21a16290e4f60ea343e3022882ea6bc",
-    "verified_at": "2026-10-08T21:52:04.246421+00:00",
-    "normal_state": "Latest main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4 merged into isolated adoption branch without conflicts; all Hark #31 and existing owner source/State retained. No competing open PR/remote adoption branch. Revalidation PASS: Writer original 31, Sheets original 19, Calendar 61 tests, package fmt and warnings-denied all-target Clippy; full CLI 293+32, CLI fmt/Clippy, Legal 18+structural check and Registry 30 streams/23 States. Raw revalidation output in publication-verification.json. Source-owner evidence/algorithms/tests unchanged. User explicitly authorized dedicated push/draft PR/CI at 21:48:44 UTC; no merge authorization or runtime/provider/GUI/0.3/release activation. Remote CI pending; current overall status PARTIAL.",
+    "commit_sha": "341d16ace7b99ea8b7a87c38ee7e26117f405ec2",
+    "verified_at": "2026-10-08T22:08:14.408614+00:00",
+    "normal_state": "Host-only adoption Acceptance PASS on exact published source 341d16ace7b99ea8b7a87c38ee7e26117f405ec2 (tree 25d56b6b246866c33099fee3371f03f0cb1defab), based on main edad2e7 after Hark PR #31. Local tested and published trees match byte-for-byte. Dedicated CI 37849852321: Ubuntu job 113559785914 and Windows job 113559785617 PASS; decoded logs explicitly confirm Writer 31, Sheets 19, Calendar 1+60 original tests, scoped fmt, warnings-denied all-target Clippy, Legal/CLI/Registry and PowerShell compatibility. Existing Nagi CI 37849852355: Ubuntu full host job 113559786441, Windows workspace/launcher job 113559786514 and target_classification 113559786042 PASS. Classification target=false/m20=false; nagi-target and nagi-m20-inference SKIPPED, never target/real-inference PASS. PR #36 remains open draft and merge is unauthorized. Metadata-only State evidence commit retains verified code SHA without a self-reference. Original owner algorithms/tests/State and latest main/Hark source/State unchanged; no runtime/provider/GUI/0.3 or release activation.",
     "commands": [
       "bash tests/writer-core/verify.sh",
       "cargo fmt --manifest-path crates/nagi-writer-core/Cargo.toml -- --check --verbose",
@@ -90,13 +90,6 @@
         "evidence": "bootstrap-verification.json: after exact existing pinned mozjs bootstrap, 293 library + 32 launcher tests PASS, no ignored/filtered/deleted tests. Prior 292/293 failure and pristine main reproducer remain in verification.json as historical evidence."
       },
       {
-        "name": "Native Windows/adoption CI/guest",
-        "command": "Future exact-source Ubuntu/Windows workflow and applicable prepared-runner regression",
-        "outcome": "NOT_RUN",
-        "exit_code": null,
-        "evidence": "Local publication forbidden by task; no new CI dispatched or Windows/guest executed. Historical owner CI belongs to immutable source State only."
-      },
-      {
         "name": "Bounded pinned mozjs source bootstrap",
         "command": "Compile temporary harness from exact existing bootstrap modules; CARGO_NET_OFFLINE=true /tmp/ws-mozjs-bootstrap",
         "outcome": "PASS",
@@ -109,9 +102,47 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "publication-verification.json contains exact commands and full logs on merged main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4; no failing or reduced tests."
+      },
+      {
+        "name": "Native Ubuntu/Windows adoption CI",
+        "command": "0.2-host-integration.yml PR run 37849852321 jobs 113559785914 and 113559785617",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both immutable decoded logs report all original Writer 31, Sheets 19, Calendar 1+60 tests PASS, with no ignored/filtered/deleted app tests; fmt/Clippy/CLI/Legal/Registry PASS. Raw logs and job steps retained at /workspace/scratch/nagi-writer-sheets-ci-341d16a-host.json; public run/job URLs preserve exact remote evidence."
+      },
+      {
+        "name": "Existing full shared host CI",
+        "command": "ci.yml PR run 37849852355 Ubuntu job 113559786441 / Windows job 113559786514",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Both full host jobs completed success, including current-main workspace regressions. Raw logs/steps at /workspace/scratch/nagi-writer-sheets-ci-341d16a-full.json. No modification to ci.yml or original gates."
+      },
+      {
+        "name": "Guest target / real Granite inference",
+        "command": "ci.yml unchanged target classification and dependent target/M20 jobs",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Classifier target=false and m20=false. Jobs 113564699107 / 113564698308 conclude SKIPPED; host PASS does not imply guest/real-inference/product/runtime/release acceptance."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 37849852321,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37849852321",
+        "head_sha": "341d16ace7b99ea8b7a87c38ee7e26117f405ec2",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Dedicated Ubuntu/Windows native host adoption PASS. Jobs 113559785914 / 113559785617: original Writer 31, Sheets 19, Calendar 61; app format/Clippy and Legal/CLI/Registry checks PASS. Windows relibc newline traversal failure resolved by owned-source scope, no test reduced."
+      },
+      {
+        "run_id": 37849852355,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37849852355",
+        "head_sha": "341d16ace7b99ea8b7a87c38ee7e26117f405ec2",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Existing full CI: Ubuntu host 113559786441, Windows workspace/launcher 113559786514 and target_classification 113559786042 PASS. target=false/m20=false; target job 113564699107 and M20 inference 113564698308 SKIPPED under unchanged gates. No guest/real-inference claim."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "main@edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4:docs/implementation_status.md",
@@ -125,31 +156,32 @@
     "reproduction_commands": [
       "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet (pristine main cb3f9f2 and adoption)"
     ],
-    "failure_log_summary": "RESOLVED HOST_ENV: initial missing generated mozjs build.rs reproduced on main. Existing component bootstrap reused cached pinned archive and applied registered Nagi patches/marker without any Servo fetch/download/tracked source changes. Full CLI now 293+32 PASS. Historical Legal offline cache failure also resolved by locked package preparation. Native Windows and remote CI are pending external gates, not source failures.",
+    "failure_log_summary": "Historical host setup issues resolved; no current adoption/CI blocker. Dedicated native Windows scoped app format and all original app tests PASS. All applicable full host CI PASS. Merge remains deliberately unauthorized and deferred.",
     "attempted_fixes": [
       "Align canonical model/history by path; standalone Writer lock only.",
       "Scope only Writer/Sheets formatter; retain owned sources, Clippy/tests and Calendar command.",
       "Prepare Legal locked package graph, then rerun offline gates.",
       "Reproduce isolated main missing-source failure without touching other owner checkout.",
       "Validate canonical ID fixture and Linux CRLF checkout without claiming Windows.",
-      "Follow-up authority allows bounded ignored dependency preparation: verified cached mozjs archive and every source file, called exact existing component bootstrap via temporary harness, validated marker and reran unfiltered 293+32 CLI tests successfully; download 0 bytes."
+      "Follow-up authority allows bounded ignored dependency preparation: verified cached mozjs archive and every source file, called exact existing component bootstrap via temporary harness, validated marker and reran unfiltered 293+32 CLI tests successfully; download 0 bytes.",
+      "Draft publication through pre-existing authorized RT-NISH connection, without credential/permission changes. Single tested adoption tree published on dedicated branch; fetched tree equals local. No CI source regression required a fix; latest native Ubuntu/Windows and existing full host CI both PASS."
     ],
     "do_not_try": [
       "Do not write main/owner branches, merge, release or enable runtime/providers/GUI/0.3. Dedicated adoption push/draft PR/CI is explicitly authorized.",
       "Do not edit source owner State, root Cargo, runtime/providers/GUI/0.3 or protected paths."
     ]
   },
-  "next_action": "Revalidate fresh current-main tree, publish exact tested adoption tree on dedicated branch, create draft PR, monitor Windows/Linux and all applicable CI; repair only in-scope adoption regressions. Never merge.",
+  "next_action": "Keep PR #36 draft and hand exact source/CI evidence to parent for review. No merge or main/owner write is authorized. Any future main merge/ready decision needs separate approval and refreshed latest-source/base checks; guest/runtime requires M30 PASS plus explicit release/integration activation.",
   "acceptance_criteria": [
     "Preserve Writer 31 and Sheets 19 original tests and algorithms.",
     "Use canonical current model/history without root edits.",
     "Local fmt/lint/tests/Registry and ownership checks PASS.",
-    "Publish reviewed exact tested tree on dedicated branch; draft PR only, latest Windows/Linux and applicable CI required; no merge."
+    "PASS: exact tested tree published on dedicated branch, PR #36 created as draft, latest native Windows/Ubuntu dedicated and all applicable existing host CI PASS; no merge."
   ],
   "deferred": [
-    "Native Windows/exact-source remote CI verification in progress after publication.",
-    "Main merge requires separate authorization; no owner/main branch writes.",
-    "Guest/runtime/provider/GUI/0.3, full app products and release activation remain gated."
+    "PR #36 main merge/ready decision requires separate approval; no main/owner branch writes.",
+    "Guest/target/real-inference/product/runtime/providers/GUI/0.3 and release activation remain gated; current target/M20 jobs were SKIPPED.",
+    "Durable app storage, actual Activity/Wayback/Search/permission/session providers, global revision allocation and full format/GUI product acceptance remain outside host adoption."
   ],
   "cross_workstream_dependencies": [
     {
