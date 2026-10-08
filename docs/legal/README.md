@@ -6,6 +6,16 @@ tracked license/notice filenames, the existing `THIRD_PARTY_NOTICES.md`, and
 the model-license metadata catalog in this directory. It does not fetch source
 or model assets and does not edit upstream sources.
 
+Prepare the pinned host dependencies once when using a fresh Cargo cache:
+
+```sh
+cargo fetch --manifest-path tools/legal/Cargo.toml --locked
+```
+
+This prepares Cargo packages only; it does not fetch upstream project sources,
+model assets or license evidence. Subsequent Legal execution stays offline.
+The root/bootstrap lockfile alone does not prepare Legal's separate lock graph.
+
 Run from the repository root:
 
 ```sh

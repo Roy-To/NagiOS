@@ -50,3 +50,24 @@ Legal Clippy resolves its pinned graph before offline Legal/CLI tests in both
 existing host jobs; no test, assertion, offline CLI policy or target gate is
 removed. Dedicated host workflow 37785490729 passed both operating systems
 on source de73b115e8024cadeca25bd094340dcda78500fb.
+
+Adoption ownership CI compares the checkpoint against its actual merge base
+with current `origin/main`. This keeps the host-only allowed/forbidden checks
+accurate if the 0.1 line advances; all protected paths remain fail-closed.
+Source-owner branches keep their original immutable activation baselines.
+Before merge, recheck current main, the PR diff and CI base; no old branch is
+unconditionally merged. Legal README documents one-time locked Cargo package
+preparation while preserving offline tool execution and evidence rules.
+
+Host acceptance evidence on `8be5e5598f013a13d539f0e25f2862e4c3e9de8b`: 137
+focused tests and Registry/State checks PASS. Dedicated Ubuntu/Windows host
+CI [37786245593](https://github.com/RT-NISH/NagiOS/actions/runs/37786245593)
+and both original full host CI jobs PASS. Existing M20 real Granite inference
+also PASS. Full target CI passed M17, M18, isolated process, M19 Search/Files
+and Undo, then M27 failed because QEMU VNC port 39419 was already in use;
+QMP reset followed. M29/M30 did not run. This is not full target PASS.
+Retry all applicable CI on a fresh runner at the latest checkpoint; change
+no 0.1 source, assertion or validation threshold.
+[PR #34](https://github.com/RT-NISH/NagiOS/pull/34) must wait for every latest
+applicable check to PASS before merge. Review completed; source-owner States
+are immutable. Host acceptance State and PR merge/regression gate are explicit.

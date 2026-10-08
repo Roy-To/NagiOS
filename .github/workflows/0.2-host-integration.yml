@@ -60,11 +60,15 @@ jobs:
           row = next((w for w in registry['workstreams'] if w['owner_branch'] == branch), None)
           if row is None:
               raise SystemExit('Unregistered branch: host checkpoint must be explicitly registered')
-          baseline = ('1118f13dc6badf19b10a628eda244f8a0a635237'
-                      if row['id'] == 'host-foundations-adoption'
-                      else '80ea6246dd394deb5158c44aa7f0012d76a9c409'
-                      if row['id'] == 'provenance-sbom-integration'
-                      else 'cd871f905bd06ef406ccaa9f80c484f19158209f')
+          if row['id'] in ['host-foundations-adoption', 'calendar-core-adoption']:
+              # Audit the adoption delta against its current release-line base;
+              # unrelated already-main changes are not this checkpoint's edits.
+              baseline = subprocess.check_output(
+                  ['git', 'merge-base', 'origin/main', 'HEAD'], text=True).strip()
+          else:
+              baseline = ('80ea6246dd394deb5158c44aa7f0012d76a9c409'
+                          if row['id'] == 'provenance-sbom-integration'
+                          else 'cd871f905bd06ef406ccaa9f80c484f19158209f')
           changed = subprocess.check_output(['git', 'diff', '--name-only', baseline, 'HEAD'], text=True).splitlines()
           protected = ['kernel/**', 'loader/**', 'user/**', 'third_party/**', 'tests/acceptance/**',
                        'Cargo.toml', 'Cargo.lock', 'docs/implementation_status.md']
