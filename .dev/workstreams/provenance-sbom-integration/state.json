@@ -3,19 +3,88 @@
   "schema_version": 1,
   "workstream_id": "provenance-sbom-integration",
   "current_milestone": "BP-SBOM-HOST host integration",
-  "current_checkpoint": "user-approved-registry-and-host-activation",
-  "status": "IN_PROGRESS",
+  "current_checkpoint": "BP-SBOM-HOST-20261008 verified on Ubuntu and Windows",
+  "status": "PASS",
   "last_verified": {
-    "commit_sha": "47642e852d0b10bab19b3f9424d2b1f595674d40",
-    "verified_at": "2026-10-08T12:24:36.954553+00:00",
-    "normal_state": "Latest user instruction approves the previously concrete host integration checkpoint. Registry and explicit app host activation prepared; source adoption and shared CLI/host CI verification follow. No app implementation or runtime PASS claimed.",
-    "commands": [],
-    "tests": [],
-    "ci_runs": []
+    "commit_sha": "107303a95ab795ee24a5fab5e4c34314df21a1e9",
+    "verified_at": "2026-10-08T12:46:06.404812+00:00",
+    "normal_state": "Host checkpoint PASS only: existing BP/SBOM source adopted, five streams registered and three app host branches activated; shared CLI/library dispatch and both host CI jobs pass. Clean published source tree 5e5f21b6155a00062ee2c4e5b150a9520d4f8ef3. Source owner State snapshots remain immutable. Apps and 0.2 guest/runtime/release are not accepted by this PASS.",
+    "commands": [
+      "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check",
+      "cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings",
+      "./nagi dev verify",
+      "git diff --check",
+      "Registry and all State JSON schema validation",
+      "Exact Git tree verification before leased dedicated-branch publication"
+    ],
+    "tests": [
+      {
+        "name": "Registry and fingerprint",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib development::",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "39 passed: registry/compatibility 18 and adopted fingerprint 21."
+      },
+      {
+        "name": "Command compatibility",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib commands::tests",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "7 passed, existing static command contracts."
+      },
+      {
+        "name": "Shared CLI compatibility",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --test cli",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "29 passed: existing 26 plus delegated Legal command/error/determinism and binary/library missing-artifact cases."
+      },
+      {
+        "name": "Standalone Legal",
+        "command": "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "30 passed: 13 unit and 17 acceptance; source algorithms unchanged."
+      },
+      {
+        "name": "Immutable CLI artifact evidence",
+        "command": "SOURCE_DATE_EPOCH=1780272000 ./nagi legal scan --json; check; sbom; notice; diff; ./nagi dev fingerprint and compare",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Clean exact source 107303a95ab795ee24a5fab5e4c34314df21a1e9; two SPDX outputs and two fingerprints byte-identical, changed/missing artifact exit 4. Digests {\"fingerprint-a.json\": \"216223ad24d9b167416a0fe329658bc1972c3440d9598cc9fde0854f11a44dd5\", \"fingerprint-b.json\": \"216223ad24d9b167416a0fe329658bc1972c3440d9598cc9fde0854f11a44dd5\", \"fingerprint-changed.json\": \"7232a4e093bddf7fdf00fbc466e84152892c24a48e7e60709a935646b7452cbe\", \"notice.md\": \"1985a54fabfa9dc82b9536e5e51008ce36e9cc5b823b807dfa1582fb8c91916a\", \"sbom-a.json\": \"e1fe04e124f2b24fa1a1861e230c5a3b337c1e78cf93af1cf858e5399d70e5d0\", \"scan.stdout\": \"fd250fa6742a88494f20f9786c603e6eb875955d4923261577b1b68e163f2f9e\"}. Ignored evidence at out/host-integration-audit/integration-current/evidence.json. Initial audit command mistakenly supplied human scan output to diff; corrected to --json and all checks passed without source change."
+      },
+      {
+        "name": "Schema and ownership",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 registered streams / 17 States; registry and all State schemas pass; protected path diff empty."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 37778853265,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37778853265",
+        "head_sha": "107303a95ab795ee24a5fab5e4c34314df21a1e9",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Ubuntu 24.04 and Windows 2022 host-foundations jobs PASS: path ownership, pinned toolchain, fmt, warnings-denied Clippy, Legal 30 tests, development/fingerprint 39, commands 7, CLI 29 and dev verify. App implementations absent in this integration checkout are NOT STARTED."
+      },
+      {
+        "run_id": 37777255126,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37777255126",
+        "head_sha": "cd871f905bd06ef406ccaa9f80c484f19158209f",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Registration and app host activation checkpoint passes Ubuntu/Windows."
+      }
+    ]
   },
   "release_line_gate": {
-    "source": "origin/main@9e06967640776298dfdcbceb55085eb9d2b717c5:docs/implementation_status.md and explicit current user restrictions",
-    "last_checked_at": "2026-10-08T12:24:36.954572+00:00",
+    "source": "origin/main@1118f13dc6badf19b10a628eda244f8a0a635237:docs/implementation_status.md (latest fetched refs; only workstream spec additions since 9e06967)",
+    "last_checked_at": "2026-10-08T12:46:06.404812+00:00",
     "activation_requirement": "0.1 M30 remains PARTIAL. No 0.2 guest/runtime before M30 PASS and explicit release boundary; this checkpoint authorizes host-only work."
   },
   "blocker": {
@@ -31,7 +100,7 @@
       "Do not bypass any guest/release gate."
     ]
   },
-  "next_action": "Verify registry/schema/branch compatibility, publish the host activation checkpoint and seed assigned app branches. Adopt existing BP/SBOM source deltas and wire minimal host CLI/CI.",
+  "next_action": "Assigned owners continue host-only app work on registered branches. Calendar Codex II branch is already at 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96 with host CI 37778691144 success; feature adoption is a separate reviewed checkpoint. Writer/Sheets starting SHA cd871f905bd06ef406ccaa9f80c484f19158209f. Do not implement/adopt app cores or guest runtime in this checkpoint.",
   "acceptance_criteria": [
     "Five feature/app stream registrations and the bounded integration row validate.",
     "Only two explicitly named Claude branches are accepted; legacy codex and invalid branch compatibility tests pass.",
@@ -41,7 +110,10 @@
   ],
   "deferred": [
     "Nagi 0.2 guest/runtime and release activation until M30 PASS plus release checkpoint.",
-    "App core implementation belongs to assigned Codex/Claude owners."
+    "App core implementation belongs to assigned Codex/Claude owners.",
+    "Full root workspace/target-dependent checks: third_party/cc-nagi and third_party/mozjs-sys-nagi/build.rs absent in this host checkout (HOST_ENV); no fetching or edits to protected sources. Dedicated host tests pass.",
+    "License scan reports unknown/manual-review evidence; structural tool check PASS does not establish release/legal approval.",
+    "Calendar implementation adoption into the integration branch is outside this registration checkpoint."
   ],
   "cross_workstream_dependencies": []
 }

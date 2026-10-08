@@ -78,3 +78,43 @@ Hark/main, kernel/loader/init, third-party sources and 0.1 acceptance are protec
 M30 remains PARTIAL; every future 0.2 runtime integration still requires M30 PASS
 and an explicit release boundary. Final exact source SHA, generated artifact
 digests, CI runs and any material failure are recorded in the integration State.
+
+## Verified published host checkpoint
+
+Source `107303a95ab795ee24a5fab5e4c34314df21a1e9`, tree
+`5e5f21b6155a00062ee2c4e5b150a9520d4f8ef3`, was published with a matching
+local/remote tree and clean worktree. Host CI
+[37778853265](https://github.com/RT-NISH/NagiOS/actions/runs/37778853265)
+passes on both Ubuntu 24.04 and Windows 2022. The 105 focused tests, both
+manifest format/lint checks and registry verification pass.
+
+Fixed `SOURCE_DATE_EPOCH=1780272000` produces two byte-identical SPDX outputs
+and two byte-identical fingerprints on that exact source. Comparing an altered
+artifact and recording a missing artifact both fail with exit 4. All five Legal
+commands pass. The initial additional audit supplied human scan output to
+`diff`; rerunning `scan --json` corrected the audit input without source edits.
+Ignored outputs and full commands are retained under
+`out/host-integration-audit/integration-current/`; digests are recorded in the
+integration State. SPDX SHA-256:
+`e1fe04e124f2b24fa1a1861e230c5a3b337c1e78cf93af1cf858e5399d70e5d0`.
+Fingerprint SHA-256:
+`216223ad24d9b167416a0fe329658bc1972c3440d9598cc9fde0854f11a44dd5`.
+
+Latest refs were inspected again: main advanced to
+`1118f13dc6badf19b10a628eda244f8a0a635237` by adding the three workstream
+specifications; the acceptance status and all four Hark refs remain unchanged.
+M30 remains PARTIAL. No main/Hark ref was written by this integration.
+
+Calendar's assigned owner has independently advanced
+`codex/0.2-calendar-core-01` to `2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96`.
+Its host CI [37778691144](https://github.com/RT-NISH/NagiOS/actions/runs/37778691144)
+is successful. Its own State and feature diff were inspected read-only; its
+implementation is not adopted into this checkpoint. Writer/Sheets remote
+branches remain at their registration starting SHA.
+
+This bounded host checkpoint has no active blocker or outstanding host approval.
+Full root workspace/target-dependent tests remain unavailable without protected
+third-party sources (`cc-nagi`, `mozjs-sys-nagi/build.rs`); host checks do not
+replace these 0.1 gates. Unknown license entries still require manual review.
+App feature adoption and guest/runtime/release integration remain separate
+checkpoints; the guest/runtime gate is closed until M30 PASS.

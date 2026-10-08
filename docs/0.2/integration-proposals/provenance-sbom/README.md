@@ -1,6 +1,6 @@
 # Build Provenance / SBOM host checkpoint proposal
 
-Current status: **User-approved host integration in progress**. The newer user
+Current status: **User-approved host integration verified**. The newer user
 instruction authorizes checkpoint BP-SBOM-HOST-20261008. Five streams are now
 registered and the three app cores have explicit host-only activation. See
 `HOST_INTEGRATION_CHECKPOINT.md` and the owned integration State for current
