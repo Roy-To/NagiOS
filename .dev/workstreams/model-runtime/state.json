@@ -2,142 +2,156 @@
   "schema_ref": "../../schemas/workstream-state.schema.json",
   "schema_version": 1,
   "workstream_id": "model-runtime",
-  "current_milestone": "Model Runtime / Model Store Foundation",
-  "current_checkpoint": "host-manifest-registry-store-and-provider-contract",
+  "current_milestone": "Nagi 0.1 M20/M23/M26 ordinary-session Granite service",
+  "current_checkpoint": "lazy-resident-service-and-session-bound-guest-leaf",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "ba0b1b0864c6583663ab9118b256c6f250935380",
-    "verified_at": "2026-09-26T07:25:43Z",
-    "normal_state": "Integrated codex/ws-model-runtime commit 21dbe1e4a3277fa336e73616018994e80847caa7 as a user-space no_std model metadata/registry/Store/provider-contract foundation. Current integration-tree checks pass: 25 unit tests, 2 manifest/schema contract tests, formatting, Clippy with warnings denied, and a Nagi x86_64 user-target library compile. The CRLF-sensitive malformed-manifest test failure from Windows CI was reproduced locally, fixed by removing the field without depending on line endings, and the regression test now passes. Model fixtures are illustrative and contain no distributable weights or source/hash claims; the runtime uses only a test-support fake backend in tests. No model download, host AI service, real inference backend, or runtime app/kernel hook is integrated. Source docs keep M20 NOT STARTED; prior milestones M17-M19 remain incomplete.",
+    "commit_sha": "f66f18d3eb3e873194475c1e4e059f1a6a4a9dd6",
+    "verified_at": "2026-10-08T22:23:44.773544Z",
+    "normal_state": "Nagi 0.1 delegated leaf implementation on codex/0.1-session-model-service, base edad2e7. Added ResidentModelRuntime, LazyModelService and SessionModelService reusing the proven Granite target backend. 102 Model Manager/AI host tests and 3 live Session-binding host tests PASS; Nagi target leaf compile/Clippy and format PASS. Shared normal-startup/feature/linking/Nagi Bar integration remains proposed, not applied. No cached model weights, host inference, new model download, isolated AI process or normal-session guest response is claimed. M20/M23/M26 remain PARTIAL.",
     "commands": [
-      "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check",
-      "cargo test --locked -p nagi-model-manager",
-      "cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
-      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
-      "cargo test -p nagi-model-manager --locked rejects_unknown_fields_and_malformed_json",
-      "./nagi dev verify",
-      "git diff --check; git diff --cached --check"
+      "cargo test --locked --offline -p nagi-model-manager -p nagi-ai",
+      "cargo clippy --locked --offline -p nagi-model-manager --all-targets -- -D warnings",
+      "cargo test --locked --offline --manifest-path tests/model-session-service/Cargo.toml",
+      "cargo clippy --locked --offline --manifest-path tests/model-session-service/Cargo.toml --features granite-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc -- -D warnings",
+      "cargo fmt --package nagi-model-manager -- --check",
+      "cargo fmt --package nagi-init -- --check",
+      "cargo fmt --manifest-path tests/model-session-service/Cargo.toml -- --check",
+      "git diff --check",
+      "./nagi dev verify"
     ],
     "tests": [
       {
-        "name": "Model Runtime host tests",
-        "command": "cargo test --locked -p nagi-model-manager",
+        "name": "host-regression",
+        "command": "cargo test --locked --offline -p nagi-model-manager -p nagi-ai",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "All 25 unit tests and 2 manifest/schema contract tests passed; doc-tests contain 0 tests."
+        "evidence": "PASS: 74 Model Manager unit tests, 3 manifest/Store integration tests and 25 existing nagi-ai tests. The 16 new service tests use a declared orchestration-only backend and synthetic bytes; no real inference claim. Log: .dev/workstreams/model-runtime/evidence/session-service-host-regression.txt"
       },
       {
-        "name": "Model Runtime formatting and Clippy",
-        "command": "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check; cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
+        "name": "manager-clippy",
+        "command": "cargo clippy --locked --offline -p nagi-model-manager --all-targets -- -D warnings",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Package formatting passed and Clippy passed with warnings denied."
+        "evidence": "PASS with warnings denied for nagi-model-manager and all its host targets. Log: .dev/workstreams/model-runtime/evidence/session-service-manager-clippy.txt"
       },
       {
-        "name": "Model Runtime Nagi user-target compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "name": "session-access",
+        "command": "cargo test --locked --offline --manifest-path tests/model-session-service/Cargo.toml",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "The no_std model manager library compiles for Nagi x86_64 user target; this does not execute inference or prove M20 acceptance."
+        "evidence": "PASS: 3 host tests use real libnagi Session objects to verify bound-session, lock and external-caller denial. No guest syscalls or inference are run. Log: .dev/workstreams/model-runtime/evidence/session-service-session-access.txt"
       },
       {
-        "name": "CRLF malformed-manifest regression before fix",
-        "command": "cargo test -p nagi-model-manager --locked rejects_unknown_fields_and_malformed_json",
-        "outcome": "FAIL",
-        "exit_code": 101,
-        "evidence": "With CRLF fixture bytes and the old newline-sensitive replacement, the supposedly malformed manifest retained its `source` field and parsed successfully. This reproduced the Windows CI failure."
-      },
-      {
-        "name": "CRLF malformed-manifest regression after fix",
-        "command": "cargo test -p nagi-model-manager --locked rejects_unknown_fields_and_malformed_json",
+        "name": "guest-leaves",
+        "command": "cargo clippy --locked --offline --manifest-path tests/model-session-service/Cargo.toml --features granite-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc -- -D warnings",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "The test now constructs normalized CRLF input and removes the required `source` field by content; the parser rejects the missing field as malformed JSON."
+        "evidence": "PASS: exact production service and old Granite acceptance leaves compile together for x86_64-unknown-nagi-user with core/alloc and warnings denied for the leaf crate. Eight existing nagi-posix dependency warnings remain visible. No ELF/C++ link or guest execution. Log: .dev/workstreams/model-runtime/evidence/session-service-guest-leaves.txt"
       },
       {
-        "name": "Source branch GitHub Actions",
-        "command": "gh run view 36215549131 --repo RT-NISH/NagiOS",
-        "outcome": "FAIL",
-        "exit_code": 1,
-        "evidence": "Ubuntu host checks passed. Windows host tests failed the newline-sensitive malformed-manifest test, now fixed on this integration branch. The target job separately failed at the independent M17 first-web-pixel acceptance after target builds passed through UEFI."
+        "name": "manager-format",
+        "command": "cargo fmt --package nagi-model-manager -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS: Model Manager formatting. Log: .dev/workstreams/model-runtime/evidence/session-service-manager-format.txt"
       },
       {
-        "name": "Model Runtime durable state registration",
+        "name": "init-format",
+        "command": "cargo fmt --package nagi-init -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS: init formatting, including extracted backend and service leaves. Log: .dev/workstreams/model-runtime/evidence/session-service-init-format.txt"
+      },
+      {
+        "name": "harness-format",
+        "command": "cargo fmt --manifest-path tests/model-session-service/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS: independent service harness formatting. Log: .dev/workstreams/model-runtime/evidence/session-service-harness-format.txt"
+      },
+      {
+        "name": "whitespace",
+        "command": "git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS: source diff whitespace. Log: .dev/workstreams/model-runtime/evidence/session-service-whitespace.txt"
+      },
+      {
+        "name": "Registered own State verification",
         "command": "./nagi dev verify",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "15 registered workstreams and 7 state files validated on codex/integration-next-phase."
-      },
-      {
-        "name": "Model Runtime integration whitespace",
-        "command": "git diff --check; git diff --cached --check",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "No whitespace errors."
+        "evidence": "29 registered workstreams and 20 state files validated on codex/0.1-session-model-service at f66f18d3eb3e873194475c1e4e059f1a6a4a9dd6. Shared Registry unchanged."
       }
     ],
-    "ci_runs": [
-      {
-        "run_id": 36215549131,
-        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/36215549131",
-        "head_sha": "21dbe1e4a3277fa336e73616018994e80847caa7",
-        "status": "COMPLETED",
-        "conclusion": "FAILURE",
-        "summary": "Ubuntu host job passed. Windows host tests failed only the line-ending-sensitive malformed-manifest fixture; M17 target acceptance failed independently after target builds reached UEFI. The Windows regression is fixed in this integration branch."
-      }
-    ]
+    "ci_runs": []
   },
   "release_line_gate": {
-    "source": "docs/workstreams/model-runtime.md and docs/implementation_status.md",
-    "last_checked_at": "2026-09-26T07:25:43Z",
-    "activation_requirement": "This is a host-side foundation and target compile only. Nagi 0.1 M20 remains NOT STARTED until M17-M19 are completed in order and a real local Granite response is accepted; any 0.2 product/runtime activation also requires M30 PASS and an explicit integration checkpoint."
+    "source": "Direct user approval in this delegated thread: publish codex/0.1-session-model-service, create draft PR and fix CI; main merge prohibited.",
+    "last_checked_at": "2026-10-08T23:06:58.693897+00:00",
+    "activation_requirement": "0.1 model manager/service/backend leaves, direct tests, own docs/state and branch push/draft PR/CI fixes are authorized. Shared startup/feature/CLI/CI/Registry/image wiring belongs only to task01a11d8c-fd9d-7768-90f5-9fc924801003. No main merge/direct push/release, 0.2/0.3 activation, permission policy change, paid API or new large model download is authorized by this checkpoint."
   },
   "blocker": {
-    "active": false,
-    "class": null,
-    "summary": null,
-    "reproduction_commands": [],
-    "failure_log_summary": null,
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Normal-session guest acceptance awaits shared startup/feature/linking/Nagi Bar wiring and the verified Granite artifact. Publication is now directly authorized; dedicated branch/draft PR/CI delivery is in progress.",
+    "reproduction_commands": [
+      "See .dev/workstreams/model-runtime/handoff.md for normal-session integration proposal and acceptance sequence."
+    ],
+    "failure_log_summary": "No failing leaf check remains. Host orchestration/session tests and exact target leaf compile PASS. Normal-session guest inference NOT RUN. Historical publication denials are recorded in handoff/evidence; the user has now directly approved dedicated branch publication, draft PR and CI fixes in this thread. Saved shell Git credentials have no repository write access; use the existing connected RT-NISH account without credential/privilege changes.",
     "attempted_fixes": [
-      "Reproduced the Windows-only fixture mutation failure with explicit CRLF input and removed the source field by content rather than an LF-sensitive suffix."
+      "Extracted and reused the old target backend instead of replacing inference.",
+      "Preserved exact Granite artifact/manifest/license pins and kept terms acknowledgement fail-closed.",
+      "Fixed Model Store syscall name from the compile diagnostic.",
+      "Shared one backend module when production and acceptance features are both enabled; compare typed bounded schema values.",
+      "Fetched small toolchain dependency metadata after offline target resolution failed; downloaded no model weights.",
+      "Own State verification rejected invented dependency IDs; used existing registered workstream IDs and kept the assigned shared task in the contract text."
     ],
     "do_not_try": [
-      "Do not treat test-support fake providers as real inference.",
-      "Do not add host filesystem access, model downloads, or a host AI daemon.",
-      "Do not mark M20 complete without a real local Granite response inside Nagi.",
-      "Do not activate a production model runtime before the milestone and release gates."
+      "Do not fake real inference with orchestration fixtures or host inference.",
+      "Do not change default model, adoption count, source/hash/license metadata or acknowledge terms from model text.",
+      "Do not edit shared main/Cargo/commands/CI/Registry/image or other owners' desktop/Search leaves.",
+      "Do not claim target compilation as final linking, isolated-process authority, runtime memory containment or normal-session guest acceptance.",
+      "Do not overwrite another owner branch, merge/main-push/release, reopen Mac work or activate 0.2/0.3."
     ]
   },
-  "next_action": "Keep M20 NOT STARTED while M17-M19 remain incomplete. At the proper milestone, verify the pinned Granite 4.2 3B artifact source/hash/license metadata and real in-guest inference acceptance; do not infer this from current host or target-compilation checks.",
+  "next_action": "Publish the exact committed tree to the authorized dedicated branch using the connected RT-NISH account, create a draft PR, inspect CI and fix owned-leaf failures. Return remote links and the exact interface to the parent/shared wiring owner. Do not merge main. Normal-session guest acceptance remains PARTIAL.",
   "acceptance_criteria": [
-    "Strict model manifest v1 parsing rejects unknown fields, malformed identifiers, unsupported versions, invalid resource bounds, and malformed integrity metadata.",
-    "Registry selection filters by capability, role, architecture, available resources, context, and offline constraints with deterministic user-preference/default/fallback ordering.",
-    "Model Store metadata models install/update/removal lifecycle, integrity checks, license acknowledgement, NOTICE records, and prior-version preservation on failed updates.",
-    "Provider/runtime APIs are capability-neutral and expose bounded model reads, request limits, cancellation/deadline inputs, and structured errors.",
-    "Granite, Qwen, and Gemma fixtures are explicitly illustrative and contain no downloadable weights or false hash/license claims.",
-    "Host tests, formatting, Clippy, schema contract tests, and Nagi user-target library compilation pass.",
-    "No production inference backend, model weights, host downloader/service, or kernel/runtime hook is included.",
-    "M20 remains NOT STARTED until M17-M19 finish in order and a real local Granite response is accepted."
+    "Constructor performs no artifact reads or target library/model load.",
+    "Declared capability/role selects the configured Granite model; unsupported manual preference fails.",
+    "Exact terms acknowledgement, real artifact digest and request/response bounds are enforced.",
+    "One resident session is reused; cancellation/failure/pressure releases it, and unload failure disables reload.",
+    "OS-owned live Session binding rejects lock, other sessions and external caller identity.",
+    "Host orchestration/session tests and exact Nagi target leaf compile pass without host inference.",
+    "Normal-session in-guest Granite response remains a separate required acceptance; M20/M23/M26 are not marked PASS."
   ],
   "deferred": [
-    "Pinned distributable IBM Granite 4.2 3B revision, source URL, exact filename, size, SHA-256, provider license, and NOTICE validation.",
-    "Production llama.cpp/GGUF backend and real local inference inside Nagi.",
-    "Model artifact persistence/download through an authorized Nagi user-space store, with signature and integrity verification.",
-    "Production permission checks, App SDK integration, and model-service process activation.",
-    "M20 acceptance until prerequisite milestones and its real-response criterion pass."
+    "Shared feature/startup/C++-archive/Nagi Bar wiring and final normal init ELF link.",
+    "Normal-session QEMU inference, UI responsiveness and measured cooperative cancellation/load deadlines.",
+    "Guest installed-package and terms acknowledgement persistence/discovery.",
+    "Authenticated external-app AI grants/IPC and isolated AI process/per-service resource containment.",
+    "M23 page-summary token-budget integration and formal public-context acceptance.",
+    "Qwen/Gemma inference and switching, speech, automatic routing and custom-model UI."
   ],
   "cross_workstream_dependencies": [
     {
       "workstream_id": "development-foundation",
-      "contract": "DF-01 registry and durable state contract.",
+      "contract": "Shared Registry unchanged; current 0.1 delegated path ownership proposal only.",
       "version": "nagi-dev-v1",
-      "status": "PASS"
+      "status": "PASS contract / shared owner review pending"
     },
     {
-      "workstream_id": "localization-i18n",
-      "contract": "No runtime dependency; model identity and provider metadata remain independent of display localization.",
-      "version": "localization-contract-v1",
-      "status": "INDEPENDENT / NO API DEPENDENCY"
+      "workstream_id": "ci-acceptance",
+      "contract": "Shared integration task task01a11d8c-fd9d-7768-90f5-9fc924801003 coordinates main/Cargo/build hooks/commands/CI/Registry/image changes.",
+      "version": "m20-model-service-proposal",
+      "status": "PENDING shared wiring"
+    },
+    {
+      "workstream_id": "ui-design-system",
+      "contract": "Nagi Bar desktop owner must supply live authenticated Session, bounded request, cancellation and response/session matching.",
+      "version": "nagi.ai/1",
+      "status": "PENDING desktop integration"
     }
   ]
 }

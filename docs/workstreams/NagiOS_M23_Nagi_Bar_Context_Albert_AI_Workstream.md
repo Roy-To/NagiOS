@@ -95,3 +95,19 @@ authenticate a caller or deliver capabilities across isolated processes.
 Albert page context must stay filtered by a trusted provider when a production
 service path is added. Caller-supplied identity and local function-pointer
 dispatch do not establish that authority; M23 remains `PARTIAL`.
+
+## 2026-10-08 normal-session provider service boundary
+
+The new Model Manager service can retain the proven Granite backend across
+ordinary requests; a guest leaf binds it to one OS-owned authenticated desktop
+Session. The shared owner still needs to connect the normal Nagi Bar, maintain
+the live Session, cancel on lock/sign-out, and discard late responses. This
+in-process adapter does not authenticate external app IPC or establish AI
+process isolation. Generated text receives no execution authority.
+
+The existing page-summary provider requests 2048 output tokens, above Granite's
+current 1024-token manifest bound and this first service's 256-token admission
+bound. A provider-limit-aware request is needed before connecting it. No live
+normal-session summary was run; M23 remains `PARTIAL`.
+
+[API and integration proposal](../../.dev/workstreams/model-runtime/handoff.md).

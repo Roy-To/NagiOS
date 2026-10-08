@@ -152,3 +152,18 @@ notice distribution package has not been completed or reviewed.
 
 Therefore this workstream provides the deterministic selection foundation but
 does not satisfy M26 acceptance; its status remains `PARTIAL`.
+
+## 2026-10-08 first resident service slice
+
+`LazyModelService` now selects its configured Granite candidate by declared
+capability and role, requires an explicit current budget, and rejects a manual
+preference for another model rather than silently substituting. The target
+backend still accepts only the existing locked Granite artifact. No model
+adoption, source hash, terms requirement, or license metadata changed.
+
+This is the default-model vertical path only. Qwen/Gemma inference, multiple
+provider switching, automatic fallback, speech and custom-model workflows
+remain unimplemented/unverified in the ordinary session. The generic existing
+Registry/Router contracts are preserved. M26 remains `PARTIAL`.
+
+[API and integration proposal](../../.dev/workstreams/model-runtime/handoff.md).

@@ -1383,3 +1383,22 @@ on this arm64 macOS host because the kernel uses x86-specific inline assembly.
 The code fix has not yet been pushed or run in hosted QEMU. M20 remains
 `PARTIAL` until the hosted inference run passes; guest-side Model Store install
 and normal lazy model-service integration also remain open.
+
+## 2026-10-08 ordinary-session Granite service leaf
+
+The current 0.1 delegation adds a lazy, session-bound adapter without
+reimplementing the successful inference engine. `llama_backend.rs` extracts
+the existing adapter; `m20_granite.rs` retains its dedicated acceptance.
+`ResidentModelRuntime` preserves the existing manifest/SHA-256/request/response
+checks while retaining one model between calls. `LazyModelService` admits
+bounded real input, exact terms acknowledgement, an explicit guest resource
+budget and cooperative deadline/cancellation; errors discard text and unload.
+
+The normal startup, target archive linking, desktop worker and Nagi Bar call
+remain shared-owner integration work. The saved cloud environment has no GGUF
+artifact, and no new weights were downloaded. Host orchestration/session tests
+and Nagi-target leaf compilation passed; they do not establish a normal init
+ELF link or QEMU desktop inference. M20 stays `PARTIAL`; prior dedicated
+acceptance evidence is unchanged.
+
+[API and integration proposal](../../.dev/workstreams/model-runtime/handoff.md).

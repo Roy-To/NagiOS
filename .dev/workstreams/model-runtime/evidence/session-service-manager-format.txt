@@ -1,0 +1,2 @@
+Command: cargo fmt --package nagi-model-manager -- --check
+Exit code: 0

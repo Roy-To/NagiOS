@@ -179,3 +179,21 @@ acceptance criterion; the provider-neutral foundation described by this
 document remains partial for production discovery and installation lifecycle.
 Full logs and checksums are under
 `out/evidence/m20-granite-inference-1791393002742512000/`.
+
+## 2026-10-08 ordinary-session service leaf
+
+The assigned 0.1 service slice adds `ResidentModelRuntime` and
+`LazyModelService` to this crate, plus the guest `SessionModelService` adapter.
+It reuses the existing checked Granite/llama backend, performs no model IO at
+construction, retains one model between actual requests, polls cooperative
+cancellation/deadlines during artifact reads and inference, and unloads on
+failure or insufficient budget. Exact terms acknowledgement remains required.
+The guest adapter accepts only its OS-owned authenticated desktop session.
+
+Shared startup/feature/linking and Nagi Bar wiring are intentionally proposals
+for the sole shared owner; no normal-session guest response has been measured.
+The original dedicated Granite acceptance is preserved and shares the backend
+when the production feature is enabled. Host fixtures prove orchestration only.
+See [the handoff](../../.dev/workstreams/model-runtime/handoff.md) for exact APIs,
+verification evidence, missing model-cache input, ownership and next acceptance.
+This service slice and M20/M23/M26 remain `PARTIAL`.
