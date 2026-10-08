@@ -5227,6 +5227,41 @@ fn execute_image_with_acceptance_packages(
     )
 }
 
+/// Build the ordinary signed-in desktop image with the signed first-party
+/// Files Search client embedded directly in init. This deliberately does not
+/// build or inject `NAGI_ACCEPTANCE_PACKAGES`.
+fn execute_image_with_m19_files_search_product(
+    root: &Path,
+    features: &str,
+    image_name: &str,
+) -> CommandResult {
+    let package = match build_m19_files_search_product(root) {
+        Ok(path) => path,
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_FILES_SEARCH_PACKAGE", package.as_path())],
+        write_fat12_image,
+        ImageBuildFeatures::default(),
+    )
+}
+
 /// QMP commands that type `text` (lowercase letters, digits, `-`), then
 /// press `finish` (`ret` or `tab`), one key press/release per command.
 fn qmp_typed_keys(text: &str, finish: &str) -> Vec<String> {
@@ -5284,9 +5319,9 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
         .as_nanos()
         .to_string();
     let image_name = format!("nagi-0.1-login-{run_id}.img");
-    let image = execute_image_with_features(
+    let image = execute_image_with_m19_files_search_product(
         root,
-        Some("desktop-password-change-acceptance"),
+        "desktop-password-change-acceptance,m19-files-search-production",
         &image_name,
     );
     if image.exit_code != EXIT_SUCCESS {
@@ -5354,10 +5389,26 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
         files_ui_search.extend(qmp_typed_keys("", key));
     }
     files_ui_search.extend(qmp_typed_keys("runtime", "ret"));
-    files_ui_search.push("@screenshot:files-search-runtime.png".to_owned());
     let mut files_nested_ui_search = qmp_typed_keys("", "esc");
     files_nested_ui_search.extend(qmp_typed_keys("nested", "ret"));
     files_nested_ui_search.push("@screenshot:files-search-nested.png".to_owned());
+    let mut allow_files_search_query =
+        vec!["@screenshot:files-search-consent-query.png".to_owned()];
+    allow_files_search_query.extend(
+        CONSENT_DIALOG_EVENTS
+            .iter()
+            .map(|event| (*event).to_owned()),
+    );
+    let mut allow_files_search_access =
+        vec!["@screenshot:files-search-consent-access.png".to_owned()];
+    allow_files_search_access.extend(
+        CONSENT_DIALOG_EVENTS
+            .iter()
+            .map(|event| (*event).to_owned()),
+    );
+    let mut show_search_and_find_nested = vec!["@screenshot:files-search-runtime.png".to_owned()];
+    show_search_and_find_nested.extend(files_nested_ui_search);
+    let files_search_after_restart = files_ui_search.clone();
     let mut open_password_change = Vec::new();
     open_password_change.push("@screenshot:files-search.png".to_owned());
     for key in ["tab", "tab", "ret", "tab", "tab", "ret"] {
@@ -5417,8 +5468,18 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 ("Nagi login retry allowed".to_owned(), after_wait),
                 ("Nagi login unlocked PASS".to_owned(), files_ui_search),
                 (
+                    "Nagi consent dialog SHOWN app=org.nagi.files capability=search.query"
+                        .to_owned(),
+                    allow_files_search_query,
+                ),
+                (
+                    "Nagi consent dialog SHOWN app=org.nagi.files capability=files.search"
+                        .to_owned(),
+                    allow_files_search_access,
+                ),
+                (
                     "Nagi M19 signed-in desktop Files UI Search PASS".to_owned(),
-                    files_nested_ui_search,
+                    show_search_and_find_nested,
                 ),
                 (
                     "Nagi M19 signed-in desktop Files nested UI Search PASS".to_owned(),
@@ -5451,6 +5512,8 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi M19 signed-in desktop Files rename identity PASS",
                 "Nagi M19 signed-in desktop Files delete identity PASS",
                 "Nagi M19 signed-in desktop SearchService ready PASS",
+                "Nagi consent dialog SHOWN app=org.nagi.files capability=search.query",
+                "Nagi consent dialog SHOWN app=org.nagi.files capability=files.search",
                 "Nagi M19 signed-in desktop Files UI Search PASS",
                 "Nagi M19 signed-in desktop Files nested UI Search PASS",
                 "Nagi password change READY",
@@ -5470,8 +5533,12 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             vec![
                 ("Nagi login READY mode=unlock".to_owned(), old_password),
                 ("Nagi login unlock REJECTED".to_owned(), new_password),
+                (
+                    "Nagi login readiness reported PASS".to_owned(),
+                    files_search_after_restart,
+                ),
             ],
-            "Nagi M19 signed-in desktop SearchService ready PASS",
+            "Nagi M19 signed-in desktop Files UI Search PASS",
             &[
                 "Nagi M10 desktop READY",
                 "Nagi login READY mode=unlock",
@@ -5485,10 +5552,13 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
                 "Nagi M19 signed-in desktop Files rename identity PASS",
                 "Nagi M19 signed-in desktop Files delete identity PASS",
                 "Nagi M19 signed-in desktop SearchService ready PASS",
+                "Nagi M19 signed-in desktop Files UI Search PASS",
             ][..],
             &[
                 "Nagi login acceptance PASS",
                 "Nagi M19 signed-in desktop Files delete identity FAIL",
+                "Nagi consent dialog SHOWN app=org.nagi.files capability=search.query",
+                "Nagi consent dialog SHOWN app=org.nagi.files capability=files.search",
             ][..],
         ),
     ] {
@@ -5543,6 +5613,8 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             validate_screenshot(&evidence.join("files-search.png"))?;
             validate_screenshot(&evidence.join("files-search-runtime.png"))?;
             validate_screenshot(&evidence.join("files-search-nested.png"))?;
+            validate_screenshot(&evidence.join("files-search-consent-query.png"))?;
+            validate_screenshot(&evidence.join("files-search-consent-access.png"))?;
             validate_screenshot(&evidence.join("password-change-form.png"))?;
         }
         lines.push(format!(
@@ -8476,6 +8548,81 @@ fn build_isolated_apps(root: &Path) -> Result<PathBuf, CommandResult> {
         }
     }
     Ok(packages)
+}
+
+/// Build and sign the bundled `org.nagi.files` Search-only client package.
+/// Keep its artifact directory separate from the M16 acceptance package set.
+fn build_m19_files_search_product(root: &Path) -> Result<PathBuf, CommandResult> {
+    let app_build = run_cargo(
+        root,
+        "M19 Files Search client build",
+        &[
+            "build",
+            "-p",
+            "nagi-isolated-app",
+            "--bin",
+            "nagi-files-search-client",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std-features=compiler-builtins-mem",
+            "--release",
+            "--locked",
+        ],
+    );
+    if app_build.exit_code != EXIT_SUCCESS {
+        return Err(app_build);
+    }
+    let output_directory = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("artifacts")
+            .join("first-party-packages"),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return Err(failure(
+                EXIT_CONFIG_ERROR,
+                format!("M19 Files Search package directory: {error}"),
+            ))
+        }
+    };
+    let manifest = root
+        .join("user")
+        .join("nagi-isolated-app")
+        .join("manifests")
+        .join("org.nagi.files.manifest");
+    let elf = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release")
+        .join("nagi-files-search-client");
+    let package = output_directory.join("org.nagi.files.xapp");
+    let (manifest, elf, package) = (
+        manifest.display().to_string(),
+        elf.display().to_string(),
+        package.display().to_string(),
+    );
+    let packaged = run_cargo(
+        root,
+        "M19 Files Search product package signing",
+        &[
+            "run",
+            "--quiet",
+            "--locked",
+            "--manifest-path",
+            "tools/nagi-pkg/Cargo.toml",
+            "--",
+            "build-signed",
+            &manifest,
+            &elf,
+            &package,
+        ],
+    );
+    if packaged.exit_code != EXIT_SUCCESS {
+        return Err(packaged);
+    }
+    Ok(PathBuf::from(package))
 }
 
 /// Signed `.xapp` packages the Supervisor launches in acceptances

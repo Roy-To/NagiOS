@@ -411,3 +411,55 @@ building the host `nagi-pkg` tool failed because the installed Xcode
 M19 QEMU acceptance result and does not establish production IPC; M19 remains
 `PARTIAL` pending normal signed app launch, consent, and service-endpoint
 routing.
+
+## ADR 0069 implementation progress — bundled Files Search route (2026-10-08)
+
+ADR 0069 narrows this production step to one signed `org.nagi.files` client
+bundled into init, one request per launch, the existing Supervisor and private
+Channel, OS-owned consent, and the existing live `search.query` plus
+`files.search` grant checks. The signed-in Files panel remains in init; PID 1
+does not impersonate the client. Each launch receives a fresh
+`AppSessionId`. The client relays its decoded bounded result set so init can
+compare it with the service reply, resolve the returned ObjectIds through the
+private Files Workspace, and display only visible titles. Generic app
+registration, Package Service installation, and UI-process migration remain
+deferred.
+
+The signed `org.nagi.files` package and client ELF build locally, and the
+integrated build compiles `nagi-init`. The first full login-image attempt then
+failed while building the kernel target's `core` archive with `No space left
+on device`; QEMU was not started and there is no guest acceptance result yet.
+On this arm64 macOS host, the successful target compiler invocation uses the
+pinned nightly `rustc` explicitly, puts its `bin` directory first in `PATH`
+for nested Cargo commands, and selects the installed Homebrew LLVM 19 clang
+and LLD for Nagi target C builds. This resolves the prior x86_64 Homebrew Rust /
+Xcode `xcrun` mismatch, but does not resolve the remaining disk-space limit.
+
+The production feature routes Files searches through the signed child,
+rechecks both live grants before accepting the result relay, and aborts/reaps
+the child on denial and service errors. A guest run still needs to prove the
+real caller, the exact visible returned ObjectId, consent decisions, and child
+cleanup. Existing M19 `search@1` acceptance continues to cover no-launch,
+query-only, revoked-session, and foreign-visibility denial paths, but has not
+yet been rerun together with this production route.
+
+M19 remains `PARTIAL`. After the focused login guest acceptance, the remaining
+workstream still includes Files create/rename/move-to-trash/restore controls
+and normal Browser History producer updates.
+
+## Bundled Files Search client route implementation — 2026-10-08
+
+ADR 0069 now defines a bounded, signed first-party `org.nagi.files` client
+route for the ordinary Files panel. The implementation builds the `.xapp`
+separately from acceptance packages, launches one child per query with a fresh
+session ID, requests the two live Search grants through the owner consent UI,
+and validates the kernel-stamped sender, launch record, grants, and relayed
+Object IDs before mapping them to owner-visible titles. Both the client and
+the init feature compiled locally, and the signed package was produced.
+
+The local `./nagi login` image build then ran out of disk while building the
+kernel `core` archive; no image was emitted and QEMU acceptance did not run.
+Therefore the route is implemented in source but not yet guest-verified, and
+M19 remains `PARTIAL`. Still open are the production-route guest acceptance,
+Files create/rename/Trash restore UI lifecycle, and publication from ordinary
+Albert Browser History commits.

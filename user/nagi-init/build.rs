@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_FONT_DIR");
     println!("cargo:rerun-if-env-changed=NAGI_ACCEPTANCE_PACKAGES");
+    println!("cargo:rerun-if-env-changed=NAGI_FILES_SEARCH_PACKAGE");
     if env::var_os("CARGO_FEATURE_ISOLATED_PROCESS_ACCEPTANCE").is_some()
         || env::var_os("CARGO_FEATURE_M19_SEARCH_IPC").is_some()
     {
@@ -19,6 +20,18 @@ fn main() {
         for entry in fs::read_dir(&packages).expect("read acceptance package directory") {
             let path = entry.expect("package entry").path();
             println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+    if env::var_os("CARGO_FEATURE_M19_FILES_SEARCH_PRODUCTION").is_some() {
+        let package = env::var_os("NAGI_FILES_SEARCH_PACKAGE")
+            .map(PathBuf::from)
+            .expect("M19 Files client requires NAGI_FILES_SEARCH_PACKAGE (.xapp)");
+        println!("cargo:rerun-if-changed={}", package.display());
+        if !package.is_file() {
+            panic!(
+                "M19 Files client package does not exist: {}",
+                package.display()
+            );
         }
     }
     println!("cargo:rerun-if-env-changed=NAGI_TARGET_CLANG");

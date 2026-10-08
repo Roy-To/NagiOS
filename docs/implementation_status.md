@@ -3,6 +3,16 @@
 **Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**M19 signed Files Search production route, 2026-10-08:** ADR 0069 adds a
+signed first-party `org.nagi.files` client to the ordinary Files Search path.
+The client is built as a separate product package, receives only Object IDs,
+and requires live `search.query` and `files.search` owner grants before its
+one-shot request. The local `./nagi login` attempt built the signed package
+and `nagi-init`, then stopped while writing the Nagi kernel `core` archive
+(`No space left on device`, 213 MiB available). It did not create a login
+image or reach QEMU, so this is implementation progress, not acceptance
+evidence. Production-route QEMU verification, Files trash/restore, and normal
+Browser History producer synchronization remain open; M19 stays `PARTIAL`.
 **M18 acceptance closure, 2026-10-07:** `origin/main` commit
 `7ff70b83cfdc05c279c1b697ceacf12196e83e1f` passed GitHub Actions run
 [`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873).
@@ -3346,18 +3356,22 @@ desktop also starts a persistent owner-Files runtime; QEMU run
 delete/tombstone, inode-generation reuse, and restored identity after restart
 through that runtime. A later login run, `1791414261520793000`, verified
 bounded nested-path publication and search. The login fixture calls these
-runtime methods directly. Normal apps still cannot reach the production
-`search@1` Files handler. That handler resolves the kernel-stamped PID through
-Supervisor, requires both live `search.query` and `files.search` grants, and
-delegates to the runtime's
-visibility-filtered Files query; Nagi-target checks pass for both the normal
-desktop and isolated-search feature sets. No ordinary app launch path routes a
-client to the handler yet. Files UI operations and ordinary Browser History
-changes also do not publish producer updates, and trash/restore is not
-implemented. The runtime now covers bounded nested paths. Guest VFS files
-remain limited to 1 KiB, so the snapshot is bounded at 4 KiB. M19 remains
-`PARTIAL` until the service is reachable through normal signed app launch and
-the producer lifecycles are integrated.
+runtime methods directly.
+
+ADR 0069 now scopes a production path to one bundled signed `org.nagi.files`
+Search client. The normal Files panel launches that client through Supervisor
+for one request, obtains OS-owned consent, checks live `search.query` and
+`files.search` grants, validates an ObjectId-only result relay from the same
+kernel-identified process, and resolves IDs to visible Files titles. The
+signed client target build passes, and the integrated login build produced
+the signed package and compiled `nagi-init`; the kernel build then stopped
+while creating its `core` archive with `No space left on device`. No QEMU guest
+acceptance has run for this route yet, so the implementation is not marked
+accepted. Files create/rename/trash/restore controls and ordinary Browser
+History producer updates also remain open. Guest VFS files remain limited to
+1 KiB, so the snapshot is bounded at 4 KiB. M19 remains `PARTIAL` until the
+production route passes guest acceptance and the remaining producer
+lifecycle work is integrated.
 
 See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md` for the
 focused evidence and remaining production acceptance criteria.

@@ -1,0 +1,5 @@
+id=org.nagi.files
+name=Nagi Files
+version=0.1.0
+grant=search.query
+grant=files.search
