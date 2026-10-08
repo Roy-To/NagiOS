@@ -5632,7 +5632,19 @@ fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String
             &commands,
             &stages,
             &screenshot,
-        )?;
+        )
+        .map_err(|error| {
+            // Surface where the guest stalled in the CI log itself (the
+            // evidence directory is only an artifact).
+            let tail = std::fs::read_to_string(&log)
+                .map(|serial| last_serial_lines(&serial, 40))
+                .unwrap_or_default();
+            if tail.is_empty() {
+                error
+            } else {
+                format!("{error}\n{phase} serial tail:\n{tail}")
+            }
+        })?;
         let serial = read(&log)?;
         let mut position = 0;
         for marker in markers {
