@@ -1359,8 +1359,9 @@ has passed.
 
 ## Completion Sweep — CI User Data write timeout (2026-10-08)
 
-GitHub run `37702418216` downloaded and verified the pinned model and built the
-target archives, then failed before llama.cpp loaded Granite. The QEMU serial log
+The `nagi-m20-inference` job in GitHub run `37702418216` downloaded and
+verified the pinned model and built the target archives, then failed before
+llama.cpp loaded Granite. The QEMU serial log
 reports `Nagi M20 block write failure reason=request timeout sector=2`, followed
 by `Nagi M20 User Data write probe FAIL sector=2` and `Nagi M7 storage FAIL`.
 Ubuntu 24.04 installed QEMU `8.2.2`. The M20 acceptance image is a sparse 64 GiB
