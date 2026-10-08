@@ -17,8 +17,10 @@ Current main's newer shared CLI, bootstrap dependencies/locks, POSIX toolchain
 selection and 0.1 command surface are retained. The sole three-way conflict is
 the help command list: keep all current commands and add fingerprint/Legal.
 No root Cargo files or dependency locks are changed. The existing Nagi CI
-workflow is byte-identical to main; its full host and applicable 0.1 target
-regression gates remain active. A separate scoped Ubuntu/Windows host workflow
+workflow retains all current gates and steps. It adds standalone Legal
+format/lint/tests before the full-workspace tests, priming Legal’s separate
+locked dependencies before offline shared-CLI delegation. Its full host and
+applicable 0.1 target regression gates remain active. A separate scoped Ubuntu/Windows host workflow
 adds registration, fingerprint, Legal and direct PowerShell JSON/error checks.
 Unrelated PRs keep the existing CI and do not acquire a new registration gate.
 
@@ -40,3 +42,11 @@ key and complete parenthesized label as exact review aliases. Regression
 coverage verifies both entries remain manual-review/unknown-license records
 and that the shorter unreviewed name `Mesa` still fails the evidence gate.
 No NOTICE, source lock, upstream source or legal-policy criterion is changed.
+
+The first full Ubuntu CI run (37785415269, job 113338787927) passed all 293
+CLI library tests but failed two delegated CLI tests because `serde_spanned
+v0.6.7` was not cached and Legal deliberately runs offline. Standalone
+Legal Clippy resolves its pinned graph before offline Legal/CLI tests in both
+existing host jobs; no test, assertion, offline CLI policy or target gate is
+removed. Dedicated host workflow 37785490729 passed both operating systems
+on source de73b115e8024cadeca25bd094340dcda78500fb.

@@ -3,15 +3,32 @@
   "schema_version": 1,
   "workstream_id": "host-foundations-adoption",
   "current_milestone": "Stage 1 host foundation adoption onto current main",
-  "current_checkpoint": "Explicit two-stage unattended host checkpoint; selective source adoption",
+  "current_checkpoint": "CI repair: prime standalone Legal lock graph before full workspace CLI tests",
   "status": "IN_PROGRESS",
   "last_verified": {
-    "commit_sha": "1118f13dc6badf19b10a628eda244f8a0a635237",
+    "commit_sha": "de73b115e8024cadeca25bd094340dcda78500fb",
     "verified_at": "2026-10-08T13:29:04.278544+00:00",
-    "normal_state": "Current main inspected. Source c09572d preserved; selective host delta applied onto current main. Help conflict retains all current 0.1 commands and adds fingerprint/legal. Root Cargo, existing CI, Kernel/Loader/init and third-party sources unchanged. Checks and adoption PR follow.",
+    "normal_state": "137 local focused tests and dedicated Ubuntu/Windows host CI PASS. Full Ubuntu workspace CI passed 293 library tests but failed two delegated CLI tests because serde_spanned v0.6.7 was not cached for offline Legal. Add standalone Legal format/lint/tests before workspace tests in both existing host jobs; retry follows. All existing 0.1 gates retained.",
     "commands": [],
     "tests": [],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 37785490729,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37785490729",
+        "head_sha": "de73b115e8024cadeca25bd094340dcda78500fb",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Dedicated host foundations PASS on Ubuntu and Windows."
+      },
+      {
+        "run_id": 37785415269,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37785415269",
+        "head_sha": "de73b115e8024cadeca25bd094340dcda78500fb",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Ubuntu failed missing cached serde_spanned during delegated offline tests; Windows bootstrap still running. Superseded by focused CI dependency preparation repair."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "origin/main@1118f13dc6badf19b10a628eda244f8a0a635237:docs/implementation_status.md (latest fetched refs; only workstream spec additions since 9e06967)",
@@ -24,9 +41,12 @@
     "summary": null,
     "reproduction_commands": [],
     "failure_log_summary": null,
-    "attempted_fixes": [],
+    "attempted_fixes": [
+      "SOURCE: explicit NOTICE identity aliases preserve review records without inventing licenses or matching partial names.",
+      "CI_INFRA: standalone Legal lock differs from root lock; prime and verify standalone Legal before the full-workspace shared CLI tests."
+    ],
     "do_not_try": [
-      "Do not edit Hark/main, kernel/loader/init, third-party sources or 0.1 acceptance.",
+      "Do not write main directly; use explicitly authorized PR merge only after applicable checks pass. Do not modify Hark, kernel/loader/init, third-party sources or 0.1 acceptance.",
       "Do not edit other owners State or implement the three app cores here.",
       "Do not bypass any guest/release gate."
     ]
