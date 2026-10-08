@@ -1,0 +1,14 @@
+{
+  "workstream_id": "calendar-core-01",
+  "status": "OWNER_APPLIED",
+  "owner": "Integration Owner / CI acceptance",
+  "requires_shared_change": true,
+  "current_workflow_runs_calendar": true,
+  "proposed_host_step": {
+    "name": "Standalone Calendar core (CALENDAR-CORE-01)",
+    "run": "bash crates/nagi-calendar-core/verify.sh"
+  },
+  "dependencies": "Only the approved-base nagi-model path dependency; standalone package/lock, no network fetch required. Use pinned nightly-2025-08-01.",
+  "runtime_gate": "Host-only step; no target or runtime activation.",
+  "note": "Owner checkpoint cd871f9 includes .github/workflows/0.2-host-integration.yml, executing standalone Calendar fmt/Clippy/tests on Ubuntu and Windows. Calendar stream did not edit this workflow."
+}

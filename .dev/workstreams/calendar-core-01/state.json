@@ -1,0 +1,59 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "calendar-core-01",
+  "current_milestone": "C1-C5 Calendar host foundation",
+  "current_checkpoint": "user-approved-host-source-checkpoint; final committed verification pending",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "80ea6246dd394deb5158c44aa7f0012d76a9c409",
+    "verified_at": "2026-10-08T12:06:19.943860+00:00",
+    "normal_state": "Host-only activation and registered ownership approved by current user. Source exists locally; preliminary uncommitted-tree tests pass (60). last_verified SHA still denotes the audited base; final source SHA and CI evidence are pending.",
+    "commands": [],
+    "tests": [],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "origin/main:docs/implementation_status.md at 9e06967640776298dfdcbceb55085eb9d2b717c5",
+    "last_checked_at": "2026-10-08T12:06:19.943860+00:00",
+    "activation_requirement": "Host-only C1-C5 explicitly user-approved. Runtime requires M30 PASS and a separate Integration Owner checkpoint."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not edit shared files beyond the explicitly approved Calendar registration row.",
+      "Do not modify another stream or active 0.1 acceptance.",
+      "Do not activate runtime before M30 PASS and separate owner checkpoint.",
+      "Do not claim shared CI executes Calendar without a Calendar-specific step."
+    ]
+  },
+  "next_action": "Commit source, verify the committed SHA with tests/fmt/Clippy and DF-01 checks, push own branch and inspect SHA-specific CI. Propose shared Calendar CI centrally if missing.",
+  "acceptance_criteria": [
+    "CAL-H01 through CAL-H12 from attached workstream; host only. No criterion is claimed passed."
+  ],
+  "deferred": [
+    "Integration-wide registry and host CI adoption by Integration Owner",
+    "Full timezone DB, GUI, provider delivery, durable guest storage and production Jobs/Notifications",
+    "CAL-001..011 product/runtime acceptance gated on M30 PASS and separate checkpoint",
+    "IDENT-01/JOB-01 are read-only future adapter targets, not registered dependencies on this integration base. Pin and mapping evidence are in registration-proposal.json and the workstream document."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Reuse AppId/ObjectId/WorkspaceId; capability and intent adapter seams. No new canonical identity or policy.",
+      "version": "app-sdk-contract-v1",
+      "status": "Host contract on integration branch; runtime gated"
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "Canonical PrincipalId and permission evaluator; owner metadata is not authorization.",
+      "version": "capability-contract-v1",
+      "status": "Host contract on integration branch; runtime gated"
+    }
+  ]
+}
