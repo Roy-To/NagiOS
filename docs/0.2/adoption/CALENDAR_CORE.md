@@ -45,3 +45,14 @@ PASS on reviewed source `52a21862dcbf0495ff6bdcdf996736e9535a2c6d`.
 The previous M27 VNC collision was resolved by a fresh runner; no guest
 source or acceptance criterion was changed. Stage 2 begins from that exact
 merged main tree, verified identical to the tested Stage 1 head.
+
+Host validation on exact published source
+`99e5e0bcfd48611155aef8b5e97b4feccad5ade7`: original 61 tests (1 unit +
+60 acceptance), package format, warnings-denied all-target Clippy, shared
+CLI/Legal and Registry/State checks PASS on both Ubuntu and Windows in
+[37813693162](https://github.com/RT-NISH/NagiOS/actions/runs/37813693162).
+Local Legal structural check and schema/immutable-owner/ownership verification
+also PASS. Review completed; [PR #35](https://github.com/RT-NISH/NagiOS/pull/35)
+may merge only after every latest applicable host regression check PASS.
+The current acceptance State records verified source evidence separately
+from the PR merge gate.

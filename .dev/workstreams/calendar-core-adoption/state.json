@@ -2,13 +2,13 @@
   "schema_ref": "../../schemas/workstream-state.schema.json",
   "schema_version": 1,
   "workstream_id": "calendar-core-adoption",
-  "current_milestone": "Stage 2 Calendar C1-C5 host-only adoption",
-  "current_checkpoint": "61 local tests, current-model dependency, package format/Clippy and Registry/State PASS; exact published-head CI pending",
-  "status": "IN_PROGRESS",
+  "current_milestone": "Stage 2 Calendar C1-C5 host acceptance; PR #35 merge tracked separately",
+  "current_checkpoint": "Calendar host Acceptance PASS on Ubuntu/Windows; latest full host regression required before PR merge",
+  "status": "PASS",
   "last_verified": {
-    "commit_sha": "b4f42ec91a533fc11691490c04d38c4cba0ae396",
-    "verified_at": "2026-10-08T17:01:52.521355+00:00",
-    "normal_state": "Uncommitted Calendar adoption workingtree on Stage 1 merge b4f42ec: original 61 tests (1 unit + 60 acceptance), package format, all-target warnings-denied Clippy, Legal structural check and Registry/State verification PASS. Current canonical model path; no root Cargo changes. Exact published-head CI still pending.",
+    "commit_sha": "99e5e0bcfd48611155aef8b5e97b4feccad5ade7",
+    "verified_at": "2026-10-08T17:08:50.967965+00:00",
+    "normal_state": "Calendar host-only Acceptance PASS on exact source 99e5e0b: original 61 tests (1 unit + 60 acceptance), Calendar package format and warnings-denied all-target Clippy PASS on Ubuntu/Windows CI. Registry/State: 29 streams/20 States. Original owner State/algorithms/tests unchanged. Current canonical model path and standalone lock only; all protected/other owner files unchanged. This records host acceptance, not PR merge, runtime, product Calendar or formal release. Latest full host regression CI remains the merge gate.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-calendar-core/Cargo.toml --package nagi-calendar-core -- --check",
       "cargo clippy --manifest-path crates/nagi-calendar-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
@@ -21,10 +21,19 @@
         "command": "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "1 unit + 60 acceptance tests PASS; no ignored/filtered/deleted tests. Source algorithms/tests match fb00ad7 exactly."
+        "evidence": "Original 61 tests (1 unit + 60 acceptance) PASS locally and in Ubuntu/Windows CI 37813693162; no ignored/filtered/deleted tests. Algorithms/tests identical to fb00ad7 source."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 37813693162,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37813693162",
+        "head_sha": "99e5e0bcfd48611155aef8b5e97b4feccad5ade7",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Ubuntu/Windows dedicated host foundation and Calendar checks PASS, including original 61 tests, package fmt, Clippy, shared CLI, Legal and Registry/State."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "main@b4f42ec91a533fc11691490c04d38c4cba0ae396:docs/implementation_status.md",
@@ -47,7 +56,7 @@
       "Do not bypass CI gates or merge unverified changes."
     ]
   },
-  "next_action": "Regenerate only Calendar standalone lock; run original 61 tests, package format, warnings-denied Clippy, Registry/State and host compatibility checks. Publish separate branch and PR; require latest Ubuntu/Windows and applicable existing CI PASS before merge.",
+  "next_action": "Require all latest PR #35 host CI and existing full workspace host regression checks PASS. Recheck current main, unchanged owner States/source algorithms and registered protected-path boundary; then perform explicitly authorized Calendar host-only PR merge. No runtime/provider/product release activation.",
   "acceptance_criteria": [
     "Reviewed Calendar-owned source adoption retaining all original 61 tests.",
     "Current canonical model integration without root Cargo or runtime changes.",
