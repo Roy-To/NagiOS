@@ -28,12 +28,12 @@
 Using the pinned Rust toolchain and dedicated M23 target directories:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m23-final2-host-arm64 \
-/Users/tozawa/.cargo/bin/cargo test --locked --offline -p nagi-ai
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> test --locked --offline -p nagi-ai
 ```
 
 Result: 23 unit tests passed; doc tests passed (none defined). Added tests cover
@@ -43,12 +43,12 @@ empty page content, and invalid summary results. Test providers are
 orchestration fixtures and do not claim real model inference.
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m23-final2-target-arm64 \
-/Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check \
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> -Z build-std=core,alloc check \
   --manifest-path Cargo.toml -p nagi-ai \
   --target targets/x86_64-unknown-nagi-user.json --locked --offline
 ```
@@ -56,12 +56,12 @@ CARGO_TARGET_DIR=/tmp/nagi-m23-final2-target-arm64 \
 Result: the updated `nagi-ai` service compiled for the Nagi `no_std` target.
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m23-final2-clippy-arm64 \
-/Users/tozawa/.cargo/bin/cargo clippy --locked --offline \
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> clippy --locked --offline \
   -p nagi-ai --all-targets -- -D warnings
 ```
 

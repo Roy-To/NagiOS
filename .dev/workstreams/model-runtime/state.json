@@ -8,7 +8,7 @@
   "last_verified": {
     "commit_sha": "edcc5bc187b64cc5123845819dd18c79c971caba",
     "verified_at": "2026-10-08T23:24:11.207804+00:00",
-    "normal_state": "Nagi 0.1 delegated leaf implementation on codex/0.1-session-model-service, base edad2e7. Added ResidentModelRuntime, LazyModelService and SessionModelService reusing the proven Granite target backend. 102 Model Manager/AI host tests and 3 live Session-binding host tests PASS; Nagi target leaf compile/Clippy and format PASS. Shared normal-startup/feature/linking/Nagi Bar integration remains proposed, not applied. No cached model weights, host inference, new model download, isolated AI process or normal-session guest response is claimed. M20/M23/M26 remain PARTIAL. Follow-up: the production-only Model Store reader yields before its first read and at most every 128 sectors, including FAT32 directory/cluster traversal. Exact target leaf Clippy and init format PASS again at edcc5bc187b64cc5123845819dd18c79c971caba. Existing host-test code is unchanged; the 105 host results above remain baseline evidence. Published draft PR #37 at b64bbd49cf3563eb6d880c904464e4f9ec5fc120 has Ubuntu/Windows host PASS; target and existing Granite regression are in progress. Follow-up publication/CI is pending.",
+    "normal_state": "Ordinary-session Granite model-service leaves on codex/0.1-session-model-service, base edad2e7. ResidentModelRuntime, LazyModelService and SessionModelService reuse the existing target backend. Baseline: 102 Model Manager/AI host tests and 3 live Session-binding host tests PASS. Follow-up production sector reader yields before first sector and at most every 128 reads, including FAT32 traversal; exact Nagi-target leaf Clippy, init format and State verification PASS. Existing host-test code unchanged. Shared startup/feature/archive linking/Nagi Bar integration and normal-session guest inference remain pending. No cached weights, host inference, new model download, isolated AI process or normal-session guest response is claimed. M20/M23/M26 remain PARTIAL.",
     "commands": [
       "cargo test --locked --offline -p nagi-model-manager -p nagi-ai",
       "cargo clippy --locked --offline -p nagi-model-manager --all-targets -- -D warnings",
@@ -104,18 +104,18 @@
     ]
   },
   "release_line_gate": {
-    "source": "Direct user approval in this delegated thread: publish codex/0.1-session-model-service, create draft PR and fix CI; main merge prohibited.",
+    "source": "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md and docs/implementation_status.md",
     "last_checked_at": "2026-10-08T23:06:58.693897+00:00",
-    "activation_requirement": "0.1 model manager/service/backend leaves, direct tests, own docs/state and branch push/draft PR/CI fixes are authorized. Shared startup/feature/CLI/CI/Registry/image wiring belongs only to task01a11d8c-fd9d-7768-90f5-9fc924801003. No main merge/direct push/release, 0.2/0.3 activation, permission policy change, paid API or new large model download is authorized by this checkpoint."
+    "activation_requirement": "Nagi 0.1 ordinary-session model service requires shared startup/feature/archive linking, a guest worker, live Session and Nagi Bar integration, the verified pinned Granite artifact, and normal-session QEMU acceptance. M20/M23/M26 remain PARTIAL until applicable acceptance passes."
   },
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "Normal-session guest acceptance awaits shared startup/feature/linking/Nagi Bar wiring and the verified Granite artifact. Publication is now directly authorized; dedicated branch/draft PR/CI delivery is in progress.",
+    "summary": "Normal-session guest acceptance awaits shared startup/feature/linking/Nagi Bar wiring and the verified Granite artifact. Latest dedicated CI is in progress.",
     "reproduction_commands": [
       "See .dev/workstreams/model-runtime/handoff.md for normal-session integration proposal and acceptance sequence."
     ],
-    "failure_log_summary": "No failing leaf check remains. Host orchestration/session tests and exact target leaf compile PASS. Normal-session guest inference NOT RUN. Historical publication denials are recorded in handoff/evidence; the user has now directly approved dedicated branch publication, draft PR and CI fixes in this thread. Saved shell Git credentials have no repository write access; use the existing connected RT-NISH account without credential/privilege changes.",
+    "failure_log_summary": "No failing leaf check remains. Host orchestration/session tests and exact target leaf compile PASS. Normal-session guest inference NOT RUN. Guest installed-package/terms persistence, process isolation, memory containment and measured cancellation/latency remain pending.",
     "attempted_fixes": [
       "Extracted and reused the old target backend instead of replacing inference.",
       "Preserved exact Granite artifact/manifest/license pins and kept terms acknowledgement fail-closed.",
@@ -125,14 +125,12 @@
       "Own State verification rejected invented dependency IDs; used existing registered workstream IDs and kept the assigned shared task in the contract text."
     ],
     "do_not_try": [
-      "Do not fake real inference with orchestration fixtures or host inference.",
-      "Do not change default model, adoption count, source/hash/license metadata or acknowledge terms from model text.",
-      "Do not edit shared main/Cargo/commands/CI/Registry/image or other owners' desktop/Search leaves.",
-      "Do not claim target compilation as final linking, isolated-process authority, runtime memory containment or normal-session guest acceptance.",
-      "Do not overwrite another owner branch, merge/main-push/release, reopen Mac work or activate 0.2/0.3."
+      "Do not replace real guest inference acceptance with orchestration fixtures or host inference.",
+      "Keep pinned model/source/hash/license metadata and exact terms acknowledgement.",
+      "Keep target compilation distinct from final linking and normal-session guest acceptance."
     ]
   },
-  "next_action": "Publish the tested production-only cooperative-reader follow-up on existing draft PR #37 and inspect CI, fixing owned-leaf failures. Do not create a duplicate PR or merge main. Shared startup/feature/linking/Nagi Bar wiring and normal-session guest acceptance remain PARTIAL.",
+  "next_action": "Inspect latest dedicated CI for regressions. Complete shared startup/feature/archive linking and Nagi Bar integration, then verify real Granite responses in the ordinary signed-in QEMU session with cancellation, lock, pressure, missing artifact and resident reuse. M20/M23/M26 remain PARTIAL.",
   "acceptance_criteria": [
     "Constructor performs no artifact reads or target library/model load.",
     "Declared capability/role selects the configured Granite model; unsupported manual preference fails.",
@@ -153,13 +151,13 @@
   "cross_workstream_dependencies": [
     {
       "workstream_id": "development-foundation",
-      "contract": "Shared Registry unchanged; current 0.1 delegated path ownership proposal only.",
+      "contract": "Registry currently records the Model Runtime/Model Store workstream; the additional ordinary-session leaf paths are proposed for registration.",
       "version": "nagi-dev-v1",
       "status": "PASS contract / shared owner review pending"
     },
     {
       "workstream_id": "ci-acceptance",
-      "contract": "Shared integration task task01a11d8c-fd9d-7768-90f5-9fc924801003 coordinates main/Cargo/build hooks/commands/CI/Registry/image changes.",
+      "contract": "Shared integration coordinates startup/feature/build hooks/commands/CI/Registry/image changes.",
       "version": "m20-model-service-proposal",
       "status": "PENDING shared wiring"
     },

@@ -1,9 +1,9 @@
 Command: cargo test --locked --offline -p nagi-model-manager -p nagi-ai
 Exit code: 0
-   Compiling nagi-model-manager v0.1.0 (/workspace/nagi-session-model-service/user/nagi-model-manager)
-   Compiling nagi-ai v0.1.0 (/workspace/nagi-session-model-service/services/nagi-ai)
+   Compiling nagi-model-manager v0.1.0 (./user/nagi-model-manager)
+   Compiling nagi-ai v0.1.0 (./services/nagi-ai)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 1.17s
-     Running unittests src/lib.rs (/tmp/nagi-session-model-target/debug/deps/nagi_ai-cd89127f8427aec2)
+     Running unittests src/lib.rs (target/debug/deps/nagi_ai-cd89127f8427aec2)
 
 running 25 tests
 test browser_context::tests::browser_context_text_is_bounded_without_splitting_utf8 ... ok
@@ -34,7 +34,7 @@ test tests::planner_sends_only_filtered_action_schemas_and_rejects_incomplete_pr
 
 test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-     Running unittests src/lib.rs (/tmp/nagi-session-model-target/debug/deps/nagi_model_manager-87c615a46ee77ff0)
+     Running unittests src/lib.rs (target/debug/deps/nagi_model_manager-87c615a46ee77ff0)
 
 running 74 tests
 test fat32::tests::reads_sequential_and_random_ranges_across_fragmented_clusters ... ok
@@ -114,7 +114,7 @@ test service::tests::pre_cancelled_request_does_not_load_and_hashing_can_be_canc
 
 test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
-     Running tests/manifest_schema.rs (/tmp/nagi-session-model-target/debug/deps/manifest_schema-69e51aad2d8d6837)
+     Running tests/manifest_schema.rs (target/debug/deps/manifest_schema-69e51aad2d8d6837)
 
 running 2 tests
 test schema_file_is_valid_json_and_declares_closed_versioned_manifest ... ok
@@ -122,7 +122,7 @@ test bundled_model_profiles_are_valid_v1_manifest_examples ... ok
 
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
-     Running tests/store_api.rs (/tmp/nagi-session-model-target/debug/deps/store_api-01a2850e5cb00095)
+     Running tests/store_api.rs (target/debug/deps/store_api-01a2850e5cb00095)
 
 running 1 test
 test exposes_store_state_through_read_only_consumer_accessors ... ok

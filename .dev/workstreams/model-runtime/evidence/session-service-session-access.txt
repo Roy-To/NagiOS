@@ -2,21 +2,21 @@ Command: cargo test --locked --offline --manifest-path tests/model-session-servi
 Exit code: 0
    Compiling byteorder v1.5.0
    Compiling heapless v0.8.0
-   Compiling nagi-model v0.1.0 (/workspace/nagi-session-model-service/crates/nagi-model)
+   Compiling nagi-model v0.1.0 (./crates/nagi-model)
    Compiling stable_deref_trait v1.2.1
    Compiling smoltcp v0.12.0
    Compiling hash32 v0.3.1
    Compiling bitflags v1.3.2
-   Compiling nagi-abi v0.1.0 (/workspace/nagi-session-model-service/crates/nagi-abi)
+   Compiling nagi-abi v0.1.0 (./crates/nagi-abi)
    Compiling managed v0.8.0
-   Compiling nagi-model-manager v0.1.0 (/workspace/nagi-session-model-service/user/nagi-model-manager)
-   Compiling libnagi v0.1.0 (/workspace/nagi-session-model-service/user/libnagi)
-   Compiling nagi-net v0.1.0 (/workspace/nagi-session-model-service/user/nagi-net)
-   Compiling nagi-pal v0.1.0 (/workspace/nagi-session-model-service/user/nagi-pal)
-   Compiling nagi-posix v0.1.0 (/workspace/nagi-session-model-service/user/nagi-posix)
-   Compiling nagi-model-session-service-check v0.1.0 (/workspace/nagi-session-model-service/tests/model-session-service)
+   Compiling nagi-model-manager v0.1.0 (./user/nagi-model-manager)
+   Compiling libnagi v0.1.0 (./user/libnagi)
+   Compiling nagi-net v0.1.0 (./user/nagi-net)
+   Compiling nagi-pal v0.1.0 (./user/nagi-pal)
+   Compiling nagi-posix v0.1.0 (./user/nagi-posix)
+   Compiling nagi-model-session-service-check v0.1.0 (./tests/model-session-service)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 3.38s
-     Running unittests src/lib.rs (/tmp/nagi-session-model-target/debug/deps/nagi_model_session_service_check-a112b04fe3745570)
+     Running unittests src/lib.rs (target/debug/deps/nagi_model_session_service_check-a112b04fe3745570)
 
 running 3 tests
 test model_session_access::tests::locking_blocks_inference_and_service_construction ... ok

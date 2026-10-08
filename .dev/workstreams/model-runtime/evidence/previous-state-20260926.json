@@ -13,7 +13,7 @@
       "cargo fmt --manifest-path user/nagi-model-manager/Cargo.toml -- --check",
       "cargo test --locked -p nagi-model-manager",
       "cargo clippy --locked -p nagi-model-manager --all-targets -- -D warnings",
-      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=./out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
       "cargo test -p nagi-model-manager --locked rejects_unknown_fields_and_malformed_json",
       "./nagi dev verify",
       "git diff --check; git diff --cached --check"
@@ -35,7 +35,7 @@
       },
       {
         "name": "Model Runtime Nagi user-target compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=./out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The no_std model manager library compiles for Nagi x86_64 user target; this does not execute inference or prove M20 acceptance."
@@ -122,8 +122,8 @@
   "deferred": [
     "Pinned distributable IBM Granite 4.2 3B revision, source URL, exact filename, size, SHA-256, provider license, and NOTICE validation.",
     "Production llama.cpp/GGUF backend and real local inference inside Nagi.",
-    "Model artifact persistence/download through an authorized Nagi user-space store, with signature and integrity verification.",
-    "Production permission checks, App SDK integration, and model-service process activation.",
+    "Target runtime activation, final archive linking and in-guest inference.",
+    "Source/hash/license profile updates and model installation/update integration.",
     "M20 acceptance until prerequisite milestones and its real-response criterion pass."
   ],
   "cross_workstream_dependencies": [

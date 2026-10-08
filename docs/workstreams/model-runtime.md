@@ -111,7 +111,7 @@ Verification:
   real inference backend or weights.
 
 Git: branch `codex/ws-model-runtime`; worktree
-`/Users/tozawa/.codex/worktrees/nagi-model-runtime/NagiOS`. The commit SHA
+`.`. The commit SHA
 and push result are reported in the workstream handoff.
 
 ### 2026-09-26 host-contract hardening

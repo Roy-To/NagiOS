@@ -2,7 +2,7 @@
   "workstream_id": "model-runtime",
   "base_commit": "edad2e7",
   "owner_branch": "codex/0.1-session-model-service",
-  "scope": "Explicit delegated 0.1 ordinary-session Granite leaf work; Registry edit is proposed to the shared owner only.",
+  "scope": "Nagi 0.1 ordinary-session Model Manager/service/backend leaves, direct tests and technical workstream documentation.",
   "additional_allowed_paths": [
     "user/nagi-init/src/llama_backend.rs",
     "user/nagi-init/src/m20_granite.rs",
