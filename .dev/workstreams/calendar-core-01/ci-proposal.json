@@ -8,7 +8,7 @@
     "name": "Standalone Calendar core (CALENDAR-CORE-01)",
     "run": "bash crates/nagi-calendar-core/verify.sh"
   },
-  "dependencies": "Only the approved-base nagi-model path dependency; standalone package/lock, no network fetch required. Use pinned nightly-2025-08-01.",
+  "dependencies": "Canonical nagi-model pinned by Git revision cd871f905bd06ef406ccaa9f80c484f19158209f. The owner workflow non-offline Clippy fetches it before offline tests. Package-local cargo fetch --locked prepares local cache.",
   "runtime_gate": "Host-only step; no target or runtime activation.",
   "note": "Owner checkpoint cd871f9 includes .github/workflows/0.2-host-integration.yml, executing standalone Calendar fmt/Clippy/tests on Ubuntu and Windows. Calendar stream did not edit this workflow."
 }

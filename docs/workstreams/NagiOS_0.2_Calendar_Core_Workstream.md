@@ -199,8 +199,8 @@ Integration Owner checkpoint. Current main at
 
 ## Adopted contracts
 
-The standalone crate depends only on exact local `nagi-model` 0.1.0 on the
-approved base, reusing AppId/UserId/ObjectId/WorkspaceId. It adds domain CalendarId
+The standalone crate depends only on canonical `nagi-model` 0.1.0 pinned by Git revision
+`cd871f905bd06ef406ccaa9f80c484f19158209f`, reusing AppId/UserId/ObjectId/WorkspaceId. It adds domain CalendarId
 and CalendarEventId (EventId is a crate-local alias), not a global identity service.
 Owner metadata never grants authority. Public constructors validate IDs; fixture
 SequentialIds are deterministic, not persistent/global allocators.
@@ -316,3 +316,14 @@ git diff --check
 Only the Integration Owner may add a shared host CI step, root workspace registration
 or runtime wiring. Full CAL-001..011 still includes UI, real provider delivery,
 offline durable cache, Search/People/Mail/Workspace adoption and target acceptance.
+
+## Host portability correction
+
+Initial run 37778135726 passed Ubuntu, but Windows failed before Calendar tests:
+`cargo fmt --all` followed the local nagi-model path into the shared workspace
+and checked third_party CRLF files against Unix newline requirements. A pinned
+Git dependency on the exact owner-checkpoint model revision preserves canonical
+IDs while preventing cargo-fmt traversal into another owner’s path workspace.
+Calendar source is unchanged by this dependency relocation. The first
+`cargo fetch --locked` needs network; subsequent focused checks/tests are offline.
+The owner CI runs non-offline Clippy before offline tests, populating that cache.

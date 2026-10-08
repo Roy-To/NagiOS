@@ -1,0 +1,85 @@
+   Compiling nagi-model v0.1.0 (https://github.com/RT-NISH/NagiOS.git?rev=cd871f905bd06ef406ccaa9f80c484f19158209f#cd871f90)
+   Compiling nagi-calendar-core v0.2.0 (/workspace/NagiOS-calendar-core-01/crates/nagi-calendar-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.66s
+     Running unittests src/lib.rs (crates/nagi-calendar-core/target/debug/deps/nagi_calendar_core-aa7a0fbc79a634b3)
+
+running 1 test
+test store::tests::stored_revision_overflow_does_not_mutate_the_record ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/acceptance.rs (crates/nagi-calendar-core/target/debug/deps/acceptance-f1e06d58399fc7b2)
+
+running 60 tests
+test adapter_computes_availability_without_services ... ok
+test adapter_reminder_and_resource_are_local_cas_mutations ... ok
+test availability_buffers_and_global_grid ... ok
+test all_day_dst_has_23_or_25_hours ... ok
+test availability_overflow_and_fully_busy ... ok
+test availability_invalid_bounds_and_limits_rejected ... ok
+test availability_clips_busy_and_allows_endpoint_contact ... ok
+test cal_h01_ids_stable_across_crud_and_calendars ... ok
+test cal_h03_offsets_and_year_rollover ... ok
+test cal_h02_temporal_domains_require_explicit_context ... ok
+test cal_h04_fold_requires_choice ... ok
+test cal_h04_gap_rejects_without_normalizing ... ok
+test cal_h07_busy_union_and_free_slots ... ok
+test cal_h06_month_end_skips_and_does_not_drift ... ok
+test cal_h05_local_daily_maintains_nine_am_across_dst ... ok
+test cal_h08_stale_update_and_delete_are_atomic ... ok
+test cal_h09_fixed_clock_and_ids_reproduce_exact_output ... ok
+test cal_h10_invite_and_response_never_report_delivery ... ok
+test cal_h08_scan_limit_applies_when_no_occurrences_are_returned ... ok
+test calendar_foreign_reference_and_exception_domain_fail_closed ... ok
+test cal_h11_text_utf8_and_search_are_bounded ... ok
+test calendar_update_retains_id_and_delete_rejects_nonempty_calendar ... ok
+test clock_rollback_does_not_change_revision ... ok
+test date_bounds_leap_rules_and_roundtrip ... ok
+test deleted_calendar_ids_are_not_reused ... ok
+test different_zone_events_normalize_on_instant_axis ... ok
+test dst_transition_microsecond_boundary ... ok
+test duplicate_and_deleted_ids_cannot_be_reused ... ok
+test exceptions_outside_series_and_conflicts_rejected ... ok
+test elapsed_and_wall_event_duration_are_distinct ... ok
+test fold_endpoints_can_resolve_to_nonpositive_instant_range ... ok
+test ids_validate_namespaces_and_empty_values ... ok
+test exdate_consumes_count_without_replacement ... ok
+test instant_daily_is_elapsed_not_wall_time ... ok
+test invalid_ranges_rejected_in_all_domains ... ok
+test invalid_draft_does_not_mutate_store ... ok
+test invalid_recurrence_modes_and_bounds_rejected ... ok
+test invalid_transparent_event_is_not_silently_ignored ... ok
+test leap_day_monthly_interval_skips_nonleap_years ... ok
+test list_does_not_silently_truncate ... ok
+test moved_override_keeps_original_identity_and_enters_query ... ok
+test overnight_event_overlaps_window_and_end_is_exclusive ... ok
+test participant_windows_intersect_and_unknown_does_not_mean_free ... ok
+test moved_override_leaves_original_query_window ... ok
+test precision_and_time_overflows_rejected ... ok
+test recurrence_output_limit_and_overflow_are_errors ... ok
+test recurrence_rejects_exactly_one_occurrence_over_output_limit ... ok
+test recurrence_gap_is_error_not_silent_skip ... ok
+test resolver_fold_order_is_validated ... ok
+test resolver_roundtrip_is_validated ... ok
+test revision_overflow_is_explicit ... ok
+test skipped_month_and_weekday_scans_are_bounded ... ok
+test store_capacity_includes_tombstones ... ok
+test unavailable_clock_does_not_create_events ... ok
+test until_near_maximum_instant_finishes_without_overflow ... ok
+test until_at_maximum_date_finishes_without_advancing_out_of_domain ... ok
+test until_is_inclusive_across_year_end ... ok
+test weekly_interval_is_anchored_to_monday_week ... ok
+test weekly_midweek_start_and_daily_interval ... ok
+test date_roundtrips_every_month_boundary_in_supported_years ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+   Doc-tests nagi_calendar_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking nagi-model v0.1.0 (https://github.com/RT-NISH/NagiOS.git?rev=cd871f905bd06ef406ccaa9f80c484f19158209f#cd871f90)
+    Checking nagi-calendar-core v0.2.0 (/workspace/NagiOS-calendar-core-01/crates/nagi-calendar-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.59s
