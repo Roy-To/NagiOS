@@ -26,13 +26,22 @@ m18-acceptance = [
 ]
 m19-search = [
     "m13-posix",
+    "m19-runtime",
     "dep:nagi-ai",
     "dep:nagi-model-manager",
+]
+# Persistent, owner-scoped Search runtime used by the ordinary signed-in
+# desktop. The acceptance harness adds its separate fixtures and IPC clients.
+m19-runtime = [
     "dep:nagi-search",
+    "dep:nagi-search-ipc",
 ]
 # ADR 0044: serve M19 Search to isolated clients named by
 # NAGI_M19_SEARCH_CLIENT_ELF, authorized by kernel-stamped caller identity.
 m19-search-ipc = ["m19-search", "dep:nagi-search-ipc"]
+# ADR 0067: run the real Browser history through the guest Search producer
+# before exercising authenticated `search@1` clients.
+m19-browser-search-acceptance = ["m19-search-ipc", "m18-acceptance"]
 # ADR 0045: M21/M22 actions requested by isolated clients named by
 # NAGI_ACTION_CLIENT_ELF, authorized by kernel-stamped caller identity.
 m21-action-ipc = ["m19-search-ipc", "dep:nagi-action-ipc"]
@@ -57,8 +66,11 @@ m29-settings-acceptance = ["m10-desktop"]
 consent-dialog-acceptance = ["m10-desktop"]
 # ADR 0063: first-run owner account and lock-screen sign-in before the
 # desktop and its readiness report.
-desktop-login = ["m10-desktop"]
+desktop-login = ["m10-desktop", "m19-runtime"]
 desktop-login-acceptance = ["desktop-login"]
+# ADR 0066: keep the login acceptance input loop active until a password
+# change is saved, so the host can verify the persisted credential on reboot.
+desktop-password-change-acceptance = ["desktop-login-acceptance"]
 # ADR 0062: install a signed system update into the inactive slot and stage
 # it for a trial on the next boot.
 m30-update-install = ["dep:nagi-fat32", "dep:nagi-slot-manifest"]

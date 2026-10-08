@@ -6,8 +6,8 @@
 
 This continuation is based on `44155ea04f0f5b3c34eb9804ca2029fef6094194`,
 where M17 first-web-pixel and M18 three-site HTTPS/QEMU acceptance passed.
-M18 remains PARTIAL for unrelated browser providers, as recorded in
-`docs/implementation_status.md`.
+M18's documented acceptance closure has since passed authoritative target CI;
+its remaining browser-provider limitations do not change this M19 workstream.
 
 The search foundation from `codex/m19prep-semantic-search` was selectively
 reused as commit `f7b6a0b`; the prep branch itself remains unchanged. The
@@ -47,6 +47,21 @@ vector, and LLM retrieval are out of scope.
   returns only the fixture file's visible ObjectId. Its caller/capability
   policy denies a foreign fixture caller but is private test authority, not
   production authority.
+- **Signed-in desktop Files runtime — 2026-10-08 (ADR 0068):** `desktop-login`
+  now starts a bounded SearchService after owner sign-in. It scans only
+  `/home/owner/files`, indexes filename and VFS inode/generation/mtime
+  metadata, persists producer records under `/var/lib/nagi-search`, and
+  restores the same producer ObjectId after reboot. The signed-in desktop QEMU
+  run `1791409942835920000` also verified direct-child create/query, rename with
+  stable ObjectId, delete/tombstone, inode-generation reuse with a new
+  ObjectId, and post-restart restoration through the signed-in runtime. Its
+  ordered markers are in
+  `out/evidence/login-1791409942835920000/password-change.log` and
+  `out/evidence/login-1791409942835920000/verify-password.log`. This is still
+  not a production cross-process Search endpoint: the login acceptance invokes
+  runtime methods directly, while a normal Files UI/service is not wired to
+  publish CRUD changes. Nested directories, trash restore, and Browser History
+  lifecycle publication outside the M19/M18 acceptance path remain open.
 
 ## Authenticated IPC prerequisite audit — 2026-09-30
 
@@ -82,12 +97,47 @@ The M21 `file.search` caller identity is still the fixture policy.
 
 The host acceptance uses the explicitly host-only `HostFileBackend` and a
 fixture visibility policy. It proves the provider-neutral contract and
-reference snapshot restart behavior. The QEMU acceptance separately proves
-bounded guest VFS persistence for its private fixture; it does **not** claim
-authenticated capability enforcement, live file/page producer integration, or
-a production IPC Search Service.
+reference snapshot restart behavior. QEMU now also publishes bounded metadata
+from Albert's real persisted Browser history and exercises launch-record
+authentication for isolated Search clients. These paths still run only in the
+M19 acceptance image; they do **not** establish a resident Search endpoint in
+the normal system runtime or continuous production Files/page synchronization.
 
 ## Regressions
+
+- **Page and Workspace guest acceptance — 2026-10-07:** the M19 fixture now
+  maps a page through `PageProducerAdapter`, creates its Workspace through
+  `WorkspaceProducerAdapter`, and persists both stable IDs in the real guest
+  SearchService snapshot. A kind- and Workspace-scoped query returns the page
+  and its Workspace group. `./nagi m19` now requires that marker on both
+  boots and a separate marker proving the page and membership were present
+  before the QEMU restart. `out/logs/m19-vfs-objectid-initial.log` and
+  `out/logs/m19-vfs-objectid-restart.log` contain the passing evidence. This
+  is still an acceptance fixture; resident production Search startup and
+  continuous producer synchronization remain open, so M19 stays `PARTIAL`.
+- **Page search over isolated `search@1` IPC — 2026-10-07:** extended the
+  version-1 kind filter with `Page` while preserving its one-byte kind field
+  and existing `Any`/`File` values. The isolated client now submits a file and
+  page query in sequence; `./nagi m19` requires the authorized app to receive
+  the expected file and page IDs and the foreign app to see neither. The
+  request still contains no caller identity; the Supervisor resolves the
+  kernel-stamped PID as before. The QEMU log includes
+  `Nagi M19 Search IPC page authorized isolated client PASS`.
+
+- **Browser History producer and authenticated Search restart — 2026-10-07:**
+  `./nagi m19` passed the M18 HTTPS scenario and M19 search on two QEMU boots
+  sharing one User Data disk. The guest published the original committed
+  `example.com` HistoryEntry as a Page, retained its Search ObjectId and profile
+  Workspace across reboot, returned that exact ObjectId to the authorized
+  isolated client, and exposed no private records to the foreign client. The
+  same run passed real VFS rename/restart, inode-reuse identity, Page/Workspace,
+  and M21 `file.search` checks. Evidence is under
+  `out/evidence/m19-browser-search-1791383118314933000/` (`initial.log`,
+  `restart.log`, screenshots, bootstrap logs, disk image, and OVMF variables).
+  Running Search from the M18 browser callback avoids destroying Servo before
+  the guest exits; an earlier attempt hung during Servo teardown and is kept
+  separately in the evidence directory. Production service startup and
+  continuous Files/page producer synchronization remain unverified.
 
 - M17 was rebuilt and passed `./nagi m17` on this continuation worktree. QEMU
   printed `PASS M17 first web pixel`; the trace records a nonzero Servo/Mesa
@@ -148,6 +198,23 @@ Verification with `nightly-2025-08-01-aarch64-apple-darwin`:
   -A unknown-lints` — PASS. The pinned Clippy predates an existing lint name
   in `tools/nagi-cli/src/image.rs`; only that unknown-lint warning was allowed.
 - Changed-file `rustfmt --check` — PASS.
+- `./nagi test` — PASS for the host-compatible workspace package set on arm64
+  macOS, including the updated login/M19 serial-marker contract and the M29
+  desktop entry-point contract.
+- `cargo test --locked --offline -p nagi-search --all-targets --target
+  aarch64-apple-darwin` — PASS, 30 tests.
+- `./nagi login` — PASS on QEMU run `1791387522725149000`; all four GUI phases
+  passed, and the owner desktop persisted and restored the Files producer
+  ObjectId across the shared User Data disk. The login QEMU runner guards
+  against the diagnosed pre-guest firmware timeout; host tests cover the
+  guarded retry helper.
+- `./nagi desktop` — PASS on QEMU run `1791386752947213000`; ordinary
+  signed-in desktop startup printed `Nagi M19 signed-in desktop SearchService
+  ready PASS`.
+- `./nagi m29` — PASS on QEMU run `1791386772707383000`; ja-JP settings and
+  the existing pre-unlock language restoration still pass with the runtime.
+- `./nagi m19` — PASS on QEMU run `1791386170641690000`, including Browser
+  History/Search restart, isolated query grants, and VFS identity regression.
 - `cargo -Z build-std=core,alloc,compiler_builtins check --locked --offline
   -p nagi-init --features m19-search --target
   targets/x86_64-unknown-nagi-user.json` — PASS.
@@ -157,17 +224,20 @@ Verification with `nightly-2025-08-01-aarch64-apple-darwin`:
 
 ## Remaining acceptance blockers
 
-1. Activate Search as a production user-space service with a capability-scoped
-   storage handle and authenticated caller context. `AccessContext` is
-   descriptive; the fixture filter is not an authority provider.
-2. Synchronize records from production Files/page providers and define
-   identity across delete/recreate and inode reuse. The target VFS currently
-   reports inode generation 1, so this single-file fixture does not establish
-   general identity guarantees. Search also lacks authenticated IPC exposure.
+1. Expose a production `search@1` endpoint from the normal signed-in runtime,
+   using the capability-scoped launch registry and owner consent decisions.
+   Kernel-stamped clients and grants are verified in the M19 acceptance image,
+   but that image still uses its fixture visibility policy and consent setup;
+   normal apps cannot query the desktop's persistent Search runtime yet.
+2. Connect actual Files and Browser operations to producer updates. The signed-in
+   runtime methods now reconcile direct-child create, rename, and delete, but
+   the Files UI/service does not call them, nested paths and trash restore are
+   not covered, and ordinary Browser History changes are not published outside
+   the M19/M18 acceptance scenario.
 
 These missing integrations keep M19 `PARTIAL`. They do not justify a host
-fallback, an allow-all filter, or a claim that the production Search Service
-is active.
+fallback, an allow-all filter, or a claim that a production app-facing Search
+endpoint is available.
 
 ## Default-init regression repair — 2026-09-30
 
@@ -246,3 +316,105 @@ Plan/Validate/Execute fixture. Pre-run fixed-path artifacts are preserved under
 OVMF vars, guest log, invocation log, and manifest are under
 `out/evidence/m19-regression-20261003/`. This remains fixture evidence: there
 is no authenticated production Search service caller.
+
+## Completion Sweep — signed-in Files rename identity (2026-10-08)
+
+`Vfs::rename_child` now renames entries inside an existing directory while
+preserving the inode and generation. It repacks the directory's single block
+so a longer replacement name can use free space elsewhere in the block, and
+keeps the existing root-level `rename` API on the same implementation. An
+added focused VFS regression covers a longer nested-directory rename and
+verifies the open handle, inode, generation, and file contents remain
+unchanged.
+
+The signed-in desktop Search runtime now exposes direct-child create, rename,
+and delete operations for `/home/owner/files`, and reconciles persistent
+Search metadata before returning. `./nagi login` passed all four GUI phases
+on QEMU run `1791409942835920000`. Acceptance verifies that a longer rename
+preserves the ObjectId, deletion tombstones and hides the ObjectId, reusing
+the inode advances its VFS generation and allocates a new ObjectId, and the
+recreated fixture is removed. The restart phase restores the original fixture
+ObjectId and repeats rename and deletion checks. Logs are in
+`out/evidence/login-1791409942835920000/password-change.log` and
+`verify-password.log`.
+
+The new acceptance exposed and fixed a VFS compaction bug: renaming the last
+live entry had consumed the directory's trailing free space, preventing later
+file creation. The compactor now preserves a reusable free record when the
+remaining space can hold a valid name; the nested VFS rename regression test
+also creates a file after the rename. The earlier direct-VFS and fixed-record
+size experiments remain in `out/evidence/login-1791408726578251000/` and
+`out/evidence/login-1791408588752599000/`.
+
+## Completion Sweep — signed-in Files Search UI (2026-10-08)
+
+The signed-in Files panel now accepts a bounded filename query and displays
+localized search status, result count, and the first matching title. Search
+uses the owner Files workspace and the existing visibility-filtered
+SearchService; the panel does not read file contents. Submitting a query first
+reconciles the Files producer metadata, then searches the persisted index.
+
+`./nagi login` passed all four GUI phases on QEMU run
+`1791413203412953000`. The QMP scenario opened Files, submitted `runtime`,
+verified `.nagi-m19-runtime-search.txt` in the result, and saved
+`out/evidence/login-1791413203412953000/files-search.png`. The phase logs and
+other screenshots are preserved in the same evidence directory. This checks
+the owner desktop runtime path; it does not establish a cross-process production
+Search service endpoint.
+
+The signed-in Files UI still has no create, rename, move-to-trash, or restore
+controls. Production app-facing `search@1`, nested-path indexing, trash
+restore, and normal Browser History producer updates remain open; M19 stays
+`PARTIAL`.
+
+## Completion Sweep — bounded nested Files search (2026-10-08)
+
+The signed-in owner runtime now traverses Files directories with explicit
+limits: 8 regular files, 16 directories, and four nested directory levels.
+It publishes each searchable file's relative location, title, VFS inode and
+generation into the same private Files Workspace. Object IDs remain keyed to
+inode plus generation across restart and rename; directory contents are never
+read. Unsupported non-UTF-8 names remain outside the text index.
+
+`./nagi login` run `1791414261520793000` passed all four GUI phases on QEMU.
+It verified the nested fixture's stable ObjectId and Workspace membership, then
+opened the normal Files panel and searched both `runtime` and `nested`. The
+result screenshots and phase logs are under
+`out/evidence/login-1791414261520793000/` (`files-search-runtime.png`,
+`files-search-nested.png`, and `password-change.log`). The acceptance command
+also verifies password change and restart on the same User Data disk.
+
+M19 remains `PARTIAL`: production app-facing Search with live grants, Files
+create/rename/trash/restore controls, and normal Browser History producer
+updates still need integration.
+
+## Files `search@1` service boundary — 2026-10-08
+
+Added a Files-only request handler for the signed-in owner Search runtime. It
+resolves the kernel-stamped Channel sender PID through Supervisor, requires
+both live `search.query` and `files.search` grants, rejects transferred handles
+and malformed envelopes, and delegates only to `Runtime::search_files`, which
+retains the owner Files producer/workspace visibility filter. The existing
+isolated-client acceptance evaluator now uses the same grant gate for File
+queries and asserts that a query-only client is denied and a separately
+authorized app session remains filtered. Nagi-target `cargo check` passes for
+both ordinary `desktop-login` and `m19-search-ipc` feature sets; the
+`nagi-search-ipc` crate's three unit tests pass.
+
+The handler is not yet reachable from a normal app. `Supervisor::launch` is
+currently called only by acceptance flows and creates a private per-child
+Channel pair; no production package registry/launcher routes a client to a
+resident service endpoint, and the signed-in desktop loop has no endpoint to
+poll. `./nagi m19` could not reach the guest acceptance build on this host:
+building the host `nagi-pkg` tool failed because the installed Xcode
+`xcrun` lacks the architecture required by the active build. This work adds no
+M19 QEMU acceptance result and does not establish production IPC; M19 remains
+`PARTIAL` pending normal signed app launch, consent, and service-endpoint
+routing.
+
+Follow-up (2026-10-08): CI run 37729381120 failed at `Nagi M19 Search IPC FAIL
+Files visibility filter`, because the acceptance visibility filter still let
+any live session holding `files.search` read the fixture's Files records. The
+fixture Files records are now visible only to the fixture's own app session;
+the grant gate stays in the `search@1` evaluator. Not re-verified locally (no
+guest toolchain on the preparing host); the next CI run is the evidence.

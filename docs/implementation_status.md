@@ -1,8 +1,69 @@
 # 1. Current status
 
-**Current milestone:** `M30 — Nagi OS 0.1 Release`
+**Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**M18 acceptance closure, 2026-10-07:** `origin/main` commit
+`7ff70b83cfdc05c279c1b697ceacf12196e83e1f` passed GitHub Actions run
+[`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873).
+Its `nagi-target` job passed the full M18 interactive HTTPS acceptance
+(`./nagi m18`), including three rendered HTTPS sites, an interactive
+permission decision, clipboard, Japanese IME, upload, and user-activated
+download. This satisfies M18's documented target-CI closure condition; M18
+is now `PASS`. M19 is the earliest incomplete milestone.
+**M19 Browser History and Search guest acceptance, 2026-10-07:** `./nagi m19`
+passed the combined M18/M19 HTTPS Browser and Search flow on two QEMU boots
+using the same User Data disk. The original `example.com` HistoryEntry is
+published as a Page, keeps the same Search ObjectId after restart, and remains
+grouped in its profile Workspace. An authorized isolated `search@1` client
+receives that exact ID after restart; a foreign client receives no private
+history, page, or file IDs. The real guest VFS file rename/restart checks,
+inode-reuse denial, Page/Workspace fixture checks, and M21 `file.search` path
+also pass. Evidence, serial logs, screenshots, image, disk, and OVMF variables
+are under `out/evidence/m19-browser-search-1791386170641690000/`. Browser
+history publication is still acceptance-scoped, and a resident production
+Search service plus general Files producer synchronization remain open; M19
+stays `PARTIAL`.
+**M19 signed-in desktop Files Search runtime, 2026-10-08:** ADR 0068 extracts
+the shared User Data VFS snapshot adapter and starts a bounded SearchService
+when the owner signs in. It enumerates only regular files directly under
+`/home/owner/files`, indexes names and VFS identity/mtime metadata, tracks
+`(inode, generation)` producer keys, updates a private Files Workspace, and
+persists Search metadata under `/var/lib/nagi-search`. The runtime does not
+read file contents. `./nagi login` passed all four GUI phases on QEMU run
+`1791387522725149000`; the password-change boot queried the fixture and
+persisted its ObjectId, and the following boot queried it again after
+restoring the Search snapshot. The ordered logs are
+`out/evidence/login-1791387522725149000/password-change.log` and
+`out/evidence/login-1791387522725149000/verify-password.log`. These logs show
+the fixture's exact ObjectId restored and a non-UTF-8 filename excluded
+without disabling Search. The login QEMU
+harness now retries only the diagnosed pre-guest UEFI timer loop after
+confirming writable disks are unchanged and restoring the OVMF baseline.
+`./nagi m19` also passed run
+`1791386170641690000` across its Browser/Search restart flow. `./nagi test`
+and package-scoped rustfmt checks pass. The ordinary
+desktop still has no app-facing production `search@1` endpoint, Files UI
+integration, or general Browser History producer lifecycle; M19 stays
+`PARTIAL`.
+**M19 signed-in Files create/delete identity, 2026-10-08:** the owner runtime
+now exposes bounded create, rename, and delete operations for direct children
+of `/home/owner/files`. Each operation reconciles the private Files Workspace
+and persists Search metadata before returning. The QEMU `./nagi login` run
+`1791409942835920000` passed all four GUI phases. The password-change phase
+verified creation and query, tombstoning and search exclusion on delete, then
+inode reuse with a newer VFS generation and a different ObjectId; it deleted
+the recreated fixture afterward. The restart phase restored the original
+fixture ObjectId and repeated rename and deletion checks. Evidence is in
+`out/evidence/login-1791409942835920000/password-change.log` and
+`verify-password.log`. The same run exposed that nested rename consumed all
+free directory space; the VFS compactor now preserves a reusable free record,
+and a focused storage regression test covers creation after rename. The
+arm64 macOS host cannot compile `libnagi`'s x86-64 syscall assembly tests; the
+guest acceptance passed locally and the PR's x86 Ubuntu host job will run the
+unit regression. Files UI wiring, app-facing production `search@1`, trash
+restore, and normal Browser History producer lifecycle remain open, so M19 is
+still `PARTIAL`.
 **0.1 / 0.2 line merge, 2026-10-05:** `main` (0.1 release line) and
 `codex/integration-next-phase` (0.2 workstreams) were merged on
 `claude/integrate-main-0.2`; conflict decisions are recorded in
@@ -130,12 +191,11 @@ Still open:
   `1791260698907877000`). The M10/M29 desktops now sign in first (see the
   2026-10-07 entry above; target acceptance pending);
 - more accounts and Recovery reset. Rate limiting is done (ADR 0064), and
-  password change is implemented but not yet accepted in the guest (see the
-  2026-10-07 password change entry below).
+  password change now has guest acceptance evidence (ADR 0066 below).
 
 **Owner password change (ADR 0066), 2026-10-07:** A signed-in owner can
-change the password from Settings. Status: **PARTIAL** (implemented and
-type-checked; guest acceptance not run).
+change the password from Settings. The feature acceptance is **PASS**;
+overall M30 remains **PARTIAL**.
 
 - **Form.** `libnagi::login::PasswordChangeForm` (current, new, confirm;
   Escape cancels) is host-tested: a valid change, too-short, mismatch and
@@ -145,14 +205,20 @@ type-checked; guest acceptance not run).
   anything is written. Wrong attempts use the persisted ADR 0064 throttle.
   The new record (fresh salt) is written to `owner-account-next` and swapped
   in with `Vfs::replace`.
-- **Verified.** The 17 `login`/`credential` host tests pass (built in a
-  scratch crate on arm64 Linux, because `libnagi` does not build for the
-  aarch64 host). `nagi-init` type-checks for the x86_64 Nagi user target
-  with `desktop-login`, with and without `consent-dialog-acceptance`, and
-  fmt and `nagi-localization` tests pass.
-- **Not verified.** No guest run: `./nagi login` does not yet drive the
-  change-password screen, and the arm64 Linux sandbox cannot boot the guest.
-  The ja-JP wording is limited to existing font glyphs.
+- **Guest acceptance.** `./nagi login` passed on QEMU. It created an owner,
+  persisted and waited out the ADR 0064 throttle, opened the password form,
+  rejected a valid change with the wrong current password, saved the change,
+  then restarted and rejected `nagi1` while accepting `nagi2`. Ordered guest
+  markers are in `out/evidence/login-1791375220649789000/password-change.log`
+  and `verify-password.log`; screenshots and the persistent test disk are in
+  the same evidence directory.
+- **Checks.** `cargo test -p nagi-cli --target aarch64-apple-darwin
+  --locked --offline` passed (266 unit + 29 integration tests), warning-denied
+  Clippy passed for `nagi-cli`, the changed Rust files pass rustfmt, and
+  `./nagi doctor` reports 12 pass / 0 warn / 0 fail with the pinned arm64
+  toolchain and Homebrew tools.
+- The ja-JP wording remains limited to existing font glyphs. M30 remains
+  **PARTIAL** for its other open acceptance requirements.
 
 **Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
 grant is now asked through an OS-owned dialog, and the answer survives a
@@ -3250,8 +3316,8 @@ Use only these statuses:
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, and QEMU acceptance passed on 2026-09-19. Completion Sweep found and fixed an allocator cfg omission for the standalone `m16-package` feature; the target then linked and reached QEMU. The macOS rerun stopped at the prerequisite M14 capture check (`Nagi M14 capture FAIL`, no CoreAudio input); M16 install/update markers were not reached. SDK/package/IDL artifacts and the failed local run are preserved under `out/evidence/completion-sweep-regression-20260930/`; the prior M16 acceptance remains the PASS evidence. |
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. Local real-QEMU regressions passed on 2026-09-29 and 2026-10-03. The 2026-10-03 rerun uses an explicit `/tmp/nagi-m17-servo` fixture storage root; its nonzero frame checksum and PASS marker are preserved under `out/evidence/m17-first-web-pixel-20261003/`. The immediately preceding failure was caused by a reused User Data VFS with all 64 inodes allocated to prior Servo temporary roots; that failed disk and trace are preserved under `out/evidence/m17-storage-init-abort-20261003/`. |
-| M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. A 2026-10-03 rerun also passed: QEMU verified TLS chains and hostnames for `example.com`, `example.org`, and `example.net`, rendered all three through Nagi Surface, and passed browser temporary-storage cleanup. Current evidence is under `out/evidence/m18-completion-sweep-20261003/`, with the prior fixed-path image, User Data, vars, and logs preserved under `out/evidence/m18-pre-sweep-20261003/`. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. On 2026-10-03, the generated Servo cache was archived and regenerated from the pinned checkout and patches. Added an opt-in M18 acceptance delegate with a localized opaque site-permission modal; it holds the real Servo request pending until a fresh Allow/Deny click or Escape Cancel and denies on input/render/timeout failure. Sixty `nagi-albert` acceptance-feature tests pass. The 2026-10-03 `./nagi m18` rerun passed the three HTTPS pages, but none requests a permission; exact image, User Data, OVMF vars, serial log, screenshot, and verified SHA256 manifest are under `out/evidence/m29-browser-1790978167816192000/`. **Clipboard (2026-10-05):** new user-space `nagi-clipboard` service (ADR 0053) with attenuable READ/WRITE endpoints and per-tab one-shot paste gestures recorded only by Albert's trusted input path; Albert now focuses the active WebView and moves keyboard focus to the page after address submission or a page click. Local `./nagi m18` run `1791179851416415000` passed the three HTTPS pages plus QMP-driven Ctrl+C / click / Ctrl+V between page fields (pasted value observed through the page), followed by an ungestured read denied with `no-user-gesture`; serial log, command log, screenshot, and SHA256SUMS are under `out/evidence/m29-browser-1791179851416415000/`. The service is in-process with Albert, not yet behind authenticated Channel IPC. **IME (2026-10-05):** new user-space `nagi-ime` (ADR 0054) composes hiragana from romaji with katakana/hiragana candidates; Nagi 0.1 has no kanji conversion by user decision. Albert routes page keys through it only while Servo reports a focused text field and sends composition start/update/end events. Local `./nagi m18` run `1791180856033701000` passed the HTTPS pages, clipboard, and a QMP-typed Ctrl+Space `nihongo` Enter committed as `にほんご` into the page field (DOM value observed through the page); evidence under `out/evidence/m29-browser-1791180856033701000/`. **Text rendering (2026-10-05):** the M18 HTTPS acceptance had been passing pages that painted no text — Nagi's Servo font registry was empty, so all three sites produced the same background-only frame (`0x5a9955c5`). Bundled Noto Sans/Noto Sans JP (ADR 0055, Servo patch 0026) are published read-only under `/system/fonts/`; file-backed `mmap`/`munmap` now accept non-page-multiple lengths as POSIX requires (the failing step found by diagnostic patch 0027). Each page now reports `ink_pixels` and the validator requires at least 200. Local `./nagi m18` run `1791185005598104000` passed with `ink_pixels=5632` per site and a screenshot showing the pasted token and committed `にほんご`; evidence under `out/evidence/m29-browser-1791185005598104000/`. Production authenticated policy/IPC, interactive QEMU permission acceptance, and download/upload destinations remain. |
-| M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Twenty-nine Search tests, warnings-denied Clippy, format, Nagi target compile, and QEMU persistence/rename acceptance pass. Guest executes bounded M21 `file.search` through ContextResolver, Validator, Action Registry, and Executor; the M22 fixture records its executed result in NAL1 with `transaction_id=None`. Caller policy remains fixture-only. Real Files/page producer synchronization and authenticated production IPC remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
+| M18 | Albert Browser | PASS | Authoritative closure: main commit `7ff70b8` passed GitHub Actions run [`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873); the `nagi-target` job passed M17, M18-B chrome, and the full `./nagi m18` guest scenario. It rendered three HTTPS sites and passed interactive site permission, clipboard, Japanese IME, trusted-picker upload, and user-activated download. Production authentication, notification presentation, and Servo StorageManager persistence remain documented limitations; kanji conversion is deferred by ADR 0054. |
+| M19 | Semantic Layer / Search | PARTIAL | `user/nagi-search` provides the bounded two-slot guest snapshot backend. `./nagi m19` passes the combined HTTPS Browser/Search scenario across two QEMU boots on one User Data disk, including stable Browser History Page/ObjectId/Workspace, authorized isolated `search@1`, foreign-client denial, VFS rename/inode-reuse checks, Page/Workspace persistence, and bounded M21 `file.search` (`out/evidence/m19-browser-search-1791386170641690000/`). ADR 0068 adds a signed-in owner desktop runtime that scans `/home/owner/files`, persists metadata under `/var/lib/nagi-search`, and restores producer ObjectIds. `./nagi login` run `1791409942835920000` verified create/query, rename with stable ObjectId, delete/tombstone, inode-generation reuse, and restoration after restart (`out/evidence/login-1791409942835920000/`). Run `1791413203412953000` verified direct Files-panel search. Latest run `1791414261520793000` passed all four GUI phases, including direct and nested Files-panel searches, stable nested ObjectId/workspace grouping, and saved screenshots `files-search-runtime.png` and `files-search-nested.png` (`out/evidence/login-1791414261520793000/`). The runtime bounds indexing to 8 files, 16 directories, and depth 4, and does not read file contents. `./nagi fmt` and the targeted login contract test pass. Remaining blockers are production app-facing Search with live grants, Files mutation UI/service integration with trash restore, and normal Browser History producer updates. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`.
 | M20 | AI Runtime / Granite | PARTIAL | `./nagi m20-granite-inference` QEMU run `1791393002742512000` passed real Granite 4.2 3B inference inside Nagi with the exact 2,244,011,552-byte Q4_K_M artifact and locked SHA-256 `e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`; the guest produced the schema-constrained Japanese response. The `nagi-m20-inference` job in GitHub run `37702418216` verified and built the model/runtime, then failed before inference on the first User Data sector-2 write timeout with Ubuntu QEMU 8.2.2. Local commit `4e62dcd` raises the bounded VirtIO wait from 5 million to 100 million spins; the Nagi x86 release build and formatting pass, but the hosted rerun is not yet complete. Model installation and normal lazy-service integration remain open. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
 | M21 | Planner / Validator / Executor | PARTIAL | `services/nagi-ai` supplies the authoritative NagiPlan@1 schema to model requests and independently validates provider output at the generic adapter boundary; deterministic parsing and Validator checks remain in force. Bounded guest `file.search`, fixture-scoped `file.move` and `file.copy` run through ContextResolver, Validator, Action Registry, capability/object checks, and Executor against real VFS state; executed search results flow into M22 NAL1. Executor reacquires grants for each step; a new two-step regression revokes the second capability after step one and verifies `Partial/CapabilityDenied` with no second handler call. All 25 AI tests, Clippy, and formatting pass. Policies, handlers, and caller identity remain fixture-only; production IPC/authenticated caller authority, model service integration, and general first-party actions remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`.
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh three-boot QEMU runs preserve digest-bearing grouped Move, bounded Copy, NAL1/NH16 persistence, Undo, and restart restoration; standalone run `1790999599873700000` and both repetitions in `out/evidence/m28-run-20261003T035340Z-63277/` passed. The M22 bootstrap and all three numbered guest boots now share one guarded pre-guest retry: it requires the running-CPU/QMP firmware-timeout signature and unchanged writable boot/User Data SHA-256 values, with per-boot evidence sidecars archived by M28. The current M22 runs did not need this retry; unit tests cover restoration, disk-change suppression, and three-boot sidecar isolation. Fixture caller/policy, real inference, authenticated production authority, general production actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
@@ -3268,16 +3334,30 @@ Use only these statuses:
 
 # M19 - Semantic Layer / Search (`PARTIAL`)
 
-The M19-PREP deterministic metadata/search implementation is integrated into
-the root workspace. Nineteen host tests cover stable object metadata,
+The M19-PREP deterministic metadata/SearchService implementation is integrated
+into the root workspace. Thirty host tests cover stable object metadata,
 visibility filtering, producer mapping contracts, snapshot recovery, and
-search after reopen. The target `m19-search` feature persists a bounded
-two-slot snapshot through the guest VFS; `./nagi m19` passed remount and a
-second QEMU boot using the same disk. That QEMU path uses a private fixture,
-not live Files/page producers or a production Search IPC service. Guest VFS
-files remain limited to 1 KiB, so the fixture acceptance caps snapshots at
-4 KiB. Authenticated capability-to-object visibility and canonical producer
-Object IDs remain M19 blockers.
+search after reopen. The target Search feature persists a bounded two-slot
+snapshot through the guest VFS. `./nagi m19` runs the actual M18 HTTPS Browser
+scenario and verifies stable File, Page, and Workspace IDs, grouped results,
+authorization filtering, and Search restart across QEMU boots. The signed-in
+desktop also starts a persistent owner-Files runtime; QEMU run
+`1791409942835920000` verified create/query, rename with stable ObjectId,
+delete/tombstone, inode-generation reuse, and restored identity after restart
+through that runtime. A later login run, `1791414261520793000`, verified
+bounded nested-path publication and search. The login fixture calls these
+runtime methods directly. Normal apps still cannot reach the production
+`search@1` Files handler. That handler resolves the kernel-stamped PID through
+Supervisor, requires both live `search.query` and `files.search` grants, and
+delegates to the runtime's
+visibility-filtered Files query; Nagi-target checks pass for both the normal
+desktop and isolated-search feature sets. No ordinary app launch path routes a
+client to the handler yet. Files UI operations and ordinary Browser History
+changes also do not publish producer updates, and trash/restore is not
+implemented. The runtime now covers bounded nested paths. Guest VFS files
+remain limited to 1 KiB, so the snapshot is bounded at 4 KiB. M19 remains
+`PARTIAL` until the service is reachable through normal signed app launch and
+the producer lifecycles are integrated.
 
 See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md` for the
 focused evidence and remaining production acceptance criteria.

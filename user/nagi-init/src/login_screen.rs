@@ -520,8 +520,10 @@ fn persist_replacing(volume: &mut UserDataVolume, record: &AccountRecord) -> boo
 pub enum ChangeOutcome {
     Ignored,
     Changed,
-    /// The form was closed: cancelled, or the password was changed.
-    Closed,
+    /// Escape closed the form without changing the password.
+    Cancelled,
+    /// The new credential was atomically saved.
+    PasswordChanged,
 }
 
 /// The modal "change password" screen, opened from Settings by a signed-in
@@ -623,7 +625,7 @@ impl PasswordChangeScreen {
             ChangeAction::Changed => ChangeOutcome::Changed,
             ChangeAction::Cancel => {
                 libnagi::console_write(b"Nagi password change cancelled\r\n");
-                ChangeOutcome::Closed
+                ChangeOutcome::Cancelled
             }
             ChangeAction::Submit => self.submit(volume),
         }
@@ -671,6 +673,6 @@ impl PasswordChangeScreen {
         self.form.clear_secrets();
         self.account = record;
         libnagi::console_write(b"Nagi password change PASS\r\n");
-        ChangeOutcome::Closed
+        ChangeOutcome::PasswordChanged
     }
 }

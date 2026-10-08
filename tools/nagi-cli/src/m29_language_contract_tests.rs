@@ -35,7 +35,8 @@ fn system_language_is_committed_to_user_data_before_desktop_selection() {
     ));
 
     let init = compact(INIT);
-    assert!(init.contains("desktop::run(display_capability,input_capability,volume);"));
+    assert!(init
+        .contains("desktop::run(block_capability,display_capability,input_capability,volume,);"));
 }
 
 #[test]

@@ -4,6 +4,11 @@ use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
 
 use crate::{MetadataRecord, ModelError, ObjectKind, VisibilityScope, Workspace};
 
+/// Metadata keys used by trusted producer adapters to persist the source key
+/// separately from the Search-owned ObjectId.
+pub const PRODUCER_ID_ATTRIBUTE: &str = "nagi.search.producer_id";
+pub const PRODUCER_KEY_ATTRIBUTE: &str = "nagi.search.producer_key";
+
 /// Narrow producer payload shared by Files and page/history adapters. Its
 /// location is descriptive input; stable `ObjectId` remains the key.
 #[derive(Clone, Debug, Eq, PartialEq)]

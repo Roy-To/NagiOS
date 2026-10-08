@@ -3,3 +3,4 @@ name=M19 Search client
 version=0.1.0
 grant=search.query
 grant=files.search
+grant=albert.history.search

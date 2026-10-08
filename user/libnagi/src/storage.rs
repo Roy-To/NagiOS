@@ -493,26 +493,143 @@ impl<D: BlockDevice> Vfs<D> {
     }
 
     pub fn rename(&mut self, old_name: &[u8], new_name: &[u8]) -> Result<FileHandle, StorageError> {
+        self.rename_child_inode(ROOT_INODE, old_name, new_name)
+    }
+
+    /// Rename an entry in the directory at `directory_path` without changing
+    /// its inode or generation. Both names must be direct children of that
+    /// directory; moving entries between directories is a separate operation.
+    pub fn rename_child(
+        &mut self,
+        directory_path: &[u8],
+        old_name: &[u8],
+        new_name: &[u8],
+    ) -> Result<FileHandle, StorageError> {
+        let directory_inode = self.resolve_path(directory_path)?;
+        self.rename_child_inode(directory_inode, old_name, new_name)
+    }
+
+    fn rename_child_inode(
+        &mut self,
+        directory_inode: u32,
+        old_name: &[u8],
+        new_name: &[u8],
+    ) -> Result<FileHandle, StorageError> {
         validate_name(old_name)?;
         validate_name(new_name)?;
         if old_name == new_name {
-            return self.open(old_name);
+            let inode = self
+                .find_inode_in_directory(directory_inode, old_name)?
+                .ok_or(StorageError::NotFound)?;
+            return self.handle_for(inode);
         }
-        if self.find_inode(new_name)?.is_some() {
+        if self
+            .find_inode_in_directory(directory_inode, new_name)?
+            .is_some()
+        {
             return Err(StorageError::AlreadyExists);
         }
-        let (offset, inode) = self
-            .find_directory_entry(old_name)?
-            .ok_or(StorageError::NotFound)?;
-        let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
-        let record_length = usize::from(read_u16(&directory, offset + 4));
-        if align4(8 + new_name.len()) > record_length {
+        let directory = self.directory_inode(directory_inode)?;
+        let mut entries = [0; BLOCK_SIZE];
+        self.read_block(directory.direct_block, &mut entries)?;
+
+        // Directory records can use different amounts of slack depending on
+        // when each entry was created. Repack the single-block directory so a
+        // longer replacement name can use free space elsewhere in that block.
+        let mut offset = 0;
+        let mut live_entries = 0;
+        let mut required_bytes = 0;
+        let mut found_old_name = false;
+        while offset < BLOCK_SIZE {
+            let inode = read_u32(&entries, offset);
+            let record_length = usize::from(read_u16(&entries, offset + 4));
+            let name_length = usize::from(read_u8(&entries, offset + 6));
+            if record_length < 8
+                || record_length % 4 != 0
+                || offset + record_length > BLOCK_SIZE
+                || name_length > record_length - 8
+            {
+                return Err(StorageError::Corrupt);
+            }
+            if inode != 0 {
+                let is_target = names_equal(&entries, offset + 8, name_length, old_name);
+                if is_target && found_old_name {
+                    return Err(StorageError::Corrupt);
+                }
+                found_old_name |= is_target;
+                let output_name_length = if is_target {
+                    new_name.len()
+                } else {
+                    name_length
+                };
+                required_bytes += align4(8 + output_name_length);
+                live_entries += 1;
+            }
+            offset += record_length;
+        }
+        if !found_old_name {
+            return Err(StorageError::NotFound);
+        }
+        if required_bytes > BLOCK_SIZE {
             return Err(StorageError::DirectoryFull);
         }
-        write_u8(&mut directory, offset + 6, new_name.len() as u8);
-        copy_bytes_to_offset(&mut directory, offset + 8, new_name);
-        self.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
+
+        let mut compacted = [0; BLOCK_SIZE];
+        let mut source_offset = 0;
+        let mut destination_offset = 0;
+        let mut remaining_entries = live_entries;
+        // Keep a reusable free record at the end when it can hold even the
+        // shortest valid filename. Otherwise the final live record owns the
+        // small tail so the directory remains well-formed.
+        let trailing_bytes = BLOCK_SIZE - required_bytes;
+        let preserve_free_record = trailing_bytes >= align4(8 + 1);
+        while source_offset < BLOCK_SIZE {
+            let inode = read_u32(&entries, source_offset);
+            let record_length = usize::from(read_u16(&entries, source_offset + 4));
+            let name_length = usize::from(read_u8(&entries, source_offset + 6));
+            if inode != 0 {
+                let source_name = &entries[source_offset + 8..source_offset + 8 + name_length];
+                let is_target = names_equal(&entries, source_offset + 8, name_length, old_name);
+                let output_name = if is_target { new_name } else { source_name };
+                let minimum_length = align4(8 + output_name.len());
+                let output_record_length = if remaining_entries == 1 && !preserve_free_record {
+                    BLOCK_SIZE - destination_offset
+                } else {
+                    minimum_length
+                };
+                if output_record_length < minimum_length {
+                    return Err(StorageError::DirectoryFull);
+                }
+                write_directory_record(
+                    &mut compacted,
+                    destination_offset,
+                    inode,
+                    output_record_length as u16,
+                    output_name.len() as u8,
+                    read_u8(&entries, source_offset + 7),
+                    output_name,
+                );
+                destination_offset += output_record_length;
+                remaining_entries -= 1;
+            }
+            source_offset += record_length;
+        }
+        if preserve_free_record {
+            let free_length = BLOCK_SIZE - destination_offset;
+            write_directory_record(
+                &mut compacted,
+                destination_offset,
+                0,
+                free_length as u16,
+                0,
+                0,
+                b"",
+            );
+        }
+        self.write_block(directory.direct_block, &compacted)?;
+        let inode = self
+            .find_inode_in_directory(directory_inode, new_name)?
+            .ok_or(StorageError::Corrupt)?;
         self.handle_for(inode)
     }
 
@@ -2770,6 +2887,39 @@ mod tests {
         let mut bytes = [0; 16];
         let length = volume.read(reopened, &mut bytes).expect("read");
         assert_eq!(&bytes[..length], b"rename me");
+
+        // Renaming must leave a free directory record for a later create.
+        volume
+            .create(b"created-after-rename")
+            .expect("create after rename");
+    }
+
+    #[test]
+    fn renames_a_file_in_a_nested_directory_without_changing_its_identity() {
+        let (mut volume, _) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        volume.mkdir_path(b"/files").expect("directory");
+        let old_path = b"/files/before";
+        let new_path = b"/files/a-much-longer-name-after";
+        let handle = volume.create_path(old_path).expect("create");
+        volume.write(handle, b"rename me").expect("write");
+        let old_metadata = volume.metadata_path(old_path).expect("old metadata");
+
+        let renamed = volume
+            .rename_child(b"/files", b"before", b"a-much-longer-name-after")
+            .expect("rename child");
+        assert_eq!(renamed, handle);
+        assert_eq!(volume.open_path(old_path), Err(StorageError::NotFound));
+        let new_metadata = volume.metadata_path(new_path).expect("new metadata");
+        assert_eq!(new_metadata.inode, old_metadata.inode);
+        assert_eq!(new_metadata.generation, old_metadata.generation);
+        let reopened = volume.open_path(new_path).expect("reopen");
+        let mut bytes = [0; 16];
+        let length = volume.read(reopened, &mut bytes).expect("read");
+        assert_eq!(&bytes[..length], b"rename me");
+
+        volume
+            .create_path(b"/files/created-after-rename")
+            .expect("create after nested rename");
     }
 
     #[test]

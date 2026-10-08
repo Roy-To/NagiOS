@@ -411,7 +411,19 @@ jobs:
       - name: ADR 0043 isolated process identity acceptance
         run: ./nagi isolated-process
       - name: M19 live VFS Search acceptance
-        run: ./nagi m19
+        env:
+          NAGI_TARGET_CLANG: clang-19
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
+        run: |
+          source out/mesa-venv/bin/activate
+          ./nagi m19
+      - name: M19 signed-in Files lifecycle acceptance
+        env:
+          NAGI_TARGET_CLANG: clang-19
+          NAGI_CXX_HEADERS: /usr/include/c++/v1
+        run: |
+          source out/mesa-venv/bin/activate
+          ./nagi login
       - name: M22 NH16 grouped Undo acceptance
         run: ./nagi m22
       - name: M27 broken-slot rollback acceptance

@@ -1,6 +1,6 @@
 # ADR 0066: Changing the owner password from Settings
 
-Status: accepted (target acceptance pending)
+Status: accepted (implementation and guest acceptance passed, 2026-10-07)
 Date: 2026-10-07
 Builds on: ADR 0063 (desktop owner login), ADR 0064 (login throttling)
 
@@ -59,9 +59,12 @@ stored, and `cancelled` on Escape.
   secret clearing, cancel).
 - `nagi-init` type-checks for the x86_64 Nagi user target with
   `desktop-login`, with and without `consent-dialog-acceptance`.
-- **Not yet run:** a guest acceptance (`./nagi login`) that changes the
-  password, restarts, sees the old password refused and the new one
-  accepted. The arm64 Linux sandbox could not boot the guest.
+- **Guest acceptance passed:** `./nagi login` on QEMU exercised owner
+  creation, persisted sign-in throttling, rejection of a password change
+  with the wrong current password, a successful change, and a restart that
+  refused the old password and accepted the new one. Evidence:
+  `out/evidence/login-1791375220649789000/` (`password-change.log` and
+  `verify-password.log`).
 
 ## Bounds
 

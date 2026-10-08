@@ -15,6 +15,8 @@ pub(crate) mod libc_servo;
 pub(crate) mod llama_cpp;
 pub(crate) mod llvm_libcxx;
 #[cfg(test)]
+mod login_password_change_contract_tests;
+#[cfg(test)]
 mod m17_storage_contract_tests;
 pub(crate) mod m18_acceptance;
 #[path = "../../../tests/fixtures/m20_model_store_reader.rs"]

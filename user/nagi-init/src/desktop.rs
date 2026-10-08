@@ -1,3 +1,4 @@
+use alloc::string::String;
 use core::arch::asm;
 
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
@@ -16,6 +17,10 @@ const WINDOW_HEIGHT: i32 = 70;
 const TITLE_HEIGHT: i32 = 14;
 const POINTER_START_X: i32 = 80;
 const POINTER_START_Y: i32 = 58;
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+const FILES_SEARCH_QUERY_CAPACITY: usize = 32;
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+const FILES_SEARCH_TITLE_CAPACITY: usize = 20;
 const PREVIEW_THEME: ThemeMode = ThemeMode::Light;
 const BACKGROUND: u32 = color(PREVIEW_THEME, ColorRole::Canvas).to_pixel();
 const PANEL: u32 = color(PREVIEW_THEME, ColorRole::Surface).to_pixel();
@@ -201,6 +206,26 @@ pub struct Desktop {
     /// The modal change-password form (ADR 0066).
     #[cfg(feature = "desktop-login")]
     password_change: Option<crate::login_screen::PasswordChangeScreen>,
+    /// The ADR 0066 acceptance ends only after a successful saved change.
+    #[cfg(feature = "desktop-password-change-acceptance")]
+    password_change_succeeded: bool,
+    /// Search input and the first visible result in the signed-in Files panel.
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_query: [u8; FILES_SEARCH_QUERY_CAPACITY],
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_query_len: usize,
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_pending: bool,
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_complete: bool,
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_unavailable: bool,
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_result_count: usize,
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_first_title: [u8; FILES_SEARCH_TITLE_CAPACITY],
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_first_title_len: usize,
 }
 
 impl Desktop {
@@ -234,6 +259,24 @@ impl Desktop {
             session: None,
             #[cfg(feature = "desktop-login")]
             password_change: None,
+            #[cfg(feature = "desktop-password-change-acceptance")]
+            password_change_succeeded: false,
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_query: [0; FILES_SEARCH_QUERY_CAPACITY],
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_query_len: 0,
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_pending: false,
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_complete: false,
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_unavailable: false,
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_result_count: 0,
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_first_title: [0; FILES_SEARCH_TITLE_CAPACITY],
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_first_title_len: 0,
         }
     }
 
@@ -284,6 +327,17 @@ impl Desktop {
         if self.notes_has_input {
             painter.text(176, 57, message!(NOTES_KANA, 3), TEXT);
         }
+        #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+        {
+            self.render_app(
+                &mut painter,
+                2,
+                nagi_localization::text(self.locale, "desktop.files.title").as_bytes(),
+                b"",
+            );
+            self.render_files_search(&mut painter);
+        }
+        #[cfg(not(all(feature = "m19-runtime", feature = "desktop-login")))]
         self.render_app(
             &mut painter,
             2,
@@ -397,6 +451,10 @@ impl Desktop {
                 self.desktop_focus = Some(DesktopFocus::SettingsButton);
                 return true;
             }
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            if self.handle_files_search_key(event.code) {
+                return true;
+            }
             if event.code == libnagi::INPUT_KEY_ENTER || event.code == libnagi::INPUT_KEY_SPACE {
                 return self.activate_desktop_focus(volume);
             }
@@ -472,24 +530,31 @@ impl Desktop {
     }
 
     pub fn acceptance_ready(&self) -> bool {
-        #[cfg(feature = "desktop-login")]
-        if cfg!(feature = "desktop-login-acceptance") {
-            return self.session.is_some();
+        #[cfg(feature = "desktop-password-change-acceptance")]
+        {
+            return self.session.is_some() && self.password_change_succeeded;
         }
-        #[cfg(feature = "consent-dialog-acceptance")]
-        if self.consent_answered {
-            return true;
-        }
-        let desktop_ready = self.focused.iter().all(|focused| *focused) && self.notes_has_input;
-        if cfg!(feature = "consent-dialog-acceptance") {
-            false
-        } else if cfg!(feature = "m29-settings-acceptance") {
-            desktop_ready
-                && self.settings_open
-                && self.locale == nagi_localization::Locale::JaJp
-                && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
-        } else {
-            desktop_ready
+        #[cfg(not(feature = "desktop-password-change-acceptance"))]
+        {
+            #[cfg(feature = "desktop-login-acceptance")]
+            if cfg!(feature = "desktop-login-acceptance") {
+                return self.session.is_some();
+            }
+            #[cfg(feature = "consent-dialog-acceptance")]
+            if self.consent_answered {
+                return true;
+            }
+            let desktop_ready = self.focused.iter().all(|focused| *focused) && self.notes_has_input;
+            if cfg!(feature = "consent-dialog-acceptance") {
+                false
+            } else if cfg!(feature = "m29-settings-acceptance") {
+                desktop_ready
+                    && self.settings_open
+                    && self.locale == nagi_localization::Locale::JaJp
+                    && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
+            } else {
+                desktop_ready
+            }
         }
     }
 
@@ -531,8 +596,16 @@ impl Desktop {
         match screen.handle_event(event, volume) {
             ChangeOutcome::Ignored => false,
             ChangeOutcome::Changed => true,
-            ChangeOutcome::Closed => {
+            ChangeOutcome::Cancelled => {
                 self.password_change = None;
+                true
+            }
+            ChangeOutcome::PasswordChanged => {
+                self.password_change = None;
+                #[cfg(feature = "desktop-password-change-acceptance")]
+                {
+                    self.password_change_succeeded = true;
+                }
                 true
             }
         }
@@ -926,9 +999,185 @@ impl Desktop {
         painter.text(window.x + 6, window.y + 4, title, TITLE_TEXT);
         painter.text(window.x + 8, window.y + TITLE_HEIGHT + 12, content, TEXT);
     }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn render_files_search(&self, painter: &mut Painter<'_>) {
+        let window = self.windows[2];
+        let label_y = window.y + TITLE_HEIGHT + 3;
+        let field = Rect::new(window.x + 7, label_y + 10, window.width - 14, 12);
+        painter.text(
+            window.x + 7,
+            label_y,
+            nagi_localization::text(self.locale, "desktop.files.search.label").as_bytes(),
+            TEXT,
+        );
+        painter.fill(
+            field,
+            color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+        );
+        painter.frame(
+            field,
+            if self.desktop_focus == Some(DesktopFocus::Application(2)) {
+                FOCUS
+            } else {
+                BORDER
+            },
+        );
+        let query = &self.files_search_query[..self.files_search_query_len];
+        if query.is_empty() {
+            painter.text(
+                field.x + 3,
+                field.y + 2,
+                nagi_localization::text(self.locale, "desktop.files.search.hint").as_bytes(),
+                TEXT,
+            );
+        } else {
+            painter.text(field.x + 3, field.y + 2, query, TEXT);
+        }
+
+        let status_y = field.y + field.height + 3;
+        if self.files_search_unavailable {
+            painter.text(
+                window.x + 7,
+                status_y,
+                nagi_localization::text(self.locale, "desktop.files.search.unavailable").as_bytes(),
+                TEXT,
+            );
+        } else if self.files_search_complete && self.files_search_result_count == 0 {
+            painter.text(
+                window.x + 7,
+                status_y,
+                nagi_localization::text(self.locale, "desktop.files.search.empty").as_bytes(),
+                TEXT,
+            );
+        } else if self.files_search_complete {
+            let mut count_label = [0; 24];
+            let mut count_length = append(
+                &mut count_label,
+                0,
+                nagi_localization::text(self.locale, "desktop.files.search.matches").as_bytes(),
+            );
+            count_length = append(&mut count_label, count_length, b" ");
+            count_length = append_decimal(
+                &mut count_label,
+                count_length,
+                self.files_search_result_count as u64,
+            );
+            painter.text(window.x + 7, status_y, &count_label[..count_length], TEXT);
+            painter.text(
+                window.x + 7,
+                status_y + 8,
+                &self.files_search_first_title[..self.files_search_first_title_len],
+                TEXT,
+            );
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn handle_files_search_key(&mut self, code: u16) -> bool {
+        if self.settings_open || self.desktop_focus != Some(DesktopFocus::Application(2)) {
+            return false;
+        }
+        match code {
+            libnagi::INPUT_KEY_ENTER => {
+                if !self.focused[2] {
+                    return self.activate_application(2, true);
+                }
+                if self.files_search_query_len == 0 {
+                    self.files_search_pending = false;
+                    self.files_search_complete = true;
+                    self.files_search_unavailable = false;
+                    self.files_search_result_count = 0;
+                } else {
+                    self.files_search_pending = true;
+                    self.files_search_complete = false;
+                    self.files_search_unavailable = false;
+                }
+                true
+            }
+            libnagi::INPUT_KEY_ESCAPE => {
+                self.clear_files_search();
+                true
+            }
+            libnagi::login::INPUT_KEY_BACKSPACE => {
+                if self.files_search_query_len > 0 {
+                    self.files_search_query_len -= 1;
+                    self.files_search_query[self.files_search_query_len] = 0;
+                    self.reset_files_search_results();
+                }
+                true
+            }
+            _ => {
+                let Some(byte) = libnagi::login::key_char(code) else {
+                    return false;
+                };
+                if self.files_search_query_len < self.files_search_query.len() {
+                    self.files_search_query[self.files_search_query_len] = byte;
+                    self.files_search_query_len += 1;
+                    self.reset_files_search_results();
+                }
+                true
+            }
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn clear_files_search(&mut self) {
+        self.files_search_query = [0; FILES_SEARCH_QUERY_CAPACITY];
+        self.files_search_query_len = 0;
+        self.files_search_pending = false;
+        self.reset_files_search_results();
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn reset_files_search_results(&mut self) {
+        self.files_search_complete = false;
+        self.files_search_unavailable = false;
+        self.files_search_result_count = 0;
+        self.files_search_first_title = [0; FILES_SEARCH_TITLE_CAPACITY];
+        self.files_search_first_title_len = 0;
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn take_files_search_request(&mut self) -> Option<String> {
+        if !self.files_search_pending {
+            return None;
+        }
+        self.files_search_pending = false;
+        let query =
+            core::str::from_utf8(&self.files_search_query[..self.files_search_query_len]).ok()?;
+        Some(String::from(query))
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn set_files_search_results(&mut self, titles: &[String]) {
+        self.files_search_complete = true;
+        self.files_search_unavailable = false;
+        self.files_search_result_count = titles.len();
+        self.files_search_first_title_len = 0;
+        if let Some(title) = titles.first() {
+            self.files_search_first_title_len =
+                copy_utf8_prefix(&mut self.files_search_first_title, title);
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn set_files_search_unavailable(&mut self) {
+        self.files_search_complete = false;
+        self.files_search_unavailable = true;
+        self.files_search_result_count = 0;
+        self.files_search_first_title_len = 0;
+    }
 }
 
-pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataVolume) -> ! {
+pub fn run(
+    block_capability: u64,
+    display_capability: u64,
+    input_capability: u64,
+    mut volume: UserDataVolume,
+) -> ! {
+    #[cfg(not(all(feature = "m19-runtime", feature = "desktop-login")))]
+    let _ = block_capability;
     let mut info = DisplayInfo::default();
     if !libnagi::display_info(&mut info)
         || info.surface_bytes as usize != libnagi::SURFACE_BYTES
@@ -956,6 +1205,20 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
         desktop.login = Some(screen);
         mode
     };
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    let mut search_runtime: Option<crate::m19_runtime::Runtime> = None;
+    #[cfg(all(
+        feature = "m19-runtime",
+        feature = "desktop-login",
+        not(feature = "desktop-login-acceptance")
+    ))]
+    let mut search_sync_failure_reported = false;
+    #[cfg(all(
+        feature = "m19-runtime",
+        feature = "desktop-login",
+        not(feature = "desktop-login-acceptance")
+    ))]
+    let mut search_startup_failure_reported = false;
     #[cfg(all(feature = "consent-dialog-acceptance", not(feature = "desktop-login")))]
     let consent_start = match crate::supervisor::acceptance_user() {
         Some(user) => start_consent_acceptance(&mut desktop, &mut volume, &user),
@@ -1040,6 +1303,172 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
             continue;
         }
         if desktop.handle_event(event, &mut volume) {
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            if desktop.session.is_some() {
+                if search_runtime.is_none() {
+                    match crate::m19_runtime::Runtime::open(block_capability, &mut volume) {
+                        Ok(mut runtime) => {
+                            #[cfg(feature = "desktop-login-acceptance")]
+                            {
+                                if runtime
+                                    .acceptance_query(".nagi-m19-runtime-search.txt")
+                                    .is_none()
+                                {
+                                    print(b"Nagi M19 signed-in desktop Files query FAIL\r\n");
+                                    libnagi::exit(1);
+                                }
+                                print(b"Nagi M19 signed-in desktop Files query PASS\r\n");
+                                if runtime.acceptance_verify_nested_search(&mut volume) {
+                                    print(
+                                        b"Nagi M19 signed-in desktop nested Files Search PASS\r\n",
+                                    );
+                                } else {
+                                    print(
+                                        b"Nagi M19 signed-in desktop nested Files Search FAIL\r\n",
+                                    );
+                                    libnagi::exit(1);
+                                }
+                                if runtime
+                                    .search_files("\u{fffd}")
+                                    .is_some_and(|object_ids| object_ids.is_empty())
+                                {
+                                    print(
+                                        b"Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS\r\n",
+                                    );
+                                } else {
+                                    print(
+                                        b"Nagi M19 signed-in desktop non-UTF-8 filename isolation FAIL\r\n",
+                                    );
+                                    libnagi::exit(1);
+                                }
+                                if runtime.acceptance_record_restored() {
+                                    print(
+                                        b"Nagi M19 signed-in desktop Files ObjectId restore PASS\r\n",
+                                    );
+                                } else {
+                                    print(
+                                        b"Nagi M19 signed-in desktop Files ObjectId initial persist PASS\r\n",
+                                    );
+                                }
+                                if !runtime.acceptance_verify_rename(&mut volume) {
+                                    print(
+                                        b"Nagi M19 signed-in desktop Files rename identity FAIL\r\n",
+                                    );
+                                    libnagi::exit(1);
+                                }
+                                print(b"Nagi M19 signed-in desktop Files rename identity PASS\r\n");
+                                if !runtime.acceptance_verify_file_lifecycle(&mut volume) {
+                                    print(
+                                        b"Nagi M19 signed-in desktop Files delete identity FAIL\r\n",
+                                    );
+                                    libnagi::exit(1);
+                                }
+                                print(b"Nagi M19 signed-in desktop Files delete identity PASS\r\n");
+                            }
+                            print(b"Nagi M19 signed-in desktop SearchService ready PASS\r\n");
+                            search_runtime = Some(runtime);
+                            #[cfg(not(feature = "desktop-login-acceptance"))]
+                            {
+                                search_startup_failure_reported = false;
+                                search_sync_failure_reported = false;
+                            }
+                        }
+                        Err(_) => {
+                            #[cfg(feature = "desktop-login-acceptance")]
+                            {
+                                print(b"Nagi M19 signed-in desktop SearchService unavailable\r\n");
+                                libnagi::exit(1);
+                            }
+                            #[cfg(not(feature = "desktop-login-acceptance"))]
+                            if !search_startup_failure_reported {
+                                print(b"Nagi M19 signed-in desktop SearchService unavailable\r\n");
+                                search_startup_failure_reported = true;
+                            }
+                        }
+                    }
+                }
+                if let Some(query) = desktop.take_files_search_request() {
+                    if let Some(runtime) = search_runtime.as_mut() {
+                        match runtime.sync_files(&mut volume) {
+                            Ok(_) => {
+                                #[cfg(not(feature = "desktop-login-acceptance"))]
+                                {
+                                    search_sync_failure_reported = false;
+                                }
+                            }
+                            #[cfg(feature = "desktop-login-acceptance")]
+                            Err(_) => {
+                                print(b"Nagi M19 signed-in desktop Files sync FAIL\r\n");
+                                libnagi::exit(1);
+                            }
+                            #[cfg(not(feature = "desktop-login-acceptance"))]
+                            Err(_) => {
+                                if !search_sync_failure_reported {
+                                    print(b"Nagi M19 signed-in desktop Files sync unavailable\r\n");
+                                    search_sync_failure_reported = true;
+                                }
+                                desktop.set_files_search_unavailable();
+                            }
+                        }
+                        let synced = {
+                            #[cfg(feature = "desktop-login-acceptance")]
+                            {
+                                true
+                            }
+                            #[cfg(not(feature = "desktop-login-acceptance"))]
+                            {
+                                !search_sync_failure_reported
+                            }
+                        };
+                        if synced {
+                            if let Some(titles) = runtime.search_file_titles(&query) {
+                                desktop.set_files_search_results(&titles);
+                                #[cfg(feature = "desktop-login-acceptance")]
+                                {
+                                    let expected = match query.as_str() {
+                                        "runtime" => Some((
+                                            ".nagi-m19-runtime-search.txt",
+                                            "Nagi M19 signed-in desktop Files UI Search PASS\r\n",
+                                        )),
+                                        "nested" => Some((
+                                            ".nagi-m19-nested-search.txt",
+                                            "Nagi M19 signed-in desktop Files nested UI Search PASS\r\n",
+                                        )),
+                                        _ => None,
+                                    };
+                                    if let Some((expected_title, marker)) = expected {
+                                        if titles
+                                            .first()
+                                            .is_some_and(|title| title == expected_title)
+                                        {
+                                            print(marker.as_bytes());
+                                        } else {
+                                            print(b"Nagi M19 signed-in desktop Files UI Search FAIL\r\n");
+                                            libnagi::exit(1);
+                                        }
+                                    }
+                                }
+                            } else {
+                                #[cfg(feature = "desktop-login-acceptance")]
+                                {
+                                    print(b"Nagi M19 signed-in desktop Files UI Search FAIL\r\n");
+                                    libnagi::exit(1);
+                                }
+                                #[cfg(not(feature = "desktop-login-acceptance"))]
+                                {
+                                    if !search_startup_failure_reported {
+                                        print(b"Nagi M19 signed-in desktop Search unavailable\r\n");
+                                        search_startup_failure_reported = true;
+                                    }
+                                    desktop.set_files_search_unavailable();
+                                }
+                            }
+                        }
+                    } else {
+                        desktop.set_files_search_unavailable();
+                    }
+                }
+            }
             desktop.render(surface);
             if !libnagi::display_present(display_capability) {
                 print(message!(NAGI_M10_FAIL, 26));
@@ -1189,6 +1618,25 @@ fn persist_locale(volume: &mut UserDataVolume, locale: nagi_localization::Locale
         .write(handle, locale.code().as_bytes())
         .and_then(|()| volume.flush())
         .is_ok()
+}
+
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+fn copy_utf8_prefix(destination: &mut [u8], source: &str) -> usize {
+    let truncated = source.len() > destination.len();
+    let mut length = if truncated {
+        destination.len().saturating_sub(3)
+    } else {
+        source.len()
+    };
+    while !source.is_char_boundary(length) {
+        length -= 1;
+    }
+    destination[..length].copy_from_slice(&source.as_bytes()[..length]);
+    if truncated {
+        destination[length..length + 3].copy_from_slice(b"...");
+        length += 3;
+    }
+    length
 }
 
 fn clamp(value: i32, minimum: i32, maximum: i32) -> i32 {
