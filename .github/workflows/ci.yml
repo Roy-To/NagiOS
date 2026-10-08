@@ -412,12 +412,18 @@ jobs:
         run: ./nagi isolated-process
       - name: M19 live VFS Search acceptance
         env:
+          NAGI_TARGET_CLANG: clang-19
           NAGI_CXX_HEADERS: /usr/include/c++/v1
-        run: ./nagi m19
+        run: |
+          source out/mesa-venv/bin/activate
+          ./nagi m19
       - name: M19 signed-in Files lifecycle acceptance
         env:
+          NAGI_TARGET_CLANG: clang-19
           NAGI_CXX_HEADERS: /usr/include/c++/v1
-        run: ./nagi login
+        run: |
+          source out/mesa-venv/bin/activate
+          ./nagi login
       - name: M22 NH16 grouped Undo acceptance
         run: ./nagi m22
       - name: M27 broken-slot rollback acceptance
