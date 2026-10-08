@@ -1,0 +1,83 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "calendar-core-adoption",
+  "current_milestone": "Stage 2 Calendar C1-C5 host acceptance; PR #35 merge tracked separately",
+  "current_checkpoint": "Calendar host Acceptance PASS on Ubuntu/Windows; latest full host regression required before PR merge",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "99e5e0bcfd48611155aef8b5e97b4feccad5ade7",
+    "verified_at": "2026-10-08T17:08:50.967965+00:00",
+    "normal_state": "Calendar host-only Acceptance PASS on exact source 99e5e0b: original 61 tests (1 unit + 60 acceptance), Calendar package format and warnings-denied all-target Clippy PASS on Ubuntu/Windows CI. Registry/State: 29 streams/20 States. Original owner State/algorithms/tests unchanged. Current canonical model path and standalone lock only; all protected/other owner files unchanged. This records host acceptance, not PR merge, runtime, product Calendar or formal release. Latest full host regression CI remains the merge gate.",
+    "commands": [
+      "cargo fmt --manifest-path crates/nagi-calendar-core/Cargo.toml --package nagi-calendar-core -- --check",
+      "cargo clippy --manifest-path crates/nagi-calendar-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "./nagi legal check",
+      "./nagi dev verify"
+    ],
+    "tests": [
+      {
+        "name": "Original Calendar suite",
+        "command": "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Original 61 tests (1 unit + 60 acceptance) PASS locally and in Ubuntu/Windows CI 37813693162; no ignored/filtered/deleted tests. Algorithms/tests identical to fb00ad7 source."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 37813693162,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37813693162",
+        "head_sha": "99e5e0bcfd48611155aef8b5e97b4feccad5ade7",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Ubuntu/Windows dedicated host foundation and Calendar checks PASS, including original 61 tests, package fmt, Clippy, shared CLI, Legal and Registry/State."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "main@b4f42ec91a533fc11691490c04d38c4cba0ae396:docs/implementation_status.md",
+    "last_checked_at": "2026-10-08T17:00:00.315417+00:00",
+    "activation_requirement": "M30 remains PARTIAL. No 0.2 guest/runtime activation until M30 PASS and explicit release boundary; no formal release claim."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [
+      "ADOPTION: replace historical Git model pin with current in-repository nagi-model 0.1.0; standalone lock only.",
+      "HOST_ENV: package-scoped Calendar formatter prevents unowned parent/third-party traversal; retains all Calendar modules and original tests."
+    ],
+    "do_not_try": [
+      "Do not modify other owner State, Hark branches, root Cargo, Kernel/Loader/init, third-party sources or 0.1 acceptance.",
+      "Do not enable providers, guest/runtime, formal release or 0.3.",
+      "Do not bypass CI gates or merge unverified changes."
+    ]
+  },
+  "next_action": "Require all latest PR #35 host CI and existing full workspace host regression checks PASS. Recheck current main, unchanged owner States/source algorithms and registered protected-path boundary; then perform explicitly authorized Calendar host-only PR merge. No runtime/provider/product release activation.",
+  "acceptance_criteria": [
+    "Reviewed Calendar-owned source adoption retaining all original 61 tests.",
+    "Current canonical model integration without root Cargo or runtime changes.",
+    "Calendar format, Clippy, tests and Registry/State consistency PASS.",
+    "Separate Stage 2 PR merged only after latest applicable Ubuntu/Windows checks PASS."
+  ],
+  "deferred": [
+    "Durable storage, real timezone DB, UI, authenticated runtime policy, Search/People/Mail and provider delivery remain later gates."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "host-foundations-adoption",
+      "contract": "Reviewed Stage 1 host foundations; PR #34 merged after latest applicable CI PASS; full PR CI 37801690965 and Ubuntu/Windows host foundations CI 37801690899 all PASS on 52a21862dcbf0495ff6bdcdf996736e9535a2c6d",
+      "version": "b4f42ec91a533fc11691490c04d38c4cba0ae396",
+      "status": "PASS"
+    },
+    {
+      "workstream_id": "calendar-core-01",
+      "contract": "Existing C1-C5 host implementation and immutable owner evidence",
+      "version": "fb00ad7eab1a5c981cb53a019e938323e81da759",
+      "status": "Host-only source PASS; adoption revalidation pending"
+    }
+  ]
+}

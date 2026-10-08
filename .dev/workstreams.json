@@ -898,6 +898,46 @@
       ],
       "activation_gate": "AUTHORIZED: explicit current user two-stage host-only integration instruction. Foundation adoption onto current main and PR/merge after host validation; no guest/runtime/0.3 activation.",
       "merge_boundary": "Stage 1 only. Base main 1118f13dc6badf19b10a628eda244f8a0a635237; source c09572d182823d2c293a6a1885b6073c5878d0e6. Preserve current main shared commands and 0.1 CI/acceptance; source owner States are immutable imports. User authorizes PR and merge after all applicable checks PASS."
+    },
+    {
+      "id": "calendar-core-adoption",
+      "owner": "Codex Integration Owner (explicit Stage 2 unattended host adoption authorization)",
+      "owner_branch": "codex/0.2-adopt-calendar-core",
+      "recommended_worktree": "../NagiOS-adopt-calendar",
+      "state_file": ".dev/workstreams/calendar-core-adoption/state.json",
+      "dependencies": [
+        "development-foundation",
+        "calendar-core-01",
+        "host-foundations-adoption"
+      ],
+      "allowed_paths": [
+        "crates/nagi-calendar-core/**",
+        "tests/calendar-core/**",
+        ".dev/workstreams/calendar-core-01/**",
+        ".dev/workstreams/calendar-core-adoption/**",
+        "docs/workstreams/NagiOS_0.2_Calendar_Core_Workstream.md",
+        "docs/0.2/adoption/CALENDAR_CORE.md",
+        ".dev/workstreams.json",
+        ".github/workflows/0.2-host-integration.yml"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "third_party/**",
+        "tests/acceptance/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "docs/implementation_status.md",
+        "tools/**",
+        "crates/nagi-writer-core/**",
+        "crates/nagi-sheets-core/**",
+        ".dev/workstreams/host-foundations-adoption/**",
+        ".dev/workstreams/build-provenance/**",
+        ".dev/workstreams/license-sbom/**"
+      ],
+      "activation_gate": "AUTHORIZED Stage 2 by current explicit user instruction, only after Stage 1 merge. Calendar C1-C5 host-only adoption, common-model dependency alignment and package-scoped host CI verification; no providers/guest/runtime/0.3 activation.",
+      "merge_boundary": "Fresh branch from Stage 1 merged main b4f42ec91a533fc11691490c04d38c4cba0ae396. Source fb00ad7eab1a5c981cb53a019e938323e81da759; owner State imported immutably. Separate PR and latest applicable checks must PASS before authorized merge."
     }
   ]
 }
