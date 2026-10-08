@@ -82,9 +82,23 @@ references for Albert, Notes and Sheets; no cross-app adoption is performed.
 Run the complete host gate from repository root:
 
 ```sh
+cargo fetch --manifest-path crates/nagi-writer-core/Cargo.toml --locked
 bash tests/writer-core/verify.sh
 ```
 
 The script runs offline/locked build,  host acceptance, rustfmt, warning-denied
 Clippy and rustdoc. `./nagi dev verify` separately validates durable State.
 Shared CI wiring belongs to the Integration Owner.
+
+Canonical model/history dependencies are pinned to approved source revision
+`cd871f905bd06ef406ccaa9f80c484f19158209f` (SEARCH-CORE-01 precedent).
+Both types come from the same revision, so their identity unifies. Initial
+path dependencies caused cargo fmt --all to expand the shared root workspace
+and fail on relibc CRLF during Windows CI, before Writer tests ran. Git deps
+preserve the exact canonical sources while keeping local formatting isolated.
+Run `cargo fetch --manifest-path crates/nagi-writer-core/Cargo.toml --locked`
+once before the offline host gate on a fresh environment. CI's existing online
+Clippy step also fetches these sources before offline tests. Adoption alongside
+root crates needs the Integration Owner to switch dependencies to unified
+workspace/path references at the approved platform integration checkpoint.
+No copies or edits of canonical ID definitions are introduced.

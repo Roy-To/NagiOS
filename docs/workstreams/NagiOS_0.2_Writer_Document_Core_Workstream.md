@@ -158,7 +158,7 @@ git diff --check
 ## 8. 実装 checkpoint（2026-10-08）
 
 Host foundation W1–W5 を `crates/nagi-writer-core` の独立 workspace に実装。
-外部依存なし（既存 nagi-model / nagi-history への path dependency のみ）。
+既存 nagi-model / nagi-history を承認済み base SHA cd871f905bd06ef406ccaa9f80c484f19158209f の Git dependency として固定参照。正規型の複製・変更なし。
 契約・制限・移行方針は同 crate の README.md、証拠は owned State と
 `.dev/workstreams/writer-core-01/host-verification.txt` を参照。
 
@@ -187,3 +187,12 @@ restore 成功やゲスト動作を偽称しない。共有 Registry/root Cargo/
 manifest がある Writer を Ubuntu/Windows の両方で fmt/Clippy/test する。
 通常 `ci.yml` の skip はこの host-only checkpoint の意図的 routing。
 CI を追加・変更せず、既存の host foundation workflow の結果を記録する。
+
+### Windows CI repair
+
+初回 CI 37787276404 は Ubuntu 成功、Windows format 失敗。
+path dependency の `cargo fmt --all` が共有 workspace と relibc を走査し、
+Windows checkout の CRLF が third-party の Unix newline 規約に衝突した。
+共有 CI/third-party を編集せず、SEARCH-CORE-01 と同じ固定 Git dependency
+方式で正規型を参照する。fresh host は `cargo fetch --locked` 後に offline
+検証を行う。workspace 採用時は Integration Owner が依存元を統一する。

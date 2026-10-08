@@ -7,9 +7,11 @@ publish = false
 # BP-SBOM-HOST-20261008: standalone host foundation; no root integration.
 [workspace]
 
+# Canonical types pinned to the registered base, following SEARCH-CORE-01.
+# Local path deps cause rustfmt --all to expand the shared root workspace.
 [dependencies]
-nagi-model = { path = "../nagi-model" }
-nagi-history = { path = "../../user/nagi-history" }
+nagi-model = { git = "https://github.com/RT-NISH/NagiOS", rev = "cd871f905bd06ef406ccaa9f80c484f19158209f" }
+nagi-history = { git = "https://github.com/RT-NISH/NagiOS", rev = "cd871f905bd06ef406ccaa9f80c484f19158209f" }
 
 [[test]]
 name = "writer-core-acceptance"

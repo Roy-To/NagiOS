@@ -3,15 +3,25 @@
   "schema_version": 1,
   "workstream_id": "writer-core-01",
   "current_milestone": "W1-W5 standalone Writer host foundation; WRITER-H01-H12",
-  "current_checkpoint": "implementation-host-verification-before-first-commit",
+  "current_checkpoint": "canonical-dependency-isolation-verified;repair-awaits-new-ci",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "cd871f905bd06ef406ccaa9f80c484f19158209f",
-    "verified_at": "2026-10-08T13:47:12.386336Z",
-    "normal_state": "User explicitly assigned implementation to Codex while retaining the registered Claude branch and shared Registry unchanged. BP-SBOM-HOST-20261008 authorizes host-only owned paths. Pre-commit working-tree tests have passed; this SHA is the registration base, not the uncommitted Writer implementation. Final immutable implementation SHA verification and push/CI remain to be recorded. W1-W5 code is standalone, no product/runtime/target acceptance is claimed.",
+    "commit_sha": "f6454b76c97012aafc46a2b0edc79b1d68ce271c",
+    "verified_at": "2026-10-08T13:50:16.230952Z",
+    "normal_state": "W1-W5 and WRITER-H01-H11 host implementation are complete in standalone nagi-writer-core, with 30/30 focused acceptance tests, offline locked build, rustfmt, warning-denied Clippy and rustdoc on immutable published commit f6454b76c97012aafc46a2b0edc79b1d68ce271c. Shared host CLI verification passed 18 development + 7 command + 26 CLI tests. DF-01 validates 27 streams / 16 State files. Only the 16 registered owned files changed. User assigned Codex implementation without renaming the registered Claude branch or changing Registry. Host-only BP-SBOM-HOST-20261008 scope is preserved; product/runtime/target acceptance is deferred. Git CLI push returned 403 for RyomaTOZAWA; the explicitly intended repository owner RT-NISH connection had verified push permission, so the identical Git tree 654c4270d95c6de4bd36314982ff1b28be70af6e was published through GitHub Git Data API with a leased non-forced branch update. Local HEAD was aligned only after clean worktree and exact tree equality checks, then reverified. Published remote HEAD equality and clean worktree were confirmed. CI results remain pending. Windows failure is diagnosed and an owned manifest repair now pins both canonical crates to exact approved base cd871f905bd06ef406ccaa9f80c484f19158209f. The current repair working tree passes all 30 tests and full host gate; verbose rustfmt inventory now contains only Writer lib and acceptance entry points. A separate CRLF copy also passes cargo fmt --all and all 30 tests. Shared sources/CI remain unchanged. Final repair SHA and new Windows CI remain to be recorded.",
     "commands": [
       "bash tests/writer-core/verify.sh",
-      "./nagi dev verify"
+      "cargo fmt --manifest-path crates/nagi-writer-core/Cargo.toml --all -- --check",
+      "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib development::",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib commands::tests",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --test cli",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume",
+      "git diff --check",
+      "git ls-remote origin refs/heads/claude/0.2-writer-core-01"
     ],
     "tests": [
       {
@@ -19,7 +29,7 @@
         "command": "bash tests/writer-core/verify.sh",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "30/30 acceptance tests, offline locked build, fmt, warning-denied Clippy and rustdoc passed on final pre-commit working tree. Raw output: .dev/workstreams/writer-core-01/host-verification.txt. Immutable code SHA will be reverified immediately after commit."
+        "evidence": "30/30 acceptance tests and complete host gate passed on immutable published SHA f6454b76c97012aafc46a2b0edc79b1d68ce271c (same code as owned host-verification.txt). Final clean-SHA raw output: /tmp/writer-published-verification.txt. No test skipped, deleted or weakened."
       },
       {
         "name": "Host CLI compatibility",
@@ -34,9 +44,40 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "27 registered workstreams and 16 State files validated; branch resolves to writer-core-01. Logs: dev-verification.txt and host-cli-verification.txt."
+      },
+      {
+        "name": "Canonical dependency formatting isolation",
+        "command": "cargo fmt --manifest-path crates/nagi-writer-core/Cargo.toml --all --verbose -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Only Writer lib.rs and tests/writer-core/acceptance.rs roots are formatted; no root workspace/third_party source is visited. Raw output: format-scope-verification.txt."
+      },
+      {
+        "name": "CRLF checkout regression",
+        "command": "cargo fmt --manifest-path /tmp/writer-crlf-repo/crates/nagi-writer-core/Cargo.toml --all -- --check; cargo test --manifest-path /tmp/writer-crlf-repo/crates/nagi-writer-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All owned crate and test files converted to CRLF in an independent /tmp copy; format and 30/30 tests pass. Raw output: crlf-verification.json. This is a newline regression on Linux, not a claim of Windows runtime acceptance."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 37787276404,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37787276404",
+        "head_sha": "f6454b76c97012aafc46a2b0edc79b1d68ce271c",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu host-foundations job 113345151781 succeeded. Windows job 113345151420 failed before Writer Clippy/tests at Owned app host tests: cargo fmt --all traversed local canonical path dependencies into the root workspace and third_party/relibc. Git Windows CRLF checkout conflicts with relibc newline_style=Unix; 180+ Incorrect newline style entries. CLI and Registry stages passed. No Writer test failure observed; Windows Writer tests were NOT RUN."
+      },
+      {
+        "run_id": 37787276569,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37787276569",
+        "head_sha": "f6454b76c97012aafc46a2b0edc79b1d68ce271c",
+        "status": "COMPLETED",
+        "conclusion": "skipped",
+        "summary": "Regular Nagi CI is intentionally skipped by the approved host-only branch routing. Product/target CI is not claimed."
+      }
+    ]
   },
   "release_line_gate": {
     "source": ".dev/workstreams.json; docs/0.2/WORKSTREAMS.md; docs/implementation_status.md",
@@ -47,14 +88,20 @@
     "active": false,
     "class": null,
     "summary": null,
-    "reproduction_commands": [],
-    "failure_log_summary": "Initial host had no Cargo (exit 127): installed pinned nightly-2025-08-01 in /tmp. First compile found canonical ObjectId lacks Ord (exit 101): used BTreeSet<u64> tombstones without changing shared type. First acceptance 21/22: review test reused range 0..1 after Japanese replacement; corrected the next review fixture to typed delete. First Clippy found cloned slice and reversed test range: replaced slice with from_ref and constructed reversed Range explicitly, preserving the negative assertion. DF-01 initial verify rejected missing owned State; this State resolves it. GitHub CLI API read returned Forbidden under network policy; use connected GitHub read tools for CI evidence.",
+    "reproduction_commands": [
+      "cargo fmt --manifest-path crates/nagi-writer-core/Cargo.toml --all -- --check (Windows CRLF checkout)"
+    ],
+    "failure_log_summary": "Initial host had no Cargo (exit 127): installed pinned nightly-2025-08-01 in /tmp. First compile found canonical ObjectId lacks Ord (exit 101): used BTreeSet<u64> tombstones without changing shared type. First acceptance 21/22: review test reused range 0..1 after Japanese replacement; corrected the next review fixture to typed delete. First Clippy found cloned slice and reversed test range: replaced slice with from_ref and constructed reversed Range explicitly, preserving the negative assertion. DF-01 initial verify rejected missing owned State; this State resolves it. GitHub CLI API read returned Forbidden under network policy; use connected GitHub read tools for CI evidence. Git CLI push exit 128 / HTTP 403 confirmed repository permission denied to RyomaTOZAWA. Resolved through authorized RT-NISH GitHub connection (push permission verified), exact-tree publication and expected-head lease; no force or permission bypass. CI run 37787276404 Windows job 113345151420 failed exit 1 with Incorrect newline style in third_party/relibc (build.rs and src/**). Ubuntu passed. Targeted fix: pin nagi-model/nagi-history to the exact approved base cd871f905bd06ef406ccaa9f80c484f19158209f using existing SEARCH-CORE-01 git-dependency precedent; Git dependencies are excluded from rustfmt --all local-path traversal, and canonical definitions remain unchanged.",
     "attempted_fixes": [
       "Pinned Rust install; retain TLS/proxy and root workspace unchanged.",
       "Canonical ObjectId reuse with raw-value tombstone storage.",
       "Correct UTF-8 review fixture; retain boundary rejection tests.",
       "Fix Clippy test patterns without suppressions.",
-      "Create owned DF-01 State."
+      "Create owned DF-01 State.",
+      "Publish exact tested tree through repository-owner RT-NISH connection; lease branch update from registered base; verify fetched tree and immutable published SHA.",
+      "Diagnosed exact Windows failure log: format expansion via local path deps, not Writer assertions. Replace local path deps with exact source-revision canonical Git deps; verify formatting inventory and rerun owned checks.",
+      "Pinned canonical dependencies remove root/third_party formatting expansion; verbose inventory and CRLF regression verified. Full original Windows job log retained at windows-ci-37787276404.json.",
+      "Raw CI/CRLF log whitespace initially made git diff --check fail; retain complete raw strings in JSON envelopes so evidence bytes are preserved without trailing-whitespace diff errors."
     ],
     "do_not_try": [
       "Do not modify shared Registry, Cargo workspace/lock, CI, Kernel or other workstream.",
@@ -62,7 +109,7 @@
       "Do not bypass network policy."
     ]
   },
-  "next_action": "Complete final host gate, DF-01 and ownership audit; commit owned implementation, verify immutable SHA, push owner branch, inspect Ubuntu/Windows host foundation CI and record evidence in a State-only checkpoint.",
+  "next_action": "Publish only owned canonical dependency isolation repair, reverify immutable SHA, wait for Ubuntu/Windows CI and write final State-only evidence checkpoint. Integration Owner later adopts unified canonical dependency versions at approved boundary.",
   "acceptance_criteria": [
     "WRITER-H01: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
     "WRITER-H02: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
