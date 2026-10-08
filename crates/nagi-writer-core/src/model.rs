@@ -459,12 +459,6 @@ impl Document {
                     _ => (),
                 }
                 bytes = bytes.saturating_add(block_bytes(&b.kind));
-                let nodes = match &b.kind {
-                    BlockKind::Table(t) => t.rows.len().saturating_mul(t.rows[0].len()),
-                    BlockKind::List { items, .. } => items.len(),
-                    _ => 0,
-                };
-                bytes = bytes.saturating_add(nodes.saturating_mul(24));
             }
         }
         for c in &self.comments {
@@ -521,14 +515,10 @@ pub(crate) fn block_bytes(kind: &BlockKind) -> usize {
             t.len()
         }
         BlockKind::Code { language, text } => language.len().saturating_add(text.len()),
-        BlockKind::List { items, .. } => {
-            items.iter().fold(0usize, |n, s| n.saturating_add(s.len()))
-        }
-        BlockKind::Table(t) => t
-            .rows
+        BlockKind::List { items, .. } => items
             .iter()
-            .flatten()
-            .fold(0usize, |n, s| n.saturating_add(s.len())),
+            .fold(0usize, |n, s| n.saturating_add(s.len()).saturating_add(24)),
+        BlockKind::Table(t) => table_bytes(t),
         BlockKind::Citation(r) | BlockKind::LinkedReference(r) => r
             .label
             .len()
@@ -552,4 +542,10 @@ fn validate_reference(r: &Reference) -> Result<(), Error> {
         valid_revision(revision)?;
     }
     Ok(())
+}
+
+pub(crate) fn table_bytes(table: &Table) -> usize {
+    table.rows.iter().flatten().fold(0usize, |n, cell| {
+        n.saturating_add(cell.len()).saturating_add(24)
+    })
 }

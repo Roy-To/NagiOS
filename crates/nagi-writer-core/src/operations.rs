@@ -1,4 +1,4 @@
-use crate::model::{block_bytes, valid_revision};
+use crate::model::{block_bytes, table_bytes, valid_revision};
 use crate::*;
 use std::ops::Range;
 
@@ -89,11 +89,7 @@ impl Operation {
                 block.style.len().saturating_add(block_bytes(&block.kind))
             }
             Self::ReplaceText { text, .. } => text.len(),
-            Self::ReplaceTable { table, .. } => table
-                .rows
-                .iter()
-                .flatten()
-                .fold(0usize, |n, s| n.saturating_add(s.len())),
+            Self::ReplaceTable { table, .. } => table_bytes(table),
             Self::ApplyStyle { style, .. } => style.len(),
             Self::DefineStyle { name, style } => name
                 .len()
@@ -192,6 +188,7 @@ impl Engine {
         {
             return Err(Error::InvalidReview);
         }
+        validate_payload_budget(operations, self.limits)?;
         let next = RevisionId(expected.0.checked_add(1).ok_or(Error::LimitExceeded)?);
         valid_revision(next)?;
         let mut document = current.clone();
@@ -442,6 +439,7 @@ fn apply(
             {
                 return Err(Error::InvalidReview);
             }
+            validate_payload_budget(operations, limits)?;
             let mut trial = document.clone();
             trial.issue(*id)?;
             let mut trial_changes = vec![];
@@ -500,4 +498,15 @@ fn apply(
         operation: op.clone(),
     });
     Ok(())
+}
+
+fn validate_payload_budget(operations: &[Operation], limits: Limits) -> Result<(), Error> {
+    let bytes = operations
+        .iter()
+        .fold(0usize, |n, op| n.saturating_add(op.payload_bytes()));
+    if bytes > limits.max_bytes {
+        Err(Error::LimitExceeded)
+    } else {
+        Ok(())
+    }
 }

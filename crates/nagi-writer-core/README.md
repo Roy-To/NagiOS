@@ -50,7 +50,9 @@ the review decision appear in ChangeSet; original proposer metadata remains
 in TrackedChange and reviewer metadata in the committing ChangeSet.
 
 Limits bound input bytes, document payload, issued IDs, styles, revisions,
-operations, review payloads, comments and table cells. Reaching a limit fails
+operations, review payloads, comments and table cells. Empty list items/table
+cells consume structural budget too; aggregate batch/proposal payloads are
+checked before preview/history cloning. Reaching a limit fails
 explicitly; no history or tombstone is silently discarded. Defaults are 1 MiB
 payload, 4096 issued identities, 256 revision snapshots, 1024 operations and
 16384 cells per table. Large production histories belong to the Store provider.

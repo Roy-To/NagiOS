@@ -1,9 +1,7 @@
-   Compiling nagi-model v0.1.0 (https://github.com/RT-NISH/NagiOS?rev=cd871f905bd06ef406ccaa9f80c484f19158209f#cd871f90)
-   Compiling nagi-history v0.1.0 (https://github.com/RT-NISH/NagiOS?rev=cd871f905bd06ef406ccaa9f80c484f19158209f#cd871f90)
    Compiling nagi-writer-core v0.1.0 (/workspace/NagiOS-writer-core-01/crates/nagi-writer-core)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.12s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
    Compiling nagi-writer-core v0.1.0 (/workspace/NagiOS-writer-core-01/crates/nagi-writer-core)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.55s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
      Running unittests src/lib.rs (crates/nagi-writer-core/target/debug/deps/nagi_writer_core-7bea9be120536e8f)
 
 running 0 tests
@@ -12,39 +10,40 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
      Running ../../tests/writer-core/acceptance.rs (crates/nagi-writer-core/target/debug/deps/writer_core_acceptance-103fc881b9fe2973)
 
-running 30 tests
-test h03_duplicates_tombstones_and_parent_cycles_are_rejected_atomically ... ok
-test h02_table_operations_are_transactional_and_stable ... ok
-test h03_platform_identity_compatibility_fixture ... ok
+running 31 tests
 test h01_create_insert_move_delete_and_read_without_ai ... ok
-test h03_sections_move_with_children_and_invalid_positions_leave_snapshot_intact ... ok
-test h05_immutable_history_conflicts_and_failed_batches ... ok
-test h04_styles_inherit_and_outline_follows_structural_order ... ok
+test h02_table_operations_are_transactional_and_stable ... ok
+test h03_duplicates_tombstones_and_parent_cycles_are_rejected_atomically ... ok
 test h02_all_block_types_are_retained ... ok
+test h03_platform_identity_compatibility_fixture ... ok
+test h05_immutable_history_conflicts_and_failed_batches ... ok
 test h03_ids_stay_stable_across_changes_and_native_reopen ... ok
+test h03_sections_move_with_children_and_invalid_positions_leave_snapshot_intact ... ok
 test h06_preview_has_no_effects_and_review_batch_is_rejected ... ok
 test h06_changesets_cover_add_delete_move_format_and_provenance ... ok
+test h04_styles_inherit_and_outline_follows_structural_order ... ok
 test h06_proposal_identity_cannot_collide_with_proposed_object ... ok
-test h06_review_nested_operations_and_duplicate_decisions_fail ... ok
 test h07_comments_reply_resolve_and_deleted_anchor_preservation ... ok
-test h08_plaintext_is_literal_and_normalizes_newlines ... ok
-test h08_fenced_code_and_literal_punctuation_roundtrip ... ok
+test h06_review_nested_operations_and_duplicate_decisions_fail ... ok
 test h06_track_changes_preview_accept_reject_and_stale_review ... ok
 test h08_bilingual_markdown_subset_roundtrips ... ok
-test h09_export_table_and_reference_reports_loss_before_write ... ok
+test h08_plaintext_is_literal_and_normalizes_newlines ... ok
+test h08_fenced_code_and_literal_punctuation_roundtrip ... ok
 test h09_plaintext_whitespace_structure_loss_is_reported ... ok
 test h09_unclosed_fence_keeps_all_content_and_warns ... ok
-test h10_allocator_collisions_and_object_operation_limits_are_explicit ... ok
+test h09_export_table_and_reference_reports_loss_before_write ... ok
 test h09_unsupported_markdown_is_preserved_with_line_warnings ... ok
+test h10_allocator_collisions_and_object_operation_limits_are_explicit ... ok
 test h10_limits_and_corrupt_native_inputs_are_rejected ... ok
-test h11_absent_adapters_never_claim_persistence_activity_or_restore ... ok
 test h10_unicode_byte_boundaries_and_overflow_ranges_do_not_panic ... ok
+test h11_absent_adapters_never_claim_persistence_activity_or_restore ... ok
 test h11_activity_projection_contains_only_identity_and_categories ... ok
 test h11_search_projection_requires_permission_and_excludes_comments ... ok
+test h10_review_and_batch_budgets_include_empty_table_cells_before_preview ... ok
 test h10_large_bounded_input_and_empty_structural_elements ... ok
 test h10_every_utf8_boundary_is_checked_against_scalar_positions ... ok
 
-test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
    Doc-tests nagi_writer_core
 
@@ -52,10 +51,8 @@ running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-    Checking nagi-model v0.1.0 (https://github.com/RT-NISH/NagiOS?rev=cd871f905bd06ef406ccaa9f80c484f19158209f#cd871f90)
-    Checking nagi-history v0.1.0 (https://github.com/RT-NISH/NagiOS?rev=cd871f905bd06ef406ccaa9f80c484f19158209f#cd871f90)
     Checking nagi-writer-core v0.1.0 (/workspace/NagiOS-writer-core-01/crates/nagi-writer-core)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.01s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.43s
  Documenting nagi-writer-core v0.1.0 (/workspace/NagiOS-writer-core-01/crates/nagi-writer-core)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.40s
    Generated /workspace/NagiOS-writer-core-01/crates/nagi-writer-core/target/doc/nagi_writer_core/index.html

@@ -1112,3 +1112,42 @@ fn h06_proposal_identity_cannot_collide_with_proposed_object() {
         Some("p")
     );
 }
+
+#[test]
+fn h10_review_and_batch_budgets_include_empty_table_cells_before_preview() {
+    let mut e = engine();
+    insert(
+        &mut e,
+        3,
+        BlockKind::Table(Table::new(vec![vec![String::new()]]).unwrap()),
+    );
+    let before = e.document().clone();
+    // Each valid table has 16K empty cells. Their structure still consumes
+    // budget even though the text payload is zero bytes.
+    let table = Table {
+        rows: vec![vec![String::new(); 128]; 128],
+    };
+    let operations = vec![
+        Operation::ReplaceTable {
+            object: ObjectId(3),
+            table
+        };
+        3
+    ];
+    assert_eq!(
+        e.preview(before.revision, &operations, &provenance()),
+        Err(Error::LimitExceeded)
+    );
+    assert_eq!(
+        e.apply(
+            before.revision,
+            &[Operation::Suggest {
+                id: ObjectId(4),
+                operations
+            }],
+            provenance()
+        ),
+        Err(Error::LimitExceeded)
+    );
+    assert_eq!(e.document(), &before);
+}

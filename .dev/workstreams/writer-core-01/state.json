@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "writer-core-01",
   "current_milestone": "W1-W5 standalone Writer host foundation; WRITER-H01-H12",
-  "current_checkpoint": "canonical-dependency-isolation-verified;repair-awaits-new-ci",
+  "current_checkpoint": "windows-ci-green;structured-review-budget-final-hardening",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "f6454b76c97012aafc46a2b0edc79b1d68ce271c",
-    "verified_at": "2026-10-08T13:50:16.230952Z",
-    "normal_state": "W1-W5 and WRITER-H01-H11 host implementation are complete in standalone nagi-writer-core, with 30/30 focused acceptance tests, offline locked build, rustfmt, warning-denied Clippy and rustdoc on immutable published commit f6454b76c97012aafc46a2b0edc79b1d68ce271c. Shared host CLI verification passed 18 development + 7 command + 26 CLI tests. DF-01 validates 27 streams / 16 State files. Only the 16 registered owned files changed. User assigned Codex implementation without renaming the registered Claude branch or changing Registry. Host-only BP-SBOM-HOST-20261008 scope is preserved; product/runtime/target acceptance is deferred. Git CLI push returned 403 for RyomaTOZAWA; the explicitly intended repository owner RT-NISH connection had verified push permission, so the identical Git tree 654c4270d95c6de4bd36314982ff1b28be70af6e was published through GitHub Git Data API with a leased non-forced branch update. Local HEAD was aligned only after clean worktree and exact tree equality checks, then reverified. Published remote HEAD equality and clean worktree were confirmed. CI results remain pending. Windows failure is diagnosed and an owned manifest repair now pins both canonical crates to exact approved base cd871f905bd06ef406ccaa9f80c484f19158209f. The current repair working tree passes all 30 tests and full host gate; verbose rustfmt inventory now contains only Writer lib and acceptance entry points. A separate CRLF copy also passes cargo fmt --all and all 30 tests. Shared sources/CI remain unchanged. Final repair SHA and new Windows CI remain to be recorded.",
+    "commit_sha": "201d452abdea340b6b942efca4568f6c70dc369c",
+    "verified_at": "2026-10-08T13:59:19.129227Z",
+    "normal_state": "Canonical dependency isolation repair 201d452abdea340b6b942efca4568f6c70dc369c has passed local 30/30 acceptance and the dedicated Ubuntu/Windows CI. Only registered owned paths were changed; no shared Registry/root Cargo/CI/Kernel/other owner changes. User explicitly assigned Codex implementation and kept the Claude owner branch unchanged. Final review found empty table/list elements counted in live documents but not operation/review payloads: the current owned hardening working tree now includes structure in payload accounting and checks aggregate budgets before cloning previews. All 31/31 tests, locked offline host gate and CRLF regression pass. Final hardening SHA and CI are still to be recorded. Git CLI push is unavailable for environment identity RyomaTOZAWA; exact tested trees are published with the authorized RT-NISH GitHub connection and leased, non-forced owner branch updates. Host-only W1-W5 implementation is complete; product/runtime/target adoption remains gated.",
     "commands": [
       "bash tests/writer-core/verify.sh",
       "cargo fmt --manifest-path crates/nagi-writer-core/Cargo.toml --all -- --check",
@@ -29,7 +29,7 @@
         "command": "bash tests/writer-core/verify.sh",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "30/30 acceptance tests and complete host gate passed on immutable published SHA f6454b76c97012aafc46a2b0edc79b1d68ce271c (same code as owned host-verification.txt). Final clean-SHA raw output: /tmp/writer-published-verification.txt. No test skipped, deleted or weakened."
+        "evidence": "Published dependency-repair SHA 201d452abdea340b6b942efca4568f6c70dc369c passed 30/30 tests locally and on Ubuntu/Windows CI; latest budget-hardening working tree passes 31/31, build, fmt, warning-denied Clippy and rustdoc (host-verification.txt). Final immutable hardening SHA will be reverified."
       },
       {
         "name": "Host CLI compatibility",
@@ -57,10 +57,26 @@
         "command": "cargo fmt --manifest-path /tmp/writer-crlf-repo/crates/nagi-writer-core/Cargo.toml --all -- --check; cargo test --manifest-path /tmp/writer-crlf-repo/crates/nagi-writer-core/Cargo.toml --locked --offline",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "All owned crate and test files converted to CRLF in an independent /tmp copy; format and 30/30 tests pass. Raw output: crlf-verification.json. This is a newline regression on Linux, not a claim of Windows runtime acceptance."
+        "evidence": "Final owned hardening files converted to CRLF in /tmp; format and 31/31 tests pass. Raw output preserved in crlf-verification.json. This Linux CRLF test does not claim Windows runtime acceptance."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 37788231372,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37788231372",
+        "head_sha": "201d452abdea340b6b942efca4568f6c70dc369c",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Ubuntu job 113348434896 and Windows job 113348434572 both succeeded, including Owned app host tests fmt/Clippy/offline acceptance. Canonical Git dependency isolation resolves the original Windows format failure."
+      },
+      {
+        "run_id": 37788231404,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37788231404",
+        "head_sha": "201d452abdea340b6b942efca4568f6c70dc369c",
+        "status": "COMPLETED",
+        "conclusion": "skipped",
+        "summary": "Regular product/target CI intentionally skipped for approved host-only branch."
+      },
       {
         "run_id": 37787276404,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37787276404",
@@ -101,7 +117,8 @@
       "Publish exact tested tree through repository-owner RT-NISH connection; lease branch update from registered base; verify fetched tree and immutable published SHA.",
       "Diagnosed exact Windows failure log: format expansion via local path deps, not Writer assertions. Replace local path deps with exact source-revision canonical Git deps; verify formatting inventory and rerun owned checks.",
       "Pinned canonical dependencies remove root/third_party formatting expansion; verbose inventory and CRLF regression verified. Full original Windows job log retained at windows-ci-37787276404.json.",
-      "Raw CI/CRLF log whitespace initially made git diff --check fail; retain complete raw strings in JSON envelopes so evidence bytes are preserved without trailing-whitespace diff errors."
+      "Raw CI/CRLF log whitespace initially made git diff --check fail; retain complete raw strings in JSON envelopes so evidence bytes are preserved without trailing-whitespace diff errors.",
+      "Final bounded-payload audit: include empty table/list structural elements in operation budgets and reject aggregate batch/proposal payloads before preview/history cloning; add 31st acceptance regression."
     ],
     "do_not_try": [
       "Do not modify shared Registry, Cargo workspace/lock, CI, Kernel or other workstream.",
@@ -109,7 +126,7 @@
       "Do not bypass network policy."
     ]
   },
-  "next_action": "Publish only owned canonical dependency isolation repair, reverify immutable SHA, wait for Ubuntu/Windows CI and write final State-only evidence checkpoint. Integration Owner later adopts unified canonical dependency versions at approved boundary.",
+  "next_action": "Publish owned bounded-review hardening, verify immutable SHA, inspect Ubuntu/Windows CI; then record final Host PASS and publish State-only checkpoint. Integration Owner reviews adoption and unifies canonical crate sources; runtime activation remains gated.",
   "acceptance_criteria": [
     "WRITER-H01: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
     "WRITER-H02: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
