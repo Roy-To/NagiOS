@@ -60,7 +60,8 @@ struct OwnerFilesVisibility;
 
 impl VisibilityFilter for OwnerFilesVisibility {
     fn can_read_object(&self, access: AccessContext, record: &MetadataRecord) -> bool {
-        access == FILES_ACCESS
+        access.app_id == Some(FILES_APP_ID)
+            && access.app_session_id.is_some()
             && record.kind == ObjectKind::File
             && record.visibility == VisibilityScope::Private
             && record.source_app == Some(FILES_APP_ID)
@@ -72,7 +73,8 @@ impl VisibilityFilter for OwnerFilesVisibility {
     }
 
     fn can_read_workspace(&self, access: AccessContext, workspace: &Workspace) -> bool {
-        access == FILES_ACCESS
+        access.app_id == Some(FILES_APP_ID)
+            && access.app_session_id.is_some()
             && workspace.workspace_id == FILES_WORKSPACE_ID
             && workspace.owner_app == Some(FILES_APP_ID)
             && workspace.visibility == VisibilityScope::Private
@@ -416,10 +418,27 @@ impl Runtime {
     }
 
     pub(super) fn search_files(&self, query: &str) -> Option<Vec<ObjectId>> {
+        self.search_files_as(FILES_ACCESS, query)
+    }
+
+    /// Search as the live Files application session authenticated by the
+    /// Supervisor at the `search@1` boundary.
+    pub(super) fn search_files_for_application(
+        &self,
+        access: AccessContext,
+        query: &str,
+    ) -> Option<Vec<ObjectId>> {
+        if access.app_id != Some(FILES_APP_ID) || access.app_session_id.is_none() {
+            return None;
+        }
+        self.search_files_as(access, query)
+    }
+
+    fn search_files_as(&self, access: AccessContext, query: &str) -> Option<Vec<ObjectId>> {
         let response = self
             .service
             .search(
-                FILES_ACCESS,
+                access,
                 &nagi_search::SearchQuery {
                     text: Some(String::from(query)),
                     kind: Some(ObjectKind::File),
@@ -460,6 +479,29 @@ impl Runtime {
                 .map(|hit| hit.record.title)
                 .collect(),
         )
+    }
+
+    /// Resolve only ObjectIds returned by the authenticated `search@1` reply.
+    /// Both the private Files workspace and its owner visibility filter are
+    /// checked again before a title reaches the UI.
+    #[cfg(feature = "m19-files-search-production")]
+    pub(super) fn visible_file_titles(&self, object_ids: &[u64]) -> Option<Vec<String>> {
+        let workspace = self
+            .service
+            .get_workspace(FILES_ACCESS, FILES_WORKSPACE_ID)?;
+        let mut titles = Vec::with_capacity(object_ids.len());
+        for raw_id in object_ids {
+            let object_id = ObjectId(*raw_id);
+            if !workspace.objects.contains(&object_id) {
+                return None;
+            }
+            let record = self.service.get_object(FILES_ACCESS, object_id)?;
+            if record.kind != ObjectKind::File {
+                return None;
+            }
+            titles.push(record.title);
+        }
+        Some(titles)
     }
 
     #[cfg(feature = "desktop-login-acceptance")]

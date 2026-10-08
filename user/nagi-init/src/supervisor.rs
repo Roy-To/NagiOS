@@ -22,7 +22,7 @@ use libnagi::launch::{
     AppManifest, GrantCheck, GrantDecision, LaunchError, LaunchPlacement, LaunchRecord,
     LaunchRegistry,
 };
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(feature = "consent-dialog")]
 use libnagi::launch::{ConsentRequest, DecisionStoreError, MAX_ENCODED_DECISIONS};
 use libnagi::security::{AccountStore, Role, Session};
 use libnagi::{
@@ -204,7 +204,7 @@ pub fn record_user_decision(
 
 /// Queue a prompt for the OS-owned consent dialog when `capability` needs
 /// the user's answer. Any other grant state is returned unchanged.
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(feature = "consent-dialog")]
 pub fn request_consent(
     app_id: AppId,
     app_session_id: nagi_model::AppSessionId,
@@ -215,14 +215,14 @@ pub fn request_consent(
 }
 
 /// The oldest prompt waiting for the consent dialog.
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(feature = "consent-dialog")]
 pub fn next_consent_request() -> Option<ConsentRequest> {
     with_registry(|registry| registry.next_consent_request()).flatten()
 }
 
 /// Close a prompt with the user's answer from the OS-owned dialog. `None`
 /// (dismissed) records nothing.
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(feature = "consent-dialog")]
 pub fn resolve_consent(
     user: &Session,
     request: &ConsentRequest,
@@ -234,13 +234,13 @@ pub fn resolve_consent(
 }
 
 /// Encode the decisions that persist across restarts.
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(feature = "consent-dialog")]
 pub fn encode_decisions(output: &mut [u8; MAX_ENCODED_DECISIONS]) -> usize {
     with_registry(|registry| registry.encode_decisions(output)).unwrap_or(0)
 }
 
 /// The recorded decisions, for the settings view (ADR 0065).
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(feature = "consent-dialog")]
 pub fn list_decisions(
     output: &mut [Option<libnagi::launch::DecisionView>; libnagi::launch::MAX_CONSENT_DECISIONS],
 ) -> usize {
@@ -248,7 +248,7 @@ pub fn list_decisions(
 }
 
 /// Apply decisions persisted in the user's User Data.
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(feature = "consent-dialog")]
 pub fn restore_decisions(user: &Session, bytes: &[u8]) -> Result<usize, DecisionStoreError> {
     with_registry(|registry| registry.restore_decisions(user, bytes))
         .unwrap_or(Err(DecisionStoreError::Malformed))

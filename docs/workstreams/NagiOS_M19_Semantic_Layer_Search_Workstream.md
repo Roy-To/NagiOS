@@ -418,3 +418,43 @@ any live session holding `files.search` read the fixture's Files records. The
 fixture Files records are now visible only to the fixture's own app session;
 the grant gate stays in the `search@1` evaluator. Not re-verified locally (no
 guest toolchain on the preparing host); the next CI run is the evidence.
+
+## ADR 0069 implementation progress — bundled Files Search route (2026-10-08)
+
+ADR 0069 narrows this production step to one signed `org.nagi.files` client
+bundled into init, one request per launch, the existing Supervisor and private
+Channel, OS-owned consent, and the existing live `search.query` plus
+`files.search` grant checks. The signed-in Files panel remains in init; PID 1
+does not impersonate the client. Each launch receives a fresh
+`AppSessionId`. The client relays its decoded bounded result set so init can
+compare it with the service reply, resolve the returned ObjectIds through the
+private Files Workspace, and display only visible titles. Generic app
+registration, Package Service installation, and UI-process migration remain
+deferred.
+
+The signed `org.nagi.files` package and client ELF build locally, and the
+integrated build compiles `nagi-init`. The first full login-image attempt then
+failed while building the kernel target's `core` archive with `No space left
+on device`; QEMU was not started and there is no guest acceptance result yet.
+On this arm64 macOS host, the successful target compiler invocation uses the
+pinned nightly `rustc` explicitly, puts its `bin` directory first in `PATH`
+for nested Cargo commands, and selects the installed Homebrew LLVM 19 clang
+and LLD for Nagi target C builds. This resolves the prior x86_64 Homebrew Rust /
+Xcode `xcrun` mismatch, but does not resolve the remaining disk-space limit.
+
+The production feature routes Files searches through the signed child,
+rechecks both live grants before accepting the result relay, and aborts/reaps
+the child on denial and service errors. A guest run still needs to prove the
+real caller, the exact visible returned ObjectId, consent decisions, and child
+cleanup. Existing M19 `search@1` acceptance continues to cover no-launch,
+query-only, revoked-session, and foreign-visibility denial paths, but has not
+yet been rerun together with this production route.
+
+Hark port (2026-10-08): this route was re-applied onto `main` after PR #28
+merged, superseding PR #30. Host tests, the client's Nagi-target build, and a
+Nagi-target `nagi-init` check with the production feature passed on an aarch64
+Linux host; guest acceptance was not run there and is left to CI.
+
+M19 remains `PARTIAL`. After the focused login guest acceptance, the remaining
+workstream still includes Files create/rename/move-to-trash/restore controls
+and normal Browser History producer updates.
