@@ -65,4 +65,25 @@
 #endif
 #define O_EXCL 0x08000000
 
+/* Directory-relative and no-follow flags (third_party/libc/src/unix/nagi.rs). */
+#ifdef O_DIRECTORY
+#undef O_DIRECTORY
+#endif
+#define O_DIRECTORY 0x10000000
+
+#ifdef O_NOFOLLOW
+#undef O_NOFOLLOW
+#endif
+#define O_NOFOLLOW (-0x7fffffff - 1)
+
+#ifdef AT_FDCWD
+#undef AT_FDCWD
+#endif
+#define AT_FDCWD (-100)
+
+#ifdef AT_REMOVEDIR
+#undef AT_REMOVEDIR
+#endif
+#define AT_REMOVEDIR 0x200
+
 #endif

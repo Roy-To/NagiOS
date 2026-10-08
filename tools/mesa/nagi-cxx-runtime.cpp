@@ -22,10 +22,17 @@ extern "C" void nagi_mesa_glthread_finish(void *context)
 extern "C" void (*nagi_mesa_glthread_finish_link_anchor)(void *) =
     &nagi_mesa_glthread_finish;
 
+// NAGI_CXX_RUNTIME_WITH_LIBCXX: images that link the target-built libc++
+// (tools/libcxx, ADR 0053) take the standard-library pieces below from that
+// archive. This file then keeps only the Itanium ABI boundary libc++ is
+// configured without (LIBCXX_CXX_ABI=none): allocation, guards, atexit,
+// type-info vtables, and the GNU ABI helpers used by Mesa and Servo objects.
+
 namespace std {
 struct nothrow_t {};
 enum class align_val_t : nagi_size_t;
 
+#ifndef NAGI_CXX_RUNTIME_WITH_LIBCXX
 // libc++'s freestanding exception fallback declares these out-of-line
 // methods even when language exceptions are disabled. Define the matching
 // unversioned std::exception hierarchy here so the target gets the real
@@ -57,16 +64,19 @@ class bad_alloc : public exception {
 bad_alloc::bad_alloc() noexcept = default;
 bad_alloc::~bad_alloc() noexcept = default;
 const char *bad_alloc::what() const noexcept { return "std::bad_alloc"; }
+#endif // NAGI_CXX_RUNTIME_WITH_LIBCXX
 } // namespace std
 
 extern "C" nagi_uintptr_t __stack_chk_guard = 0xd048c37519fcadfeULL;
 
+#ifndef NAGI_CXX_RUNTIME_WITH_LIBCXX
 // Some target objects use the GNU spelling of the standard nothrow object even
 // though Nagi's normal headers are libc++.  The object is an empty tag, so a
 // Nagi-owned instance is sufficient for the ABI and does not import a host
 // C++ runtime.
 extern "C" const std::nothrow_t nagi_gnu_nothrow
     __asm__("_ZSt7nothrow") = {};
+#endif // NAGI_CXX_RUNTIME_WITH_LIBCXX
 
 extern "C" [[noreturn]] void __stack_chk_fail() {
     abort();
@@ -207,6 +217,7 @@ extern "C" void nagi_cxx_finalize() {
     __cxa_finalize(nullptr);
 }
 
+#ifndef NAGI_CXX_RUNTIME_WITH_LIBCXX
 // libc++ uses this freestanding diagnostic entrypoint for invariant failures
 // even when exceptions are disabled. Keep the ABI real and terminate the
 // guest through Nagi's process boundary; do not import a host libc++abi.
@@ -216,6 +227,7 @@ extern "C" [[noreturn]] void nagi_cxx_verbose_abort(const char *, ...)
 extern "C" [[noreturn]] void nagi_cxx_verbose_abort(const char *, ...) {
     abort();
 }
+#endif // NAGI_CXX_RUNTIME_WITH_LIBCXX
 
 // The pinned target objects retain a small amount of GNU RTTI surface even
 // though the Nagi build disables new RTTI emission. Support identity casts and
@@ -386,6 +398,7 @@ static nagi_size_t nagi_gnu_next_prime(nagi_size_t requested) {
     return requested;
 }
 
+#ifndef NAGI_CXX_RUNTIME_WITH_LIBCXX
 // libc++ keeps its hash-table growth helper outside the header. The pinned
 // target uses the same C++11 ABI namespace as libc++; expose the real
 // Nagi-owned prime search under that exact symbol instead of linking a host
@@ -400,6 +413,7 @@ extern "C" nagi_size_t nagi_libcpp_next_prime(nagi_size_t requested) {
     }
     return nagi_gnu_next_prime(requested);
 }
+#endif // NAGI_CXX_RUNTIME_WITH_LIBCXX
 
 extern "C" nagi_gnu_rehash_result nagi_gnu_prime_need_rehash(
     const nagi_gnu_prime_rehash_policy *policy, nagi_size_t bucket_count,
@@ -842,12 +856,14 @@ extern "C" [[noreturn]] void __cxa_pure_virtual() {
     abort();
 }
 
+#ifndef NAGI_CXX_RUNTIME_WITH_LIBCXX
 extern "C" [[noreturn]] void nagi_gnu_throw_bad_alloc()
     __asm__("_ZSt17__throw_bad_allocv");
 
 extern "C" [[noreturn]] void nagi_gnu_throw_bad_alloc() {
     abort();
 }
+#endif // NAGI_CXX_RUNTIME_WITH_LIBCXX
 
 extern "C" [[noreturn]] void nagi_cxa_bad_typeid()
     __asm__("__cxa_bad_typeid");
@@ -860,6 +876,7 @@ extern "C" [[noreturn]] void __cxa_end_catch() {
     abort();
 }
 
+#ifndef NAGI_CXX_RUNTIME_WITH_LIBCXX
 // libc++'s target pthread configuration keeps the opaque pthread mutex as
 // the first field of std::__1::mutex. Route its out-of-line ABI entrypoints to
 // Nagi's real relibc pthread implementation; no host synchronization runtime
@@ -1040,6 +1057,7 @@ extern "C" void nagi_libcpp_condition_variable_destroy_deleting(void *condition)
     nagi_libcpp_condition_variable_destroy(condition);
     nagi_posix_free(condition);
 }
+#endif // NAGI_CXX_RUNTIME_WITH_LIBCXX
 
 // libstdc++'s C++11 basic_string ABI stores the data pointer at offset zero,
 // the length at offset eight, and either the allocated capacity or the
@@ -1536,6 +1554,7 @@ void operator delete[](void *pointer, nagi_size_t, std::align_val_t) noexcept {
     nagi_posix_free(pointer);
 }
 
+#ifndef NAGI_CXX_RUNTIME_WITH_LIBCXX
 // Nagi's M17 C++ boundary deliberately has no host locale database. The
 // pinned libc++ headers still require the stable classic-locale identity and
 // the ctype<char> locale-id object when stream machinery is instantiated.
@@ -1578,6 +1597,7 @@ extern "C" [[noreturn]] const void *nagi_cxx_locale_use_facet(
     const void *, void *) {
     abort();
 }
+#endif // NAGI_CXX_RUNTIME_WITH_LIBCXX
 
 // The pinned target objects retain the Itanium ABI type-info vtable
 // references even though the Nagi build disables RTTI and exceptions. Keep

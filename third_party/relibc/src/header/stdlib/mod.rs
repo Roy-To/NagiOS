@@ -724,7 +724,7 @@ pub unsafe extern "C" fn memalign(alignment: size_t, size: size_t) -> *mut c_voi
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mblen(s: *const c_char, n: size_t) -> c_int {
     let mut wc: wchar_t = 0;
-    let mut state: mbstate_t = mbstate_t {};
+    let mut state: mbstate_t = mbstate_t::INITIAL;
     let result: usize = unsafe { mbrtowc(&raw mut wc, s, n, &raw mut state) };
 
     if result == (-1isize).cast_unsigned() {
@@ -740,14 +740,14 @@ pub unsafe extern "C" fn mblen(s: *const c_char, n: size_t) -> c_int {
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/mbstowcs.html>.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mbstowcs(pwcs: *mut wchar_t, mut s: *const c_char, n: size_t) -> size_t {
-    let mut state: mbstate_t = mbstate_t {};
+    let mut state: mbstate_t = mbstate_t::INITIAL;
     unsafe { mbsrtowcs(pwcs, &raw mut s, n, &raw mut state) }
 }
 
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/mbtowc.html>.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn mbtowc(pwc: *mut wchar_t, s: *const c_char, n: size_t) -> c_int {
-    let mut state: mbstate_t = mbstate_t {};
+    let mut state: mbstate_t = mbstate_t::INITIAL;
     (unsafe { mbrtowc(pwc, s, n, &raw mut state) }) as c_int
 }
 
@@ -1756,14 +1756,14 @@ pub unsafe extern "C" fn valloc(size: size_t) -> *mut c_void {
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wcstombs.html>.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wcstombs(s: *mut c_char, mut pwcs: *const wchar_t, n: size_t) -> size_t {
-    let mut state: mbstate_t = mbstate_t {};
+    let mut state: mbstate_t = mbstate_t::INITIAL;
     unsafe { wcsrtombs(s, &raw mut pwcs, n, &raw mut state) }
 }
 
 /// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/wctomb.html>.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wctomb(s: *mut c_char, wc: wchar_t) -> c_int {
-    let mut state: mbstate_t = mbstate_t {};
+    let mut state: mbstate_t = mbstate_t::INITIAL;
     let result: usize = unsafe { wcrtomb(s, wc, &raw mut state) };
 
     if result == (-1isize).cast_unsigned() {
