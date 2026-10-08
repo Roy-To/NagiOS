@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "writer-core-01",
   "current_milestone": "W1-W5 standalone Writer host foundation; WRITER-H01-H12",
-  "current_checkpoint": "windows-ci-green;structured-review-budget-final-hardening",
-  "status": "PARTIAL",
+  "current_checkpoint": "W1-W5;WRITER-H01-H12-host-PASS;ubuntu-windows-ci-green;runtime-gated",
+  "status": "PASS",
   "last_verified": {
-    "commit_sha": "201d452abdea340b6b942efca4568f6c70dc369c",
-    "verified_at": "2026-10-08T13:59:19.129227Z",
-    "normal_state": "Canonical dependency isolation repair 201d452abdea340b6b942efca4568f6c70dc369c has passed local 30/30 acceptance and the dedicated Ubuntu/Windows CI. Only registered owned paths were changed; no shared Registry/root Cargo/CI/Kernel/other owner changes. User explicitly assigned Codex implementation and kept the Claude owner branch unchanged. Final review found empty table/list elements counted in live documents but not operation/review payloads: the current owned hardening working tree now includes structure in payload accounting and checks aggregate budgets before cloning previews. All 31/31 tests, locked offline host gate and CRLF regression pass. Final hardening SHA and CI are still to be recorded. Git CLI push is unavailable for environment identity RyomaTOZAWA; exact tested trees are published with the authorized RT-NISH GitHub connection and leased, non-forced owner branch updates. Host-only W1-W5 implementation is complete; product/runtime/target adoption remains gated.",
+    "commit_sha": "8e21fad94e6a1f6e2589bcbdce42cd782930e78e",
+    "verified_at": "2026-10-08T14:03:28.936053Z",
+    "normal_state": "W1-W5 standalone Writer Document Core host foundation is implemented and verified on immutable published code SHA 8e21fad94e6a1f6e2589bcbdce42cd782930e78e. All 31/31 host acceptance tests pass, together with offline locked build, rustfmt --all, warning-denied Clippy/rustdoc, CRLF regression and DF-01 State verification (27 registered workstreams / 16 State files). Shared host CLI checks passed 18 development, 7 command and 26 CLI integration tests. Final ownership audit confirms exactly 19 owned files; shared Registry, root Cargo, CI, Kernel and other workstream files are unchanged. Document/Object/Revision identity, stable native snapshot reopen, typed atomic changes, immutable local history, styles/outline, comments, review preview/accept/reject, bounded Markdown/plaintext subset and unavailable provider semantics are covered. User explicitly assigned Codex implementation and preserved the registered Claude owner branch. Canonical nagi-model/nagi-history sources are pinned to approved base cd871f905bd06ef406ccaa9f80c484f19158209f; this isolates rustfmt from shared root/third_party and resolves the initial Windows CI failure. Empty table/list structural elements count against document/operation/review budgets before cloning. Git CLI push was denied to the environment identity RyomaTOZAWA; authorized RT-NISH GitHub connection published exact tested trees through non-forced expected-head leased updates. Every fetched tree matched the local tested tree before alignment, and published immutable SHA checks were rerun. Code remote equality and clean worktree confirmed before final State checkpoint. Host acceptance does not imply WRITER-001-020 product, runtime/target, persistence or Wayback adoption. Final dedicated CI run 37788807916 succeeded at this exact code SHA. Ubuntu job 113350404385 and Windows job 113350403905 both passed the standalone format/Clippy/test step; decoded logs explicitly report 31 passed, 0 failed, 0 ignored on each OS. WRITER-H01-H12 and W1-W5 are Host PASS only. This State-only evidence checkpoint does not change code; last_verified intentionally points to the verified code commit instead of a self-referential State commit hash.",
     "commands": [
       "bash tests/writer-core/verify.sh",
       "cargo fmt --manifest-path crates/nagi-writer-core/Cargo.toml --all -- --check",
@@ -29,7 +29,7 @@
         "command": "bash tests/writer-core/verify.sh",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Published dependency-repair SHA 201d452abdea340b6b942efca4568f6c70dc369c passed 30/30 tests locally and on Ubuntu/Windows CI; latest budget-hardening working tree passes 31/31, build, fmt, warning-denied Clippy and rustdoc (host-verification.txt). Final immutable hardening SHA will be reverified."
+        "evidence": "31/31 acceptance tests and full gate pass at immutable code SHA 8e21fad94e6a1f6e2589bcbdce42cd782930e78e. Raw owned output: host-verification.txt; clean published-SHA rerun: /tmp/writer-final-code-verification.txt. Tests include exhaustive UTF-8 byte-boundary combinations and structured empty-cell review-budget regression; none are skipped, deleted or weakened. Final CI run 37788807916 independently confirms 31/31 on both Ubuntu and Windows."
       },
       {
         "name": "Host CLI compatibility",
@@ -61,6 +61,22 @@
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 37788807916,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37788807916",
+        "head_sha": "8e21fad94e6a1f6e2589bcbdce42cd782930e78e",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Final exact-code CI SUCCESS. Ubuntu 24.04 job 113350404385 and Windows 2022 job 113350403905: standalone Writer rustfmt --all, warnings-denied Clippy and offline locked tests PASS. Both decoded job logs report 31 passed; 0 failed; 0 ignored. CLI and Registry stages also pass."
+      },
+      {
+        "run_id": 37788807742,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37788807742",
+        "head_sha": "8e21fad94e6a1f6e2589bcbdce42cd782930e78e",
+        "status": "COMPLETED",
+        "conclusion": "skipped",
+        "summary": "Regular product/target Nagi CI intentionally skipped by host-only routing."
+      },
       {
         "run_id": 37788231372,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37788231372",
@@ -126,20 +142,20 @@
       "Do not bypass network policy."
     ]
   },
-  "next_action": "Publish owned bounded-review hardening, verify immutable SHA, inspect Ubuntu/Windows CI; then record final Host PASS and publish State-only checkpoint. Integration Owner reviews adoption and unifies canonical crate sources; runtime activation remains gated.",
+  "next_action": "Integration Owner reviews the completed host foundation and decides an explicit adoption checkpoint. Unify the pinned canonical model/history sources with consumer workspace dependencies, review version-1 Store/Permission/Activity/Checkpoint/Search seams and DocumentId migration fixture. No runtime, product, shared workspace, IPC, durable provider or main merge is authorized here; M30 PASS plus explicit release/integration boundary remains required. No further host-owned acceptance work remains.",
   "acceptance_criteria": [
-    "WRITER-H01: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H02: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H03: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H04: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H05: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H06: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H07: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H08: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H09: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H10: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H11: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs",
-    "WRITER-H12: dedicated MD section 5 host criteria; test evidence in tests/writer-core/acceptance.rs and owned verification logs"
+    "WRITER-H01 PASS: normal create/read/insert/move/delete without AI.",
+    "WRITER-H02 PASS: Heading/Paragraph/List/Table/Quote/Code/Citation plus linked references and Figure placeholders retained; rectangular row/column/cell table editing.",
+    "WRITER-H03 PASS: canonical ObjectId, role-adapted stable DocumentId, tombstones, unaffected object IDs, native snapshot reopen and compatibility fixture.",
+    "WRITER-H04 PASS: separate styles, inheritance/cycle rejection and stable Heading-derived Outline.",
+    "WRITER-H05 PASS: immutable local revision snapshots, explicit expected revision and stale conflicts; atomic failed batches.",
+    "WRITER-H06 PASS: typed add/delete/move/format/text/table changes, actor/source/time, review suggest/preview/accept/reject and stale review rejection.",
+    "WRITER-H07 PASS: ObjectId-anchored comment/reply/resolve and preserved orphan threads after deletion.",
+    "WRITER-H08 PASS: measured supported Markdown and literal plain-text roundtrips; fresh text imports intentionally create fresh identity.",
+    "WRITER-H09 PASS: unsupported content literal preservation and line warnings; export preview warns about native metadata/structure loss before writing.",
+    "WRITER-H10 PASS: Japanese/English/Unicode range matrix, CRLF normalization, invalid lengths/IDs/indexes and bounded document/operation/proposal structures.",
+    "WRITER-H11 PASS: Activity/Store/Checkpoint unavailable returns explicit error; content-free Activity projection, permission-gated Search and cross-app reference seam only.",
+    "WRITER-H12 PASS (host-only): full gate, 31 tests, DF-01 State, owned commits/branch publication and exact-code Ubuntu/Windows CI 37788807916 correspond to immutable code SHA 8e21fad94e6a1f6e2589bcbdce42cd782930e78e. Final State-only checkpoint retains this code SHA without changing implementation."
   ],
   "deferred": [
     "Guest/native UI, fonts/layout, PDF/DOCX providers, table merge/split and spans.",
