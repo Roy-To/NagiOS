@@ -8125,6 +8125,7 @@ fn finish_tool(
 }
 
 fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
+    let discovery_start = std::time::Instant::now();
     let rustc = ProcessCommand::new("rustc")
         .args(["--print", "sysroot"])
         .output()
@@ -8148,85 +8149,36 @@ fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
         ));
     }
 
-    let generated_source = root.join("out").join("rust-src");
-    if generated_source.exists() {
-        fs::remove_dir_all(&generated_source).map_err(|error| {
-            format!(
-                "cannot replace generated Rust source {}: {error}",
-                generated_source.display()
-            )
-        })?;
-    }
-    copy_directory(&installed_source, &generated_source)?;
-
-    let patch = root
-        .join("third_party")
-        .join("rust-std")
-        .join("patches")
-        .join("0001-nagi-target-support.patch");
-    if !patch.is_file() {
-        return Err(format!("Rust std patch is missing at {}", patch.display()));
-    }
-    let applied = ProcessCommand::new("git")
-        .args([
-            "apply",
-            "--unsafe-paths",
-            "--whitespace=nowarn",
-            "--directory=out/rust-src",
-        ])
-        .arg(
-            Path::new("third_party")
-                .join("rust-std")
-                .join("patches")
-                .join("0001-nagi-target-support.patch"),
-        )
-        .current_dir(root)
+    let version = ProcessCommand::new("rustc")
+        .args(["--version", "--verbose"])
         .output()
-        .map_err(|error| format!("cannot apply Rust std patch: {error}"))?;
-    if !applied.status.success() {
+        .map_err(|error| format!("cannot query rustc identity: {error}"))?;
+    if !version.status.success() {
         return Err(format!(
-            "Rust std patch failed: {}",
-            command_output(&applied)
+            "rustc identity query failed: {}",
+            command_output(&version)
         ));
     }
-
-    let cargo_manifest = generated_source.join("library").join("Cargo.toml");
-    let mut manifest = fs::read_to_string(&cargo_manifest)
-        .map_err(|error| format!("cannot read generated Rust library manifest: {error}"))?;
-    if !manifest.contains("../../../third_party/libc") {
-        manifest.push_str("\nlibc = { path = \"../../../third_party/libc\" }\n");
-        fs::write(&cargo_manifest, manifest)
-            .map_err(|error| format!("cannot add Nagi libc patch: {error}"))?;
-    }
-    Ok(generated_source.join("library"))
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir_all(destination)
-        .map_err(|error| format!("cannot create {}: {error}", destination.display()))?;
-    for entry in fs::read_dir(source)
-        .map_err(|error| format!("cannot enumerate {}: {error}", source.display()))?
-    {
-        let entry = entry.map_err(|error| format!("cannot inspect Rust source entry: {error}"))?;
-        let source_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-        if entry
-            .file_type()
-            .map_err(|error| format!("cannot inspect {}: {error}", source_path.display()))?
-            .is_dir()
-        {
-            copy_directory(&source_path, &destination_path)?;
+    eprintln!(
+        "TIMING rust-std-source phase=discover-toolchain elapsed_ms={:.3}",
+        discovery_start.elapsed().as_secs_f64() * 1000.0
+    );
+    let patch = root.join("third_party/rust-std/patches/0001-nagi-target-support.patch");
+    let prepared = crate::rust_std_source::prepare(
+        root,
+        &installed_source,
+        &String::from_utf8_lossy(&version.stdout),
+        &patch,
+    )?;
+    eprintln!(
+        "Rust std source: {}",
+        if prepared.reused {
+            "verified reuse"
         } else {
-            fs::copy(&source_path, &destination_path).map_err(|error| {
-                format!(
-                    "cannot copy {} to {}: {error}",
-                    source_path.display(),
-                    destination_path.display()
-                )
-            })?;
+            "fresh preparation"
         }
-    }
-    Ok(())
+    );
+    Ok(prepared.library)
 }
 
 fn command_output(output: &std::process::Output) -> String {
