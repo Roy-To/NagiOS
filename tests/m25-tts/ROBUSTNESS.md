@@ -33,6 +33,16 @@ returning an error.
 | More `STREAM_WIN` rows than `NUM_WINDOWS`, e.g. a duplicated range (review finding 2b) | `MlpgAdjust::create` index out of bounds (reproduced on the synthetic voice and on the pinned voice: LPF "len is 31 but the index is 31", MCP 105/105, LF0 3/3) | `VoiceInvalid` |
 | Fewer `STREAM_WIN` rows than `NUM_WINDOWS`, even window width, non-finite coefficient | no panic reproduced (dynamic features silently dropped / NaN output) | `VoiceInvalid` |
 | `STREAM_WIN` row whose coefficient count disagrees with its header, or without a count | jbonsai parse error, no panic | `VoiceInvalid` earlier |
+| `NUM_STREAMS` 0 while `STREAM_TYPE` lists 3 streams (review finding 3) | jbonsai sizes `gv_weight`/`msd_threshold` with `NUM_STREAMS`; synthesis panicked "index out of bounds: the len is 0 but the index is 0" at `engine.rs:334` (synthetic voice, reproduced) | `VoiceInvalid` (`NUM_STREAMS` must be 1..=8 and equal the `STREAM_TYPE` count) |
+| `NUM_STREAMS` 2 (review finding 3) | LPF stream skipped; `SpeechGenerator::new` panic "The number of low-pass filter coefficient must be odd numbers." (reproduced) | `VoiceInvalid` |
+| `NUM_STREAMS` 999999999999999999 (review finding 3) | `[0.5].repeat(n)` in `Condition::load_model`: "memory allocation of 7999999999999999992 bytes failed", process aborted (SIGABRT) while *loading*, in a child under `ulimit -v` (reproduced) | `VoiceInvalid` before jbonsai sees the bytes |
+| `NUM_STREAMS` 4 with 3 streams, or missing | no panic (4: synthesizes; missing: jbonsai parse error) | `VoiceInvalid` |
+| Spectrum `OPTION` `GAMMA=999999999999999999` (review finding 4) | MGLSA stage count; `vec![vec![0.0; nmcp]; stage]` at `vocoder/mglsa.rs:11` panicked "capacity overflow" (reproduced) | `VoiceInvalid` |
+| `GAMMA=100000000000000` | "memory allocation of 2400000000000000 bytes failed", SIGABRT, in the limited child (reproduced) | `VoiceInvalid` |
+| `GAMMA=1` (any non-zero stage) | synthesizes (MGLSA path); outside the pinned voice's MLSA contract | `VoiceInvalid` (only absent or `0` supported) |
+| `ALPHA` inf / NaN | synthesizes all non-finite samples (no panic) | `VoiceInvalid` (`ALPHA` must be finite in [0, 1)) |
+| `ALPHA` 1.0 / negative, duplicated `ALPHA` | synthesizes (no panic) | `VoiceInvalid` |
+| `GAMMA=-1`, `LN_GAIN=2`, non-numeric `ALPHA` | jbonsai option parse error, no panic | `VoiceInvalid` earlier |
 | Random 1-4 byte corruption of the pinned voice | 12 of 80 seeded trials panicked (unwrap) | 0 panics |
 | `matrix.mtx` truncated / odd length / trailing bytes / negative or oversized shape | lindera-dictionary 3.0.7: length `assert` or overflow panic while loading, or index out of bounds on the first cost lookup | `DictionaryInvalid` |
 | `dict.vals` context ids outside the matrix | index out of bounds during tokenization | `DictionaryInvalid` |
@@ -47,9 +57,8 @@ zero-width windows, `metadata.json`, `char_def.bin`, `unk.bin` and `dict.da`
 structural corruption (serde/rkyv/daachorse validate), NaN/inf samples
 (provider rejects non-finite output), empty components (`DictionaryMissing`).
 
-Not changed (reported only): an `HTS_VOICE_VERSION` other than `1.0`, or a
-`NUM_STREAMS` that disagrees with `STREAM_TYPE`, still loads when the rest of
-the voice is consistent; nothing breaks, and content integrity remains the
+Not changed (reported only): an `HTS_VOICE_VERSION` other than `1.0` still
+loads when the rest of the voice is consistent; nothing breaks, and content integrity remains the
 SHA-256 pin. The lindera character-category lookup table is private, so its
 internal boundaries cannot be checked beyond rkyv's structural validation.
 
@@ -76,7 +85,9 @@ loaded unknown-word references), plus numeric invariants of every PDF
 (0, 1e6]; stream/GV variances >= 0; MSD weights in [0, 1]), role checks for
 the vocoder streams (log F0 width 1, LPF width odd) and `STREAM_WIN` rows
 (exactly `NUM_WINDOWS` rows, each an odd width up to 15 with finite
-coefficients). Duplicate rows are still accepted when their count matches
+coefficients), `NUM_STREAMS` equal to the `STREAM_TYPE` count, and the
+spectrum stream's options (`GAMMA` absent or `0`, `LN_GAIN` absent/`0`/`1`,
+`ALPHA` finite in [0, 1), each key once). Duplicate rows are still accepted when their count matches
 `NUM_WINDOWS`: that indexes inside the PDF and synthesizes. It accepts the pinned voice and
 dictionary and jbonsai's bundled `nitech_jp_atr503_m001` voice. Over 129
 corrupted voices it rejected none that jbonsai had handled safely. For the
@@ -94,6 +105,19 @@ budget check and the 1 MiB cap are unchanged.
 
 ## Tests
 
+Executed in the dedicated workflow (`M25 local TTS (hark)`) at 5a33d6e,
+run 37905113176 (job A log: `test result: ok. 43 passed; 0 failed; 0
+ignored` for the unit binary and `0 passed; 0 failed; 3 ignored` /
+`12 ignored` / `1 ignored` for the real binaries; job C log: real_engine
+`test result: ok. 12 passed`, real_adversarial `running 3 tests` with
+`corrupted_dictionary_bytes_fail_closed_without_panic`,
+`corrupted_voice_bytes_fail_closed_without_panic`,
+`lifecycle_after_load_and_synthesis_errors_retains_nothing` and
+`test result: ok. 3 passed; 0 failed; 0 ignored`, real_hostile_model
+`hostile_duration_pdfs_and_window_rows_fail_closed ... ok` and
+`test result: ok. 1 passed`). Findings 3/4 raise the unit count to 46
+(3 new tests); the real counts are unchanged.
+
 - Model-free (`cargo test`, CI job A): `src/validate/tests.rs` builds a small
   three-stream synthetic voice that jbonsai parses and synthesizes; every
   finding above has a case; every truncation and 1,500 seeded byte mutations
@@ -105,7 +129,15 @@ budget check and the 1 MiB cap are unchanged.
   `vocoder_stream_shapes_are_role_checked`,
   `window_rows_must_match_num_windows` (each failure message states what
   jbonsai does with the case when the validator is bypassed) and four
-  `plan_tests` over `plan_frames` with `usize::MAX` durations.
+  `plan_tests` over `plan_frames` with `usize::MAX` durations. Review
+  findings 3/4 add `stream_count_and_spectrum_options_are_checked_in_a_limited_child`:
+  each `NUM_STREAMS` / `OPTION` case is loaded in a child process of the
+  test binary under `ulimit -v` (2 GiB) and `ulimit -t` (60 s), so a
+  regression that reached jbonsai's allocation cannot affect the host; five
+  in-range controls must still synthesize. `header_case_child` is that
+  child (a no-op pass without its environment variables) and
+  `header_cases_bypass_record` (opt-in, prints only) records jbonsai's
+  behaviour with the checks bypassed.
 - Real artifacts (`#[ignore]`, need `NAGI_TTS_VOICE`/`NAGI_TTS_DICT`; a
   missing artifact FAILs):
   - `tests/real_adversarial.rs` (3 tests): targeted and 32 seeded
@@ -114,8 +146,9 @@ budget check and the 1 MiB cap are unchanged.
     errors.
   - `tests/real_hostile_model.rs` (1 test): structurally consistent edits of
     the pinned voice's duration PDFs (`f32::MAX`, `+inf`, NaN, negative,
-    1e9 frames, NaN/`+inf` variance) and duplicated `STREAM_WIN` rows (MCP,
-    LF0, LPF) are `VoiceInvalid`; in-range edits still speak.
+    1e9 frames, NaN/`+inf` variance), duplicated `STREAM_WIN` rows (MCP,
+    LF0, LPF), `NUM_STREAMS` 0/2, `GAMMA=999999999999999999` and
+    `ALPHA=inf` are `VoiceInvalid`; in-range edits still speak.
 - CI: the dedicated workflow's real-engine job runs
   `tests/m25-tts/acceptance.sh`, which runs both binaries with the pinned
   artifacts, echoes their test names and result lines into the job log,
