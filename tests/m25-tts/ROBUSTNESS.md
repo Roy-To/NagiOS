@@ -25,6 +25,14 @@ returning an error.
 | `VECTOR_LENGTH * NUM_WINDOWS * 2` overflow | multiply overflow panic while loading (debug) / wrap (release) | `VoiceInvalid` (bounded fields) |
 | Header number with more than 18 digits | jbonsai header deserializer multiplies unchecked | `VoiceInvalid` |
 | Fewer than three streams | vocoder indexes streams 0, 1, 2 unconditionally (code reading) | `VoiceInvalid` |
+| Duration PDF mean `f32::MAX` or `+inf` (review finding 1) | jbonsai `DurationEstimator` casts `mean.round()` to `usize::MAX`; the provider's planner summed state durations unchecked: reproduced `attempt to add with overflow` in `JbonsaiBackend::plan` (debug, pinned voice); release would wrap and pass the budget check. jbonsai's own generator then panics with `capacity overflow` (synthetic voice) | `VoiceInvalid`; planning is also checked per state (`TooLong`) |
+| Duration PDF mean NaN / negative / `-inf`, variance NaN / `+inf` / 0 / negative, or mean above 2,000 frames | no panic reproduced: NaN and negatives clamp to 1 frame; a 1e9-frame mean ran into the budget (`Failed`) | `VoiceInvalid` (means must be in [0, 2000] frames, variances in (0, 1e6]) |
+| Stream / GV PDF value non-finite, negative variance, MSD weight outside [0, 1] | no panic reproduced; NaN/inf spectrum or LPF values produced all non-finite samples (already rejected at output) | `VoiceInvalid` (zero variances stay accepted: the pinned LPF stream has them) |
+| Log F0 stream (index 1) `VECTOR_LENGTH` other than 1 (review finding 2a) | `SpeechGenerator::new` panic "The size of lf0 static vector must be 1." (synthetic voice, reproduced) | `VoiceInvalid` |
+| LPF stream (index 2) even `VECTOR_LENGTH` (review finding 2a) | `SpeechGenerator::new` panic "The number of low-pass filter coefficient must be odd numbers." (synthetic voice, reproduced) | `VoiceInvalid` |
+| More `STREAM_WIN` rows than `NUM_WINDOWS`, e.g. a duplicated range (review finding 2b) | `MlpgAdjust::create` index out of bounds (reproduced on the synthetic voice and on the pinned voice: LPF "len is 31 but the index is 31", MCP 105/105, LF0 3/3) | `VoiceInvalid` |
+| Fewer `STREAM_WIN` rows than `NUM_WINDOWS`, even window width, non-finite coefficient | no panic reproduced (dynamic features silently dropped / NaN output) | `VoiceInvalid` |
+| `STREAM_WIN` row whose coefficient count disagrees with its header, or without a count | jbonsai parse error, no panic | `VoiceInvalid` earlier |
 | Random 1-4 byte corruption of the pinned voice | 12 of 80 seeded trials panicked (unwrap) | 0 panics |
 | `matrix.mtx` truncated / odd length / trailing bytes / negative or oversized shape | lindera-dictionary 3.0.7: length `assert` or overflow panic while loading, or index out of bounds on the first cost lookup | `DictionaryInvalid` |
 | `dict.vals` context ids outside the matrix | index out of bounds during tokenization | `DictionaryInvalid` |
@@ -63,12 +71,26 @@ upstream parsers: a conservative structural pass over the `.htsvoice`
 (sections, bounded header numbers, question/tree cross references, PDF
 counts and sizes, required states, acyclic trees) and over the dictionary
 components (matrix shape, entry ids, word offsets, jpreprocess preamble,
-loaded unknown-word references). It accepts the pinned voice and
+loaded unknown-word references), plus numeric invariants of every PDF
+(finite values; duration means in [0, 2000] frames and variances in
+(0, 1e6]; stream/GV variances >= 0; MSD weights in [0, 1]), role checks for
+the vocoder streams (log F0 width 1, LPF width odd) and `STREAM_WIN` rows
+(exactly `NUM_WINDOWS` rows, each an odd width up to 15 with finite
+coefficients). Duplicate rows are still accepted when their count matches
+`NUM_WINDOWS`: that indexes inside the PDF and synthesizes. It accepts the pinned voice and
 dictionary and jbonsai's bundled `nitech_jp_atr503_m001` voice. Over 129
 corrupted voices it rejected none that jbonsai had handled safely. For the
 dictionary it deliberately also rejects some corruptions upstream tolerated
 silently (a partial `dict.vals` entry or word offset, a zero-sized matrix),
 because those are partial reads, not usable dictionaries.
+
+Duration planning (`plan_frames` in `src/jbonsai_backend.rs`) no longer
+trusts the validator alone: every state duration and every running sum is
+compared with a frame limit before it is added (`checked_add`), so an
+oversized plan is `TooLong` (reported as `Failed`, before any parameter
+generation) instead of an overflow. `start()` uses the output budget plus at
+most 4,000 frames of trimmed edge silence as the limit; the emitted-frames
+budget check and the 1 MiB cap are unchanged.
 
 ## Tests
 
@@ -77,13 +99,30 @@ because those are partial reads, not usable dictionaries.
   finding above has a case; every truncation and 1,500 seeded byte mutations
   must be rejected or synthesize to completion, never panic. Dictionary
   component checks use synthetic bytes. `src/tests.rs` adds four lifecycle
-  tests over the deterministic test backend.
-- Real artifacts (`tests/real_adversarial.rs`, `#[ignore]`, needs
-  `NAGI_TTS_VOICE`/`NAGI_TTS_DICT`; not run by the dedicated workflow, which
-  runs only `--test real_engine`): targeted and 32 seeded corruptions of the
-  pinned voice, targeted and 16 seeded corruptions of the dictionary, and
-  real-engine lifecycle after load and synthesis errors.
+  tests over the deterministic test backend. Review findings 1/2 add
+  `duration_pdf_values_must_be_finite_and_bounded`,
+  `stream_pdf_values_must_be_finite`,
+  `vocoder_stream_shapes_are_role_checked`,
+  `window_rows_must_match_num_windows` (each failure message states what
+  jbonsai does with the case when the validator is bypassed) and four
+  `plan_tests` over `plan_frames` with `usize::MAX` durations.
+- Real artifacts (`#[ignore]`, need `NAGI_TTS_VOICE`/`NAGI_TTS_DICT`; a
+  missing artifact FAILs):
+  - `tests/real_adversarial.rs` (3 tests): targeted and 32 seeded
+    corruptions of the pinned voice, targeted and 16 seeded corruptions of
+    the dictionary, and real-engine lifecycle after load and synthesis
+    errors.
+  - `tests/real_hostile_model.rs` (1 test): structurally consistent edits of
+    the pinned voice's duration PDFs (`f32::MAX`, `+inf`, NaN, negative,
+    1e9 frames, NaN/`+inf` variance) and duplicated `STREAM_WIN` rows (MCP,
+    LF0, LPF) are `VoiceInvalid`; in-range edits still speak.
+- CI: the dedicated workflow's real-engine job runs
+  `tests/m25-tts/acceptance.sh`, which runs both binaries with the pinned
+  artifacts, echoes their test names and result lines into the job log,
+  requires exactly 3 and 1 passes, checks the model-free run reports them as
+  3 and 1 ignored, and checks each fails without artifacts.
 
 ```
 cargo test --manifest-path crates/nagi-tts-provider/Cargo.toml --test real_adversarial -- --ignored --test-threads=1
+cargo test --manifest-path crates/nagi-tts-provider/Cargo.toml --test real_hostile_model -- --ignored --test-threads=1
 ```
