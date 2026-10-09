@@ -1,6 +1,6 @@
-# Nagi target check/build of crates/nagi-tts-provider (out/nagi-target.sh, run 2026-10-09 ~10:20-10:35 JST).
+# Nagi target check/build of crates/nagi-tts-provider (script now tests/m25-tts/nagi-target.sh, run 2026-10-09 ~10:20-10:35 JST).
 # Tree: 582e08a + the uncommitted crate changes committed as 4970523 (crate sources identical).
-# The sandbox clock printer shows the script start time. Check/build only: nothing linked, nothing run on Nagi/QEMU.
+# date= is the script start time (UTC). Check/build only: nothing linked, nothing run on Nagi/QEMU.
 date=2026-10-09T01:20:56+00:00
 commit=582e08a59ff73411dca5fa98d5b255beaacbd9b2 dirty=8
 rustc=rustc 1.90.0-nightly (adcb3d3b4 2025-07-31)

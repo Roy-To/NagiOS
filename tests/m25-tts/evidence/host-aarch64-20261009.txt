@@ -1,6 +1,5 @@
 # tests/m25-tts/measure.sh output (WHISPER_CLI/WHISPER_MODEL set: whisper.cpp ggml-base, host only).
 # Run 2026-10-09 10:19 JST on 582e08a plus the uncommitted crate/measure.sh changes that are committed on top of it in this branch (code identical).
-# The sandbox 'date' prints local JST even for -u; the date_utc line is therefore JST.
 # Host evidence only: Linux aarch64, not Nagi/QEMU, no AudioService playback.
 == host
 date_utc=2026-10-09T01:19:39Z
