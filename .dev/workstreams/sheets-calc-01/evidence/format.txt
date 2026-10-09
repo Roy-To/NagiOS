@@ -1,0 +1,3 @@
+source_commit=97d97ec766c52aea9bba59811327527e6ac6f607
+command=cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml --all -- --check
+exit_code=0

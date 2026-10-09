@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on build directory
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.20s
+     Running `/tmp/nagi-sheets-tools/target/debug/nagi-bootstrap dev verify`
+FAIL registered current workstream `sheets-calc-01` has no state file
