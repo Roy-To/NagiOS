@@ -429,8 +429,7 @@ impl E5Provider {
             header.unk_id,
             header.bos_id,
             header.eos_id,
-        )
-        .ok_or(ModelError::Malformed("charsmap"))?;
+        )?;
         let encoder = Encoder::new(&artifact, header, &parsed.tensors)?;
         let space = space_id_for(&sha256, header.hidden);
         if let Some(expected) = config.expected_space {
@@ -503,6 +502,12 @@ impl E5Provider {
 
     pub fn artifact_info(&self) -> &ArtifactInfo {
         &self.info
+    }
+
+    /// The loaded tokenizer (diagnostics and regression tests).
+    #[doc(hidden)]
+    pub fn tokenizer(&self) -> &Tokenizer {
+        &self.tokenizer
     }
 
     /// Token ids (with `<s>`/`</s>`) for already-prefixed text.
