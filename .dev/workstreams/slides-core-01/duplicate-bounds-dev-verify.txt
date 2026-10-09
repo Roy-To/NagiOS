@@ -1,0 +1,3 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `/tmp/slides-bootstrap-target/debug/nagi-bootstrap dev verify`
+PASS development state: 31 registered workstreams, 24 state files validated; branch codex/0.2-slides-core-01 at a64c13cb957498b6303926f1fee4d672dbc84867

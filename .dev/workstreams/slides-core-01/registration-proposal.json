@@ -1,0 +1,66 @@
+{
+  "proposal_version": 1,
+  "workstream_id": "slides-core-01",
+  "status": "PROPOSED_OWNER_REVIEW",
+  "base_sha": "5b183660eee9babc1478fd05386e412026a0b87a",
+  "registration_observed": false,
+  "authorization": "Explicit codex_delegation request to implement standalone Slides in these exact paths. Registry is shared-owner audited; prepare proposal without mutation.",
+  "registry_entry": {
+    "id": "slides-core-01",
+    "owner": "Codex Slides Core",
+    "owner_branch": "codex/0.2-slides-core-01",
+    "recommended_worktree": "../NagiOS-slides-core-01",
+    "state_file": ".dev/workstreams/slides-core-01/state.json",
+    "dependencies": [
+      "development-foundation",
+      "app-sdk-contract"
+    ],
+    "allowed_paths": [
+      "crates/nagi-slides-core/**",
+      "tests/slides-core/**",
+      "docs/workstreams/NagiOS_0.2_Slides_Presentation_Core_Workstream.md",
+      ".dev/workstreams/slides-core-01/**"
+    ],
+    "forbidden_paths": [
+      "Cargo.toml",
+      "Cargo.lock",
+      ".dev/workstreams.json",
+      ".dev/schemas/**",
+      ".github/workflows/**",
+      "kernel/**",
+      "loader/**",
+      "user/**",
+      "idl/**",
+      "schemas/**",
+      "docs/implementation_status.md",
+      "third_party/**",
+      "tests/acceptance/**"
+    ],
+    "activation_gate": "Current explicit user instruction authorizes standalone host foundation only before M30. Runtime requires Nagi 0.1 M30 PASS and explicit 0.2 integration checkpoint.",
+    "merge_boundary": "Dedicated Slides branch; draft PR only, no direct main/shared integration."
+  },
+  "required_owner_actions": [
+    "Review and apply registry entry at an owner checkpoint.",
+    "Review standalone host CI step; shared CI was not edited."
+  ],
+  "proposed_host_step": {
+    "name": "Standalone Slides Core host foundation",
+    "run": "bash crates/nagi-slides-core/verify.sh"
+  },
+  "runtime_gate": "M30 PASS plus explicit 0.2 activation; no target PASS claimed.",
+  "owner_scope_confirmation": {
+    "base_sha": "5b183660eee9babc1478fd05386e412026a0b87a",
+    "dependencies": [
+      "development-foundation",
+      "app-sdk-contract"
+    ],
+    "host_only": true,
+    "synthetic_fixtures_only": true,
+    "shared_registry_applied": false,
+    "owner_review_bundle": {
+      "library_file_id": "libfile_f3ac2a46e4f0819198eec471e13586f6",
+      "filename": "NagiOS-Slides-People-Mail-host-core-registration-review.zip"
+    },
+    "boundary": "Optional authorized consumer-local retrieval and dedicated-branch validation only; no main/integration or other-owner state changes; retain ARM64 candidates. Runtime/guest/GUI/provider requires M30 PASS and individual checkpoint."
+  }
+}

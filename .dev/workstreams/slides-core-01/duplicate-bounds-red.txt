@@ -1,0 +1,58 @@
+   Compiling nagi-slides-core v0.2.0 (/workspace/NagiOS-slides-core-01/crates/nagi-slides-core)
+warning: function `slide_len` is never used
+   --> src/native.rs:161:15
+    |
+161 | pub(crate) fn slide_len(slide: &Slide, bound: usize) -> Result<usize> {
+    |               ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `object_len` is never used
+   --> src/native.rs:164:15
+    |
+164 | pub(crate) fn object_len(object: &Object, bound: usize) -> Result<usize> {
+    |               ^^^^^^^^^^
+
+warning: function `theme_len` is never used
+   --> src/native.rs:167:15
+    |
+167 | pub(crate) fn theme_len(theme: &Theme, bound: usize) -> Result<usize> {
+    |               ^^^^^^^^^
+
+warning: function `text_len` is never used
+   --> src/native.rs:170:15
+    |
+170 | pub(crate) fn text_len(text: &str, bound: usize) -> Result<usize> {
+    |               ^^^^^^^^
+
+warning: `nagi-slides-core` (lib test) generated 4 warnings (2 duplicates)
+warning: `nagi-slides-core` (lib) generated 4 warnings (2 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running unittests src/lib.rs (crates/nagi-slides-core/target/debug/deps/nagi_slides_core-a8e06cf8da008d34)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running ../../tests/slides-core/acceptance.rs (crates/nagi-slides-core/target/debug/deps/slides_core_acceptance-0a41a93ddbe46e6b)
+
+running 1 test
+test duplicate_cannot_exceed_intermediate_bytes_even_if_deleted_in_same_batch ... FAILED
+
+failures:
+
+---- duplicate_cannot_exceed_intermediate_bytes_even_if_deleted_in_same_batch stdout ----
+
+thread 'duplicate_cannot_exceed_intermediate_bytes_even_if_deleted_in_same_batch' panicked at ../../tests/slides-core/acceptance.rs:645:5:
+assertion `left == right` failed
+  left: Ok(RevisionId(3))
+ right: Err(LimitExceeded)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    duplicate_cannot_exceed_intermediate_bytes_even_if_deleted_in_same_batch
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--test slides-core-acceptance`

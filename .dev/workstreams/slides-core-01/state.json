@@ -1,0 +1,128 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "slides-core-01",
+  "current_milestone": "SLIDES-H01-H11 standalone Presentation host foundation",
+  "current_checkpoint": "duplicate-bounds-corrected-host-25-tests-PASS;publication-HOLD;registration-PROPOSED;runtime-gated",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "a64c13cb957498b6303926f1fee4d672dbc84867",
+    "verified_at": "2026-10-09T15:02:37.678053Z",
+    "normal_state": "Independent SOURCE bounds blocker corrected at exact code SHA a64c13cb957498b6303926f1fee4d672dbc84867. Previous fda06f3 Host PASS was withdrawn. Corrected host acceptance now PASS: 25/25 tests, package-scoped fmt and warnings-denied locked offline Clippy, rerun after committing correction. Native count-only writer measures exact byte sizes without allocating encoded buffers. Every intermediate snapshot is checked before content cloning, including issued-ID tombstones. Duplicate sources are resolved dynamically, charged to cumulative batch copy budget, checked before cloning, then copied once and moved into candidate. Small-budget red regression failed on legacy edit path and 4 new regressions pass after correction; no large allocations were exercised. Atomic rollback, identities, native wire format and existing 21 tests preserved. Overall delivery remains PARTIAL: explicit publication HOLD, identity-preserving personal publication route unavailable, shared registry owner review pending. Canonical IDs reused; runtime/guest/product not executed. All changed paths owned; original checkout clean at base 5b183660eee9babc1478fd05386e412026a0b87a. Both local commit identities NagiOS <2026nagios@gmail.com>. Corrected bundle prepared to replace the same private Library artifact libfile_c5381b4a8bf481918fc4785a9c5522dc, retaining version history. Actual Library write confirmation is reported separately.",
+    "commands": [
+      "bash crates/nagi-slides-core/verify.sh",
+      "git diff --check",
+      "Draft202012Validator validates owned state and hypothetical proposed registry",
+      "git log -1 --format=%H,%an,%ae,%cn,%ce",
+      "personal RT-NISH read-only user/repository/branch/PR audit",
+      "./nagi dev verify",
+      "./nagi dev status",
+      "./nagi dev resume"
+    ],
+    "tests": [
+      {
+        "name": "Corrected standalone host acceptance and lint",
+        "command": "bash crates/nagi-slides-core/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "duplicate-bounds-postcommit.txt: 25 passed, 0 failed, 0 ignored; fmt and warnings-denied Clippy PASS at exact corrected code SHA a64c13cb957498b6303926f1fee4d672dbc84867. Initial host-verification.txt with 21 tests is historical and superseded."
+      },
+      {
+        "name": "Owned State and registration proposal schemas",
+        "command": "python3 jsonschema Draft202012Validator with FormatChecker",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "state.json validated against checked-in DF-01 schema; hypothetical in-memory registry with proposed row validates. Actual shared registry remains unchanged."
+      },
+      {
+        "name": "Public push/draft PR/CI",
+        "command": "Inspect supported personal publication schemas and known cloud Git authentication",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Explicit publication HOLD remains. Known default cloud Git company route not invoked; personal connector cannot preserve required author/committer. No remote branch/PR or CI created."
+      },
+      {
+        "name": "Repository DF-01 verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "duplicate-bounds-dev-verify.txt: 31 registered workstreams, 24 state files validate at corrected code SHA a64c13cb957498b6303926f1fee4d672dbc84867; own registry remains proposed."
+      },
+      {
+        "name": "Active stream status/resume pending registration",
+        "command": "./nagi dev status; ./nagi dev resume",
+        "outcome": "FAIL",
+        "exit_code": 4,
+        "evidence": "dev-status.txt and dev-resume.txt: branch codex/0.2-slides-core-01 is not registered. Expected shared-owner registration blocker, not a Slides source/test failure. No registry mutation performed."
+      },
+      {
+        "name": "Small-budget bounds regression before edit correction",
+        "command": "cargo test --manifest-path crates/nagi-slides-core/Cargo.toml --locked --offline duplicate_cannot_exceed_intermediate_bytes",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Historical red regression in duplicate-bounds-red.txt: legacy edit path returned Ok for a duplicate/delete intermediate oversize. New counter helpers were not yet connected to edits. Fixed by current pre-clone accounting; current 25-test gate passes."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md",
+    "last_checked_at": "2026-10-09T14:47:38.509945Z",
+    "activation_requirement": "0.1 M30 remains PARTIAL. Explicit current request permits owned standalone host preparation only; production runtime requires M30 PASS plus explicit 0.2 owner checkpoint."
+  },
+  "blocker": {
+    "active": true,
+    "class": "PERMISSION",
+    "summary": "SOURCE duplicate-memory blocker resolved; publication HOLD and personal identity-preserving route/owner registration still pending.",
+    "reproduction_commands": [
+      "Read personal RT-NISH connection and repository permissions",
+      "Inspect github_create_commit schema (no author/committer fields)",
+      "Inspect local Git identity configuration without changing it"
+    ],
+    "failure_log_summary": "Duplicate bounds SOURCE bug is resolved and all 25 tests/fmt/Clippy pass. Explicit publication hold prohibits push/draft PR/CI. Personal RT-NISH read-only access succeeded but connector lacks author/committer override; known cloud Git company route not invoked. Shared registry remains unmodified; dev status/resume require owner registration.",
+    "attempted_fixes": [
+      "Withdrawn previous Host PASS after independent bounds review.",
+      "Reproduced with small-budget duplicate/delete, without large allocation.",
+      "Added nonallocating exact native-size measurement, pre-clone intermediate accounting and cumulative duplicate copy budget; removed second clone.",
+      "Added 4 regressions and reran all 25 tests/fmt/Clippy after committing correction.",
+      "Prepare corrected bundle/patch/source/tests/evidence for same Library artifact replacement."
+    ],
+    "do_not_try": [
+      "No company authentication.",
+      "Do not change authentication/global Git configuration or bypass policy.",
+      "Do not change root Cargo/lock/registry/CI/ABI/main.",
+      "No runtime activation before M30 and separate checkpoint.",
+      "Publication HOLD: no push, draft PR, CI trigger or publication until explicitly released."
+    ]
+  },
+  "next_action": "Independent review corrected exact code SHA and replacement private Library artifact. Keep publication HOLD. Integration Owner may review/apply owned Slides registry proposal preserving ARM64 and other streams. Only after hold release use permitted personal RT-NISH publication preserving both NagiOS identities; runtime still requires M30 PASS and individual checkpoint.",
+  "acceptance_criteria": [
+    "Canonical slide/object identity stable across edits/reorder and fresh duplication.",
+    "Atomic expected-revision edits including reference repair and no failed-call tombstone mutation.",
+    "Bounded logical geometry, theme/layout refs and speaker notes.",
+    "Deterministic bounded native versioned roundtrip; malformed/unknown versions fail closed.",
+    "Pure source revision detection and unavailable external adapters.",
+    "Focused host tests/fmt/Clippy PASS with exact code SHA and owned state.",
+    "Personal publication, draft PR and exact CI evidence (currently blocked)."
+  ],
+  "deferred": [
+    "PPTX/PDF/rendering/media/table/grouping/presenter implementation.",
+    "Guest storage/provider/AI generation/Activity/Wayback execution.",
+    "Runtime acceptance after M30 PASS and explicit 0.2 checkpoint.",
+    "Shared registry and CI adoption by Integration Owner only."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 schema and resumable owned state; registry proposal only",
+      "version": "schema-v1",
+      "status": "REUSED"
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Canonical platform ObjectId from current nagi-model; no Action/Job/identity duplication",
+      "version": "nagi-model-0.1.0@5b183660",
+      "status": "REUSED"
+    }
+  ]
+}

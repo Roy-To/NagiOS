@@ -1,0 +1,17 @@
+{
+  "verified_code_sha": "a64c13cb957498b6303926f1fee4d672dbc84867",
+  "state_schema": "PASS",
+  "hypothetical_registration_schema": "PASS",
+  "actual_registration_applied": false,
+  "owned_path_audit": "PASS",
+  "base_and_original_checkout": "5b183660eee9babc1478fd05386e412026a0b87a",
+  "original_checkout_clean": true,
+  "publication": "HOLD",
+  "draft_pr_created": false,
+  "ci_run": null,
+  "runtime": "NOT_RUN; M30 gate retained",
+  "host_acceptance": "PASS_CORRECTED_25_TESTS",
+  "prior_host_acceptance": "WITHDRAWN_AND_SUPERSEDED",
+  "duplicate_bounds": "RESOLVED; nonallocating pre-clone intermediate and cumulative copy accounting",
+  "library_file_id": "libfile_c5381b4a8bf481918fc4785a9c5522dc"
+}

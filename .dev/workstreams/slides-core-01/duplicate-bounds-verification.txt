@@ -1,0 +1,47 @@
+   Compiling nagi-slides-core v0.2.0 (/workspace/NagiOS-slides-core-01/crates/nagi-slides-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.47s
+     Running unittests src/lib.rs (crates/nagi-slides-core/target/debug/deps/nagi_slides_core-a8e06cf8da008d34)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running ../../tests/slides-core/acceptance.rs (crates/nagi-slides-core/target/debug/deps/slides_core_acceptance-0a41a93ddbe46e6b)
+
+running 25 tests
+test canonical_ids_survive_edit_reorder_and_notes ... ok
+test duplicate_cannot_exceed_intermediate_bytes_even_if_deleted_in_same_batch ... ok
+test count_byte_and_text_bounds_preserve_snapshot ... ok
+test duplicate_accepts_exact_wire_budget_and_rejects_one_byte_less ... ok
+test duplicate_remaps_internal_targets_but_preserves_external_source ... ok
+test embedded_reference_roundtrips_and_missing_metadata_rejects ... ok
+test duplicate_remaps_copied_object_target_and_keeps_other_slide_target ... ok
+test external_formats_require_real_adapters ... ok
+test hostile_native_lengths_and_invalid_utf8_rejected ... ok
+test invalid_geometry_never_partially_mutates ... ok
+test failed_batch_does_not_consume_ids_or_mutate_earlier_edits ... ok
+test invalid_native_revision_and_revision_overflow_are_rejected ... ok
+test malformed_ids_indices_and_duplicate_mapping_leave_state_unchanged ... ok
+test native_is_deterministic_versioned_and_preserves_tombstones ... ok
+test operation_and_per_slide_limits_reject_before_clone ... ok
+test references_follow_identity_and_deletion_requires_atomic_repair ... ok
+test object_delete_and_add_are_transactional_and_ids_never_reused ... ok
+test source_revision_detection_is_pure_and_fail_closed ... ok
+test stale_revision_rejects_everything ... ok
+test repeated_duplicate_delete_charges_cumulative_copied_bytes ... ok
+test duplicate_uses_source_created_and_edited_earlier_in_batch ... ok
+test theme_layout_references_validate_atomically ... ok
+test valid_negative_geometry_is_logical_and_roundtrips ... ok
+test unicode_and_empty_notes_are_preserved_and_nul_rejected ... ok
+test every_truncated_native_prefix_and_trailing_bytes_rejected ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests nagi_slides_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking nagi-slides-core v0.2.0 (/workspace/NagiOS-slides-core-01/crates/nagi-slides-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.43s
